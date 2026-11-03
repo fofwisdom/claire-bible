@@ -6,6 +6,7 @@
 
 ## 목차
 1. [명령어 계층 및 실행 표면](#1-명령어-계층-및-실행-표면)
+   * [1.1 개발 절차 (평소 uv, 운영 조건 확인 docker)](#11-개발-절차-평소-uv-운영-조건-확인-docker)
 2. [호스트 운영 명령어 (`cb-manuscript`)](#2-호스트-운영-명령어-cb-manuscript)
    * [2.1 수명주기 및 환경 관리](#21-수명주기-및-환경-관리)
    * [2.2 인프라 사전 점검 (`preflight`)](#22-인프라-사전-점검-preflight)
@@ -59,6 +60,33 @@
 >    - **인박스 에러/실패 항목 복구**: `./cb-manuscript app recover-run` (지수 백오프 도래분 재시도) 또는 `./cb-manuscript app replay-failed` (실패 항목 전량 강제 재적재)
 >    - **큐 상태 조회**: `./cb-manuscript app queue status` 또는 `./cb-manuscript app queue list inbox`
 >    - `cb-manuscript` 최상위 명령어에는 `recover-run`이 없으므로, `./cb-manuscript recover-run`은 `invalid choice`로 차단되며 반드시 `app`을 붙여야 합니다.
+
+### 1.1 개발 절차 (평소 uv, 운영 조건 확인 docker)
+
+평소 개발은 현재 checkout을 uv로 직접 실행한다. docker 개발 스택(`./cb-manuscript dev …`)은 운영과 같은 조건(이미지 빌드, 컨테이너 사용자, Compose 포트 연결)을 확인할 때만 쓴다. docker 개발 스택은 소스를 마운트하지 않으므로 코드 변경은 이미지를 다시 빌드해야 반영된다(`pull_policy: build`라 `up`마다 빌드한다).
+
+**설정 로딩.** 애플리케이션(`Settings`)은 저장소 루트의 `.env` 하나만 dotenv로 읽고, 프로세스 환경변수가 그 값보다 우선한다. `.env.dev`는 애플리케이션이 직접 읽지 않는다(`cb-manuscript`와 Compose가 `.env` 뒤에 겹쳐 쓴다). uv에서 같은 겹침을 만들려면 `uv run --env-file .env.dev`로 `.env.dev` 값을 프로세스 환경변수로 넣는다. 우선순위는 셸에서 직접 준 변수 > `.env.dev` > `.env`다. Compose가 컨테이너에 따로 넣는 `CLAIRE_INJECT_HOST`·`CLAIRE_INJECT_PORT`와 데이터 경로(`CB_DATA_DIR` → `/app/data`)는 셸에서 직접 준다. `.env`(운영 템플릿)는 `CLAIRE_DB_PATH=data/claire.db`를 두므로 `CLAIRE_DB_PATH`를 빼면 저장소 `data/`의 DB를 쓰게 된다.
+
+1. 의존성과 개발 설정
+   ```bash
+   uv sync --extra dev --extra stealth --extra audio --extra ko
+   ./cb-manuscript dev init    # .env·.env.dev가 없을 때 한 번(§2.1 init)
+   ```
+   - `uv sync`는 지정하지 않은 extra를 지운다. 이미지와 같은 extra(`stealth`·`audio`·`ko`)를 함께 주어야 전체 테스트(`PYTHONPATH=. uv run --extra dev pytest -q`)가 scrapling·kiwipiepy·numpy를 찾는다. `--extra dev`만 주면 그 테스트들이 `ModuleNotFoundError`로 실패한다.
+2. 개발 서버 (`.env.dev`의 `CB_API_BIND`·`CB_API_PORT`·`CB_DATA_DIR`과 같은 값을 준다)
+   ```bash
+   CLAIRE_INJECT_HOST=127.0.0.1 CLAIRE_INJECT_PORT=8766 CLAIRE_DB_PATH=.dev/data/claire.db \
+     uv run --env-file .env.dev claire serve-api
+   ```
+   - `CLAIRE_FQDN`(`.env.dev`, 기본 `127.0.0.1:8766`)의 포트와 `CLAIRE_INJECT_PORT`가 같아야 브라우저 `Host`가 app으로 판정된다.
+   - docker 개발 스택과 같은 데이터 디렉터리와 포트를 쓰므로 둘을 함께 띄우지 않는다(`./cb-manuscript dev down`).
+3. 역할 호스트 포트(설계 §5.1). `.env.dev`에 `CLAIRE_USERCONTENT_FQDN=127.0.0.1:8767`(선택 `CLAIRE_MEDIA_FQDN=127.0.0.1:8768`)이 있고 그 IPv4가 `CLAIRE_INJECT_HOST`와 같으면, uv 실행은 같은 프로세스에서 그 포트도 연다(`src/claire/api/dev_listeners.py`). 컨테이너는 `CLAIRE_INJECT_HOST=0.0.0.0`이라 추가로 열지 않고, Compose가 `CB_USERCONTENT_PORT`·`CB_MEDIA_PORT`를 컨테이너 포트로 연결한다. 운영 환경은 항상 app 포트 하나다. 확인:
+   ```bash
+   # 시작 메시지: Claire ASGI 웹 서비스 시작: http://127.0.0.1:8766 (listen=127.0.0.1:8766, 127.0.0.1:8767, env=development)
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8766/health    # 200
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8767/any/path  # 404 (P2의 usercontent 하위 앱은 비어 있다)
+   ```
+4. 운영과 같은 조건 확인은 docker 개발 스택으로 한다: `./cb-manuscript dev up`, `./cb-manuscript dev health`, `./cb-manuscript dev logs -f api`, `./cb-manuscript dev down`(§2.4).
 
 ---
 

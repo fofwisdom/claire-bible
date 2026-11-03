@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
 from starlette.exceptions import HTTPException
@@ -28,11 +28,27 @@ from starlette.responses import (
     RedirectResponse,
     Response,
 )
+from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..store import accounts as accounts_store
+from ..store.accounts import InstanceMode
 from ..store import db as dbm
 from .principal import ANONYMOUS, PRINCIPAL_STATE_KEY, Principal
+from .namespace import (
+    NAMESPACE_EXTRA_STATE_KEY,
+    NAMESPACE_STATE_KEY,
+    PARSED_PREFIX_STATE_KEY,
+    NamespaceDirectory,
+    NamespaceResolverMiddleware,
+    ParsedPrefix,
+    PrefixParserMiddleware,
+    SqliteNamespaceDirectory,
+    account_home_path,
+)
+
+if TYPE_CHECKING:
+    from .host_router import HostRoles, LegacyHostDirectory
 
 __all__ = [
     "CLOUDFLARE_IPV4_CIDRS",
@@ -40,7 +56,12 @@ __all__ = [
     "CLOUDFLARE_NETWORKS",
     "CloudflareIPFilterMiddleware",
     "MAX_REQUEST_BODY",
+    "ALL_MODES",
+    "NETWORK_ONLY",
     "ROUTE_POLICY",
+    "RouteRule",
+    "RouteSurface",
+    "LEGACY_COOKIE_FALLBACK_REMOVED",
     "ErrorBoundaryMiddleware",
     "InvalidJSONBody",
     "RequestBodyTooLarge",
@@ -49,6 +70,7 @@ __all__ = [
     "client_ip",
     "parse_trusted_proxies",
     "is_cloudflare_ip",
+    "lookup_route_rule",
     "read_json_body",
     "read_session_cookie",
     "request_auth_scope",
@@ -223,198 +245,259 @@ def client_ip(scope: Scope, trusted_proxies: tuple[_IPNetwork, ...]) -> str:
     return str(chain[0])
 
 
-AccessLevel = Literal["public", "read", "collaborator", "owner"]
+AccessLevel = Literal["public", "read", "collaborator", "owner", "admin"]
 AuthScope = Literal["public", "anonymous", "readonly", "collaborator", "owner"]
 RouteKey = tuple[str, str]
+# 라우트 표면(§9.1). root: 루트 GET / 전용, system: 루트에서만(접두 아래 404),
+# namespaced: 네임스페이스 필요(N1–N3), any: 접두를 무시한다.
+RouteSurface = Literal["root", "system", "namespaced", "any"]
+ALL_MODES: frozenset[InstanceMode] = frozenset({"single", "network"})
+NETWORK_ONLY: frozenset[InstanceMode] = frozenset({"network"})
 
 
 @dataclass(frozen=True, slots=True)
 class RouteRule:
     access: AccessLevel
+    # ROUTE_POLICY의 모든 항목은 아래 표면별 생성 헬퍼(_root·_system·_namespaced·_any)로 표면을 명시한다.
+    # 기본값에 기대지 않는다(tests/test_route_surface_contract.py가 AST로 확인한다).
+    surface: RouteSurface = "namespaced"
+    # 현재 모드가 없으면 404(N5).
+    modes: frozenset[InstanceMode] = ALL_MODES
 
 
-def _rule(access: AccessLevel) -> RouteRule:
-    return RouteRule(access)
+def _root(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+    """루트 ``GET /`` 전용(§9.1). 접두 아래에서는 namespaced 홈으로 동작한다."""
+    return RouteRule(access=access, surface="root", modes=modes)
+
+
+def _system(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+    """루트에서만 받는다. 접두 아래에서는 404(N5)."""
+    return RouteRule(access=access, surface="system", modes=modes)
+
+
+def _namespaced(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+    """네임스페이스가 필요하다(N1–N3)."""
+    return RouteRule(access=access, surface="namespaced", modes=modes)
+
+
+def _any(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+    """네임스페이스와 무관하다. 접두를 검증한 뒤 무시하고 자격증명 계정을 쓴다."""
+    return RouteRule(access=access, surface="any", modes=modes)
+
+
+def lookup_route_rule(method: str, path: str) -> RouteRule | None:
+    """``(method, 정규 path)``의 정책. 정확한 키를 먼저 찾고, 없으면 경로 매개변수 키(``{name}``·``{name:path}``)를 Starlette ``compile_path``로 컴파일한 표에서 찾는다(§9.1). 없으면 None(fail-closed 404).
+
+    ``path``는 ``PrefixParserMiddleware``가 접두를 뗀 남은 경로다.
+    """
+    method = method.upper()
+    rule = _EXACT_ROUTE_POLICY.get((method, path))
+    if rule is not None:
+        return rule
+    for key_method, regex, param_rule in _PARAM_ROUTE_POLICY:
+        if key_method == method and regex.match(path):
+            return param_rule
+    return None
 
 
 # 등록되지 않은 (method, path)는 fail-closed(404)다. Starlette는 GET Route에 HEAD를
 # 자동 추가하므로 HEAD도 명시해 실제 라우터와 인증 계약을 정확히 맞춘다.
 ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
-    ("GET", "/health"): _rule("public"),
-    ("HEAD", "/health"): _rule("public"),
-    ("GET", "/robots.txt"): _rule("public"),
-    ("HEAD", "/robots.txt"): _rule("public"),
-    ("GET", "/sitemap.xml"): _rule("public"),
-    ("HEAD", "/sitemap.xml"): _rule("public"),
-    ("GET", "/favicon.ico"): _rule("public"),
-    ("HEAD", "/favicon.ico"): _rule("public"),
-    ("GET", "/favicon.svg"): _rule("public"),
-    ("HEAD", "/favicon.svg"): _rule("public"),
-    ("GET", "/apple-touch-icon.png"): _rule("public"),
-    ("HEAD", "/apple-touch-icon.png"): _rule("public"),
-    ("GET", "/apple-touch-icon-precomposed.png"): _rule("public"),
-    ("HEAD", "/apple-touch-icon-precomposed.png"): _rule("public"),
-    ("GET", "/manifest.json"): _rule("public"),
-    ("HEAD", "/manifest.json"): _rule("public"),
-    ("GET", "/site.webmanifest"): _rule("public"),
-    ("HEAD", "/site.webmanifest"): _rule("public"),
-    ("GET", "/browserconfig.xml"): _rule("public"),
-    ("HEAD", "/browserconfig.xml"): _rule("public"),
-    ("GET", "/icon"): _rule("public"),
-    ("HEAD", "/icon"): _rule("public"),
-    ("GET", "/font"): _rule("public"),
-    ("HEAD", "/font"): _rule("public"),
-    ("GET", "/fonts/NotoSansKR-Regular.woff2"): _rule("public"),
-    ("HEAD", "/fonts/NotoSansKR-Regular.woff2"): _rule("public"),
-    ("GET", "/fonts/NotoSansKR-Bold.woff2"): _rule("public"),
-    ("HEAD", "/fonts/NotoSansKR-Bold.woff2"): _rule("public"),
-    ("GET", "/fonts/NotoSerifKR-Regular.woff2"): _rule("public"),
-    ("HEAD", "/fonts/NotoSerifKR-Regular.woff2"): _rule("public"),
-    ("GET", "/fonts/NotoSerifKR-Bold.woff2"): _rule("public"),
-    ("HEAD", "/fonts/NotoSerifKR-Bold.woff2"): _rule("public"),
-    ("GET", "/fonts/D2Coding.woff2"): _rule("public"),
-    ("HEAD", "/fonts/D2Coding.woff2"): _rule("public"),
-    ("GET", "/fonts/D2CodingBold.woff2"): _rule("public"),
-    ("HEAD", "/fonts/D2CodingBold.woff2"): _rule("public"),
-    ("GET", "/p"): _rule("public"),
-    ("HEAD", "/p"): _rule("public"),
-    ("GET", "/p/presentation"): _rule("public"),
-    ("HEAD", "/p/presentation"): _rule("public"),
-    ("GET", "/image"): _rule("public"),
-    ("HEAD", "/image"): _rule("public"),
-    ("GET", "/images/{filename:path}"): _rule("public"),
-    ("HEAD", "/images/{filename:path}"): _rule("public"),
-    ("GET", "/p/images/{filename:path}"): _rule("public"),
-    ("HEAD", "/p/images/{filename:path}"): _rule("public"),
-    ("GET", "/"): _rule("read"),
-    ("HEAD", "/"): _rule("read"),
-    ("GET", "/syndication"): _rule("public"),
-    ("HEAD", "/syndication"): _rule("public"),
-    ("GET", "/syndication/preferences"): _rule("public"),
-    ("HEAD", "/syndication/preferences"): _rule("public"),
-    ("POST", "/api/syndication/dispatch"): _rule("collaborator"),
-    ("POST", "/syndication/dispatch"): _rule("collaborator"),
-    ("GET", "/api/syndication/dispatches"): _rule("read"),
-    ("HEAD", "/api/syndication/dispatches"): _rule("read"),
-    ("GET", "/syndication/dispatches"): _rule("read"),
-    ("HEAD", "/syndication/dispatches"): _rule("read"),
-    ("GET", "/whoami"): _rule("read"),
-    ("HEAD", "/whoami"): _rule("read"),
-    ("GET", "/stats"): _rule("read"),
-    ("HEAD", "/stats"): _rule("read"),
-    ("GET", "/graph"): _rule("read"),
-    ("HEAD", "/graph"): _rule("read"),
-    ("GET", "/node"): _rule("read"),
-    ("HEAD", "/node"): _rule("read"),
-    ("GET", "/documents"): _rule("read"),
-    ("HEAD", "/documents"): _rule("read"),
-    ("GET", "/document"): _rule("read"),
-    ("HEAD", "/document"): _rule("read"),
-    ("GET", "/document/raw"): _rule("collaborator"),
-    ("HEAD", "/document/raw"): _rule("collaborator"),
-    ("GET", "/document/presentation"): _rule("read"),
-    ("HEAD", "/document/presentation"): _rule("read"),
-    ("POST", "/document/presentation/generate"): _rule("collaborator"),
-    ("POST", "/document/presentation/compose"): _rule("collaborator"),
-    ("POST", "/document/presentation/compile"): _rule("collaborator"),
-    ("GET", "/document/presentation/adoc"): _rule("read"),
-    ("HEAD", "/document/presentation/adoc"): _rule("read"),
-    ("PUT", "/document/presentation/adoc"): _rule("collaborator"),
-    ("GET", "/resolution/decisions"): _rule("read"),
-    ("HEAD", "/resolution/decisions"): _rule("read"),
-    ("GET", "/ingest/active"): _rule("read"),
-    ("HEAD", "/ingest/active"): _rule("read"),
-    ("POST", "/search"): _rule("read"),
-    ("POST", "/mcp"): _rule("read"),
-    ("GET", "/mcp"): _rule("read"),
-    ("HEAD", "/mcp"): _rule("read"),
-    ("GET", "/themes"): _rule("read"),
-    ("HEAD", "/themes"): _rule("read"),
-    ("POST", "/themes"): _rule("owner"),
-    ("PATCH", "/themes"): _rule("owner"),
-    ("DELETE", "/themes"): _rule("owner"),
-    ("GET", "/providers"): _rule("owner"),
-    ("HEAD", "/providers"): _rule("owner"),
-    ("POST", "/providers"): _rule("owner"),
-    ("PATCH", "/providers"): _rule("owner"),
-    ("POST", "/providers/test"): _rule("owner"),
-    ("GET", "/limits"): _rule("owner"),
-    ("HEAD", "/limits"): _rule("owner"),
-    ("POST", "/limits"): _rule("owner"),
-    ("PATCH", "/limits"): _rule("owner"),
-    ("GET", "/tokens"): _rule("owner"),
-    ("HEAD", "/tokens"): _rule("owner"),
-    ("POST", "/tokens"): _rule("owner"),
-    ("POST", "/tokens/revoke"): _rule("owner"),
-    ("DELETE", "/tokens"): _rule("owner"),
-    ("GET", "/ingest-limits"): _rule("owner"),
-    ("HEAD", "/ingest-limits"): _rule("owner"),
-    ("POST", "/ingest-limits"): _rule("owner"),
-    ("PATCH", "/ingest-limits"): _rule("owner"),
-    ("POST", "/ingest"): _rule("collaborator"),
-    ("POST", "/ingest-stream"): _rule("collaborator"),
-    ("POST", "/reingest"): _rule("collaborator"),
-    ("POST", "/reingest-stream"): _rule("collaborator"),
-    ("POST", "/regenerate"): _rule("collaborator"),
-    ("POST", "/regenerate-stream"): _rule("collaborator"),
-    ("POST", "/document/regenerate"): _rule("collaborator"),
-    ("POST", "/document/seen"): _rule("owner"),
-    ("POST", "/document/pin"): _rule("owner"),
-    ("POST", "/document/hide"): _rule("owner"),
-    ("POST", "/document/title"): _rule("owner"),
-    ("POST", "/document/purge"): _rule("owner"),
-    ("POST", "/purge"): _rule("owner"),
-    ("POST", "/document/matrix/purge"): _rule("owner"),
-    ("POST", "/synthesize"): _rule("owner"),
-    ("POST", "/research"): _rule("owner"),
-    ("POST", "/dedup/scan"): _rule("owner"),
-    ("POST", "/dedup/merge"): _rule("owner"),
-    ("POST", "/entity/primary-label"): _rule("owner"),
-    ("POST", "/resolution/rollback"): _rule("owner"),
-    ("POST", "/share"): _rule("read"),
-    ("POST", "/support/bundle"): _rule("owner"),
-    ("GET", "/support/bundle"): _rule("public"),
-    ("HEAD", "/support/bundle"): _rule("public"),
-    ("POST", "/graph/bundle"): _rule("owner"),
-    ("GET", "/graph/bundle"): _rule("public"),
-    ("HEAD", "/graph/bundle"): _rule("public"),
-    ("GET", "/reference"): _rule("public"),
-    ("HEAD", "/reference"): _rule("public"),
-    ("GET", "/openapi.yaml"): _rule("public"),
-    ("HEAD", "/openapi.yaml"): _rule("public"),
-    ("GET", "/.well-known/oauth-protected-resource"): _rule("public"),
-    ("HEAD", "/.well-known/oauth-protected-resource"): _rule("public"),
-    ("GET", "/.well-known/oauth-authorization-server"): _rule("public"),
-    ("HEAD", "/.well-known/oauth-authorization-server"): _rule("public"),
-    ("POST", "/oauth/register"): _rule("public"),
-    ("GET", "/oauth/authorize"): _rule("public"),
-    ("HEAD", "/oauth/authorize"): _rule("public"),
-    ("POST", "/oauth/authorize"): _rule("public"),
-    ("POST", "/oauth/authorize/telegram-push"): _rule("public"),
-    ("GET", "/oauth/authorize/poll"): _rule("public"),
-    ("HEAD", "/oauth/authorize/poll"): _rule("public"),
-    ("POST", "/oauth/token"): _rule("public"),
-    # 계정 (설계 §8.4–§8.7). 관리자·설정 전용 조건은 핸들러가 404로 판정한다(api.accounts_routes).
-    ("GET", "/setup"): _rule("owner"),
-    ("HEAD", "/setup"): _rule("owner"),
-    ("POST", "/setup"): _rule("owner"),
+    ("GET", "/health"): _system("public"),
+    ("HEAD", "/health"): _system("public"),
+    ("GET", "/robots.txt"): _system("public"),
+    ("HEAD", "/robots.txt"): _system("public"),
+    ("GET", "/sitemap.xml"): _system("public"),
+    ("HEAD", "/sitemap.xml"): _system("public"),
+    ("GET", "/favicon.ico"): _system("public"),
+    ("HEAD", "/favicon.ico"): _system("public"),
+    ("GET", "/favicon.svg"): _system("public"),
+    ("HEAD", "/favicon.svg"): _system("public"),
+    ("GET", "/apple-touch-icon.png"): _system("public"),
+    ("HEAD", "/apple-touch-icon.png"): _system("public"),
+    ("GET", "/apple-touch-icon-precomposed.png"): _system("public"),
+    ("HEAD", "/apple-touch-icon-precomposed.png"): _system("public"),
+    ("GET", "/manifest.json"): _system("public"),
+    ("HEAD", "/manifest.json"): _system("public"),
+    ("GET", "/site.webmanifest"): _system("public"),
+    ("HEAD", "/site.webmanifest"): _system("public"),
+    ("GET", "/browserconfig.xml"): _system("public"),
+    ("HEAD", "/browserconfig.xml"): _system("public"),
+    ("GET", "/icon"): _system("public"),
+    ("HEAD", "/icon"): _system("public"),
+    ("GET", "/font"): _system("public"),
+    ("HEAD", "/font"): _system("public"),
+    ("GET", "/fonts/NotoSansKR-Regular.woff2"): _system("public"),
+    ("HEAD", "/fonts/NotoSansKR-Regular.woff2"): _system("public"),
+    ("GET", "/fonts/NotoSansKR-Bold.woff2"): _system("public"),
+    ("HEAD", "/fonts/NotoSansKR-Bold.woff2"): _system("public"),
+    ("GET", "/fonts/NotoSerifKR-Regular.woff2"): _system("public"),
+    ("HEAD", "/fonts/NotoSerifKR-Regular.woff2"): _system("public"),
+    ("GET", "/fonts/NotoSerifKR-Bold.woff2"): _system("public"),
+    ("HEAD", "/fonts/NotoSerifKR-Bold.woff2"): _system("public"),
+    ("GET", "/fonts/D2Coding.woff2"): _system("public"),
+    ("HEAD", "/fonts/D2Coding.woff2"): _system("public"),
+    ("GET", "/fonts/D2CodingBold.woff2"): _system("public"),
+    ("HEAD", "/fonts/D2CodingBold.woff2"): _system("public"),
+    ("GET", "/p"): _system("public"),
+    ("HEAD", "/p"): _system("public"),
+    ("GET", "/p/presentation"): _system("public"),
+    ("HEAD", "/p/presentation"): _system("public"),
+    ("GET", "/image"): _system("public"),
+    ("HEAD", "/image"): _system("public"),
+    ("GET", "/images/{filename:path}"): _system("public"),
+    ("HEAD", "/images/{filename:path}"): _system("public"),
+    ("GET", "/p/images/{filename:path}"): _system("public"),
+    ("HEAD", "/p/images/{filename:path}"): _system("public"),
+    # Mount("/static")의 정적 자산(O2). 접두 아래에서는 system이라 404다.
+    ("GET", "/static/{path:path}"): _system("public"),
+    ("HEAD", "/static/{path:path}"): _system("public"),
+    ("GET", "/"): _root("read"),
+    ("HEAD", "/"): _root("read"),
+    ("GET", "/syndication"): _namespaced("public"),
+    ("HEAD", "/syndication"): _namespaced("public"),
+    ("GET", "/syndication/preferences"): _namespaced("public"),
+    ("HEAD", "/syndication/preferences"): _namespaced("public"),
+    ("POST", "/api/syndication/dispatch"): _namespaced("collaborator"),
+    ("POST", "/syndication/dispatch"): _namespaced("collaborator"),
+    ("GET", "/api/syndication/dispatches"): _namespaced("read"),
+    ("HEAD", "/api/syndication/dispatches"): _namespaced("read"),
+    ("GET", "/syndication/dispatches"): _namespaced("read"),
+    ("HEAD", "/syndication/dispatches"): _namespaced("read"),
+    ("GET", "/whoami"): _namespaced("read"),
+    ("HEAD", "/whoami"): _namespaced("read"),
+    ("GET", "/stats"): _namespaced("read"),
+    ("HEAD", "/stats"): _namespaced("read"),
+    ("GET", "/graph"): _namespaced("read"),
+    ("HEAD", "/graph"): _namespaced("read"),
+    ("GET", "/node"): _namespaced("read"),
+    ("HEAD", "/node"): _namespaced("read"),
+    ("GET", "/documents"): _namespaced("read"),
+    ("HEAD", "/documents"): _namespaced("read"),
+    ("GET", "/document"): _namespaced("read"),
+    ("HEAD", "/document"): _namespaced("read"),
+    ("GET", "/document/raw"): _namespaced("collaborator"),
+    ("HEAD", "/document/raw"): _namespaced("collaborator"),
+    ("GET", "/document/presentation"): _namespaced("read"),
+    ("HEAD", "/document/presentation"): _namespaced("read"),
+    ("POST", "/document/presentation/generate"): _namespaced("collaborator"),
+    ("POST", "/document/presentation/compose"): _namespaced("collaborator"),
+    ("POST", "/document/presentation/compile"): _namespaced("collaborator"),
+    ("GET", "/document/presentation/adoc"): _namespaced("read"),
+    ("HEAD", "/document/presentation/adoc"): _namespaced("read"),
+    ("PUT", "/document/presentation/adoc"): _namespaced("collaborator"),
+    ("GET", "/resolution/decisions"): _namespaced("read"),
+    ("HEAD", "/resolution/decisions"): _namespaced("read"),
+    ("GET", "/ingest/active"): _namespaced("read"),
+    ("HEAD", "/ingest/active"): _namespaced("read"),
+    ("POST", "/search"): _namespaced("read"),
+    ("POST", "/mcp"): _system("read"),
+    ("GET", "/mcp"): _system("read"),
+    ("HEAD", "/mcp"): _system("read"),
+    ("GET", "/themes"): _namespaced("read"),
+    ("HEAD", "/themes"): _namespaced("read"),
+    ("POST", "/themes"): _namespaced("owner"),
+    ("PATCH", "/themes"): _namespaced("owner"),
+    ("DELETE", "/themes"): _namespaced("owner"),
+    ("GET", "/providers"): _any("admin"),
+    ("HEAD", "/providers"): _any("admin"),
+    ("POST", "/providers"): _any("admin"),
+    ("PATCH", "/providers"): _any("admin"),
+    ("POST", "/providers/test"): _any("admin"),
+    ("GET", "/limits"): _any("admin"),
+    ("HEAD", "/limits"): _any("admin"),
+    ("POST", "/limits"): _any("admin"),
+    ("PATCH", "/limits"): _any("admin"),
+    ("GET", "/tokens"): _any("owner"),
+    ("HEAD", "/tokens"): _any("owner"),
+    ("POST", "/tokens"): _any("owner"),
+    ("POST", "/tokens/revoke"): _any("owner"),
+    ("DELETE", "/tokens"): _any("owner"),
+    ("GET", "/ingest-limits"): _any("admin"),
+    ("HEAD", "/ingest-limits"): _any("admin"),
+    ("POST", "/ingest-limits"): _any("admin"),
+    ("PATCH", "/ingest-limits"): _any("admin"),
+    ("POST", "/ingest"): _namespaced("collaborator"),
+    ("POST", "/ingest-stream"): _namespaced("collaborator"),
+    ("POST", "/reingest"): _namespaced("collaborator"),
+    ("POST", "/reingest-stream"): _namespaced("collaborator"),
+    ("POST", "/regenerate"): _namespaced("collaborator"),
+    ("POST", "/regenerate-stream"): _namespaced("collaborator"),
+    ("POST", "/document/regenerate"): _namespaced("collaborator"),
+    ("POST", "/document/seen"): _namespaced("owner"),
+    ("POST", "/document/pin"): _namespaced("owner"),
+    ("POST", "/document/hide"): _namespaced("owner"),
+    ("POST", "/document/title"): _namespaced("owner"),
+    ("POST", "/document/purge"): _namespaced("owner"),
+    ("POST", "/purge"): _namespaced("owner"),
+    ("POST", "/document/matrix/purge"): _namespaced("owner"),
+    ("POST", "/synthesize"): _namespaced("owner"),
+    ("POST", "/research"): _namespaced("owner"),
+    ("POST", "/dedup/scan"): _namespaced("owner"),
+    ("POST", "/dedup/merge"): _namespaced("owner"),
+    ("POST", "/entity/primary-label"): _namespaced("owner"),
+    ("POST", "/resolution/rollback"): _namespaced("owner"),
+    ("POST", "/share"): _namespaced("read"),
+    ("POST", "/support/bundle"): _system("admin"),
+    ("GET", "/support/bundle"): _system("public"),
+    ("HEAD", "/support/bundle"): _system("public"),
+    ("POST", "/graph/bundle"): _namespaced("owner"),
+    ("GET", "/graph/bundle"): _namespaced("public"),
+    ("HEAD", "/graph/bundle"): _namespaced("public"),
+    ("GET", "/reference"): _system("public"),
+    ("HEAD", "/reference"): _system("public"),
+    ("GET", "/openapi.yaml"): _system("public"),
+    ("HEAD", "/openapi.yaml"): _system("public"),
+    ("GET", "/.well-known/oauth-protected-resource"): _system("public"),
+    ("HEAD", "/.well-known/oauth-protected-resource"): _system("public"),
+    ("GET", "/.well-known/oauth-authorization-server"): _system("public"),
+    ("HEAD", "/.well-known/oauth-authorization-server"): _system("public"),
+    ("POST", "/oauth/register"): _system("public"),
+    ("GET", "/oauth/authorize"): _system("public"),
+    ("HEAD", "/oauth/authorize"): _system("public"),
+    ("POST", "/oauth/authorize"): _system("public"),
+    ("POST", "/oauth/authorize/telegram-push"): _system("public"),
+    ("GET", "/oauth/authorize/poll"): _system("public"),
+    ("HEAD", "/oauth/authorize/poll"): _system("public"),
+    ("POST", "/oauth/token"): _system("public"),
+    # 계정 (설계 §8.4–§8.7). /admin/*·/api/admin/*는 admin 접근 수준(§9.1)이고, 설정 전용 조건은 핸들러가 404로 판정한다(api.accounts_routes).
+    ("GET", "/setup"): _system("owner"),
+    ("HEAD", "/setup"): _system("owner"),
+    ("POST", "/setup"): _system("owner"),
     # /login·/logout은 공개다. 로그인 CSRF·강제 로그아웃은 핸들러가 동일 origin 검사로 막는다.
-    ("GET", "/login"): _rule("public"),
-    ("HEAD", "/login"): _rule("public"),
-    ("POST", "/login"): _rule("public"),
-    ("POST", "/logout"): _rule("public"),
-    ("POST", "/api/auth/reauth"): _rule("owner"),
-    ("GET", "/admin/accounts"): _rule("owner"),
-    ("HEAD", "/admin/accounts"): _rule("owner"),
-    ("GET", "/api/admin/accounts"): _rule("owner"),
-    ("HEAD", "/api/admin/accounts"): _rule("owner"),
-    ("GET", "/me"): _rule("owner"),
-    ("HEAD", "/me"): _rule("owner"),
-    ("GET", "/api/me"): _rule("owner"),
-    ("HEAD", "/api/me"): _rule("owner"),
-    ("PATCH", "/api/me"): _rule("owner"),
-    ("POST", "/api/me/password"): _rule("owner"),
+    ("GET", "/login"): _system("public"),
+    ("HEAD", "/login"): _system("public"),
+    ("POST", "/login"): _system("public"),
+    ("POST", "/logout"): _system("public"),
+    ("POST", "/api/auth/reauth"): _system("owner"),
+    ("GET", "/admin/accounts"): _system("admin"),
+    ("HEAD", "/admin/accounts"): _system("admin"),
+    ("GET", "/api/admin/accounts"): _system("admin"),
+    ("HEAD", "/api/admin/accounts"): _system("admin"),
+    ("GET", "/admin/instance"): _system("admin"),
+    ("HEAD", "/admin/instance"): _system("admin"),
+    ("GET", "/api/admin/instance"): _system("admin"),
+    ("HEAD", "/api/admin/instance"): _system("admin"),
+    ("POST", "/api/admin/instance/mode"): _system("admin"),
+    ("POST", "/api/admin/instance/legacy-hosts/sunset"): _system("admin"),
+    ("GET", "/me"): _any("owner"),
+    ("HEAD", "/me"): _any("owner"),
+    ("GET", "/api/me"): _any("owner"),
+    ("HEAD", "/api/me"): _any("owner"),
+    ("PATCH", "/api/me"): _any("owner"),
+    ("POST", "/api/me/password"): _any("owner"),
 }
+
+
+# 정확 키와 경로 매개변수 키(§9.1). 매개변수 키는 Starlette 라우터와 같은 정규식으로 컴파일한다.
+_EXACT_ROUTE_POLICY: dict[RouteKey, RouteRule] = {
+    key: rule for key, rule in ROUTE_POLICY.items() if "{" not in key[1]
+}
+_PARAM_ROUTE_POLICY: tuple[tuple[str, re.Pattern[str], RouteRule], ...] = tuple(
+    (method, compile_path(path)[0], rule)
+    for (method, path), rule in ROUTE_POLICY.items()
+    if "{" in path
+)
 
 
 class InvalidJSONBody(HTTPException):
@@ -531,6 +614,8 @@ class WebRuntimeConfig:
     # 클라이언트 IP 판정(`client_ip`)에서 X-Forwarded-For를 믿을 바로 앞 피어 대역.
     # ``CLAIRE_TRUSTED_PROXIES``와, ``cloudflare_ips_only``이면 ``CLOUDFLARE_NETWORKS``를 합친 것이다.
     trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
+    # 역할 호스트(§5.1). ``from_settings``가 ``HostRoles.from_settings``로 검증해 채운다. None이면 app만 있는 것으로 본다.
+    host_roles: HostRoles | None = None
 
     @classmethod
     def from_settings(cls, settings: Any) -> WebRuntimeConfig:
@@ -623,6 +708,12 @@ class WebRuntimeConfig:
             db_val = getattr(settings, "db_file", None)
             data_dir = Path(db_val).parent if db_val else None
 
+        from .host_router import HostRoles
+
+        host_roles = HostRoles.from_settings(
+            settings, environment=environment, app_authority=authority
+        )
+
         return cls(
             environment=environment,
             public_origin=public_origin,
@@ -638,6 +729,7 @@ class WebRuntimeConfig:
             cloudflare_ips_only=cf_ips_only,
             data_dir=data_dir,
             trusted_proxies=trusted_proxies,
+            host_roles=host_roles,
         )
 
 
@@ -729,15 +821,39 @@ def _constant_equal(candidate: str, expected: str) -> bool:
     return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
 
 
+# 세션 쿠키 이름(§5.2, Rev. 2.3). 운영 환경(``secure_cookie``)은 ``__Host-`` 접두로 서브도메인의 쿠키 토싱을 막는다.
+# development(HTTP)는 ``__Host-``를 쓸 수 없으므로 옛 이름을 유지한다.
+SESSION_COOKIE_NAME = "__Host-claire_session"
+LEGACY_SESSION_COOKIE_NAME = "claire_session"
+# P3 G9에서 True로 바뀌며 운영 환경 과도기 폴백이 완전히 제거된다(§5.2, §17.2).
+LEGACY_COOKIE_FALLBACK_REMOVED = False
+_SESSION_COOKIE_NAMES = (SESSION_COOKIE_NAME, LEGACY_SESSION_COOKIE_NAME)
+
+
+def session_cookie_name(config: WebRuntimeConfig) -> str:
+    return SESSION_COOKIE_NAME if config.secure_cookie else LEGACY_SESSION_COOKIE_NAME
+
+
 def set_session_cookie(
     response: Response,
     config: WebRuntimeConfig,
     token: str,
 ) -> None:
+    # ``__Host-``: Secure, Path=/, Domain 없음이어야 브라우저가 받는다.
     response.set_cookie(
-        "claire_session",
+        session_cookie_name(config),
         token,
         max_age=int(dbm.SESSION_TTL),
+        path="/",
+        secure=config.secure_cookie,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _delete_cookie(response: Response, name: str, config: WebRuntimeConfig) -> None:
+    response.delete_cookie(
+        name,
         path="/",
         secure=config.secure_cookie,
         httponly=True,
@@ -749,67 +865,108 @@ def clear_session_cookie(
     response: Response,
     config: WebRuntimeConfig,
 ) -> None:
-    response.delete_cookie(
-        "claire_session",
-        path="/",
-        secure=config.secure_cookie,
-        httponly=True,
-        samesite="lax",
-    )
+    """세션 쿠키를 지운다. 운영 환경은 ``__Host-``와 과도기의 host-only ``claire_session``을 함께 지운다."""
+    _delete_cookie(response, session_cookie_name(config), config)
+    if config.secure_cookie:
+        # TODO(P3 G9): 과도기 폴백을 없앨 때 이 삭제도 없앤다.
+        _delete_cookie(response, LEGACY_SESSION_COOKIE_NAME, config)
+
+
+def _set_cookie_headers(response: Response) -> list[bytes]:
+    return [value for name, value in response.raw_headers if name.lower() == b"set-cookie"]
 
 
 def _session_cookie_header(config: WebRuntimeConfig, token: str) -> bytes:
     response = Response()
     set_session_cookie(response, config, token)
-    return next(
-        value
-        for name, value in response.raw_headers
-        if name.lower() == b"set-cookie"
-    )
+    return _set_cookie_headers(response)[0]
 
 
-def _clear_session_cookie_header(config: WebRuntimeConfig) -> bytes:
+def _clear_session_cookie_headers(config: WebRuntimeConfig) -> list[bytes]:
     response = Response()
     clear_session_cookie(response, config)
-    return next(
-        value
-        for name, value in response.raw_headers
-        if name.lower() == b"set-cookie"
-    )
+    return _set_cookie_headers(response)
+
+
+def _clear_legacy_session_cookie_header(config: WebRuntimeConfig) -> bytes:
+    response = Response()
+    _delete_cookie(response, LEGACY_SESSION_COOKIE_NAME, config)
+    return _set_cookie_headers(response)[0]
 
 
 def _sets_session_cookie(headers: list[tuple[bytes, bytes]]) -> bool:
-    """응답 헤더에 ``claire_session``을 설정하거나 지우는 ``Set-Cookie``가 이미 있는지."""
+    """응답 헤더에 세션 쿠키(``__Host-claire_session`` 또는 ``claire_session``)를 설정하거나 지우는 ``Set-Cookie``가 이미 있는지."""
+    names = {name.encode("ascii") for name in _SESSION_COOKIE_NAMES}
     return any(
         name.lower() == b"set-cookie"
-        and value.split(b"=", 1)[0].strip() == b"claire_session"
+        and value.split(b"=", 1)[0].strip() in names
         for name, value in headers
     )
 
 
-def read_session_cookie(scope: Scope) -> tuple[bool, str | None]:
-    values = _raw_headers(scope, b"cookie")
-    if not values:
-        return False, None
-    decoded = [value.decode("latin-1") for value in values]
-    occurrences = sum(
+@dataclass(frozen=True, slots=True)
+class _SessionCookieRead:
+    """요청의 세션 쿠키 판독 결과.
+
+    ``present``: 세션 쿠키로 볼 값이 있었다(무효여도). ``token``: 검증할 값. 모호하거나 깨졌으면 None.
+    ``legacy``: ``__Host-`` 없이 옛 이름 ``claire_session``에서 읽었다. 운영 환경에서는 과도기 폴백이므로 검증에 성공하면 ``__Host-``로 재발급한다.
+    """
+
+    present: bool
+    token: str | None
+    legacy: bool = False
+
+
+def _cookie_occurrences(decoded: list[str], name: str) -> int:
+    return sum(
         1
         for header in decoded
         for item in header.split(";")
-        if item.strip().split("=", 1)[0].strip() == "claire_session"
+        if item.strip().split("=", 1)[0].strip() == name
     )
-    if occurrences == 0:
-        return False, None
-    if occurrences != 1:
-        return True, None
+
+
+def _cookie_value(decoded: list[str], name: str) -> str | None:
     try:
         cookie = SimpleCookie()
         for value in decoded:
             cookie.load(value)
     except Exception:  # noqa: BLE001
-        return True, None
-    morsel = cookie.get("claire_session")
-    return True, morsel.value if morsel is not None else None
+        return None
+    morsel = cookie.get(name)
+    return morsel.value if morsel is not None else None
+
+
+def _read_session_cookies(scope: Scope) -> _SessionCookieRead:
+    """세션 쿠키 판독의 단일 지점(§5.2 쿠키 토싱 방어, S11).
+
+    - ``__Host-claire_session``이 정확히 1개면 그것만 본다. 함께 온 ``claire_session``(서브도메인이 ``Domain=.{site}``로 심었을 수 있다)은 완전히 무시한다. 중복으로 보거나 승격하지 않는다.
+    - ``__Host-claire_session``이 2개 이상이면 무효 자격이다.
+    - ``__Host-claire_session``이 없을 때만 ``claire_session``을 본다. 정확히 1개여야 하고, 2개 이상이면 무효 자격이다.
+      development에서는 이것이 정상 경로이고, 운영 환경에서는 과도기 폴백이다.
+    """
+    values = _raw_headers(scope, b"cookie")
+    if not values:
+        return _SessionCookieRead(False, None)
+    decoded = [value.decode("latin-1") for value in values]
+    host_count = _cookie_occurrences(decoded, SESSION_COOKIE_NAME)
+    if host_count == 1:
+        return _SessionCookieRead(True, _cookie_value(decoded, SESSION_COOKIE_NAME))
+    if host_count > 1:
+        return _SessionCookieRead(True, None)
+    # TODO(P3 G9): 운영 환경의 ``claire_session`` 과도기 폴백을 없앤다(이 분기와 재발급·삭제 헤더).
+    legacy_count = _cookie_occurrences(decoded, LEGACY_SESSION_COOKIE_NAME)
+    if legacy_count == 0:
+        return _SessionCookieRead(False, None)
+    if legacy_count != 1:
+        return _SessionCookieRead(True, None, legacy=True)
+    return _SessionCookieRead(True, _cookie_value(decoded, LEGACY_SESSION_COOKIE_NAME), legacy=True)
+
+
+def read_session_cookie(scope: Scope) -> tuple[bool, str | None]:
+    """``(쿠키가 있었는지, 검증할 토큰)``. 규칙은 ``_read_session_cookies``. 세션 쿠키를 직접 읽는 코드는 모두 이 함수를 쓴다."""
+    result = _read_session_cookies(scope)
+    return result.present, result.token
 
 
 @dataclass(frozen=True, slots=True)
@@ -1022,77 +1179,15 @@ class CloudflareIPFilterMiddleware:
         await self.app(scope, receive, send)
 
 
-class HostAuthorityMiddleware:
-    def __init__(
-        self,
-        app: ASGIApp,
-        config: WebRuntimeConfig,
-        theme_manager: Any | None = None,
-    ) -> None:
-        self.app = app
-        self.config = config
-        self.theme_manager = theme_manager
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        hosts = _raw_headers(scope, b"host")
-        if len(hosts) != 1:
-            await _send_response(
-                PlainTextResponse("Bad Request", status_code=400), scope, receive, send
-            )
-            return
-        try:
-            raw_host = hosts[0].decode("ascii")
-        except UnicodeDecodeError:
-            raw_host = ""
-        authority = _parse_authority(raw_host)
-        if authority is None:
-            await _send_response(
-                PlainTextResponse("Bad Request", status_code=400), scope, receive, send
-            )
-            return
-        if authority != self.config.expected_authority:
-            # 테마 매니저에 등록된 FQDN인지 검사
-            host_only = authority.split(":")[0].lower()
-            is_theme_host = False
-            if self.theme_manager is not None:
-                is_theme_host = self.theme_manager.has_registered_fqdn(host_only)
-            if not is_theme_host:
-                await _send_response(
-                    PlainTextResponse("Misdirected Request", status_code=421),
-                    scope,
-                    receive,
-                    send,
-                )
-                return
-        await self.app(scope, receive, send)
-
-
 class CORSPolicyMiddleware:
     _ALLOWED_METHODS = frozenset({"GET", "HEAD", "POST"})
     _ALLOWED_HEADERS = frozenset({"authorization", "content-type"})
 
-    def __init__(
-        self,
-        app: ASGIApp,
-        config: WebRuntimeConfig,
-        theme_manager: Any | None = None,
-    ) -> None:
+    """app 호스트 전용. 테마 FQDN origin은 더 이상 같은 origin으로 보지 않는다(§5.3). usercontent·media 하위 앱에는 씌우지 않는다(§5.2)."""
+
+    def __init__(self, app: ASGIApp, config: WebRuntimeConfig) -> None:
         self.app = app
         self.config = config
-        self.theme_manager = theme_manager
-
-    def _is_theme_origin(self, origin: str | None) -> bool:
-        if not origin or self.theme_manager is None:
-            return False
-        try:
-            parsed = urlsplit(origin)
-            host = (parsed.hostname or "").lower()
-            return self.theme_manager.has_registered_fqdn(host)
-        except Exception:
-            return False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -1111,8 +1206,6 @@ class CORSPolicyMiddleware:
         if origin is None:
             state[_ORIGIN_KIND_KEY] = "none"
         elif origin == self.config.public_origin:
-            state[_ORIGIN_KIND_KEY] = "same"
-        elif self._is_theme_origin(origin):
             state[_ORIGIN_KIND_KEY] = "same"
         elif origin in self.config.cors_allowed_origins:
             state[_ORIGIN_KIND_KEY] = "cross"
@@ -1149,9 +1242,8 @@ class CORSPolicyMiddleware:
                 )
                 if item.strip()
             }
-            route_rule = ROUTE_POLICY.get((method, scope.get("path", "")))
-            if route_rule is None and method in {"GET", "HEAD"} and (scope.get("path", "").startswith("/images/") or scope.get("path", "").startswith("/p/images/")):
-                route_rule = _rule("public")
+            # 경로는 PrefixParserMiddleware가 접두를 뗀 정규 경로다(§6.7).
+            route_rule = lookup_route_rule(method, scope.get("path", ""))
             if (
                 method not in self._ALLOWED_METHODS
                 or route_rule is None
@@ -1347,9 +1439,48 @@ def _mcp_auth_error_response(
 
 
 class AuthenticationMiddleware:
-    def __init__(self, app: ASGIApp, config: WebRuntimeConfig) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        config: WebRuntimeConfig,
+        namespace_directory: NamespaceDirectory | None = None,
+    ) -> None:
         self.app = app
         self.config = config
+        # 모드(§4)를 읽는다. 없으면 싱글 모드다(DB 없는 단위 시험).
+        self.namespace_directory = namespace_directory
+
+    def _mode(self) -> InstanceMode:
+        if self.namespace_directory is None:
+            return "single"
+        return self.namespace_directory.mode()
+
+    async def _magic_link_destination(self, cookie_token: str) -> str:
+        """§6.6: 싱글 모드는 ``/``, 네트워크 모드는 세션이 귀속된 계정의 홈(``/@{username}/``)."""
+        mode = self._mode()
+        if mode == "single":
+            return account_home_path(mode, None)
+
+        def _username() -> str | None:
+            conn = dbm.connect_existing(self.config.db_file, readonly=True)
+            try:
+                row = conn.execute(
+                    "SELECT account_id FROM auth_sessions WHERE session_token=?", (cookie_token,)
+                ).fetchone()
+                if row is None or row[0] is None:
+                    return None
+                try:
+                    return accounts_store.AccountStore(conn).get(int(row[0])).username
+                except accounts_store.AccountNotFound:
+                    return None
+            finally:
+                conn.close()
+
+        username = await asyncio.to_thread(_username)
+        if not username:
+            # 계정 홈을 만들 수 없으면 인스턴스 루트로 보낸다(관리자 이름으로 대신하지 않는다).
+            return "/"
+        return account_home_path(mode, username)
 
     def _record_mcp_auth_failure(
         self,
@@ -1399,9 +1530,7 @@ class AuthenticationMiddleware:
             return
         method = str(scope.get("method", "")).upper()
         path = scope.get("path", "")
-        rule = ROUTE_POLICY.get((method, path))
-        if rule is None and method in {"GET", "HEAD"} and (path.startswith("/images/") or path.startswith("/p/images/")):
-            rule = _rule("public")
+        rule = lookup_route_rule(method, path)
         if rule is None:
             await _send_response(
                 PlainTextResponse("Not Found", status_code=404), scope, receive, send
@@ -1409,7 +1538,13 @@ class AuthenticationMiddleware:
             return
 
         state = scope.setdefault("state", {})
-        if path == "/" and method in {"GET", "HEAD"}:
+        parsed = state.get(PARSED_PREFIX_STATE_KEY)
+        has_prefix = isinstance(parsed, ParsedPrefix) and bool(parsed.prefix)
+        access: AccessLevel = rule.access
+        if rule.surface == "root" and not has_prefix and self._mode() == "network":
+            # 네트워크 모드 루트는 공개 디렉터리(§4.4, §9.1). P2에서는 308·404만 한다(O8).
+            access = "public"
+        if path == "/" and not has_prefix and method in {"GET", "HEAD"}:
             query = parse_qs(
                 scope.get("query_string", b"").decode("ascii", "ignore"),
                 keep_blank_values=True,
@@ -1480,14 +1615,16 @@ class AuthenticationMiddleware:
                         send,
                     )
                     return
-                response = RedirectResponse("/", status_code=302)
+                response = RedirectResponse(
+                    await self._magic_link_destination(cookie_token), status_code=302
+                )
                 set_session_cookie(response, self.config, cookie_token)
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Referrer-Policy"] = "no-referrer"
                 await _send_response(response, scope, receive, send)
                 return
 
-        if rule.access == "public":
+        if access == "public":
             state[_AUTH_SCOPE_KEY] = "public"
             # 공개 라우트는 자격증명을 검증하지 않는다. 정적 자산마다 DB를 열지 않기 위해서다.
             # 계정을 알아야 하는 화면(GET /, /setup)은 public이 아닌 규칙으로 둔다.
@@ -1549,7 +1686,8 @@ class AuthenticationMiddleware:
         )
 
         authorization_present, bearer = _parse_bearer(scope)
-        cookie_present, cookie_token = read_session_cookie(scope)
+        session_cookie = _read_session_cookies(scope)
+        cookie_present, cookie_token = session_cookie.present, session_cookie.token
         x_session_present = bool(x_session_token)
 
         credentials_count = (
@@ -1706,7 +1844,7 @@ class AuthenticationMiddleware:
             auth_scope is None
             and can_fallback_anonymous
             and self.config.anonymous_readonly
-            and rule.access == "read"
+            and access == "read"
             and path != "/mcp"
             and origin_kind in {"none", "same"}
         ):
@@ -1718,14 +1856,21 @@ class AuthenticationMiddleware:
             )
 
         allowed = (
-            auth_scope == "owner"
+            (
+                auth_scope == "owner"
+                # admin: owner 범위이면서 관리자 계정일 때만(§9.1). 아니면 존재를 숨기는 404.
+                and (
+                    access != "admin"
+                    or (credential is not None and credential.instance_role == "admin")
+                )
+            )
             or (
                 auth_scope == "collaborator"
-                and rule.access in {"read", "collaborator"}
+                and access in {"read", "collaborator"}
             )
             or (
                 auth_scope in {"anonymous", "readonly"}
-                and rule.access == "read"
+                and access == "read"
                 and (path != "/mcp" or auth_scope != "anonymous")
             )
         )
@@ -1762,7 +1907,10 @@ class AuthenticationMiddleware:
             # 허용 판정을 통과했는데 자격증명이 없으면 배선 결함이다(C1).
             raise RuntimeError("authenticated request without a resolved credential")
         if auth_channel == "cookie" and cookie_token:
-            refreshed_cookie = _session_cookie_header(self.config, cookie_token)
+            refreshed_cookies = [_session_cookie_header(self.config, cookie_token)]
+            if session_cookie.legacy and self.config.secure_cookie:
+                # TODO(P3 G9): 과도기 폴백. 옛 이름으로 검증된 세션을 ``__Host-``로 재발급하고 host-only ``claire_session``을 지운다(§5.2).
+                refreshed_cookies.append(_clear_legacy_session_cookie_header(self.config))
 
             async def refresh_cookie_send(message: Message) -> None:
                 if message["type"] == "http.response.start":
@@ -1770,7 +1918,7 @@ class AuthenticationMiddleware:
                     # 핸들러가 세션을 바꾸거나 지웠으면(/setup 확정 등) 그 결정이 우선한다.
                     # 옛 토큰을 덧붙이면 브라우저가 지워진 세션을 갖게 된다.
                     if not _sets_session_cookie(headers):
-                        headers.append((b"set-cookie", refreshed_cookie))
+                        headers.extend((b"set-cookie", value) for value in refreshed_cookies)
                         message = {**message, "headers": headers}
                 await send(message)
 
@@ -1778,13 +1926,13 @@ class AuthenticationMiddleware:
             return
 
         if auth_channel == "anonymous_cleared_cookie":
-            cleared_cookie = _clear_session_cookie_header(self.config)
+            cleared_cookies = _clear_session_cookie_headers(self.config)
 
             async def clear_cookie_send(message: Message) -> None:
                 if message["type"] == "http.response.start":
                     headers = list(message.get("headers", []))
                     if not _sets_session_cookie(headers):
-                        headers.append((b"set-cookie", cleared_cookie))
+                        headers.extend((b"set-cookie", value) for value in cleared_cookies)
                         message = {**message, "headers": headers}
                 await send(message)
 
@@ -1814,6 +1962,17 @@ class SafeAccessLogMiddleware:
         ga_id = config.ga_measurement_id if config else ""
         self._default_csp_header_value = _build_content_security_policy(ga_id).encode("ascii")
         self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE").encode("ascii")
+        self._no_ga_csp_header_value = _build_content_security_policy("").encode("ascii")
+
+    def _csp_for(self, state: Mapping[str, Any]) -> bytes:
+        """§5.3: 경로가 테마를 고정했으면 그 테마의 GA 측정 ID로 고른다. 고정이 없으면 기존 전역 설정이다."""
+        namespace = state.get(NAMESPACE_STATE_KEY)
+        if getattr(namespace, "pinned_theme_id", None) is not None:
+            extra = state.get(NAMESPACE_EXTRA_STATE_KEY) or {}
+            if extra.get("ga_measurement_id"):
+                return self._ga_csp_header_value
+            return self._no_ga_csp_header_value
+        return self.csp_header_value
 
     @property
     def csp_header_value(self) -> bytes:
@@ -1856,17 +2015,13 @@ class SafeAccessLogMiddleware:
                     add_header(b"x-frame-options", b"SAMEORIGIN")
                 else:
                     add_header(b"x-frame-options", b"DENY")
-                route_rule = ROUTE_POLICY.get(
-                    (
-                        str(scope.get("method", "")).upper(),
-                        req_path,
-                    )
-                )
-                if route_rule is None and (req_path.startswith("/images/") or req_path.startswith("/p/images/")):
-                    route_rule = _rule("public")
+                # 이 미들웨어는 원래 경로를 본다. 정책은 접두를 뗀 남은 경로로 찾는다(§6.7).
+                parsed = state.get(PARSED_PREFIX_STATE_KEY)
+                policy_path = getattr(parsed, "inner_path", req_path)
+                route_rule = lookup_route_rule(str(scope.get("method", "")), policy_path)
                 if route_rule is None or route_rule.access != "public":
                     add_header(b"cache-control", b"no-store")
-                csp_val = self.csp_header_value
+                csp_val = self._csp_for(state)
                 if is_presentation_route:
                     csp_val = csp_val.replace(b"frame-ancestors 'none'", b"frame-ancestors 'self'")
                 add_header(
@@ -1877,6 +2032,9 @@ class SafeAccessLogMiddleware:
                     b"permissions-policy",
                     b"camera=(), microphone=(), geolocation=()",
                 )
+                if state.get("claire_theme_deprecated"):
+                    add_header(b"deprecation", b"@1798761600")
+                    add_header(b"sunset", b"Sun, 01 Jan 2027 00:00:00 GMT")
                 message = {**message, "headers": headers}
             await send(message)
 
@@ -1895,9 +2053,20 @@ class SafeAccessLogMiddleware:
 
 
 def wrap_web_app(
-    app: ASGIApp, settings: Any, *, theme_manager: Any | None = None
+    app: ASGIApp,
+    settings: Any,
+    *,
+    theme_manager: Any | None = None,
+    legacy_hosts: LegacyHostDirectory | None = None,
+    namespace_directory: NamespaceDirectory | None = None,
 ) -> ASGIApp:
-    """Starlette 앱 바깥에 보안 경계를 조립한다."""
+    """Starlette 앱 바깥에 보안 경계를 조립한다(§6.7).
+
+    ``SafeAccessLog`` → (``CloudflareIPFilter``) → ``HostRouter``. ``HostRouter``의 app 역할만 PrefixParser → CORS → BodyLimit → ErrorBoundary → Authentication → NamespaceResolver → 라우터를 지난다. usercontent·media 하위 앱(P2에서는 모든 경로 404)과 레거시 호스트 응답은 쿠키를 읽지도 쓰지도 않는다.
+    ``legacy_hosts``가 없으면 레거시 호스트가 없는 것으로 본다(``create_app``이 ``SqliteLegacyHostDirectory``를 넘긴다).
+    ``namespace_directory``가 없으면 ``settings.db_file``로 ``SqliteNamespaceDirectory``를 만든다.
+    """
+    from .host_router import EmptyLegacyHostDirectory, HostRoles, HostRouter, not_found_app
 
     if theme_manager is None and getattr(settings, "multi_theme", False):
         try:
@@ -1908,11 +2077,29 @@ def wrap_web_app(
             pass
 
     config = WebRuntimeConfig.from_settings(settings)
-    secured: ASGIApp = AuthenticationMiddleware(app, config)
+    roles = config.host_roles or HostRoles.from_settings(
+        settings, environment=config.environment, app_authority=config.expected_authority
+    )
+    directory: NamespaceDirectory = (
+        namespace_directory
+        if namespace_directory is not None
+        else SqliteNamespaceDirectory(getattr(settings, "db_file", None))
+    )
+    # NamespaceResolver는 Authentication 바로 안쪽, ErrorBoundary 안쪽이다. DB 예외가 정제된 500이 된다.
+    secured: ASGIApp = NamespaceResolverMiddleware(app, directory)
+    secured = AuthenticationMiddleware(secured, config, namespace_directory=directory)
     secured = ErrorBoundaryMiddleware(secured)
     secured = BodyLimitMiddleware(secured)
-    secured = CORSPolicyMiddleware(secured, config, theme_manager=theme_manager)
-    secured = HostAuthorityMiddleware(secured, config, theme_manager=theme_manager)
+    secured = CORSPolicyMiddleware(secured, config)
+    # PrefixParser는 CORS 바깥이다. CORS·인증이 접두를 뗀 정규 경로로 정책을 찾는다(§6.7).
+    secured = PrefixParserMiddleware(secured)
+    secured = HostRouter(
+        app=secured,
+        roles=roles,
+        legacy=legacy_hosts if legacy_hosts is not None else EmptyLegacyHostDirectory(),
+        usercontent=not_found_app if roles.usercontent is not None else None,
+        media=not_found_app if roles.media is not None else None,
+    )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)
     return SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)

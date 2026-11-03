@@ -274,6 +274,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/image",
         "/images/{filename:path}",
         "/p/images/{filename:path}",
+        "/static/{path:path}",
         "/support/bundle",
         "/graph/bundle",
         "/syndication",
@@ -343,13 +344,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/dedup/scan",
         "/dedup/merge",
         "/entity/primary-label",
-        "/support/bundle",
         "/graph/bundle",
         "/themes",
-        "/providers",
-        "/providers/test",
-        "/limits",
-        "/ingest-limits",
         "/resolution/rollback",
         "/document/matrix/purge",
         "/tokens",
@@ -364,21 +360,34 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/tokens"),
         ("HEAD", "/tokens"),
         ("DELETE", "/tokens"),
-        ("GET", "/providers"),
-        ("HEAD", "/providers"),
-        ("PATCH", "/providers"),
-        ("GET", "/limits"),
-        ("HEAD", "/limits"),
-        ("PATCH", "/limits"),
-        ("GET", "/ingest-limits"),
-        ("HEAD", "/ingest-limits"),
-        ("PATCH", "/ingest-limits"),
         *(
             (method, path)
-            for path in ("/setup", "/admin/accounts", "/api/admin/accounts", "/me", "/api/me")
+            for path in ("/setup", "/me", "/api/me")
             for method in ("GET", "HEAD")
         ),
         ("PATCH", "/api/me"),
+    }
+    # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
+    admin_methods = {
+        *(
+            (method, path)
+            for path in ("/providers", "/limits", "/ingest-limits")
+            for method in ("GET", "HEAD", "POST", "PATCH")
+        ),
+        ("POST", "/providers/test"),
+        ("POST", "/support/bundle"),
+        *(
+            (method, path)
+            for path in (
+                "/admin/accounts",
+                "/api/admin/accounts",
+                "/admin/instance",
+                "/api/admin/instance",
+            )
+            for method in ("GET", "HEAD")
+        ),
+        ("POST", "/api/admin/instance/mode"),
+        ("POST", "/api/admin/instance/legacy-hosts/sunset"),
     }
     expected = {
         **{
@@ -397,12 +406,21 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         **{key: "collaborator" for key in collaborator_methods},
         **{("POST", path): "owner" for path in owner_post},
         **{key: "owner" for key in owner_methods},
+        **{key: "admin" for key in admin_methods},
     }
 
     assert {
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
     assert len(security.ROUTE_POLICY) == len(expected)
+    # §9.1 표면·모드(전체 표는 tests/test_route_surface_contract.py). P2에는 네트워크 전용 항목이 없다.
+    assert all(rule.modes == security.ALL_MODES for rule in security.ROUTE_POLICY.values())
+    surfaces = {key: rule.surface for key, rule in security.ROUTE_POLICY.items()}
+    assert surfaces[("GET", "/")] == "root"
+    assert surfaces[("GET", "/graph")] == "namespaced"
+    assert surfaces[("GET", "/tokens")] == "any"
+    assert surfaces[("GET", "/static/{path:path}")] == "system"
+    assert surfaces[("GET", "/admin/accounts")] == "system"
 
 
 @pytest.mark.asyncio

@@ -12,16 +12,20 @@ import re
 import sqlite3
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from .. import ids
 from ..config import ROOT, Settings, get_settings
 from . import db as dbm
 
 log = logging.getLogger("claire.theme")
 
 THEMES_REGISTRY_FILENAME = "themes.json"
+# O5: 테마 FQDN 쓰기는 폐지됐다. 옛 호스트는 ``legacy_hosts``(v16)로 308 리다이렉트한다.
+THEME_FQDN_RETIRED_MESSAGE = "theme FQDN is retired; legacy hosts redirect via legacy_hosts"
 
 _DNS_NAME_RE = re.compile(
     r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
@@ -102,6 +106,13 @@ class ThemeInfo:
     # 소유 계정(§13.1). v15 이전 항목과 기본값은 관리자(1)다. 새로 쓰는 themes.json 항목에는 항상 들어간다.
     # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
     account_id: int = dbm.ADMIN_ACCOUNT_ID
+    # v16(§13.2). 외부 번호(항상 >= 2^56, §7.2). 내부 ``id``는 내부 키로 남는다(K9).
+    number: int | None = None
+    # 공개 상태 변경·문서 purge 때 올린다. 열람 capability URL을 즉시 무효화한다(§5.2).
+    visibility_epoch: int = 1
+    # 테마 고정 임베딩 공간(§10.4). 빈 값이면 아직 정하지 않음.
+    embed_provider: str = ""
+    embed_model: str = ""
 
     @property
     def knowledge_manager(self) -> str:
@@ -110,6 +121,8 @@ class ThemeInfo:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["knowledge_manager"] = self.sorcerer
+        # O4·§7.1 c: 번호는 JS 정밀도를 넘으므로 JSON에서는 항상 10진 문자열이다.
+        d["number"] = ids.format_public_id(self.number) if self.number is not None else None
         return d
 
     @classmethod
@@ -149,7 +162,29 @@ class ThemeInfo:
             updated_at=float(data.get("updated_at", 0.0)),
             # themes.json 항목에 account_id가 없으면 v15 이전의 관리자 테마다(§13.1).
             account_id=_owner_account_id(data, "themes.json"),
+            number=_theme_number(data.get("number"), "themes.json", data.get("id")),
+            visibility_epoch=_visibility_epoch(data.get("visibility_epoch"), "themes.json", data.get("id")),
+            embed_provider=str(data.get("embed_provider") or "").strip(),
+            embed_model=str(data.get("embed_model") or "").strip(),
         )
+
+
+def _theme_number(raw: Any, source: str, theme_id: Any) -> int | None:
+    """번호는 10진 문자열·정수 모두 받는다(O4). 없으면 None(v16 이관 전). 형식이 틀리면 추측하지 않고 실패한다(C1)."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        return ids.parse_public_id(raw.strip() if isinstance(raw, str) else raw)
+    except ValueError as exc:
+        raise ValueError(f"{source}: theme {theme_id!r} has invalid number {raw!r}") from exc
+
+
+def _visibility_epoch(raw: Any, source: str, theme_id: Any) -> int:
+    if raw is None:
+        return 1
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        raise ValueError(f"{source}: theme {theme_id!r} has invalid visibility_epoch {raw!r}")
+    return raw
 
 
 def _owner_account_id(data: dict[str, Any], source: str) -> int:
@@ -186,11 +221,26 @@ def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
         updated_at=float(d.get("updated_at", 0.0)),
         # 열이 없는 행은 v15 이전 DB(관리자 것)다. v15 DB의 NULL은 이관 결함이므로 거부한다.
         account_id=_owner_account_id(d, "themes table"),
+        # 열이 없는 행은 v16 이전 DB(읽기 전용 점검)다.
+        number=_theme_number(d.get("number"), "themes table", tid),
+        visibility_epoch=_visibility_epoch(d.get("visibility_epoch"), "themes table", tid),
+        embed_provider=str(d.get("embed_provider") or "").strip(),
+        embed_model=str(d.get("embed_model") or "").strip(),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedThemeRef:
+    theme: ThemeInfo
+    # 기존 내부 ID로 들어왔다. 응답에 ``Deprecation``·``Sunset`` 헤더를 붙이고 호출 수를 센다(§7.3, R23-5).
+    via_internal_id: bool
 
 
 class ThemeManager:
     """테마 레지스트리 및 단일 데이터베이스 기반 테마 분할 관리자."""
+
+    # 새 테마 번호의 밀리초 시계. None이면 현재 시각이다. 테스트가 같은 밀리초 충돌을 재현할 때만 바꾼다.
+    _number_clock: Callable[[], int] | None = None
 
     def __init__(
         self,
@@ -265,9 +315,9 @@ class ThemeManager:
         싱글 테마 모드에서는 레지스트리를 전혀 읽지 않는다. 멀티 테마 모드에서 레지스트리가 없으면 기본 레지스트리를 만들지만, 이미 존재하는 레지스트리가 손상됐으면 기본값으로 덮어쓰거나 숨기지 않고 오류를 전파한다.
         """
         if not getattr(self.settings, "multi_theme", False):
-            # 싱글 테마 모드: 파일 I/O 및 락을 원천 차단하고 메모리 상의 기본 테마 1개만 고정 유지
+            # 싱글 테마 모드: themes.json은 읽지도 쓰지도 않는다. Theme 0은 claire.db themes 행에서 한 번 읽어 고정한다(§4.2, K8).
             if not self._themes or 0 not in self._themes:
-                self._themes = {0: self._build_default_theme()}
+                self._themes = {0: self._load_single_mode_theme0()}
             self._rebuild_fqdn_index()
             return
 
@@ -354,82 +404,27 @@ class ThemeManager:
                     log.warning("Auto-migration of theme databases failed: %s", e)
 
             rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+            existing_ids = {r["id"] for r in rows}
 
             if raw_themes_from_json:
-                existing_ids = {r["id"] for r in rows}
                 for item in raw_themes_from_json:
                     t_info = ThemeInfo.from_dict(item)
                     if t_info.id not in existing_ids:
-                        conn.execute(
-                            """
-                            INSERT OR IGNORE INTO themes (
-                                id, seq, label, description, icon, db_path,
-                                is_default, is_public, is_collaborator_accessible,
-                                default_focus, fqdn, ga_measurement_id, sorcerer,
-                                presentation_enabled, created_at, updated_at, account_id
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                t_info.id,
-                                t_info.seq,
-                                t_info.label,
-                                t_info.description,
-                                t_info.icon,
-                                str(db_file),
-                                int(t_info.is_default),
-                                int(t_info.is_public),
-                                int(t_info.is_collaborator_accessible),
-                                t_info.default_focus,
-                                t_info.fqdn,
-                                t_info.ga_measurement_id,
-                                t_info.sorcerer,
-                                int(t_info.presentation_enabled),
-                                t_info.created_at,
-                                t_info.updated_at,
-                                t_info.account_id,
-                            ),
-                        )
-                conn.commit()
-                rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
+                        self._insert_theme_row(conn, t_info, db_path=str(db_file))
+                        existing_ids.add(t_info.id)
+
+            if 0 not in existing_ids:
+                self._insert_theme_row(conn, self._build_default_theme(), db_path=str(db_file))
+
+            # 레거시 경로(themes.json·다중 DB 가져오기)로 들어온 행에도 번호를 준다. DB가 번호의 원천이다.
+            dbm.backfill_theme_numbers(conn)
+            conn.commit()
+            rows = conn.execute("SELECT * FROM themes ORDER BY id").fetchall()
 
             loaded: dict[int, ThemeInfo] = {}
             for r in rows:
                 t = _row_to_theme(r, default_db_path=str(db_file))
                 loaded[t.id] = t
-
-            if 0 not in loaded:
-                t0 = self._build_default_theme()
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO themes (
-                        id, seq, label, description, icon, db_path,
-                        is_default, is_public, is_collaborator_accessible,
-                        default_focus, fqdn, ga_measurement_id, sorcerer,
-                        presentation_enabled, created_at, updated_at, account_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        0,
-                        0,
-                        t0.label,
-                        t0.description,
-                        t0.icon,
-                        str(db_file),
-                        1,
-                        int(t0.is_public),
-                        int(t0.is_collaborator_accessible),
-                        t0.default_focus,
-                        t0.fqdn,
-                        t0.ga_measurement_id,
-                        t0.sorcerer,
-                        int(t0.presentation_enabled),
-                        t0.created_at,
-                        t0.updated_at,
-                        t0.account_id,
-                    ),
-                )
-                conn.commit()
-                loaded[0] = t0
 
             self._themes = loaded
             max_seq = max((t.seq for t in self._themes.values()), default=0)
@@ -441,6 +436,97 @@ class ThemeManager:
 
         if not registry_exists and getattr(self.settings, "multi_theme", False) and self.create_registry:
             self._save_registry()
+
+    @staticmethod
+    def _insert_theme_row(conn: sqlite3.Connection, theme: ThemeInfo, *, db_path: str) -> None:
+        """레지스트리에만 있던 테마(또는 Theme 0)를 themes 행으로 넣는다. 이미 있으면 그대로 둔다.
+
+        항목에 번호가 있고 아직 쓰이지 않았으면 그 번호를 지킨다. 없거나 이미 쓰였으면 NULL로 두고 ``backfill_theme_numbers``가 채운다.
+        """
+        number = theme.number
+        if number is not None and conn.execute(
+            "SELECT 1 FROM themes WHERE number=?", (number,)
+        ).fetchone() is not None:
+            number = None
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO themes (
+                id, seq, label, description, icon, db_path,
+                is_default, is_public, is_collaborator_accessible,
+                default_focus, fqdn, ga_measurement_id, sorcerer,
+                presentation_enabled, created_at, updated_at, account_id,
+                number, visibility_epoch, embed_provider, embed_model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                theme.id,
+                theme.seq,
+                theme.label,
+                theme.description,
+                theme.icon,
+                db_path,
+                int(theme.is_default),
+                int(theme.is_public),
+                int(theme.is_collaborator_accessible),
+                theme.default_focus,
+                theme.fqdn,
+                theme.ga_measurement_id,
+                theme.sorcerer,
+                int(theme.presentation_enabled),
+                theme.created_at,
+                theme.updated_at,
+                theme.account_id,
+                number,
+                theme.visibility_epoch,
+                theme.embed_provider or None,
+                theme.embed_model or None,
+            ),
+        )
+
+    def _load_single_mode_theme0(self) -> ThemeInfo:
+        """싱글 테마 모드의 Theme 0을 claire.db themes 행에서 읽는다(§4.2). 행이 없으면 만들어 기록한다.
+
+        설정에서 오는 값(``presentation_enabled``, 지식 관리자, ``db_path``)은 지금까지처럼 설정을 따른다.
+        읽기 전용(``create_registry=False``)이고 DB가 없거나 아직 themes 테이블이 없으면 기록하지 않고 기본값을 쓴다.
+        """
+        default = self._build_default_theme()
+        db_file = getattr(self.settings, "db_file", None)
+        if db_file is None:
+            return default
+        path = Path(db_file)
+        row = None
+        if self.create_registry:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            conn = dbm.connect(path)
+            try:
+                # 생성자가 이미 init_db를 돌렸다. 그 뒤 파일이 바뀐 경우에만 다시 맞춘다.
+                if dbm.stored_schema_version(conn) != dbm.SCHEMA_VERSION:
+                    dbm.init_db(conn)
+                row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+                if row is None or row["number"] is None:
+                    if row is None:
+                        self._insert_theme_row(conn, default, db_path=str(path))
+                    dbm.backfill_theme_numbers(conn)
+                    conn.commit()
+                    row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+            finally:
+                conn.close()
+        elif path.is_file():
+            conn = dbm.connect_existing(path, readonly=True)
+            try:
+                try:
+                    row = conn.execute("SELECT * FROM themes WHERE id=0").fetchone()
+                except (sqlite3.OperationalError, sqlite3.DatabaseError):
+                    row = None
+            finally:
+                conn.close()
+        if row is None:
+            return default
+        theme = _row_to_theme(row, default_db_path=default.db_path)
+        theme.db_path = default.db_path
+        theme.sorcerer = default.sorcerer
+        theme.presentation_enabled = default.presentation_enabled
+        return theme
 
     def _build_default_theme(self) -> ThemeInfo:
         now = time.time()
@@ -583,6 +669,70 @@ class ThemeManager:
                 raise ThemeNotFound(theme_ref)
         return found
 
+    def get_theme_by_number(self, number: int) -> ThemeInfo:
+        """외부 번호로 찾는다. 없으면 ``ThemeNotFound``. 가시성 판정은 호출자 몫이다(§6.3)."""
+        if isinstance(number, bool) or not isinstance(number, int):
+            raise ThemeNotFound(number)
+        self.reload()
+        for theme in self._themes.values():
+            if theme.number == number:
+                return theme
+        raise ThemeNotFound(number)
+
+    def resolve_theme_ref(self, theme_ref: int | str | None, *, account_id: int) -> ResolvedThemeRef:
+        """요청 입력(``?theme=``, 본문 ``theme``, ``X-Claire-Theme``, MCP ``theme``)을 계정 안에서 엄격하게 해석한다(§6.3, §7.3).
+
+        순서: None·빈 값 → 그 계정의 ``is_default=1`` 테마. ``0 <= 정수 < 2^31`` → 내부 ID(``via_internal_id=True``, ``parse_public_id`` 호출 전에 판정). 그 밖의 정수·숫자열 → 번호. 나머지 → 레이블 정확 일치(``(account_id, label)``).
+        다른 계정의 테마이거나 없으면 ``ThemeNotFound``(부분 일치 없음, D7).
+        레이블은 ``get_theme``과 같이 대소문자를 무시한 정확 일치다(레이블 중복 검사도 대소문자를 무시한다).
+        """
+        if theme_ref is None or (isinstance(theme_ref, str) and not theme_ref.strip()):
+            return ResolvedThemeRef(theme=self.default_theme_for(account_id), via_internal_id=False)
+        if isinstance(theme_ref, bool) or not isinstance(theme_ref, (int, str)):
+            raise ThemeNotFound(theme_ref)
+
+        raw: int | str = theme_ref.strip() if isinstance(theme_ref, str) else theme_ref
+        numeric = isinstance(raw, int) or all("0" <= ch <= "9" for ch in raw)
+        if numeric:
+            try:
+                is_internal, value = ids.parse_internal_id_or_number(raw)
+            except ValueError:
+                raise ThemeNotFound(theme_ref) from None
+            self.reload()
+            if is_internal:
+                found = self._themes.get(value)
+            else:
+                found = next((t for t in self._themes.values() if t.number == value), None)
+            if found is None or found.account_id != account_id:
+                raise ThemeNotFound(theme_ref)
+            return ResolvedThemeRef(theme=found, via_internal_id=is_internal)
+
+        self.reload()
+        wanted = raw.lower()
+        for theme in self._themes.values():
+            if theme.account_id == account_id and theme.label.strip().lower() == wanted:
+                return ResolvedThemeRef(theme=theme, via_internal_id=False)
+        raise ThemeNotFound(theme_ref)
+
+    def list_account_themes(self, account_id: int) -> list[ThemeInfo]:
+        """그 계정의 테마를 번호 내림차순으로. 가시성 필터는 호출자 몫이다(§7.6)."""
+        self.reload()
+        owned = [t for t in self._themes.values() if t.account_id == account_id]
+        # 번호가 없는 행(읽기 전용으로 연 v16 이전 DB)은 맨 뒤에 내부 ID 내림차순으로 둔다.
+        return sorted(
+            owned,
+            key=lambda t: (t.number is not None, t.number or 0, t.id),
+            reverse=True,
+        )
+
+    def default_theme_for(self, account_id: int) -> ThemeInfo:
+        """그 계정의 ``is_default=1`` 테마. 없으면 ``ThemeNotFound``(C1)."""
+        self.reload()
+        for theme in sorted(self._themes.values(), key=lambda t: t.id):
+            if theme.account_id == account_id and theme.is_default:
+                return theme
+        raise ThemeNotFound(f"default theme of account {account_id}")
+
     def define_theme(
         self,
         label: str,
@@ -606,7 +756,10 @@ class ThemeManager:
         if not cleaned_label:
             raise ValueError("테마 레이블(이름)을 입력해야 합니다.")
 
-        norm_fqdn = validate_fqdn(fqdn)
+        # O5: 테마 FQDN 입력은 폐지됐다. 매개변수는 호출부 정리 뒤 지운다.
+        if str(fqdn or "").strip():
+            raise ValueError(THEME_FQDN_RETIRED_MESSAGE)
+        norm_fqdn = ""
         norm_ga = validate_ga_measurement_id(ga_measurement_id)
 
         self.reload()
@@ -615,14 +768,6 @@ class ThemeManager:
         for t in self._themes.values():
             if t.label.strip().lower() == cleaned_label.lower():
                 raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
-
-        if norm_fqdn:
-            eff_fqdn = getattr(self.settings, "effective_fqdn", "")
-            if eff_fqdn and norm_fqdn == eff_fqdn:
-                raise ValueError(f"기본 서비스 도메인('{norm_fqdn}')은 추가 테마의 FQDN으로 지정할 수 없습니다.")
-            for t in self._themes.values():
-                if t.fqdn and t.fqdn == norm_fqdn:
-                    raise ValueError(f"이미 다른 테마(#{t.id} '{t.label}')에 등록된 FQDN입니다: '{norm_fqdn}'")
 
         seq = self._next_seq
         self._next_seq += 1
@@ -655,36 +800,55 @@ class ThemeManager:
 
         conn = dbm.connect(db_file)
         try:
-            conn.execute(
-                """
-                INSERT INTO themes (
-                    id, seq, label, description, icon, db_path,
-                    is_default, is_public, is_collaborator_accessible,
-                    default_focus, fqdn, ga_measurement_id, sorcerer,
-                    presentation_enabled, created_at, updated_at, account_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    theme.id,
-                    theme.seq,
-                    theme.label,
-                    theme.description,
-                    theme.icon,
-                    theme.db_path,
-                    int(theme.is_default),
-                    int(theme.is_public),
-                    int(theme.is_collaborator_accessible),
-                    theme.default_focus,
-                    theme.fqdn,
-                    theme.ga_measurement_id,
-                    theme.sorcerer,
-                    int(theme.presentation_enabled),
-                    theme.created_at,
-                    theme.updated_at,
-                    theme.account_id,
-                ),
+            salt = dbm.read_id_salt(conn)
+
+            def _insert(number: int) -> None:
+                conn.execute(
+                    """
+                    INSERT INTO themes (
+                        id, seq, label, description, icon, db_path,
+                        is_default, is_public, is_collaborator_accessible,
+                        default_focus, fqdn, ga_measurement_id, sorcerer,
+                        presentation_enabled, created_at, updated_at, account_id,
+                        number, visibility_epoch
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        theme.id,
+                        theme.seq,
+                        theme.label,
+                        theme.description,
+                        theme.icon,
+                        theme.db_path,
+                        int(theme.is_default),
+                        int(theme.is_public),
+                        int(theme.is_collaborator_accessible),
+                        theme.default_focus,
+                        theme.fqdn,
+                        theme.ga_measurement_id,
+                        theme.sorcerer,
+                        int(theme.presentation_enabled),
+                        theme.created_at,
+                        theme.updated_at,
+                        theme.account_id,
+                        number,
+                        theme.visibility_epoch,
+                    ),
+                )
+
+            # DB가 번호의 원천이다. 같은 밀리초 충돌은 UNIQUE 제약으로 잡고 seq를 올린다(§7.2).
+            theme.number = ids.insert_with_timestamp_id(
+                conn,
+                table="themes",
+                column="number",
+                salt=salt,
+                insert=_insert,
+                now_ms=self._number_clock,
             )
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
@@ -718,9 +882,14 @@ class ThemeManager:
         knowledge_manager: str | None = None,
         presentation_enabled: bool | None = None,
     ) -> ThemeInfo:
-        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, FQDN, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음)."""
+        """지식 관리자: 테마 레이블, 설명, 아이콘, 공개 여부, 협력자 공개 여부, 기본 적용 초점, GA ID, 지식 관리자 수정 (물리 폴더 경로는 절대 변경되지 않음).
+
+        ``fqdn``은 폐지됐다(O5). 비어 있지 않으면 ``ValueError``, 빈 값은 아무것도 바꾸지 않는다. 기존 ``themes.fqdn`` 열은 ``legacy_hosts``의 원본이므로 지우지 않는다(A3).
+        """
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
+        if fqdn is not None and str(fqdn).strip():
+            raise ValueError(THEME_FQDN_RETIRED_MESSAGE)
 
         self.reload()
         try:
@@ -764,17 +933,6 @@ class ThemeManager:
                 theme.default_focus = ""
             else:
                 theme.default_focus = str(default_focus or "").strip()
-
-        if fqdn is not None:
-            norm_fqdn = validate_fqdn(fqdn)
-            if norm_fqdn:
-                eff_fqdn = getattr(self.settings, "effective_fqdn", "")
-                if eff_fqdn and norm_fqdn == eff_fqdn and tid != 0:
-                    raise ValueError(f"기본 서비스 도메인('{norm_fqdn}')은 추가 테마의 FQDN으로 지정할 수 없습니다.")
-                for other in self._themes.values():
-                    if other.id != tid and other.fqdn and other.fqdn == norm_fqdn:
-                        raise ValueError(f"이미 다른 테마(#{other.id} '{other.label}')에 등록된 FQDN입니다: '{norm_fqdn}'")
-            theme.fqdn = norm_fqdn
 
         if ga_measurement_id is not None:
             theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
@@ -1030,7 +1188,12 @@ class ThemeManager:
         """
         base = base_settings or self.settings
         if not getattr(base, "multi_theme", False):
-            theme = self._build_default_theme()
+            if getattr(self.settings, "multi_theme", False):
+                # 멀티 관리자에 싱글 설정을 넘긴 경우: 레지스트리를 읽지 않는다.
+                theme = self._build_default_theme()
+            else:
+                self.reload()
+                theme = self._themes[0]
             return [(theme, self._settings_for_theme_info(theme, base))]
 
         self.reload()

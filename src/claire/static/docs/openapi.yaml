@@ -108,6 +108,289 @@ paths:
                     type: string
                     example: 기본 테마
 
+  /themes:
+    get:
+      summary: List themes or retrieve paginated theme collection
+      description: >-
+        Deterministic content negotiation endpoint. Returns HTML shell for browser navigation
+        (when Accept header prefers text/html or Sec-Fetch-Dest is document); otherwise returns
+        a JSON OrderedCollection or OrderedCollectionPage conforming to the Claire collection contract.
+      operationId: listThemes
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, requests an OrderedCollectionPage slice instead of the root OrderedCollection.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 80
+            default: 20
+          description: Number of items per collection page (bounded between 1 and 80).
+        - name: max_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor returning items older than the specified 64-bit theme number.
+        - name: min_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor returning the immediately newer slice above the specified theme number.
+        - name: since_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor for synchronization returning items newer than the specified theme number.
+      responses:
+        '200':
+          description: Root collection, paginated page slice, or HTML application shell.
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Entity tag representing the collection state.
+            Cache-Control:
+              schema:
+                type: string
+              description: Cache control directives (public for anonymous, private for authenticated).
+            Vary:
+              schema:
+                type: string
+              example: Sec-Fetch-Dest, Accept
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ThemeCollectionRoot'
+                  - $ref: '#/components/schemas/ThemeCollectionPage'
+            text/html:
+              schema:
+                type: string
+        '304':
+          description: Not Modified when If-None-Match matches current ETag.
+        '400':
+          description: Conflicting cursor parameters or invalid pagination limits.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Namespace or theme not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+    post:
+      summary: Define a new knowledge theme
+      operationId: defineTheme
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label:
+                  type: string
+                  example: 인공지능 연구
+                description:
+                  type: string
+                icon:
+                  type: string
+                  default: "📁"
+                is_public:
+                  type: boolean
+                  default: true
+                is_collaborator_accessible:
+                  type: boolean
+                  default: true
+                default_focus:
+                  type: string
+                ga_measurement_id:
+                  type: string
+                sorcerer:
+                  type: string
+                presentation_enabled:
+                  type: boolean
+                  default: false
+      responses:
+        '201':
+          description: Theme successfully defined.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, theme]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  theme:
+                    type: object
+        '400':
+          description: Validation error or deprecated fqdn provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: Owner permissions or CLAIRE_MULTI_THEME=1 required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+    patch:
+      summary: Update existing knowledge theme
+      operationId: updateTheme
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Theme number or internal ID to update (may also be in request body).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                label:
+                  type: string
+                description:
+                  type: string
+                icon:
+                  type: string
+                is_public:
+                  type: boolean
+                is_collaborator_accessible:
+                  type: boolean
+                default_focus:
+                  type: string
+                ga_measurement_id:
+                  type: string
+                sorcerer:
+                  type: string
+                presentation_enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Theme updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, theme]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  theme:
+                    type: object
+        '400':
+          description: Validation error or deprecated fqdn provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: Owner permissions required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Theme not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+    delete:
+      summary: Delete a knowledge theme
+      operationId: deleteTheme
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Theme number or internal ID to delete.
+        - name: purge
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Theme deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, theme]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  theme:
+                    type: object
+        '400':
+          description: Invalid theme ID or cannot delete default theme.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: Owner permissions required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: Theme not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
   /.well-known/oauth-protected-resource:
     get:
       summary: OAuth 2.0 Protected Resource Metadata (RFC 9728)
@@ -1545,3 +1828,102 @@ components:
           type: ['number', 'null']
         theme_count:
           type: integer
+
+    ThemeCollectionRoot:
+      type: object
+      required: [id, type, totalItems, first]
+      properties:
+        id:
+          type: string
+          example: "https://claire.example.com/themes"
+        type:
+          type: string
+          const: OrderedCollection
+        totalItems:
+          type: integer
+          example: 3
+        first:
+          type: string
+          example: "https://claire.example.com/themes?page=true"
+        themes:
+          type: array
+          description: Legacy theme array retained during migration period (P2-P3).
+          items:
+            type: object
+        default_theme_id:
+          type: integer
+          example: 0
+        default_theme_number:
+          type: ['string', 'null']
+          example: "117543901593604660"
+        multi_theme:
+          type: boolean
+          example: true
+
+    ThemeCollectionPage:
+      type: object
+      required: [id, type, partOf, orderedItems]
+      properties:
+        id:
+          type: string
+          example: "https://claire.example.com/themes?page=true"
+        type:
+          type: string
+          const: OrderedCollectionPage
+        partOf:
+          type: string
+          example: "https://claire.example.com/themes"
+        orderedItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThemeCollectionItem'
+        next:
+          type: string
+          nullable: true
+          example: "https://claire.example.com/themes?page=true&max_id=117543901593604660"
+        prev:
+          type: string
+          nullable: true
+
+    ThemeCollectionItem:
+      type: object
+      required: [number, url, label, is_default, is_public, stats]
+      properties:
+        number:
+          type: string
+          description: 64-bit time-ordered theme number as decimal string.
+          example: "117543901593604660"
+        url:
+          type: string
+          example: "https://claire.example.com/themes/117543901593604660/"
+        label:
+          type: string
+          example: "인공지능 연구"
+        is_default:
+          type: boolean
+        is_public:
+          type: boolean
+        stats:
+          type: object
+          properties:
+            documents:
+              type: integer
+            entities:
+              type: integer
+            relations:
+              type: integer
+        legacy_hosts:
+          type: array
+          description: Legacy custom domain hosts migrating to single FQDN.
+          items:
+            type: object
+            required: [host, activated_at]
+            properties:
+              host:
+                type: string
+                example: "ai.example.com"
+              activated_at:
+                type: number
+              sunset_at:
+                type: ['number', 'null']
+

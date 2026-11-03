@@ -496,6 +496,8 @@ def render_graph_html(
     collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
+    request: Any | None = None,
+    bootstrap: dict[str, str] | None = None,
 ) -> str:
     """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
@@ -561,6 +563,7 @@ def render_graph_html(
             {
                 "id": 0,
                 "seq": 0,
+                "number": "0",
                 "label": "기본 지식베이스",
                 "description": "일반 수집 자료 및 기본 지식",
                 "icon": "📚",
@@ -578,6 +581,25 @@ def render_graph_html(
         .replace(">", "\\u003e")
         .replace("&", "\\u0026")
     )
+
+    if bootstrap is None and request is not None:
+        try:
+            from .api.namespace import shell_bootstrap
+
+            bootstrap = shell_bootstrap(request)
+        except Exception:
+            bootstrap = None
+
+    if bootstrap is None:
+        bootstrap = {
+            "api-base": "/",
+            "root-base": "/",
+            "storage-key": "anon",
+        }
+
+    api_base = _html.escape(bootstrap.get("api-base", "/"), quote=True)
+    root_base = _html.escape(bootstrap.get("root-base", "/"), quote=True)
+    storage_key = _html.escape(bootstrap.get("storage-key", "anon"), quote=True)
 
     is_fqdn = False
     if theme and getattr(theme, "fqdn", None) and host:
@@ -603,7 +625,7 @@ def render_graph_html(
         plain_icon = "📚"
         plain_label = ""
 
-    return (
+    res = (
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
@@ -618,7 +640,18 @@ def render_graph_html(
         .replace("__THEME_PLAIN_STYLE_ATTR__", plain_style_attr)
         .replace("__THEME_PLAIN_ICON__", plain_icon)
         .replace("__THEME_PLAIN_LABEL__", plain_label)
+        .replace("__CLAIRE_API_BASE__", api_base)
+        .replace("__CLAIRE_ROOT_BASE__", root_base)
+        .replace("__CLAIRE_STORAGE_KEY__", storage_key)
     )
+    if '<meta name="claire-api-base"' not in res:
+        meta_tags = (
+            f'<meta name="claire-api-base" content="{api_base}"/>\n'
+            f'<meta name="claire-root-base" content="{root_base}"/>\n'
+            f'<meta name="claire-storage-key" content="{storage_key}"/>'
+        )
+        res = res.replace("<head>", f"<head>\n{meta_tags}")
+    return res
 
 
 def _render_syndication_bundle(

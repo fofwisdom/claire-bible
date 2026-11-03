@@ -28,7 +28,7 @@ def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 def test_fresh_database_declares_common_v14():
     conn = _memory_database()
 
-    assert dbm.require_current_schema(conn) == 15
+    assert dbm.require_current_schema(conn) == 16
     assert dbm.stored_schema_lineage(conn) == "claire-bible/common"
     document_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(documents)")
@@ -77,7 +77,7 @@ def test_legacy_v1_table_shape_converges_before_dependent_indexes():
 
     dbm.init_db(conn)
 
-    assert dbm.require_current_schema(conn) == 15
+    assert dbm.require_current_schema(conn) == 16
     assert conn.execute(
         "SELECT title FROM documents WHERE id='legacy-v1'"
     ).fetchone()[0] == "preserved"
@@ -101,7 +101,7 @@ def test_supported_versions_converge_without_losing_extensions(
 
     dbm.init_db(conn)
 
-    assert dbm.require_current_schema(conn) == 15
+    assert dbm.require_current_schema(conn) == 16
     assert (
         conn.execute("SELECT value FROM implementation_extension").fetchone()[0]
         == "preserved"
@@ -117,7 +117,7 @@ def test_v13_with_lineage_converges_to_v14():
 
     dbm.init_db(conn)
 
-    assert dbm.require_current_schema(conn) == 15
+    assert dbm.require_current_schema(conn) == 16
     assert (
         conn.execute("SELECT value FROM v13_extension").fetchone()[0]
         == "preserved"
@@ -126,12 +126,12 @@ def test_v13_with_lineage_converges_to_v14():
 
 def test_future_version_is_not_rewritten():
     conn = _memory_database()
-    _set_meta(conn, "schema_version", "16")
+    _set_meta(conn, "schema_version", "17")
 
     with pytest.raises(RuntimeError, match="newer than this code"):
         dbm.init_db(conn)
 
-    assert dbm.stored_schema_version(conn) == 16
+    assert dbm.stored_schema_version(conn) == 17
     assert dbm.stored_schema_lineage(conn) == dbm.SCHEMA_LINEAGE
 
 
@@ -142,7 +142,7 @@ def test_foreign_lineage_is_not_rewritten():
     with pytest.raises(RuntimeError, match="lineage does not match"):
         dbm.init_db(conn)
 
-    assert dbm.stored_schema_version(conn) == 15
+    assert dbm.stored_schema_version(conn) == 16
     assert dbm.stored_schema_lineage(conn) == "unrelated/root"
 
 

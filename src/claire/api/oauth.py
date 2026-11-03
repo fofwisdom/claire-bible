@@ -26,7 +26,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from ..config import get_settings
 from ..presentation.favicon import render_favicon_head_tags
 from ..store import db as dbm
-from .security import WebRuntimeConfig
+from .security import WebRuntimeConfig, read_session_cookie
 
 log = logging.getLogger("claire.api.oauth")
 
@@ -415,7 +415,7 @@ async def handle_authorize(request: Request) -> Response:
             client = dbm.get_oauth_client(conn, client_id)
             client_name = client["client_name"] if client else "Google Gemini / MCP Client"
 
-            cookie_token = request.cookies.get("claire_session")
+            _cookie_present, cookie_token = read_session_cookie(request.scope)
             has_valid_cookie = False
             if cookie_token and dbm.plausible_session_token(cookie_token):
                 v_scope = dbm.validate_session_scope(conn, cookie_token)
@@ -453,7 +453,7 @@ async def handle_authorize(request: Request) -> Response:
     conn = dbm.connect_existing(config.db_file)
     try:
         authed = False
-        cookie_token = request.cookies.get("claire_session")
+        _cookie_present, cookie_token = read_session_cookie(request.scope)
         if cookie_token and dbm.plausible_session_token(cookie_token):
             if dbm.validate_session_scope(conn, cookie_token) is not None:
                 authed = True

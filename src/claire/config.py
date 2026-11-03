@@ -618,6 +618,14 @@ class Settings(BaseSettings):
     fqdn: str = Field(default="", alias="CLAIRE_FQDN")
     # 레거시 CLAIRE_PUBLIC_URL 환경변수 및 키워드 인자 호환용 (미설정 시 fqdn 자동 추출)
     legacy_public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
+    # 역할 호스트(설계 §5.1). 형식은 CLAIRE_FQDN과 같다: production은 포트 없는 DNS 이름,
+    # development는 app과 같은 IPv4의 다른 포트(`127.0.0.1:8767`). 빈 값이면 그 역할을 두지 않는다.
+    # 검증(서로 다름, app 상위 도메인 금지, 등록 도메인 소속, CORS 허용 목록 제외)은
+    # `api.host_router.HostRoles.from_settings`가 기동 때 한다.
+    # 운영 환경의 등록 도메인(예: example.com). 공개 접미사 목록으로 추정하지 않는다.
+    site_domain: str = Field(default="", alias="CLAIRE_SITE_DOMAIN")
+    usercontent_fqdn: str = Field(default="", alias="CLAIRE_USERCONTENT_FQDN")
+    media_fqdn: str = Field(default="", alias="CLAIRE_MEDIA_FQDN")
     # Cloudflare 공식 공인 IP 대역(https://www.cloudflare.com/ko-kr/ips/)만 접속 허용 (사설 IP는 영향 없음)
     cloudflare_ips_only: bool = Field(
         default=False, alias="CLAIRE_CLOUDFLARE_IPS_ONLY"

@@ -19,6 +19,7 @@ from starlette.routing import Route
 from ...accounts.username_policy import UsernameRejected, normalize_username
 from ...store import accounts as accounts_store
 from ...store import auth_db
+from ..namespace import account_home_path
 from ..principal import request_principal
 from ..security import read_json_body
 from .common import (
@@ -54,6 +55,7 @@ class LoginOutcome:
     kind: Literal["ok", "failed", "throttled"]
     session_token: str | None = None
     retry_after: float | None = None
+    redirect_path: str = "/"
 
 
 def throttle_name(raw: str) -> str:
@@ -102,11 +104,13 @@ def perform_login(
             token = accounts_store.create_account_session(
                 conn, account_id=candidate, scope="owner", replace_token=replace_token
             )
+            mode = accounts_store.AccountStore(conn).instance_mode()
+            redirect_path = account_home_path(mode, account.username if account is not None else None)
         finally:
             conn.close()
     finally:
         auth.close()
-    return LoginOutcome("ok", session_token=token)
+    return LoginOutcome("ok", session_token=token, redirect_path=redirect_path)
 
 
 def _login_page(*, username: str = "", message: str | None = None, status_code: int = 200,
@@ -185,7 +189,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return _login_page(username=raw_username, message=LOGIN_FAILED_TEXT, status_code=401)
         if outcome.session_token is None:
             raise RuntimeError("login succeeded without a session token")
-        response = Response(status_code=303, headers={"Location": "/", "Cache-Control": "no-store"})
+        response = Response(status_code=303, headers={"Location": outcome.redirect_path, "Cache-Control": "no-store"})
         set_session_cookie(response, ctx, outcome.session_token)
         return response
 

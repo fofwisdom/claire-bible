@@ -305,6 +305,9 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 한다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능하다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구한다. |
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 공유 링크(`/p?s=...`) 생성에 사용된다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
+| `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
+| `CLAIRE_USERCONTENT_FQDN` | `""` | 호스트명 (운영 예: `usercontent.example.com`, 개발 예: `127.0.0.1:8767`) | 계정이 만든 HTML을 그리는 usercontent 역할 호스트. 쿠키를 읽지도 쓰지도 않는다. 개발에서는 app과 같은 IPv4의 다른 포트다. 네트워크 모드 운영 환경에서는 필수다. P2에서는 모든 경로가 404다. |
+| `CLAIRE_MEDIA_FQDN` | `""` | 호스트명 (운영 예: `media.example.com`, 개발 예: `127.0.0.1:8768`) | 캐시 미디어를 내보내는 media 역할 호스트(선택). 쿠키를 읽지도 쓰지도 않는다. P2에서는 모든 경로가 404다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
 | `CLAIRE_TRUSTED_PROXIES` | `""` | 쉼표 구분 CIDR 목록 (예: `192.168.10.1/32,10.0.0.0/8`) | 로그인 실패 제한에 쓸 클라이언트 IP 판정에서 `X-Forwarded-For`를 믿을 바로 앞 프록시 대역. 바로 앞 피어가 이 목록(과 `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역)에 있을 때만 헤더를 오른쪽부터 읽어 신뢰하지 않는 첫 주소를 쓴다. 비면 헤더를 읽지 않고 피어 주소를 쓴다. 잘못된 CIDR이면 기동이 실패한다. 접근 로그의 IP 표기와 Host·scheme 판정에는 쓰지 않는다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |

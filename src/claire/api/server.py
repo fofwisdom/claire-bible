@@ -33,19 +33,23 @@ from starlette.responses import (
 )
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
-from starlette.types import ASGIApp, Receive, Scope, Send
-
-PUBLIC_PATHS: tuple[str, ...] = ("/static/", "/images/", "/p/images/")
+from starlette.types import ASGIApp
 
 from ..config import Settings, get_settings
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
+from ..store import accounts as accounts_store
 from ..store import db as dbm
 from ..store.queries import theme_summary
+from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db
+from .host_router import LegacyHost
+from . import collections
+from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
+from .principal import request_principal
 from .mcp_tools import build_mcp_app
 from .oauth import (
     handle_authorization_server_metadata,
@@ -60,6 +64,7 @@ from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
     read_json_body,
+    read_session_cookie,
     request_auth_scope,
     request_id,
     wrap_web_app,
@@ -90,37 +95,6 @@ _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
 _sitemap_cache: dict[str, tuple[float, str, bytes]] = {}
-
-
-class GateMiddleware:
-    """gate 미들웨어 — PUBLIC_PATHS에 등록된 공개 정적 자산(/static/) 등은 인증 실패로 차단되지 않도록 Starlette 라우터로 통과시키며, 그 외 경로는 기존 보안 래퍼(wrap_web_app)로 전달한다.
-    """
-
-    def __init__(
-        self,
-        inner: ASGIApp,
-        secured: ASGIApp,
-        public_paths: tuple[str, ...] = PUBLIC_PATHS,
-    ) -> None:
-        self.inner = inner
-        self.app = secured
-        self.public_paths = public_paths
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http":
-            path = scope.get("path", "")
-            method = str(scope.get("method", "")).upper()
-            if any(path.startswith(prefix) for prefix in self.public_paths):
-                if method in {"GET", "HEAD"}:
-                    await self.inner(scope, receive, send)
-                    return
-                resp = PlainTextResponse("Method Not Allowed", status_code=405)
-                await resp(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
-
-
-gate = GateMiddleware
 
 
 def _resolve_query_func(name: str, default: Any) -> Any:
@@ -216,49 +190,57 @@ def create_app(
         raw = request.query_params.get("theme")
         body_theme = body.get("theme") if body else None
         hdr = request.headers.get("x-claire-theme")
-
-        # 1. Host 헤더에 등록된 테마 FQDN이 있는지 확인
-        host_header = request.headers.get("host")
-        if host_header:
-            hostname = host_header.split(":", 1)[0].strip().lower()
-            theme_by_fqdn = theme_mgr.get_theme_by_fqdn(hostname)
-            if theme_by_fqdn is not None:
-                # 추가 테마 전용 FQDN(ID > 0) 접속 시 해당 테마로 고정 바인딩
-                if theme_by_fqdn.id > 0:
-                    return theme_by_fqdn.id
-                # Theme 0 전용 FQDN 접속 시 명시적 theme 파라미터가 있으면 허용
-                if raw is not None and str(raw).strip():
-                    return str(raw).strip()
-                if body_theme is not None and str(body_theme).strip():
-                    return str(body_theme).strip()
-                if hdr is not None and hdr.strip():
-                    return hdr.strip()
-                return theme_by_fqdn.id
-
-        # 2. 쿼리 파라미터 / 요청 본문 / X-Claire-Theme 헤더 확인
+        explicit: int | str | None = None
         if raw is not None and str(raw).strip():
-            return str(raw).strip()
-        if body_theme is not None and str(body_theme).strip():
-            return str(body_theme).strip()
-        if hdr is not None and hdr.strip():
-            return hdr.strip()
-        return None
+            explicit = str(raw).strip()
+        elif body_theme is not None and str(body_theme).strip():
+            explicit = str(body_theme).strip()
+        elif hdr is not None and hdr.strip():
+            explicit = hdr.strip()
+
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+
+        if ns is not None and ns.pinned_theme_id is not None:
+            if explicit is not None:
+                account_id = ns.account_id if ns.account_id is not None else 1
+                try:
+                    resolved = theme_mgr.resolve_theme_ref(explicit, account_id=account_id)
+                    if resolved.theme.id != ns.pinned_theme_id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="explicit theme parameter contradicts pinned theme in path",
+                        )
+                except ThemeNotFound:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="explicit theme parameter contradicts pinned theme in path",
+                    )
+            return ns.pinned_theme_id
+
+        return explicit
 
     def _theme_accessible(request: Request, theme: ThemeInfo) -> bool:
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+
+        principal = request_principal(request)
+        if ns is not None and ns.mode == "network" and ns.account_id is not None:
+            if principal.account_id != ns.account_id:
+                # O20: Cross-account visitor can only read public themes
+                if not theme.is_public:
+                    return False
+                if request.method not in ("GET", "HEAD"):
+                    return False
+
         scope = request_auth_scope(request)
         if scope == "anonymous":
             if not theme.is_public:
                 return False
-            # FQDN이 설정된 테마는 전용 FQDN 접속이 아니면 기본 도메인을 통한 익명 접근 차단
-            if theme.id > 0 and theme.fqdn:
-                host_header = request.headers.get("host")
-                req_host = (
-                    host_header.split(":", 1)[0].strip().lower()
-                    if host_header
-                    else ""
-                )
-                if req_host != theme.fqdn.strip().lower():
-                    return False
         elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
             return False
         return True
@@ -293,32 +275,32 @@ def create_app(
     def _get_theme_ctx(
         request: Request, body: dict[str, Any] | None = None
     ) -> tuple[ThemeInfo, Settings, IngestService]:
-        if not getattr(s, "multi_theme", False):
-            pres_enabled = bool(getattr(s, "presentation_enabled", False))
-            if theme_mgr is not None:
-                try:
-                    t0 = theme_mgr.get_theme(0)
-                    if t0 is not None:
-                        pres_enabled = bool(t0.presentation_enabled)
-                except Exception:
-                    pass
-            default_theme = ThemeInfo(
-                id=0,
-                seq=0,
-                label="기본 지식베이스",
-                description="일반 수집 자료 및 기본 지식",
-                icon="📚",
-                db_path=str(getattr(s, "db_path", "data/claire.db")),
-                is_default=True,
-                is_public=True,
-                presentation_enabled=pres_enabled,
-            )
-            return default_theme, s, svc
-        ref = _extract_theme_ref(request, body)
         try:
-            theme = theme_mgr.get_theme(ref)
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+
+        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        ref = _extract_theme_ref(request, body)
+
+        try:
+            if ns is not None and ns.pinned_theme_id is not None:
+                theme = theme_mgr.get_theme(ns.pinned_theme_id)
+                via_internal = False
+            else:
+                resolved = theme_mgr.resolve_theme_ref(ref, account_id=account_id)
+                theme = resolved.theme
+                via_internal = resolved.via_internal_id
+                if not getattr(s, "multi_theme", False):
+                    if theme.id != 0:
+                        raise ThemeNotFound(ref)
+
             if not _theme_accessible(request, theme):
                 raise HTTPException(status_code=404, detail="theme not found")
+
+            if via_internal:
+                request.state.claire_theme_deprecated = True
+
             theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
             theme_svc = service_pool.get_service(theme.id)
         except ThemeNotFound as exc:
@@ -406,7 +388,18 @@ def create_app(
         scope = request_auth_scope(request)
         if scope not in {"owner", "collaborator", "readonly", "anonymous"}:
             raise HTTPException(status_code=401, detail="authentication required")
-        return JSONResponse({"scope": scope})
+        # §9.1 O10: 주체 범위(호환), 인스턴스 모드, 네임스페이스와의 관계. USERNAME은 싣지 않는다(S9).
+        namespace = request_namespace(request)
+        principal = request_principal(request)
+        if principal.account_id is None or principal.account_id != namespace.account_id:
+            relation = "visitor"
+        elif principal.scope == "owner":
+            relation = "owner"
+        else:
+            relation = "delegate"
+        return JSONResponse(
+            {"scope": scope, "instance": {"mode": namespace.mode}, "relation": relation}
+        )
 
     async def stats(request: Request) -> JSONResponse:
         include_hidden = request_auth_scope(request) != "anonymous"
@@ -451,90 +444,160 @@ def create_app(
         res["active_jobs"] = jobs
         return JSONResponse(res)
 
-    async def themes_list_route(request: Request) -> JSONResponse:
+    async def themes_list_route(request: Request) -> Response:
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+
+        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        origin = _public_origin(request)
+        if ns is not None and ns.mode == "network" and ns.username:
+            collection_url = f"{origin}/@{ns.username}/themes"
+        else:
+            collection_url = f"{origin}/themes"
+
         scope = request_auth_scope(request)
-        include_hidden = scope != "anonymous"
-        multi_enabled = bool(getattr(s, "multi_theme", False))
+        principal = request_principal(request)
+        if ns is not None and ns.mode == "network" and principal.account_id != account_id:
+            visible_scope = "anonymous"
+        else:
+            visible_scope = scope
 
-        host_header = request.headers.get("host")
+        if collections.wants_html(request):
+            from ..graphview import render_graph_html
 
-        def _get_themes_with_stats() -> dict[str, Any]:
-            if not multi_enabled:
-                t_stats = {"documents": 0, "entities": 0, "relations": 0}
-                if s.db_file.is_file():
+            return HTMLResponse(
+                render_graph_html(
+                    s,
+                    include_private=(visible_scope in {"owner", "readonly"}),
+                    collaborator=(visible_scope == "collaborator"),
+                    theme=None,
+                    host=request.headers.get("host"),
+                    request=request,
+                )
+            )
+
+        def _fetch_themes_data() -> tuple[list[ThemeInfo], list[ThemeInfo]]:
+            owned = theme_mgr.list_account_themes(account_id)
+            if not getattr(s, "multi_theme", False):
+                owned = [t for t in owned if t.id == 0]
+            if visible_scope in {"owner", "readonly"}:
+                vis = owned
+            elif visible_scope == "collaborator":
+                vis = [t for t in owned if t.is_public or t.is_collaborator_accessible]
+            else:
+                vis = [t for t in owned if t.is_public]
+            return owned, vis
+
+        owned_themes, visible_themes = await asyncio.to_thread(_fetch_themes_data)
+        total_items = len(visible_themes)
+
+        query = collections.parse_collection_query(request.query_params)
+        legacy_dir = SqliteLegacyHostDirectory(s.db_file)
+
+        def _build_theme_stats(t: ThemeInfo) -> dict[str, int]:
+            abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
+            t_stats = {"documents": 0, "entities": 0, "relations": 0}
+            if abs_db.is_file():
+                try:
+                    conn = dbm.connect_existing(abs_db, readonly=True)
                     try:
-                        conn = dbm.connect_existing(s.db_file, readonly=True)
-                        try:
-                            t_stats = theme_summary(conn, include_hidden=include_hidden, theme_id=0)
-                        finally:
-                            conn.close()
-                    except Exception:
-                        pass
-                pres_enabled = bool(getattr(s, "presentation_enabled", False))
-                if theme_mgr is not None:
-                    try:
-                        t0 = theme_mgr.get_theme(0)
-                        if t0 is not None:
-                            pres_enabled = bool(t0.presentation_enabled)
-                    except Exception:
-                        pass
-                default_theme_data = {
-                    "id": 0,
-                    "seq": 0,
-                    "label": "기본 지식베이스",
-                    "description": "일반 수집 자료 및 기본 지식",
-                    "icon": "📚",
-                    "default_focus": "",
-                    "is_default": True,
-                    "is_public": True,
-                    "is_collaborator_accessible": False,
-                    "presentation_enabled": pres_enabled,
+                        t_stats = theme_summary(conn, include_hidden=(visible_scope != "anonymous"), theme_id=t.id)
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass
+            return t_stats
+
+        if query.page:
+            filtered = list(visible_themes)
+            if query.max_id is not None:
+                filtered = [t for t in filtered if t.number is not None and t.number < query.max_id]
+            elif query.min_id is not None:
+                candidates = [t for t in filtered if t.number is not None and t.number > query.min_id]
+                candidates.sort(key=lambda t: t.number or 0)
+                candidates = candidates[:query.limit]
+                candidates.reverse()
+                filtered = candidates
+            elif query.since_id is not None:
+                filtered = [t for t in filtered if t.number is not None and t.number > query.since_id]
+
+            page_slice = filtered[:query.limit] if query.min_id is None else filtered
+
+            items = []
+            etag_parts = []
+            for t in page_slice:
+                num_str = str(t.number) if t.number is not None else str(t.id)
+                t_stats = await asyncio.to_thread(_build_theme_stats, t)
+                item_dict: dict[str, Any] = {
+                    "number": num_str,
+                    "url": f"{collection_url}/{num_str}/",
+                    "label": t.label,
+                    "is_default": t.is_default,
+                    "is_public": t.is_public,
                     "stats": t_stats,
                 }
-                return {
-                    "themes": [default_theme_data],
-                    "default_theme_id": 0,
-                    "multi_theme": False,
-                }
+                if visible_scope in {"owner", "readonly"}:
+                    hosts = legacy_dir.list_hosts_for_theme(t.id)
+                    item_dict["legacy_hosts"] = [
+                        {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
+                        for h in hosts
+                    ]
+                items.append(item_dict)
+                etag_parts.append(f"{num_str}:{t.updated_at}")
 
-            if scope in {"owner", "readonly"}:
-                all_themes = theme_mgr.list_themes(include_private=True, host=host_header)
-            elif scope == "collaborator":
-                all_themes = theme_mgr.list_themes(include_private=False, collaborator=True, host=host_header)
-            else:
-                all_themes = theme_mgr.list_themes(include_private=False, collaborator=False, host=host_header)
+            is_first_page = (query.max_id is None and query.min_id is None and query.since_id is None)
+            page_data = collections.collection_page(
+                collection_url=collection_url,
+                query=query,
+                items=items,
+                item_number="number",
+                is_first_page=is_first_page,
+            )
+            etag = collections.collection_etag(etag_parts)
+            hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=hdrs)
+            return JSONResponse(page_data, headers=hdrs)
 
-            result = []
-            for t in all_themes:
-                abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
-                t_stats = {"documents": 0, "entities": 0, "relations": 0}
-                if abs_db.is_file():
-                    try:
-                        conn = dbm.connect_existing(abs_db, readonly=True)
-                        try:
-                            t_stats = theme_summary(conn, include_hidden=include_hidden, theme_id=t.id)
-                        finally:
-                            conn.close()
-                    except Exception:
-                        pass
-                theme_dict = t.to_dict()
-                eff_sorcerer = (t.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
-                theme_dict["sorcerer"] = (t.sorcerer or "").strip()
-                theme_dict["effective_sorcerer"] = eff_sorcerer
-                theme_dict["knowledge_manager"] = eff_sorcerer
-                theme_dict["stats"] = t_stats
-                result.append(theme_dict)
+        root_data = collections.collection_root(collection_url=collection_url, total_items=total_items)
 
-            def_tid = 0
-            if host_header:
-                req_h = host_header.split(":", 1)[0].strip().lower()
-                theme_by_fqdn = theme_mgr.get_theme_by_fqdn(req_h)
-                if theme_by_fqdn is not None and theme_by_fqdn.id > 0:
-                    def_tid = theme_by_fqdn.id
+        legacy_theme_list = []
+        etag_parts = []
+        for t in visible_themes:
+            t_stats = await asyncio.to_thread(_build_theme_stats, t)
+            td = t.to_dict()
+            eff_sorcerer = (t.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
+            td["sorcerer"] = (t.sorcerer or "").strip()
+            td["effective_sorcerer"] = eff_sorcerer
+            td["knowledge_manager"] = eff_sorcerer
+            td["stats"] = t_stats
+            if visible_scope in {"owner", "readonly"}:
+                hosts = legacy_dir.list_hosts_for_theme(t.id)
+                td["legacy_hosts"] = [
+                    {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
+                    for h in hosts
+                ]
+            legacy_theme_list.append(td)
+            num_str = str(t.number) if t.number is not None else str(t.id)
+            etag_parts.append(f"{num_str}:{t.updated_at}")
 
-            return {"themes": result, "default_theme_id": def_tid, "multi_theme": True}
+        root_data["themes"] = legacy_theme_list
+        try:
+            def_theme = theme_mgr.default_theme_for(account_id)
+            root_data["default_theme_id"] = def_theme.id
+            root_data["default_theme_number"] = str(def_theme.number) if def_theme.number is not None else None
+        except ThemeNotFound:
+            root_data["default_theme_id"] = 0
+            root_data["default_theme_number"] = None
+        root_data["multi_theme"] = bool(getattr(s, "multi_theme", False))
 
-        return JSONResponse(await asyncio.to_thread(_get_themes_with_stats))
+        etag = collections.collection_etag(etag_parts)
+        hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=hdrs)
+        return JSONResponse(root_data, headers=hdrs)
 
     async def theme_define_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -549,6 +612,11 @@ def create_app(
                 detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
         body = await _json_object(request)
+        if "fqdn" in body and body["fqdn"]:
+            raise HTTPException(
+                status_code=400,
+                detail="FQDN assignment is deprecated and no longer supported",
+            )
         label = str(body.get("label") or "").strip()
         if not label:
             raise HTTPException(status_code=400, detail="label is required")
@@ -566,7 +634,6 @@ def create_app(
             or body.get("focus")
             or ""
         ).strip()
-        fqdn = str(body.get("fqdn") or "").strip()
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
         pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
@@ -578,7 +645,6 @@ def create_app(
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
                 default_focus=def_focus,
-                fqdn=fqdn,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -603,6 +669,11 @@ def create_app(
                 detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)",
             )
         body = await _json_object(request)
+        if "fqdn" in body and body["fqdn"]:
+            raise HTTPException(
+                status_code=400,
+                detail="FQDN assignment is deprecated and no longer supported",
+            )
         theme_id = (
             request.query_params.get("id")
             or (str(body.get("id")) if body.get("id") is not None else None)
@@ -610,6 +681,18 @@ def create_app(
         )
         if not theme_id:
             raise HTTPException(status_code=400, detail="id is required")
+
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        try:
+            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
+            target_theme = resolved.theme
+        except ThemeNotFound:
+            raise HTTPException(status_code=404, detail="theme not found")
+
         label = body.get("label")
         desc = body.get("description") if "description" in body else body.get("desc")
         icon = body.get("icon")
@@ -636,7 +719,6 @@ def create_app(
             if "default_focus" in body
             else (body.get("focus") if "focus" in body else None)
         )
-        fqdn = body.get("fqdn") if "fqdn" in body else None
         ga_id = (
             body.get("ga_measurement_id")
             if "ga_measurement_id" in body
@@ -656,14 +738,13 @@ def create_app(
             pres_enabled = bool(pres_enabled)
         try:
             theme = theme_mgr.update_theme(
-                theme_id,
+                target_theme.id,
                 label=label,
                 description=desc,
                 icon=icon,
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
                 default_focus=def_focus,
-                fqdn=fqdn,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -714,7 +795,18 @@ def create_app(
             purge = bool(body.get("purge", False))
 
         try:
-            deleted = theme_mgr.delete_theme(theme_id, purge=purge)
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        try:
+            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
+            target_theme = resolved.theme
+        except ThemeNotFound:
+            raise HTTPException(status_code=404, detail="theme not found")
+
+        try:
+            deleted = theme_mgr.delete_theme(target_theme.id, purge=purge)
             if hasattr(service_pool, "remove_service"):
                 service_pool.remove_service(deleted.id)
             return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
@@ -1288,7 +1380,12 @@ def create_app(
         include_private = scope in {"owner", "readonly"}
         is_collaborator = scope == "collaborator"
         theme = None
-        if getattr(s, "multi_theme", False):
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+
+        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_theme_id is not None):
             try:
                 theme, _, _ = _get_theme_ctx(request)
             except HTTPException:
@@ -1302,6 +1399,7 @@ def create_app(
                 collaborator=is_collaborator,
                 theme=theme,
                 host=request.headers.get("host"),
+                request=request,
             )
         )
 
@@ -3174,12 +3272,12 @@ def create_app(
                     scope = "owner"
                 elif getattr(s, "collaborator_token", None) and bearer_tok == s.collaborator_token:
                     scope = "collaborator"
-            elif "claire_session" in request.cookies:
+            elif (cookie_token := read_session_cookie(request.scope)[1]) is not None:
                 try:
                     conn_sess = dbm.connect_existing(s.db_file, readonly=True)
                     try:
                         sess_scope = dbm.validate_session_scope(
-                            conn_sess, request.cookies["claire_session"], scopes=("owner", "collaborator")
+                            conn_sess, cookie_token, scopes=("owner", "collaborator")
                         )
                         if sess_scope:
                             scope = sess_scope
@@ -4021,8 +4119,36 @@ def create_app(
     app.router.add_static = _add_static  # type: ignore[attr-defined]
     app.router.add_static("/static/", path=str(static_dir), name="static")
 
-    secured = wrap_web_app(app, s, theme_manager=theme_mgr)
-    return GateMiddleware(app, secured, PUBLIC_PATHS)
+    namespace_directory = SqliteNamespaceDirectory(s.db_file)
+
+    def _legacy_theme_location(legacy: LegacyHost) -> str | None:
+        """레거시 호스트의 정본 테마 경로(§5.3). 테마가 없거나 번호가 아직 없으면 None(421)."""
+        try:
+            theme = theme_mgr.get_theme(legacy.theme_id)
+        except ThemeNotFound:
+            return None
+        if theme.id != legacy.theme_id or theme.number is None:
+            return None
+        mode = namespace_directory.mode()
+        if mode == "single":
+            return theme_base_path(mode, None, theme.number)
+        try:
+            owner = namespace_directory.account(theme.account_id)
+        except accounts_store.AccountNotFound:
+            return None
+        if owner.status != "active" or not owner.username:
+            return None
+        return theme_base_path(mode, owner.username, theme.number)
+
+    legacy_hosts = SqliteLegacyHostDirectory(s.db_file, theme_location=_legacy_theme_location)
+    # GateMiddleware는 없앴다(§5.1 Rev. 2.3). 정적 자산도 HostRouter와 보안 헤더 안쪽을 지난다.
+    return wrap_web_app(
+        app,
+        s,
+        theme_manager=theme_mgr,
+        legacy_hosts=legacy_hosts,
+        namespace_directory=namespace_directory,
+    )
 
 
 def run_api() -> int:
@@ -4079,20 +4205,54 @@ def run_api() -> int:
     except Exception:
         pass
 
+    from .dev_listeners import dev_listeners
+
+    listeners = dev_listeners(s)
+    listen = ", ".join(f"{host}:{port}" for host, port in listeners)
     print(
         "Claire ASGI 웹 서비스 시작: "
         f"{runtime.public_origin} "
-        f"(listen={s.inject_host}:{s.inject_port}, env={runtime.environment})"
+        f"(listen={listen}, env={runtime.environment})",
+        flush=True,
     )
-    uvicorn.run(
-        app,
-        host=s.inject_host,
-        port=s.inject_port,
-        workers=1,
-        access_log=False,
-        proxy_headers=False,
-        server_header=False,
-        limit_concurrency=64,
-        timeout_keep_alive=5,
-    )
-    return 0
+    uvicorn_options: dict[str, Any] = {
+        "workers": 1,
+        "access_log": False,
+        "proxy_headers": False,
+        "server_header": False,
+        "limit_concurrency": 64,
+        "timeout_keep_alive": 5,
+    }
+    if len(listeners) == 1:
+        uvicorn.run(app, host=s.inject_host, port=s.inject_port, **uvicorn_options)
+        return 0
+
+    # 개발 환경의 역할 호스트 포트(§5.1, O16). 한 Server가 리스너 소켓 여럿을 함께 연다.
+    # Server를 리스너마다 두면 lifespan(MCP 세션 관리자 등)이 여러 번 돌고 신호 처리기가
+    # 서로 덮이므로, 같은 app·같은 이벤트 루프·같은 신호 처리를 쓰도록 소켓만 늘린다.
+    import socket
+
+    sockets: list[socket.socket] = []
+    try:
+        for host, port in listeners:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sockets.append(sock)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, port))
+            except OSError as exc:
+                print(f"listen 실패 {host}:{port}: {exc}")
+                return 1
+            sock.set_inheritable(True)
+        config = uvicorn.Config(app, host=s.inject_host, port=s.inject_port, **uvicorn_options)
+        server = uvicorn.Server(config)
+        for host, port in listeners:
+            logging.getLogger("uvicorn.error").info("Uvicorn running on http://%s:%d", host, port)
+        try:
+            server.run(sockets=sockets)
+        except KeyboardInterrupt:
+            pass
+    finally:
+        for sock in sockets:
+            sock.close()
+    return 0 if server.started else 1

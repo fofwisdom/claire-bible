@@ -940,7 +940,8 @@ def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
         public_url="http://127.0.0.1:8765",
     )
     app = create_app(settings)
-    client = TestClient(app)
+    # GateMiddleware가 없어져 정적·이미지 경로도 Host 판정을 받는다(설계 §5.1). 공개 authority로 부른다.
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
 
     # 1. /images/doc_test_img.png
     resp = client.get("/images/doc_test_img.png")

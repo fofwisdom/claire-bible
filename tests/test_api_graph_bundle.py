@@ -135,6 +135,15 @@ def _build_settings(tmp_path: Path) -> Settings:
     )
 
 
+def _starlette_app(app):
+    """create_app이 돌려준 보안 래퍼 사슬(SafeAccessLog → HostRouter → …)의 안쪽 Starlette 앱."""
+    from starlette.applications import Starlette
+
+    while not isinstance(app, Starlette):
+        app = app.app
+    return app
+
+
 @pytest.mark.asyncio
 async def test_create_graph_bundle_route_direct_handler_scope_enforcement(tmp_path: Path):
     """Direct invocation of create_graph_bundle_route enforces scope == 'owner'."""
@@ -143,7 +152,7 @@ async def test_create_graph_bundle_route_direct_handler_scope_enforcement(tmp_pa
 
     # Find the route handler
     create_handler = None
-    for r in app.inner.router.routes:
+    for r in _starlette_app(app).router.routes:
         if getattr(r, "path", None) == "/graph/bundle" and "POST" in getattr(r, "methods", []):
             create_handler = r.endpoint
             break

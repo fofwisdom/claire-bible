@@ -19,7 +19,7 @@ from pathlib import Path
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -980,6 +980,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             pass
 
     _migrate_v15_accounts(conn)
+    _migrate_v16_themes(conn)
 
 
 # v15에서 account_id를 받는 자격증명 테이블. NULL은 v15 이전 행이며 관리자(1)의 것이다(§8.3).
@@ -1117,6 +1118,109 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_account_default ON themes(account_id) WHERE is_default = 1"
     )
+
+
+def read_id_salt(conn: sqlite3.Connection) -> bytes:
+    """``instance_settings.id_salt``를 읽는다. 없거나 형식이 틀리면 만들지 않고 실패한다(v15 몫, C1)."""
+    row = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()
+    if row is None:
+        raise RuntimeError("instance_settings.id_salt is missing (schema v15 migration not applied)")
+    try:
+        salt = bytes.fromhex(str(row["value"]))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("instance_settings.id_salt is not valid hex") from exc
+    if len(salt) != ID_SALT_BYTES:
+        raise RuntimeError(f"instance_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
+    return salt
+
+
+def legacy_theme_number_unix_ms(created_at: float | None) -> int:
+    """이관 번호의 밀리초. ``created_at``이 0·NULL이어도 번호가 ``2^56`` 이상이 되도록 하한을 둔다(§7.2, Rev. 2.3)."""
+    raw_ms = int(float(created_at or 0.0) * 1000)
+    return max(raw_ms, ADMIN_LEGACY_PUBLIC_ID_UNIX_MS)
+
+
+# 이관 번호가 이미 쓰인 경우(같은 밀리초·같은 하위 16비트) 밀리초를 하나씩 올려 보는 최대 횟수.
+# id 순서로 처리하므로 같은 DB에서는 다시 실행해도 같은 번호가 나온다(A3).
+_LEGACY_THEME_NUMBER_PROBES = 1024
+
+
+def backfill_theme_numbers(conn: sqlite3.Connection, *, now: float | None = None) -> int:
+    """``number``가 NULL인 테마에 결정론적 번호를 채우고, 그 행의 ``fqdn``을 ``legacy_hosts``로 옮긴다(§13.2).
+
+    번호는 ``legacy_timestamp_id("themes", unix_ms=max(created_at_ms, ADMIN_LEGACY_PUBLIC_ID_UNIX_MS), row_id=id)``다.
+    ``legacy_hosts`` 복사는 번호를 처음 받는 행에서만 한다. 그래서 이후 ``legacy_hosts`` 행을 지워도 다음 ``init_db``가 되살리지 않는다.
+    v16 이관과, 이관 뒤 레거시 경로(``themes.json``·다중 DB 가져오기)로 들어온 행이 함께 쓴다. 채운 행 수를 반환한다. 커밋은 호출자 몫이다.
+    """
+    rows = conn.execute(
+        "SELECT id, created_at, fqdn FROM themes WHERE number IS NULL ORDER BY id"
+    ).fetchall()
+    if not rows:
+        return 0
+    salt = read_id_salt(conn)
+    stamp = time.time() if now is None else now
+    for row in rows:
+        theme_id = int(row["id"])
+        base_ms = legacy_theme_number_unix_ms(row["created_at"])
+        number: int | None = None
+        for probe in range(_LEGACY_THEME_NUMBER_PROBES):
+            candidate = legacy_timestamp_id("themes", salt=salt, unix_ms=base_ms + probe, row_id=theme_id)
+            taken = conn.execute("SELECT 1 FROM themes WHERE number=?", (candidate,)).fetchone()
+            if taken is None:
+                number = candidate
+                break
+        if number is None:
+            raise RuntimeError(
+                f"schema v16 migration stopped: no free number for themes.id={theme_id} "
+                f"after {_LEGACY_THEME_NUMBER_PROBES} probes"
+            )
+        conn.execute("UPDATE themes SET number=? WHERE id=? AND number IS NULL", (number, theme_id))
+        host = str(row["fqdn"] or "").strip().lower()
+        if host:
+            conn.execute(
+                "INSERT OR IGNORE INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) "
+                "VALUES (?, ?, ?, NULL, NULL)",
+                (host, theme_id, stamp),
+            )
+    return len(rows)
+
+
+def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
+    """v16 (설계 §13.2): 테마 번호, 공개 epoch, 테마 고정 임베딩, 레거시 호스트, 공개 디렉터리 카운터. 멱등(A3).
+
+    ``themes.fqdn`` 열은 지우지 않는다(A3). 새 쓰기는 ``store.theme``이 막는다(O5).
+    """
+    _ensure_column(conn, "themes", "number", "INTEGER")
+    _ensure_column(conn, "themes", "visibility_epoch", "INTEGER NOT NULL DEFAULT 1")
+    _ensure_column(conn, "themes", "embed_provider", "TEXT")
+    _ensure_column(conn, "themes", "embed_model", "TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legacy_hosts (
+            host TEXT PRIMARY KEY,
+            theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+            created_at REAL NOT NULL,
+            activated_at REAL,
+            sunset_at REAL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS public_directory_counters (
+            account_id INTEGER PRIMARY KEY,
+            public_themes INTEGER NOT NULL,
+            public_documents INTEGER NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    # UNIQUE 인덱스를 먼저 만들어, 채우는 도중의 중복을 제약이 바로 잡게 한다.
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_number ON themes(number)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_themes_account_number ON themes(account_id, number DESC)"
+    )
+    backfill_theme_numbers(conn)
 
 
 def _stored_meta_value(conn: sqlite3.Connection, key: str) -> str | None:

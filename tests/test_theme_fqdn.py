@@ -1,9 +1,15 @@
-"""Comprehensive test suite for Theme FQDN reverse proxy and per-theme GA4 tracking."""
+"""테마 FQDN 검증, 테마별 GA4, 레거시 테마 호스트 리다이렉트(설계 §5.3).
+
+P2부터 테마 FQDN은 호스트로 테마를 서빙하지 않고 새로 쓸 수도 없다(O5). v16 이관이 ``themes.fqdn``을 ``legacy_hosts``로 옮기고, ``HostRouter``는 그 호스트만 정본 테마 경로로 308 리다이렉트한다. 나머지 호스트는 421이다.
+"""
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
+
 import pytest
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -15,8 +21,8 @@ from claire.api import security
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import db as dbm
+from claire.store import legacy_hosts as lh
 from claire.store.theme import (
-    ThemeInfo,
     ThemeManager,
     validate_fqdn,
     validate_ga_measurement_id,
@@ -26,10 +32,19 @@ OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+APP_HOST = "127.0.0.1:8765"
+APP_ORIGIN = f"http://{APP_HOST}"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_claire_env(monkeypatch):
+    for name in list(os.environ):
+        if name.startswith("CLAIRE_"):
+            monkeypatch.delenv(name, raising=False)
 
 
 # ---------------------------------------------------------------------------
-# 1. Validation & ThemeManager Tests
+# 1. 검증기와 테마 FQDN 쓰기 폐지
 # ---------------------------------------------------------------------------
 
 def test_validate_fqdn_cases():
@@ -87,71 +102,29 @@ def test_validate_ga_measurement_id_cases():
             validate_ga_measurement_id(bad)
 
 
-def test_theme_manager_fqdn_lifecycle_and_collisions(tmp_path):
+def test_theme_manager_rejects_new_fqdn_but_keeps_ga(tmp_path):
     data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-
     settings = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
-        CLAIRE_FQDN="primary.example.com",
     )
     tm = ThemeManager(base_settings=settings)
-
-    # 1. Register theme with FQDN and GA ID
-    t1 = tm.define_theme(
-        "AI 테마",
-        fqdn="ai.example.com",
-        ga_measurement_id="G-AI12345678",
-    )
-    assert t1.fqdn == "ai.example.com"
-    assert t1.ga_measurement_id == "G-AI12345678"
-    assert tm.has_registered_fqdn("ai.example.com") is True
-    assert tm.get_theme_by_fqdn("ai.example.com").id == t1.id
-    assert tm.has_any_ga_enabled() is True
-
-    # 2. Collision with existing theme FQDN
-    with pytest.raises(ValueError, match="이미 다른 테마"):
-        tm.define_theme("금융 테마", fqdn="ai.example.com")
-
-    # 3. Collision with system effective_fqdn
-    with pytest.raises(ValueError, match="기본 서비스 도메인"):
-        tm.define_theme("메인 테마", fqdn="primary.example.com")
-
-    # 4. Define second theme
-    t2 = tm.define_theme("금융 테마", fqdn="finance.example.com")
-    assert tm.has_registered_fqdn("finance.example.com") is True
-    assert tm.get_theme_by_fqdn("finance.example.com").id == t2.id
-
-    # 5. Update theme 2 with collision
-    with pytest.raises(ValueError, match="이미 다른 테마"):
-        tm.update_theme(t2.id, fqdn="ai.example.com")
-
-    with pytest.raises(ValueError, match="기본 서비스 도메인"):
-        tm.update_theme(t2.id, fqdn="primary.example.com")
-
-    # 6. Update theme 1 to change FQDN
-    tm.update_theme(t1.id, fqdn="new-ai.example.com")
-    assert tm.has_registered_fqdn("ai.example.com") is False
-    assert tm.has_registered_fqdn("new-ai.example.com") is True
-
-    # 7. Delete theme unregisters FQDN
-    tm.delete_theme(t2.id)
-    assert tm.has_registered_fqdn("finance.example.com") is False
-    assert tm.get_theme_by_fqdn("finance.example.com") is None
-
-    # 8. Clear FQDN on theme 1
-    tm.update_theme(t1.id, fqdn="", ga_measurement_id="")
-    assert tm.has_registered_fqdn("new-ai.example.com") is False
+    with pytest.raises(ValueError):
+        tm.define_theme("AI 테마", fqdn="ai.example.com")
+    t = tm.define_theme("AI 테마", ga_measurement_id="G-AI12345678")
+    assert t.ga_measurement_id == "G-AI12345678" and tm.has_any_ga_enabled() is True
+    with pytest.raises(ValueError):
+        tm.update_theme(t.id, fqdn="ai.example.com")
+    tm.update_theme(t.id, fqdn="", ga_measurement_id="")
     assert tm.has_any_ga_enabled() is False
 
 
 # ---------------------------------------------------------------------------
-# 2. HostAuthorityMiddleware & Dynamic CSP Tests
+# 2. Host 판정과 CSP
 # ---------------------------------------------------------------------------
 
 async def _inner_test_endpoint(request: Request) -> JSONResponse:
@@ -171,42 +144,47 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
     )
 
 
+def _theme_manager(db_file: Path) -> ThemeManager:
+    return ThemeManager(
+        base_settings=Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_MULTI_THEME=True)
+    )
+
+
+def _set_legacy_fqdn(db_file: Path, theme_id: int, fqdn: str) -> None:
+    """P2 이전 설치처럼 ``themes.fqdn``을 직접 쓰고, v16 이관이 ``legacy_hosts``로 옮기게 한다."""
+    conn = dbm.connect(db_file)
+    try:
+        conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (theme_id,))
+        conn.execute("UPDATE themes SET fqdn=?, number=NULL WHERE id=?", (fqdn, theme_id))
+        conn.commit()
+        dbm.init_db(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.mark.asyncio
-async def test_host_authority_dynamic_theme_fqdn(tmp_path):
+async def test_theme_origin_and_host_are_not_trusted_without_legacy_directory(tmp_path):
     s = _make_security_test_settings(tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
 
     inner_app = Starlette(routes=[Route("/health", _inner_test_endpoint)])
-    tm = ThemeManager(base_settings=Settings(CLAIRE_DB_PATH=str(s.db_file), CLAIRE_MULTI_THEME=True))
-    app = security.wrap_web_app(inner_app, s, theme_manager=tm)
-
-    # Primary host is allowed
-    client = TestClient(app, base_url="http://192.0.2.10:8766")
-    resp = client.get("/health")
-    assert resp.status_code == 200
-
-    # Unregistered host returns 421 Misdirected Request
-    resp = client.get("/health", headers={"Host": "ai.example.com"})
-    assert resp.status_code == 421
-
-    # Register theme with FQDN
-    t = tm.define_theme("AI 테마", fqdn="ai.example.com")
+    tm = _theme_manager(s.db_file)
+    theme = tm.define_theme("AI 테마")
+    _set_legacy_fqdn(s.db_file, theme.id, "ai.example.com")
+    tm.reload()
     assert tm.has_registered_fqdn("ai.example.com") is True
 
-    # Now registered host is dynamically allowed without server restart!
-    resp = client.get("/health", headers={"Host": "ai.example.com"})
-    assert resp.status_code == 200
-
-    # Port stripping test: ai.example.com:8766
-    resp = client.get("/health", headers={"Host": "ai.example.com:8766"})
-    assert resp.status_code == 200
-
-    # Delete theme -> immediately 421 again
-    tm.delete_theme(t.id)
-    resp = client.get("/health", headers={"Host": "ai.example.com"})
-    assert resp.status_code == 421
+    app = security.wrap_web_app(inner_app, s, theme_manager=tm)
+    client = TestClient(app, base_url="http://192.0.2.10:8766")
+    assert client.get("/health").status_code == 200
+    # 디렉터리를 주지 않은 래퍼에서는 테마 FQDN도 미등록 호스트다(421).
+    for host in ("ai.example.com", "ai.example.com:8766"):
+        assert client.get("/health", headers={"Host": host}).status_code == 421
+    # CORSPolicyMiddleware의 테마 origin 허용은 없앴다.
+    assert client.get("/health", headers={"Origin": "http://ai.example.com"}).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -217,39 +195,27 @@ async def test_dynamic_csp_headers_on_theme_ga(tmp_path):
     conn.close()
 
     inner_app = Starlette(routes=[Route("/health", _inner_test_endpoint)])
-    tm = ThemeManager(base_settings=Settings(CLAIRE_DB_PATH=str(s.db_file), CLAIRE_MULTI_THEME=True))
+    tm = _theme_manager(s.db_file)
     app = security.wrap_web_app(inner_app, s, theme_manager=tm)
     client = TestClient(app, base_url="http://192.0.2.10:8766")
 
-    # Initial CSP: no Google Analytics domains
-    resp = client.get("/health")
-    csp = resp.headers.get("content-security-policy", "")
+    csp = client.get("/health").headers.get("content-security-policy", "")
     assert "googletagmanager.com" not in csp
     assert "google-analytics.com" not in csp
 
-    # Register theme with GA ID
     t = tm.define_theme("GA 테마", ga_measurement_id="G-DYNAMICTEST1")
-    assert tm.has_any_ga_enabled() is True
-
-    # Next request dynamically includes GA in CSP!
-    resp = client.get("/health")
-    csp = resp.headers.get("content-security-policy", "")
+    csp = client.get("/health").headers.get("content-security-policy", "")
     assert "https://*.googletagmanager.com" in csp
     assert "https://*.google-analytics.com" in csp
 
-    # Remove GA ID
     tm.update_theme(t.id, ga_measurement_id="")
-    assert tm.has_any_ga_enabled() is False
-
-    # Next request immediately removes GA from CSP!
-    resp = client.get("/health")
-    csp = resp.headers.get("content-security-policy", "")
+    csp = client.get("/health").headers.get("content-security-policy", "")
     assert "googletagmanager.com" not in csp
     assert "google-analytics.com" not in csp
 
 
 # ---------------------------------------------------------------------------
-# 3. Server Route Host Resolution, Domain Pinning, & Private Theme Stealth Tests
+# 3. create_app: 레거시 테마 호스트 리다이렉트
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -260,11 +226,12 @@ def multi_theme_server_env(tmp_path):
     vault_dir.mkdir(parents=True)
 
     settings = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_PUBLIC_URL=APP_ORIGIN,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
         CLAIRE_ANONYMOUS_READONLY=True,
@@ -275,96 +242,97 @@ def multi_theme_server_env(tmp_path):
     return client, settings, app
 
 
-def test_theme_routing_and_domain_pinning(multi_theme_server_env):
+def _create_theme(client: TestClient, label: str, **extra) -> tuple[int, str]:
+    r = client.post("/themes", json={"label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
+    assert r.status_code == 201, r.text
+    theme = r.json()["theme"]
+    return theme["id"], theme["number"]
+
+
+def _theme_number(settings: Settings, theme_id: int) -> int:
+    conn = dbm.connect(settings.db_file)
+    try:
+        return int(conn.execute("SELECT number FROM themes WHERE id=?", (theme_id,)).fetchone()[0])
+    finally:
+        conn.close()
+
+
+def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
+    theme_id, _ = _create_theme(client, "AI 전용")
+    _set_legacy_fqdn(settings.db_file, theme_id, " AI.Example.com ")
+    number = _theme_number(settings, theme_id)
 
-    # 1. Create Public Theme 1 with FQDN
-    r1 = client.post(
-        "/themes",
-        json={"label": "AI 전용", "fqdn": "ai.example.com", "is_public": True},
-        headers=OWNER_HEADERS,
+    noisy = {"Cookie": "claire_session=" + "s" * 43, "Origin": "http://ai.example.com"}
+    resp = client.get(
+        "/documents?theme=2&q=x", headers={"Host": "ai.example.com", **noisy}, follow_redirects=False
     )
-    assert r1.status_code == 201
-    t1_id = r1.json()["theme"]["id"]
+    assert resp.status_code == 308
+    assert resp.headers["location"] == f"{APP_ORIGIN}/themes/{number}/documents?theme=2&q=x"
+    assert "set-cookie" not in resp.headers
+    assert "access-control-allow-origin" not in resp.headers
 
-    # 2. Create Public Theme 2 with FQDN
-    r2 = client.post(
-        "/themes",
-        json={"label": "금융 전용", "fqdn": "finance.example.com", "is_public": True},
-        headers=OWNER_HEADERS,
+    root = client.head("/", headers={"Host": "AI.example.com:8765"}, follow_redirects=False)
+    assert root.status_code == 308
+    assert root.headers["location"] == f"{APP_ORIGIN}/themes/{number}/"
+
+    # 쓰기 메서드는 리다이렉트하지 않는다.
+    assert client.post("/search", json={"q": "x"}, headers={"Host": "ai.example.com"}).status_code == 421
+    assert (
+        client.post("/themes", json={"label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
+        == 421
     )
-    assert r2.status_code == 201
-    t2_id = r2.json()["theme"]["id"]
-
-    # 3. Access via Host: ai.example.com -> routes to Theme 1
-    resp_ai = client.get("/documents", headers={"Host": "ai.example.com"})
-    assert resp_ai.status_code == 200
-
-    # 4. Domain Pinning Invariant:
-    # When requesting via Host: ai.example.com, even if query param ?theme=2 is provided,
-    # the request remains pinned to Theme 1 (ai.example.com).
-    resp_ai_pinned = client.get(f"/documents?theme={t2_id}", headers={"Host": "ai.example.com"})
-    assert resp_ai_pinned.status_code == 200
-
-    # 5. On the primary domain, FQDN theme is hidden from anonymous users (404 Fail-closed)
-    resp_primary_t2_anon = client.get(f"/documents?theme={t2_id}", headers={"Host": "127.0.0.1:8765"})
-    assert resp_primary_t2_anon.status_code == 404
-
-    # 6. On the primary domain, authenticated owner can access FQDN theme via ?theme= parameter
-    resp_primary_t2_owner = client.get(
-        f"/documents?theme={t2_id}",
-        headers={"Host": "127.0.0.1:8765", **OWNER_HEADERS},
-    )
-    assert resp_primary_t2_owner.status_code == 200
-
-    # 7. On its dedicated FQDN (Host: finance.example.com), anonymous access works normally
-    resp_finance = client.get("/documents", headers={"Host": "finance.example.com"})
-    assert resp_finance.status_code == 200
+    # 정적 자산도 레거시 호스트에서 직접 열리지 않고 정본 경로로 간다.
+    static = client.get("/static/js/app.js", headers={"Host": "ai.example.com"}, follow_redirects=False)
+    assert static.status_code == 308
+    assert static.headers["location"] == f"{APP_ORIGIN}/themes/{number}/static/js/app.js"
 
 
-def test_private_theme_fqdn_fail_closed_stealth(multi_theme_server_env):
-    """비공개 테마(is_public=False)에 FQDN이 연결되었을 때 익명 접근 시 404 스텔스 검증."""
+def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
+    theme_id, _ = _create_theme(client, "일몰 테마")
+    _set_legacy_fqdn(settings.db_file, theme_id, "old.example.com")
 
-    # Create Private Theme with FQDN
-    r = client.post(
-        "/themes",
-        json={"label": "기밀 테마", "fqdn": "secret.example.com", "is_public": False},
-        headers=OWNER_HEADERS,
-    )
-    assert r.status_code == 201
-    secret_theme = r.json()["theme"]
-    assert secret_theme["is_public"] is False
+    def status(host: str = "old.example.com") -> int:
+        return client.get("/", headers={"Host": host}, follow_redirects=False).status_code
 
-    # 1. Anonymous visitor accessing root / via Host: secret.example.com -> HTTP 404 (Fail-closed)
-    resp_root = client.get("/", headers={"Host": "secret.example.com"})
-    assert resp_root.status_code == 404
-    # Ensure no title/label leakage
-    assert "기밀 테마" not in resp_root.text
+    assert status() == 308  # 활성화 전: 무기한 308
+    conn = dbm.connect(settings.db_file)
+    try:
+        lh.activate_sunset_clock(conn, now=time.time() - 31 * 86400)
+        assert status() == 410  # 기본 30일이 지났다
+        lh.write_legacy_host_policy(conn, lh.LegacyHostPolicy(after_sunset_status=421), updated_by=1)
+        assert status() == 421
+        lh.extend_sunset(conn, "old.example.com", days=30)
+        assert status() == 308
+        lh.keep_indefinitely(conn, "old.example.com")
+        assert status() == 308
+    finally:
+        conn.close()
 
-    # 2. Anonymous visitor accessing /documents via Host: secret.example.com -> HTTP 404
-    resp_docs = client.get("/documents", headers={"Host": "secret.example.com"})
-    assert resp_docs.status_code == 404
-
-    # 3. Authenticated owner accessing via Host: secret.example.com -> HTTP 200
-    resp_owner = client.get("/documents", headers={"Host": "secret.example.com", **OWNER_HEADERS})
-    assert resp_owner.status_code == 200
+    # 테마를 지우면 legacy_hosts 행도 사라져 421이다.
+    assert client.request("DELETE", "/themes", json={"id": theme_id}, headers=OWNER_HEADERS).status_code == 200
+    assert status() == 421
 
 
-def test_theme_api_endpoints_fqdn_and_ga_lifecycle(multi_theme_server_env):
-    """POST /themes 및 PATCH /themes 에서 FQDN 및 GA4 설정 생성, 갱신, 검증."""
+def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env):
+    client, _, _ = multi_theme_server_env
+    _create_theme(client, "기밀 테마", is_public=False)
+    for host in ("ai.example.com", "secret.example.com"):
+        for path in ("/", "/documents", "/themes"):
+            anon = client.get(path, headers={"Host": host})
+            assert anon.status_code == 421, (host, path)
+            assert "기밀 테마" not in anon.text
+            assert client.get(path, headers={"Host": host, **OWNER_HEADERS}).status_code == 421
+
+
+def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
+    """POST·PATCH /themes: FQDN 입력은 폐지됐고(O5) GA4 설정은 그대로다."""
     client, _, _ = multi_theme_server_env
 
-    # 1. POST /themes with invalid FQDN -> 400
-    r_bad_fqdn = client.post(
-        "/themes",
-        json={"label": "잘못된 FQDN", "fqdn": "http://invalid-fqdn/"},
-        headers=OWNER_HEADERS,
-    )
-    assert r_bad_fqdn.status_code == 400
-    assert "유효하지 않은 FQDN 형식입니다" in r_bad_fqdn.json().get("error", "")
+    for fqdn in ("research.example.com", "http://invalid-fqdn/"):
+        assert client.post("/themes", json={"label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
 
-    # 2. POST /themes with invalid GA ID -> 400
     r_bad_ga = client.post(
         "/themes",
         json={"label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
@@ -373,209 +341,18 @@ def test_theme_api_endpoints_fqdn_and_ga_lifecycle(multi_theme_server_env):
     assert r_bad_ga.status_code == 400
     assert "유효하지 않은 Google Analytics 측정 ID 형식입니다" in r_bad_ga.json().get("error", "")
 
-    # 3. POST /themes valid
-    r_ok = client.post(
-        "/themes",
-        json={
-            "label": "신규 연구",
-            "fqdn": "research.example.com",
-            "ga_measurement_id": "G-RESEARCH01",
-        },
-        headers=OWNER_HEADERS,
+    theme_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
+    r_patch_fqdn = client.patch(
+        "/themes", json={"id": theme_id, "fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
     )
-    assert r_ok.status_code == 201
-    created = r_ok.json()["theme"]
-    theme_id = created["id"]
-    assert created["fqdn"] == "research.example.com"
-    assert created["ga_measurement_id"] == "G-RESEARCH01"
+    assert r_patch_fqdn.status_code == 400
 
-    # 4. Duplicate FQDN on POST -> 400
-    r_dup = client.post(
-        "/themes",
-        json={"label": "중복 도메인", "fqdn": "research.example.com"},
-        headers=OWNER_HEADERS,
-    )
-    assert r_dup.status_code == 400
-    assert "이미 다른 테마" in r_dup.json().get("error", "")
-
-    # 5. PATCH /themes update FQDN and GA ID
     r_patch = client.patch(
-        "/themes",
-        json={
-            "id": theme_id,
-            "fqdn": "new-research.example.com",
-            "ga_measurement_id": "G-RESEARCH02",
-        },
-        headers=OWNER_HEADERS,
+        "/themes", json={"id": theme_id, "ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
     )
     assert r_patch.status_code == 200
-    updated = r_patch.json()["theme"]
-    assert updated["fqdn"] == "new-research.example.com"
-    assert updated["ga_measurement_id"] == "G-RESEARCH02"
+    assert r_patch.json()["theme"]["ga_measurement_id"] == "G-RESEARCH02"
 
-    # Old FQDN is no longer valid
-    resp_old = client.get("/documents", headers={"Host": "research.example.com"})
-    assert resp_old.status_code == 421
-
-    # New FQDN works
-    resp_new = client.get("/documents", headers={"Host": "new-research.example.com"})
-    assert resp_new.status_code == 200
-
-    # 6. PATCH /themes clear FQDN and GA ID
-    r_clear = client.patch(
-        "/themes",
-        json={"id": theme_id, "fqdn": "", "ga_measurement_id": ""},
-        headers=OWNER_HEADERS,
-    )
+    r_clear = client.patch("/themes", json={"id": theme_id, "ga_measurement_id": ""}, headers=OWNER_HEADERS)
     assert r_clear.status_code == 200
-    cleared = r_clear.json()["theme"]
-    assert not cleared.get("fqdn")
-    assert not cleared.get("ga_measurement_id")
-
-    # New FQDN is now cleared and returns 421
-    resp_cleared = client.get("/documents", headers={"Host": "new-research.example.com"})
-    assert resp_cleared.status_code == 421
-
-
-def test_graph_ui_renders_theme_specific_ga_tag(multi_theme_server_env):
-    """FQDN으로 접속 시 테마에 설정된 GA4 태그 및 커스텀 차원 주입 검증."""
-    client, _, _ = multi_theme_server_env
-
-    # Create Public Theme with GA ID and FQDN
-    r = client.post(
-        "/themes",
-        json={
-            "label": "빅데이터 분석",
-            "fqdn": "bigdata.example.com",
-            "ga_measurement_id": "G-BIGDATA123",
-            "is_public": True,
-        },
-        headers=OWNER_HEADERS,
-    )
-    assert r.status_code == 201
-    theme_id = r.json()["theme"]["id"]
-
-    # Access / with Host: bigdata.example.com
-    resp = client.get("/", headers={"Host": "bigdata.example.com"})
-    assert resp.status_code == 200
-    html = resp.text
-
-    # Verify GA script tag and config
-    assert "googletagmanager.com/gtag/js?id=G-BIGDATA123" in html
-    assert f"theme_id: {theme_id}" in html
-    assert 'theme_label: "빅데이터 분석"' in html
-
-
-def test_graph_ui_fqdn_renders_plain_text_without_dropdown(multi_theme_server_env):
-    """테마 지식베이스 FQDN 접속 시 브랜드 아이콘 우측이 드롭다운 상자가 아닌 순수 텍스트로 표시되고 (전용 도메인) 문구가 없는지 검증."""
-    client, _, _ = multi_theme_server_env
-
-    # 1. 테마 등록
-    r = client.post(
-        "/themes",
-        json={
-            "label": "인공지능 연구",
-            "icon": "🤖",
-            "fqdn": "ai.example.com",
-            "is_public": True,
-        },
-        headers=OWNER_HEADERS,
-    )
-    assert r.status_code == 201
-
-    # 2. FQDN(ai.example.com)으로 접속
-    resp_fqdn = client.get("/", headers={"Host": "ai.example.com"})
-    assert resp_fqdn.status_code == 200
-    html_fqdn = resp_fqdn.text
-
-    # 드롭다운 상자(#theme-select-control) 숨김, 텍스트 표시(#theme-plain-display) 노출
-    assert 'id="theme-select-control" style="display:none"' in html_fqdn
-    assert 'id="theme-plain-display" style="display:inline-flex"' in html_fqdn
-    assert 'id="theme-plain-icon" aria-hidden="true">🤖<' in html_fqdn
-    assert 'id="theme-plain-label">인공지능 연구<' in html_fqdn
-    # 불필요한 '(전용 도메인)' 문구 완전 배제
-    assert "(전용 도메인)" not in html_fqdn
-
-    # 3. 일반 호스트(127.0.0.1:8765)로 접속 시
-    resp_main = client.get("/", headers={"Host": "127.0.0.1:8765"})
-    assert resp_main.status_code == 200
-    html_main = resp_main.text
-
-    # 일반 다중 테마 접속 시에는 드롭다운 상자 노출, 텍스트 표시 숨김
-    assert 'id="theme-plain-display" style="display:none"' in html_main
-    assert 'id="theme-select-control"' in html_main
-    # 일반 접속 시에도 드롭다운 옵션에 '(전용 도메인)' 문구 미노출
-    assert "(전용 도메인)" not in html_main
-
-
-def test_fqdn_theme_anonymous_isolation_on_primary_domain(multi_theme_server_env):
-    """FQDN이 설정된 테마가 기본 도메인 접속 시 익명 사용자에게 완전히 은닉(Stealth 404)되는지 종합 검증."""
-    client, settings, _ = multi_theme_server_env
-
-    # 1. FQDN이 설정된 공개 테마 생성
-    r_ai = client.post(
-        "/themes",
-        json={"label": "AI 연구", "fqdn": "ai.example.com", "is_public": True},
-        headers=OWNER_HEADERS,
-    )
-    assert r_ai.status_code == 201
-    ai_theme_id = r_ai.json()["theme"]["id"]
-
-    # 2. FQDN이 없는 일반 공개 테마 생성
-    r_gen = client.post(
-        "/themes",
-        json={"label": "일반 테마", "fqdn": "", "is_public": True},
-        headers=OWNER_HEADERS,
-    )
-    assert r_gen.status_code == 201
-    gen_theme_id = r_gen.json()["theme"]["id"]
-
-    # 3. 기본 도메인(127.0.0.1:8765)에서 익명 사용자가 GET /themes 호출
-    resp_themes_anon = client.get("/themes", headers={"Host": "127.0.0.1:8765"})
-    assert resp_themes_anon.status_code == 200
-    themes_data_anon = resp_themes_anon.json()["themes"]
-    theme_ids_anon = [t["id"] for t in themes_data_anon]
-
-    # 기본 테마(0)와 FQDN이 없는 일반 테마는 노출되어야 함
-    assert 0 in theme_ids_anon
-    assert gen_theme_id in theme_ids_anon
-    # FQDN이 설정된 테마는 기본 도메인 익명 사용자 목록에서 배제되어야 함!
-    assert ai_theme_id not in theme_ids_anon
-
-    # 4. 기본 도메인에서 Owner 권한으로 GET /themes 호출 시 모든 테마 조회 가능
-    resp_themes_owner = client.get("/themes", headers={"Host": "127.0.0.1:8765", **OWNER_HEADERS})
-    assert resp_themes_owner.status_code == 200
-    theme_ids_owner = [t["id"] for t in resp_themes_owner.json()["themes"]]
-    assert ai_theme_id in theme_ids_owner
-    assert gen_theme_id in theme_ids_owner
-
-    # 5. 전용 FQDN(ai.example.com)에서 익명 사용자가 GET /themes 호출 시
-    # 오직 해당 FQDN 테마만 반환되고 default_theme_id도 해당 테마로 설정
-    resp_themes_fqdn = client.get("/themes", headers={"Host": "ai.example.com"})
-    assert resp_themes_fqdn.status_code == 200
-    fqdn_json = resp_themes_fqdn.json()
-    assert fqdn_json["default_theme_id"] == ai_theme_id
-    fqdn_theme_ids = [t["id"] for t in fqdn_json["themes"]]
-    assert fqdn_theme_ids == [ai_theme_id]
-
-    # 6. 기본 도메인에서 익명 사용자가 FQDN 테마에 직접 접근 시 404 차단 검증
-    # 6-1. /documents
-    assert client.get(f"/documents?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
-    # 6-2. /stats
-    assert client.get(f"/stats?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
-    # 6-3. /graph
-    assert client.get(f"/graph?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
-    # 6-4. /search
-    assert client.post("/search", json={"q": "테스트", "theme": ai_theme_id}, headers={"Host": "127.0.0.1:8765"}).status_code == 404
-    # 6-5. / (graph_ui) with ?theme={ai_theme_id}
-    assert client.get(f"/?theme={ai_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 404
-
-    # 7. FQDN이 없는 일반 테마는 기본 도메인에서 익명 사용자 접근 정상 허용 (200)
-    assert client.get(f"/documents?theme={gen_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 200
-    assert client.get(f"/stats?theme={gen_theme_id}", headers={"Host": "127.0.0.1:8765"}).status_code == 200
-
-    # 8. 전용 FQDN(ai.example.com)에서는 익명 사용자 접근 정상 허용 (200)
-    assert client.get("/documents", headers={"Host": "ai.example.com"}).status_code == 200
-    assert client.get("/stats", headers={"Host": "ai.example.com"}).status_code == 200
-    assert client.get("/graph", headers={"Host": "ai.example.com"}).status_code == 200
-
+    assert not r_clear.json()["theme"].get("ga_measurement_id")

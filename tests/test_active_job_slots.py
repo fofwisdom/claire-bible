@@ -38,6 +38,7 @@ from claire.ingest.active import (
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from claire.store.theme import ThemeManager
 
 
 def test_active_job_context_manager_io(tmp_path: Path):
@@ -296,7 +297,10 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         environment="development",
         public_url="http://127.0.0.1:8765",
         readonly_token=read_tok,
+        multi_theme=True,
     )
+    tm = ThemeManager(s)
+    theme1 = tm.define_theme("Network")
 
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")

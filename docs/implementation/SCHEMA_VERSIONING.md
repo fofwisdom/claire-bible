@@ -16,8 +16,9 @@
 | 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
 | 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
 | 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
-| 15 | 현재 version (아래 "v15" 절) | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
-| 16 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
+| 16 | 현재 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
+| 17 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -63,6 +64,19 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 데이터 이관**(멱등): `instance_settings.id_salt`가 없을 때만 만든다. 관리자 행(`id=1`, `role=admin`, `status=setup_required`, `username=NULL`)이 없을 때만 만들고, `public_id`는 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 계산해 다시 실행해도 같다. `account_id`가 NULL인 테마와 자격증명 행을 1로 채운다. `id=1` 행이 관리자가 아니면 실패한다. v14의 `users` 테이블은 그대로 두고 쓰지 않는다.
 - **[코드] 기본 테마 중복이면 실패**: v15 블록의 첫 단계(`_check_single_default_theme_per_account`)가 한 계정(NULL은 1로 봄)에 `is_default=1` 테마가 둘 이상인지 본다. 있으면 어느 쪽이 기본인지 추측하지 않고 `RuntimeError`(계정과 `themes.id` 목록 포함)를 낸다. 이 검사는 v15 객체를 만들기 전에 실행되고 `init_db`는 `schema_version`을 쓰기 전에 멈추므로, v14 DB에서는 v15 테이블·열·행을 하나도 쓰지 않고 `schema_version=14`가 남는다(`tests/test_schema_v15.py`의 `test_multiple_default_themes_fail_migration_without_changes`). `is_default=1`을 계정마다 하나로 고친 뒤 다시 실행한다.
 - **[코드] 보조 파일**: `data/themes.json` 항목과 `data/auth/api_tokens.json` 항목에 `account_id`가 없으면 관리자(1)로 읽는다. 값이 정수가 아니면 테마는 `ValueError`, API 토큰은 그 항목을 무시한다.
+
+## v16 (테마 번호와 레거시 호스트, P2)
+
+확인 기준: P2 멀티 서브에이전트 통합 (2026-11-03). 설계: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §7.2, §13.2.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 16`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 16보다 크면 변경 없이 거부한다.
+- **[코드] 추가 객체**(`_migrate_v16_theme_numbers`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등):
+  - 테이블 `legacy_hosts`: `(host TEXT PRIMARY KEY, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, activated_at REAL, sunset_at REAL, indefinitely INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL)`
+  - 인덱스 `idx_legacy_hosts_theme_id`
+  - 열 `themes.number`(INTEGER UNIQUE), `themes.visibility_epoch`(INTEGER NOT NULL DEFAULT 1), `themes.embed_provider`(TEXT NOT NULL DEFAULT ''), `themes.embed_model`(TEXT NOT NULL DEFAULT '')
+- **[코드] 테마 번호 백필**: `themes.number`가 비어 있는 행을 `timestamp_id("themes", salt, unix_ms)`로 채운다. `created_at=0`이거나 비어 있는 레거시 행은 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 하한을 고정하여 모든 이관 번호가 `>= 2^56`이 되도록 보장한다(A3).
+- **[코드] 레거시 호스트 이관**: 기존 `themes.fqdn` 값이 있는 행을 `legacy_hosts` 테이블로 복사하고, `sunset_at = NULL` 상태로 보존하여 관리자가 이관을 활성화할 때까지 일몰 시계를 유예한다(R23-2).
+- **[코드] 인스턴스 정책**: `instance_settings`에 `legacy_host_policy`(`default_sunset_days`, `allow_indefinite`)가 기록된다.
 
 ### 별도 저장소: `data/auth/auth.db`
 

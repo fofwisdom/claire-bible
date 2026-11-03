@@ -261,21 +261,32 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
   - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
   - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환한다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
 
-## 테마 지식베이스 전용 FQDN 및 리버스 프록시 연동
+## 서브도메인 역할 호스트와 레거시 호스트 308 리다이렉트
 
-멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 개별 테마 지식베이스를 독립된 FQDN(예: `ai.example.com`, `bible.example.com`)으로 분리하여 외부에 서비스할 수 있다.
+P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) 체계로 전환되었다. 개별 테마 전용 FQDN 입력은 폐지되었으며, 기존에 등록되었던 테마 FQDN은 `legacy_hosts` 테이블을 통해 정본 URI 경로로 308 Permanent Redirect된다.
 
-### 주요 동작 및 설정
-1. **WebUI 설정**:
-   - 지식 관리자(Owner)는 WebUI 우측 상단 '📁 테마 관리'에서 각 테마 카드의 ✏️ 수정을 통해 **전용 도메인 (FQDN)** 및 **GA4 측정 ID**를 직접 등록할 수 있다 (컨테이너 재시작 불필요).
-   - 등록 완료 시 상단에 `🌐 <FQDN>` 뱃지와 새 창에서 바로 확인할 수 있는 `↗ 열기` 링크가 제공된다. (일반 리버스 프록시 설정 가이드는 관리 통일성을 위해 WebUI에서 제거되었으며, 상단 보호장치에서 FQDN 규칙을 구성한다.)
-2. **동적 HostAuthority 및 보안**:
-   - `HostAuthorityMiddleware`는 WebUI에서 등록된 FQDN을 런타임에 즉시 수용하며, 미등록된 임의의 호스트 요청은 `421 Misdirected Request`로 차단한다.
-   - 전용 도메인으로 인입된 요청은 해당 테마의 `theme_id` 파티션으로 자동 바인딩되며, 다른 테마로의 임의 변경(`?theme=...`)이 방지되는 도메인 고정(Domain Pinning) 및 은닉 격리 정책이 적용된다.
-3. **비공개 테마 은닉 (Fail-Closed Stealth Invariant)**:
-   - 비공개 테마(`is_public: false`)에 연결된 FQDN으로 익명 사용자가 접근하는 경우, 존재 자체를 숨기기 위해 `403`이 아닌 `404 Not Found`를 반환한다.
-4. **리버스 프록시 및 보호장치 요건**:
-   - 상단 보호장치(Sophos Firewall WSP, Cloudflare, Nginx 등)는 클라이언트가 요청한 `Host` 헤더를 변경 없이 백엔드로 전달해야 한다.
+### 역할 호스트 아키텍처
+1. **역할 분리**:
+   - `app`: 메인 웹 애플리케이션 및 API (`CLAIRE_FQDN` 기준). 세션 쿠키(`__Host-claire_session`)를 보유한다.
+   - `usercontent`: 샌드박스 HTML 렌더링 origin (`CLAIRE_USERCONTENT_FQDN`). 쿠키가 없는 격리 도메인이다.
+   - `media`: 미디어 스트리밍 origin (`CLAIRE_MEDIA_FQDN`). 1시간 열람 capability 서명 URL 기반.
+2. **도메인 설정**:
+   - 운영 환경에서는 모든 역할 호스트가 등록 도메인(`CLAIRE_SITE_DOMAIN`)의 서브도메인이어야 한다.
+   - 개발 환경에서는 `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT` 포트 기반 authority로 분리된다.
+3. **HostRouter 라우팅**:
+   - `HostRouter`가 인입된 `Host` 헤더를 보고 역할을 판별하여 적절한 하위 앱으로 분기한다.
+   - 등록되지 않은 호스트는 `421 Misdirected Request`로 거부된다.
+
+### 레거시 테마 FQDN 일몰 (Sunset) 정책
+1. **정본 경로 308 리다이렉트**:
+   - v16 이관 시 기존 `themes.fqdn` 값이 `legacy_hosts` 테이블로 보존된다.
+   - 해당 FQDN으로 들어온 모든 요청은 정본 경로(`/themes/{number}/...` 또는 `/@{username}/themes/{number}/...`)로 `308 Permanent Redirect`된다.
+2. **일몰 기산 및 시계 관리**:
+   - 이관 초기에는 일몰 시계가 정지 상태(`sunset_at = NULL`)로 유지된다.
+   - 관리자가 `/admin/instance` 화면이나 `/api/admin/instance/legacy-hosts/sunset` API를 통해 이관을 활성화하면 기본 30일 일몰 시계가 기산된다.
+   - 관리자는 일몰 기간을 연장하거나 무기한 `308` 유지(`indefinitely = 1`)를 설정할 수 있다.
+3. **일몰 만료 후 처리**:
+   - 일몰 시각이 지난 레거시 호스트 요청은 `410 Gone`을 반환한다 (테마 완전 소각 시 `421 Misdirected Request`).
 
 ## Cloudflare 공인 IP 대역 제한 (`CLAIRE_CLOUDFLARE_IPS_ONLY`)
 
@@ -309,6 +320,6 @@ development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface�
 4. proxy 이외의 LAN host에서는 firewall 때문에 같은 upstream port에 접속할 수 없다.
 5. 긴 NDJSON 응답이 proxy buffering 없이 순차 전달된다.
 6. Claire Bible과 proxy access log에 query string과 인증 정보가 남지 않는다.
-7. 등록된 테마 FQDN으로 접근 시 해당 테마 지식베이스로 자동 라우팅되며, 비공개 테마 FQDN은 익명 접속 시 404로 은닉된다.
+7. 레거시 테마 FQDN 접근 시 정규 네임스페이스 경로로 308 리다이렉트되며, 일몰 도래 시 410 Gone으로 응답한다.
 8. `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시 비-Cloudflare 공인 IP 직접 접근이 403으로 차단되고 LAN/사설 접근은 유지된다.
  

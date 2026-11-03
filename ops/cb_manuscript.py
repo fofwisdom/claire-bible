@@ -37,6 +37,12 @@ DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
 ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
+SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
+# Optional role hosts besides app (design §5.1): (role, host setting, development host port).
+ROLE_HOST_SETTINGS = (
+    ("usercontent", "CLAIRE_USERCONTENT_FQDN", "CB_USERCONTENT_PORT"),
+    ("media", "CLAIRE_MEDIA_FQDN", "CB_MEDIA_PORT"),
+)
 DEVELOPMENT = "development"
 PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
@@ -397,6 +403,9 @@ class Runtime:
         # Prevent host process values of the same name from interfering with Compose interpolation.
         env.pop("CLAIRE_PUBLIC_URL", None)
         env.pop("CLAIRE_FQDN", None)
+        env.pop(SITE_DOMAIN_KEY, None)
+        for _role, host_key, _port_key in ROLE_HOST_SETTINGS:
+            env.pop(host_key, None)
         env.pop("CLAIRE_CLOUDFLARE_IPS_ONLY", None)
         env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
         env.pop(ANONYMOUS_READONLY_KEY, None)
@@ -796,6 +805,130 @@ def _validate_public_url(
     _validate_dns_hostname(hostname, field="CLAIRE_PUBLIC_URL")
 
 
+def _parse_role_port(values: Mapping[str, str], key: str) -> int | None:
+    # Host port values are Compose interpolation inputs, so process env wins like CB_API_PORT.
+    raw = _effective(values, key).strip()
+    if not raw:
+        return None
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        raise ManuscriptError(f"{key} must be an integer.") from exc
+    if not 1 <= parsed <= 65535:
+        raise ManuscriptError(f"{key} must be in range 1-65535.")
+    return parsed
+
+
+def _role_host_value(values: Mapping[str, str], key: str) -> str:
+    # Like CLAIRE_FQDN, role hosts reach the container through env_file, so validate
+    # the effective file value. Empty means the role is not configured.
+    raw = values.get(key, "")
+    if raw != raw.strip():
+        raise ManuscriptError(f"{key} cannot have leading or trailing whitespace.")
+    if "://" in raw or "/" in raw:
+        raise ManuscriptError(
+            f"{key} must be a bare host (production) or IPv4:port (development), "
+            "without a scheme or path."
+        )
+    return raw.lower()
+
+
+def _app_hostname(values: Mapping[str, str]) -> str:
+    raw = values.get("CLAIRE_FQDN", "").strip()
+    if raw:
+        raw = raw.split("://", 1)[-1].rstrip("/")
+        return raw.split(":", 1)[0].lower()
+    return (urlsplit(values.get("CLAIRE_PUBLIC_URL", "").strip()).hostname or "").lower()
+
+
+def _validate_role_hosts(
+    values: Mapping[str, str],
+    *,
+    environment: str,
+    bind: str,
+    port: int,
+) -> None:
+    """Check role hosts ahead of the app's HostRoles.from_settings (design §5.1).
+
+    development: each role host is ``CB_API_BIND:<its CB_*_PORT>`` and every port differs.
+    production: role hosts need CLAIRE_SITE_DOMAIN; every host is that domain or a
+    subdomain of it, role hosts differ, and none is a parent domain of the app host.
+    """
+
+    hosts = {
+        host_key: _role_host_value(values, host_key)
+        for _role, host_key, _port_key in ROLE_HOST_SETTINGS
+    }
+
+    if environment == DEVELOPMENT:
+        used_ports = {port: "CB_API_PORT"}
+        for _role, host_key, port_key in ROLE_HOST_SETTINGS:
+            role_port = _parse_role_port(values, port_key)
+            if role_port is not None:
+                if role_port in used_ports:
+                    raise ManuscriptError(
+                        f"{port_key} ({role_port}) must differ from {used_ports[role_port]}."
+                    )
+                used_ports[role_port] = port_key
+            host = hosts[host_key]
+            if not host:
+                continue
+            if role_port is None:
+                raise ManuscriptError(
+                    f"{host_key} in development requires {port_key}, the host port "
+                    "docker-compose.dev.yml wires to the api container."
+                )
+            expected = f"{bind}:{role_port}"
+            if host != expected:
+                raise ManuscriptError(
+                    f"{host_key} in development must be {expected} "
+                    f"(CB_API_BIND:{port_key})."
+                )
+        return
+
+    configured = {key: host for key, host in hosts.items() if host}
+    for key, host in configured.items():
+        _validate_dns_hostname(host, field=key)
+
+    site_raw = values.get(SITE_DOMAIN_KEY, "")
+    if site_raw != site_raw.strip():
+        raise ManuscriptError(
+            f"{SITE_DOMAIN_KEY} cannot have leading or trailing whitespace."
+        )
+    site = site_raw.lower()
+    if site:
+        _validate_dns_hostname(site, field=SITE_DOMAIN_KEY)
+    if not configured and not site:
+        return
+    if not site:
+        raise ManuscriptError(
+            f"{SITE_DOMAIN_KEY} is required in production when "
+            f"{' or '.join(configured)} is set. Specify the registrable domain "
+            "(e.g. example.com); it is not inferred from the Public Suffix List."
+        )
+
+    app = _app_hostname(values)
+    for key, host in {"CLAIRE_FQDN": app, **configured}.items():
+        if host != site and not host.endswith(f".{site}"):
+            raise ManuscriptError(
+                f"{key} ({host}) must be {site} or one of its subdomains "
+                f"({SITE_DOMAIN_KEY})."
+            )
+
+    seen = {app: "CLAIRE_FQDN"}
+    for key, host in configured.items():
+        if host in seen:
+            raise ManuscriptError(
+                f"{key} ({host}) must differ from {seen[host]}; role hosts must be distinct."
+            )
+        seen[host] = key
+        if app.endswith(f".{host}"):
+            raise ManuscriptError(
+                f"{key} ({host}) cannot be a parent domain of the app host "
+                f"CLAIRE_FQDN ({app})."
+            )
+
+
 def _validate_cors_origins(
     values: Mapping[str, str],
     *,
@@ -916,6 +1049,12 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     parsed_port = _parse_port(values)
     api_bind = _validate_api_bind(values)
     _validate_public_url(
+        values,
+        environment=environment,
+        bind=api_bind,
+        port=parsed_port,
+    )
+    _validate_role_hosts(
         values,
         environment=environment,
         bind=api_bind,
@@ -3380,6 +3519,11 @@ def command_preflight(runtime: Runtime) -> int:
             "ENABLED - public read access (hidden documents excluded)"
         )
     print(f"anonymous readonly: {anonymous_status}")
+    role_hosts = ", ".join(
+        f"{role}={runtime.values.get(host_key, '').strip() or '(unset)'}"
+        for role, host_key, _port_key in ROLE_HOST_SETTINGS
+    )
+    print(f"role hosts: {role_hosts}")
     raw_provider = _effective(runtime.values, "CLAIRE_PROVIDER").strip().lower()
     if not raw_provider:
         raw_provider = _get_provider_from_providers_json(runtime)
@@ -3743,7 +3887,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Pre-flight check deployment configuration, Docker Compose validity, network, and security constraints.\n\n"
             "Checks:\n"
             "  - Environment files (.env / .env.dev) existence and syntax\n"
-            "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_PUBLIC_URL consistency\n"
+            "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_FQDN/CLAIRE_PUBLIC_URL consistency\n"
+            "  - Role hosts CLAIRE_USERCONTENT_FQDN / CLAIRE_MEDIA_FQDN:\n"
+            "      development: CB_API_BIND:CB_USERCONTENT_PORT / CB_API_BIND:CB_MEDIA_PORT,\n"
+            "                   every port distinct from CB_API_PORT and each other\n"
+            "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
+            "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
             "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
             "  - data/ and vault/ directory permissions (0700)"

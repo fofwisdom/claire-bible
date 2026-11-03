@@ -35,7 +35,7 @@ def _client(tmp_path: Path):
         multi_theme=True,
     )
     tm = ThemeManager(s)
-    public = tm.define_theme("공개 테마", fqdn="public.example.com")
+    public = tm.define_theme("공개 테마")
     private = tm.define_theme("비공개 테마", is_public=False)
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")
@@ -52,13 +52,22 @@ def test_private_theme_job_hidden_from_anonymous(tmp_path):
         title="비공개 문서",
     )
     try:
-        host = {"Host": "public.example.com"}
-        for path in (f"/stats?theme={private.id}", f"/ingest/active?theme={private.id}"):
-            r = client.get(path, headers=host)
+        # 테마 FQDN 고정(Host)은 P2에서 없어졌다(설계 §5.3). 익명은 기본 도메인에서 공개 테마로 묻는다.
+        for path in (
+            "/stats",
+            f"/stats?theme={public.id}",
+            "/ingest/active",
+            f"/ingest/active?theme={public.id}",
+        ):
+            r = client.get(path)
             assert r.status_code == 200, path
             body = r.text
             assert "secret.example.com" not in body, path
             assert all(j.get("theme_id") != private.id for j in r.json()["active_jobs"]), path
+        for path in (f"/stats?theme={private.id}", f"/ingest/active?theme={private.id}"):
+            r = client.get(path)
+            assert r.status_code == 404, path
+            assert "secret.example.com" not in r.text, path
 
         r = client.get("/stats", headers=owner)
         assert any(j.get("theme_id") == private.id for j in r.json()["active_jobs"])

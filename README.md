@@ -39,20 +39,16 @@ flowchart LR
 ## 🚀 시작하기 (Getting Started)
 
 ### 1. 개발 빠른 시작 (Local Development)
-로컬 가상환경에서 의존성을 설정하고 개발 서버를 기동한다.
+평소 개발은 현재 checkout을 uv로 직접 실행한다. docker 개발 스택(`./cb-manuscript dev up`)은 운영과 같은 조건을 확인할 때만 쓴다. 설정 로딩과 역할 호스트 포트 확인은 [COMMANDS.md §1.1](docs/implementation/COMMANDS.md#11-개발-절차-평소-uv-운영-조건-확인-docker)을 본다.
 
 ```bash
-# 1. 의존성 동기화 및 환경 설정 초기화
-uv sync
+# 1. 의존성 동기화 및 개발 설정 초기화
+uv sync --extra dev --extra stealth --extra audio --extra ko
 ./cb-manuscript dev init
 
-# 2. DB 스키마 생성 및 무결성 진단
-uv run claire migrate
-uv run claire audit --json
-
-# 3. 개발 서버 또는 봇 실행
-uv run claire serve-api        # Web API & UI (기본 포트: 8765)
-# uv run claire bot            # Telegram 봇 (선택)
+# 2. 개발 서버 (.env 위에 .env.dev를 겹치고, 데이터는 .dev/data)
+CLAIRE_INJECT_HOST=127.0.0.1 CLAIRE_INJECT_PORT=8766 CLAIRE_DB_PATH=.dev/data/claire.db \
+  uv run --env-file .env.dev claire serve-api   # http://127.0.0.1:8766/
 ```
 
 ---

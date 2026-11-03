@@ -26,6 +26,8 @@ __all__ = [
     "AccountStatus",
     "AccountStore",
     "CredentialBinding",
+    "INSTANCE_MODES",
+    "InstanceMode",
     "UsernameRejected",
     "create_account_session",
     "delete_session",
@@ -37,6 +39,9 @@ __all__ = [
 
 AccountRole = Literal["admin", "member"]
 AccountStatus = Literal["setup_required", "active", "suspended", "deleting", "purged"]
+# 인스턴스 모드(§4). ``instance_settings.mode``에 둔다. 행이 없으면 싱글 모드다(P2 이전 설치).
+InstanceMode = Literal["single", "network"]
+INSTANCE_MODES: frozenset[str] = frozenset({"single", "network"})
 
 # v15 이관이 만드는 관리자 행. v15 이전 자격증명과 테마는 모두 이 계정의 것이다(§8.3, §8.4).
 # 값(1)의 정의는 v15 이관과 자격증명 쓰기 함수가 있는 `store.db`에 하나만 둔다.
@@ -169,6 +174,19 @@ class AccountStore:
             (key, value, time.time(), updated_by),
         )
         self.conn.commit()
+
+    def instance_mode(self) -> InstanceMode:
+        """``instance_settings.mode``. 행이 없으면 ``"single"``. 알 수 없는 값이면 ``RuntimeError``(C1)."""
+        raw = self.get_setting("mode")
+        if raw is None:
+            return "single"
+        if raw not in INSTANCE_MODES:
+            raise RuntimeError(f"instance_settings.mode has an unknown value: {raw!r}")
+        return raw  # type: ignore[return-value]  # INSTANCE_MODES가 걸렀다
+
+    def set_instance_mode(self, mode: InstanceMode, *, updated_by: int) -> None:
+        """모드를 기록한다. 전환 조건(§4.2 준비 검사·멤버 없음)은 호출자(``accounts_routes``)가 먼저 판정한다."""
+        raise NotImplementedError  # P2 L2-f
 
     def id_salt(self) -> bytes:
         """``instance_settings.id_salt``(hex). 없으면 ``RuntimeError``(이관 누락, C1)."""

@@ -23,6 +23,7 @@ from starlette.routing import Route
 from ...accounts.username_policy import UsernameRejected, validate_username
 from ...store import accounts as accounts_store
 from ...store import auth_db
+from ..namespace import account_home_path
 from ..principal import Principal, request_principal
 from .common import (
     AccountsContext,
@@ -100,6 +101,7 @@ class SetupOutcome:
     kind: Literal["ok", "rejected", "closed", "password_failed"]
     session_token: str | None = None
     reasons: tuple[str, ...] = ()
+    redirect_path: str = "/"
 
 
 def validate_setup_input(
@@ -204,11 +206,13 @@ def perform_setup(
                     "password_saved": password_saved,
                 },
             )
+            mode = accounts_store.AccountStore(conn).instance_mode()
+            redirect_path = account_home_path(mode, username)
         finally:
             auth.close()
     finally:
         conn.close()
-    return SetupOutcome("ok" if password_saved else "password_failed", session_token=token)
+    return SetupOutcome("ok" if password_saved else "password_failed", session_token=token, redirect_path=redirect_path)
 
 
 def _reason_messages(reasons: tuple[str, ...] | list[str]) -> list[str]:
@@ -275,7 +279,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if outcome.session_token is None:
             raise RuntimeError("setup completed without a session token")
         # 비밀번호 저장만 실패했으면 확정은 끝났으므로 /me로 보내 그 사실과 설정 양식을 보여 준다.
-        location = "/" if outcome.kind == "ok" else "/me?notice=password_not_saved"
+        location = outcome.redirect_path if outcome.kind == "ok" else "/me?notice=password_not_saved"
         response = Response(status_code=303, headers={"Location": location, "Cache-Control": "no-store"})
         set_session_cookie(response, ctx, outcome.session_token)
         return response

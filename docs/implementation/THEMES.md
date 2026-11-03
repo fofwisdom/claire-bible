@@ -15,7 +15,7 @@
    - 집행: `tests/test_theme_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `theme_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `theme_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
 3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열)만 테마 0이다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
-4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서는 레지스트리를 읽지 않는다.** 메모리에 있는 기본 테마 0 하나만 쓴다.
+4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 추가 테마 생성(`POST /themes`)만 잠그며, Theme 0 메타데이터와 번호는 항상 DB의 `themes` 테이블에서 읽어 일관된 코드 경로로 동작한다.
 
 ---
 
@@ -83,19 +83,27 @@
 
 ### 4.1 HTTP (`server.py`)
 
-**[코드]** `_extract_theme_ref`의 우선순위는 다음과 같다.
+**[코드]** 테마 참조 및 경로 해석 우선순위는 다음과 같다.
 
-1. `Host`가 등록된 테마 FQDN이고 그 테마 ID가 1 이상이면 그 테마로 **고정**한다. 이때 쿼리나 본문의 `theme`은 무시한다.
-2. `Host`가 테마 0의 FQDN이면 `?theme=`, 본문의 `theme`, `X-Claire-Theme` 순으로 따르고, 셋 다 없으면 테마 0이다.
-3. 그 밖에는 `?theme=` → 본문 `theme` → `X-Claire-Theme` 헤더 순이다.
+1. 경로에 테마 번호가 포함되어 있으면(`/themes/{number}/...`) 해당 테마로 고정(`pinned_theme_id`)한다. 고정과 모순되는 `?theme=` 쿼리나 본문 파라미터는 400으로 거부한다.
+2. 경로에 고정이 없으면 `?theme=` → 본문 `theme` → `X-Claire-Theme` 헤더 순으로 해석한다(`resolve_theme_ref`).
+3. 외부 식별자는 64비트 시간 정렬 번호(`number`, `>= 2^56`)를 사용한다. 내부 ID(`0 <= id < 2^31`)로 들어온 요청은 호환 수용하되 RFC 8594 `Deprecation` 및 `Sunset` 응답 헤더를 부착한다.
+4. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
 
 **[코드]** `_theme_accessible`의 접근 검사(`_get_theme_ctx`가 쓰고, 실패하면 404)는 다음과 같다.
 
 | 인증 범위 | 접근 가능한 테마 |
 | :--- | :--- |
-| `anonymous` | `is_public`인 테마. FQDN이 설정된 테마(ID 1 이상)는 그 FQDN으로 접속했을 때만 |
+| `anonymous` / 타 계정 방문자 | `is_public`인 테마 |
 | `collaborator` | `is_public` 또는 `is_collaborator_accessible`인 테마 |
-| 그 밖(`owner`, `readonly` 등) | 모든 테마 |
+| 그 밖(`owner`, `readonly` 등) | 계정 내 모든 테마 |
+
+### 4.5 테마 컬렉션 계약 (`GET /themes`)
+
+- **2단계 컬렉션**: 루트(`OrderedCollection`)와 페이지(`OrderedCollectionPage`)로 제공된다(설계 §7.4).
+- **커서 페이지네이션**: `max_id`, `min_id`, `since_id` 중 최대 1개와 `limit`(기본 20, 최대 80)를 지원한다. 둘 이상 커서 지정 시 400으로 거부된다.
+- **캐시 규칙**: 익명 `public, max-age=60`, 인증 `private, no-cache`, 강한 ETag 및 조건부 요청(304). `Vary: Cookie, Authorization, Sec-Fetch-Dest, Accept`.
+- **하위 호환**: P2–P3 기간 동안 루트 응답에 기존 `themes` 배열, `default_theme_id`, `default_theme_number`, `multi_theme`을 함께 반환한다. Owner에게는 `legacy_hosts` 목록을 함께 싣는다.
 
 ### 4.2 CLI
 

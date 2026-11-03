@@ -1,13 +1,19 @@
 name: "${CB_PROJECT_NAME:-claire-bible-dev}"
 
 x-claire-dev-service: &claire-dev-service
+  # 개발 스택은 `up`마다 이미지를 다시 빌드한다(레이어 캐시로 변경이 없으면 즉시 끝난다).
+  # 오래된 claire-bible:dev 이미지가 pyproject.toml·uv.lock보다 뒤처진 채 남아
+  # 새 의존성(예: zstandard)이 없는 컨테이너가 뜨는 일을 막는다.
+  # 소스는 마운트하지 않는다. 이미지가 claire를 site-packages에 설치하므로 ./src 마운트는
+  # 실행 코드에 닿지 않고, 컨테이너가 저장소에 __pycache__만 남긴다. 현재 코드는 매번
+  # 다시 빌드해 반영한다. 평소 개발은 uv로 한다(docs/implementation/COMMANDS.md 개발 절차).
+  pull_policy: build
   env_file: !override
     - "${CB_ENV_FILE:-.env}"
     - "${CB_DEV_ENV_FILE:-.env.dev}"
   volumes:
     - "${CB_DATA_DIR:-./.dev/data}:/app/data"
     - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
-    - ./src:/app/src
     - "${CB_GEMINI_DIR:-~/.gemini}:/root/.gemini"
     - "${CB_CODEX_DIR:-~/.codex}:/root/.codex"
     - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
@@ -19,6 +25,13 @@ services:
 
   api:
     <<: *claire-dev-service
+    # 개발 환경 포트 분리 배선(설계 §5.1, Rev. 2.3): 역할 호스트 포트를 모두 같은 컨테이너
+    # 포트(CB_API_PORT)로 연결한다. 단일 Uvicorn 안의 HostRouter가 Host(IPv4:포트)로
+    # 하위 앱을 고른다. 포트가 비어 있으면 앱 포트 매핑과 같은 항목이 되어 Compose가
+    # 중복을 합치므로 추가 매핑이 생기지 않는다. 정합성은 ops/cb_manuscript.py가 검증한다.
+    ports:
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_USERCONTENT_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_MEDIA_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
 
   refresh:
     <<: *claire-dev-service

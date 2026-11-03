@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 from starlette.testclient import TestClient
 
 from claire.api import security, server
@@ -169,9 +169,9 @@ def test_whoami_returns_actual_authenticated_scope(client: TestClient) -> None:
     readonly_response = client.get("/whoami", headers=READONLY_HEADERS)
 
     assert owner_response.status_code == 200
-    assert owner_response.json() == {"scope": "owner"}
+    assert owner_response.json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner"}
     assert readonly_response.status_code == 200
-    assert readonly_response.json() == {"scope": "readonly"}
+    assert readonly_response.json() == {"scope": "readonly", "instance": {"mode": "single"}, "relation": "delegate"}
 
 
 def test_readonly_document_get_does_not_mark_document_seen(
@@ -490,7 +490,7 @@ def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
         )
 
     assert whoami_response.status_code == 200
-    assert whoami_response.json() == {"scope": "anonymous"}
+    assert whoami_response.json() == {"scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor"}
     assert search_response.status_code == 200
     assert search_response.json()["mode"] == "fts"
     assert service.search_calls[-1] == {
@@ -678,6 +678,13 @@ def test_server_routes_exactly_match_security_policy_with_explicit_head(
         for route in app.routes
         if isinstance(route, Route)
         for method in route.methods
+    }
+    # 정적 Mount는 경로 매개변수 키(GET·HEAD ``{path:path}``)로 정책에 오른다(§9.1, O2).
+    actual |= {
+        (method, f"{route.path}/{{path:path}}")
+        for route in app.routes
+        if isinstance(route, Mount)
+        for method in ("GET", "HEAD")
     }
 
     assert actual == set(security.ROUTE_POLICY)

@@ -82,14 +82,22 @@ def test_theme_api_single_mode_behavior(tmp_path):
         assert resp_del.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
 
-        # 5. POST /ingest with arbitrary theme param -> 싱글 모드에서는 0번 기본 DB로 일관 격리/적재
+        # 5. POST /ingest with unknown theme -> 엄격 테마 조회로 404 (S2, G1)
         ingest_resp = client.post(
             "/ingest",
             json={"payload": "싱글 테마 모드 적재 내용", "theme": 999},
             headers=OWNER_HEADERS,
         )
-        assert ingest_resp.status_code == 200
-        assert ingest_resp.json().get("theme_id") == 0
+        assert ingest_resp.status_code == 404
+
+        # theme 미지정 시 싱글 모드에서는 0번 기본 DB로 정상 적재
+        ingest_valid = client.post(
+            "/ingest",
+            json={"payload": "싱글 테마 모드 적재 내용"},
+            headers=OWNER_HEADERS,
+        )
+        assert ingest_valid.status_code == 200
+        assert ingest_valid.json().get("theme_id") == 0
 
 
 def test_get_themes_anonymous_allowed(theme_app_client):

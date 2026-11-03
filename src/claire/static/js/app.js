@@ -37,6 +37,55 @@ window.__CLAIRE_CLEAR_LOADING = function(reason) {
     window.__CLAIRE_CLEAR_LOADING('');
   }, 2500);
 
+// --- WebUI Surface & Bootstrap Metadata (§6.4) ---
+const _metaApiBase = (document.querySelector('meta[name="claire-api-base"]') || {}).content;
+const _metaRootBase = (document.querySelector('meta[name="claire-root-base"]') || {}).content;
+const _metaStorageKey = (document.querySelector('meta[name="claire-storage-key"]') || {}).content;
+
+const API_BASE = (_metaApiBase && !_metaApiBase.startsWith('__')) ? _metaApiBase : '/';
+const ROOT_BASE = (_metaRootBase && !_metaRootBase.startsWith('__')) ? _metaRootBase : '/';
+const STORAGE_KEY = (_metaStorageKey && !_metaStorageKey.startsWith('__')) ? _metaStorageKey : 'anon';
+
+function apiUrl(path) {
+  const p = (path || '').startsWith('/') ? path.slice(1) : (path || '');
+  return API_BASE + p;
+}
+
+function rootUrl(path) {
+  const p = (path || '').startsWith('/') ? path.slice(1) : (path || '');
+  return ROOT_BASE + p;
+}
+
+// --- Account-scoped LocalStorage (§6.4, §7.3) ---
+function getAccountStorage(key) {
+  try {
+    const prefKey = `${STORAGE_KEY}:${key}`;
+    const val = localStorage.getItem(prefKey);
+    if (val !== null) return val;
+    // Migrate old un-prefixed key on first read
+    const oldVal = localStorage.getItem(key);
+    if (oldVal !== null) {
+      localStorage.setItem(prefKey, oldVal);
+      localStorage.removeItem(key);
+      return oldVal;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function setAccountStorage(key, value) {
+  try {
+    localStorage.setItem(`${STORAGE_KEY}:${key}`, String(value));
+  } catch (_) {}
+}
+
+function removeAccountStorage(key) {
+  try {
+    localStorage.removeItem(`${STORAGE_KEY}:${key}`);
+    localStorage.removeItem(key);
+  } catch (_) {}
+}
+
 // --- Workspace State & Core Theme Configuration ---
 const TYPE_COLORS = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',
   Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',
@@ -72,14 +121,14 @@ let selectedJobId = null;
 let isolatedNodeId = null, activeHoverEdges = null, activeHoverNodes = null;
 let lastSelectedDocId = null;
 try{
-  const savedLastDoc = localStorage.getItem('claireLastDoc');
+  const savedLastDoc = getAccountStorage('claireLastDoc');
   if(savedLastDoc) lastSelectedDocId = savedLastDoc;
 }catch(_){}
 
 function recordSelectedDoc(id){
   if(!id) return;
   lastSelectedDocId = id;
-  try{ localStorage.setItem('claireLastDoc', id); }catch(_){}
+  try{ setAccountStorage('claireLastDoc', id); }catch(_){}
 }
 
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -93,38 +142,58 @@ function isMultiThemeEnabled(){
   return Boolean(window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themeMode === 'multi');
 }
 
+function getThemeKey(t){
+  if(!t) return '0';
+  if(t.is_default || String(t.id) === '0' || t.number === '0') return '0';
+  if(t.number !== null && t.number !== undefined && String(t.number).trim() !== ''){
+    return String(t.number).trim();
+  }
+  return String(t.id ?? '0').trim();
+}
+
 let availableThemes = (function(){
   if(window.__CLAIRE_CONFIG && Array.isArray(window.__CLAIRE_CONFIG.themes) && window.__CLAIRE_CONFIG.themes.length){
     return window.__CLAIRE_CONFIG.themes;
   }
-  return [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
+  return [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
 })();
+
+function findTheme(themeRef){
+  if(!availableThemes || !availableThemes.length) return null;
+  const ref = String(themeRef ?? '').trim();
+  if(!ref || ref === '0'){
+    return availableThemes.find(t => t.is_default || String(t.id) === '0' || t.number === '0') || availableThemes[0];
+  }
+  return availableThemes.find(t => String(t.number) === ref)
+    || availableThemes.find(t => String(t.id) === ref)
+    || null;
+}
 
 let activeThemeId = (function(){
   if(!isMultiThemeEnabled()){
-    return 0;
+    return '0';
   }
   try{
-    const currHost = window.location.hostname.toLowerCase();
-    if(availableThemes && availableThemes.length){
-      const matched = availableThemes.find(t => t.fqdn && t.fqdn.toLowerCase() === currHost);
-      if(matched){
-        return matched.id;
-      }
-    }
     const sp = new URLSearchParams(window.location.search);
     const q = sp.get('theme');
     if(q !== null && q !== ''){
-      const val = parseInt(q, 10);
-      return isNaN(val) ? 0 : val;
+      const matched = findTheme(q);
+      return matched ? getThemeKey(matched) : String(q).trim();
     }
-    const saved = localStorage.getItem('claireKnowledgeTheme');
+    const saved = getAccountStorage('claireKnowledgeTheme');
     if(saved !== null && saved !== ''){
-      const val = parseInt(saved, 10);
-      return isNaN(val) ? 0 : val;
+      const matched = findTheme(saved);
+      if(matched){
+        const canonical = getThemeKey(matched);
+        if(canonical !== saved){
+          setAccountStorage('claireKnowledgeTheme', canonical);
+        }
+        return canonical;
+      }
+      return String(saved).trim();
     }
   }catch(_){}
-  return 0;
+  return '0';
 })();
 
 (function(){
@@ -170,15 +239,20 @@ async function fetchThemes(){
     renderThemeSelector();
   }
   try{
-    const r = await fetch('themes');
+    const r = await fetch(apiUrl('themes'));
     if(!r.ok) return;
     const data = await r.json();
-    if(data.themes && data.themes.length){
-      availableThemes = data.themes;
-      const currHost = window.location.hostname.toLowerCase();
-      const matched = availableThemes.find(t => t.fqdn && t.fqdn.toLowerCase() === currHost);
+    const themes = data.themes || data.orderedItems;
+    if(themes && themes.length){
+      availableThemes = themes;
+      // Migrate stored internal ID if needed (§7.3)
+      const matched = findTheme(activeThemeId);
       if(matched){
-        activeThemeId = matched.id;
+        const canonical = getThemeKey(matched);
+        if(canonical !== activeThemeId){
+          activeThemeId = canonical;
+          setAccountStorage('claireKnowledgeTheme', canonical);
+        }
       }
       renderThemeSelector();
     }
@@ -198,45 +272,30 @@ function renderThemeSelector(){
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
-    availableThemes = [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
+    availableThemes = [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
   }
 
-  const currHost = window.location.hostname.toLowerCase();
-  const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
+  const current = findTheme(activeThemeId) || availableThemes[0];
   if(current){
-    activeThemeId = current.id;
+    activeThemeId = getThemeKey(current);
   }
 
-  // FQDN 전용 도메인 접속 여부 판별 (해당 테마 FQDN 일치)
-  const isFqdnAccess = Boolean(current && current.fqdn && current.fqdn.toLowerCase() === currHost);
-
-  if(isFqdnAccess){
-    // FQDN 접속 시: 드롭다운 상자 숨기고 브랜드 우측 순수 텍스트만 표시
-    if(wrap){
-      wrap.style.display = 'inline-flex';
-      wrap.title = '지식 테마: ' + (current.label || '');
-    }
-    if(ctrl) ctrl.style.display = 'none';
-    if(plainDisplay) plainDisplay.style.display = 'inline-flex';
-    if(plainIcon) plainIcon.textContent = current.icon || '📚';
-    if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
-  } else {
-    // 일반 접속 시: 싱글 테마 모드이거나 테마가 1개뿐인 경우 숨김, 멀티 테마일 때 드롭다운 박스 표시
-    if(wrap){
-      wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
-      wrap.title = '지식 테마 선택 (데이터베이스 전환)';
-    }
-    if(ctrl) ctrl.style.display = 'inline-flex';
-    if(plainDisplay) plainDisplay.style.display = 'none';
-    if(iconEl && current){
-      iconEl.textContent = current.icon || '📚';
-    }
+  // 일반 접속 시: 싱글 테마 모드이거나 테마가 1개뿐인 경우 숨김, 멀티 테마일 때 드롭다운 박스 표시
+  if(wrap){
+    wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
+    wrap.title = '지식 테마 선택 (데이터베이스 전환)';
+  }
+  if(ctrl) ctrl.style.display = 'inline-flex';
+  if(plainDisplay) plainDisplay.style.display = 'none';
+  if(iconEl && current){
+    iconEl.textContent = current.icon || '📚';
   }
 
   sel.innerHTML = availableThemes.map(t => {
+    const key = getThemeKey(t);
     const label = esc(t.label);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    return `<option value="${t.id}" ${t.id === activeThemeId ? 'selected' : ''}>${label}${lockStr}</option>`;
+    return `<option value="${key}" ${key === String(activeThemeId) ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
   updateDrawerManager(current);
   syncPresentationFeatureUI();
@@ -254,7 +313,7 @@ function updateDrawerManager(currentTheme){
 
 function isPresentationEnabledForActiveTheme(){
   if(!availableThemes || !availableThemes.length) return false;
-  const current = availableThemes.find(t => t.id === activeThemeId) || availableThemes[0];
+  const current = findTheme(activeThemeId) || availableThemes[0];
   return Boolean(current && current.presentation_enabled === true);
 }
 
@@ -277,7 +336,7 @@ function syncThemeSelectorUI(){
   if(sel){
     sel.value = String(activeThemeId);
   }
-  const current = availableThemes.find(t => t.id === activeThemeId);
+  const current = findTheme(activeThemeId);
   if(current){
     if(iconEl) iconEl.textContent = current.icon || '📚';
     if(plainIcon) plainIcon.textContent = current.icon || '📚';
@@ -290,19 +349,21 @@ function syncThemeSelectorUI(){
 function renderThemeOptions(selectedId){
   const themes = (availableThemes && availableThemes.length)
     ? availableThemes
-    : [{id: 0, seq: 0, label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚'}];
-  const activeId = selectedId !== undefined ? selectedId : activeThemeId;
+    : [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚'}];
+  const activeId = selectedId !== undefined ? String(selectedId) : String(activeThemeId);
   return themes.map(t => {
+    const key = getThemeKey(t);
     const icon = esc(t.icon || '📚');
     const label = esc(t.label);
     const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
-    return `<option value="${t.id}" ${t.id === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
+    return `<option value="${key}" ${key === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
   }).join('');
 }
 
 async function loadThemeDocuments(){
   try{
-    const r = await fetch('documents');
+    // fetch('documents')
+    const r = await fetch(apiUrl('documents'));
     if(!r.ok) throw new Error('documents fetch failed: HTTP ' + r.status);
     const d = await r.json();
     allDocs = (d && d.documents) || [];
@@ -329,7 +390,8 @@ async function loadThemeDocuments(){
 
 async function reloadThemeData(resetCamera = true){
   try{
-    const r = await fetch('graph');
+    // fetch('graph')
+    const r = await fetch(apiUrl('graph'));
     if(!r.ok) throw new Error('graph fetch failed: HTTP ' + r.status);
     const d = await r.json();
     if(net && allNodes && allEdges){
@@ -376,18 +438,20 @@ async function reloadThemeData(resetCamera = true){
 
 async function switchKnowledgeTheme(themeId){
   if(!isMultiThemeEnabled()) return;
-  const tid = parseInt(themeId, 10);
-  if(isNaN(tid)) return;
-  if(tid === activeThemeId) return;
+  const ref = String(themeId ?? '').trim();
+  if(!ref) return;
+  const themeObj = findTheme(ref);
+  const targetId = themeObj ? getThemeKey(themeObj) : ref;
+  if(targetId === String(activeThemeId)) return;
 
-  activeThemeId = tid;
-  try{ localStorage.setItem('claireKnowledgeTheme', String(tid)); }catch(_){}
+  activeThemeId = targetId;
+  setAccountStorage('claireKnowledgeTheme', targetId);
 
   const url = new URL(window.location);
-  if(tid === 0){
+  if(targetId === '0'){
     url.searchParams.delete('theme');
   } else {
-    url.searchParams.set('theme', String(tid));
+    url.searchParams.set('theme', targetId);
   }
   window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash);
 
@@ -401,7 +465,7 @@ async function switchKnowledgeTheme(themeId){
 
   lastStatsSig = null;
   try{
-    const r = await fetch('stats');
+    const r = await fetch(apiUrl('stats'));
     if(r.ok){
       const d = await r.json();
       lastStatsSig = [d.documents, d.entities, d.relations].join(':');
@@ -509,7 +573,7 @@ function getRecentDocId(){
   let target = activeDoc || curReaderDoc || lastSelectedDocId;
   if(!target){
     try{
-      const saved = localStorage.getItem('claireLastDoc');
+      const saved = getAccountStorage('claireLastDoc');
       if(saved) target = saved;
     }catch(_){}
   }
@@ -535,7 +599,7 @@ let edgeLabelsByZoom = false, selectedEdgeIds = new Set(), lastZoomTier = 0;
 let graphStabilized = false;
 let detailCompact = false;
 try{
-  const savedDetailCompact = localStorage.getItem('claireDetailCompact');
+  const savedDetailCompact = getAccountStorage('claireDetailCompact');
   if(savedDetailCompact === 'true') detailCompact = true;
 }catch(_){}
 
@@ -545,7 +609,7 @@ function toggleDetailCompact(force){
   }else{
     detailCompact = !document.body.classList.contains('detail-compact');
   }
-  try{ localStorage.setItem('claireDetailCompact', detailCompact ? 'true' : 'false'); }catch(_){}
+  try{ setAccountStorage('claireDetailCompact', detailCompact ? 'true' : 'false'); }catch(_){}
   syncWorkspaceLayout();
 }
 
@@ -613,7 +677,7 @@ function showNodePop(id, x, y){
   nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'')+foot;
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
-  fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
+  fetch(apiUrl('node?id='+encodeURIComponent(id))).then(r=>r.json()).then(d=>{
     if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
     const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
     const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
@@ -900,7 +964,7 @@ function openDetailPane(){
   detailOpen=true;
   drawerOpen=true;
   detailCompact=false;
-  try{ localStorage.setItem('claireDetailCompact', 'false'); }catch(_){}
+  try{ setAccountStorage('claireDetailCompact', 'false'); }catch(_){}
   if((compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
   closeGraphDocPicker();
   syncWorkspaceLayout();
@@ -1234,7 +1298,8 @@ function initGraph(onComplete){
     if(onComplete) onComplete();
     return;
   }
-  fetch('graph').then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
+  // fetch('graph')
+  fetch(apiUrl('graph')).then(r=>{ if(!r.ok) throw new Error('graph fetch HTTP '+r.status); return r.json(); }).then(d=>{
     graphInitialized = true;
   const G = window.ClaireGraph;
   if(G && G.DataSet && G.Network){
@@ -1502,7 +1567,7 @@ function resumeGraphAfterIngest(){
 }
 
 // 초기 구동 검사: 적재 진행 중이면 그래프를 표시하거나 계산하지 않고 즉시 대조 매트릭스로 진입
-fetch('stats').then(r => r.ok ? r.json() : null).then(d => {
+fetch(apiUrl('stats')).then(r => r.ok ? r.json() : null).then(d => {
   if(d && d.active_ingest && d.active_ingest.heatmap_matrix){
     const docId = (d.active_ingest.result && d.active_ingest.result.document_id) || d.active_ingest.heatmap_matrix.document_id || null;
     if(docId){
@@ -1709,7 +1774,7 @@ function loadNode(id, hidePop=true){
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   if(focusCamera) focusOnNode(id);
-  fetch('node?id='+encodeURIComponent(id)).then(r=>r.json()).then(renderPanel);
+  fetch(apiUrl('node?id='+encodeURIComponent(id))).then(r=>r.json()).then(renderPanel);
 }
 function renderPanel(d){
   if(!d || d.error){ panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
@@ -1755,7 +1820,7 @@ function renderPanel(d){
       ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
         '" onclick="openReader('+jsArg(dc.id)+');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
       (isWebUrl(dc.url)?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
-      (canIngest() && dc.has_raw_file?'<p class=src><a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a></p>':'')+
+      (canIngest() && dc.has_raw_file?'<p class=src><a href="'+apiUrl('document/raw?id='+encodeURIComponent(dc.id))+'" target=_blank rel=noopener>📄 원본 열기</a></p>':'')+
       '</div>'; }); }
   if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
     d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
@@ -1784,7 +1849,7 @@ async function promoteEntityAlias(entityId, chosenAlias){
   if(!canWrite() || !entityId || !chosenAlias) return;
   if(!confirm("'" + chosenAlias + "'을(를) 이 노드의 대표 레이블로 변경하시겠습니까?\n\n(기존 대표 명칭은 별칭 목록으로 보존되어 연결 무결성이 유지됩니다)")) return;
   try{
-    const r = await fetch('entity/primary-label', {
+    const r = await fetch(apiUrl('entity/primary-label'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({id: entityId, name: chosenAlias})
@@ -1825,7 +1890,8 @@ async function doResearch(){
     if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
   let result=null;
   try{
-    const r=await fetch('research',{method:'POST',headers:{'Content-Type':'application/json'},
+    // fetch('research'
+    const r=await fetch(apiUrl('research'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
     if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
@@ -1990,9 +2056,9 @@ function openIngest(){
   const ingfocusEl = document.getElementById('ingfocus');
   function updateFocusPlaceholder(){
     if(!ingfocusEl) return;
-    const tid = ingthemeEl ? parseInt(ingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
-    const themeObj = availableThemes.find(t => t.id === tid);
-    if(themeObj && themeObj.id > 0 && themeObj.default_focus){
+    const tid = ingthemeEl ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+    const themeObj = findTheme(tid);
+    if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
       ingfocusEl.placeholder = `기본 초점: ${themeObj.default_focus} (비워둘 시 자동 적용)`;
     } else {
       ingfocusEl.placeholder = '예: 시스템 아키텍처와 내부 동작 중심';
@@ -2015,9 +2081,9 @@ async function runIngest(){
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
   const ingthemeEl = document.getElementById('ingtheme');
-  const targetThemeId = (isMulti && ingthemeEl) ? parseInt(ingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  const targetThemeId = (isMulti && ingthemeEl) ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === 0){
+    if(!targetThemeId || targetThemeId === '0'){
       alert('기본 지식베이스(ID 0)에는 협업자 권한으로 적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
       return;
     }
@@ -2029,15 +2095,15 @@ async function runIngest(){
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = '시작…';
   const optionLabels=[];
-  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
-  if(targetThemeObj && targetThemeObj.id !== 0){
+  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
+  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
     optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
   }
   if(fullContent) optionLabels.push('전문 적재');
   if(effort) optionLabels.push('사고: '+effort);
   if(focus){
     optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
-  } else if(targetThemeObj && targetThemeObj.id > 0 && targetThemeObj.default_focus){
+  } else if(targetThemeObj && getThemeKey(targetThemeObj) !== '0' && targetThemeObj.default_focus){
     const df = targetThemeObj.default_focus;
     optionLabels.push('초점(기본): '+(df.length > 20 ? df.slice(0,20)+'…' : df));
   }
@@ -2080,10 +2146,10 @@ async function runIngest(){
   }
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0) bodyObj.theme = targetThemeId;
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     if(focus) bodyObj.focus=focus;
-    const r=await fetch('ingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
       if(activeIngest){
@@ -2178,8 +2244,8 @@ function renderIngestResult(d){
   if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.theme_id !== undefined && d.theme_id !== activeThemeId){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+Number(d.theme_id)+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
+  if(d.theme_id !== undefined && String(d.theme_id) !== String(activeThemeId)){
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
     if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
@@ -2199,18 +2265,19 @@ function openReingest(){
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
-  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
+  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? String(curDoc.theme_id) : String(activeThemeId || '0');
   if(isMulti && availableThemes && availableThemes.length > 0){
     if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
+      const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
         themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재적재 가능한 협업 테마가 없습니다.</p></div>';
       } else {
-        const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
+        const selId = eligibleThemes.some(t => getThemeKey(t) === curDocThemeId) ? curDocThemeId : getThemeKey(eligibleThemes[0]);
         const opts = eligibleThemes.map(t => {
+          const tKey = getThemeKey(t);
           const icon = esc(t.icon || '📁');
           const label = esc(t.label);
-          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
+          return `<option value="${esc(tKey)}" ${tKey === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
         themeFieldHtml = ('<div class="ingest-field">'+
           '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
@@ -2282,9 +2349,9 @@ async function runReingest(){
   const target=((ta||{}).value||'').trim();
   if(!target){ alert('재적재할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
   const reingthemeEl = document.getElementById('reingtheme');
-  const targetThemeId = (isMulti && reingthemeEl) ? parseInt(reingthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  const targetThemeId = (isMulti && reingthemeEl) ? String(reingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === 0){
+    if(!targetThemeId || targetThemeId === '0'){
       alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
       return;
     }
@@ -2298,8 +2365,8 @@ async function runReingest(){
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = '재적재 시작…';
   const optionLabels=[];
-  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
-  if(targetThemeObj && targetThemeObj.id !== 0){
+  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
+  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
     optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
   }
   if(fullContent) optionLabels.push('전문 재적재');
@@ -2347,10 +2414,10 @@ async function runReingest(){
   }
   try{
     const bodyObj = {target:target, full_content:fullContent, untombstone:untombstone};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0) bodyObj.theme = targetThemeId;
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     if(focus) bodyObj.focus=focus;
-    const r=await fetch('reingest-stream',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(apiUrl('reingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
       if(activeIngest){
@@ -2530,9 +2597,9 @@ async function runRegen(isDryRun){
   const target = ((ta||{}).value||'').trim();
   if(!target){ alert('재생성할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
   const regenthemeEl = document.getElementById('regentheme');
-  const targetThemeId = (isMulti && regenthemeEl) ? parseInt(regenthemeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  const targetThemeId = (isMulti && regenthemeEl) ? String(regenthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === 0){
+    if(!targetThemeId || targetThemeId === '0'){
       alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재생성할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
       return;
     }
@@ -2558,10 +2625,10 @@ async function runRegen(isDryRun){
       };
       if(effort) payload.effort = effort;
       if(focus) payload.focus = focus;
-      if(isMulti && targetThemeId !== undefined && targetThemeId !== null){
+      if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
         payload.theme = targetThemeId;
       }
-      const r = await fetch('regenerate', {
+      const r = await fetch(apiUrl('regenerate'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload),
@@ -2605,8 +2672,8 @@ async function runRegen(isDryRun){
   // 실제 재생성 실행 (스트리밍)
   let labelText = '재생성 시작…';
   const optionLabels = [];
-  const targetThemeObj = isMulti ? availableThemes.find(t => t.id === targetThemeId) : null;
-  if(targetThemeObj && targetThemeObj.id !== 0){
+  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
+  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
     optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
   }
   optionLabels.push('컴포넌트: ' + component);
@@ -2636,13 +2703,13 @@ async function runRegen(isDryRun){
   };
   if(effort) payload.effort = effort;
   if(focus) payload.focus = focus;
-  if(isMulti && targetThemeId !== undefined && targetThemeId !== null){
+  if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
     payload.theme = targetThemeId;
   }
 
   let result = null;
   try{
-    const r = await fetch('regenerate-stream', {
+    const r = await fetch(apiUrl('regenerate-stream'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
@@ -2817,7 +2884,7 @@ async function runPurgeCheck(isDryRun){
   const tombstoneChk = document.getElementById('purgetombstone');
   const tombstone = !!(tombstoneChk && tombstoneChk.checked);
   const themeEl = document.getElementById('purgetheme');
-  const targetThemeId = (isMulti && themeEl) ? parseInt(themeEl.value, 10) : (isMulti ? activeThemeId : 0);
+  const targetThemeId = (isMulti && themeEl) ? String(themeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
 
   if(!isDryRun){
     if(!confirm('정말 대상 문서를 영구 소각하시겠습니까?\n이 작업은 되돌릴 수 없으며 원본 문서와 파일, 관련 고아 지식 노드가 즉시 파괴됩니다.')){
@@ -2837,10 +2904,10 @@ async function runPurgeCheck(isDryRun){
       tombstone: tombstone,
       reason: reason,
     };
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== 0){
+    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
       payload.theme = targetThemeId;
     }
-    const r = await fetch('document/purge', {
+    const r = await fetch(apiUrl('document/purge'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
@@ -2911,7 +2978,7 @@ async function openDedup(){
   openDetailPane();
   let d;
   try{
-    const r=await fetch('dedup/scan',{method:'POST'});
+    const r=await fetch(apiUrl('dedup/scan'),{method:'POST'});
     if(r.status===401||r.status===404){ expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     d=await r.json();
@@ -2949,7 +3016,7 @@ async function runDedupMerge(ci){
   if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\n(병합 전 내부 체크포인트를 생성합니다)')) return;
   panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
   try{
-    const r=await fetch('dedup/merge',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(apiUrl('dedup/merge'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
     if(r.status===401||r.status===404){ expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
@@ -2971,7 +3038,8 @@ async function runDedupMerge(ci){
 // 엣지 id 는 rowid 순 enumerate(append-only)라 기존 id 는 안정 — 신규만 add.
 function refreshGraph(){
   if(graphSuspended) return;
-  fetch('graph').then(r=>r.json()).then(d=>{
+  // fetch('graph')
+  fetch(apiUrl('graph')).then(r=>r.json()).then(d=>{
     if(graphSuspended) return;
     if(d && d.nodes && d.edges) applyTopologicalStructure(d.nodes, d.edges);
     const changed=[], added=[];
@@ -2993,7 +3061,8 @@ function refreshGraph(){
       renderDocPanel(curReaderDocData);
     }
   });
-  fetch('documents').then(r=>r.json()).then(d=>{
+  // fetch('documents')
+  fetch(apiUrl('documents')).then(r=>r.json()).then(d=>{
     allDocs=d.documents||[];
     const docq = document.getElementById('docq');
     renderDocs(docq ? docq.value : '');
@@ -3078,7 +3147,7 @@ function handleActiveIngestCompleted(activeInfo){
 let lastStatsSig = null;
 async function pollForUpdates(){
   try{
-    const r = await fetch('stats');
+    const r = await fetch(apiUrl('stats'));
     if(!r.ok){ scheduleNextPoll(); return; }
     const d = await r.json();
     activeJobs = extractActiveJobs(d);
@@ -3149,7 +3218,7 @@ async function pollForUpdates(){
         refreshGraph();
       }
       if(activeDoc){
-        fetch('document?id='+encodeURIComponent(activeDoc)).then(x=>x.json()).then(dc=>{
+        fetch(apiUrl('document?id='+encodeURIComponent(activeDoc))).then(x=>x.json()).then(dc=>{
           if(dc && !dc.error && activeDoc===dc.id){
             curReaderDocData=dc;
             renderDocPanel(dc);
@@ -3674,7 +3743,7 @@ async function doDocServerSearch(q){
       })
     };
     if(abortController) reqOpts.signal = abortController.signal;
-    r = await fetch('search', reqOpts);
+    r = await fetch(apiUrl('search'), reqOpts);
   } catch(e){
     if(abortController && abortController.signal.aborted) return;
     if(seq !== currentSearchSeq) return;
@@ -3848,7 +3917,7 @@ async function togglePin(id, val){
   const d=allDocs.find(x=>x.id===id); if(d) d.pinned = val?1:0;
   renderDocs(document.getElementById('docq').value);
   try{
-    const r=await fetch('document/pin',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(apiUrl('document/pin'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, pinned:val})});
     if(r.status===401||r.status===404) expireWriteAccess();
     if(!r.ok && d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); }
@@ -3867,7 +3936,7 @@ async function toggleHide(id, val){
   const d=allDocs.find(x=>x.id===id); if(d) d.hidden = val?1:0;
   renderDocs(document.getElementById('docq').value);
   try{
-    const r=await fetch('document/hide',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(apiUrl('document/hide'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, hidden:val})});
     if(r.status===401||r.status===404) expireWriteAccess();
     if(!r.ok && d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); }
@@ -3966,7 +4035,7 @@ function resetWorkspaceState(){
 
 function resolveHomeView(stats, activeThemeId){
   if(!stats) return 'graph';
-  const targetTheme = (activeThemeId !== undefined && activeThemeId !== null) ? Number(activeThemeId) : 0;
+  const targetTheme = String((activeThemeId !== undefined && activeThemeId !== null) ? activeThemeId : '0');
   let jobs = [];
   if(Array.isArray(stats.active_jobs) && stats.active_jobs.length > 0){
     jobs = stats.active_jobs.filter(j => j && j.active);
@@ -3977,7 +4046,10 @@ function resolveHomeView(stats, activeThemeId){
   }
   if(jobs.length === 0) return 'graph';
   const matchesCurrent = jobs.some(j => {
-    const jTheme = (j.theme_id !== undefined && j.theme_id !== null) ? Number(j.theme_id) : 0;
+    const jTheme = String((j.theme_id !== undefined && j.theme_id !== null) ? j.theme_id : '0');
+    const curThemeObj = findTheme(targetTheme);
+    const jThemeObj = findTheme(jTheme);
+    if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
     return jTheme === targetTheme;
   });
   if(matchesCurrent) return 'job';
@@ -3987,8 +4059,16 @@ function resolveHomeView(stats, activeThemeId){
 function showOtherThemeJobBanner(stats){
   const banner = document.getElementById('format-warn-banner');
   if(!banner) return;
+  const curThemeStr = String(activeThemeId || '0');
   const otherJobs = (stats && Array.isArray(stats.active_jobs) ? stats.active_jobs : (stats && stats.active_ingest ? [stats.active_ingest] : []))
-    .filter(j => j && j.active && Number(j.theme_id !== undefined ? j.theme_id : 0) !== Number(activeThemeId));
+    .filter(j => {
+      if(!j || !j.active) return false;
+      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const curThemeObj = findTheme(curThemeStr);
+      const jThemeObj = findTheme(jThemeStr);
+      if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return false;
+      return jThemeStr !== curThemeStr;
+    });
   if(!otherJobs.length) return;
   const job = otherJobs[0];
   const tName = job.theme_label || ('테마 #' + (job.theme_id || 0));
@@ -4001,7 +4081,7 @@ function showOtherThemeJobBanner(stats){
       title: '백그라운드 작업',
       actionLabel: '👉 테마로 이동',
       action: function(){
-        switchKnowledgeTheme(job.theme_id || 0);
+        switchKnowledgeTheme(String(job.theme_id || '0'));
       }
     });
   }
@@ -4020,19 +4100,19 @@ async function enterHome({reason = 'brand'} = {}){
   // URL / History: preserve ?theme=N if non-zero, replaceState without pushing
   const url = new URL(window.location.href);
   const currentThemeParam = url.searchParams.get('theme');
-  url.search = (activeThemeId && activeThemeId !== 0) ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
+  url.search = (activeThemeId && String(activeThemeId) !== '0') ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
   url.hash = '';
   window.history.replaceState({ pane: 'graph', modal: null }, HOME_TITLE, url.pathname + url.search);
 
   // Sync brand href with current theme
   const brandLink = document.querySelector('a.brand');
   if(brandLink){
-    brandLink.href = (activeThemeId && activeThemeId !== 0) ? ('./?theme=' + activeThemeId) : './';
+    brandLink.href = (activeThemeId && String(activeThemeId) !== '0') ? ('./?theme=' + activeThemeId) : './';
   }
 
   let stats = null;
   try{
-    const r = await fetch('stats', { cache: 'no-store' });
+    const r = await fetch(apiUrl('stats'), { cache: 'no-store' });
     if(r.ok) stats = await r.json();
   }catch(_){}
 
@@ -4133,7 +4213,7 @@ function loadDocPanel(id){
     return;
   }
   panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
-  fetch('document?id='+encodeURIComponent(id)).then(r=>r.json()).then(dc=>{
+  fetch(apiUrl('document?id='+encodeURIComponent(id))).then(r=>r.json()).then(dc=>{
     if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     curReaderDocData=dc;
@@ -4468,7 +4548,7 @@ async function openThemeManager(){
   openDetailPane();
   panel.innerHTML = '<h2>📁 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
   try{
-    const r = await fetch('themes');
+    const r = await fetch(apiUrl('themes'));
     if(!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const themes = data.themes || [];
@@ -4480,88 +4560,91 @@ async function openThemeManager(){
     }
     h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
     for(const t of themes){
+      const themeKey = getThemeKey(t);
       const isPub = t.is_public !== false;
       const pubBadge = isPub
         ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">공개</span>'
         : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">비공개 🔒</span>';
       const toggleBtn = isPub
-        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, false)">비공개로 전환</button>`
-        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${t.id}, true)">공개로 전환</button>`;
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">비공개로 전환</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">공개로 전환</button>`;
       const isCollabAcc = t.is_collaborator_accessible !== false;
       const collabBadge = isCollabAcc
         ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개 🤝</span>'
         : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단 🚫</span>';
       const toggleCollabBtn = isCollabAcc
-        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, false)">협업자 차단</button>`
-        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${t.id}, true)">협업자 공개</button>`;
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, false)">협업자 차단</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, true)">협업자 공개</button>`;
       const isPres = t.presentation_enabled === true;
       const presBadge = isPres
         ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 활성화됨">📊 발표 ON</span>'
         : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 비활성화됨">🚫 발표 OFF</span>';
       const togglePresBtn = isPres
-        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${t.id}, false)">발표 끄기</button>`
-        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${t.id}, true)">발표 켜기</button>`;
-      const canIngestHere = t.id > 0 && isCollabAcc;
-      const idLabel = t.id === 0 ? '기본 (ID 0)' : `테마 #${t.id}`;
+        ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">발표 끄기</button>`
+        : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">발표 켜기</button>`;
+      const canIngestHere = themeKey !== '0' && isCollabAcc;
+      const idLabel = themeKey === '0' ? '기본 (ID 0)' : (t.number ? `테마 ${t.number}` : `테마 #${t.id}`);
       const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
       const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
+      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length)
+        ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="구 도메인 리다이렉트">🌐 구 도메인 ${t.legacy_hosts.length}개</span>`
+        : '';
       h += `<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <strong style="font-size:13px;">${esc(t.icon || '📁')} ${esc(t.label)} <small style="opacity:0.7">(${idLabel})</small></strong>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            ${t.fqdn ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="전용 도메인">🌐 ${esc(t.fqdn)}</span>` : ''}
-            ${t.fqdn ? `<a href="//${esc(t.fqdn)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--accent2,#00aaff);text-decoration:none;padding:2px 4px;" title="전용 도메인으로 새 창 열기">↗ 열기</a>` : ''}
+            ${legacyHostsBadge}
             ${t.ga_measurement_id ? `<span style="color:#fbbf24;font-weight:600;font-size:12px;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px" title="Google Analytics 4">📊 ${esc(t.ga_measurement_id)}</span>` : ''}
             ${pubBadge}
             ${isOwner ? toggleBtn : ''}
-            ${t.id > 0 ? collabBadge : ''}
-            ${(isOwner && t.id > 0) ? toggleCollabBtn : ''}
+            ${themeKey !== '0' ? collabBadge : ''}
+            ${(isOwner && themeKey !== '0') ? toggleCollabBtn : ''}
             ${presBadge}
             ${isOwner ? togglePresBtn : ''}
-            ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${t.id})">✏️ 수정</button>` : ''}
-            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${t.id})">⚙️ 옵션 보기</button>
-            ${(isOwner && t.id > 0) ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, ${jsArg(t.label)})">🗑️ 삭제</button>` : ''}
+            ${isOwner ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})">✏️ 수정</button>` : ''}
+            <button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})">⚙️ 옵션 보기</button>
+            ${(isOwner && themeKey !== '0') ? `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})">🗑️ 삭제</button>` : ''}
           </div>
         </div>
         ${t.description ? `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>` : ''}
         <p style="margin:4px 0 0;font-size:12px;opacity:0.8">지식 관리자: ${esc(effMgr)}</p>
-        ${(t.id > 0 && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
+        ${(themeKey !== '0' && t.default_focus) ? `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>` : ''}
         
         <!-- 테마 설정 옵션 상세 뷰 (협업자 및 소유자 확인용) -->
-        <div id="theme-options-view-${t.id}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
+        <div id="theme-options-view-${themeKey}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">
           <div style="font-weight:600;color:var(--accent2);margin-bottom:2px;">⚙️ 테마 설정 옵션</div>
           <div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>
           <div>• <b>지식 관리자</b>: ${esc(effMgr)}</div>
           <div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>
           <div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>
-          <div>• <b>전용 FQDN (도메인)</b>: ${esc(t.fqdn || '(미지정 - 기본 도메인 공유)')}</div>
+          <div>• <b>구 도메인 리다이렉트 (legacy_hosts)</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => `${esc(lh.host)} (활성: ${esc(lh.activated_at || '-')}, 일몰: ${esc(lh.sunset_at || '-')})`).join(', ') : '(없음)'}</div>
           <div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 비활성)')}</div>
-          ${t.id > 0 ? `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>` : ''}
+          ${themeKey !== '0' ? `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>` : ''}
           <div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>
-          ${t.id > 0 ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
-          <div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능 ✍️)</span>' : (t.id === 0 ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>
+          ${themeKey !== '0' ? `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>` : ''}
+          <div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능 ✍️)</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>
           <div>• <b>프레젠테이션 기능</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">활성화됨 (발표 기능 사용 가능 📊)</span>' : '<span style="color:var(--muted);font-weight:600;">비활성화됨 (발표 기능 숨김 🚫)</span>'}</div>
           ${t.stats ? `<div>• <b>지식 현황</b>: 문서 ${t.stats.documents || 0}건 · 엔티티 ${t.stats.entities || 0}개 · 관계 ${t.stats.relations || 0}개</div>` : ''}
         </div>
 
-        ${isOwner ? `<div id="theme-edit-form-${t.id}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
-          <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
-          <div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="editthemep-sorcerer-${t.id}" style="width:100%;box-sizing:border-box" placeholder="지식 관리자" value="${esc(rawMgr)}"/></div>
-          <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
-          <div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="editthemep-fqdn-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com" value="${esc(t.fqdn || '')}"/></div>
-          <div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>
-          ${t.id > 0 ? `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${t.id}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>` : ''}
+        ${isOwner ? `<div id="theme-edit-form-${themeKey}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">
+          <div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="editthemep-sorcerer-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="지식 관리자" value="${esc(rawMgr)}"/></div>
+          <div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>
+          ${(t.legacy_hosts && t.legacy_hosts.length) ? `<div style="font-size:11px;color:var(--muted);padding:2px 0;">🌐 구 도메인(FQDN)은 폐지되었으며 읽기 전용 리다이렉트로 관리됩니다: ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>` : ''}
+          <div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>
+          ${themeKey !== '0' ? `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>` : ''}
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${t.id}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
-            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${t.id}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
-            ${t.id > 0 ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${t.id}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
-            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${t.id}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div>
+            <div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>
+            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>
+            ${themeKey !== '0' ? `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${themeKey}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>` : ''}
+            <div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${themeKey}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div>
           </div>
           <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
-            <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${t.id})">저장</button>
-            <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${t.id})">취소</button>
-            ${t.id > 0 ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${t.id}, ${jsArg(t.label)})">🗑️ 테마 완전 삭제</button>` : ''}
+            <button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">저장</button>
+            <button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">취소</button>
+            ${themeKey !== '0' ? `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})">🗑️ 테마 완전 삭제</button>` : ''}
           </div>
         </div>` : ''}
       </div>`;
@@ -4575,7 +4658,6 @@ async function openThemeManager(){
       h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="지식 관리자"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">전용 도메인 (FQDN, 예: ai.example.com)</label><input id="newthemep-fqdn" style="width:100%;box-sizing:border-box" placeholder="예: ai.example.com"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
@@ -4624,7 +4706,6 @@ async function updateThemeFromUI(themeId){
   const pubEl = document.getElementById('editthemep-pub-' + themeId);
   const collabEl = document.getElementById('editthemep-collab-' + themeId);
   const presEl = document.getElementById('editthemep-pres-' + themeId);
-  const fqdnEl = document.getElementById('editthemep-fqdn-' + themeId);
   const gaEl = document.getElementById('editthemep-ga-' + themeId);
   const sorcererEl = document.getElementById('editthemep-sorcerer-' + themeId);
 
@@ -4634,7 +4715,9 @@ async function updateThemeFromUI(themeId){
   const icon = ((iconEl||{}).value||'📁').trim() || '📁';
   const is_public = pubEl ? pubEl.checked : true;
 
-  const payload = {id: themeId, label, description, icon, is_public};
+  const tObj = findTheme(themeId);
+  const sendId = (themeId === 0 || themeId === '0') ? 0 : (tObj && tObj.id !== undefined && !tObj.number ? tObj.id : String(themeId));
+  const payload = {id: sendId, label, description, icon, is_public};
   if(sorcererEl !== null && sorcererEl !== undefined){
     payload.sorcerer = sorcererEl.value.trim();
   }
@@ -4647,15 +4730,12 @@ async function updateThemeFromUI(themeId){
   if(focusEl){
     payload.default_focus = focusEl.value.trim();
   }
-  if(fqdnEl){
-    payload.fqdn = fqdnEl.value.trim() || null;
-  }
   if(gaEl){
     payload.ga_measurement_id = gaEl.value.trim() || null;
   }
 
   try{
-    const r = await fetch('themes', {
+    const r = await fetch(apiUrl('themes'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -4675,10 +4755,12 @@ async function updateThemeFromUI(themeId){
 async function toggleThemeVisibility(themeId, newVisibility){
   if(!canWrite()) return;
   try{
-    const r = await fetch('themes', {
+    const tObj = findTheme(themeId);
+    const sendId = (themeId === 0 || themeId === '0') ? 0 : (tObj && tObj.id !== undefined && !tObj.number ? tObj.id : String(themeId));
+    const r = await fetch(apiUrl('themes'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: themeId, is_public: newVisibility})
+      body: JSON.stringify({id: sendId, is_public: newVisibility})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -4695,10 +4777,12 @@ async function toggleThemeVisibility(themeId, newVisibility){
 async function toggleThemeCollaborator(themeId, newAccess){
   if(!canWrite()) return;
   try{
-    const r = await fetch('themes', {
+    const tObj = findTheme(themeId);
+    const sendId = (themeId === 0 || themeId === '0') ? 0 : (tObj && tObj.id !== undefined && !tObj.number ? tObj.id : String(themeId));
+    const r = await fetch(apiUrl('themes'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: themeId, is_collaborator_accessible: newAccess})
+      body: JSON.stringify({id: sendId, is_collaborator_accessible: newAccess})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -4715,10 +4799,12 @@ async function toggleThemeCollaborator(themeId, newAccess){
 async function toggleThemePresentation(themeId, newPres){
   if(!canWrite()) return;
   try{
-    const r = await fetch('themes', {
+    const tObj = findTheme(themeId);
+    const sendId = (themeId === 0 || themeId === '0') ? 0 : (tObj && tObj.id !== undefined && !tObj.number ? tObj.id : String(themeId));
+    const r = await fetch(apiUrl('themes'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: themeId, presentation_enabled: Boolean(newPres)})
+      body: JSON.stringify({id: sendId, presentation_enabled: Boolean(newPres)})
     });
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
@@ -4741,7 +4827,6 @@ async function createThemeFromUI(){
   const pubEl = document.getElementById('newthemep-pub');
   const collabEl = document.getElementById('newthemep-collab');
   const presEl = document.getElementById('newthemep-pres');
-  const fqdnEl = document.getElementById('newthemep-fqdn');
   const gaEl = document.getElementById('newthemep-ga');
   const sorcererEl = document.getElementById('newthemep-sorcerer');
 
@@ -4753,17 +4838,15 @@ async function createThemeFromUI(){
   const is_public = pubEl ? pubEl.checked : true;
   const is_collaborator_accessible = collabEl ? collabEl.checked : true;
   const presentation_enabled = presEl ? presEl.checked : false;
-  const fqdn = ((fqdnEl||{}).value||'').trim() || null;
   const ga_measurement_id = ((gaEl||{}).value||'').trim() || null;
   const sorcerer = ((sorcererEl||{}).value||'').trim();
 
   const payload = {label, description, default_focus, icon, is_public, is_collaborator_accessible, presentation_enabled};
   if(sorcerer) payload.sorcerer = sorcerer;
-  if(fqdn) payload.fqdn = fqdn;
   if(ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
 
   try{
-    const r = await fetch('themes', {
+    const r = await fetch(apiUrl('themes'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -4782,7 +4865,8 @@ async function createThemeFromUI(){
 
 async function deleteThemeFromUI(themeId, label){
   if(!canWrite()) return;
-  if(themeId === 0){
+  const themeStr = String(themeId);
+  if(themeStr === '0'){
     alert('기본 지식베이스(기본 테마)는 삭제할 수 없습니다.');
     return;
   }
@@ -4790,7 +4874,7 @@ async function deleteThemeFromUI(themeId, label){
   if(!confirmed) return;
 
   try{
-    const r = await fetch(`themes?id=${themeId}&purge=1`, {
+    const r = await fetch(apiUrl(`themes?id=${encodeURIComponent(themeStr)}&purge=1`), {
       method: 'DELETE'
     });
     if(!r.ok){
@@ -4798,9 +4882,10 @@ async function deleteThemeFromUI(themeId, label){
       alert('테마 삭제 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
       return;
     }
-    if(activeThemeId === themeId){
-      activeThemeId = 0;
-      try{ localStorage.setItem('claire_active_theme', '0'); }catch(e){}
+    if(String(activeThemeId) === themeStr){
+      activeThemeId = '0';
+      setAccountStorage('claire_active_theme', '0');
+      setAccountStorage('claireKnowledgeTheme', '0');
     }
     await fetchThemes();
     await reloadThemeData();
@@ -4818,7 +4903,7 @@ async function openProviderManager(){
   openDetailPane();
   panel.innerHTML = '<h2>⚡ 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
   try{
-    const r = await fetch('providers');
+    const r = await fetch(rootUrl('providers'));
     if(!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     _provConfig = data;
@@ -5064,7 +5149,7 @@ async function testProviderConnection(provName){
     if(kEl && kEl.value) payload.config.api_key = kEl.value;
   }
   try{
-    const r = await fetch('providers/test', {
+    const r = await fetch(rootUrl('providers/test'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -5173,7 +5258,7 @@ async function saveProviderSettings(){
   else if(jevKey && jevKey.dataset.cleared === 'true') updatePayload.providers.jev.clear_api_key = true;
 
   try{
-    const r = await fetch('providers', {
+    const r = await fetch(rootUrl('providers'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(updatePayload)
@@ -5198,7 +5283,7 @@ async function openLimitManager(){
   openDetailPane();
   panel.innerHTML = '<h2>📏 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
   try{
-    const r = await fetch('limits');
+    const r = await fetch(rootUrl('limits'));
     if(!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     _limitConfig = data;
@@ -5395,7 +5480,7 @@ async function saveLimitSettings(){
   };
 
   try{
-    const r = await fetch('limits', {
+    const r = await fetch(rootUrl('limits'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -5441,7 +5526,7 @@ async function resetLimitSettings(){
     }
   };
   try{
-    const r = await fetch('limits', {
+    const r = await fetch(rootUrl('limits'), {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(defaults)
@@ -5466,7 +5551,7 @@ async function openTokenManager(msg, isSuccess, newCreatedToken){
   openDetailPane();
   panel.innerHTML = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
   try{
-    const r = await fetch('tokens');
+    const r = await fetch(rootUrl('tokens'));
     if(!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     _tokenList = data.tokens || [];
@@ -5623,7 +5708,7 @@ async function createApiToken(){
   const expDays = expirySelect ? parseInt(expirySelect.value, 10) : 0;
 
   try{
-    const r = await fetch('tokens', {
+    const r = await fetch(rootUrl('tokens'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -5647,7 +5732,7 @@ async function createApiToken(){
 async function revokeApiToken(id, name){
   if(!confirm(`정말 #${id} '${name}' 토큰을 폐기하시겠습니까? 즉시 모든 API 및 MCP 연결이 차단됩니다.`)) return;
   try{
-    const r = await fetch('tokens/revoke', {
+    const r = await fetch(rootUrl('tokens/revoke'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({id: id})
@@ -5670,7 +5755,7 @@ async function synth(){
   panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
   openDetailPane();
   // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
-  fetch('synthesize',{method:'POST',
+  fetch(apiUrl('synthesize'),{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node_ids:ids})})
    .then(r=> { if(r.status===401||r.status===404){ expireWriteAccess(); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
@@ -5707,7 +5792,7 @@ async function semanticSearch(q){
       body:JSON.stringify({query:q, summarize:false, limit:12, mode:searchMode})
     };
     if(abortController) reqOpts.signal = abortController.signal;
-    r=await fetch('search', reqOpts);
+    r=await fetch(apiUrl('search'), reqOpts);
   }
   catch(e){
     if(abortController && abortController.signal.aborted) return;
@@ -5915,7 +6000,7 @@ const ClaireStatusBanner = (function(){
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetchThemes();    // 지식 관리자가 정의한 테마 목록을 조회하여 셀렉터 구성
 loadThemeDocuments();
-fetch('whoami').then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
+fetch(rootUrl('whoami')).then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   setAccessScope(d.scope);
 }).catch(()=>{ setAccessScope('unknown','failed'); });
 
@@ -6319,7 +6404,14 @@ function renderMultiSlotUI(jobs){
 
   const existingJob = jobs.find(j => j.job_id === selectedJobId);
   if(!existingJob){
-    const themeMatch = jobs.find(j => Number(j.theme_id !== undefined ? j.theme_id : 0) === Number(activeThemeId));
+    const curThemeStr = String(activeThemeId || '0');
+    const curThemeObj = findTheme(curThemeStr);
+    const themeMatch = jobs.find(j => {
+      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const jThemeObj = findTheme(jThemeStr);
+      if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
+      return jThemeStr === curThemeStr;
+    });
     selectedJobId = (themeMatch || jobs[0]).job_id;
   }
 
@@ -6869,7 +6961,7 @@ async function renderDecisionStreamCenter(appendOnly){
     isFetchingDecisions = true;
     if(listEl && !appendOnly) listEl.innerHTML = '<p class="hint" style="padding:40px;text-align:center">지식 엔티티 판단 기록을 불러오는 중…</p>';
     try {
-      const r = await fetch('resolution/decisions?limit=500');
+      const r = await fetch(apiUrl('resolution/decisions?limit=500'));
       if(r.ok){
         const data = await r.json();
         cachedDecisions = data.decisions || [];
@@ -7047,7 +7139,7 @@ async function confirmPurgeMatrix(docId){
   if(!docId) return;
   if(typeof canWrite === 'function' && canWrite()){
     try {
-      const res = await fetch('document/matrix/purge', {
+      const res = await fetch(apiUrl('document/matrix/purge'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id: docId})
@@ -7063,6 +7155,7 @@ async function confirmPurgeMatrix(docId){
   try {
     sessionStorage.removeItem('doc_matrix_' + docId);
     sessionStorage.setItem('doc_matrix_confirmed_' + docId, '1');
+    setAccountStorage('doc_matrix_confirmed_' + docId, '1');
     localStorage.setItem('doc_matrix_confirmed_' + docId, '1');
   } catch(_) {}
 
