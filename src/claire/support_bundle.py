@@ -108,7 +108,7 @@ _BUNDLE_TOKEN_PREFIX = "sb3_"
 _MAX_STORAGE_SCAN_ENTRIES = 2_000
 _MAX_STORAGE_DATABASES = 100
 _STORAGE_SCAN_SKIP_DIRS = frozenset(
-    {"backups", "cache", "logs", "offsite-backups", "raw", "support_bundles"}
+    {"auth", "backups", "cache", "logs", "offsite-backups", "raw", "support_bundles"}
 )
 
 
@@ -475,6 +475,8 @@ def _scan_storage_candidates(data_dir: Path) -> tuple[list[Path], dict[str, Any]
                     truncated = True
                     break
                 entry_path = Path(entry.path)
+                if entry.name == "master.key" or entry.name == "auth" or "auth" in entry_path.parts:
+                    continue
                 try:
                     is_dir = entry.is_dir(follow_symlinks=False)
                     is_file = entry.is_file(follow_symlinks=False)
@@ -552,6 +554,12 @@ def _collect_storage_diagnostics(
 
     resolved_themes: list[dict[str, Any]] = []
     for theme in themes:
+        theme_account_id = getattr(theme, "account_id", dbm.ADMIN_ACCOUNT_ID)
+        is_admin_theme = (theme_account_id == dbm.ADMIN_ACCOUNT_ID)
+        is_theme_public = getattr(theme, "is_public", True)
+        safe_theme_label = getattr(theme, "label", None)
+        if not is_admin_theme and not is_theme_public and safe_theme_label is not None:
+            safe_theme_label = "[REDACTED_PRIVATE_THEME]"
         try:
             theme_settings = theme_manager.get_settings_for_theme(theme.id, settings)
             db_file = Path(theme_settings.db_file)
@@ -559,7 +567,7 @@ def _collect_storage_diagnostics(
                 {
                     "id": theme.id,
                     "seq": theme.seq,
-                    "label": theme.label,
+                    "label": safe_theme_label,
                     "is_default": theme.is_default,
                     "declared_db_path": theme.db_path,
                     "database": _inspect_database_candidate(db_file),
@@ -570,7 +578,7 @@ def _collect_storage_diagnostics(
             resolved_themes.append(
                 {
                     "id": getattr(theme, "id", None),
-                    "label": getattr(theme, "label", None),
+                    "label": safe_theme_label,
                     "resolution_error": f"{type(exc).__name__}: {exc}",
                 }
             )
@@ -1420,9 +1428,13 @@ def create_support_bundle(
                 )
 
                 for t in themes_to_check:
+                    theme_account_id = getattr(t, "account_id", dbm.ADMIN_ACCOUNT_ID)
+                    is_admin_theme = (theme_account_id == dbm.ADMIN_ACCOUNT_ID)
+                    is_theme_public = getattr(t, "is_public", True)
+                    safe_theme_label = t.label if (is_admin_theme or is_theme_public) else "[REDACTED_PRIVATE_THEME]"
                     theme_db = Path(tm.get_settings_for_theme(t.id).db_file)
                     theme_entry: dict[str, Any] = {
-                        "label": t.label,
+                        "label": safe_theme_label,
                         "path": str(theme_db),
                         "path_metadata": _path_metadata(theme_db),
                     }
@@ -1479,7 +1491,9 @@ def create_support_bundle(
                                 item = dict(er)
                                 if getattr(s, "multi_theme", False):
                                     item["theme_id"] = t.id
-                                    item["theme_label"] = t.label
+                                    item["theme_label"] = safe_theme_label
+                                if not is_admin_theme:
+                                    item["payload"] = "[REDACTED]"
                                 failed_items.append(item)
 
                             # 공유 링크 인덱스 (기간 내 생성되었거나 유효한 공유 링크 전체)
@@ -1508,7 +1522,10 @@ def create_support_bundle(
                                 s_dict = dict(sr)
                                 if getattr(s, "multi_theme", False):
                                     s_dict["theme_id"] = t.id
-                                    s_dict["theme_label"] = t.label
+                                    s_dict["theme_label"] = safe_theme_label
+                                if not is_admin_theme:
+                                    s_dict["token"] = "***REDACTED***"
+                                    s_dict["token_sha256"] = "***REDACTED***"
                                 shares_index.append(s_dict)
 
                             # DB 정합성 빠른 검사
@@ -1689,12 +1706,23 @@ def create_support_bundle(
                     inbox_records = list(inbox_map.values())
                     inbox_records.sort(key=lambda item: (float(item.get("received_at") or 0), int(item["id"])))
 
+                    target_theme = None
+                    try:
+                        target_theme = tm.get_theme(target_theme_id)
+                    except Exception:
+                        pass
+                    target_account_id = getattr(target_theme, "account_id", dbm.ADMIN_ACCOUNT_ID) if target_theme else dbm.ADMIN_ACCOUNT_ID
+                    target_is_admin = (target_account_id == dbm.ADMIN_ACCOUNT_ID)
+                    target_is_public = getattr(target_theme, "is_public", True) if target_theme else True
+                    if not target_is_admin and not target_is_public:
+                        target_info["theme_label"] = "[REDACTED_PRIVATE_THEME]"
+
                     doc_telemetry = (
                         query_telemetry(data_dir, document_id=target_doc_id, limit=200)
                         if target_doc_id
                         else []
                     )
-                    target_info["latest_summary"] = latest_summary
+                    target_info["latest_summary"] = latest_summary if target_is_admin else None
                     if target_info.get("resolution_status") not in {"resolved_document", "inbox_only"}:
                         collector_warnings.append(
                             {
@@ -1704,6 +1732,17 @@ def create_support_bundle(
                         )
 
                     extractions_data = [dict(e) for e in extractions]
+                    if not target_is_admin:
+                        latest_summary = None
+                        for item in inbox_records:
+                            item["payload"] = "[REDACTED]"
+                            if not target_is_public:
+                                item["theme_label"] = "[REDACTED_PRIVATE_THEME]"
+                        for e in extractions_data:
+                            e["summary"] = "[REDACTED]"
+                            e["claims"] = None
+                            e["props"] = {}
+
                     graph_fragment = {
                         "document_id": target_doc_id,
                         "entities_count": len(doc_entities),
@@ -1740,10 +1779,21 @@ def create_support_bundle(
                         ],
                         "proposals": doc_proposals,
                     }
+                    doc_dict = dict(doc_row) if doc_row else None
+                    if doc_dict and not target_is_admin:
+                        doc_dict["raw_text"] = "[REDACTED]"
+                        doc_dict["detail"] = "[REDACTED]"
+                        doc_dict["detail_html"] = "[REDACTED]"
+                        doc_dict["summary"] = "[REDACTED]"
+                    shares_data = [dict(s) for s in doc_shares]
+                    if not target_is_admin:
+                        for s_item in shares_data:
+                            s_item["token"] = "***REDACTED***"
+                            s_item["token_sha256"] = "***REDACTED***"
                     tracked_doc_detail = {
                         "resolution": target_info,
-                        "document": dict(doc_row) if doc_row else None,
-                        "shares": [dict(s) for s in doc_shares],
+                        "document": doc_dict,
+                        "shares": shares_data,
                         "extractions": extractions_data,
                         "latest_summary": latest_summary,
                         "graph_stats": {

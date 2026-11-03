@@ -286,6 +286,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/authorize",
         "/oauth/authorize/poll",
         "/login",
+        "/invite/{code}",
+        "/explore/accounts",
     }
     public_post = {
         "/oauth/register",
@@ -294,6 +296,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/oauth/token",
         "/login",
         "/logout",
+        "/invite/{code}",
     }
     read_get = {
         "/",
@@ -388,6 +391,14 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ),
         ("POST", "/api/admin/instance/mode"),
         ("POST", "/api/admin/instance/legacy-hosts/sunset"),
+        ("PATCH", "/api/admin/accounts"),
+        ("GET", "/api/admin/usernames/retired"),
+        ("HEAD", "/api/admin/usernames/retired"),
+        ("POST", "/api/admin/usernames/release"),
+        *(
+            (method, "/api/invites")
+            for method in ("GET", "HEAD", "POST", "PATCH")
+        ),
     }
     expected = {
         **{
@@ -413,8 +424,14 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         key: rule.access for key, rule in security.ROUTE_POLICY.items()
     } == expected
     assert len(security.ROUTE_POLICY) == len(expected)
-    # §9.1 표면·모드(전체 표는 tests/test_route_surface_contract.py). P2에는 네트워크 전용 항목이 없다.
-    assert all(rule.modes == security.ALL_MODES for rule in security.ROUTE_POLICY.values())
+    # §9.1 표면·모드(전체 표는 tests/test_route_surface_contract.py). P3 네트워크 전용 항목 검증.
+    network_only_keys = {
+        *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
+        *((m, "/explore/accounts") for m in ("GET", "HEAD")),
+        *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
+    }
+    assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
+    assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())
     surfaces = {key: rule.surface for key, rule in security.ROUTE_POLICY.items()}
     assert surfaces[("GET", "/")] == "root"
     assert surfaces[("GET", "/graph")] == "namespaced"

@@ -102,7 +102,26 @@ def _save_job(data_dir: Path | str | None, data: dict[str, Any]) -> None:
     _atomic_write(f, data)
 
 
-def get_active_jobs(data_dir: Path | str | None = None) -> list[dict[str, Any]]:
+def _job_matches_account(job: dict[str, Any], account_id: int) -> bool:
+    job_acc = job.get("account_id")
+    if job_acc is not None:
+        try:
+            return int(job_acc) == account_id
+        except (ValueError, TypeError):
+            return False
+    tid = job.get("theme_id")
+    if tid is not None:
+        try:
+            from ..store.theme import get_theme_manager
+            tm = get_theme_manager()
+            theme = tm.get_theme(int(tid))
+            return getattr(theme, "account_id", None) == account_id
+        except Exception:
+            pass
+    return False
+
+
+def get_active_jobs(data_dir: Path | str | None = None, account_id: int | None = None) -> list[dict[str, Any]]:
     """현재 활성화되어 있거나 최근 완료된 작업 목록 반환 (최대 _MAX_EXPENSIVE_JOBS개)."""
     p = Path(data_dir) if data_dir else Path("data")
     jobs_dir = p / _JOBS_DIRNAME
@@ -135,6 +154,8 @@ def get_active_jobs(data_dir: Path | str | None = None) -> list[dict[str, Any]]:
                         except Exception:
                             pass
                         continue
+                if account_id is not None and not _job_matches_account(job, account_id):
+                    continue
                 jobs.append(job)
             except Exception as e:
                 logger.debug("Failed to read job file %s: %s", f, e)
@@ -143,12 +164,13 @@ def get_active_jobs(data_dir: Path | str | None = None) -> list[dict[str, Any]]:
     # active_ingest.json에 존재하는 단일 작업이 active_jobs 디렉터리에 없는 경우 동기화 (레거시 단일 슬롯 쓰기 호환)
     single = get_active_ingest(data_dir)
     if single and isinstance(single, dict):
-        single_id = single.get("job_id")
-        if not single_id:
-            if single.get("active") and not any(j.get("active") for j in jobs):
-                jobs.append(single)
-            elif not single.get("active") and not jobs:
-                jobs.append(single)
+        if account_id is None or _job_matches_account(single, account_id):
+            single_id = single.get("job_id")
+            if not single_id:
+                if single.get("active") and not any(j.get("active") for j in jobs):
+                    jobs.append(single)
+                elif not single.get("active") and not jobs:
+                    jobs.append(single)
 
     # 활성 작업 우선 정렬, 최신 갱신 순
     jobs.sort(
@@ -161,11 +183,20 @@ def get_active_jobs(data_dir: Path | str | None = None) -> list[dict[str, Any]]:
     return jobs[:_MAX_EXPENSIVE_JOBS]
 
 
+def get_active_jobs_for_account(
+    account_id: int,
+    data_dir: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """특정 계정(account_id) 기준으로 필터링된 활성 작업 목록 반환."""
+    return get_active_jobs(data_dir=data_dir, account_id=account_id)
+
+
 def get_primary_active_job(
     data_dir: Path | str | None = None,
     theme_id: int | None = None,
     *,
     jobs: list[dict[str, Any]] | None = None,
+    account_id: int | None = None,
 ) -> dict[str, Any] | None:
     """요청된 테마의 우선 활성 작업 반환 (해당 테마 작업이 없으면 전체 중 최신 작업).
 
@@ -173,8 +204,13 @@ def get_primary_active_job(
     레거시 active_ingest.json 으로 폴백하지 않는다.
     """
     if jobs is None:
-        jobs = get_active_jobs(data_dir)
+        jobs = get_active_jobs(data_dir, account_id=account_id)
         if not jobs:
+            if account_id is not None:
+                single = get_active_ingest(data_dir)
+                if single and _job_matches_account(single, account_id):
+                    return single
+                return None
             return get_active_ingest(data_dir)
     elif not jobs:
         return None
@@ -255,6 +291,7 @@ def active_job(
     focus: str | None = None,
     title: str | None = None,
     source: str = "web",
+    account_id: int | None = None,
 ) -> Iterator[JobHandle]:
     """멀티 슬롯 활성 작업 컨텍스트 관리자.
 
@@ -269,6 +306,8 @@ def active_job(
             current_job.state["doc_id"] = doc_id
         if title and (not current_job.state.get("title") or current_job.state["title"] == current_job.state.get("payload")):
             current_job.state["title"] = title
+        if account_id is not None and current_job.state.get("account_id") is None:
+            current_job.state["account_id"] = account_id
         try:
             yield inner_handle
         finally:
@@ -279,6 +318,14 @@ def active_job(
     job_id = f"j_{secrets.token_hex(4)}"
     clean_payload = re.sub(r"\s+", " ", (payload or "")).strip()
     short_title = title or (clean_payload[:80] + "…" if len(clean_payload) > 80 else clean_payload)
+    if account_id is None:
+        try:
+            from ..store.theme import get_theme_manager
+            tm = get_theme_manager()
+            theme = tm.get_theme(theme_id)
+            account_id = getattr(theme, "account_id", None)
+        except Exception:
+            pass
     now = time.time()
     state = {
         "active": True,
@@ -288,6 +335,7 @@ def active_job(
         "source": source,
         "theme_id": theme_id,
         "theme_label": theme_label,
+        "account_id": account_id,
         "doc_id": doc_id,
         "focus": focus or "",
         "title": short_title,
@@ -341,6 +389,7 @@ def set_active_ingest(
     theme_label: str = "",
     focus: str | None = None,
     title: str | None = None,
+    account_id: int | None = None,
 ) -> None:
     """새 적재 작업 시작 시 호출 (하위 호환성 유지)."""
     current_job: JobHandle | None = getattr(_local, "current_job", None)
@@ -349,6 +398,8 @@ def set_active_ingest(
             current_job.state["title"] = title
         if focus:
             current_job.state["focus"] = focus
+        if account_id is not None and current_job.state.get("account_id") is None:
+            current_job.state["account_id"] = account_id
         current_job.state["updated_at"] = time.time()
         _save_job(data_dir, current_job.state)
         _sync_active_ingest(data_dir)
@@ -358,6 +409,14 @@ def set_active_ingest(
     now = time.time()
     clean_payload = re.sub(r"\s+", " ", (payload or "")).strip()
     short_title = title or (clean_payload[:80] + "…" if len(clean_payload) > 80 else clean_payload)
+    if account_id is None:
+        try:
+            from ..store.theme import get_theme_manager
+            tm = get_theme_manager()
+            theme = tm.get_theme(theme_id)
+            account_id = getattr(theme, "account_id", None)
+        except Exception:
+            pass
     job_id = f"j_{secrets.token_hex(4)}"
     state = {
         "active": True,
@@ -367,6 +426,7 @@ def set_active_ingest(
         "source": source,
         "theme_id": theme_id,
         "theme_label": theme_label,
+        "account_id": account_id,
         "focus": focus or "",
         "title": short_title,
         "stage": "init",

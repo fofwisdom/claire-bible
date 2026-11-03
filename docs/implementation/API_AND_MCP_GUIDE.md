@@ -248,7 +248,12 @@ curl -s -X POST https://claire.example.com/oauth/token \
 
 ### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`)
 
-외부 AI 도구(Claude Desktop, Cursor, Antigravity 등) 및 CI/CD 자동화 파이프라인에서 상시 이용할 수 있는 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다. (모든 경로는 시스템 관리자 `owner` 전용)
+외부 AI 도구(Claude Desktop, Cursor, Antigravity 등) 및 CI/CD 자동화 파이프라인에서 상시 이용할 수 있는 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다.
+
+> [!IMPORTANT] **`/tokens` 계정 격리 (Account Isolation, Rev. 2.3)**
+> - `/tokens`, `/tokens/revoke`, `DELETE /tokens`는 라우트 정책 상 `surface="any"`, `access="owner"` 규칙을 가지며, 항상 요청 주체의 `Principal.account_id`로 엄격히 필터링된다.
+> - `TokenStore`는 토큰 생성 시 호출자의 `account_id`를 바인딩하여 영속화(`data/auth/api_tokens.json`)하며, 조회(`list_api_tokens`, `get_api_token`) 및 폐기(`revoke_api_token`) 시 본인 계정에 귀속된 토큰만 처리한다.
+> - 관리자(`account_id=1`)를 포함하여 어떤 계정도 타 계정의 토큰을 조회하거나 폐기할 수 없다 (K5, D5 계정 경계).
 
 #### 1) 토큰 목록 조회: `GET /tokens` (Owner 전용)
 등록된 모든 토큰(활성, 만료, 폐기 포함)을 조회한다. 보안을 위해 원본 시크릿은 마스킹(`cb_abcd...wxyz`)되어 반환된다.
@@ -342,6 +347,14 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 - **LLM 쿼터 격리 (Zero Gemini Overhead)**:
   - 모든 MCP 도구는 **순수 SQLite 쿼리 및 FTS5 검색 엔진만 사용**한다.
   - 외부 에이전트의 잦은 탐색 루프 중에도 Google Gemini API 호출이나 토큰 소진이 일절 발생하지 않는다.
+- **`ContextVar[Principal]` 기반 계정 격리**:
+  - `AuthenticationMiddleware`가 인증한 주체는 `mcp_tools.current_principal` (`ContextVar[Principal | None]`)을 통해 MCP 도구 함수 실행 컨텍스트로 전달된다.
+  - 모든 MCP 도구의 `_theme_id` 해석은 `current_principal`의 `account_id` 소유 테마(또는 `collaborator` 스코프인 경우 `is_public` 또는 `is_collaborator_accessible` 테마)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
+- **읽기 전용 DB 연결 (`readonly=True`) 및 DDL 제거**:
+  - MCP 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`를 사용하여 읽기 전용 모드로 데이터베이스를 연다.
+  - 도구 호출마다 불필요하게 실행되던 DDL(`init_db`)을 완전히 제거하여 SQLite 쓰기 락 경합을 방지하고 응답 성능을 최적화한다.
+- **포트 보존 호스트 검증**:
+  - MCP `TransportSecuritySettings`의 `allowed_hosts`에 포트를 보존한 호스트 값(`localhost:port`, `127.0.0.1:port`, `fqdn:port`)을 등록하여 비표준 포트 환경에서의 DNS 리바인딩 보호와 정상 통신을 양립한다.
 
 ---
 
@@ -382,6 +395,14 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
   - 텔레그램 웹 세션의 단일 활성 정책과 완전히 격리된다. 텔레그램에서 `/web`을 재발급받아도 Gemini에 연결된 토큰은 절대 끊어지지 않는다.
 - **Refresh Token 자동 회전**:
   - `access_token` 만료(30일) 시 백그라운드에서 자동 갱신된다.
+- **다중 계정 귀속 (Account Binding, Rev. 2.3)**:
+  - 하드코딩된 관리자 계정 ID(`ADMIN_ACCOUNT_ID`)를 제거하고, `validate_session_binding`으로 검증된 세션의 실제 `account_id`(`active` 상태 계정 필수)에 인가 코드(`oauth_codes`), 액세스 토큰, 리프레시 토큰(`oauth_tokens`)이 귀속된다.
+  - 계정이 정지(`suspended`), 삭제 중(`deleting`), 소각(`purged`) 상태로 변경되면 리프레시 토큰 갱신 요청(`POST /oauth/token` `grant_type=refresh_token`) 시 즉시 `invalid_grant`로 거부된다.
+- **CSRF 및 오리진 방어**:
+  - 동의 폼 화면에 `Referrer-Policy: same-origin`을 강제하여 크로스 오리진 요청 시 리퍼러 유출을 차단한다.
+  - `POST /oauth/authorize`에서 `same_origin()` 검증을 거쳐 서브도메인 CSRF 및 `Origin: null` 공격을 방어한다.
+  - 미등록 `client_id` 거부, 등록된 `oauth_clients.redirect_uris`와 요청된 `redirect_uri`의 엄격한 정확 일치 검증, `javascript:`, `data:`, `vbscript:` 등 위험한 스킴 원천 차단, 기밀 클라이언트의 `client_secret` 검증을 강제한다.
+  - `/oauth/authorize/telegram-push`는 관리자(`account_id=1`) 세션 흐름에만 허용된다.
 
 ---
 

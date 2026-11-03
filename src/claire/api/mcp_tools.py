@@ -12,6 +12,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections import deque
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -29,6 +30,10 @@ from ..store.queries import (
 )
 from ..store.telemetry import record_mcp_telemetry
 from ..store.theme import ThemeNotFound
+from .principal import Principal, PRINCIPAL_STATE_KEY
+
+current_principal: ContextVar[Principal | None] = ContextVar("current_principal", default=None)
+current_mcp_principal = current_principal
 
 MAX_CONTEXT_ENTITIES = 10
 MAX_PATH_HOPS = 6
@@ -382,26 +387,41 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     theme_mgr = tm
 
     def _theme_id(theme: str | int | None) -> int | None:
-        """theme 인자를 테마 ID로 엄격 해석한다. 생략하면 테마 0, 없는 테마면 None (테마 0으로 대신하지 않는다)."""
-        if theme is None or str(theme).strip() == "":
-            return 0
+        """theme 인자를 주체(Principal) 계정 범위 안에서 엄격하게 해석한다. 없는 테마거나 접근할 수 없으면 None."""
+        principal = current_principal.get()
+        account_id = principal.account_id if (principal and principal.account_id is not None) else dbm.ADMIN_ACCOUNT_ID
+        scope = principal.scope if principal else "owner"
+
         if theme_mgr is None:
-            # 테마 매니저가 없으면(싱글 테마) 테마 0만 있다.
-            return 0 if str(theme).strip() == "0" else None
+            # 테마 매니저가 없으면(싱글 테마) 테마 0만 있다. 테마 0은 관리자(1) 소유다.
+            if account_id != dbm.ADMIN_ACCOUNT_ID:
+                return None
+            return 0 if (theme is None or str(theme).strip() in ("", "0")) else None
+
         try:
-            return theme_mgr.get_theme(theme).id
+            resolved = theme_mgr.resolve_theme_ref(theme, account_id=account_id)
+            t_info = resolved.theme
         except ThemeNotFound:
             return None
 
+        # 계정 격리: 해당 주체의 account_id 소유 테마(또는 collaborator인 경우 is_public 또는 is_collaborator_accessible)만 조회/접근 허용
+        if t_info.account_id != account_id:
+            return None
+
+        if scope == "collaborator":
+            accessible = t_info.is_public or t_info.is_collaborator_accessible
+            if not accessible:
+                return None
+
+        return t_info.id
+
     def _conn(theme_id: int = 0) -> sqlite3.Connection:
-        """_theme_id로 확인한 테마의 DB를 연다. 테마 0은 기본 DB다. 없는 테마는 기본 DB로 대신하지 않고 ThemeNotFound를 올린다."""
+        """_theme_id로 확인한 테마의 DB를 읽기 전용으로 연다. 매 도구 호출마다 불필요한 DDL(init_db)을 실행하지 않는다."""
         if theme_mgr is not None and theme_id != 0:
             db_file = theme_mgr.get_settings_for_theme(theme_id, s).db_file
         else:
             db_file = getattr(s, "db_file", getattr(s, "db_path", "data/claire.db"))
-        conn = dbm.connect(db_file)
-        dbm.init_db(conn)
-        return conn
+        return dbm.connect_existing(db_file, readonly=True)
 
     def _timed_call(tool_name: str, fn, *args, **kwargs):
         t0 = time.time()
@@ -567,7 +587,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         try:
             def _fetch_doc():
                 if theme is None:
-                    rep = document_impl(conn, document_id, theme_id=0)
+                    rep = document_impl(conn, document_id, theme_id=resolved_tid)
                     if "error" not in rep:
                         return rep
                     if theme_mgr is not None:
@@ -607,12 +627,51 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
     hosts = {"localhost", "127.0.0.1", f"localhost:{port}", f"127.0.0.1:{port}"}
     public_url = getattr(s, "public_url", "")
     if public_url:
-        host = urlparse(public_url).hostname
-        if host:
-            hosts.add(host)
+        parsed = urlparse(public_url)
+        if parsed.hostname:
+            hosts.add(parsed.hostname)
+            if parsed.port:
+                hosts.add(f"{parsed.hostname}:{parsed.port}")
+            elif port:
+                hosts.add(f"{parsed.hostname}:{port}")
+        if parsed.netloc:
+            hosts.add(parsed.netloc)
 
-    return mcp.streamable_http_app(
+    fqdn = getattr(s, "fqdn", "")
+    if fqdn:
+        hosts.add(fqdn)
+        if port:
+            hosts.add(f"{fqdn}:{port}")
+
+    inject_host = getattr(s, "inject_host", "")
+    if inject_host:
+        hosts.add(inject_host)
+        if port:
+            hosts.add(f"{inject_host}:{port}")
+
+    inner_app = mcp.streamable_http_app(
         json_response=True,
         stateless_http=True,
         transport_security=TransportSecuritySettings(allowed_hosts=sorted(hosts)),
     )
+
+    class _MCPAppWrapper:
+        def __init__(self, app: Any) -> None:
+            self._app = app
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._app, name)
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") == "http":
+                state = scope.get("state") or {}
+                principal = state.get(PRINCIPAL_STATE_KEY)
+                token = current_principal.set(principal if principal is not None else current_principal.get())
+                try:
+                    await self._app(scope, receive, send)
+                finally:
+                    current_principal.reset(token)
+            else:
+                await self._app(scope, receive, send)
+
+    return _MCPAppWrapper(inner_app)

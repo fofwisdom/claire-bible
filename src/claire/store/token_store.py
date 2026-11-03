@@ -194,7 +194,7 @@ class TokenStore:
         expires_in_days: int | None = None,
         token: str | None = None,
         *,
-        # P3 L3-e에서 필수로 바꾼다(기본값 없이 호출자가 계정을 정한다).
+        # P3 L3-e에서 명시적 계정 바인딩 지원 (기존 호출 호환 기본값 ADMIN_ACCOUNT_ID)
         account_id: int = ADMIN_ACCOUNT_ID,
     ) -> dict[str, Any]:
         """Create a new persistent access token and save atomically."""
@@ -247,35 +247,81 @@ class TokenStore:
             finally:
                 self._release_process_lock(p_lock)
 
-    def list_api_tokens(self, include_revoked: bool = False) -> list[dict[str, Any]]:
+    def create_token(
+        self,
+        name: str,
+        *args: Any,
+        account_id: int | None = None,
+        scope: str = "readonly",
+        expires_in_days: int | None = None,
+        token: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Create a token with required account_id binding."""
+        target_account_id = account_id if account_id is not None else kwargs.get("account_id")
+        if target_account_id is None and args:
+            if isinstance(args[0], int):
+                target_account_id = args[0]
+                args = args[1:]
+        if target_account_id is None:
+            raise TypeError("create_token missing required argument: 'account_id'")
+        actual_scope = args[0] if len(args) > 0 else scope
+        actual_expires = args[1] if len(args) > 1 else expires_in_days
+        actual_token = args[2] if len(args) > 2 else token
+        return self.create_api_token(
+            name=name,
+            scope=actual_scope,
+            expires_in_days=actual_expires,
+            token=actual_token,
+            account_id=target_account_id,
+        )
+
+    def list_api_tokens(self, include_revoked: bool = False, account_id: int | None = None) -> list[dict[str, Any]]:
         """List access tokens sorted by id descending."""
         with self._lock:
             self._maybe_reload_from_disk()
             tokens = [t for t in self._tokens_list if include_revoked or t.get("revoked_at") is None]
+            if account_id is not None:
+                if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+                    raise ValueError(f"Invalid account_id: {account_id!r}.")
+                tokens = [t for t in tokens if t.get("account_id") == account_id]
             tokens.sort(key=lambda x: x["id"], reverse=True)
             return [copy.deepcopy(t) for t in tokens]
 
-    def get_api_token(self, token_or_id: str | int) -> dict[str, Any] | None:
+    def list_tokens(self, account_id: int | None = None, include_revoked: bool = False) -> list[dict[str, Any]]:
+        """List access tokens filtered by account_id."""
+        return self.list_api_tokens(include_revoked=include_revoked, account_id=account_id)
+
+    def get_api_token(self, token_or_id: str | int, account_id: int | None = None) -> dict[str, Any] | None:
         """Find token by ID, exact token value, or token prefix."""
         with self._lock:
             self._maybe_reload_from_disk()
+            tok: dict[str, Any] | None = None
             if isinstance(token_or_id, int) or (isinstance(token_or_id, str) and token_or_id.isdigit()):
                 tok = self._tokens_by_id.get(int(token_or_id))
-                return copy.deepcopy(tok) if tok is not None else None
+            else:
+                target = str(token_or_id).strip()
+                if target in self._tokens_by_token:
+                    tok = self._tokens_by_token[target]
+                elif len(target) >= 6:
+                    candidates = [t for t in self._tokens_list if t["token"].startswith(target)]
+                    if candidates:
+                        candidates.sort(key=lambda x: x["id"], reverse=True)
+                        tok = candidates[0]
 
-            target = str(token_or_id).strip()
-            if target in self._tokens_by_token:
-                return copy.deepcopy(self._tokens_by_token[target])
-
-            if len(target) >= 6:
-                candidates = [t for t in self._tokens_list if t["token"].startswith(target)]
-                if candidates:
-                    candidates.sort(key=lambda x: x["id"], reverse=True)
-                    return copy.deepcopy(candidates[0])
-
+            if tok is not None:
+                if account_id is not None:
+                    if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+                        raise ValueError(f"Invalid account_id: {account_id!r}.")
+                    if tok.get("account_id") != account_id:
+                        return None
+                return copy.deepcopy(tok)
             return None
 
-    def revoke_api_token(self, token_or_id: str | int) -> bool:
+    def get_token(self, token_or_id: str | int, account_id: int | None = None) -> dict[str, Any] | None:
+        return self.get_api_token(token_or_id, account_id=account_id)
+
+    def revoke_api_token(self, token_or_id: str | int, account_id: int | None = None) -> bool:
         """Revoke a token immediately."""
         with self._lock:
             p_lock = self._acquire_process_lock()
@@ -296,11 +342,21 @@ class TokenStore:
                 if tok is None or tok.get("revoked_at") is not None:
                     return False
 
+                if account_id is not None:
+                    if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+                        raise ValueError(f"Invalid account_id: {account_id!r}.")
+                    if tok.get("account_id") != account_id:
+                        return False
+
                 tok["revoked_at"] = time.time()
                 self._save_unlocked()
                 return True
             finally:
                 self._release_process_lock(p_lock)
+
+    def revoke_token(self, token_str: str | int, account_id: int | None = None) -> bool:
+        """Revoke a token immediately, checking account_id ownership."""
+        return self.revoke_api_token(token_str, account_id=account_id)
 
     def validate_api_token(self, token: str) -> dict[str, Any] | None:
         """Validate token hot-path. 100% in-memory with zero database or file locks."""

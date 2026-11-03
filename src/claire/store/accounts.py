@@ -8,14 +8,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
+import shutil
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
+from .. import ids
+from ..accounts import username_policy
 from ..accounts.username_policy import UsernameRejected
 from . import db as dbm
+from .raw import remove_artifact
 
 __all__ = [
     "ADMIN_ACCOUNT_ID",
@@ -32,6 +38,8 @@ __all__ = [
     "create_account_session",
     "delete_session",
     "mark_session_authenticated",
+    "preview_release_username",
+    "release_username",
     "revoke_other_sessions",
     "validate_oauth_binding",
     "validate_session_binding",
@@ -117,6 +125,108 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
 def _credential_id(value: str) -> str:
     """감사용 비가역 식별자: SHA-256 hex 앞 16자. 토큰 값 자체는 남기지 않는다."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _clear_account_credentials(conn: sqlite3.Connection, account_id: int) -> None:
+    for tbl in ("auth_sessions", "oauth_codes", "oauth_tokens", "oauth_auth_requests"):
+        try:
+            conn.execute(f"DELETE FROM {tbl} WHERE account_id=?", (account_id,))
+        except sqlite3.OperationalError:
+            pass
+
+
+def _detect_data_dir(conn: sqlite3.Connection) -> Path | None:
+    try:
+        row = conn.execute("PRAGMA database_list").fetchone()
+        if row and row[2]:
+            return Path(row[2]).parent
+    except Exception:
+        pass
+    return None
+
+
+def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_dir: Path | str | None = None) -> dict[str, int]:
+    """타 테마에서 참조하지 않는 해당 계정의 디스크 산출물(artifacts, raw files, images 등) 정리."""
+    stats = {"artifacts": 0, "images": 0, "attachments": 0, "files": 0, "bundles": 0}
+    ddir = Path(data_dir) if data_dir is not None else _detect_data_dir(conn)
+
+    owned_rows = conn.execute("SELECT id FROM themes WHERE account_id=?", (account_id,)).fetchall()
+    owned_theme_ids = [int(r[0]) for r in owned_rows]
+
+    if owned_theme_ids:
+        ph_owned = ",".join("?" for _ in owned_theme_ids)
+        owned_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE theme_id IN ({ph_owned})", owned_theme_ids).fetchall()}
+        other_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE theme_id NOT IN ({ph_owned})", owned_theme_ids).fetchall()}
+        orphan_docs = owned_docs - other_docs
+
+        owned_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE theme_id IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_theme_ids).fetchall()}
+        other_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE theme_id NOT IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_theme_ids).fetchall()}
+        orphan_files = owned_files - other_files
+
+        if ddir is not None and ddir.exists():
+            for did in orphan_docs:
+                for art in (ddir / "raw" / "artifacts" / f"{did}.txt.zst", ddir / "raw" / "artifacts" / f"{did}.txt.gz"):
+                    if art.exists():
+                        art.unlink(missing_ok=True)
+                        stats["artifacts"] += 1
+                img_dir = ddir / "images"
+                if img_dir.exists():
+                    for img in img_dir.glob(f"{did}_*"):
+                        if img.is_file():
+                            img.unlink(missing_ok=True)
+                            stats["images"] += 1
+                att_dir = ddir / "raw" / "attachments" / did
+                if att_dir.exists():
+                    shutil.rmtree(att_dir, ignore_errors=True)
+                    stats["attachments"] += 1
+                pres_file = ddir / "presentations" / f"{did}.html"
+                if pres_file.exists():
+                    pres_file.unlink(missing_ok=True)
+
+            for fref in orphan_files:
+                fpath = Path(fref) if Path(fref).is_absolute() else (ddir / fref)
+                if fpath.is_file():
+                    fpath.unlink(missing_ok=True)
+                    stats["files"] += 1
+
+            bundles_dir = ddir / "graph_bundles"
+            registry_dir = bundles_dir / ".registry"
+            if registry_dir.exists():
+                for reg_file in registry_dir.glob("*.json"):
+                    try:
+                        data = json.loads(reg_file.read_text(encoding="utf-8"))
+                        if data.get("theme_id") in owned_theme_ids:
+                            filename = data.get("filename")
+                            if filename and (bundles_dir / filename).exists():
+                                (bundles_dir / filename).unlink(missing_ok=True)
+                            reg_file.unlink(missing_ok=True)
+                            stats["bundles"] += 1
+                    except Exception:
+                        pass
+
+        for tid in owned_theme_ids:
+            dbm.reset_graph(conn, theme_id=tid)
+            for tbl in (
+                "documents", "document_snapshots", "document_presentations", "raw_inbox",
+                "extractions", "proposals", "jobs", "refresh_queue", "expand_queue",
+                "doc_shares", "purged_tombstones", "syndication_dispatches", "syndication_items",
+            ):
+                try:
+                    conn.execute(f"DELETE FROM {tbl} WHERE theme_id=?", (tid,))
+                except sqlite3.OperationalError:
+                    pass
+            try:
+                conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (tid,))
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("DELETE FROM themes WHERE id=?", (tid,))
+
+    try:
+        conn.execute("DELETE FROM public_directory_counters WHERE account_id=?", (account_id,))
+    except sqlite3.OperationalError:
+        pass
+
+    return stats
 
 
 class AccountStore:
@@ -265,6 +375,286 @@ class AccountStore:
         self.conn.commit()
         return self.get(account_id)
 
+    def suspend(self, account_id: int, *, now: float | None = None) -> Account:
+        """active 계정을 suspended 상태로 전이하고 모든 자격증명을 즉시 정리한다."""
+        when = time.time() if now is None else now
+        current = self.get(account_id)
+        if current.role == "admin":
+            raise AccountStateError("admin account cannot be suspended")
+        if current.status != "active":
+            raise AccountStateError(f"account {account_id}: cannot suspend from status {current.status!r}")
+        _clear_account_credentials(self.conn, account_id)
+        cur = self.conn.execute(
+            "UPDATE accounts SET status='suspended', updated_at=? WHERE id=? AND status='active'",
+            (when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountStateError(f"account {account_id}: could not transition to suspended")
+        self.conn.commit()
+        return self.get(account_id)
+
+    def resume(self, account_id: int, *, now: float | None = None) -> Account:
+        """suspended 계정을 active 상태로 복원한다."""
+        when = time.time() if now is None else now
+        current = self.get(account_id)
+        if current.status != "suspended":
+            raise AccountStateError(f"account {account_id}: cannot resume from status {current.status!r}")
+        cur = self.conn.execute(
+            "UPDATE accounts SET status='active', updated_at=? WHERE id=? AND status='suspended'",
+            (when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountStateError(f"account {account_id}: could not transition to active")
+        self.conn.commit()
+        return self.get(account_id)
+
+    def schedule_delete(self, account_id: int, *, delete_after: float | None = None, now: float | None = None) -> Account:
+        """active 또는 suspended 계정을 deleting 상태로 전이하고 7일 유예를 부여하며 자격증명을 즉시 정리한다."""
+        when = time.time() if now is None else now
+        current = self.get(account_id)
+        if current.role == "admin":
+            raise AccountStateError("admin account cannot be deleted")
+        if current.status not in ("active", "suspended"):
+            raise AccountStateError(f"account {account_id}: cannot schedule deletion from status {current.status!r}")
+        target_delete_after = (when + 7 * 86400.0) if delete_after is None else float(delete_after)
+        _clear_account_credentials(self.conn, account_id)
+        cur = self.conn.execute(
+            "UPDATE accounts SET status='deleting', delete_after=?, updated_at=? WHERE id=? AND status IN ('active', 'suspended')",
+            (target_delete_after, when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountStateError(f"account {account_id}: could not schedule deletion")
+        self.conn.commit()
+        return self.get(account_id)
+
+    def cancel_delete(self, account_id: int, *, now: float | None = None) -> Account:
+        """deleting 상태의 계정 삭제 예약을 취소하고 active로 복원한다."""
+        when = time.time() if now is None else now
+        current = self.get(account_id)
+        if current.status != "deleting":
+            raise AccountStateError(f"account {account_id}: cannot cancel deletion from status {current.status!r}")
+        cur = self.conn.execute(
+            "UPDATE accounts SET status='active', delete_after=NULL, updated_at=? WHERE id=? AND status='deleting'",
+            (when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountStateError(f"account {account_id}: could not cancel deletion")
+        self.conn.commit()
+        return self.get(account_id)
+
+    def purge(self, account_id: int, *, data_dir: Path | str | None = None, now: float | None = None) -> Account:
+        """계정을 완전히 삭제(purged) 처리하고, tombstones 등록, 자격증명 및 디스크 산출물을 정리한다."""
+        when = time.time() if now is None else now
+        current = self.get(account_id)
+        if current.role == "admin":
+            raise AccountStateError("admin account cannot be purged")
+        if current.status not in ("deleting", "suspended", "active"):
+            raise AccountStateError(f"account {account_id}: cannot purge from status {current.status!r}")
+
+        _clear_account_credentials(self.conn, account_id)
+
+        if current.username:
+            self.conn.execute(
+                "INSERT INTO username_tombstones (username, account_id, was_public, retired_at, released_at, released_by) "
+                "VALUES (?, ?, ?, ?, NULL, NULL) "
+                "ON CONFLICT(username) DO UPDATE SET "
+                "account_id=excluded.account_id, was_public=excluded.was_public, retired_at=excluded.retired_at, "
+                "released_at=NULL, released_by=NULL",
+                (current.username, current.id, 1 if current.profile_public else 0, when),
+            )
+
+        _gc_account_disk_artifacts(self.conn, account_id, data_dir=data_dir)
+
+        cur = self.conn.execute(
+            "UPDATE accounts SET status='purged', delete_after=NULL, updated_at=? WHERE id=?",
+            (when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountStateError(f"account {account_id}: could not purge")
+        self.conn.commit()
+        return self.get(account_id)
+
+    def preview_release_username(
+        self,
+        username: str,
+        *,
+        auth_conn: sqlite3.Connection | None = None,
+        data_dir: Path | str | None = None,
+    ) -> dict[str, Any]:
+        """초기화 대상 잔여 항목(410 표식, 예약 초대 등) 미리보기 데이터 반환."""
+        norm_name = username.strip().lower()
+        row = self.conn.execute(
+            "SELECT username, account_id, was_public, retired_at, released_at, released_by "
+            "FROM username_tombstones WHERE username=? AND released_at IS NULL",
+            (norm_name,),
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"username {username!r} is not retired or already released")
+
+        account_id = int(row["account_id"])
+        was_public = bool(row["was_public"])
+
+        reserved_invitations = 0
+        if auth_conn is not None:
+            try:
+                inv_row = auth_conn.execute(
+                    "SELECT COUNT(*) FROM invitations WHERE reserved_username=?",
+                    (norm_name,),
+                ).fetchone()
+                if inv_row is not None:
+                    reserved_invitations = int(inv_row[0])
+            except sqlite3.OperationalError:
+                pass
+
+        public_directory_entries = 0
+        try:
+            p_row = self.conn.execute(
+                "SELECT COUNT(*) FROM public_directory_counters WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if p_row is not None:
+                public_directory_entries = int(p_row[0])
+        except sqlite3.OperationalError:
+            pass
+
+        residual_sessions = 0
+        try:
+            s_row = self.conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE account_id=?", (account_id,)).fetchone()
+            if s_row is not None:
+                residual_sessions = int(s_row[0])
+        except sqlite3.OperationalError:
+            pass
+
+        residual_oauth_tokens = 0
+        try:
+            o_row = self.conn.execute("SELECT COUNT(*) FROM oauth_tokens WHERE account_id=?", (account_id,)).fetchone()
+            if o_row is not None:
+                residual_oauth_tokens = int(o_row[0])
+        except sqlite3.OperationalError:
+            pass
+
+        return {
+            "username": norm_name,
+            "account_id": account_id,
+            "retired_at": float(row["retired_at"]),
+            "was_public": was_public,
+            "has_410_marker": was_public,
+            "reserved_invitations": reserved_invitations,
+            "public_directory_entries": public_directory_entries,
+            "residual_sessions": residual_sessions,
+            "residual_oauth_tokens": residual_oauth_tokens,
+        }
+
+    def release_username(
+        self,
+        username: str,
+        released_by: int,
+        *,
+        auth_conn: sqlite3.Connection | None = None,
+        now: float | None = None,
+    ) -> bool:
+        """username_tombstones의 released_at, released_by 업데이트 및 410 표식 해제."""
+        when = time.time() if now is None else now
+        norm_name = username.strip().lower()
+        row = self.conn.execute(
+            "SELECT account_id FROM username_tombstones WHERE username=? AND released_at IS NULL",
+            (norm_name,),
+        ).fetchone()
+        if row is None:
+            return False
+
+        account_id = int(row["account_id"])
+
+        self.conn.execute(
+            "UPDATE username_tombstones SET released_at=?, released_by=?, was_public=0 "
+            "WHERE username=? AND released_at IS NULL",
+            (when, released_by, norm_name),
+        )
+
+        if auth_conn is not None:
+            try:
+                auth_conn.execute(
+                    "UPDATE invitations SET reserved_username=NULL WHERE reserved_username=?",
+                    (norm_name,),
+                )
+                auth_conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
+        _clear_account_credentials(self.conn, account_id)
+
+        self.conn.execute(
+            "DELETE FROM accounts WHERE username=? AND status='purged'",
+            (norm_name,),
+        )
+
+        self.conn.commit()
+        return True
+
+    def list_retired_usernames(self) -> list[dict[str, Any]]:
+        """퇴역 상태(released_at IS NULL)인 USERNAME 목록을 반환한다."""
+        rows = self.conn.execute(
+            "SELECT username, account_id, was_public, retired_at "
+            "FROM username_tombstones WHERE released_at IS NULL ORDER BY retired_at DESC"
+        ).fetchall()
+        return [
+            {
+                "username": str(r["username"]),
+                "account_id": int(r["account_id"]),
+                "was_public": bool(r["was_public"]),
+                "retired_at": float(r["retired_at"]),
+            }
+            for r in rows
+        ]
+
+    def validate_username(
+        self,
+        username: str,
+        *,
+        account_id: int | None = None,
+        instance_reserved: frozenset[str] = frozenset(),
+    ) -> str:
+        """username 문법, 예약어, 인스턴스 예약, 퇴역(retired), 중복(taken)을 종합 검증한다."""
+        norm_name = username_policy.validate_username(username, instance_reserved=instance_reserved)
+        if self.is_username_retired(norm_name):
+            raise UsernameRejected("retired")
+        taken = self.find_by_username(norm_name)
+        if taken is not None and (account_id is None or taken.id != account_id):
+            raise UsernameRejected("taken")
+        return norm_name
+
+    def create_member(
+        self,
+        *,
+        username: str,
+        display_name: str = "",
+        profile_public: bool = False,
+        now: float | None = None,
+        instance_reserved: frozenset[str] = frozenset(),
+    ) -> Account:
+        """신규 멤버 계정을 생성한다. 퇴역/중복 시 UsernameRejected."""
+        when = time.time() if now is None else now
+        norm_name = self.validate_username(username, instance_reserved=instance_reserved)
+        salt = self.id_salt()
+
+        def _insert(public_id: int) -> None:
+            self.conn.execute(
+                "INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) "
+                "VALUES (?, ?, 'member', 'active', ?, ?, ?, ?, ?)",
+                (public_id, norm_name, display_name, 1 if profile_public else 0, when, when, when),
+            )
+
+        ids.insert_with_timestamp_id(self.conn, table="accounts", column="public_id", salt=salt, insert=_insert)
+        self.conn.commit()
+        created = self.find_by_username(norm_name)
+        assert created is not None
+        return created
+
 
 # --- 자격증명 귀속 (auth_sessions, oauth_tokens) -------------------------------
 
@@ -389,3 +779,26 @@ def revoke_other_sessions(conn: sqlite3.Connection, account_id: int, *, keep_tok
     )
     conn.commit()
     return int(cur.rowcount)
+
+
+def preview_release_username(
+    conn: sqlite3.Connection,
+    username: str,
+    *,
+    auth_conn: sqlite3.Connection | None = None,
+    data_dir: Path | str | None = None,
+) -> dict[str, Any]:
+    """초기화 대상 잔여 항목 미리보기 데이터 반환."""
+    return AccountStore(conn).preview_release_username(username, auth_conn=auth_conn, data_dir=data_dir)
+
+
+def release_username(
+    conn: sqlite3.Connection,
+    username: str,
+    released_by: int,
+    *,
+    auth_conn: sqlite3.Connection | None = None,
+    now: float | None = None,
+) -> bool:
+    """username_tombstones의 released_at, released_by 업데이트 및 410 표식 해제."""
+    return AccountStore(conn).release_username(username, released_by, auth_conn=auth_conn, now=now)

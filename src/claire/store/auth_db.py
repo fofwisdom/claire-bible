@@ -17,7 +17,22 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
+
+from .. import ids
+from ..accounts.invites import (
+    InvitationInfo,
+    InviteError,
+    InviteInactiveError,
+    InviteNotFoundError,
+    InviteValidationError,
+    generate_invite_code,
+    mask_invite_code,
+    normalize_invite_code,
+    validate_invite_code_syntax,
+    validate_invite_params,
+)
+from .secrets import SecretDecryptionError, SecretService, get_secret_service
 
 AUTH_DB_SCHEMA_VERSION = 1
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
@@ -88,6 +103,7 @@ def connect_auth_db(path: Path | str) -> sqlite3.Connection:
         conn.execute("PRAGMA foreign_keys=ON;")
         conn.execute("PRAGMA busy_timeout=5000;")
         init_auth_db(conn)
+        prune_stale_redemptions(conn)
     except BaseException:
         conn.close()
         raise
@@ -561,3 +577,474 @@ def _reject_username_keys(value: Any) -> None:
     elif isinstance(value, (list, tuple)):
         for v in value:
             _reject_username_keys(v)
+
+
+# --- 초대 (설계 §8.8, §13.3, §15 S12) ----------------------------------------------
+
+INVITATION_HMAC_PURPOSE = "invitation_code"
+INVITATION_RATE_LIMIT_WINDOW_SECONDS = 60.0
+INVITATION_RATE_LIMIT_MAX_FAILURES = 10
+
+
+def _invite_throttle_key(ip: str) -> str:
+    return "invite_fail_ip:" + hashlib.sha256(b"claire-invite-throttle-v1\0" + ip.encode("utf-8")).hexdigest()
+
+
+def check_invite_throttle(conn: sqlite3.Connection, *, ip: str, now: float | None = None) -> ThrottleDecision:
+    """존재하지 않는 코드 조회 실패가 분당 10회를 넘으면 차단/지연 결정을 반환한다."""
+    ts = time.time() if now is None else now
+    key = _invite_throttle_key(ip)
+    row = conn.execute("SELECT retry_after FROM login_throttle WHERE key=?", (key,)).fetchone()
+    if row is not None and row[0] is not None and row[0] > ts:
+        return ThrottleDecision(allowed=False, retry_after=float(row[0]))
+    return ThrottleDecision(allowed=True, retry_after=None)
+
+
+def record_invite_failure(conn: sqlite3.Connection, *, ip: str, now: float | None = None) -> ThrottleDecision:
+    """틀린(존재하지 않거나 문법 오류인) 코드 조회 시 실패를 기록한다."""
+    ts = time.time() if now is None else now
+    key = _invite_throttle_key(ip)
+    with conn:
+        row = conn.execute("SELECT failures, window_start, retry_after FROM login_throttle WHERE key=?", (key,)).fetchone()
+        if row is None or (ts - float(row[1])) >= INVITATION_RATE_LIMIT_WINDOW_SECONDS:
+            failures, window_start = 1, ts
+        else:
+            failures, window_start = int(row[0]) + 1, float(row[1])
+        retry_after = (window_start + INVITATION_RATE_LIMIT_WINDOW_SECONDS) if failures > INVITATION_RATE_LIMIT_MAX_FAILURES else None
+        conn.execute(
+            """
+            INSERT INTO login_throttle (key, failures, window_start, retry_after)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                failures=excluded.failures, window_start=excluded.window_start,
+                retry_after=excluded.retry_after
+            """,
+            (key, failures, window_start, retry_after),
+        )
+    return ThrottleDecision(allowed=retry_after is None, retry_after=retry_after)
+
+
+def create_invitation(
+    conn: sqlite3.Connection,
+    *,
+    created_by: int,
+    max_uses: int = 1,
+    expires_in: float | None = None,
+    expires_at: float | None = None,
+    reserved_username: str | None = None,
+    note: str = "",
+    code: str | None = None,
+    id_salt: bytes | None = None,
+    secret_service: SecretService | None = None,
+    now: float | None = None,
+) -> InvitationInfo:
+    """초대를 생성하고 HMAC 색인 및 AES-256-GCM 암호화 사본을 저장한다."""
+    ts = time.time() if now is None else now
+    if expires_at is None:
+        dur = float(expires_in) if expires_in is not None else float(7 * 86400)
+        expires_at_val = ts + dur
+    else:
+        dur = float(expires_at) - ts
+        expires_at_val = float(expires_at)
+
+    norm_reserved = reserved_username.strip().lower() if reserved_username else None
+    validate_invite_params(max_uses, dur, norm_reserved)
+
+    code_val = code if code is not None else generate_invite_code()
+    norm_code = normalize_invite_code(code_val)
+    if not validate_invite_code_syntax(norm_code):
+        raise InviteValidationError(f"Invalid invite code syntax: {code_val!r}")
+
+    sec = secret_service or get_secret_service()
+    code_hmac = sec.hmac_index(norm_code, purpose=INVITATION_HMAC_PURPOSE)
+
+    salt = id_salt if id_salt is not None else sec.derive_hmac_key("invitation_id_salt")
+    unix_ms = int(ts * 1000)
+    public_id = ids.timestamp_id("invitations", salt=salt, unix_ms=unix_ms)
+
+    enc = sec.encrypt(norm_code, aad=f"invitation|{public_id}")
+
+    with conn:
+        cur = conn.execute(
+            """
+            INSERT INTO invitations (
+                public_id, code_hmac, code_ciphertext, code_nonce, key_version,
+                created_by, created_at, expires_at, max_uses, uses_count,
+                reserved_username, note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                public_id,
+                code_hmac,
+                enc.ciphertext,
+                enc.nonce,
+                enc.key_version,
+                created_by,
+                ts,
+                expires_at_val,
+                max_uses,
+                norm_reserved,
+                note.strip(),
+            ),
+        )
+        row_id = int(cur.lastrowid)
+
+    return InvitationInfo(
+        id=row_id,
+        public_id=public_id,
+        code_masked=mask_invite_code(norm_code),
+        created_by=created_by,
+        created_at=ts,
+        expires_at=expires_at_val,
+        max_uses=max_uses,
+        uses_count=0,
+        reserved_username=norm_reserved,
+        note=note.strip(),
+        revoked_at=None,
+        revoked_by=None,
+        code=norm_code,
+    )
+
+
+def get_invitation_by_code(
+    conn: sqlite3.Connection,
+    code: str,
+    *,
+    check_active: bool = True,
+    secret_service: SecretService | None = None,
+    now: float | None = None,
+) -> InvitationInfo:
+    """정규화 코드의 HMAC 색인으로 조회 후 복호화하여 반환한다. 없으면 404, 비활성은 410 상태 예외를 낸다."""
+    norm_code = normalize_invite_code(code)
+    if not validate_invite_code_syntax(norm_code):
+        raise InviteNotFoundError(f"Invalid invite code syntax: {code!r}")
+
+    sec = secret_service or get_secret_service()
+    code_hmac = sec.hmac_index(norm_code, purpose=INVITATION_HMAC_PURPOSE)
+
+    row = conn.execute(
+        """
+        SELECT id, public_id, code_hmac, code_ciphertext, code_nonce, key_version,
+               created_by, created_at, expires_at, max_uses, uses_count,
+               reserved_username, note, revoked_at, revoked_by
+        FROM invitations WHERE code_hmac=?
+        """,
+        (code_hmac,),
+    ).fetchone()
+    if row is None:
+        raise InviteNotFoundError(f"Invitation with code {norm_code} not found")
+
+    try:
+        raw_code = sec.decrypt(
+            row["code_ciphertext"],
+            row["code_nonce"],
+            aad=f"invitation|{row['public_id']}",
+            key_version=row["key_version"],
+        )
+    except SecretDecryptionError:
+        raw_code = sec.decrypt(
+            row["code_ciphertext"],
+            row["code_nonce"],
+            aad=f"invitation|{row['id']}",
+            key_version=row["key_version"],
+        )
+    decrypted_code = raw_code.decode("utf-8")
+
+    info = InvitationInfo(
+        id=row["id"],
+        public_id=row["public_id"],
+        code_masked=mask_invite_code(decrypted_code),
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        expires_at=row["expires_at"],
+        max_uses=row["max_uses"],
+        uses_count=row["uses_count"],
+        reserved_username=row["reserved_username"],
+        note=row["note"] or "",
+        revoked_at=row["revoked_at"],
+        revoked_by=row["revoked_by"],
+        code=decrypted_code,
+    )
+
+    if check_active:
+        ts = time.time() if now is None else now
+        if info.revoked_at is not None:
+            raise InviteInactiveError("revoked")
+        if info.uses_count >= info.max_uses:
+            raise InviteInactiveError("exhausted")
+        if info.expires_at <= ts:
+            raise InviteInactiveError("expired")
+
+    return info
+
+
+def get_invitation_by_id(
+    conn: sqlite3.Connection,
+    identifier: int,
+    *,
+    secret_service: SecretService | None = None,
+) -> InvitationInfo | None:
+    """id 또는 public_id로 초대를 조회해 복호화하여 반환한다."""
+    sec = secret_service or get_secret_service()
+    row = conn.execute(
+        """
+        SELECT id, public_id, code_hmac, code_ciphertext, code_nonce, key_version,
+               created_by, created_at, expires_at, max_uses, uses_count,
+               reserved_username, note, revoked_at, revoked_by
+        FROM invitations WHERE id=? OR public_id=?
+        """,
+        (identifier, identifier),
+    ).fetchone()
+    if row is None:
+        return None
+
+    try:
+        raw_code = sec.decrypt(
+            row["code_ciphertext"],
+            row["code_nonce"],
+            aad=f"invitation|{row['public_id']}",
+            key_version=row["key_version"],
+        )
+    except SecretDecryptionError:
+        raw_code = sec.decrypt(
+            row["code_ciphertext"],
+            row["code_nonce"],
+            aad=f"invitation|{row['id']}",
+            key_version=row["key_version"],
+        )
+    decrypted_code = raw_code.decode("utf-8")
+
+    return InvitationInfo(
+        id=row["id"],
+        public_id=row["public_id"],
+        code_masked=mask_invite_code(decrypted_code),
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        expires_at=row["expires_at"],
+        max_uses=row["max_uses"],
+        uses_count=row["uses_count"],
+        reserved_username=row["reserved_username"],
+        note=row["note"] or "",
+        revoked_at=row["revoked_at"],
+        revoked_by=row["revoked_by"],
+        code=decrypted_code,
+    )
+
+
+def revoke_invitation(
+    conn: sqlite3.Connection,
+    invitation_id: int,
+    *,
+    revoked_by: int,
+    now: float | None = None,
+) -> bool:
+    """초대를 비활성화한다. 이미 비활성화되었거나 없으면 False."""
+    ts = time.time() if now is None else now
+    with conn:
+        cur = conn.execute(
+            """
+            UPDATE invitations
+            SET revoked_at=?, revoked_by=?
+            WHERE (id=? OR public_id=?) AND revoked_at IS NULL
+            """,
+            (ts, revoked_by, invitation_id, invitation_id),
+        )
+    return cur.rowcount > 0
+
+
+def redeem_invitation_atomic(
+    conn: sqlite3.Connection,
+    invitation_id: int,
+    *,
+    method: str = "local",
+    account_callback: Callable[[], int],
+    now: float | None = None,
+) -> int:
+    """초대를 조건부 원자적 UPDATE로 차감하고 콜백을 실행한다. 실패 시 uses_count를 복원하고 'failed'로 기록한다."""
+    ts = time.time() if now is None else now
+    if conn.in_transaction:
+        raise RuntimeError("redeem_invitation_atomic needs its own transaction boundary")
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.execute(
+            """
+            UPDATE invitations
+            SET uses_count = uses_count + 1
+            WHERE (id=? OR public_id=?)
+              AND revoked_at IS NULL
+              AND expires_at > ?
+              AND uses_count < max_uses
+            """,
+            (invitation_id, invitation_id, ts),
+        )
+        if cur.rowcount != 1:
+            row = conn.execute(
+                "SELECT id, revoked_at, expires_at, uses_count, max_uses FROM invitations WHERE id=? OR public_id=?",
+                (invitation_id, invitation_id),
+            ).fetchone()
+            conn.rollback()
+            if row is None:
+                raise InviteNotFoundError(f"Invitation {invitation_id} not found")
+            if row["revoked_at"] is not None:
+                raise InviteInactiveError("revoked")
+            if row["uses_count"] >= row["max_uses"]:
+                raise InviteInactiveError("exhausted")
+            if row["expires_at"] <= ts:
+                raise InviteInactiveError("expired")
+            raise InviteInactiveError("exhausted")
+
+        cur_redemption = conn.execute(
+            """
+            INSERT INTO invitation_redemptions (invitation_id, method, status, started_at)
+            VALUES ((SELECT id FROM invitations WHERE id=? OR public_id=?), ?, 'pending', ?)
+            """,
+            (invitation_id, invitation_id, method, ts),
+        )
+        redemption_id = int(cur_redemption.lastrowid)
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+    try:
+        account_id = account_callback()
+    except BaseException:
+        with conn:
+            conn.execute(
+                "UPDATE invitations SET uses_count = max(0, uses_count - 1) WHERE id=? OR public_id=?",
+                (invitation_id, invitation_id),
+            )
+            conn.execute(
+                "UPDATE invitation_redemptions SET status='failed', finished_at=? WHERE id=?",
+                (time.time() if now is None else now, redemption_id),
+            )
+        raise
+
+    with conn:
+        conn.execute(
+            "UPDATE invitation_redemptions SET status='completed', account_id=?, finished_at=? WHERE id=?",
+            (account_id, time.time() if now is None else now, redemption_id),
+        )
+    return account_id
+
+
+def list_invitations(
+    conn: sqlite3.Connection,
+    query: Any = None,
+    *,
+    max_id: int | None = None,
+    min_id: int | None = None,
+    since_id: int | None = None,
+    limit: int = 20,
+    secret_service: SecretService | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """초대 컬렉션 커서 기반 목록과 전체 개수를 반환한다."""
+    q_max_id = getattr(query, "max_id", max_id) if query is not None else max_id
+    q_min_id = getattr(query, "min_id", min_id) if query is not None else min_id
+    q_since_id = getattr(query, "since_id", since_id) if query is not None else since_id
+    q_limit = getattr(query, "limit", limit) if query is not None else limit
+
+    sec = secret_service or get_secret_service()
+    total_row = conn.execute("SELECT COUNT(*) FROM invitations").fetchone()
+    total_count = int(total_row[0]) if total_row is not None else 0
+
+    if q_max_id is not None:
+        rows = conn.execute(
+            "SELECT * FROM invitations WHERE public_id < ? ORDER BY public_id DESC LIMIT ?",
+            (q_max_id, q_limit),
+        ).fetchall()
+    elif q_min_id is not None:
+        rows = conn.execute(
+            "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id ASC LIMIT ?",
+            (q_min_id, q_limit),
+        ).fetchall()
+        rows = list(reversed(rows))
+    elif q_since_id is not None:
+        rows = conn.execute(
+            "SELECT * FROM invitations WHERE public_id > ? ORDER BY public_id DESC LIMIT ?",
+            (q_since_id, q_limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM invitations ORDER BY public_id DESC LIMIT ?",
+            (q_limit,),
+        ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    now_ts = time.time()
+    for row in rows:
+        try:
+            raw_code = sec.decrypt(
+                row["code_ciphertext"],
+                row["code_nonce"],
+                aad=f"invitation|{row['public_id']}",
+                key_version=row["key_version"],
+            )
+        except SecretDecryptionError:
+            raw_code = sec.decrypt(
+                row["code_ciphertext"],
+                row["code_nonce"],
+                aad=f"invitation|{row['id']}",
+                key_version=row["key_version"],
+            )
+        code_str = raw_code.decode("utf-8")
+
+        if row["revoked_at"] is not None:
+            status = "revoked"
+        elif row["uses_count"] >= row["max_uses"]:
+            status = "exhausted"
+        elif row["expires_at"] <= now_ts:
+            status = "expired"
+        else:
+            status = "active"
+
+        redemptions = conn.execute(
+            "SELECT account_id FROM invitation_redemptions WHERE invitation_id=? AND status='completed'",
+            (row["id"],),
+        ).fetchall()
+        account_ids = [int(r[0]) for r in redemptions if r[0] is not None]
+
+        items.append({
+            "id": row["id"],
+            "public_id": ids.format_public_id(row["public_id"]),
+            "code": code_str,
+            "code_masked": mask_invite_code(code_str),
+            "status": status,
+            "uses_count": row["uses_count"],
+            "max_uses": row["max_uses"],
+            "created_by": row["created_by"],
+            "created_at": row["created_at"],
+            "expires_at": row["expires_at"],
+            "revoked_at": row["revoked_at"],
+            "revoked_by": row["revoked_by"],
+            "reserved_username": row["reserved_username"],
+            "note": row["note"] or "",
+            "redeemed_account_ids": account_ids,
+        })
+
+    return items, total_count
+
+
+def prune_stale_redemptions(
+    conn: sqlite3.Connection,
+    *,
+    now: float | None = None,
+    stale_seconds: float = 600.0,
+) -> int:
+    """10분 이상 pending 상태인 redemptions를 failed로 정리하고 uses_count를 복원한다."""
+    ts = time.time() if now is None else now
+    cutoff = ts - stale_seconds
+    rows = conn.execute(
+        "SELECT id, invitation_id FROM invitation_redemptions WHERE status='pending' AND started_at <= ?",
+        (cutoff,),
+    ).fetchall()
+    if not rows:
+        return 0
+    with conn:
+        for r in rows:
+            redemption_id, inv_id = int(r[0]), int(r[1])
+            conn.execute("UPDATE invitations SET uses_count = max(0, uses_count - 1) WHERE id=?", (inv_id,))
+            conn.execute("UPDATE invitation_redemptions SET status='failed', finished_at=? WHERE id=?", (ts, redemption_id))
+    return len(rows)

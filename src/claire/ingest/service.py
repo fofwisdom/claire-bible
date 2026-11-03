@@ -64,20 +64,29 @@ class IngestService:
         settings: Settings,
         provider: Any | None = None,
         theme_id: int | None = None,
+        account_id: int | None = None,
     ):
         self.s = settings
         self.provider = provider if provider is not None else get_provider(settings)
         self.theme_id = theme_id if theme_id is not None else getattr(settings, "theme_id", 0)
+        self.account_id = account_id if account_id is not None else getattr(settings, "account_id", None)
+        if self.account_id is None:
+            try:
+                tm = get_theme_manager(self.s)
+                theme = tm.get_theme(self.theme_id)
+                self.account_id = getattr(theme, "account_id", None)
+            except Exception:
+                pass
         self.default_focus = (getattr(settings, "default_focus", "") or "").strip()
 
     def get_effective_default_focus(self) -> str | None:
-        if self.theme_id <= 0:
-            return None
         if self.default_focus:
             return self.default_focus
         try:
             tm = get_theme_manager(self.s)
             theme = tm.get_theme(self.theme_id)
+            if getattr(theme, "is_default", False) or self.theme_id <= 0:
+                return None
             if theme and theme.id == self.theme_id and getattr(theme, "default_focus", None):
                 focus = str(theme.default_focus).strip()
                 if focus:
@@ -91,18 +100,20 @@ class IngestService:
         return None
 
     def get_theme_label(self) -> str:
-        if self.theme_id <= 0:
-            return "기본 지식베이스"
         try:
             tm = get_theme_manager(self.s)
             theme = tm.get_theme(self.theme_id)
             if theme and theme.label:
                 return theme.label
+            if getattr(theme, "is_default", False) or self.theme_id <= 0:
+                return "기본 지식베이스"
         except ThemeNotFound:
             # 삭제된 테마를 테마 0의 레이블로 표시하거나 그대로 적재하지 않는다
             raise
         except Exception:
             pass
+        if self.theme_id <= 0:
+            return "기본 지식베이스"
         return f"테마 #{self.theme_id}"
 
     def ingest(
@@ -127,7 +138,7 @@ class IngestService:
 
         inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
-        if not focus and self.theme_id > 0:
+        if not focus:
             focus = self.get_effective_default_focus()
         # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
         tlabel = self.get_theme_label()
@@ -174,7 +185,7 @@ class IngestService:
         from .composite import compose_composite_document, fetch_composite_components
         from ..extract.provider import emit_progress
 
-        if not focus and self.theme_id > 0:
+        if not focus:
             focus = self.get_effective_default_focus()
 
         conn = dbm.connect(self.s.db_file)
@@ -959,6 +970,7 @@ class IngestService:
                     doc_id=primary_doc_id,
                     focus=focus,
                     title=clean_title,
+                    account_id=self.account_id,
                 )
 
             orig_on_progress = on_progress
@@ -1777,19 +1789,33 @@ class IngestServicePool:
         base_settings: Settings,
         base_service: IngestService | None = None,
         theme_manager: Any | None = None,
+        account_id: int | None = None,
     ):
         self.base_settings = base_settings
-        self.theme_manager = theme_manager or get_theme_manager()
+        self.theme_manager = theme_manager or get_theme_manager(base_settings)
         self.shared_provider = (
             base_service.provider if base_service else get_provider(base_settings)
         )
+        self.account_id = account_id if account_id is not None else getattr(base_settings, "account_id", None)
         self._services: dict[int, IngestService] = {}
         if base_service is not None:
-            self._services[0] = base_service
+            self._services[getattr(base_service, "theme_id", 0)] = base_service
 
-    def get_service(self, theme_ref: int | str | None = None) -> IngestService:
+    def get_service(
+        self,
+        theme_ref: int | str | None = None,
+        account_id: int | None = None,
+    ) -> IngestService:
         """테마의 적재 서비스. 없는(삭제된) 테마면 ThemeNotFound를 그대로 올린다(캐시된 서비스도 쓰지 않는다)."""
-        theme = self.theme_manager.get_theme(theme_ref)
+        eff_account_id = account_id if account_id is not None else self.account_id
+        if theme_ref is None or str(theme_ref).strip() == "":
+            if eff_account_id is not None:
+                theme = self.theme_manager.default_theme_for(eff_account_id)
+            else:
+                theme = self.theme_manager.get_theme(None)
+        else:
+            theme = self.theme_manager.get_theme(theme_ref)
+
         if theme.id in self._services:
             return self._services[theme.id]
         theme_settings = self.theme_manager.get_settings_for_theme(
@@ -1799,6 +1825,7 @@ class IngestServicePool:
             theme_settings,
             provider=self.shared_provider,
             theme_id=theme.id,
+            account_id=getattr(theme, "account_id", eff_account_id),
         )
         self._services[theme.id] = svc
         return svc

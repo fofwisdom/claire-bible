@@ -854,8 +854,8 @@ def cmd_theme(args) -> int:
             return 1
 
         if action == "delete":
-            if target_theme.id == 0:
-                print("[오류] 기본 테마(ID 0)는 삭제할 수 없습니다.", file=sys.stderr)
+            if target_theme.is_default or target_theme.id == 0:
+                print(f"[오류] 기본 테마(ID {target_theme.id})는 삭제할 수 없습니다.", file=sys.stderr)
                 return 1
             if not getattr(tm.settings, "multi_theme", False):
                 print("[오류] 멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)", file=sys.stderr)
@@ -1126,6 +1126,33 @@ def _theme_services_for_cycle(
     active = ThemeManager(
         base_settings, create_registry=False
     ).active_theme_settings(base_settings)
+
+    account_statuses: dict[int, str] | None = None
+    db_file = getattr(base_settings, "db_file", None) or getattr(base_settings, "db_path", None)
+    if db_file and Path(db_file).is_file():
+        try:
+            from .store import db as dbm
+            conn = dbm.connect_existing(Path(db_file), readonly=True)
+            try:
+                rows = conn.execute("SELECT id, status FROM accounts").fetchall()
+                account_statuses = {int(r[0]): str(r[1]) for r in rows}
+            finally:
+                conn.close()
+        except Exception:
+            account_statuses = None
+
+    if account_statuses is not None:
+        filtered_active = []
+        for theme, theme_settings in active:
+            account_id = getattr(theme, "account_id", None)
+            if account_id is not None:
+                status = account_statuses.get(account_id)
+                # 정지(suspended), 삭제 중(deleting), 소각(purged) 계정 테마는 건너뜀 (설계 §10.2, §15 S8)
+                if status in ("suspended", "deleting", "purged"):
+                    continue
+            filtered_active.append((theme, theme_settings))
+        active = filtered_active
+
     active_ids = {theme.id for theme, _ in active}
     for removed_id in set(state.services) - active_ids:
         removed = state.services.pop(removed_id, None)
@@ -1143,9 +1170,16 @@ def _theme_services_for_cycle(
             if cached is not None:
                 _close_theme_service(cached[1])
             try:
-                service = service_factory(theme_settings, theme_id=theme.id)
+                service = service_factory(
+                    theme_settings,
+                    theme_id=theme.id,
+                    account_id=getattr(theme, "account_id", None),
+                )
             except TypeError:
-                service = service_factory(theme_settings)
+                try:
+                    service = service_factory(theme_settings, theme_id=theme.id)
+                except TypeError:
+                    service = service_factory(theme_settings)
             state.services[theme.id] = (fingerprint, service)
         else:
             service = cached[1]
@@ -1507,7 +1541,7 @@ def cmd_ingest(args) -> int:
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
     focus = getattr(args, "focus", None)
-    if not focus and theme and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+    if not focus and theme and not theme.is_default and getattr(theme, "default_focus", None):
         focus = theme.default_focus.strip() or None
         if focus:
             print(f"  [기본 초점 적용: {focus}]")

@@ -463,11 +463,12 @@ async def test_admin_access_requires_owner_scope_of_admin_account(app_factory, w
 
 
 @pytest.mark.asyncio
-async def test_network_root_redirects_spa_query_or_404(app_factory, world):
+async def test_network_root_redirects_spa_query_or_directory(app_factory, world):
     world.set_mode("network")
     app = app_factory()
-    assert (await _call(app, "/")).status == 404
-    assert (await _call(app, "/", token=OWNER_TOKEN)).status == 404
+    # P3 D4: SPA 쿼리가 없으면 공개 디렉터리 렌더링(200)
+    assert (await _call(app, "/")).status == 200
+    assert (await _call(app, "/", token=OWNER_TOKEN)).status == 200
     res = await _call(app, "/", query="doc=abc&x=1")
     assert res.status == 308 and res.headers["location"] == f"/@{ADMIN_NAME}/?doc=abc&x=1"
     assert (await _call(app, "/", query="node=n1")).headers["location"] == f"/@{ADMIN_NAME}/?node=n1"

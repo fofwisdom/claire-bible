@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>$title · Claire</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --badge-bg: #e8e8e4; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --badge-bg: #2d2d2a; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+      main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+      nav { display: flex; gap: 1rem; align-items: center; margin: 0 0 2rem; font-size: .95rem; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
+      nav a { color: var(--accent); text-decoration: none; }
+      nav a:hover { text-decoration: underline; }
+      .nav-right { margin-left: auto; display: flex; gap: 1rem; align-items: center; }
+      .nav-right form { margin: 0; }
+      button.link { background: none; border: 0; color: var(--accent); padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
+      h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+      .subtitle { color: var(--muted); margin: 0 0 1.5rem; font-size: .95rem; }
+      .account-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin: 0 0 1rem; }
+      .account-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
+      .account-name { font-size: 1.2rem; font-weight: 600; text-decoration: none; color: inherit; }
+      .account-name:hover { color: var(--accent); }
+      .account-handle { color: var(--muted); font-size: .95rem; margin-left: .5rem; }
+      .badge { font-size: .85rem; background: var(--badge-bg); color: var(--muted); padding: .2rem .5rem; border-radius: 4px; }
+      .themes-list { margin: .75rem 0 0; padding-left: 1.25rem; }
+      .themes-list li { margin: .25rem 0; font-size: .92rem; }
+      .themes-list a { color: var(--accent); text-decoration: none; }
+      .themes-list a:hover { text-decoration: underline; }
+      .themes-count { color: var(--muted); font-size: .85rem; margin-left: .25rem; }
+      .empty-state { background: var(--card); border: 1px dashed var(--line); border-radius: 8px; padding: 2.5rem 1.5rem; text-align: center; margin: 2rem 0; }
+      .empty-state h2 { font-size: 1.2rem; margin: 0 0 .5rem; }
+      .empty-state p { color: var(--muted); margin: 0 0 1.5rem; font-size: .95rem; }
+      .btn { display: inline-block; padding: .5rem 1.25rem; background: var(--accent); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
+      .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; }
+      .pagination a { color: var(--accent); text-decoration: none; font-weight: 500; }
+      .pagination a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="메인 탐색">
+        <a href="/"><strong>Claire</strong></a>
+        <a href="/explore/accounts">공개 디렉터리</a>
+        <div class="nav-right">
+          $nav_auth
+        </div>
+      </nav>
+      <header>
+        <h1>공개 디렉터리</h1>
+        <p class="subtitle">네트워크에 참여 중인 지식 관리자 및 공개 지식 테마입니다.</p>
+      </header>
+      $content
+      $pagination
+    </main>
+  </body>
+</html>

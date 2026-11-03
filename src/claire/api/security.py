@@ -43,8 +43,11 @@ from .namespace import (
     NamespaceResolverMiddleware,
     ParsedPrefix,
     PrefixParserMiddleware,
+    ResolvedNamespace,
     SqliteNamespaceDirectory,
     account_home_path,
+    _Outcome,
+    _spa_query,
 )
 
 if TYPE_CHECKING:
@@ -99,7 +102,7 @@ _AUTHORITY_RE = re.compile(
 _BEARER_RE = re.compile(r"Bearer[ \t]+([^ \t,]+)\Z", re.IGNORECASE)
 
 
-def _build_content_security_policy(ga_measurement_id: str = "") -> str:
+def _build_content_security_policy(ga_measurement_id: str = "", *, usercontent_origin: str = "") -> str:
     script_src = "'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com"
     connect_src = "'self'"
     if ga_measurement_id:
@@ -114,6 +117,7 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
             " https://*.googletagmanager.com https://googletagmanager.com"
             " https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net"
         )
+    frame_src_part = f"frame-src {usercontent_origin}; " if usercontent_origin else ""
     return (
         "default-src 'self'; "
         f"script-src {script_src}; "
@@ -125,6 +129,7 @@ def _build_content_security_policy(ga_measurement_id: str = "") -> str:
         "object-src 'none'; "
         "base-uri 'none'; "
         "form-action 'self' https:; "
+        f"{frame_src_part}"
         "frame-ancestors 'none'"
     )
 
@@ -474,12 +479,25 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/admin/accounts"): _system("admin"),
     ("GET", "/api/admin/accounts"): _system("admin"),
     ("HEAD", "/api/admin/accounts"): _system("admin"),
+    ("PATCH", "/api/admin/accounts"): _system("admin"),
+    ("GET", "/api/admin/usernames/retired"): _system("admin"),
+    ("HEAD", "/api/admin/usernames/retired"): _system("admin"),
+    ("POST", "/api/admin/usernames/release"): _system("admin"),
     ("GET", "/admin/instance"): _system("admin"),
     ("HEAD", "/admin/instance"): _system("admin"),
     ("GET", "/api/admin/instance"): _system("admin"),
     ("HEAD", "/api/admin/instance"): _system("admin"),
     ("POST", "/api/admin/instance/mode"): _system("admin"),
     ("POST", "/api/admin/instance/legacy-hosts/sunset"): _system("admin"),
+    ("GET", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
+    ("HEAD", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
+    ("POST", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
+    ("GET", "/explore/accounts"): _system("public", modes=NETWORK_ONLY),
+    ("HEAD", "/explore/accounts"): _system("public", modes=NETWORK_ONLY),
+    ("GET", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
+    ("HEAD", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
+    ("POST", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
+    ("PATCH", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
     ("GET", "/me"): _any("owner"),
     ("HEAD", "/me"): _any("owner"),
     ("GET", "/api/me"): _any("owner"),
@@ -1960,9 +1978,10 @@ class SafeAccessLogMiddleware:
         self.config = config
         self.theme_manager = theme_manager
         ga_id = config.ga_measurement_id if config else ""
-        self._default_csp_header_value = _build_content_security_policy(ga_id).encode("ascii")
-        self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE").encode("ascii")
-        self._no_ga_csp_header_value = _build_content_security_policy("").encode("ascii")
+        uc_origin = (config.host_roles.origin("usercontent") if (config and config.host_roles) else "") or ""
+        self._default_csp_header_value = _build_content_security_policy(ga_id, usercontent_origin=uc_origin).encode("ascii")
+        self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE", usercontent_origin=uc_origin).encode("ascii")
+        self._no_ga_csp_header_value = _build_content_security_policy("", usercontent_origin=uc_origin).encode("ascii")
 
     def _csp_for(self, state: Mapping[str, Any]) -> bytes:
         """§5.3: 경로가 테마를 고정했으면 그 테마의 GA 측정 ID로 고른다. 고정이 없으면 기존 전역 설정이다."""
@@ -2052,6 +2071,18 @@ class SafeAccessLogMiddleware:
             )
 
 
+class _PublicDirectoryNamespaceResolver(NamespaceResolverMiddleware):
+    """네트워크 모드 루트(GET /)를 공개 디렉터리로 라우팅한다 (P3 L3-g, D4)."""
+
+    def _root(self, mode: InstanceMode, scope: Scope) -> _Outcome | Response:
+        if mode == "single":
+            return super()._root(mode, scope)
+        query_string = scope.get("query_string", b"") or b""
+        if _spa_query(query_string):
+            return super()._root(mode, scope)
+        return _Outcome(ResolvedNamespace(mode, None, None, None, "", False))
+
+
 def wrap_web_app(
     app: ASGIApp,
     settings: Any,
@@ -2059,6 +2090,7 @@ def wrap_web_app(
     theme_manager: Any | None = None,
     legacy_hosts: LegacyHostDirectory | None = None,
     namespace_directory: NamespaceDirectory | None = None,
+    secret_service: Any | None = None,
 ) -> ASGIApp:
     """Starlette 앱 바깥에 보안 경계를 조립한다(§6.7).
 
@@ -2086,18 +2118,32 @@ def wrap_web_app(
         else SqliteNamespaceDirectory(getattr(settings, "db_file", None))
     )
     # NamespaceResolver는 Authentication 바로 안쪽, ErrorBoundary 안쪽이다. DB 예외가 정제된 500이 된다.
-    secured: ASGIApp = NamespaceResolverMiddleware(app, directory)
+    secured: ASGIApp = _PublicDirectoryNamespaceResolver(app, directory)
     secured = AuthenticationMiddleware(secured, config, namespace_directory=directory)
     secured = ErrorBoundaryMiddleware(secured)
     secured = BodyLimitMiddleware(secured)
     secured = CORSPolicyMiddleware(secured, config)
     # PrefixParser는 CORS 바깥이다. CORS·인증이 접두를 뗀 정규 경로로 정책을 찾는다(§6.7).
     secured = PrefixParserMiddleware(secured)
+    from .usercontent import create_usercontent_app
+
+    if config.host_roles is None:
+        try:
+            config.host_roles = roles
+        except Exception:
+            pass
+
+    sec_svc = secret_service or getattr(settings, "secret_service", None)
+    usercontent_app = (
+        create_usercontent_app(settings, theme_manager=theme_manager, secret_service=sec_svc, roles=roles)
+        if roles.usercontent is not None
+        else None
+    )
     secured = HostRouter(
         app=secured,
         roles=roles,
         legacy=legacy_hosts if legacy_hosts is not None else EmptyLegacyHostDirectory(),
-        usercontent=not_found_app if roles.usercontent is not None else None,
+        usercontent=usercontent_app,
         media=not_found_app if roles.media is not None else None,
     )
     if config.cloudflare_ips_only:

@@ -3,7 +3,8 @@
 ``HostRouter``는 ``SafeAccessLog``·``CloudflareIPFilter`` 바로 안쪽에서 ``Host`` 헤더(포트 포함 authority)로 역할을 정한다.
 
 - ``app``: 기존 보안 래퍼(``PrefixParser`` → CORS → BodyLimit → ErrorBoundary → Authentication → NamespaceResolver → 라우터)
-- ``usercontent``·``media``: 각자의 하위 앱. 쿠키를 읽지도 쓰지도 않는다(§5.2). P2에서는 하위 앱이 비어 있어 모든 경로가 404다(렌더링 표면은 P3 L3-h, 미디어는 P7)
+- ``usercontent``: usercontent 하위 앱(P3 L3-h). static/deck 프로필 렌더링과 정적 자산을 서빙하며 쿠키를 읽지도 쓰지도 않는다(§5.2)
+- ``media``: 미디어 하위 앱. 쿠키를 읽지도 쓰지도 않는다(P7)
 - ``legacy``: ``legacy_hosts``에 있는 옛 테마 FQDN. 일몰 전 ``GET``·``HEAD``는 정본 테마 경로로 308, 그 밖의 메서드는 421, 일몰 뒤 410(또는 정책상 421)
 - 그 밖: 421
 

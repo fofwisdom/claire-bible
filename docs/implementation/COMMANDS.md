@@ -31,6 +31,7 @@
    * [3.14 음성 전사(STT) 진단 및 메타데이터 백필 (`stt-scan`, `stt-backfill`)](#314-음성-전사stt-진단-및-메타데이터-백필-stt-scan-stt-backfill)
    * [3.15 원문 아티팩트 압축 포맷 마이그레이션 (`artifact-migrate`)](#315-원문-아티팩트-압축-포맷-마이그레이션-artifact-migrate)
    * [3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)](#316-지식그래프-엔티티-대표-레이블-관리-entity)
+   * [3.17 계정 퇴역 이름 초기화 (`release-username`)](#317-계정-퇴역-이름-초기화-release-username)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -139,6 +140,13 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `--format`: 압축 포맷 지정 (`tgz` 기본값, `zip`, `dir`).
   * `--component`: 백업 대상 지정 (`all` 기본값, `db`, `vault`, `env`).
   * `--replace`, `--force`, `-f`: 동일 일자/경로의 기존 백업 덮어쓰기.
+* **보안 및 WAL 무결성 지침**:
+  * **auth.db 온라인 WAL 스냅샷**: `data/auth/auth.db`는 활성 서비스 중 라이브 WAL 손상이나 불일치를 방지하기 위해 파일 단순 복사가 아닌 SQLite 온라인 백업 API(`sqlite3.Connection.backup`)를 호출하여 일관된 스냅샷으로 스테이징된 뒤 아카이브에 포함된다.
+  * **master.key 제외 및 보존 지침**: `data/auth/master.key`는 마스터 암호화 키 누출 방지를 위해 백업 매니페스트 및 아카이브 페이로드에서 **반드시 제외**된다. 백업 완료 시 마스터 키(또는 `CLAIRE_SECRET_KEY`)를 별도의 안전한 오프사이트(offsite) 위치에 격리 보관하라는 안내문이 출력된다:
+    ```text
+    NOTICE: data/auth/master.key is excluded from the backup archive.
+    Store the master key (or CLAIRE_SECRET_KEY) separately in a secure offsite location.
+    ```
 
 #### `restore`
 백업 아카이브로부터 데이터와 설정을 복원한다.
@@ -147,6 +155,9 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
   * `source`: 백업 디렉터리 또는 아카이브 파일 경로.
   * `--component`: 복원 대상 컴포넌트.
   * `--yes`, `-y`: 덮어쓰기 경고 확인 프롬프트 생략.
+* **보안 검증 및 master.key 보존**:
+  * 백업 아카이브에 `master.key`가 포함되어 있을 경우 복원을 즉시 거부(`ManuscriptError`)한다.
+  * 호스트에 기존 `data/auth/master.key`가 존재할 경우, 컴포넌트 교체(Swap) 중 이를 임시 스테이징으로 안전하게 복사·보존하여 복원 완료 후에도 `0600` 권한으로 유지한다.
 
 #### `remote`
 원격 호스트에 SSH로 접속하여 배포 수명주기 명령을 실행한다.
@@ -827,6 +838,25 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 전환 계획만 출력 (기본값).
   * `-t, --theme`: 대상 테마 지정.
   * `--json`: 결과를 JSON 포맷으로 출력.
+
+---
+
+### 3.17 계정 퇴역 이름 초기화 (`release-username`)
+
+소각(`purged`)된 계정의 퇴역한 USERNAME(`username_tombstones`에 존재)에 대해 410 Gone 표식을 해제하고 잔여 참조를 초기화하여 재사용 가능하도록 설정한다.
+
+* **사용법**:
+  ```bash
+  ./cb-manuscript app account release-username <name>          # Dry-run 미리보기 (기본)
+  ./cb-manuscript app account release-username <name> --apply  # 실제 초기화 실행
+  ```
+  *(관리자 HTTP API: `POST /api/admin/usernames/release`)*
+* **동작 및 원칙**:
+  * **미리보기 기본 (Dry-Run by Default)**: 기본 실행 시 `--dry-run`으로 동작하여 410 Gone 마커(`was_public=1`), 초대 테이블의 예약 잔여(`reserved_username`), 자격증명 정리 대상 등 삭제 대상 잔여 항목 미리보기만 출력한다.
+  * **실행 (`--apply`)**: `--apply` 플래그를 지정해야 `username_tombstones`에 `released_at`, `released_by`가 기록되고 실제 초기화 트랜잭션이 커밋된다.
+  * **보안 및 영향**:
+    * 과거 외부에 공개된 `/@{name}` 링크나 멘션이 존재할 경우, 이름 초기화 후 신규 가입한 다른 사용자 계정으로 연결될 수 있으므로 신중한 적용이 요구된다.
+    * 초기화 후 동일한 이름으로 새로 가입한 사용자는 완전히 새로운 `account_id`와 `public_id`를 발급받으며 과거 계정의 데이터나 권한에 접근할 수 없다.
 
 ---
 

@@ -14,8 +14,16 @@
 2. **[코드] 새 쿼리는 반드시 `theme_id`로 범위를 정한다.** `dbm.*` 함수 대부분이 `theme_id` 인자를 받는다. 이 인자를 빠뜨리면 기본값 0이 되거나 모든 테마를 대상으로 하게 된다.
    - 집행: `tests/test_theme_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `theme_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `theme_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
-3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열)만 테마 0이다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
+3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_default=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
 4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 추가 테마 생성(`POST /themes`)만 잠그며, Theme 0 메타데이터와 번호는 항상 DB의 `themes` 테이블에서 읽어 일관된 코드 경로로 동작한다.
+5. **[코드] 테마 소유권과 계정 귀속 (`account_id`)**: 모든 테마는 `ThemeInfo.account_id`를 통해 특정 계정에 귀속된다(`claire.db` v15 `themes.account_id`). 관리자 테마는 `account_id = 1`이며, 멤버 계정이 생성한 테마는 해당 계정의 `account_id`를 갖는다.
+6. **[코드] 기본 테마 불변식의 `theme.is_default` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_default = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_default` 판정으로 일원화했다:
+   - 기본 테마는 삭제할 수 없다 (`delete_theme`에서 `theme.is_default`이면 `ValueError`).
+   - 기본 테마는 협업자 쓰기·접근이 차단된다 (`is_collaborator_accessible = False`).
+   - 기본 테마는 기본 초점이 빈 문자열로 강제된다 (`default_focus = ""`).
+   - 계정당 기본 테마는 정확히 1개이며, `claire.db`의 `idx_themes_account_default ON themes(account_id) WHERE is_default = 1` 유니크 인덱스로 강제된다.
+   - 테마 생략 시 `ThemeManager.default_theme_for(account_id)`로 해당 계정의 기본 테마를 단일 진실 공급원으로 조회한다.
+7. **[코드] 테마 레이블 유일성 범위 `(account_id, label)`**: 테마 레이블 중복 검사는 전역이 아니라 **계정 범위** `(account_id, label)`로 판정한다. 서로 다른 계정 간에는 동일한 레이블명을 쓸 수 있으며, 동일 계정 내에서만 대소문자 무시 중복이 거부된다(`define_theme`, `update_theme`).
 
 ---
 
@@ -41,7 +49,7 @@
 - `reload()`는 DB 행을 읽고, JSON에만 있는 항목은 DB에 `INSERT OR IGNORE`로 넣는다. 그래서 두 곳이 다르면 DB 값이 이긴다.
 - `define_theme`은 DB에 넣고 커밋한 뒤 JSON을 다시 쓴다. ID는 `seq`와 같은 일련번호(`_next_seq`)다.
 
-**[코드] 테마 0은 항상 있고 삭제할 수 없다.** 협업자 접근은 꺼져 있고, 기본 초점은 빈 문자열로 고정된다(`ThemeInfo.from_dict`).
+**[코드] 기본 테마(`theme.is_default=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_default = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있고, 기본 초점은 빈 문자열로 고정된다(`ThemeInfo.from_dict`).
 
 **[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_items`, `syndication_dispatches`. `(theme_id, …)` 복합 인덱스는 `init_db`가 만든다.
 
@@ -132,11 +140,11 @@
 
 | 동작 | 코드 | 범위 |
 | :--- | :--- | :--- |
-| 정의 | `define_theme` | `themes` 행 추가, JSON 갱신 |
-| 수정 | `update_theme` | FQDN·GA ID는 `validate_fqdn`·`validate_ga_measurement_id`로 검증하고 중복을 거부 |
+| 정의 | `define_theme` | `account_id` 귀속, `themes` 행 추가, JSON 갱신. `(account_id, label)` 범위 레이블 중복 검사 |
+| 수정 | `update_theme` | 동일 계정 내 레이블 중복 검사, FQDN·GA ID는 `validate_fqdn`·`validate_ga_measurement_id`로 검증하고 중복 거부. `theme.is_default`이면 `is_collaborator_accessible=False`, `default_focus=""` 강제 |
 | 리셋 | `reset_theme` | `reset_graph(theme_id)`로 엔티티·관계·임베딩·FTS를 지우고, §2의 테이블에서 해당 `theme_id` 행을 삭제. 메타데이터와 ID는 보존 |
-| 삭제 | `delete_theme(purge=False)` | `themes` 행만 삭제. 데이터 행은 남는다 |
-| 삭제 + 소각 | `delete_theme(purge=True)` | 리셋과 같은 범위를 지운 뒤 `themes` 행을 삭제 |
+| 삭제 | `delete_theme(purge=False)` | `theme.is_default`이면 삭제 거부(`ValueError`). `themes` 행만 삭제. 데이터 행은 남는다 |
+| 삭제 + 소각 | `delete_theme(purge=True)` | `theme.is_default`이면 삭제 거부(`ValueError`). 리셋과 같은 범위를 지운 뒤 `themes` 행을 삭제 |
 
 **[결정]** CLI `theme reset`과 `theme delete`는 기본이 dry-run이다. `--apply`가 있어야 실행하며, 데이터를 지우는 경우에는 확인을 받는다(PRINCIPLES D2·D3).
 

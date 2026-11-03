@@ -509,8 +509,11 @@ def create_graph_bundle(
         if "entities" in source_tables:
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(entities)").fetchall()}
             has_norm = "norm_name" in src_cols
+            has_theme = "theme_id" in src_cols
+            query = "SELECT * FROM entities WHERE theme_id = ?" if has_theme else "SELECT * FROM entities"
+            params = (resolved_theme_id,) if has_theme else ()
             rows_ent = []
-            for r in source_conn.execute("SELECT * FROM entities"):
+            for r in source_conn.execute(query, params):
                 rows_ent.append((
                     r["id"],
                     r["type"],
@@ -538,8 +541,11 @@ def create_graph_bundle(
         # Export relations
         if "relations" in source_tables:
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(relations)").fetchall()}
+            has_theme = "theme_id" in src_cols
+            query = "SELECT * FROM relations WHERE theme_id = ?" if has_theme else "SELECT * FROM relations"
+            params = (resolved_theme_id,) if has_theme else ()
             rows_rel = []
-            for r in source_conn.execute("SELECT * FROM relations"):
+            for r in source_conn.execute(query, params):
                 rows_rel.append((
                     r["id"],
                     r["type"],
@@ -566,8 +572,11 @@ def create_graph_bundle(
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(documents)").fetchall()}
             has_created = "created_at" in src_cols
             has_fetched = "fetched_at" in src_cols
+            has_theme = "theme_id" in src_cols
+            query = "SELECT * FROM documents WHERE theme_id = ?" if has_theme else "SELECT * FROM documents"
+            params = (resolved_theme_id,) if has_theme else ()
             rows_doc = []
-            for r in source_conn.execute("SELECT * FROM documents"):
+            for r in source_conn.execute(query, params):
                 created_val = 0.0
                 if has_created and r["created_at"] is not None:
                     try:
@@ -694,7 +703,11 @@ def create_graph_bundle(
     )
 
 
-def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> dict[str, Any]:
+def import_graph_bundle(
+    target_db_path: Path | str,
+    bundle_path: Path | str,
+    target_theme_id: int | None = None,
+) -> dict[str, Any]:
     """Import graph bundle archive into target database."""
     bundle_file = Path(bundle_path).resolve()
     if not bundle_file.is_file():
@@ -724,6 +737,8 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
         export_db_file = db_candidates[0]
 
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        bundle_theme_id = int(manifest.get("theme_id", 0))
+        dest_theme_id = target_theme_id if target_theme_id is not None else bundle_theme_id
 
         # Verify checksum
         hasher = hashlib.sha256()
@@ -751,16 +766,30 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
         # Inspect target columns
         target_ent_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(entities)").fetchall()}
         target_has_norm = "norm_name" in target_ent_cols
+        target_has_theme_ent = "theme_id" in target_ent_cols
+
+        target_rel_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(relations)").fetchall()}
+        target_has_theme_rel = "theme_id" in target_rel_cols
+
+        target_doc_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(documents)").fetchall()}
+        target_has_theme_doc = "theme_id" in target_doc_cols
 
         # 1. Import entities
         ent_rows = export_conn.execute("SELECT * FROM entities").fetchall()
         entities_imported = 0
         if ent_rows:
+            if target_has_theme_ent:
+                for r in ent_rows:
+                    row_id = str(r["id"])
+                    existing = target_conn.execute("SELECT theme_id FROM entities WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_theme_id:
+                        raise ValueError(f"Cannot import bundle: entity {row_id} already exists in another theme {existing[0]}")
             batch_ent = []
             for r in ent_rows:
                 norm_val = r["norm_name"] if ("norm_name" in r.keys() and r["norm_name"]) else r["name"]
                 batch_ent.append((
                     r["id"],
+                    dest_theme_id,
                     r["type"],
                     r["name"],
                     norm_val if target_has_norm else None,
@@ -772,34 +801,61 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
                     r["created_at"],
                     r["updated_at"],
                 ))
-            if target_has_norm:
-                target_conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO entities (
-                        id, type, name, norm_name, aliases, props, observations, sources, provisional, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    batch_ent,
-                )
+            if target_has_theme_ent:
+                if target_has_norm:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO entities (
+                            id, theme_id, type, name, norm_name, aliases, props, observations, sources, provisional, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        batch_ent,
+                    )
+                else:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO entities (
+                            id, theme_id, type, name, aliases, props, observations, sources, provisional, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [(b[0], b[1], b[2], b[3], b[5], b[6], b[7], b[8], b[9], b[10], b[11]) for b in batch_ent],
+                    )
             else:
-                target_conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO entities (
-                        id, type, name, aliases, props, observations, sources, provisional, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [(b[0], b[1], b[2], b[4], b[5], b[6], b[7], b[8], b[9], b[10]) for b in batch_ent],
-                )
+                if target_has_norm:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO entities (
+                            id, type, name, norm_name, aliases, props, observations, sources, provisional, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [(b[0], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11]) for b in batch_ent],
+                    )
+                else:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO entities (
+                            id, type, name, aliases, props, observations, sources, provisional, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [(b[0], b[2], b[3], b[5], b[6], b[7], b[8], b[9], b[10], b[11]) for b in batch_ent],
+                    )
             entities_imported = len(batch_ent)
 
         # 2. Import relations
         rel_rows = export_conn.execute("SELECT * FROM relations").fetchall()
         relations_imported = 0
         if rel_rows:
+            if target_has_theme_rel:
+                for r in rel_rows:
+                    row_id = str(r["id"])
+                    existing = target_conn.execute("SELECT theme_id FROM relations WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_theme_id:
+                        raise ValueError(f"Cannot import bundle: relation {row_id} already exists in another theme {existing[0]}")
             batch_rel = []
             for r in rel_rows:
                 batch_rel.append((
                     r["id"],
+                    dest_theme_id,
                     r["type"],
                     r["source_id"],
                     r["target_id"],
@@ -809,49 +865,85 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
                     r["provisional"],
                     r["created_at"],
                 ))
-            target_conn.executemany(
-                """
-                INSERT OR REPLACE INTO relations (
-                    id, type, source_id, target_id, confidence, props, sources, provisional, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                batch_rel,
-            )
+            if target_has_theme_rel:
+                target_conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO relations (
+                        id, theme_id, type, source_id, target_id, confidence, props, sources, provisional, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    batch_rel,
+                )
+            else:
+                target_conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO relations (
+                        id, type, source_id, target_id, confidence, props, sources, provisional, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [(b[0], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9]) for b in batch_rel],
+                )
             relations_imported = len(batch_rel)
 
         # 3. Import documents metadata
         doc_rows = export_conn.execute("SELECT * FROM documents").fetchall()
         documents_imported = 0
         if doc_rows:
-            target_doc_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(documents)").fetchall()}
+            if target_has_theme_doc:
+                for r in doc_rows:
+                    row_id = str(r["id"])
+                    existing = target_conn.execute("SELECT theme_id FROM documents WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_theme_id:
+                        raise ValueError(f"Cannot import bundle: document {row_id} already exists in another theme {existing[0]}")
             batch_doc = []
             for r in doc_rows:
                 created_val = r["created_at"] or 0.0
                 batch_doc.append((
                     r["id"],
+                    dest_theme_id,
                     r["title"],
                     r["url"],
                     r["source_type"],
                     created_val,
                 ))
-            if "fetched_at" in target_doc_cols:
-                target_conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO documents (
-                        id, title, url, source_type, fetched_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    batch_doc,
-                )
+            if target_has_theme_doc:
+                if "fetched_at" in target_doc_cols:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO documents (
+                            id, theme_id, title, url, source_type, fetched_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        batch_doc,
+                    )
+                else:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO documents (
+                            id, theme_id, title, url, source_type, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        batch_doc,
+                    )
             else:
-                target_conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO documents (
-                        id, title, url, source_type, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    batch_doc,
-                )
+                if "fetched_at" in target_doc_cols:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO documents (
+                            id, title, url, source_type, fetched_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [(b[0], b[2], b[3], b[4], b[5]) for b in batch_doc],
+                    )
+                else:
+                    target_conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO documents (
+                            id, title, url, source_type, created_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [(b[0], b[2], b[3], b[4], b[5]) for b in batch_doc],
+                    )
             documents_imported = len(batch_doc)
 
         # review_* tables are bundle-only evidence, never merged into the target graph
@@ -863,7 +955,7 @@ def import_graph_bundle(target_db_path: Path | str, bundle_path: Path | str) -> 
 
     return {
         "bundle_id": manifest.get("bundle_id"),
-        "theme_id": manifest.get("theme_id", 0),
+        "theme_id": dest_theme_id,
         "entities_count": entities_imported,
         "relations_count": relations_imported,
         "documents_count": documents_imported,

@@ -26,7 +26,7 @@ SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespa
 
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
-       "/me", "/api/me", "/api/me/password"}
+       "/me", "/api/me", "/api/me/password", "/api/invites"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -38,6 +38,9 @@ SYSTEM = {
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
     "/oauth/token", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth",
     "/admin/accounts", "/api/admin/accounts",
+    "/api/admin/usernames/retired", "/api/admin/usernames/release",
+    "/invite/{code}",
+    "/explore/accounts",
     "/admin/instance", "/api/admin/instance", "/api/admin/instance/mode", "/api/admin/instance/legacy-hosts/sunset",
 }
 ADMIN_KEYS = {
@@ -45,11 +48,20 @@ ADMIN_KEYS = {
     ("POST", "/providers/test"),
     ("POST", "/support/bundle"),
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/instance", "/api/admin/instance") for m in ("GET", "HEAD")),
+    ("PATCH", "/api/admin/accounts"),
+    ("GET", "/api/admin/usernames/retired"),
+    ("HEAD", "/api/admin/usernames/retired"),
+    ("POST", "/api/admin/usernames/release"),
+    *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/api/admin/instance/mode"),
     ("POST", "/api/admin/instance/legacy-hosts/sunset"),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
-NETWORK_ONLY_KEYS: set[tuple[str, str]] = set()
+NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
+    *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
+    *((m, "/explore/accounts") for m in ("GET", "HEAD")),
+    *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
+}
 
 
 def _expected_surface(path: str) -> str:

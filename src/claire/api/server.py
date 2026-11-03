@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import logging
 import re
+import string
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -28,6 +30,7 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -35,12 +38,14 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
+from .. import ids
 from ..config import Settings, get_settings
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..store import accounts as accounts_store
 from ..store import db as dbm
+from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
@@ -181,6 +186,7 @@ def create_app(
     svc = service or IngestService(s)
     theme_mgr = ThemeManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
+    namespace_directory = SqliteNamespaceDirectory(s.db_file)
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
 
@@ -234,7 +240,8 @@ def create_app(
                 # O20: Cross-account visitor can only read public themes
                 if not theme.is_public:
                     return False
-                if request.method not in ("GET", "HEAD"):
+                is_search = request.method == "POST" and request.url.path.rstrip("/").endswith("/search")
+                if request.method not in ("GET", "HEAD") and not is_search:
                     return False
 
         scope = request_auth_scope(request)
@@ -599,6 +606,182 @@ def create_app(
             return Response(status_code=304, headers=hdrs)
         return JSONResponse(root_data, headers=hdrs)
 
+    async def explore_accounts_route(request: Request, *, force_html: bool = False) -> Response:
+        query = collections.parse_collection_query(request.query_params)
+        principal = request_principal(request)
+
+        def _fetch_data() -> tuple[int, list[Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                store = SqlitePublicIndexStore(conn)
+                total = store.count_public_accounts()
+                accs = store.list_public_accounts(
+                    limit=query.limit,
+                    max_id=query.max_id,
+                    min_id=query.min_id,
+                    since_id=query.since_id,
+                    include_themes=True,
+                )
+                return total, accs
+            finally:
+                conn.close()
+
+        total_items, accounts = await asyncio.to_thread(_fetch_data)
+        base_origin = _public_origin(request).rstrip("/")
+        collection_url = f"{base_origin}/explore/accounts"
+
+        account_id = principal.account_id
+        if account_id is None:
+            cookie_present, cookie_token = read_session_cookie(request.scope)
+            if cookie_present and cookie_token:
+                conn_s = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    binding = accounts_store.validate_session_binding(conn_s, cookie_token)
+                    if binding is not None:
+                        account_id = binding.account_id
+                finally:
+                    conn_s.close()
+
+        if force_html or collections.wants_html(request):
+            template_path = Path(__file__).resolve().parent.parent / "templates" / "explore_accounts.html"
+            template_text = template_path.read_text(encoding="utf-8")
+
+            username = None
+            if account_id is not None:
+                try:
+                    acc = namespace_directory.account(account_id)
+                    username = acc.username
+                except Exception:
+                    pass
+
+            if account_id is not None:
+                home_url = f"/@{username}/" if username else "/me"
+                nav_auth = (
+                    f'<a href="{html.escape(home_url)}">내 작업 공간</a>'
+                    f'<form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>'
+                )
+            else:
+                nav_auth = '<a href="/login">로그인</a>'
+
+            if not accounts:
+                if account_id is not None:
+                    btn_html = f'<a class="btn" href="{html.escape(f"/@{username}/" if username else "/me")}">내 작업 공간으로 이동</a>'
+                else:
+                    btn_html = '<a class="btn" href="/login">로그인</a>'
+                content_html = (
+                    '<section class="empty-state">'
+                    '<h2>등록된 공개 계정이 없습니다</h2>'
+                    '<p>아직 공개된 지식 프로필이나 테마가 없습니다. 로그인하여 내 작업 공간을 확인하세요.</p>'
+                    f'{btn_html}'
+                    '</section>'
+                )
+            else:
+                cards = []
+                for a in accounts:
+                    t_items = []
+                    for t in a.themes:
+                        t_url = f"/@{html.escape(a.username)}/themes/{t.number}/" if t.number else f"/@{html.escape(a.username)}/"
+                        t_items.append(
+                            f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({t.documents}개 문서)</span></li>'
+                        )
+                    if t_items:
+                        themes_html = f'<ul class="themes-list">{"".join(t_items)}</ul>'
+                    else:
+                        themes_html = '<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">공개 테마가 아직 없습니다.</p>'
+
+                    card = (
+                        '<article class="account-card">'
+                        '<div class="account-header">'
+                        f'<a class="account-name" href="/@{html.escape(a.username)}/">{html.escape(a.display_name or a.username)}'
+                        f'<span class="account-handle">@{html.escape(a.username)}</span></a>'
+                        f'<span class="badge">공개 테마 {a.public_themes}개 · 공개 문서 {a.public_documents}개</span>'
+                        '</div>'
+                        f'{themes_html}'
+                        '</article>'
+                    )
+                    cards.append(card)
+                content_html = "".join(cards)
+
+            pagination_parts = []
+            if query.page:
+                if len(accounts) == query.limit:
+                    last_id = ids.format_public_id(accounts[-1].public_id)
+                    pagination_parts.append(f'<a href="/explore/accounts?page=true&max_id={last_id}">다음 페이지 &rarr;</a>')
+                if query.max_id is not None and accounts:
+                    first_id = ids.format_public_id(accounts[0].public_id)
+                    pagination_parts.insert(0, f'<a href="/explore/accounts?page=true&min_id={first_id}">&larr; 이전 페이지</a>')
+            pagination_html = f'<div class="pagination">{"".join(pagination_parts)}</div>' if pagination_parts else ""
+
+            rendered = string.Template(template_text).substitute(
+                title="공개 디렉터리",
+                nav_auth=nav_auth,
+                content=content_html,
+                pagination=pagination_html,
+            )
+
+            etag_parts = [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
+            etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
+            headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            if request.method == "HEAD":
+                return Response(status_code=200, headers=headers, media_type="text/html; charset=utf-8")
+            return HTMLResponse(rendered, headers=headers)
+
+        # JSON response
+        if not query.page:
+            root_data = collections.collection_root(collection_url=collection_url, total_items=total_items)
+            etag = collections.collection_etag([f"root:{total_items}"])
+            headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            if request.method == "HEAD":
+                return Response(status_code=200, headers=headers, media_type="application/json")
+            return JSONResponse(root_data, headers=headers)
+
+        items = []
+        etag_parts = []
+        for a in accounts:
+            num_str = ids.format_public_id(a.public_id)
+            item_dict: dict[str, Any] = {
+                "public_id": num_str,
+                "username": a.username,
+                "display_name": a.display_name,
+                "url": f"{base_origin}/@{a.username}/",
+                "public_themes": a.public_themes,
+                "public_documents": a.public_documents,
+                "created_at": a.created_at,
+            }
+            if a.themes:
+                item_dict["themes"] = [
+                    {
+                        "number": str(t.number) if t.number is not None else str(t.id),
+                        "url": f"{base_origin}/@{a.username}/themes/{t.number}/" if t.number else f"{base_origin}/@{a.username}/",
+                        "label": t.label,
+                        "is_default": t.is_default,
+                        "documents": t.documents,
+                    }
+                    for t in a.themes
+                ]
+            items.append(item_dict)
+            etag_parts.append(f"{a.public_id}:{a.public_themes}:{a.public_documents}")
+
+        is_first_page = (query.max_id is None and query.min_id is None and query.since_id is None)
+        page_data = collections.collection_page(
+            collection_url=collection_url,
+            query=query,
+            items=items,
+            item_number="public_id",
+            is_first_page=is_first_page,
+        )
+        etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
+        headers = collections.collection_cache_headers(anonymous=principal.is_anonymous, etag=etag)
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        if request.method == "HEAD":
+            return Response(status_code=200, headers=headers, media_type="application/json")
+        return JSONResponse(page_data, headers=headers)
+
     async def theme_define_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
         if scope != "owner":
@@ -637,6 +820,8 @@ def create_app(
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
         pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
+        principal = request_principal(request)
+        target_account_id = principal.account_id if principal.account_id is not None else 1
         try:
             theme = theme_mgr.define_theme(
                 label,
@@ -648,6 +833,7 @@ def create_app(
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
+                account_id=target_account_id,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -937,8 +1123,10 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
+        principal = request_principal(request)
+        target_account_id = principal.account_id if principal.account_id is not None else 1
         store = get_token_store(data_dir=s.data_dir)
-        tokens = store.list_api_tokens(include_revoked=True)
+        tokens = store.list_api_tokens(include_revoked=True, account_id=target_account_id)
         sanitized = []
         for t in tokens:
             raw_val = t["token"]
@@ -958,6 +1146,8 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
+        principal = request_principal(request)
+        target_account_id = principal.account_id if principal.account_id is not None else 1
         body = await _json_object(request)
         name = str(body.get("name") or "").strip()
         if not name:
@@ -971,7 +1161,7 @@ def create_app(
 
         store = get_token_store(data_dir=s.data_dir)
         try:
-            created = store.create_api_token(name=name, scope=tok_scope, expires_in_days=expires_in_days)
+            created = store.create_api_token(name=name, scope=tok_scope, expires_in_days=expires_in_days, account_id=target_account_id)
             return JSONResponse({
                 "ok": True,
                 "token": created,
@@ -990,6 +1180,8 @@ def create_app(
                 status_code=403,
                 detail="지식 관리자(owner) 권한이 필요합니다.",
             )
+        principal = request_principal(request)
+        target_account_id = principal.account_id if principal.account_id is not None else 1
         body = await _json_object(request) if request.method in {"POST", "DELETE"} else {}
         token_id = body.get("token_id") or body.get("id") or request.query_params.get("id") or request.query_params.get("token_id")
         if not token_id:
@@ -997,7 +1189,7 @@ def create_app(
 
         store = get_token_store(data_dir=s.data_dir)
         try:
-            revoked = store.revoke_api_token(token_id)
+            revoked = store.revoke_api_token(token_id, account_id=target_account_id)
             if not revoked:
                 raise HTTPException(status_code=404, detail="토큰을 찾을 수 없거나 이미 폐기되었습니다.")
             return JSONResponse({"ok": True, "message": "토큰이 성공적으로 폐기되었습니다."})
@@ -1294,14 +1486,20 @@ def create_app(
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="limit must be an integer") from exc
         scope = request_auth_scope(request)
-        include_hidden = scope != "anonymous"
+        principal = request_principal(request)
+        is_cross_account = (
+            principal.account_id is not None
+            and getattr(theme, "account_id", None) is not None
+            and principal.account_id != theme.account_id
+        )
+        include_hidden = (scope != "anonymous") and not is_cross_account
         requested_mode = str(body.get("mode") or "").strip().lower()
-        if scope == "anonymous":
+        if scope == "anonymous" or is_cross_account:
             mode = "fts"
             limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
             summarize = False
             runner = _run_anonymous_search
-        elif scope in {"owner", "readonly"}:
+        elif scope in {"owner", "collaborator", "readonly"}:
             if requested_mode == "fts":
                 mode = "fts"
                 limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
@@ -1384,6 +1582,22 @@ def create_app(
             ns = request_namespace(request)
         except Exception:
             ns = None
+
+        if ns is not None and ns.mode == "network":
+            params = request.query_params
+            if any(k in params for k in ("doc", "node", "theme")):
+                admin_username = None
+                try:
+                    admin = namespace_directory.admin()
+                    admin_username = admin.username
+                except Exception:
+                    pass
+                if admin_username:
+                    qs = str(request.url.query)
+                    target = f"/@{admin_username}/" + (f"?{qs}" if qs else "")
+                    return RedirectResponse(target, status_code=308)
+                return PlainTextResponse("Not Found", status_code=404)
+            return await explore_accounts_route(request, force_html=True)
 
         if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_theme_id is not None):
             try:
@@ -3900,11 +4114,8 @@ def create_app(
         else:
             body = {}
 
-        raw_theme_id = body.get("theme_id", 0)
-        try:
-            theme_id = int(raw_theme_id)
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="theme_id must be an integer")
+        theme, _, _ = _get_theme_ctx(request, body)
+        theme_id = theme.id
 
         source_channel = str(body.get("source_channel") or "api")
         if source_channel not in {"api", "telegram_command", "telegram_callback"}:
@@ -4041,6 +4252,7 @@ def create_app(
         Route("/document/regenerate", do_regenerate, methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
+        Route("/explore/accounts", explore_accounts_route, methods=["GET", "HEAD"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),

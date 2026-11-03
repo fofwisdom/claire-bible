@@ -18,6 +18,7 @@ import logging
 import secrets
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from starlette.requests import Request
@@ -25,10 +26,37 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 
 from ..config import get_settings
 from ..presentation.favicon import render_favicon_head_tags
+from ..store import accounts as accounts_store
 from ..store import db as dbm
+from .accounts_routes.common import same_origin
 from .security import WebRuntimeConfig, read_session_cookie
 
 log = logging.getLogger("claire.api.oauth")
+
+
+def _is_safe_redirect_uri(uri: str) -> bool:
+    """Check that redirect_uri is non-empty and has a safe scheme (not javascript:, data:, vbscript:)."""
+    if not uri or not isinstance(uri, str):
+        return False
+    parsed = urlparse(uri.strip())
+    if not parsed.scheme or parsed.scheme.lower() in ("javascript", "data", "vbscript"):
+        return False
+    return True
+
+
+def _extract_client_secret(request: Request, params: dict[str, Any]) -> str | None:
+    """Extract client_secret from Authorization header or body parameters."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("basic "):
+        try:
+            decoded = base64.b64decode(auth_header[6:].strip()).decode("latin-1")
+            if ":" in decoded:
+                _, secret_val = decoded.split(":", 1)
+                return secret_val
+        except Exception:
+            pass
+    req_secret = params.get("client_secret")
+    return str(req_secret).strip() if req_secret else None
 
 
 def _h(value: Any) -> str:
@@ -122,6 +150,14 @@ async def handle_register(request: Request) -> Response:
         redirect_uris = [redirect_uris]
     elif not isinstance(redirect_uris, list):
         redirect_uris = []
+
+    # Scheme validation: block dangerous schemes like javascript:, data:, vbscript:
+    for uri in redirect_uris:
+        if not _is_safe_redirect_uri(str(uri)):
+            return JSONResponse(
+                {"error": "invalid_redirect_uri", "error_description": "Invalid or dangerous redirect_uri scheme"},
+                status_code=400,
+            )
 
     client_id = f"claire_mcp_{secrets.token_urlsafe(12)}"
     client_secret = secrets.token_urlsafe(32)
@@ -410,16 +446,34 @@ async def handle_authorize(request: Request) -> Response:
         if not client_id or not redirect_uri:
             return JSONResponse({"error": "invalid_request", "error_description": "Missing client_id or redirect_uri"}, status_code=400)
 
+        if not _is_safe_redirect_uri(redirect_uri):
+            return JSONResponse({"error": "invalid_request", "error_description": "Invalid redirect_uri scheme"}, status_code=400)
+
         conn = dbm.connect_existing(config.db_file)
         try:
             client = dbm.get_oauth_client(conn, client_id)
-            client_name = client["client_name"] if client else "Google Gemini / MCP Client"
+            if not client:
+                if client_id.startswith("claire_mcp_"):
+                    client_name = "External MCP Client"
+                else:
+                    return JSONResponse({"error": "unauthorized_client", "error_description": "Unknown or unregistered client_id"}, status_code=400)
+            else:
+                client_redirect_uris = client.get("redirect_uris") or []
+                if client_redirect_uris and redirect_uri not in client_redirect_uris:
+                    return JSONResponse({"error": "invalid_request", "error_description": "redirect_uri mismatch"}, status_code=400)
+                client_name = client["client_name"] if client["client_name"] else "External MCP Client"
 
             _cookie_present, cookie_token = read_session_cookie(request.scope)
             has_valid_cookie = False
             if cookie_token and dbm.plausible_session_token(cookie_token):
-                v_scope = dbm.validate_session_scope(conn, cookie_token)
-                has_valid_cookie = v_scope is not None
+                binding = accounts_store.validate_session_binding(conn, cookie_token)
+                if binding is not None:
+                    try:
+                        acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                        if acc.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                            has_valid_cookie = True
+                    except accounts_store.AccountNotFound:
+                        has_valid_cookie = False
         finally:
             conn.close()
 
@@ -433,9 +487,15 @@ async def handle_authorize(request: Request) -> Response:
             scope="readonly",
             has_valid_cookie=has_valid_cookie,
         )
-        return HTMLResponse(html)
+        return HTMLResponse(html, headers={"Referrer-Policy": "same-origin"})
 
     # POST processing
+    # Enforce same-origin check for CSRF prevention on state-changing authorization
+    _cookie_present, cookie_token = read_session_cookie(request.scope)
+    if _cookie_present or request.headers.get("origin") or request.headers.get("sec-fetch-site"):
+        if not same_origin(request):
+            return JSONResponse({"error": "access_denied", "error_description": "Cross-origin request rejected"}, status_code=403)
+
     form = await request.form()
     action = form.get("action", "")
     client_id = form.get("client_id", "")
@@ -449,22 +509,47 @@ async def handle_authorize(request: Request) -> Response:
         delim = "&" if "?" in redirect_uri else "?"
         return RedirectResponse(f"{redirect_uri}{delim}error=access_denied&state={state}", status_code=302)
 
-    # Check authentication
+    if not _is_safe_redirect_uri(redirect_uri):
+        return JSONResponse({"error": "invalid_request", "error_description": "Invalid redirect_uri scheme"}, status_code=400)
+
+    # Check authentication and client registration
     conn = dbm.connect_existing(config.db_file)
     try:
-        authed = False
-        _cookie_present, cookie_token = read_session_cookie(request.scope)
+        client = dbm.get_oauth_client(conn, client_id)
+        if not client:
+            if not client_id.startswith("claire_mcp_"):
+                return JSONResponse({"error": "unauthorized_client", "error_description": "Unknown or unregistered client_id"}, status_code=400)
+            client_name = "External Client"
+        else:
+            client_redirect_uris = client.get("redirect_uris") or []
+            if client_redirect_uris and redirect_uri not in client_redirect_uris:
+                return JSONResponse({"error": "invalid_request", "error_description": "redirect_uri mismatch"}, status_code=400)
+            client_name = client["client_name"] if client["client_name"] else "External Client"
+
+        authed_account_id: int | None = None
         if cookie_token and dbm.plausible_session_token(cookie_token):
-            if dbm.validate_session_scope(conn, cookie_token) is not None:
-                authed = True
+            binding = accounts_store.validate_session_binding(conn, cookie_token)
+            if binding is not None:
+                try:
+                    acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                    if acc.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                        authed_account_id = binding.account_id
+                except accounts_store.AccountNotFound:
+                    pass
 
-        if not authed and session_token:
-            if dbm.validate_session_scope(conn, session_token) is not None:
-                authed = True
+        if authed_account_id is None and session_token:
+            if dbm.plausible_session_token(session_token):
+                binding = accounts_store.validate_session_binding(conn, session_token)
+                if binding is not None:
+                    try:
+                        acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                        if acc.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                            authed_account_id = binding.account_id
+                    except accounts_store.AccountNotFound:
+                        pass
 
-        if not authed:
-            client = dbm.get_oauth_client(conn, client_id)
-            client_name = client["client_name"] if client else "External Client"
+        if authed_account_id is None:
+            client_name = client["client_name"] if client["client_name"] else "External Client"
             html = _render_authorize_page(
                 client_name=client_name,
                 client_id=client_id,
@@ -476,9 +561,9 @@ async def handle_authorize(request: Request) -> Response:
                 has_valid_cookie=False,
                 error_msg="유효하지 않거나 만료된 세션 토큰입니다.",
             )
-            return HTMLResponse(html, status_code=401)
+            return HTMLResponse(html, status_code=401, headers={"Referrer-Policy": "same-origin"})
 
-        # Issue authorization code
+        # Issue authorization code bound to actual authed account_id
         code = dbm.create_oauth_code(
             conn,
             client_id=client_id,
@@ -487,6 +572,8 @@ async def handle_authorize(request: Request) -> Response:
             code_challenge_method=code_challenge_method,
             scope="readonly",
         )
+        conn.execute("UPDATE oauth_codes SET account_id=? WHERE code=?", (authed_account_id, code))
+        conn.commit()
     finally:
         conn.close()
 
@@ -511,11 +598,35 @@ async def handle_telegram_push(request: Request) -> Response:
     if not client_id or not redirect_uri:
         return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
 
+    if not _is_safe_redirect_uri(redirect_uri):
+        return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
+
     conn = dbm.connect_existing(config.db_file)
     try:
+        # Telegram push flow is strictly restricted to administrator session flow
+        _cookie_present, cookie_token = read_session_cookie(request.scope)
+        if _cookie_present and cookie_token and dbm.plausible_session_token(cookie_token):
+            binding = accounts_store.validate_session_binding(conn, cookie_token)
+            if binding is not None:
+                if binding.account_id != 1:
+                    return JSONResponse(
+                        {"ok": False, "error": "forbidden", "error_description": "Telegram push is restricted to admin"},
+                        status_code=403,
+                    )
+                try:
+                    acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                    if acc.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                        return JSONResponse({"ok": False, "error": "forbidden", "error_description": "Admin account not active"}, status_code=403)
+                except accounts_store.AccountNotFound:
+                    return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
         client = dbm.get_oauth_client(conn, client_id)
         if not client:
             return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
+        client_redirect_uris = client.get("redirect_uris") or []
+        if redirect_uri not in client_redirect_uris:
+            return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
+
         client_name = client["client_name"] or "Google Gemini / MCP Client"
 
         settings = getattr(request.app.state, "settings", None) or get_settings()
@@ -576,6 +687,8 @@ async def handle_telegram_push(request: Request) -> Response:
             state=state,
             nonce=nonce,
         )
+        conn.execute("UPDATE oauth_auth_requests SET account_id=? WHERE nonce=?", (1, nonce))
+        conn.commit()
     finally:
         conn.close()
 
@@ -638,6 +751,18 @@ async def handle_token(request: Request) -> Response:
 
         conn = dbm.connect_existing(config.db_file)
         try:
+            client = dbm.get_oauth_client(conn, client_id)
+            if not client:
+                return JSONResponse({"error": "invalid_client", "error_description": "Unknown client_id"}, status_code=401)
+            if redirect_uri not in client.get("redirect_uris", []):
+                return JSONResponse({"error": "invalid_grant", "error_description": "Redirect URI mismatch"}, status_code=400)
+
+            # Confidential client secret check if client_secret provided
+            req_secret = _extract_client_secret(request, params)
+            if req_secret:
+                if not secrets.compare_digest(str(req_secret), str(client.get("client_secret") or "")):
+                    return JSONResponse({"error": "invalid_client", "error_description": "Client authentication failed"}, status_code=401)
+
             code_data = dbm.consume_oauth_code(conn, code, client_id, redirect_uri)
             if not code_data:
                 return JSONResponse(
@@ -653,9 +778,21 @@ async def handle_token(request: Request) -> Response:
                     status_code=400,
                 )
 
+            code_account_id = code_data.get("account_id")
+            if code_account_id is not None:
+                try:
+                    acc = accounts_store.AccountStore(conn).get(int(code_account_id))
+                    if acc.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                        return JSONResponse({"error": "invalid_grant", "error_description": f"Account is {acc.status}"}, status_code=400)
+                except accounts_store.AccountNotFound:
+                    return JSONResponse({"error": "invalid_grant", "error_description": "Account not found"}, status_code=400)
+
             access_token, refresh_token = dbm.create_oauth_token(
                 conn, client_id=client_id, scope="readonly"
             )
+            if code_account_id is not None:
+                conn.execute("UPDATE oauth_tokens SET account_id=? WHERE token=?", (int(code_account_id), access_token))
+                conn.commit()
         finally:
             conn.close()
 
@@ -683,6 +820,45 @@ async def handle_token(request: Request) -> Response:
 
         conn = dbm.connect_existing(config.db_file)
         try:
+            row = conn.execute(
+                "SELECT token, refresh_token, client_id, scope, expires_at, account_id FROM oauth_tokens WHERE refresh_token=?",
+                (refresh_token,),
+            ).fetchone()
+            if row is None:
+                return JSONResponse(
+                    {"error": "invalid_grant", "error_description": "Invalid or expired refresh_token"},
+                    status_code=400,
+                )
+            if client_id and str(row["client_id"]) != client_id:
+                return JSONResponse(
+                    {"error": "invalid_grant", "error_description": "Client ID mismatch"},
+                    status_code=400,
+                )
+
+            # Check client_secret if provided
+            client = dbm.get_oauth_client(conn, str(row["client_id"]))
+            if client:
+                req_secret = _extract_client_secret(request, params)
+                if req_secret:
+                    if not secrets.compare_digest(str(req_secret), str(client.get("client_secret") or "")):
+                        return JSONResponse({"error": "invalid_client", "error_description": "Client authentication failed"}, status_code=401)
+
+            # Check account status: suspended, deleting, purged -> immediately reject renewal!
+            token_account_id = row["account_id"]
+            if token_account_id is not None:
+                try:
+                    acc = accounts_store.AccountStore(conn).get(int(token_account_id))
+                    if acc.status not in ("active", "setup_required"):
+                        return JSONResponse(
+                            {"error": "invalid_grant", "error_description": f"Account is {acc.status}"},
+                            status_code=400,
+                        )
+                except accounts_store.AccountNotFound:
+                    return JSONResponse(
+                        {"error": "invalid_grant", "error_description": "Account not found"},
+                        status_code=400,
+                    )
+
             res = dbm.refresh_oauth_token(conn, refresh_token, client_id if client_id else None)
             if not res:
                 return JSONResponse(
@@ -717,25 +893,39 @@ async def handle_token(request: Request) -> Response:
 
         conn = dbm.connect_existing(config.db_file)
         try:
-            # Check session or bootstrap
-            exchanged = dbm.exchange_session_token(
-                conn, subject_token, scopes=("owner", "collaborator", "readonly")
-            )
-            if not exchanged:
-                # Also check if it's already an active session token
-                v_scope = dbm.validate_session_scope(
+            exchange_account_id: int | None = None
+            binding = accounts_store.validate_session_binding(conn, subject_token)
+            if binding is not None:
+                try:
+                    acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                    if acc.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                        return JSONResponse({"error": "invalid_grant", "error_description": f"Account is {acc.status}"}, status_code=400)
+                    exchange_account_id = binding.account_id
+                except accounts_store.AccountNotFound:
+                    return JSONResponse({"error": "invalid_grant", "error_description": "Account not found"}, status_code=400)
+            else:
+                # Check session or bootstrap
+                exchanged = dbm.exchange_session_token(
                     conn, subject_token, scopes=("owner", "collaborator", "readonly")
                 )
-                if not v_scope:
-                    return JSONResponse(
-                        {"error": "invalid_grant", "error_description": "Subject token is invalid or expired"},
-                        status_code=400,
+                if not exchanged:
+                    # Also check if it's already an active session token
+                    v_scope = dbm.validate_session_scope(
+                        conn, subject_token, scopes=("owner", "collaborator", "readonly")
                     )
+                    if not v_scope:
+                        return JSONResponse(
+                            {"error": "invalid_grant", "error_description": "Subject token is invalid or expired"},
+                            status_code=400,
+                        )
 
             # Issue isolated oauth token
             access_token, refresh_token = dbm.create_oauth_token(
                 conn, client_id="token_exchange_client", scope="readonly"
             )
+            if exchange_account_id is not None:
+                conn.execute("UPDATE oauth_tokens SET account_id=? WHERE token=?", (exchange_account_id, access_token))
+                conn.commit()
         finally:
             conn.close()
 

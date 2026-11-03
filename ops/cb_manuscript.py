@@ -2389,11 +2389,16 @@ def _validate_backup_manifest(root: Path) -> dict[str, object]:
             raise ManuscriptError(
                 f"Unknown field in backup entry: {raw_path}"
             )
+        if raw_path == "data/auth/master.key" or raw_path.endswith("/master.key") or raw_path == "master.key":
+            raise ManuscriptError(f"Backup manifest must not contain master.key: {raw_path}")
         expected[raw_path] = value
 
     payload = root / "payload"
     actual_entries = _scan_payload(payload)
     actual = {entry["path"]: entry for entry in actual_entries}
+    for actual_path in actual:
+        if actual_path == "data/auth/master.key" or actual_path.endswith("/master.key") or actual_path == "master.key":
+            raise ManuscriptError(f"Backup payload must not contain master.key: {actual_path}")
     if expected != actual:
         missing = sorted(set(expected) - set(actual))
         extra = sorted(set(actual) - set(expected))
@@ -2490,6 +2495,10 @@ def _build_backup_staging(
                     database,
                     Path(str(database) + "-wal"),
                     Path(str(database) + "-shm"),
+                    Path("auth/master.key"),
+                    Path("auth/auth.db"),
+                    Path("auth/auth.db-wal"),
+                    Path("auth/auth.db-shm"),
                 }
             )
         _copy_path_safely(
@@ -2507,6 +2516,12 @@ def _build_backup_staging(
                 .joinpath(*storage.database_relative.parts)
                 .as_posix()
             )
+            auth_db_path = storage.data / "auth" / "auth.db"
+            if auth_db_path.exists():
+                _snapshot_database(
+                    auth_db_path,
+                    payload / "data" / "auth" / "auth.db",
+                )
 
     entries = _scan_payload(payload)
     files = [entry for entry in entries if entry["type"] == "file"]
@@ -2755,6 +2770,9 @@ def command_backup(
 
     print(f"Backup completed: {target}")
     print(f"  id={backup_id} · format={output_format} · components={','.join(components)}")
+    if "data" in components:
+        print("  NOTICE: data/auth/master.key is excluded from the backup archive.")
+        print("  Store the master key (or CLAIRE_SECRET_KEY) separately in a secure offsite location.")
     return 0
 
 
@@ -2842,6 +2860,21 @@ def _prepare_restore_swaps(
                 staging,
             )
             _verify_component_copy(staging, component, manifest)
+            if component == "data":
+                existing_key = target / "auth" / "master.key"
+                if existing_key.is_file() and not stat.S_ISLNK(existing_key.stat().st_mode):
+                    staging_auth = staging / "auth"
+                    staging_auth.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    try:
+                        os.chmod(staging_auth, 0o700)
+                    except OSError:
+                        pass
+                    dest_key = staging_auth / "master.key"
+                    shutil.copy2(existing_key, dest_key)
+                    try:
+                        os.chmod(dest_key, 0o600)
+                    except OSError:
+                        pass
             swaps.append(
                 RestoreSwap(
                     component=component,
@@ -3200,6 +3233,19 @@ def command_restore(
             source,
             temporary_parent=runtime.layout.state_dir,
         ) as (materialized, manifest):
+            backup_entries = manifest.get("entries")
+            if isinstance(backup_entries, list):
+                for entry in backup_entries:
+                    if isinstance(entry, dict):
+                        entry_path = str(entry.get("path", ""))
+                        if (
+                            entry_path == "data/auth/master.key"
+                            or entry_path.endswith("/master.key")
+                            or entry_path == "master.key"
+                        ):
+                            raise ManuscriptError(f"Backup archive must not contain master.key: {entry_path}")
+            if (materialized / "payload" / "data" / "auth" / "master.key").exists():
+                raise ManuscriptError("Backup archive must not contain master.key.")
             expected_profile = "development" if runtime.dev else "production"
             if manifest.get("profile") != expected_profile:
                 raise ManuscriptError(

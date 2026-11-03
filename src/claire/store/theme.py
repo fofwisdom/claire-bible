@@ -129,7 +129,7 @@ class ThemeInfo:
     def from_dict(cls, data: dict[str, Any]) -> ThemeInfo:
         is_def = bool(data.get("is_default", False))
         tid = int(data.get("id", 0))
-        default_collab = not (is_def or tid == 0)
+        default_collab = not is_def
         return cls(
             id=tid,
             seq=int(data.get("seq", data.get("id", 0))),
@@ -147,7 +147,7 @@ class ThemeInfo:
             ),
             default_focus=(
                 ""
-                if (is_def or tid == 0)
+                if is_def
                 else str(data.get("default_focus") or "").strip()
             ),
             fqdn=validate_fqdn(data.get("fqdn")),
@@ -610,7 +610,7 @@ class ThemeManager:
 
         if cleaned_host and cleaned_host in self._fqdn_to_theme_id:
             dedicated_tid = self._fqdn_to_theme_id[cleaned_host]
-            if dedicated_tid > 0:
+            if dedicated_tid is not None:
                 return [t for t in themes if t.id == dedicated_tid and t.is_public]
 
         return [t for t in themes if t.is_public and (not t.fqdn or t.is_default)]
@@ -625,7 +625,7 @@ class ThemeManager:
     ) -> ThemeInfo:
         """일련번호(int/str) 또는 레이블로 테마를 검색. 찾지 못하면 다른 테마로 대신하지 않는다(PRINCIPLES C1).
 
-        - theme_ref 가 None 이거나 빈 문자열이면 기본 테마(0). 참조를 생략한 경우의 기본값이다.
+        - theme_ref 가 None 이거나 빈 문자열이면 기본 테마. 참조를 생략한 경우의 기본값이다.
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
         - label_match="partial" 이면 마지막으로 레이블 부분 일치(처음 걸린 테마)를 시도한다. 사람이 직접 입력하는 CLI `--theme`과 텔레그램 `/theme`만 쓴다.
@@ -636,7 +636,10 @@ class ThemeManager:
         self.reload()
         found: ThemeInfo | None = None
         if theme_ref is None or str(theme_ref).strip() == "":
-            found = self._themes.get(0, self._build_default_theme())
+            try:
+                found = self.default_theme_for(dbm.ADMIN_ACCOUNT_ID)
+            except ThemeNotFound:
+                found = next((t for t in self._themes.values() if t.is_default), self._themes.get(0, self._build_default_theme()))
         else:
             ref_str = str(theme_ref).strip()
             # 1. 정수 일련번호 매칭
@@ -739,6 +742,7 @@ class ThemeManager:
         *,
         description: str = "",
         icon: str = "📁",
+        is_default: bool = False,
         is_public: bool = True,
         is_collaborator_accessible: bool = True,
         default_focus: str = "",
@@ -747,6 +751,7 @@ class ThemeManager:
         sorcerer: str = "",
         knowledge_manager: str = "",
         presentation_enabled: bool = False,
+        account_id: int = dbm.ADMIN_ACCOUNT_ID,
     ) -> ThemeInfo:
         """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
         if not getattr(self.settings, "multi_theme", False):
@@ -764,9 +769,9 @@ class ThemeManager:
 
         self.reload()
 
-        # 동일 레이블 중복 방지
+        # 동일 계정 내 동일 레이블 중복 방지 (account_id, label)
         for t in self._themes.values():
-            if t.label.strip().lower() == cleaned_label.lower():
+            if t.account_id == account_id and t.label.strip().lower() == cleaned_label.lower():
                 raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
 
         seq = self._next_seq
@@ -784,18 +789,17 @@ class ThemeManager:
             description=str(description or "").strip(),
             icon=str(icon or "📁").strip(),
             db_path=db_path,
-            is_default=False,
+            is_default=bool(is_default),
             is_public=bool(is_public),
-            is_collaborator_accessible=bool(is_collaborator_accessible),
-            default_focus=str(default_focus or "").strip(),
+            is_collaborator_accessible=False if is_default else bool(is_collaborator_accessible),
+            default_focus="" if is_default else str(default_focus or "").strip(),
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
             sorcerer=mgr,
             presentation_enabled=bool(presentation_enabled),
             created_at=now,
             updated_at=now,
-            # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
-            account_id=dbm.ADMIN_ACCOUNT_ID,
+            account_id=account_id,
         )
 
         conn = dbm.connect(db_file)
@@ -907,9 +911,9 @@ class ThemeManager:
             cleaned_label = str(label).strip()
             if not cleaned_label:
                 raise ValueError("테마 레이블은 비어 있을 수 없습니다.")
-            # 다른 테마와 레이블 중복 검사
+            # 동일 계정의 다른 테마와 레이블 중복 검사
             for other in self._themes.values():
-                if other.id != tid and other.label.strip().lower() == cleaned_label.lower():
+                if other.id != tid and other.account_id == theme.account_id and other.label.strip().lower() == cleaned_label.lower():
                     raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
             theme.label = cleaned_label
 
@@ -923,13 +927,13 @@ class ThemeManager:
             theme.is_public = bool(is_public)
 
         if is_collaborator_accessible is not None:
-            if tid == 0:
+            if theme.is_default:
                 theme.is_collaborator_accessible = False
             else:
                 theme.is_collaborator_accessible = bool(is_collaborator_accessible)
 
         if default_focus is not None:
-            if tid == 0:
+            if theme.is_default:
                 theme.default_focus = ""
             else:
                 theme.default_focus = str(default_focus or "").strip()
@@ -1003,10 +1007,10 @@ class ThemeManager:
             target = self.get_theme(theme_id)
             tid = target.id
 
-        if tid == 0:
-            raise ValueError("기본 테마(ID 0)는 삭제할 수 없습니다.")
-
         theme = self._themes[tid]
+
+        if theme.is_default:
+            raise ValueError(f"기본 테마(ID {tid})는 삭제할 수 없습니다.")
 
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         conn = dbm.connect(db_file)
@@ -1282,7 +1286,7 @@ class ThemeManager:
                     tid = m.get("theme_id", 0)
                     t_info = self._themes.get(tid)
                     m["theme_id"] = tid
-                    m["theme_label"] = t_info.label if t_info else ("기본 지식베이스" if tid == 0 else f"테마 #{tid}")
+                    m["theme_label"] = t_info.label if t_info else ("기본 지식베이스" if (t_info and t_info.is_default) or tid == 0 else f"테마 #{tid}")
                     m["db_file"] = str(db_file)
 
                     mb = m.get("matched_by", "")

@@ -381,9 +381,9 @@ def test_root_resolver_308_with_legacy_spa_query(tmp_path: Path) -> None:
     assert r_multi.status_code == 308
     assert r_multi.headers.get("location") == "/@adminuser/?doc=42&theme=123"
 
-    # SPA 쿼리가 없는 루트 GET / 는 네트워크 모드에서 404 (P2)
-    assert client.get("/").status_code == 404
-    assert client.get("/?other=param").status_code == 404
+    # SPA 쿼리가 없는 루트 GET / 는 네트워크 모드에서 공개 디렉터리 렌더링 (200, P3 D4)
+    assert client.get("/").status_code == 200
+    assert client.get("/?other=param").status_code == 200
 
     # 싱글 모드에서는 루트 GET /?doc=42 가 리다이렉트 없이 200 응답
     single_client, _, _ = _create_single_theme_client(tmp_path / "single")

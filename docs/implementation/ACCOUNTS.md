@@ -1,8 +1,8 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02) · 대상 독자: 계정·로그인·자격증명 코드를 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §13 (Rev. 2.2)
+확인 기준: P3 계정·초대·수명주기 구현 (2026-11-03) · 대상 독자: 계정·로그인·자격증명·초대 코드를 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §13 (Rev. 2.3)
 
-이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어)이다. 초대, 정지·삭제, 정보 초기화, IdP, API 키는 아직 없다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어) 및 P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 기준 작업 트리의 소스에서 직접 확인한 사실
 - **[결정]** 저장소 소유자가 정한 방침. 바꾸기 전에 소유자에게 묻는다
@@ -22,13 +22,15 @@
 | 파일 | 역할 | 주요 기호 |
 | :--- | :--- | :--- |
 | `src/claire/store/db.py` | v15 스키마와 이관, 기존 자격증명 발급 함수의 계정 기록 | `_migrate_v15_accounts`, `_check_single_default_theme_per_account`, `_ensure_id_salt`, `ADMIN_ACCOUNT_ID`, `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS` |
-| `src/claire/store/accounts.py` | 계정 조회·설정 완료, 세션 발급·검증의 계정 귀속 | `AccountStore`, `Account`, `CredentialBinding`, `CREDENTIAL_ACCEPTING_STATUSES`, `create_account_session`, `validate_session_binding`, `validate_oauth_binding`, `mark_session_authenticated`, `revoke_other_sessions`, `delete_session` |
-| `src/claire/store/auth_db.py` | auth.db 스키마, scrypt 비밀번호, 실패 제한, 감사 기록 | `connect_auth_db`, `check_password_policy`, `set_password`, `verify_password`, `begin_login_attempt`, `settle_login_success`, `check_login_throttle`, `record_login_failure`, `prune_login_throttle`, `record_admin_audit`, `SCRYPT_MAX_CONCURRENCY` |
+| `src/claire/store/accounts.py` | 계정 조회·설정 완료, 수명주기 전이, 세션 발급·검증, 퇴역 이름 정보 초기화 | `AccountStore`, `Account`, `CredentialBinding`, `CREDENTIAL_ACCEPTING_STATUSES`, `create_account_session`, `validate_session_binding`, `validate_oauth_binding`, `suspend_account`, `resume_account`, `schedule_account_deletion`, `cancel_account_deletion`, `purge_account`, `preview_release_username`, `release_username` |
+| `src/claire/store/auth_db.py` | auth.db 스키마, scrypt 비밀번호, 초대 영속화, 실패 제한, 감사 기록 | `connect_auth_db`, `check_password_policy`, `set_password`, `verify_password`, `begin_login_attempt`, `settle_login_success`, `check_login_throttle`, `record_login_failure`, `record_admin_audit`, `SCRYPT_MAX_CONCURRENCY` |
+| `src/claire/store/secrets.py` | AES-256-GCM 마스터 키 비밀 서비스 및 HMAC 파생 | `SecretService`, `CLAIRE_SECRET_KEY` |
 | `src/claire/accounts/username_policy.py` | DB 없이 판정하는 USERNAME 규칙 | `validate_username`, `normalize_username`, `RESERVED_USERNAMES`, `instance_reserved_labels`, `UsernameRejected` |
+| `src/claire/accounts/invites.py` | Crockford Base32 8자리 초대 코드 생성, 정규화, 매개변수 유효성 검증 | `InvitationInfo`, `normalize_invite_code`, `validate_invite_code_syntax`, `generate_invite_code`, `validate_invite_params`, `InviteError` |
 | `src/claire/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
-| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
+| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
 | `src/claire/templates/` | `setup.html`, `login.html`, `me.html`, `admin_accounts.html` | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/accounts.js` | `/me` 화면의 표시 이름·본인 확인·비밀번호 양식 | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 
@@ -39,8 +41,8 @@
 | 항목 | 현재 동작 | 근거 |
 | :--- | :--- | :--- |
 | 상태 값 | `setup_required`, `active`, `suspended`, `deleting`, `purged`를 타입(`AccountStatus`)으로 정의한다. DB는 `status`에 CHECK를 두지 않는다 | [코드] `src/claire/store/accounts.py` |
-| 구현된 전이 | `setup_required → active`(`AccountStore.complete_setup`)만 있다. 정지·삭제 전이 코드는 없다 | [코드] |
-| 자격증명을 받는 상태 | `setup_required`, `active`(`CREDENTIAL_ACCEPTING_STATUSES`). 그 밖의 상태이거나 계정 행이 없으면 자격증명을 "없는 자격증명"과 똑같이 다룬다 | [코드] `_bind_account`, `tests/test_principal.py` |
+| 상태 전이 | ① `setup_required → active`: 최초 관리자 설정 완료 시(`complete_setup`)<br>② `active ↔ suspended`: 관리자의 정지 및 재개. 정지 시 세션·API 토큰·OAuth 토큰이 즉시 거부된다<br>③ `active / suspended → deleting`: 계정 삭제 예약(`delete_after` 유예 시각 설정)<br>④ `deleting → active`: 삭제 예약 취소(`cancel_account_deletion`)<br>⑤ `deleting / suspended → purged`: 계정 영구 소각(`purge_account`). DB 행 cascade 삭제 및 참조 카운트 0 디스크 산출물 GC. USERNAME은 `username_tombstones`에 퇴역 기록 | [코드] `AccountStore`, `tests/test_username_release.py` |
+| 자격증명을 받는 상태 | `setup_required`, `active`(`CREDENTIAL_ACCEPTING_STATUSES`). 그 밖의 상태(`suspended`, `deleting`, `purged`)이거나 계정 행이 없으면 자격증명을 "없는 자격증명"과 똑같이 다루어 접근을 즉시 차단하고 토큰 갱신을 거부한다 | [코드] `_bind_account`, `tests/test_principal.py`, `tests/test_token_oauth_mcp_isolation.py` |
 | USERNAME 불변 | 트리거 `accounts_username_immutable`이 NULL이 아닌 `username`의 변경을 `ABORT`한다 | [코드] `tests/test_schema_v15.py` |
 | 표시 이름 | 64자 이하, 유니코드 범주 `Cc`·`Cf`·`Zl`·`Zp` 문자 거부, 앞뒤 공백을 자르지 않는다 | [코드] `common.validate_display_name` |
 | `public_id` | 관리자 행은 `legacy_timestamp_id("accounts", unix_ms=ADMIN_LEGACY_PUBLIC_ID_UNIX_MS, row_id=1)`. 상수는 2026-11-02T00:00Z의 밀리초다. JSON에서는 10진 문자열이다 | [코드] [결정] 설계 §16.3 (c) |
@@ -127,12 +129,16 @@
 
 - **[코드] `POST /api/auth/reauth`**: 규칙 `owner`. 본문 `{"password": "..."}`. 성공 200 `{"ok": true, "authenticated_at": <epoch 초>}`. 세션 행이 사라졌으면 403 `step_up_requires_session`.
 
-### 5.4 `/admin/accounts`, `/api/admin/accounts`
+### 5.4 `/admin/accounts`, `/api/admin/accounts`, `/api/admin/usernames/*`
 
 - **[코드]** 규칙 `owner`, 핸들러가 `instance_role=admin`·`scope=owner`가 아니면 404.
-- **[코드] `GET /api/admin/accounts`**: `{"accounts": [{public_id(문자열), username, status, role, created_at, activated_at, theme_count}]}`, `id` 오름차순. 설계 §8.6의 저장 용량·월 사용량·키 등록 여부·초대는 아직 없다.
-- **[코드] `GET /admin/accounts`**: 싱글 모드 화면. 관리자 계정 카드만 있다. 모드 전환(P2)과 IdP(P5) 카드는 없다. 다른 계정의 콘텐츠를 읽는 API는 없다.
-- **[코드]** `PATCH /api/admin/accounts`, `/api/admin/usernames/*`, `/api/admin/instance`는 아직 없다.
+- **[코드] `GET /api/admin/accounts`**: `{"accounts": [{public_id(문자열), username, status, role, created_at, activated_at, theme_count, delete_after?}]}`, `id` 오름차순.
+- **[코드] `GET /admin/accounts`**: 관리 화면. 관리자 계정 카드, 멤버 계정 목록, 초대 관리, 퇴역 USERNAME 관리 패널을 제공한다. 다른 계정의 콘텐츠 본문을 읽거나 가장 로그인하는 API는 두지 않는다(K5, D5).
+- **[코드] `PATCH /api/admin/accounts`**: 관리자 단계 인증(`require_recent_auth`, 최근 15분 내 인증) 필수.
+  - 계정 정지(`suspend`), 재개(`resume`), 삭제 예약(`delete`), 삭제 예약 취소(`cancel_delete`), 즉시 소각(`purge`), 비밀번호 재설정 링크 발급(`reset_password_link`)을 수행한다.
+  - 정지·삭제 시 해당 계정의 활성 세션과 토큰이 즉시 차단/무효화된다.
+- **[코드] `GET /api/admin/usernames/retired`**: 퇴역 상태(`released_at IS NULL`)인 USERNAME 목록(`username`, `account_id`, `was_public`, `retired_at`)을 반환한다.
+- **[코드] `POST /api/admin/usernames/release`**: 관리자 단계 인증 필수. 퇴역 USERNAME 정보 초기화(미리보기 및 실행, §5.7).
 
 ### 5.5 `/me`, `/api/me`, `/api/me/password`
 
@@ -140,6 +146,65 @@
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password}`. `GET /me`는 같은 값을 화면으로 보이고 `notice=password_not_saved`를 안내한다.
 - **[코드] `PATCH /api/me`**: 본문 키가 정확히 `display_name` 하나여야 한다(아니면 400 `invalid_request`). 값이 규칙에 맞지 않으면 400 `invalid_display_name`. 성공하면 `GET /api/me`와 같은 본문.
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
+
+### 5.6 초대 파이프라인 (Invitation Pipeline)
+
+**[코드]** `src/claire/accounts/invites.py`, `src/claire/api/accounts_routes/invites.py`.
+
+- **네트워크 모드 전용**: 싱글 모드에서는 `/invite/{code}`, `/api/invites` 모든 접근 시 404를 반환한다.
+- **코드 형식 및 엔트로피**:
+  - 8자리 Crockford Base32(`0-9`, `A-Z` 중 혼동 문자 `I`, `L`, `O`, `U`를 제외한 32문자). 40비트 엔트로피.
+  - 대소문자 무시, 공백 및 하이픈 제거, `O→0`, `I/L→1` 자동 정규화(`normalize_invite_code`).
+  - 유효성 패턴: `^[0-9A-HJKMNP-TV-Z]{8}$` (`validate_invite_code_syntax`).
+- **생성 매개변수 제약 (`validate_invite_params`)**:
+  - `max_uses`: 1~5회 필수 (`MIN_MAX_USES=1`, `MAX_MAX_USES=5`).
+  - `expires_in`: 30분 ~ 30일 필수 (`MIN_EXPIRATION_SECONDS=1800`, `MAX_EXPIRATION_SECONDS=2592000`).
+  - `reserved_username`: `max_uses=1`일 때만 특정 USERNAME 사전 예약 허용.
+- **원자적 차감 트랜잭션**:
+  1. `auth.db` 조건부 UPDATE 트랜잭션:
+     ```sql
+     UPDATE invitations SET uses_count = uses_count + 1
+     WHERE id = :id AND revoked_at IS NULL AND expires_at > :now AND uses_count < max_uses;
+     ```
+     영향받은 행이 1개인지 원자적으로 확인 후 `invitation_redemptions(status='pending')` 기록. 동시 다중 요청 시에도 조건부 UPDATE에 의해 정확히 잔여 횟수만큼만 성공한다.
+  2. `claire.db`에 신규 계정(`role='member'`, `status='active'`) 및 기본 테마(`is_default=1`) 생성.
+  3. `invitation_redemptions`를 `completed`로 전환하고 `account_id` 기록. 2단계 실패 시 `uses_count`를 롤백하고 `failed` 마킹.
+- **GET/HEAD 무부작용 (Safe Links & Robots Policy)**:
+  - 메신저 링크 미리보기 봇이나 정찰 요청의 `GET /invite/{code}` 또는 `HEAD /invite/{code}`는 일절 `uses_count`를 차감하거나 실패 카운트를 올리지 않는다 (No side-effects).
+  - 응답 헤더에 `X-Robots-Tag: noindex, nofollow`를 강제 부착하고, 화면 내 외부 링크에 `rel="noreferrer noopener"`를 강제하여 초대 URL이 `Referer`로 유출되지 않게 방어한다.
+- **저장 보안**:
+  - 색인용 HMAC: 마스터 키에서 파생된 HMAC(`code_hmac`)으로 색인하여 DB만 유출되더라도 40비트 코드를 오프라인 전수 조사할 수 없다.
+  - 암호문 보존: 관리자가 발급 링크를 다시 확인할 수 있도록 비밀 서비스(`SecretService`)의 AES-256-GCM 암호문(`code_ciphertext`, `code_nonce`)을 함께 보관한다.
+- **오용 방지 및 속도 제한**:
+  - 미존재 코드 조회가 동일 IP(`security.client_ip`) 기준 분당 10회를 초과하면 429 Too Many Requests 지연을 적용한다.
+  - 미존재 코드는 404 Not Found, 만료·소진·비활성 코드는 410 Gone과 사유(`expired`, `exhausted`, `revoked`)를 반환한다.
+- **경로 및 권한**:
+  - `GET /invite/{code}`: public. 가입 화면.
+  - `POST /invite/{code}`: public. 동일 origin 필수. 로컬 가입 제출 (USERNAME, 표시 이름, 비밀번호).
+  - `GET /api/invites`: admin (그 외 404). 컬렉션 목록 조회.
+  - `POST /api/invites`: admin. 초대 생성.
+  - `PATCH /api/invites`: admin. 초대 즉시 비활성화(`revoked_at` 설정).
+
+### 5.7 퇴역 USERNAME 정보 초기화 및 디스크 정리 (Username Release & Disk GC)
+
+**[코드]** `src/claire/store/accounts.py`, `src/claire/api/accounts_routes/admin.py`.
+
+- **퇴역 상태 (`username_tombstones`)**:
+  - 계정이 영구 소각(`purged`)되면 USERNAME이 `username_tombstones`에 등록되고 `released_at`은 `NULL`로 유지된다.
+  - 퇴역된 이름은 다른 사용자가 재가입에 사용할 수 없으며, 시도 시 `UsernameRejected("retired")`로 거부된다.
+  - 소각된 계정이 이전에 공개 프로필(`was_public=1`)이었으면 `/@{name}` 접근 시 410 Gone(삭제된 계정 안내)을 응답하고, 비공개였으면 404 Not Found를 응답한다.
+- **디스크 가비지 컬렉션 (Disk GC)**:
+  - 계정이 `purged`될 때 DB 외래 키 cascade 삭제에 더해, 다른 계정이나 테마에서 더 이상 참조하지 않는 디스크 산출물(참조 카운트 확인 뒤 아티팩트 `data/raw/artifacts/`, 파일 `data/raw/files/`, 이미지 `data/images/`, 프레젠테이션 컴파일 HTML·캐시, 그래프 번들 아카이브)을 안전하게 삭제한다.
+- **정보 초기화 API (`POST /api/admin/usernames/release`)**:
+  - **단계 인증 필수**: 관리자 세션이면서 최근 15분 이내 인증(`require_recent_auth`)된 경우에만 실행 가능하다.
+  - **미리보기 기본 (`apply=false`, 기본값)**:
+    삭제 대상 잔여 항목(410 표식 여부, 초대 테이블의 예약 잔여, 잔여 자격증명 등)을 집계하여 미리보기 데이터를 반환하며, 실제 변경은 수행하지 않는다.
+  - **실행 (`apply=true`)**:
+    `username_tombstones`에 `released_at`과 `released_by`를 기록하고 `was_public=0`으로 전환(410 표식 해제). 초대 테이블의 `reserved_username` 예약 잔여를 해제하고, 관련 세션·자격증명을 파기하며, `status='purged'`인 accounts 행을 정리한다.
+- **재가입 시 격리**:
+  - 정보 초기화 후 해당 USERNAME으로 신규 가입하는 사용자는 완전히 새로운 `account_id`와 `public_id`를 발급받으며, 이전 계정의 데이터나 권한이 새 계정으로 승계되지 않는다.
+- **CLI 명령**:
+  `./cb-manuscript app account release-username <name>`은 dry-run이 기본이고 `--apply`로 실행한다.
 
 ## 6. 비밀번호
 
@@ -188,4 +253,4 @@
 
 ## 10. 테스트
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`(설치된 Playwright Chromium으로 실제 양식 제출, 없으면 건너뜀).
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`(설치된 Playwright Chromium으로 실제 양식 제출, 없으면 건너뜀), `tests/test_invite_flow.py`(초대 파이프라인 및 원자적 차감), `tests/test_username_release.py`(수명주기 전이, 디스크 정리 및 퇴역 USERNAME 정보 초기화).
