@@ -254,8 +254,8 @@ def test_readiness_checks_g1_to_g9(app_env, monkeypatch):
         # G7: Admin username and password configured -> True
         assert items["G7"].passed is True
 
-        # G8: /syndication still public in P2 -> False
-        assert items["G8"].passed is False
+        # G8: /syndication public access released -> True
+        assert items["G8"].passed is True
 
         # G9: Legacy cookie fallback not removed in P2 -> False
         assert items["G9"].passed is False

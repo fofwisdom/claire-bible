@@ -15,7 +15,9 @@ import shutil
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 
+from .secrets import SecretDecryptionError, SecretService, get_secret_service
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
@@ -406,6 +408,8 @@ CREATE TABLE IF NOT EXISTS syndication_accounts (
     auth_kind TEXT NOT NULL,
     scopes TEXT NOT NULL,
     token_enc BLOB,
+    token_nonce BLOB,
+    token_key_version INTEGER DEFAULT 1,
     client_registration_json TEXT,
     publish_enabled INTEGER DEFAULT 0,
     max_chars INTEGER,
@@ -483,6 +487,7 @@ CREATE TABLE IF NOT EXISTS syndication_dispatches (
     payload TEXT,
     error TEXT,
     dispatched_by_user_id INTEGER,
+    dispatched_by_account_id INTEGER REFERENCES accounts(id),
     applied_focus TEXT,
     dispatched_at REAL,
     created_at REAL NOT NULL,
@@ -780,6 +785,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             auth_kind TEXT NOT NULL,
             scopes TEXT NOT NULL,
             token_enc BLOB,
+            token_nonce BLOB,
+            token_key_version INTEGER DEFAULT 1,
             client_registration_json TEXT,
             publish_enabled INTEGER DEFAULT 0,
             max_chars INTEGER,
@@ -863,6 +870,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             payload TEXT,
             error TEXT,
             dispatched_by_user_id INTEGER,
+            dispatched_by_account_id INTEGER REFERENCES accounts(id),
             applied_focus TEXT,
             dispatched_at REAL,
             created_at REAL NOT NULL,
@@ -897,7 +905,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
     _ensure_column(conn, "syndication_dispatches", "target_theme_id", "INTEGER DEFAULT 0")
     _ensure_column(conn, "syndication_dispatches", "dispatched_by_user_id", "INTEGER")
+    _ensure_column(conn, "syndication_dispatches", "dispatched_by_account_id", "INTEGER")
     _ensure_column(conn, "syndication_dispatches", "applied_focus", "TEXT")
+    _ensure_column(conn, "syndication_accounts", "token_nonce", "BLOB")
+    _ensure_column(conn, "syndication_accounts", "token_key_version", "INTEGER DEFAULT 1")
 
     # v14: Insert default theme #0 into themes if empty
     conn.execute(
@@ -6232,6 +6243,7 @@ def create_syndication_dispatch(
     payload: str | None = None,
     error: str | None = None,
     dispatched_by_user_id: int | None = None,
+    dispatched_by_account_id: int | None = None,
     applied_focus: str | None = None,
     dispatched_at: float | None = None,
     dispatch_id: str | None = None,
@@ -6246,8 +6258,8 @@ def create_syndication_dispatch(
         """INSERT INTO syndication_dispatches
         (id, theme_id, target_theme_id, item_id, account_id, document_id,
          target_url, mode, status, remote_ref, payload, error,
-         dispatched_by_user_id, applied_focus, dispatched_at, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         dispatched_by_user_id, dispatched_by_account_id, applied_focus, dispatched_at, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             did,
             theme_id,
@@ -6262,6 +6274,7 @@ def create_syndication_dispatch(
             payload,
             error,
             dispatched_by_user_id,
+            dispatched_by_account_id,
             applied_focus,
             disp_at,
             now,
@@ -6338,6 +6351,7 @@ def list_syndication_dispatches(
     document_id: str | None = None,
     status: str | None = None,
     mode: str | None = None,
+    dispatched_by_account_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -6360,9 +6374,173 @@ def list_syndication_dispatches(
     if mode is not None:
         conditions.append("mode = ?")
         params.append(mode)
+    if dispatched_by_account_id is not None:
+        conditions.append("dispatched_by_account_id = ?")
+        params.append(dispatched_by_account_id)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
+    rows = conn.execute(query, tuple(params)).fetchall()
+    return [dict(row) for row in rows]
+
+
+# --- syndication accounts & token encryption ---
+
+
+def save_syndication_account_token(
+    conn: sqlite3.Connection,
+    account_row_id: str,
+    theme_id: int,
+    token_data: str | bytes,
+    secret_service: SecretService | None = None,
+) -> None:
+    """Encrypt and store syndication account token with AAD bound to theme and account."""
+    sec = secret_service or get_secret_service()
+    aad = f"{theme_id}|{account_row_id}"
+    encrypted = sec.encrypt(token_data, aad=aad)
+    now = time.time()
+    cur = conn.execute(
+        """UPDATE syndication_accounts
+        SET token_enc = ?, token_nonce = ?, token_key_version = ?, updated_at = ?
+        WHERE id = ? AND theme_id = ?""",
+        (
+            encrypted.ciphertext,
+            encrypted.nonce,
+            encrypted.key_version,
+            now,
+            account_row_id,
+            theme_id,
+        ),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"Syndication account not found for theme: {account_row_id}")
+    conn.commit()
+
+
+def load_syndication_account_token(
+    conn: sqlite3.Connection,
+    account_row_id: str,
+    theme_id: int,
+    secret_service: SecretService | None = None,
+) -> str:
+    """Retrieve and decrypt syndication account token verifying AAD binding."""
+    row = conn.execute(
+        "SELECT id, theme_id, token_enc, token_nonce, token_key_version FROM syndication_accounts WHERE id = ? AND theme_id = ?",
+        (account_row_id, theme_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Syndication account not found for theme: {account_row_id}")
+    if row["token_enc"] is None or row["token_nonce"] is None:
+        raise ValueError(f"No token stored for syndication account: {account_row_id}")
+    sec = secret_service or get_secret_service()
+    key_ver = row["token_key_version"] if row["token_key_version"] is not None else 1
+    aad = f"{theme_id}|{account_row_id}"
+    decrypted = sec.decrypt(row["token_enc"], row["token_nonce"], aad=aad, key_version=key_ver)
+    return decrypted.decode("utf-8")
+
+
+def create_syndication_account(
+    conn: sqlite3.Connection,
+    *,
+    theme_id: int,
+    account_id: str | None = None,
+    protocol: str,
+    server_url: str,
+    handle: str,
+    auth_kind: str,
+    scopes: str,
+    token_str: str | None = None,
+    remote_account_id: str | None = None,
+    software: str | None = None,
+    server_version: str | None = None,
+    missing_features_json: str = "[]",
+    client_registration_json: str | None = None,
+    publish_enabled: int = 0,
+    max_chars: int | None = None,
+    streaming_url: str | None = None,
+    health_status: str = "ok",
+    secret_service: SecretService | None = None,
+) -> str:
+    """Create a syndication account record with optional encrypted token."""
+    aid = account_id or f"synd_acc_{secrets.token_hex(12)}"
+    now = time.time()
+    token_enc: bytes | None = None
+    token_nonce: bytes | None = None
+    token_key_version: int = 1
+    if token_str is not None:
+        sec = secret_service or get_secret_service()
+        encrypted = sec.encrypt(token_str, aad=f"{theme_id}|{aid}")
+        token_enc = encrypted.ciphertext
+        token_nonce = encrypted.nonce
+        token_key_version = encrypted.key_version
+
+    conn.execute(
+        """INSERT INTO syndication_accounts
+        (id, theme_id, protocol, server_url, software, server_version,
+         missing_features_json, handle, remote_account_id, auth_kind, scopes,
+         token_enc, token_nonce, token_key_version, client_registration_json,
+         publish_enabled, max_chars, streaming_url, health_status, consecutive_failures,
+         created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            aid,
+            theme_id,
+            protocol,
+            server_url,
+            software,
+            server_version,
+            missing_features_json,
+            handle,
+            remote_account_id,
+            auth_kind,
+            scopes,
+            token_enc,
+            token_nonce,
+            token_key_version,
+            client_registration_json,
+            publish_enabled,
+            max_chars,
+            streaming_url,
+            health_status,
+            0,
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    return aid
+
+
+def get_syndication_account(
+    conn: sqlite3.Connection,
+    account_id: str,
+    *,
+    theme_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Retrieve a syndication account by ID with optional theme isolation."""
+    query = "SELECT * FROM syndication_accounts WHERE id = ?"
+    params: list[Any] = [account_id]
+    if theme_id is not None:
+        query += " AND theme_id = ?"
+        params.append(theme_id)
+    row = conn.execute(query, tuple(params)).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def list_syndication_accounts(
+    conn: sqlite3.Connection,
+    *,
+    theme_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """List syndication accounts matching given theme criteria."""
+    query = "SELECT * FROM syndication_accounts"
+    params: list[Any] = []
+    if theme_id is not None:
+        query += " WHERE theme_id = ?"
+        params.append(theme_id)
+    query += " ORDER BY created_at DESC, id DESC"
     rows = conn.execute(query, tuple(params)).fetchall()
     return [dict(row) for row in rows]

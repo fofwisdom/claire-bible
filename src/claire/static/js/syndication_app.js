@@ -150,6 +150,27 @@
 
   function curTheme() { return THEMES[state.themeId] || THEMES["0"]; }
   function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+  function sanitizeContentHtml(html) {
+    if (!html) return "";
+    const purifier = window.DOMPurify;
+    if (purifier && typeof purifier.sanitize === "function") {
+      return purifier.sanitize(html, {
+        ALLOWED_TAGS: ["p", "br", "b", "i", "em", "strong", "a", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "code", "pre", "span", "div", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "hr", "sub", "sup"],
+        ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "target", "rel", "width", "height"],
+        ALLOW_DATA_ATTR: false
+      });
+    }
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script, iframe, object, embed, style, form, input, button, link").forEach((el) => el.remove());
+    doc.body.querySelectorAll("*").forEach((el) => {
+      for (const attr of Array.from(el.attributes)) {
+        if (attr.name.toLowerCase().startsWith("on") || attr.value.toLowerCase().startsWith("javascript:")) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    });
+    return doc.body.innerHTML;
+  }
   function ticker(msg) {
     const el = document.getElementById("activity-ticker");
     if (el) el.textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · ${msg}`;
@@ -505,12 +526,14 @@
 
     let bodySection = "";
     if (activeTab === "original") {
-      bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px"><article class="doc-content">${item.rawHtml || `<p>${esc(item.rawBody)}</p>`}</article></div>`;
+      const safeHtml = sanitizeContentHtml(item.rawHtml || `<p>${esc(item.rawBody)}</p>`);
+      bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px"><article class="doc-content">${safeHtml}</article></div>`;
     } else if (hasLinked) {
       const doc = item.linkedDoc;
+      const safeDetail = sanitizeContentHtml(doc.detailHtml || `<p>${esc(doc.summary || "")}</p>`);
       bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px">
         <div class="tt-summary-callout"><strong>📌 Claire 적재 요약 (${esc(doc.docId)})</strong> — ${esc(doc.summary)}<div style="margin-top:4px;font-size:11.5px;color:var(--muted)">적재 시각: ${esc(doc.ingestedAt)} · 적용 초점: ${esc(doc.focusUsed)} · 공개 링크: <code>${esc(doc.shareUrl)}</code></div></div>
-        <article class="doc-content">${doc.detailHtml}</article>
+        <article class="doc-content">${safeDetail}</article>
       </div>`;
     } else {
       const srcTags = getItemSourceTags(item);

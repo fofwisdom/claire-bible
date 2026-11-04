@@ -277,8 +277,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/static/{path:path}",
         "/support/bundle",
         "/graph/bundle",
-        "/syndication",
-        "/syndication/preferences",
         "/reference",
         "/openapi.yaml",
         "/.well-known/oauth-protected-resource",
@@ -318,6 +316,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/themes",
         "/api/syndication/dispatches",
         "/syndication/dispatches",
+        "/syndication",
+        "/syndication/preferences",
     }
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {

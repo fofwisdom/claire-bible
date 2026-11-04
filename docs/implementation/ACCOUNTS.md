@@ -307,6 +307,15 @@
 - **[코드] 미연결 신원 로그인 방어**: 초대 없이 IdP로 로그인하려는 시도 중 미연결 신원은 가입을 자동 생성하지 않고 403 "초대가 필요합니다" 안내를 반환한다 (§12-5).
 - **[코드] 인증된 계정 연결**: `POST /api/me/identities/oidc/{id}/start`는 `owner` 권한 및 단계 인증(`require_recent_auth`)을 통과해야 시작할 수 있다. 연결 해제(`DELETE /api/me/identities/oidc/{id}`) 시 유일한 인증 수단(비밀번호 없음 + 마지막 신원)인 경우 해제를 거부한다.
 
-## 11. 테스트
+## 11. Syndication 병합 기반 (P6)
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리).
+- **[코드] 경로 네임스페이스화 및 인증 (G8)**: `/syndication` 및 `/syndication/preferences`는 `namespaced` 라우트이며 `ROUTE_POLICY`에서 `public` 규칙이 해제되어 `read` 권한이 요구된다. 비인증 요청은 차단되며 Gate G8이 충족된다. 네트워크 모드에서는 `/@{username}/syndication` 및 `/@{username}/themes/{number}/syndication`으로 접근한다.
+- **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
+- **[코드] 연결 계정 토큰 암호화**: `syndication_accounts.token_enc`는 `SecretService`의 AES-256-GCM 암호화를 사용하며, AAD로 `f"{theme_id}|{account_id}"`를 결합한다. 데이터베이스 행을 다른 테마나 식별자로 무단 이동·변조하면 복호화 시 `SecretDecryptionError`가 발생한다.
+- **[코드] 테마 경계 및 계정 격리**: 테마는 자신이 소유하지 않은 연결 계정(다른 `theme_id`의 `syndication_accounts`)을 조회하거나 사용할 수 없다. 또한 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
+- **[코드] 프로토타입 패널 실체화**: `/syndication/preferences`의 `panel-idp` 및 `panel-userdb` 제안/시뮬레이터 패널을 실제 구현체인 `/admin/idp`, `/admin/accounts`, `/me`, `/me/keys`로 연결하고 안내하도록 전환하였다.
+- **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
+
+## 12. 테스트
+
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증).

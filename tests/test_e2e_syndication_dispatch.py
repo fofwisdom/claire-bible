@@ -169,6 +169,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
         assert disp_row["mode"] == "cross_theme"
         assert disp_row["status"] == "done"
         assert disp_row["applied_focus"] == applied_focus
+        assert disp_row["dispatched_by_account_id"] == 1
     finally:
         conn.close()
 

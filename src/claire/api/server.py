@@ -1872,6 +1872,31 @@ def create_app(
             except Exception:
                 raise HTTPException(status_code=404, detail="target theme not found")
 
+        if not _theme_accessible(request, target_theme):
+            raise HTTPException(status_code=404, detail="target theme not found")
+
+        principal = request_principal(request)
+        is_network = False
+        try:
+            ns = request_namespace(request)
+            if ns is not None and ns.mode == "network":
+                is_network = True
+        except Exception:
+            pass
+        if getattr(s, "instance_mode", None) == "network":
+            is_network = True
+
+        caller_account_id = principal.account_id if (principal and principal.account_id is not None) else (1 if not is_network else None)
+        target_account_id = getattr(target_theme, "account_id", None)
+
+        if is_network or target_account_id is not None:
+            if target_account_id is not None and caller_account_id != target_account_id:
+                if principal.scope != "owner" and getattr(principal, "instance_role", None) != "admin":
+                    raise HTTPException(
+                        status_code=403,
+                        detail="다른 계정의 테마에 적재할 권한이 없습니다.",
+                    )
+
         if scope == "collaborator":
             if target_theme.is_default or target_theme.id == 0:
                 raise HTTPException(
@@ -1908,6 +1933,9 @@ def create_app(
             except Exception:
                 src_theme = target_theme
 
+        if not _theme_accessible(request, src_theme):
+            raise HTTPException(status_code=404, detail="source theme not found")
+
         conn = dbm.connect_existing(s.db_file)
         try:
             src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
@@ -1916,6 +1944,8 @@ def create_app(
                 live = _first_live_target(targets)
                 if live is not None:
                     src_theme = live[1]
+                    if not _theme_accessible(request, src_theme):
+                        raise HTTPException(status_code=404, detail="source theme not found")
                     src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
         finally:
             conn.close()
@@ -1979,6 +2009,12 @@ def create_app(
         remote_ref = getattr(report, "document_id", None) or target_doc_id
         error_msg = getattr(report, "error", None)
 
+        dispatched_by_account_id = (
+            principal.account_id
+            if (principal and principal.account_id is not None)
+            else (dbm.ADMIN_ACCOUNT_ID if not is_network else None)
+        )
+
         def _record_dispatch() -> str:
             c = dbm.connect_existing(s.db_file)
             try:
@@ -1993,6 +2029,7 @@ def create_app(
                     payload=payload,
                     error=error_msg,
                     applied_focus=applied_focus,
+                    dispatched_by_account_id=dispatched_by_account_id,
                 )
             finally:
                 c.close()
@@ -2008,6 +2045,7 @@ def create_app(
                 "document_id": src_doc.id,
                 "target_document_id": remote_ref,
                 "applied_focus": applied_focus,
+                "dispatched_by_account_id": dispatched_by_account_id,
                 "error": error_msg,
             }
         )
@@ -2044,6 +2082,12 @@ def create_app(
             if target_theme_id_param is not None and target_theme_id_param != ""
             else None
         )
+        account_id_param = request.query_params.get("account_id") or request.query_params.get("dispatched_by_account_id")
+        dispatched_by_account_id = (
+            int(account_id_param)
+            if account_id_param is not None and account_id_param != ""
+            else None
+        )
 
         def _query() -> list[dict[str, Any]]:
             c = dbm.connect_existing(s.db_file)
@@ -2055,6 +2099,7 @@ def create_app(
                     document_id=document_id,
                     status=status,
                     mode=mode,
+                    dispatched_by_account_id=dispatched_by_account_id,
                     limit=limit,
                     offset=offset,
                 )

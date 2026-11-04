@@ -52,10 +52,17 @@ def syndication_env(tmp_path: Path):
 
 def test_syndication_and_preferences_routes_io_interface(syndication_env) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        res_public = client.get("/syndication")
+        # Gate G8: Unauthenticated access is forbidden or not found
+        res_unauthed = client.get("/syndication")
+        assert res_unauthed.status_code in {401, 404}
+        res_prefs_unauthed = client.get("/syndication/preferences")
+        assert res_prefs_unauthed.status_code in {401, 404}
+
+        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        res_public = client.get("/syndication", headers=headers)
         assert res_public.status_code == 200
         assert "Claire Bible — Syndication" in res_public.text
-        assert "authScope: 'public'" in res_public.text
+        assert "authScope: 'owner'" in res_public.text
         assert 'data-layout="three-panel"' in res_public.text
         assert 'data-list-style="list"' in res_public.text
         assert 'id="btn-toggle-list-style"' in res_public.text
@@ -126,10 +133,10 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
             assert f"{mode}: {{ icon:" in res_public.text, mode
         assert res_public.text.index("CLAIRE_SYND_PEERS_FACTORY = function") < res_public.text.index("window.CLAIRE_SYND_PEERS_FACTORY({")
 
-        res_head = client.head("/syndication")
+        res_head = client.head("/syndication", headers=headers)
         assert res_head.status_code == 200
 
-        res_prefs = client.get("/syndication/preferences")
+        res_prefs = client.get("/syndication/preferences", headers=headers)
         assert res_prefs.status_code == 200
         assert "Syndication 환경설정" in res_prefs.text
         assert "태그 = 엔티티 적재 정책" in res_prefs.text
@@ -165,5 +172,5 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'id="pref-peer-import"' in res_prefs.text
         assert "peerSharePolicy" in res_prefs.text
 
-        res_prefs_head = client.head("/syndication/preferences")
+        res_prefs_head = client.head("/syndication/preferences", headers=headers)
         assert res_prefs_head.status_code == 200
