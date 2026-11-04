@@ -877,7 +877,7 @@ def _constant_equal(candidate: str, expected: str) -> bool:
 SESSION_COOKIE_NAME = "__Host-claire_session"
 LEGACY_SESSION_COOKIE_NAME = "claire_session"
 # P3 G9에서 True로 바뀌며 운영 환경 과도기 폴백이 완전히 제거된다(§5.2, §17.2).
-LEGACY_COOKIE_FALLBACK_REMOVED = False
+LEGACY_COOKIE_FALLBACK_REMOVED = True
 _SESSION_COOKIE_NAMES = (SESSION_COOKIE_NAME, LEGACY_SESSION_COOKIE_NAME)
 
 

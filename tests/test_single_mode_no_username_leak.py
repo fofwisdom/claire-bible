@@ -224,8 +224,8 @@ def test_single_mode_at_username_redirects_308_when_published(app_env):
 
 
 def test_readiness_constant_network_mode_available():
-    """O7: NETWORK_MODE_AVAILABLE must be False in P2."""
-    assert readiness.NETWORK_MODE_AVAILABLE is False
+    """O7: NETWORK_MODE_AVAILABLE is True after full rollout."""
+    assert readiness.NETWORK_MODE_AVAILABLE is True
 
 
 def test_readiness_checks_g1_to_g9(app_env, monkeypatch):
@@ -238,12 +238,12 @@ def test_readiness_checks_g1_to_g9(app_env, monkeypatch):
         assert set(items.keys()) == {f"G{i}" for i in range(1, 10)}
         assert report.passed is False
 
-        # In P2 with NETWORK_MODE_AVAILABLE=False:
-        # G1, G2, G3, G6 are CI gates
-        assert items["G1"].passed is False
-        assert items["G2"].passed is False
-        assert items["G3"].passed is False
-        assert items["G6"].passed is False
+        # In release with NETWORK_MODE_AVAILABLE=True and LEGACY_COOKIE_FALLBACK_REMOVED=True:
+        # G1, G2, G3, G6 are CI gates, now passing
+        assert items["G1"].passed is True
+        assert items["G2"].passed is True
+        assert items["G3"].passed is True
+        assert items["G6"].passed is True
 
         # G4: In development, usercontent_fqdn is optional and passes
         assert items["G4"].passed is True
@@ -257,8 +257,8 @@ def test_readiness_checks_g1_to_g9(app_env, monkeypatch):
         # G8: /syndication public access released -> True
         assert items["G8"].passed is True
 
-        # G9: Legacy cookie fallback not removed in P2 -> False
-        assert items["G9"].passed is False
+        # G9: Legacy cookie fallback removed -> True
+        assert items["G9"].passed is True
     finally:
         conn.close()
 
@@ -344,13 +344,17 @@ def test_readiness_g8_passes_when_syndication_requires_auth(app_env, monkeypatch
 
 
 def test_readiness_g9_passes_when_fallback_removed(app_env, monkeypatch):
-    """G9 passes when LEGACY_COOKIE_FALLBACK_REMOVED is True."""
-    monkeypatch.setattr(security, "LEGACY_COOKIE_FALLBACK_REMOVED", True)
+    """G9 passes when LEGACY_COOKIE_FALLBACK_REMOVED is True, and fails when False."""
     conn = dbm.connect_existing(app_env.db_file)
     try:
         report = readiness.check_readiness(conn, app_env.settings)
         item_g9 = next(i for i in report.items if i.id == "G9")
         assert item_g9.passed is True
+
+        monkeypatch.setattr(security, "LEGACY_COOKIE_FALLBACK_REMOVED", False)
+        report_fail = readiness.check_readiness(conn, app_env.settings)
+        item_g9_fail = next(i for i in report_fail.items if i.id == "G9")
+        assert item_g9_fail.passed is False
     finally:
         conn.close()
 
@@ -382,7 +386,7 @@ def test_get_api_admin_instance_json(app_env):
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "single"
-    assert data["network_mode_available"] is False
+    assert data["network_mode_available"] is True
     assert "readiness" in data
     assert len(data["readiness"]["items"]) == 9
     assert data["legacy_host_policy"]["after_sunset_status"] == 410
@@ -394,8 +398,8 @@ def test_get_api_admin_instance_json(app_env):
 # ==============================================================================
 
 
-def test_post_api_admin_instance_mode_single_to_network_rejected(app_env):
-    """Switching single -> network is rejected with 400 because NETWORK_MODE_AVAILABLE=False."""
+def test_post_api_admin_instance_mode_single_to_network_rejected(app_env, monkeypatch):
+    """Switching single -> network is rejected with 400 when readiness checks fail (G5 not set)."""
     token = _login_admin(app_env)
     resp = app_env.client.post(
         "/api/admin/instance/mode",
@@ -404,7 +408,18 @@ def test_post_api_admin_instance_mode_single_to_network_rejected(app_env):
     )
     assert resp.status_code == 400
     data = resp.json()
-    assert data["error"] == "network_mode_not_available"
+    assert data["error"] == "readiness_failed"
+    assert any(f["id"] == "G5" for f in data["failures"])
+
+    # Also check gate if NETWORK_MODE_AVAILABLE were disabled
+    monkeypatch.setattr(readiness, "NETWORK_MODE_AVAILABLE", False)
+    resp_gate = app_env.client.post(
+        "/api/admin/instance/mode",
+        json={"mode": "network"},
+        headers=_admin_headers(token),
+    )
+    assert resp_gate.status_code == 400
+    assert resp_gate.json()["error"] == "network_mode_not_available"
 
 
 def test_post_api_admin_instance_mode_requires_step_up_auth(app_env):

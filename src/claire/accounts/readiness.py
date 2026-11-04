@@ -25,8 +25,8 @@ __all__ = [
     "check_readiness",
 ]
 
-# P2에서는 네트워크 모드 전환이 항상 거부된다(O7). P3에서 전환 기능이 열리면 True로 바뀐다.
-NETWORK_MODE_AVAILABLE: bool = False
+# P7 완료 후 네트워크 모드 전환이 공식 활성화된다(§17.2, O7).
+NETWORK_MODE_AVAILABLE: bool = True
 
 
 @dataclass(frozen=True, slots=True)
