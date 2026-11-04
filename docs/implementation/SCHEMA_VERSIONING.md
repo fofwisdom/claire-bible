@@ -80,8 +80,11 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 ### 별도 저장소: `data/auth/auth.db`
 
-- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 2`이다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙). v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었다.
-- **[코드]** 저장된 값이 2보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
+- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 3`이다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
+  - **v1 (P1/P3)**: 계정 자격증명(`auth_secrets`), 초대(`invitations`, `invitation_redemptions`), 사용량(`account_usage`), 로그인 스로틀(`login_throttle`), 단기 OIDC 상태(`oidc_states`).
+  - **v2 (P4)**: `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열 추가(설계 §10.3, §13.3).
+  - **v3 (P5)**: `oidc_states`에 계정 연결용 `account_id` 열 추가, 외부 IdP 계정 연결 테이블 `account_identities` 연동(설계 §12, §13.3).
+- **[코드]** 저장된 값이 3보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
 
 ## 운영 경계
