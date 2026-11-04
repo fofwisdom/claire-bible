@@ -359,3 +359,9 @@ def test_public_directory_authenticated_user_navigation_e2e(tmp_path: Path):
 
     ws_res = client.get("/@alice/")
     assert ws_res.status_code == 200
+    assert "지식 그래프" in ws_res.text
+    assert "공개 디렉터리" not in ws_res.text
+
+    ws_doc_res = client.get("/@alice/?doc=doc1", follow_redirects=False)
+    assert ws_doc_res.status_code == 200
+    assert "지식 그래프" in ws_doc_res.text

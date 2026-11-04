@@ -154,6 +154,25 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     assert whoami_data["instance"]["mode"] == "network"
     assert whoami_data["relation"] == "owner"
 
+    # 6a. Verify service access in network mode
+    root_res = app_env.client.get("/", headers=headers)
+    assert root_res.status_code == 200
+    assert "공개 디렉터리" in root_res.text
+    assert f"/@{SECRET_ADMIN_USERNAME}/" in root_res.text
+
+    root_doc_res = app_env.client.get("/?doc=sample", headers=headers, follow_redirects=False)
+    assert root_doc_res.status_code == 308
+    assert root_doc_res.headers.get("location") == f"/@{SECRET_ADMIN_USERNAME}/?doc=sample"
+
+    admin_ws_res = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/", headers=headers)
+    assert admin_ws_res.status_code == 200
+    assert "지식 그래프" in admin_ws_res.text
+    assert "공개 디렉터리" not in admin_ws_res.text
+
+    admin_doc_res = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/?doc=sample", headers=headers, follow_redirects=False)
+    assert admin_doc_res.status_code == 200
+    assert "지식 그래프" in admin_doc_res.text
+
     # 7. Transition back network -> single mode -> succeeds when no non-admin members exist
     back_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
     assert back_resp.status_code == 200

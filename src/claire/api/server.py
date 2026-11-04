@@ -1728,16 +1728,12 @@ def create_app(
         setup_redirect = await account_routes.setup_redirect(request)
         if setup_redirect is not None:
             return setup_redirect
-        scope = request_auth_scope(request)
-        include_private = scope in {"owner", "readonly"}
-        is_collaborator = scope == "collaborator"
-        theme = None
         try:
             ns = request_namespace(request)
         except Exception:
             ns = None
 
-        if ns is not None and ns.mode == "network":
+        if ns is not None and ns.mode == "network" and not ns.via_prefix:
             params = request.query_params
             if any(k in params for k in ("doc", "node", "theme")):
                 admin_username = None
@@ -1752,6 +1748,17 @@ def create_app(
                     return RedirectResponse(target, status_code=308)
                 return PlainTextResponse("Not Found", status_code=404)
             return await explore_accounts_route(request, force_html=True)
+
+        scope = request_auth_scope(request)
+        principal = request_principal(request)
+        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        if ns is not None and ns.mode == "network" and principal.account_id != account_id:
+            visible_scope = "anonymous"
+        else:
+            visible_scope = scope
+        include_private = visible_scope in {"owner", "readonly"}
+        is_collaborator = visible_scope == "collaborator"
+        theme = None
 
         if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_theme_id is not None):
             try:
