@@ -167,6 +167,55 @@ def _render_instance_html(
 ) -> str:
     tier_section = _render_server_tier_section(tier_state)
     mode_text = "싱글 모드 (Single Mode)" if mode == "single" else "네트워크 모드 (Network Mode)"
+    target_mode = "network" if mode == "single" else "single"
+
+    if mode == "single":
+        if not network_mode_available:
+            mode_notice = '<p class="hint" style="color:var(--error);font-weight:600;">현재 릴리스에서는 네트워크 모드 전환이 제한되어 있습니다 (NETWORK_MODE_AVAILABLE=False).</p>'
+            can_switch = False
+        elif not readiness_report.passed:
+            failed_ids = [item.id for item in readiness_report.items if not item.passed]
+            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">준비 검사 미통과 ({", ".join(failed_ids)}): 준비 검사(G1–G9)를 모두 통과해야 네트워크 모드로 전환할 수 있습니다.</p>'
+            can_switch = False
+        else:
+            mode_notice = '<p class="hint" style="color:#2f855a;font-weight:600;">준비 검사 완료: 네트워크 모드로 전환할 수 있습니다.</p>'
+            can_switch = True
+
+        mode_desc = """
+          <div class="notice">
+            <strong>네트워크 모드 전환 시 변경 사항</strong>
+            <ul>
+              <li>관리자 홈이 <code>/@{admin_username}/</code>으로 옮겨 가고, 관리자 USERNAME이 외부에 공개됩니다.</li>
+              <li>싱글 모드 콘텐츠 URL(<code>/?doc=…</code>, <code>/themes/{번호}/…</code>)은 관리자 네임스페이스로 308 영구 리다이렉트됩니다.</li>
+              <li>등록된 레거시 테마 호스트의 30일 일몰 시계가 활성화됩니다.</li>
+            </ul>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="confirm" required>
+            위 주의사항을 확인했으며 네트워크 모드로 전환합니다.
+          </label>
+        """
+        btn_class = ""
+        btn_text = "네트워크 모드로 전환"
+    else:
+        can_switch = True
+        mode_notice = '<p class="hint">현재 네트워크 모드로 동작 중입니다. 모든 멤버(초대·활성·정지)를 정리한 후 싱글 모드로 복귀할 수 있습니다.</p>'
+        mode_desc = """
+          <div class="notice danger">
+            <strong>싱글 모드 복귀 시 주의사항</strong>
+            <ul>
+              <li>초대·활성·정지 상태의 일반 멤버가 1명이라도 존재하면 싱글 모드로 전환할 수 없습니다.</li>
+              <li>이미 외부에 공개된 관리자 USERNAME은 싱글 모드로 전환되어도 되돌릴 수 없습니다.</li>
+              <li>관리자 네임스페이스(<code>/@{admin}/…</code>)는 다시 루트 경로(<code>/…</code>)로 308 영구 리다이렉트됩니다.</li>
+            </ul>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="confirm" required>
+            일반 멤버가 없음을 확인했으며 싱글 모드로 전환합니다.
+          </label>
+        """
+        btn_class = ' class="btn-danger"'
+        btn_text = "싱글 모드로 전환"
 
     check_rows = []
     for item in readiness_report.items:
@@ -180,6 +229,8 @@ def _render_instance_html(
         sunset = format_ts(h.sunset_at) if h.sunset_at is not None else "(무기한)"
         hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{activated}</td><td>{sunset}</td></tr>")
     hosts_tbody = "".join(hosts_rows) if hosts_rows else '<tr><td colspan="4" style="text-align:center;color:var(--muted);">(등록된 레거시 호스트가 없습니다)</td></tr>'
+
+    readiness_summary = '<span style="color:#2f855a;font-weight:bold;">9/9 통과</span>' if readiness_report.passed else '<span style="color:#c53030;font-weight:bold;">미통과</span>'
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -209,6 +260,17 @@ def _render_instance_html(
       dl {{ display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }}
       dt {{ color: var(--muted); }}
       dd {{ margin: 0; }}
+      .mode-form {{ display: grid; gap: .75rem; margin-top: .75rem; }}
+      .mode-form label {{ display: grid; gap: .25rem; font-size: .9rem; }}
+      .mode-form label.check {{ display: inline-flex; gap: .4rem; align-items: center; margin: .25rem 0; font-size: .9rem; }}
+      .mode-form input[type=password] {{ font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }}
+      .mode-form button {{ justify-self: start; font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--card); cursor: pointer; }}
+      .mode-form button:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+      .mode-form button.btn-danger {{ border-color: var(--error); background: var(--error); color: #fff; }}
+      .notice {{ background: var(--bg); border-left: 3px solid var(--accent); padding: .75rem 1rem; margin: .5rem 0; font-size: .9rem; }}
+      .notice.danger {{ border-left-color: var(--error); }}
+      .notice ul {{ margin: .25rem 0 0 1.25rem; padding: 0; }}
+      .notice li {{ margin-bottom: .25rem; }}
       .tier-form {{ display: grid; gap: .75rem; margin-top: .75rem; }}
       .tier-form label {{ display: grid; gap: .25rem; font-size: .9rem; }}
       .tier-form label.check {{ display: inline-flex; gap: .4rem; align-items: center; margin-right: 1rem; }}
@@ -224,15 +286,33 @@ def _render_instance_html(
       <nav aria-label="네비게이션">
         <a href="/">홈</a>
         <a href="/admin/accounts">계정 관리</a>
+        <a href="/admin/instance" style="font-weight:bold;">인스턴스 설정</a>
+        <a href="/admin/idp">IdP 관리</a>
         <a href="/me">내 계정</a>
         <form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>
       </nav>
       <h1>인스턴스 설정</h1>
 
-      <section class="card" aria-label="현재 모드">
-        <h2>현재 모드</h2>
-        <p><span class="badge">{escape(mode_text)}</span></p>
-        <p class="hint">네트워크 모드 가용 상태: <strong>{"사용 가능" if network_mode_available else "릴리스 제한 (NETWORK_MODE_AVAILABLE=False)"}</strong></p>
+      <section class="card" aria-label="인스턴스 모드" id="instance-mode">
+        <h2>인스턴스 모드</h2>
+        <dl>
+          <dt>현재 모드</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
+          <dt>네트워크 가용</dt><dd><strong>{"사용 가능" if network_mode_available else "릴리스 제한 (NETWORK_MODE_AVAILABLE=False)"}</strong></dd>
+          <dt>준비 검사</dt><dd>{readiness_summary}</dd>
+        </dl>
+        {mode_notice}
+        <form class="mode-form" data-mode-switch-form>
+          <input type="hidden" name="target_mode" value="{target_mode}">
+          {mode_desc}
+          <button type="submit"{btn_class}{"" if can_switch else " disabled"}>{btn_text}</button>
+          <p class="result" role="status" aria-live="polite" data-mode-switch-result></p>
+        </form>
+        <form class="mode-form" data-mode-switch-reauth hidden>
+          <p class="hint">모드 전환을 위해 관리자 본인 확인(비밀번호)이 필요합니다.</p>
+          <label>비밀번호<input type="password" name="password" autocomplete="current-password" required></label>
+          <button type="submit">본인 확인 후 전환</button>
+          <p class="result" role="status" aria-live="polite" data-mode-switch-reauth-result></p>
+        </form>
       </section>
 
       <section class="card" aria-label="준비 검사 G1–G9">
@@ -264,6 +344,7 @@ def _render_instance_html(
       </section>
 {tier_section}
     </main>
+    <script src="/static/js/instance_mode.js" defer></script>
     <script src="/static/js/server_tier.js" defer></script>
   </body>
 </html>"""

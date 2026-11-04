@@ -165,3 +165,100 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     whoami_back = app_env.client.get("/whoami", headers=headers)
     assert whoami_back.status_code == 200
     assert whoami_back.json()["instance"]["mode"] == "single"
+
+
+def test_e2e_network_mode_web_interface_lifecycle(app_env):
+    """E2E flow: verify web interface HTML components, static JS delivery, readiness feedback, and transition lifecycle."""
+    admin_token = _login_admin(app_env)
+    headers = _admin_headers(admin_token)
+
+    # 1. Verify static JavaScript delivery for instance_mode.js
+    js_resp = app_env.client.get("/static/js/instance_mode.js")
+    assert js_resp.status_code == 200
+    assert "data-mode-switch-form" in js_resp.text
+    assert "data-mode-switch-reauth" in js_resp.text
+    assert "/api/admin/instance/mode" in js_resp.text
+
+    # 2. Verify admin navigation links to /admin/instance
+    acc_page = app_env.client.get("/admin/accounts", headers=headers)
+    assert acc_page.status_code == 200
+    assert 'href="/admin/instance"' in acc_page.text
+
+    idp_page = app_env.client.get("/admin/idp", headers=headers)
+    assert idp_page.status_code == 200
+    assert 'href="/admin/instance"' in idp_page.text
+
+    # 3. Initial page in Single Mode with G5 unconfigured
+    init_page = app_env.client.get("/admin/instance", headers=headers)
+    assert init_page.status_code == 200
+    assert '<section class="card" aria-label="인스턴스 모드" id="instance-mode">' in init_page.text
+    assert 'data-mode-switch-form' in init_page.text
+    assert 'data-mode-switch-reauth' in init_page.text
+    assert 'name="target_mode" value="network"' in init_page.text
+    assert '<script src="/static/js/instance_mode.js" defer></script>' in init_page.text
+    assert "준비 검사 미통과" in init_page.text
+    form_slice = init_page.text.split("data-mode-switch-form")[1].split("</form>")[0]
+    assert "disabled" in form_slice
+
+    # 4. Configure server tier to pass G5
+    tier_resp = app_env.client.put("/api/admin/server-tier", json={"tier": {"provider": "none"}}, headers=headers)
+    assert tier_resp.status_code == 200
+
+    # 5. Page in Single Mode is now ready for transition
+    ready_page = app_env.client.get("/admin/instance", headers=headers)
+    assert ready_page.status_code == 200
+    assert "9/9 통과" in ready_page.text
+    assert "준비 검사 완료: 네트워크 모드로 전환할 수 있습니다." in ready_page.text
+    ready_form_slice = ready_page.text.split("data-mode-switch-form")[1].split("</form>")[0]
+    assert "disabled" not in ready_form_slice
+    assert "네트워크 모드로 전환</button>" in ready_form_slice
+
+    # 6. Execute transition to Network Mode
+    switch_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "network"}, headers=headers)
+    assert switch_resp.status_code == 200
+    assert switch_resp.json()["mode"] == "network"
+
+    # 7. Page now renders Network Mode controls
+    net_page = app_env.client.get("/admin/instance", headers=headers)
+    assert net_page.status_code == 200
+    assert "네트워크 모드 (Network Mode)" in net_page.text
+    assert 'name="target_mode" value="single"' in net_page.text
+    assert "btn-danger" in net_page.text
+    assert "싱글 모드로 전환</button>" in net_page.text
+    assert "일반 멤버가 1명이라도 존재하면" in net_page.text
+
+    # 8. Add a non-admin member and verify rollback rejection
+    conn = dbm.connect_existing(app_env.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, updated_at) "
+            "VALUES (2, 222222222222222222, 'charlie', 'member', 'active', 'Charlie', 1, ?, ?)",
+            (time.time(), time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    blocked_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    assert blocked_resp.status_code == 400
+    assert blocked_resp.json()["error"] == "members_exist"
+
+    # Remove the non-admin member
+    conn = dbm.connect_existing(app_env.db_file)
+    try:
+        conn.execute("DELETE FROM accounts WHERE id = 2")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 9. Rollback to Single Mode succeeds
+    back_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    assert back_resp.status_code == 200
+    assert back_resp.json()["mode"] == "single"
+
+    # 10. Page is back in Single Mode
+    final_page = app_env.client.get("/admin/instance", headers=headers)
+    assert final_page.status_code == 200
+    assert "싱글 모드 (Single Mode)" in final_page.text
+    assert 'name="target_mode" value="network"' in final_page.text
+
