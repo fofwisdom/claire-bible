@@ -102,7 +102,12 @@ _AUTHORITY_RE = re.compile(
 _BEARER_RE = re.compile(r"Bearer[ \t]+([^ \t,]+)\Z", re.IGNORECASE)
 
 
-def _build_content_security_policy(ga_measurement_id: str = "", *, usercontent_origin: str = "") -> str:
+def _build_content_security_policy(
+    ga_measurement_id: str = "",
+    *,
+    usercontent_origin: str = "",
+    media_origin: str = "",
+) -> str:
     script_src = "'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com"
     connect_src = "'self'"
     if ga_measurement_id:
@@ -118,11 +123,13 @@ def _build_content_security_policy(ga_measurement_id: str = "", *, usercontent_o
             " https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net"
         )
     frame_src_part = f"frame-src {usercontent_origin}; " if usercontent_origin else ""
+    media_origin_part = f" {media_origin}" if media_origin else ""
     return (
         "default-src 'self'; "
         f"script-src {script_src}; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
-        "img-src 'self' data: https:; "
+        f"img-src 'self' data: https:{media_origin_part}; "
+        f"media-src 'self' data: https:{media_origin_part}; "
         f"connect-src {connect_src}; "
         "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com; "
         "worker-src 'self' blob:; "
@@ -2005,9 +2012,10 @@ class SafeAccessLogMiddleware:
         self.theme_manager = theme_manager
         ga_id = config.ga_measurement_id if config else ""
         uc_origin = (config.host_roles.origin("usercontent") if (config and config.host_roles) else "") or ""
-        self._default_csp_header_value = _build_content_security_policy(ga_id, usercontent_origin=uc_origin).encode("ascii")
-        self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE", usercontent_origin=uc_origin).encode("ascii")
-        self._no_ga_csp_header_value = _build_content_security_policy("", usercontent_origin=uc_origin).encode("ascii")
+        media_origin = (config.host_roles.origin("media") if (config and config.host_roles) else "") or ""
+        self._default_csp_header_value = _build_content_security_policy(ga_id, usercontent_origin=uc_origin, media_origin=media_origin).encode("ascii")
+        self._ga_csp_header_value = _build_content_security_policy("G-ACTIVE", usercontent_origin=uc_origin, media_origin=media_origin).encode("ascii")
+        self._no_ga_csp_header_value = _build_content_security_policy("", usercontent_origin=uc_origin, media_origin=media_origin).encode("ascii")
 
     def _csp_for(self, state: Mapping[str, Any]) -> bytes:
         """§5.3: 경로가 테마를 고정했으면 그 테마의 GA 측정 ID로 고른다. 고정이 없으면 기존 전역 설정이다."""
@@ -2152,6 +2160,7 @@ def wrap_web_app(
     # PrefixParser는 CORS 바깥이다. CORS·인증이 접두를 뗀 정규 경로로 정책을 찾는다(§6.7).
     secured = PrefixParserMiddleware(secured)
     from .usercontent import create_usercontent_app
+    from .media import create_media_app
 
     if config.host_roles is None:
         try:
@@ -2165,12 +2174,17 @@ def wrap_web_app(
         if roles.usercontent is not None
         else None
     )
+    media_app = (
+        create_media_app(settings, secret_service=sec_svc, roles=roles)
+        if roles.media is not None
+        else None
+    )
     secured = HostRouter(
         app=secured,
         roles=roles,
         legacy=legacy_hosts if legacy_hosts is not None else EmptyLegacyHostDirectory(),
         usercontent=usercontent_app,
-        media=not_found_app if roles.media is not None else None,
+        media=media_app,
     )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)

@@ -310,6 +310,37 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
 - **[코드]** 접근 로그의 IP 표기, Host·scheme 판정, `CLAIRE_CLOUDFLARE_IPS_ONLY` 필터는 이 값과 관계없이 피어 주소를 쓴다.
 - 위 Nginx 예시는 `X-Forwarded-For`를 비워 보내므로 그대로 두면 피어 주소(proxy)를 쓴다. 실제 클라이언트 IP로 세려면 proxy에서 `proxy_set_header X-Forwarded-For $remote_addr;`(또는 `$proxy_add_x_forwarded_for`)로 바꾸고 proxy의 고정 LAN IP를 `CLAIRE_TRUSTED_PROXIES`에 넣는다. Claire host firewall이 그 proxy만 upstream port에 닿게 해야 한다(위 Production 절).
 
+## Media 호스트와 CDN 캐싱 정책 (P7)
+
+미디어 파일(이미지, 첨부, 동영상, 프레젠테이션 슬라이드 에셋 등)의 안전하고 격리된 전송을 위해 독립된 `media` 역할 호스트(`CLAIRE_MEDIA_FQDN`)와 `MediaStore`가 도입되었다.
+
+### 1. 스토리지 백엔드 및 불투명 객체 키
+- **스토리지 백엔드**: 로컬 파일시스템(`LocalMediaStore`, 기본 경로 `data/media`) 및 S3 호환 오브젝트 스토리지(`S3MediaStore`, AWS S3, Cloudflare R2, MinIO, GCS 지원) 두 가지를 지원한다.
+- **불투명 객체 키 (S16)**:
+  - 객체 키는 `HMAC(derived_key, f"{account_id}:{sha256(content)}").hexdigest() + ext` 알고리즘으로 파생된다.
+  - 키에 `username`, `theme_id`, `doc_id`가 포함되지 않아 싱글 모드의 익명성을 유지하며, 다른 계정이 동일 파일을 보유하고 있는지 추측할 수 없다.
+  - 계정 간 중복 제거는 보안상 수행하지 않는다.
+
+### 2. 캐시 및 전송 규칙
+- **공개 테마 미디어**:
+  - 서명 없는 영구 URL로 제공된다 (`/media/{key}`).
+  - 응답 헤더: `Cache-Control: public, max-age=31536000, immutable`.
+  - 콘텐츠 주소화 기반이므로 영구 불변 캐싱이 성립한다.
+- **비공개 미디어 (Capability 서명 URL)**:
+  - 1시간 열람 단위 capability 서명 URL이 강제된다 (`/media/{key}?account_id=...&theme_id=...&visibility_epoch=...&token={exp}.{sig}`).
+  - HMAC 서명은 `(account_id, theme_id, visibility_epoch, key, exp)`에 바인딩된다.
+  - 응답 헤더: `Cache-Control: private, no-store`.
+  - 미디어 스트리밍 및 탐색을 위한 HTTP `Range` 요청(RFC 7233/9110, `206 Partial Content`)을 전면 지원하며 Range 요청 시에도 서명이 유효하게 유지된다.
+- **무쿠키 및 CORS**:
+  - `media` 호스트는 쿠키를 읽지도 쓰지도 않는다 (`Cookie` 헤더 폐기, `Set-Cookie` 금지).
+  - 샌드박스 렌더링 origin(`usercontent`)의 불투명 서브리소스 요청을 지원하기 위해 `Access-Control-Allow-Origin: *` 헤더를 제공한다.
+
+### 3. 무효화 및 수명주기 훅
+- 테마의 공개 상태가 비공개로 전환되거나 문서가 소각(purge)될 때:
+  1. 테마의 `visibility_epoch`가 즉시 증가한다.
+  2. 기존에 발급된 비공개 capability URL은 유효기간 만료 전이라도 즉시 무효화(403)된다.
+  3. `register_cdn_invalidator` 훅을 통해 등록된 CDN/프록시 캐시 무효화가 원자적으로 발화된다.
+
 ## 적용 확인
 
 development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface에 port가 게시되지 않았는지 확인한다. production에서는 다음을 각각 확인한다.

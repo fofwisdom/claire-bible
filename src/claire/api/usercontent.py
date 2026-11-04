@@ -35,6 +35,7 @@ from starlette.responses import FileResponse, HTMLResponse, PlainTextResponse, R
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ..render.media_transform import transform_media_urls_in_html
 from ..store import db as dbm
 from ..store.secrets import SecretService, get_secret_service
 
@@ -250,6 +251,15 @@ def create_usercontent_app(
         if not raw_content:
             raw_content = f"<h1>{html.escape(doc_dict.get('title') or 'Document')}</h1>"
 
+        raw_content = transform_media_urls_in_html(
+            raw_content,
+            is_public=not is_private,
+            account_id=account_id,
+            theme_id=theme_id,
+            visibility_epoch=visibility_epoch,
+            roles=roles,
+            secret_service=secret_service,
+        )
         cleaned_body = sanitize_usercontent_html(raw_content)
         title_str = html.escape(doc_dict.get("title") or "Document")
         doc_html = f"""<!DOCTYPE html>
@@ -267,11 +277,14 @@ def create_usercontent_app(
 </body>
 </html>"""
 
+        media_host = getattr(roles, "media", None) if roles else None
+        media_part = f" {scheme}://{media_host}" if media_host else ""
         csp = (
             "default-src 'none'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' data: https://fonts.gstatic.com; "
-            "img-src 'self' data: https:; "
+            f"img-src 'self' data: https:{media_part}; "
+            f"media-src 'self' data: https:{media_part}; "
             f"frame-ancestors {app_origin}; "
             "sandbox allow-popups allow-popups-to-escape-sandbox"
         )
@@ -335,6 +348,15 @@ def create_usercontent_app(
 
         if pres_file and pres_file.is_file():
             content = pres_file.read_text(encoding="utf-8")
+            content = transform_media_urls_in_html(
+                content,
+                is_public=not is_private,
+                account_id=account_id if doc_dict else 1,
+                theme_id=theme_id if doc_dict else 0,
+                visibility_epoch=visibility_epoch if doc_dict else 1,
+                roles=roles,
+                secret_service=secret_service,
+            )
             deck_html = re.sub(r"<script(?![^>]*\bnonce=)", f'<script nonce="{nonce}"', content)
         else:
             title = html.escape(doc_dict.get("title") if doc_dict else "Presentation")
@@ -364,12 +386,15 @@ Reveal.initialize({{ hash: true, slideNumber: true }});
 </body>
 </html>"""
 
+        media_host = getattr(roles, "media", None) if roles else None
+        media_part = f" {scheme}://{media_host}" if media_host else ""
         csp = (
             "default-src 'self'; "
             f"script-src {usercontent_origin} 'nonce-{nonce}'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' data: https://fonts.gstatic.com; "
-            "img-src 'self' data: https:; "
+            f"img-src 'self' data: https:{media_part}; "
+            f"media-src 'self' data: https:{media_part}; "
             f"frame-ancestors {app_origin};"
         )
         headers = {

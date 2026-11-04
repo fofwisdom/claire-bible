@@ -941,7 +941,16 @@ class ThemeManager:
             theme.icon = str(icon).strip() or "📁"
 
         if is_public is not None:
-            theme.is_public = bool(is_public)
+            new_public = bool(is_public)
+            if new_public != theme.is_public:
+                theme.is_public = new_public
+                # §5.4: 테마가 비공개로 바뀌거나 공개 상태가 바뀌면 visibility_epoch를 올리고 CDN에서 무효화
+                theme.visibility_epoch += 1
+                try:
+                    from .media import trigger_cdn_invalidation
+                    trigger_cdn_invalidation([f"theme_{tid}"])
+                except Exception:
+                    pass
 
         if is_collaborator_accessible is not None:
             if theme.is_default:
@@ -984,6 +993,7 @@ class ThemeManager:
                     ga_measurement_id = ?,
                     sorcerer = ?,
                     presentation_enabled = ?,
+                    visibility_epoch = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -998,6 +1008,7 @@ class ThemeManager:
                     theme.ga_measurement_id,
                     theme.sorcerer,
                     int(theme.presentation_enabled),
+                    theme.visibility_epoch,
                     theme.updated_at,
                     tid,
                 ),
@@ -1335,6 +1346,30 @@ class ThemeManager:
         if url_matches:
             return url_matches
         return pattern_matches[:limit]
+
+
+def bump_theme_visibility_epoch(
+    conn: sqlite3.Connection,
+    theme_id: int,
+    *,
+    invalidated_keys: list[str] | None = None,
+) -> int:
+    """Increment visibility_epoch of a theme and invoke CDN invalidation hook (설계 §5.4)."""
+    conn.execute(
+        "UPDATE themes SET visibility_epoch = visibility_epoch + 1, updated_at = ? WHERE id = ?",
+        (time.time(), int(theme_id)),
+    )
+    conn.commit()
+    row = conn.execute("SELECT visibility_epoch FROM themes WHERE id = ?", (int(theme_id),)).fetchone()
+    epoch = row[0] if row else 1
+    if invalidated_keys:
+        try:
+            from .media import trigger_cdn_invalidation
+            trigger_cdn_invalidation(invalidated_keys)
+        except Exception:
+            pass
+    return epoch
+
 
 
 

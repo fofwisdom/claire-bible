@@ -5603,6 +5603,13 @@ def purge_document_cascade(
                 pass
     stats["disk_files_unlinked"] = unlinked_count
 
+    # §5.4: 문서 소각 시 CDN 캐시 무효화 훅 트리거
+    try:
+        from .media import trigger_cdn_invalidation
+        trigger_cdn_invalidation([f"doc_{did}" for did in matched_ids])
+    except Exception:
+        pass
+
     # 5. 지식그래프 참조 무결성 수복
     if progress_callback:
         progress_callback("지식그래프 참조 무결성 수복 및 FTS 재구축 중...")
