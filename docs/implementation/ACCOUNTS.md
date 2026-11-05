@@ -1,8 +1,8 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키를 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3)
+확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
 
-이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/me/keys`)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 기준 작업 트리의 소스에서 직접 확인한 사실
 - **[결정]** 저장소 소유자가 정한 방침. 바꾸기 전에 소유자에게 묻는다
@@ -32,9 +32,12 @@
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
-| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
-| `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html` | `$이름` 자리채움(`common.render_template`) |
+| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
+| `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
+| `src/claire/static/js/console_admin.js` | `/admin/*` 화면 컨트롤러와 단계 인증 모달. `/admin/*` 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
+| `src/claire/static/js/console_syndication.js` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
+| `src/claire/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/settings/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`, `renderTokenManager`) |
 
 ## 2. 계정 모델과 상태
 
@@ -57,7 +60,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록과 같음, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`.
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔 경로용 `settings`를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`는 루트 경로 `/settings/*`와 겹치지 않게 하려고 예약한다(콘솔 설계 D1).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **인스턴스 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.instance_hosts`). 포트는 뗀다.
 
@@ -88,7 +91,7 @@
 
 접근 규칙은 `src/claire/api/security.py`의 `ROUTE_POLICY`에 있다. `owner` 규칙을 통과하지 못한 요청은 기존 거부 규칙대로 404다([API_HTTP_CONTRACT.md](API_HTTP_CONTRACT.md) §3). 쿠키 채널의 `POST`·`PUT`·`PATCH`·`DELETE`는 미들웨어가 동일 origin(`Origin` 헤더)을 요구하고 아니면 403이다(`_STATE_CHANGING_METHODS`). HEAD는 GET 경로에 함께 등록된다.
 
-- **[코드] 양식 화면의 `Referrer-Policy`**: `common.render_template`로 만든 화면(`/setup`, `/login`, `/me`, `/admin/accounts`)은 `Referrer-Policy: same-origin`이다(`FORM_PAGE_REFERRER_POLICY`). 다른 응답은 전역 `no-referrer` 그대로다. 전역 값이면 Chromium이 양식 제출(navigate 모드 POST)에 `Origin: null`을 싣고 `CORSPolicyMiddleware`가 403으로 막는다. `Origin: null` 거부는 그대로다. `fetch()`(cors 모드)는 정책과 관계없이 실제 origin을 싣는다.
+- **[코드] 양식 화면의 `Referrer-Policy`**: `common.render_template`로 만든 화면(`/setup`, `/login`, `console_shell.html`로 그리는 `/admin/*`·`/settings/*`)은 `Referrer-Policy: same-origin`과 `Cache-Control: no-store`이다(`FORM_PAGE_REFERRER_POLICY`). 다른 응답은 전역 `no-referrer` 그대로다. 전역 값이면 Chromium이 양식 제출(navigate 모드 POST)에 `Origin: null`을 싣고 `CORSPolicyMiddleware`가 403으로 막는다. `Origin: null` 거부는 그대로다. `fetch()`(cors 모드)는 정책과 관계없이 실제 origin을 싣는다.
 - **[코드] 세션 쿠키는 응답마다 하나**: 미들웨어는 쿠키 채널 응답에 세션 쿠키를 다시 붙여 만료를 늘리지만, 핸들러가 이미 `claire_session`을 설정하거나 지웠으면(`/setup` 확정) 붙이지 않는다(`_sets_session_cookie`).
 
 ### 5.1 `/setup` (최초 관리자 설정)
@@ -115,7 +118,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), 텔레그램 승인(`approve_auth_nonce`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상(P1)**: `POST /api/me/password`만 `require_recent_auth`를 부른다. `/admin`의 변경 동작은 아직 없다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경)다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
@@ -133,9 +136,9 @@
 
 ### 5.4 `/admin/accounts`, `/api/admin/accounts`, `/api/admin/usernames/*`
 
-- **[코드]** 규칙 `owner`, 핸들러가 `instance_role=admin`·`scope=owner`가 아니면 404.
+- **[코드]** 규칙 `_system("admin")`. 미들웨어가 `scope=owner`이면서 `instance_role=admin`인 자격증명만 통과시키고 나머지는 404다. 핸들러도 `admin.is_admin`으로 한 번 더 확인한다. 접두 경로(`/@{username}/admin/...`)는 404(N5).
 - **[코드] `GET /api/admin/accounts`**: `{"accounts": [{public_id(문자열), username, status, role, created_at, activated_at, theme_count, delete_after?}]}`, `id` 오름차순.
-- **[코드] `GET /admin/accounts`**: 관리 화면. 관리자 계정 카드, 멤버 계정 목록, 초대 관리, 퇴역 USERNAME 관리 패널을 제공한다. 다른 계정의 콘텐츠 본문을 읽거나 가장 로그인하는 API는 두지 않는다(K5, D5).
+- **[코드] `GET /admin/accounts`**: 통합 콘솔 셸(§5.9) 안의 관리 화면. 관리자 계정 카드, 멤버 계정 목록, 초대 관리, 퇴역 USERNAME 관리 패널을 제공한다. 다른 계정의 콘텐츠 본문을 읽거나 가장 로그인하는 API는 두지 않는다(K5, D5).
 - **[코드] `PATCH /api/admin/accounts`**: 관리자 단계 인증(`require_recent_auth`, 최근 15분 내 인증) 필수.
   - 계정 정지(`suspend`), 재개(`resume`), 삭제 예약(`delete`), 삭제 예약 취소(`cancel_delete`), 즉시 소각(`purge`), 비밀번호 재설정 링크 발급(`reset_password_link`)을 수행한다.
   - 정지·삭제 시 해당 계정의 활성 세션과 토큰이 즉시 차단/무효화된다.
@@ -144,8 +147,9 @@
 
 ### 5.5 `/me`, `/api/me`, `/api/me/password`
 
-- **[코드]** 모두 규칙 `owner`. collaborator·readonly 자격증명은 404다.
-- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password}`. `GET /me`는 같은 값을 화면으로 보이고 `notice=password_not_saved`를 안내한다.
+- **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
+- **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
+- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password}`. `/settings/account`가 이 값을 화면으로 보인다.
 - **[코드] `PATCH /api/me`**: 본문 키가 정확히 `display_name` 하나여야 한다(아니면 400 `invalid_request`). 값이 규칙에 맞지 않으면 400 `invalid_display_name`. 성공하면 `GET /api/me`와 같은 본문.
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
@@ -247,6 +251,71 @@
   - 멤버가 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 관리자 CLI로 자동 전환/폴백하지 않는다.
 - **WebUI `/settings/keys` 연동**:
   - 네트워크 모드 멤버 계정으로 `/settings/keys`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
+  - 관리자는 BYOK 양식 대신 `/admin/providers` 링크가 있는 안내 카드를 받는다. 싱글 모드의 비관리자는 `/admin` 링크 없는 안내만 받는다.
+
+### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`)
+
+**[코드]** `src/claire/api/accounts_routes/console.py`(라우트·섹션 정의·셸 렌더링), `admin.py`·`instance.py`·`idp.py`(`/admin/accounts`·`/admin/instance`·`/admin/idp`), `console_syndication_panels.py`(Group 2–3 본문). 설계: [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md).
+
+- **경로 분리는 권한 경계다.** 관리자 화면은 `/admin/*`, 본인 설정은 `/settings/*`이고, 둘 다 같은 셸 `console_shell.html`로 그린다. 모든 경로는 `ROUTE_POLICY`에 `GET`·`HEAD` 정확 항목으로 있고 모든 모드(`ALL_MODES`)에서 열린다.
+- **`/admin`, `/admin/*`**: 규칙 `_system("admin")`. 관리자(`scope=owner`, `instance_role=admin`)가 아니면 미들웨어와 핸들러 모두 404다. 403을 내지 않고, 비관리자에게는 302도 내지 않는다(B1, N5).
+
+| 경로 | 동작 |
+| :--- | :--- |
+| `/admin` | 302 `/admin/instance`. `?theme=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
+| `/admin/instance` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`instance.py`) |
+| `/admin/accounts` | §5.4 (`admin.py`) |
+| `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
+| `/admin/providers` | 인스턴스 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
+| `/admin/limits` | 인스턴스 적재 제한·슬라이싱 예산(`/limits`) |
+| `/admin/themes` | 관리자 계정(`ADMIN_ACCOUNT_ID = 1`)의 테마 관리와, 인스턴스 집계 숫자(`total_accounts` = `status != 'purged'` 계정 수, `total_themes`, `admin_themes`)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다(D5, K5) |
+| `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
+| `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, WebMCP 헤더 정책, `POST /support/bundle` |
+
+- **`GET`·`HEAD /api/admin/mcp/telemetry`**: 규칙 `_system("admin")`, 비관리자 404. 쿼리 `limit`(기본 50, 1–200 정수. 밖이거나 정수가 아니면 400 `invalid_limit`), `status`, `tool_name`, `since`(ISO 8601 시각. 비었거나 해석하지 못하면 400 `invalid_since`, C1). `store.telemetry.query_mcp_telemetry`로 `data/telemetry.db`를 최근 것부터 읽고 `{"records": [{id, timestamp, client_id, call_type, tool_name, duration_ms, status, error_code, error_message, response_bytes}], "count": n}`을 돌려준다. DB 파일이 없으면 빈 목록이다.
+- **프로토타입 표식**: `/admin/*` 안에서 실제 서버 설정에 닿지 않는 요소는 서버가 표식 `<span class="proto-badge" data-prototype="…" data-prototype-kind="…">`(`common.prototype_badge`)과 무엇을 하지 않는지 적은 안내문 `.proto-note`(`common.prototype_note`)를 그린다. 종류는 `prototype`(프로토타입), `simulation`(시뮬레이션), `client_only`(브라우저에만 저장), `static`(정적 안내)이다. `/settings/*` 응답에는 표식이 없다.
+  - `/admin/accounts`: `admin-accounts-byok-switch`(prototype, '멤버 BYOK 외부 키 허용' 스위치는 켜짐 고정이고 서버 등급에 해당 설정이 없다), `admin-accounts-isolation-table`(static, 격리 구조 설명표). 같은 카드의 통계 숫자와 한도 값은 실제 값이다.
+  - `/admin/idp`: `admin-idp-login-policy`(prototype, 로그인 방식·가입 처리·허용 도메인·`email_verified`·Back-Channel Logout 칸은 저장 API가 없는 고정 예시), `admin-idp-login-simulator`(simulation, 실행 결과는 선택값을 문장으로 보여 줄 뿐이다. 미리보기의 공급자 버튼은 실제 `/auth/oidc/{id}/start` 링크).
+  - `/admin/tokens`: `admin-token-policy-summary`(static, 코드 기본값을 옮겨 적은 안내문).
+  - `/admin/mcp`: `admin-mcp-rbac-table`(static, 판정 칸까지 고정 문구), `admin-webmcp-global-switch`(client_only, `localStorage["claire_admin_webmcp_enabled"]`에만 기억하고 `Permissions-Policy` 헤더나 서버 설정을 바꾸지 않는다).
+- **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 collaborator·readonly·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
+
+| 경로 | 사이드바 그룹 | 동작 |
+| :--- | :--- | :--- |
+| `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?theme=`를 붙인다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/keys` | 1 | §5.8 WebUI |
+| `/settings/themes` | 1 | 본인 테마 관리(`/themes`)와 슬롯 수(`내 테마 수 / 서버 등급 max_themes`) |
+| `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
+| `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
+| `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | MCP 연결 안내와 WebMCP 설정 |
+
+- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?theme=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?theme=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
+- **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `ThemeManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
+- **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
+- **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
+- **S9**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이고 `@username`을 내지 않는다. 네트워크 모드이고 USERNAME이 있으면 `/@{username}/`, `/@{username}/syndication`이다.
+- **부트스트랩 JSON**: 셸의 `<script type="application/json">`에는 `area`, `section`, `path`, `mode`, `is_admin`, `theme`과 섹션별 값이 들어간다. `<`, `>`, `&`는 `<`, `>`, `&`으로 이스케이프한다.
+- **루트 `/` 진입점**: 상세 메뉴에는 '관리 및 설정' 패널이 없다(프로바이더·적재 제한·테마 관리·API/MCP 키는 콘솔에서만 다룬다. 콘솔 설계 D2의 드로어 빠른 패널은 폐지). 상단바에서 라이트/다크 전환(`#themebtn`) 바로 왼쪽의 아이콘 링크 `#consolelinkbtn`이 owner에게만 보인다. `GET /whoami`의 `is_admin`이 참이면 `🛠️`(`/admin`, 이름 '관리자 콘솔'), 아니면 `⚙️`(`/settings`, 이름 '내 설정')이다. 협업자·읽기 전용·익명에게는 보이지 않는다.
+
+### 5.10 옛 `/syndication/preferences` 호환 302
+
+**[코드]** `server.py:syndication_preferences_ui_route`. 규칙 `_namespaced("owner")`(owner가 아니면 404, 위치 헤더 없음).
+
+1. `?theme=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
+2. `?tab=`을 아래 표로 바꾼다. 빈 값, 대소문자가 다른 값, 모르는 값은 404다. `?tab=`이 없으면 `reader`와 같다.
+3. `/settings/*` 대상에는 검증한 테마의 공개 참조를 `?theme=`로 붙인다. `/admin/*`와 `/settings/account` 대상에는 `?theme=`를 붙이지 않는다.
+4. 응답은 302, `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 위치는 항상 루트 경로다(접두 아래 요청도 `/@{username}`을 붙이지 않는다).
+
+| `?tab=` | 관리자 | 그 밖의 owner |
+| :--- | :--- | :--- |
+| 없음, `reader` | `/settings/reader` | `/settings/reader` |
+| `accounts` | `/settings/connections` | `/settings/connections` |
+| `feeds`, `tags`, `rules`, `outbound`, `opml`, `mcp`, `webmcp` | `/settings/<같은 이름>` | `/settings/<같은 이름>` |
+| `idp` | `/admin/idp` | `/settings/account` |
+| `userdb` | `/admin/accounts` | `/settings/account` |
+| 그 밖 | 404 | 404 |
+
 
 ## 6. 비밀번호
 
@@ -309,13 +378,13 @@
 
 ## 11. Syndication 병합 기반 (P6)
 
-- **[코드] 경로 네임스페이스화 및 인증 (G8)**: `/syndication` 및 `/syndication/preferences`는 `namespaced` 라우트이며 `ROUTE_POLICY`에서 `public` 규칙이 해제되어 `read` 권한이 요구된다. 비인증 요청은 차단되며 Gate G8이 충족된다. 네트워크 모드에서는 `/@{username}/syndication` 및 `/@{username}/themes/{number}/syndication`으로 접근한다.
+- **[코드] 경로 네임스페이스화 및 인증 (G8)**: `/syndication`은 `namespaced` 라우트이며 `ROUTE_POLICY`에서 `public` 규칙이 해제되어 `read` 권한이 요구된다. `/syndication/preferences`는 `_namespaced("owner")`의 호환 302다(§5.10). 비인증 요청은 차단되며 Gate G8이 충족된다. 네트워크 모드에서는 `/@{username}/syndication` 및 `/@{username}/themes/{number}/syndication`으로 접근한다.
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 토큰 암호화**: `syndication_accounts.token_enc`는 `SecretService`의 AES-256-GCM 암호화를 사용하며, AAD로 `f"{theme_id}|{account_id}"`를 결합한다. 데이터베이스 행을 다른 테마나 식별자로 무단 이동·변조하면 복호화 시 `SecretDecryptionError`가 발생한다.
 - **[코드] 테마 경계 및 계정 격리**: 테마는 자신이 소유하지 않은 연결 계정(다른 `theme_id`의 `syndication_accounts`)을 조회하거나 사용할 수 없다. 또한 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 프로토타입 패널 실체화**: `/syndication/preferences`의 `panel-idp` 및 `panel-userdb` 제안/시뮬레이터 패널을 실제 구현체인 `/admin/idp`, `/admin/accounts`, `/me`, `/me/keys`로 연결하고 안내하도록 전환하였다.
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `syndication_app.js`가 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증).
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_instance.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).

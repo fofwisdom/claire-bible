@@ -346,6 +346,18 @@ def test_admin_mcp_telemetry_api_io_and_validation(console_env):
         assert bad.status_code == 400
         assert bad.json()["error"] == "invalid_limit"
 
+    # C1: 해석하지 못한 since는 조건을 빼고 전체를 돌려주지 않고 400이다.
+    for bad_since in ("yesterday", "", "1700000000"):
+        bad = client.get("/api/admin/mcp/telemetry", params={"since": bad_since}, headers=console_env.admin_owner)
+        assert bad.status_code == 400, bad_since
+        assert bad.json()["error"] == "invalid_since"
+    future = client.get("/api/admin/mcp/telemetry", params={"since": "2999-01-01T00:00:00Z"}, headers=console_env.admin_owner)
+    assert future.status_code == 200
+    assert future.json()["count"] == 0
+    past = client.get("/api/admin/mcp/telemetry", params={"since": "2000-01-01T00:00:00+00:00"}, headers=console_env.admin_owner)
+    assert past.status_code == 200
+    assert past.json()["count"] == 2
+
 
 def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme_privacy(console_env):
     _set_mode(console_env.db_file, "network")
@@ -381,3 +393,38 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
             assert 'id="pref-webmcp-enabled"' in body
             assert "data-support-bundle-form" in body
 
+
+
+ADMIN_PROTOTYPE_MARKERS: dict[str, tuple[tuple[str, str], ...]] = {
+    "/admin/accounts": (("admin-accounts-byok-switch", "prototype"), ("admin-accounts-isolation-table", "static")),
+    "/admin/idp": (("admin-idp-login-policy", "prototype"), ("admin-idp-login-simulator", "simulation")),
+    "/admin/tokens": (("admin-token-policy-summary", "static"),),
+    "/admin/mcp": (("admin-mcp-rbac-table", "static"), ("admin-webmcp-global-switch", "client_only")),
+}
+
+
+def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_env):
+    """실제 서버 설정에 닿지 않는 /admin/* 요소는 서버가 그린 표식(data-prototype)과 안내문을 단다. /settings/*에는 표식이 없다."""
+    _set_mode(console_env.db_file, "network")
+    client = console_env.client
+    labels = {"prototype": "프로토타입", "simulation": "시뮬레이션", "client_only": "브라우저에만 저장", "static": "정적 안내"}
+    for path, markers in ADMIN_PROTOTYPE_MARKERS.items():
+        body = client.get(path, headers=console_env.admin_owner).text
+        assert ".proto-badge{" in body, path
+        for marker, kind in markers:
+            badge = f'<span class="proto-badge" data-prototype="{marker}" data-prototype-kind="{kind}">{labels[kind]}</span>'
+            assert badge in body, (path, marker)
+            # 격리 설명표는 표 caption 안에 안내문을 함께 둔다. 나머지는 별도 안내문(무엇을 하지 않는지)을 단다.
+            if marker == "admin-accounts-isolation-table":
+                assert "실제 디렉터리·DB 상태를 읽어 오지 않습니다" in body
+            else:
+                assert f'data-prototype-note="{marker}"' in body, (path, marker)
+    # 실제로 동작하는 화면에는 표식을 달지 않는다.
+    for path in ("/admin/instance", "/admin/providers", "/admin/limits", "/admin/themes"):
+        assert "data-prototype=" not in client.get(path, headers=console_env.admin_owner).text, path
+    for path in ALL_SETTINGS_SECTION_PATHS:
+        resp = client.get(path, headers=console_env.alice_owner, follow_redirects=False)
+        assert resp.status_code == 200, path
+        assert "data-prototype" not in resp.text, path
+        assert 'data-active-area="admin"' not in resp.text, path
+        assert "console_admin.js" not in resp.text, path

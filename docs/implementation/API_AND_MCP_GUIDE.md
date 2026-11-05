@@ -45,7 +45,7 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 - **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `data/auth/api_tokens.json` 파일로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
 - **토큰 관리 다중 인터페이스**:
   - **CLI**: `claire token [list|create|revoke]`
-  - **WebUI**: 드로어 "관리 및 설정" ➔ "🔑 API/MCP 키" (토큰 발급 및 즉시 폐기, 클라이언트 연동 설정 제공)
+  - **WebUI**: 콘솔 `/settings/tokens`(관리자는 `/admin/tokens`) (토큰 발급 및 즉시 폐기, 클라이언트 연동 설정 제공)
   - **텔레그램 봇**: `/token`, `/token list`, `/token create <이름> [scope]`, `/token revoke <ID>`
   - **REST API**: `/tokens` (GET, POST, DELETE), `/tokens/revoke` (POST)
 - **RFC 6750 Bearer 토큰 사양**: 발급된 모든 토큰은 URL-safe 256비트 엔트로피(`cb_` 접두사)를 가지며, 요청 시 `Authorization: Bearer <TOKEN>` 헤더로 전송된다.
@@ -94,12 +94,12 @@ curl -s https://claire.example.com/health
 ```
 
 #### `GET /whoami` (Read)
-현재 요청에 적용된 인증 스코프를 확인한다.
+현재 요청에 적용된 인증 스코프, 인스턴스 모드, 네임스페이스와의 관계(`owner`·`delegate`·`visitor`), 관리자 여부를 확인한다. `is_admin`은 관리자 계정의 owner 자격증명일 때만 `true`다. 응답에 USERNAME은 없다.
 ```bash
 curl -s -H "Authorization: Bearer <TOKEN>" https://claire.example.com/whoami
 ```
 ```json
-{"scope": "owner"}
+{"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": true}
 ```
 
 #### `GET /stats` (Read)
@@ -363,7 +363,7 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 MCP 클라이언트는 다음 세 가지 방식 중 하나로 `/mcp`에 접속할 수 있다:
 
 #### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token)
-CLI(`claire token create`), WebUI(🔑 API/MCP 키), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 사용하는 방식으로, Claude Desktop, Cursor 등 데스크톱 및 백그라운드 AI 에이전트에 가장 권장된다.
+CLI(`claire token create`), WebUI(🔑 API/MCP 키 또는 `/settings/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 사용하는 방식으로, Claude Desktop, Cursor 등 데스크톱 및 백그라운드 AI 에이전트에 가장 권장된다.
 - **발급**: `claire token create "Claude Desktop" --scope readonly`
 - **헤더**: `Authorization: Bearer <PERSISTENT_TOKEN>`
 - **특징**: 환경변수 주입이나 브라우저 대화형 재인증 없이 상시 이용 가능하며, 관리 화면이나 CLI에서 언제든지 즉시 폐기(Revoke)할 수 있다.
@@ -560,9 +560,10 @@ claire token revoke 2
 claire token revoke "cb_xX9vY..." --json
 ```
 
-### 4.2 WebUI 토큰 관리 드로어 (🔑 API/MCP 키)
+### 4.2 WebUI 토큰 관리 콘솔 화면 (🔑 API/MCP 키)
 
-- **접근 권한**: 지식 관리자(`owner`)로 로그인 시 웹 UI 우측 드로어 **관리 및 설정** 영역에 **🔑 API/MCP 키** 버튼이 노출된다.
+- **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 토큰 관리 패널이 없다.
+- **콘솔 화면**: 관리 패널(`src/claire/static/js/manage_panels.js`)을 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`에서 쓴다. 관리자가 `/settings/tokens`를 열면 `/admin/tokens`로 302된다. 두 화면 모두 호출자 계정의 토큰만 다룬다(§2.6 계정 격리). `/settings/mcp`는 `/mcp` 연결 주소, `theme` 인자 예시, 클라이언트 설정 안내를 보여 준다. 루트 상단바의 **⚙️** 아이콘(관리자는 **🛠️**)이 `/settings`(관리자는 `/admin`)로 이동한다.
 - **제공 기능**:
   - 발급된 모든 토큰의 상태(활성, 만료, 폐기), 권한 스코프(`owner` / `collaborator` / `readonly`), 만료 일시, 최근 사용 시각(Last Used) 실시간 모니터링.
   - 새 토큰 발급 폼: 이름, 권한, 유효기간(무기한/30일/90일/1년) 설정 후 [✨ 토큰 발급] 1클릭 생성.

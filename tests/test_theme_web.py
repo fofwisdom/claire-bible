@@ -7,6 +7,9 @@ from claire.api import server
 from claire.config import Settings
 from claire.graphview import render_graph_html
 
+# 테마 관리 UI는 루트 상세 메뉴에서 빠지고 콘솔(/settings/themes, /admin/themes)이 쓰는 공유 모듈에만 있다.
+MANAGE_PANELS_JS = (Path(__file__).resolve().parents[1] / "src" / "claire" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
+
 
 def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     s = Settings(
@@ -114,7 +117,8 @@ def test_render_graph_html_visibility_isolation(tmp_path: Path):
     owner_html = render_graph_html(s, include_private=True)
     assert '비밀 연구' in owner_html
     assert 'style="display:inline-flex"' in owner_html
-    assert 'id="thememanagebtn"' in owner_html
+    # 루트 상세 메뉴에는 테마 관리 단추가 없다. 테마 관리는 콘솔에서 한다.
+    assert 'id="thememanagebtn"' not in owner_html
 
 
 def test_theme_selector_ux_and_modification_features(tmp_path: Path):
@@ -131,7 +135,9 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     # renderThemeSelector 내에서 `<option value="${t.id}" ...>${label}${lockStr}</option>` 패턴으로 렌더링됨
     assert "${label}${lockStr}</option>" in html
 
-    # 2. 테마 관리(openThemeManager) 내에 테마 수정 UI(수정 버튼, 수정 폼) 및 전송 함수 탑재 확인
+    # 2. 테마 관리(콘솔 공유 모듈 renderThemeManager) 내에 테마 수정 UI(수정 버튼, 수정 폼) 및 전송 함수 탑재 확인
+    assert "openThemeManager" not in html
+    html = MANAGE_PANELS_JS
     assert "showThemeEditForm" in html
     assert "hideThemeEditForm" in html
     assert "updateThemeFromUI" in html
@@ -155,7 +161,8 @@ def test_theme_web_default_focus(tmp_path: Path):
         vault_path=str(tmp_path / "vault"),
         CLAIRE_MULTI_THEME=True,
     )
-    html = render_graph_html(s)
+    graph_html = render_graph_html(s)
+    html = MANAGE_PANELS_JS
 
     # 1. 새 테마 생성 폼에 기본 초점 입력 필드 확인
     assert 'id="newthemep-focus"' in html
@@ -167,8 +174,8 @@ def test_theme_web_default_focus(tmp_path: Path):
     assert "🎯 기본 초점:" in html
 
     # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
-    assert "updateFocusPlaceholder" in html
-    assert "기본 초점:" in html
+    assert "updateFocusPlaceholder" in graph_html
+    assert "기본 초점:" in graph_html
 
 
 def test_theme_web_knowledge_manager_display(tmp_path: Path):
@@ -185,7 +192,8 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
     tm.define_theme("일반 테마")  # 기본 관리자 상속
     tm.define_theme("특화 테마", sorcerer="specialist_lee")  # 개별 관리자 지정
 
-    html = render_graph_html(s, include_private=True)
+    graph_html = render_graph_html(s, include_private=True)
+    html = MANAGE_PANELS_JS
 
     # 1. 테마 관리 UI 렌더링 내 지식 관리자 표시 로직 탑재 확인
     assert "지식 관리자:" in html
@@ -198,8 +206,8 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
     assert 'id="newthemep-sorcerer"' in html
 
     # 4. updateDrawerManager 함수를 통해 테마 선택/전환 시 drawerfooter의 지식 관리자 실시간 업데이트 로직 탑재 확인
-    assert "function updateDrawerManager(currentTheme)" in html
-    assert "updateDrawerManager(current)" in html
+    assert "function updateDrawerManager(currentTheme)" in graph_html
+    assert "updateDrawerManager(current)" in graph_html
 
 
 

@@ -48,6 +48,10 @@ paths:
   /whoami:
     get:
       summary: Check current authenticated scope
+      description: >-
+        Returns the request scope, the instance mode, the caller's relation to the
+        resolved namespace, and whether the caller is the instance admin. The
+        response never carries a USERNAME.
       operationId: checkWhoami
       x-claire-access: read
       security:
@@ -61,12 +65,34 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [scope]
+                required: [scope, instance, relation, is_admin]
                 properties:
                   scope:
                     type: string
-                    enum: [owner, readonly, anonymous]
+                    enum: [owner, collaborator, readonly, anonymous]
                     example: owner
+                  instance:
+                    type: object
+                    required: [mode]
+                    properties:
+                      mode:
+                        type: string
+                        enum: [single, network]
+                        example: single
+                  relation:
+                    type: string
+                    description: >-
+                      owner when the credential's account owns the namespace with owner
+                      scope, delegate for another scope on the same account, visitor
+                      otherwise.
+                    enum: [owner, delegate, visitor]
+                    example: owner
+                  is_admin:
+                    type: boolean
+                    description: >-
+                      True only for an owner-scope credential of the instance admin
+                      account (instance_role admin).
+                    example: true
         '401':
           description: Authentication required.
           content:
@@ -1320,22 +1346,123 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
 
-  /admin/accounts:
+  /admin:
     get:
-      summary: Admin accounts page (single mode)
-      operationId: getAdminAccountsPage
-      x-claire-access: owner
+      summary: Admin console entry redirect
+      description: >-
+        Redirects the instance admin to /admin/instance. Every non-admin request
+        gets 404 before any redirect. An optional theme query that is not one of the
+        admin's own themes also gets 404.
+      operationId: getAdminConsoleIndex
+      x-claire-access: admin
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '302':
+          description: Redirect to /admin/instance (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /admin/instance
+        '404':
+          description: Not the instance admin with owner scope, or invalid theme reference.
+
+  /admin/{section}:
+    get:
+      summary: Admin console section page (unified console shell)
+      description: >-
+        Root-only admin console pages rendered in console_shell.html. Prefixed
+        paths (/@{username}/admin/...) return 404. Non-admin callers always get 404,
+        never 403. /admin/themes shows the admin account's own themes plus
+        instance-wide aggregate counts only; member theme labels and content are
+        never read.
+      operationId: getAdminConsoleSection
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: section
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [instance, accounts, idp, providers, limits, themes, tokens, mcp]
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '200':
-          description: Admin account card (HTML).
+          description: Admin console page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
           content:
             text/html:
               schema:
                 type: string
+        '404':
+          description: Not the instance admin with owner scope, or invalid theme reference.
+
+  /api/admin/mcp/telemetry:
+    get:
+      summary: Read MCP call telemetry (admin only)
+      description: >-
+        Bounded read of the mcp_telemetry table in data/telemetry.db, newest first.
+        Returns an empty list when the telemetry database does not exist.
+      operationId: listMcpTelemetry
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: tool_name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: since
+          in: query
+          required: false
+          description: ISO 8601 timestamp. A value that does not parse (including an empty value) gives 400 invalid_since.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Telemetry records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [records, count]
+                properties:
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/McpTelemetryRecord'
+                  count:
+                    type: integer
+        '400':
+          description: limit is not an integer between 1 and 200 (error invalid_limit).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
         '404':
           description: Not the instance admin with owner scope.
 
@@ -1343,7 +1470,7 @@ paths:
     get:
       summary: List accounts (admin only)
       operationId: listAccounts
-      x-claire-access: owner
+      x-claire-access: admin
       security:
         - BearerAuth: []
         - SessionHeader: []
@@ -1366,29 +1493,132 @@ paths:
 
   /me:
     get:
-      summary: Own account settings page
+      summary: Legacy account page redirect
+      description: >-
+        Compatibility redirect to /settings/account. The rule surface is any, so a
+        prefixed /@{username}/me also redirects. The Location is always the root
+        path and the query string (including notice) is not forwarded.
       operationId: getMePage
       x-claire-access: owner
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
+      responses:
+        '302':
+          description: Redirect to /settings/account (Cache-Control no-store, Referrer-Policy same-origin).
+          headers:
+            Location:
+              schema:
+                type: string
+                const: /settings/account
+        '404':
+          description: Not an owner-scope credential.
+
+  /settings:
+    get:
+      summary: User settings console entry redirect
+      description: >-
+        Redirects to /settings/account, or to /settings/reader when from=syndication.
+        A valid theme query is kept on the redirect target.
+      operationId: getSettingsConsoleIndex
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
       parameters:
-        - name: notice
+        - name: from
           in: query
           required: false
           schema:
             type: string
-            enum: [password_not_saved]
+            enum: [syndication]
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+      responses:
+        '302':
+          description: Redirect to /settings/account or /settings/reader (Cache-Control no-store, Referrer-Policy same-origin).
+        '404':
+          description: Not an owner-scope account credential, or invalid theme reference.
+
+  /settings/{section}:
+    get:
+      summary: User settings console section page (unified console shell)
+      description: >-
+        Root-only owner pages rendered in console_shell.html in both instance modes.
+        Prefixed paths (/@{username}/settings/..., /themes/{n}/settings/...) return
+        404. For the instance admin, /settings/themes and /settings/tokens redirect
+        (302) to /admin/themes and /admin/tokens. Responses to non-admin callers
+        contain no /admin links or admin markup. Sections reader through webmcp are
+        theme-scoped; the others are account-wide.
+      operationId: getSettingsConsoleSection
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: section
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [account, keys, themes, tokens, reader, connections, feeds, tags, rules, outbound, opml, mcp, webmcp]
+        - $ref: '#/components/parameters/ConsoleThemeQuery'
+        - name: notice
+          in: query
+          required: false
+          description: Only read on /settings/account. Values outside the enum render no notice.
+          schema:
+            type: string
+            enum: [password_not_saved, identity_linked, already_linked]
       responses:
         '200':
-          description: Account settings (HTML).
+          description: Settings page (HTML, Cache-Control no-store, Referrer-Policy same-origin).
           content:
             text/html:
               schema:
                 type: string
+        '302':
+          description: Admin caller on /settings/themes or /settings/tokens; Location is /admin/themes or /admin/tokens with the validated theme query.
         '404':
-          description: Not an owner-scope credential.
+          description: Not an owner-scope account credential, or invalid theme reference.
+
+  /syndication/preferences:
+    get:
+      summary: Legacy syndication preferences redirect
+      description: >-
+        Compatibility redirect. The theme query is validated first (404 when it is
+        missing or not accessible). The tab query maps reader (or omitted) to
+        /settings/reader, accounts to /settings/connections, and feeds, tags, rules,
+        outbound, opml, mcp, webmcp to /settings/ with the same name, keeping the
+        validated theme as ?theme=. idp and userdb go to /admin/idp and
+        /admin/accounts for the instance admin and to /settings/account for other
+        owners, without ?theme=. An empty or unknown tab is 404. The Location is
+        always a root path.
+      operationId: getSyndicationPreferencesRedirect
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: tab
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [reader, accounts, feeds, tags, rules, outbound, opml, mcp, webmcp, idp, userdb]
+        - name: theme
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the mapped /settings/* or /admin/* page (Cache-Control no-store, Referrer-Policy same-origin).
+        '404':
+          description: Not an owner-scope credential, invalid theme reference, or empty or unknown tab.
 
   /api/me:
     get:
@@ -1529,6 +1759,34 @@ paths:
                 $ref: '#/components/schemas/StandardError'
 
 components:
+  parameters:
+    ConsoleThemeQuery:
+      name: theme
+      in: query
+      required: false
+      description: >-
+        Public theme reference that must belong to the caller's account. An empty,
+        unknown, or foreign reference returns 404; it never falls back to a default
+        theme. When omitted, the caller's default theme is used.
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    Unauthorized:
+      description: Authentication required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StandardError'
+    NotFound:
+      description: Not found, or hidden from this credential (stealth 404).
+
   securitySchemes:
     BearerAuth:
       type: http
@@ -1549,6 +1807,31 @@ components:
       description: Same-Origin HttpOnly session cookie.
 
   schemas:
+    McpTelemetryRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        timestamp:
+          type: number
+          description: Unix epoch seconds.
+        client_id:
+          type: [string, 'null']
+        call_type:
+          type: string
+        tool_name:
+          type: [string, 'null']
+        duration_ms:
+          type: [integer, 'null']
+        status:
+          type: string
+        error_code:
+          type: [integer, 'null']
+        error_message:
+          type: [string, 'null']
+        response_bytes:
+          type: [integer, 'null']
+
     TokenExchangeRequest:
       type: object
       required:

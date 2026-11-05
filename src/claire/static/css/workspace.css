@@ -58,10 +58,11 @@
   #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
     border-radius:6px;cursor:pointer;font-size:18px;line-height:1}
   #morebtn:hover{background:var(--hover)}
-  #themebtn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;
+  #themebtn,#consolelinkbtn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;
     background:transparent;color:var(--fg);border:1px solid var(--border);padding:0 8px;font-size:14px;
     border-radius:4px;cursor:pointer;box-sizing:border-box;transition:background .15s ease}
-  #themebtn:hover{background:var(--hover)}
+  #consolelinkbtn{text-decoration:none}
+  #themebtn:hover,#consolelinkbtn:hover{background:var(--hover)}
   #worktabs{display:none}
   #drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) var(--detail-width,360px);
@@ -381,7 +382,7 @@
     #morebtn{display:inline-flex!important;min-width:38px;min-height:38px;height:38px;padding:4px 8px;align-items:center;justify-content:center}
     #viewoptions select{font-size:13px;padding:4px 6px}
     #viewoptions #authstate{min-height:38px;height:38px;padding:0 8px;font-size:12px}
-    #viewoptions #themebtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
+    #viewoptions #themebtn,#viewoptions #consolelinkbtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
       padding-bottom:env(safe-area-inset-bottom)}

@@ -1,7 +1,7 @@
 # Functional Path Separation of `admin/` and `settings/` with a Unified Console UI
 
 - **Document Identifier**: `DESIGN-ADMIN-SETTINGS-CONSOLE-20261104`
-- **Status**: Approved Design (Owner Decisions D1–D5 Locked) · Ready for Phased Implementation (`P1`–`P5`)
+- **Status**: Implemented (Owner Decisions D1–D5 Locked) · `P1` `2aeedc4` · `P2` `2a04ae8` · `P3` `82e4558` · `P4` `cdc0f2a` · `P5` implementation docs and OpenAPI sync (this change)
 - **Date**: 2026-11-04 · Base Commit `8efce1a`
 - **Related Documents**:
   - [`PRINCIPLES.md`](../PRINCIPLES.md)

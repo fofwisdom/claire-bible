@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlencode
@@ -33,6 +34,8 @@ from .common import (
     json_error,
     not_found,
     open_db,
+    prototype_badge,
+    prototype_note,
     render_template,
 )
 from .console_syndication_panels import SYNDICATION_SECTION_SLUGS, SettingsSectionRender, build_syndication_section
@@ -570,7 +573,8 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tupl
             "</div>"
             "</section>"
             '<section class="card" id="admin-token-policy-card" aria-label="인스턴스 토큰 정책 요약">'
-            '<h2>🛡️ 인스턴스 인증 채널 및 토큰 정책</h2>'
+            f'<h2>🛡️ 인스턴스 인증 채널 및 토큰 정책 {prototype_badge("admin-token-policy-summary", "static")}</h2>'
+            f'{prototype_note("admin-token-policy-summary", "코드 기본값을 옮겨 적은 고정 안내문입니다. 실행 중인 설정을 읽어 오지 않으며, 여기서 정책을 바꿀 수 없습니다.")}'
             '<dl>'
             '<dt>상시 이용 토큰 (<code>cb_…</code>)</dt><dd>계정별 격리 발급 · <code>owner</code> / <code>collaborator</code> / <code>readonly</code> 권한 · 즉시 폐기(<code>/tokens/revoke</code>)</dd>'
             '<dt>OAuth 2.1 원격 커넥터</dt><dd>PKCE(S256) 필수 · <code>readonly</code> 스코프 고정 · Access 30일 / Refresh 1년 회전</dd>'
@@ -614,7 +618,8 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tupl
             "</div>"
             "</section>"
             '<section class="card" id="admin-mcp-rbac-card" aria-label="RBAC 설계 대조 진단">'
-            '<h2>🧭 RBAC 설계 vs 현재 MCP 접근 판정 대조</h2>'
+            f'<h2>🧭 RBAC 설계 vs 현재 MCP 접근 판정 대조 {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
+            f'{prototype_note("admin-mcp-rbac-table", "고정 문구로 그린 설계 대조표입니다. 실제 권한 판정을 실행하거나 서버 정책을 읽어 오지 않으며, 판정 칸도 고정값입니다.")}'
             '<p class="hint">권한 범위별 REST RBAC 정책과 <code>/mcp</code> 엔드포인트 도구 호출 권한 대조표입니다.</p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
@@ -629,11 +634,12 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tupl
             "</div>"
             "</section>"
             '<section class="card" id="admin-webmcp-policy-card" aria-label="전역 WebMCP 정책">'
-            '<h2>🕸️ 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>)</h2>'
+            f'<h2>🕸️ 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>) {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
+            f'{prototype_note("admin-webmcp-global-switch", "이 스위치는 지금 보고 있는 브라우저(localStorage)에만 기억됩니다. 서버 설정을 바꾸지 않고 Permissions-Policy 헤더도 보내지 않으며, 다른 운영자·멤버 화면에 적용되지 않습니다.")}'
             '<div class="pref-row">'
             '<div class="pref-row-label">'
             '<strong>WebMCP 페이지 도구 전역 허용 (<code>document.modelContext</code>)</strong>'
-            '<span>비활성화 시 브라우저 에이전트의 페이지 도구 등록을 차단하고 <code>Permissions-Policy: tools=()</code> 헤더 정책을 적용합니다.</span>'
+            '<span>비활성화 시 브라우저 에이전트의 페이지 도구 등록을 차단하고 <code>Permissions-Policy: tools=()</code> 헤더 정책을 적용하는 것이 설계 목표입니다(서버 쪽 미구현).</span>'
             "</div>"
             '<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="WebMCP 도구 등록 전역 허용"/>'
             "</div>"
@@ -1319,7 +1325,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return json_error(400, "invalid_limit")
         status = request.query_params.get("status", "").strip() or None
         tool_name = request.query_params.get("tool_name", "").strip() or None
-        since = request.query_params.get("since", "").strip() or None
+        since: float | None = None
+        if "since" in request.query_params:
+            # C1: 해석하지 못한 since를 조용히 빼고 전체를 돌려주지 않는다. ISO 8601만 받는다.
+            try:
+                since = datetime.fromisoformat(request.query_params.get("since", "").strip().replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                return json_error(400, "invalid_since")
         rows = await asyncio.to_thread(
             query_mcp_telemetry,
             ctx.data_dir,

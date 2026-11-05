@@ -63,7 +63,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | Method | Path | 최소 접근 수준 | 설명 |
 |---|---|---|---|
 | `GET` | `/health` | `public` | 서비스 liveness 및 DB 연결 검사 (`{"ok": true}`) |
-| `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "..."}`) |
+| `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "instance": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 |
 | `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급 |
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
@@ -80,14 +80,14 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `DELETE` | `/tokens` | `owner` | API 및 MCP 상시 토큰 즉시 폐기 |
 | `POST` | `/mcp` | `read` | Model Context Protocol JSON-RPC 통신 |
 
-구현별 UI 페이지(`/`, `/syndication`, `/syndication/preferences`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
+구현별 UI 페이지(`/`, `/syndication`, `/admin/*`, `/settings/*`, `/reference`, `/p`) 및 부가 기능은 각 계보의 확장 라우트로 관리하되 위 최소 공통 엔드포인트의 와이어 형식을 훼손하지 않는다.
 
 ## 6. 계정 경로 (증강 계보 확장, P1)
 
 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02). 아래는 증강 계보의 확장 라우트이며 §5의 최소 공통 엔드포인트가 아니다. 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md), 접근 규칙의 정본은 `src/claire/api/security.py`의 `ROUTE_POLICY`다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 모든 요청에는 요청 주체(`Principal`)가 하나 정해진다(`src/claire/api/principal.py`). `public` 규칙 라우트는 자격증명을 검증하지 않고 익명 주체를 둔다.
-- **[코드]** `owner` 규칙을 통과하지 못하면 §3.4와 같이 404다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
+- **[코드]** `owner`·`admin` 규칙을 통과하지 못하면 §3.4와 같이 404다. `admin` 규칙은 owner 범위이면서 `instance_role=admin`인 자격증명만 통과한다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
@@ -97,9 +97,9 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
 | `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |
 | `POST` | `/api/auth/reauth` | `owner` | 200 `{"ok": true, "authenticated_at": <초>}` | 400 `invalid_request`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `password_not_set`, 429 `too_many_attempts` |
-| `GET` | `/admin/accounts` | `owner` (+ 관리자) | 200 HTML | 404 |
-| `GET` | `/api/admin/accounts` | `owner` (+ 관리자) | 200 `{"accounts": [...]}` | 404 |
-| `GET` | `/me` | `owner` | 200 HTML | 404 |
+| `GET` | `/admin/accounts` | `admin` | 200 HTML (통합 콘솔, §6.2) | 404 |
+| `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
+| `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
 | `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
 | `PATCH` | `/api/me` | `owner` | 200 계정 정보 | 400 `invalid_request`, 400 `invalid_display_name` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
@@ -110,3 +110,22 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 - **[코드]** 세션이지만 최근 15분 안에 인증하지 않았으면 401 `{"error": "reauth_required", "reauth": "/api/auth/reauth"}`와 `WWW-Authenticate: Session realm="claire", error="reauth_required"`. 클라이언트는 `POST /api/auth/reauth` 뒤에 원래 요청을 다시 보낸다.
 - **[코드]** 재인증 비밀번호가 틀리면 403 `invalid_password`, 계정에 비밀번호가 없으면 409 `password_not_set`.
 - **[코드]** JSON 본문은 §1.3대로 `application/json`이어야 한다. 본문 키가 정해진 집합과 다르면 모르는 키를 버리지 않고 400 `invalid_request`다.
+
+### 6.2 통합 콘솔 경로 (`/admin/*`, `/settings/*`)
+
+확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 인스턴스 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
+
+| Method | Path | 규칙 | 성공 | 그 밖의 응답 |
+|---|---|---|---|---|
+| `GET` | `/admin` | `admin` | 302 `/admin/instance` | 404 비관리자(302보다 먼저), 404 잘못된 `?theme=` |
+| `GET` | `/admin/{instance,accounts,idp,providers,limits,themes,tokens,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
+| `GET` | `/api/admin/mcp/telemetry` | `admin` | 200 `{"records": [...], "count": n}` | 400 `invalid_limit`(`limit`이 1–200 정수가 아님), 404 비관리자 |
+| `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?theme=` 유지) | 404 owner 아님, 404 잘못된 `?theme=` |
+| `GET` | `/settings/{account,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?theme=` |
+| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?theme=` |
+| `GET` | `/syndication/preferences` | `owner` (`_namespaced`) | 302 `/settings/*` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?theme=`, 404 빈·모르는 `?tab=` |
+
+- **[코드]** `?theme=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).
+- **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
+- **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 싱글 모드에서는 이 경로들과 `GET /whoami`가 `@username`을 내지 않는다(S9).
+- **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.

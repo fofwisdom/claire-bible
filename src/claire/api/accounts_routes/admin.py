@@ -28,6 +28,8 @@ from .common import (
     not_found,
     open_auth_db,
     open_db,
+    prototype_badge,
+    prototype_note,
     render_template,
     require_recent_auth,
 )
@@ -271,10 +273,12 @@ def _render_admin_accounts_html(
           <label>테마 수<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
           <label>월 LLM 토큰<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
           <label>일 적재 건수<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
-          <label class="pref-quota-switch"><span>멤버 BYOK 외부 키 허용</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
+          <label class="pref-quota-switch"><span>멤버 BYOK 외부 키 허용 {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
         </div>
+        {prototype_note("admin-accounts-byok-switch", "'멤버 BYOK 외부 키 허용' 스위치는 항상 켜짐으로 고정된 표시입니다. 서버 등급에 이 설정이 없으며 서버 설정을 읽거나 바꾸지 않습니다. 위 한도 값은 실제 서버 등급에서 읽은 값입니다.")}
         <div class="pref-table-wrap">
           <table class="pref-table">
+            <caption style="caption-side:top;text-align:left;padding:0 0 6px">{prototype_badge("admin-accounts-isolation-table", "static")} <span class="proto-note-inline">고정 문구로 그린 설명표이며 실제 디렉터리·DB 상태를 읽어 오지 않습니다.</span></caption>
             <thead><tr><th>구분</th><th>격리 경로</th><th>테마 · 콘텐츠 접근</th><th>할당량 적용</th></tr></thead>
             <tbody id="pref-userdb-tbody">
               <tr><td><strong>관리자 워크스페이스</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>관리자 전용 소유</td><td>제한 없음 (providers.json 직접 사용)</td></tr>

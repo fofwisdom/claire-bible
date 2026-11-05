@@ -134,6 +134,14 @@
 - **[코드]** `recover-loop`, `refresh-loop`, `expand-loop`와 `app health`, `migrate`는 `active_theme_settings()`로 테마 목록을 매번 다시 읽는다.
 - **[코드]** `cmd_migrate`는 멀티 테마 모드에서 테마마다 `init_db`와 `require_current_schema`를 실행한다. 대상 파일은 모두 같은 단일 DB다.
 
+### 4.6 콘솔 화면의 테마 관리와 `?theme=`
+
+- **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(둘 다 `/themes` API를 부르는 `src/claire/static/js/manage_panels.js`의 `renderThemeManager`). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 협업자는 테마 관리 화면에 들어가지 않는다(테마 선택기만 쓴다). 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
+- **[코드] 관리자 화면의 경계**: `/admin/themes`는 관리자 계정(`account_id = 1`)의 테마만 관리하고, 인스턴스 전체는 `COUNT(*)` 집계(`total_themes`, `admin_themes`, `purged`가 아닌 계정 수)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다.
+- **[코드] `/settings/themes`의 슬롯 표시**: 호출자 계정의 테마 수와 서버 등급의 `max_themes`를 보인다.
+- **[코드] 콘솔의 `?theme=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?theme=`를 `ThemeManager.resolve_theme_ref(ref, account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(§0-3). 쿼리가 없으면 호출자 계정의 기본 테마(`is_default`)를 쓴다. 테마별 섹션(`/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`)은 사이드바 링크와 리디렉트에 검증한 `?theme=`를 이어 붙인다.
+- **[코드] 옛 `/syndication/preferences?theme=`**: `_get_theme_ctx`로 먼저 검사해 실패하면 404이고, 통과하면 `/settings/*` 대상에 테마 공개 참조(`ids.format_public_id(number)`)를 `?theme=`로 붙인다.
+
 ---
 
 ## 5. 테마 수명주기

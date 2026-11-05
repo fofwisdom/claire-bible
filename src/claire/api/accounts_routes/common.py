@@ -213,6 +213,24 @@ def escape(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+# /admin/* 화면 중 실제 서버 설정에 닿지 않는 요소(프로토타입·시뮬레이션·브라우저 저장·정적 표)의 표식.
+# 운영자가 실제 인스턴스 설정으로 오인하지 않도록 서버가 그린다(JS 없이도 보임). 모양은 console_shell.html의 .proto-badge/.proto-note.
+PROTOTYPE_KIND_LABELS = {
+    "prototype": "프로토타입",
+    "simulation": "시뮬레이션",
+    "client_only": "브라우저에만 저장",
+    "static": "정적 안내",
+}
+
+
+def prototype_badge(marker: str, kind: str) -> str:
+    return f'<span class="proto-badge" data-prototype="{escape(marker)}" data-prototype-kind="{escape(kind)}">{escape(PROTOTYPE_KIND_LABELS[kind])}</span>'
+
+
+def prototype_note(marker: str, text: str) -> str:
+    return f'<p class="proto-note" data-prototype-note="{escape(marker)}">⚠ {escape(text)}</p>'
+
+
 # 계정 양식 화면의 ``Referrer-Policy``. 전역 기본값 ``no-referrer``(`security.SafeAccessLogMiddleware`)이면
 # Chromium은 그 화면에서 제출한 양식 POST(navigate 모드)에 ``Origin: null``을 싣고, ``CORSPolicyMiddleware``가
 # 403으로 막는다. ``same-origin``은 같은 origin 요청에만 Referer·실제 Origin을 싣고 다른 origin으로는 아무것도 보내지 않는다.

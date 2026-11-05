@@ -691,17 +691,19 @@ test('node aliases render and can be promoted to primary representative label in
   expect(pageErrors).toEqual([]);
 });
 
-test('provider management modal opens in owner session, displays providers, and supports connection test', async ({ page }) => {
+test('provider management lives in the admin console and the root topbar shows only the console icon', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
 
-  // 1. Verify anonymous user does NOT see provider button
+  // 1. Anonymous users see no console icon, and the detail menu has no manage panel at all
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect.poll(
     () => page.evaluate(() => window.claireDebug?.authScope),
   ).toBe('anonymous');
-  await expect(page.locator('#providermanagebtn')).toBeHidden();
+  await expect(page.locator('#consolelinkbtn')).toBeHidden();
+  await expect(page.locator('#manage-section')).toHaveCount(0);
+  await expect(page.locator('#providermanagebtn')).toHaveCount(0);
 
   // 2. Authenticate as owner
   await page.goto('/?t=e2e-provider-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
@@ -712,13 +714,20 @@ test('provider management modal opens in owner session, displays providers, and 
     () => page.evaluate(() => window.claireDebug?.stabilized),
   ).toBe(true);
 
-  // 3. Provider button should now be visible in owner session
-  const providerBtn = page.locator('#providermanagebtn');
-  await expect(providerBtn).toBeVisible();
+  // 3. The admin owner sees the 🛠️ console icon directly left of the light/dark toggle
+  const consoleBtn = page.locator('#consolelinkbtn');
+  await expect(consoleBtn).toBeVisible();
+  await expect(consoleBtn).toHaveAttribute('href', '/admin');
+  await expect(consoleBtn).toHaveText('🛠️');
+  await expect(consoleBtn).toHaveAttribute('aria-label', '관리자 콘솔');
+  const nextId = await consoleBtn.evaluate(el => el.nextElementSibling && el.nextElementSibling.id);
+  expect(nextId).toBe('themebtn');
 
-  // 4. Open provider manager modal
-  await providerBtn.click();
-  const detailPane = page.locator('#detailpane');
+  // 4. Follow the icon into the console, then open the provider section
+  await consoleBtn.click();
+  await expect(page).toHaveURL(/\/admin\/instance$/);
+  await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
+  const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();
 
   // 5. Verify provider manager UI components render
@@ -1273,7 +1282,10 @@ test('database presentation toggle controls presentation tab visibility and iner
 
   await page.route('**/themes**', async (route) => {
     const request = route.request();
-    if (request.method() === 'GET') {
+    // The console page /admin/themes itself also matches this glob. Mock only the /themes API calls.
+    if (request.resourceType() === 'document') {
+      await route.continue();
+    } else if (request.method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1315,9 +1327,9 @@ test('database presentation toggle controls presentation tab visibility and iner
   const presTab = page.locator('#centertab-presentation');
   await expect(presTab).toBeVisible();
 
-  // 3. Open Theme Manager
-  await page.evaluate(() => openThemeManager());
-  const detailPane = page.locator('#detailpane');
+  // 3. Open the theme manager in the admin console (the root detail menu no longer has one)
+  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  const detailPane = page.locator('#admin-themes-host');
   await expect(detailPane).toBeVisible();
   await expect(detailPane).toContainText('지식 테마 관리');
 
@@ -1326,7 +1338,14 @@ test('database presentation toggle controls presentation tab visibility and iner
   await expect(toggleOffBtn).toBeVisible();
   await toggleOffBtn.click();
 
-  // 5. Verify presentation tab is now hidden
+  // 5. Back on the graph root, verify presentation tab is now hidden
+  await expect(detailPane.locator('button:has-text("발표 켜기")').first()).toBeVisible();
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
+  await page.evaluate(() => {
+    if (!window.__CLAIRE_CONFIG) window.__CLAIRE_CONFIG = {};
+    window.__CLAIRE_CONFIG.themeMode = 'multi';
+  });
   await expect(presTab).toBeHidden();
 
   // 6. Access presentation view while disabled and verify inert view
@@ -1339,13 +1358,17 @@ test('database presentation toggle controls presentation tab visibility and iner
   await expect(page.locator('#presentation-empty-title')).toContainText('프레젠테이션 기능이 비활성화되어 있습니다');
   await expect(page.locator('#presentation-gen-btn')).toBeHidden();
 
-  // 7. Turn presentation back ON via Theme Manager
-  await page.evaluate(() => openThemeManager());
+  // 7. Turn presentation back ON via the console theme manager
+  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  await expect(detailPane).toContainText('지식 테마 관리');
   const toggleOnBtn = detailPane.locator('button:has-text("발표 켜기")').first();
   await expect(toggleOnBtn).toBeVisible();
   await toggleOnBtn.click();
 
-  // 8. Verify presentation tab is restored and visible
+  // 8. Back on the graph root, verify presentation tab is restored and visible
+  await expect(detailPane.locator('button:has-text("발표 끄기")').first()).toBeVisible();
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
   await expect(presTab).toBeVisible();
 
   expect(pageErrors).toEqual([]);

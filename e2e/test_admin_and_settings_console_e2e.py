@@ -192,7 +192,7 @@ def _assert_no_username_leak(resp, label: str) -> None:
 
 
 @pytest.mark.parametrize("mode", MODES)
-def test_admin_root_drawer_exposes_quick_panels_and_console_entry(console_e2e, mode: str):
+def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e, mode: str):
     _set_mode(console_e2e.db_file, mode)
     env = console_e2e
 
@@ -201,16 +201,13 @@ def test_admin_root_drawer_exposes_quick_panels_and_console_entry(console_e2e, m
     root = _get(env, root_path, env.admin)
     assert root.status_code == 200, root.status_code
     html = root.text
-    # '관리 및 설정' 드로어 정적 마크업: 버튼 노출 여부는 /whoami is_admin으로 app.js가 결정한다(D2).
-    assert 'id="manage-section"' in html
-    assert 'aria-label="관리 및 설정"' in html
-    assert re.search(r'<button id="providermanagebtn"[^>]*onclick="openProviderManager\(\)"', html)
-    assert re.search(r'<button id="limitmanagebtn"[^>]*onclick="openLimitManager\(\)"', html)
-    assert "⚡</span> <span class=\"btn-label\">프로바이더</span>" in html
-    assert "📏</span> <span class=\"btn-label\">적재 제한</span>" in html
-    assert 'id="consolelinkbtn"' in html
-    # graphview는 /static/js/*.js를 페이지에 인라인한다: 공유 관리 모듈(manage_panels.js)과 app.js의 is_admin 분기가 함께 실린다.
-    assert "ClaireManagePanels" in html
+    # 상세 메뉴의 '관리 및 설정' 패널은 없다. 관리·설정 기능은 콘솔에만 있다.
+    assert 'id="manage-section"' not in html
+    for gone in ("providermanagebtn", "limitmanagebtn", "thememanagebtn", "tokenmanagebtn", "openProviderManager", "openLimitManager", "openThemeManager", "openTokenManager", "ClaireManagePanels"):
+        assert gone not in html, gone
+    # 콘솔 단추는 상단바에서 라이트/다크 전환(#themebtn) 바로 왼쪽의 아이콘이다.
+    topbar = html[html.index('<div id="viewoptions">'):html.index('</header>')]
+    assert re.search(r'<a id="consolelinkbtn"[^>]*>⚙️</a>\s*<button id="themebtn"', topbar)
 
     who = _get(env, "/whoami", env.admin)
     assert who.status_code == 200
@@ -218,11 +215,10 @@ def test_admin_root_drawer_exposes_quick_panels_and_console_entry(console_e2e, m
     assert who.json()["scope"] == "owner"
     assert who.json()["instance"] == {"mode": mode}
 
-    # 인라인된 app.js가 is_admin=true일 때 ⚡/📏 버튼을 켜고 #consolelinkbtn을 🛠️ 관리자 콘솔 → /admin으로 바꾼다.
+    # 인라인된 app.js가 is_admin=true일 때 #consolelinkbtn을 🛠️ 아이콘(관리자 콘솔 → /admin)으로 바꾼다.
     assert "IS_ADMIN = d.is_admin === true" in html
-    assert "(canWrite() && IS_ADMIN)" in html
-    assert "clBtn.setAttribute('href', '/admin')" in html
-    assert "🛠️</span> <span class=\"btn-label\">관리자 콘솔</span>" in html
+    assert "clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings')" in html
+    assert "clBtn.textContent = IS_ADMIN ? '🛠️' : '⚙️'" in html
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -283,9 +279,10 @@ def test_member_isolation_in_network_mode(console_e2e):
 
     root = _get(env, f"/@{MEMBER_USERNAME}/", env.alice)
     assert root.status_code == 200, root.status_code
-    # 정적 마크업은 프로바이더·적재 제한 버튼을 기본 숨김으로 둔다(is_admin=false면 app.js가 켜지 않는다).
-    assert re.search(r'<button id="providermanagebtn"[^>]*style="display:none"', root.text)
-    assert re.search(r'<button id="limitmanagebtn"[^>]*style="display:none"', root.text)
+    # 멤버 루트에도 드로어 관리 패널이 없고, 상단바 아이콘은 기본값 /settings다.
+    assert 'id="manage-section"' not in root.text
+    assert "providermanagebtn" not in root.text
+    assert "limitmanagebtn" not in root.text
     assert re.search(r'<a id="consolelinkbtn"[^>]*href="/settings"', root.text)
 
     entry = _get(env, "/settings", env.alice)

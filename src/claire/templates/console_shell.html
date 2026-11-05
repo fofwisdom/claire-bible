@@ -47,6 +47,13 @@
   .badge-enabled,.pref-pill-mcp{color:#1a7f37;background:rgba(46,160,67,0.14);border-color:rgba(46,160,67,0.35)}
   .badge-disabled,.pref-pill-warn{color:#cf222e;background:rgba(248,81,73,0.12);border-color:rgba(248,81,73,0.35)}
   .pref-pill-prop{color:var(--muted);background:transparent;border-style:dashed}
+  /* 관리 콘솔 프로토타입 표식: 실제 서버 설정에 닿지 않는 요소(프로토타입·시뮬레이션·브라우저 저장·정적 안내). common.prototype_badge/prototype_note가 그린다. */
+  .proto-badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;color:#9a6700;background:rgba(212,167,44,0.16);border:1px dashed rgba(212,167,44,0.7);white-space:nowrap;vertical-align:middle}
+  .proto-badge::before{content:"⚠"}
+  .proto-note{margin:0;padding:6px 10px;border-radius:6px;border:1px dashed rgba(212,167,44,0.7);background:rgba(212,167,44,0.08);color:var(--fg);font-size:12px;line-height:1.5}
+  .proto-note-inline{font-size:12px;color:var(--muted);font-weight:500}
+  [data-theme="dark"] .proto-badge{color:#e3b341}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .proto-badge{color:#e3b341}}
   .notice,.pref-notice{padding:10px 12px;border-radius:6px;border:1px solid var(--border);border-left:3px solid var(--accent);background:var(--panel-bg);font-size:12.5px;line-height:1.5}
   .notice.danger,.pref-notice[data-tone="warn"]{border-left-color:#cf222e;background:rgba(248,81,73,0.07)}
   .pref-notice[data-tone="ok"]{border-left-color:#1a7f37;background:rgba(46,160,67,0.07)}

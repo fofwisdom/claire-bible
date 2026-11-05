@@ -101,6 +101,7 @@
   </div>
   <div id="viewoptions">
     <span id="authstate">⏳ 권한 확인 중</span>
+    <a id="consolelinkbtn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none">⚙️</a>
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
       aria-label="도구 더보기" title="도구 더보기" onclick="toggleDrawer()">☰</button>
@@ -409,18 +410,6 @@
             <span id="synthchips"></span>
           </div>
         </div>
-        <div id="manage-section" class="menu-section" aria-label="관리 및 설정" style="display:none">
-          <div class="menu-section-head">
-            <span class="menu-section-title">관리 및 설정</span>
-          </div>
-          <div class="action-btn-row">
-            <a id="consolelinkbtn" class="sec" href="/settings" title="내 설정" aria-label="콘솔 바로가기" style="display:none"><span class="btn-icon">⚙️</span> <span class="btn-label">내 설정</span></a>
-            <button id="thememanagebtn" class="sec" onclick="openThemeManager()" title="지식 테마 정의 및 공개 여부 관리" aria-label="테마관리" style="display:none"><span class="btn-icon">📁</span> <span class="btn-label">테마 관리</span></button>
-            <button id="providermanagebtn" class="sec" onclick="openProviderManager()" title="LLM 및 하이퍼스케일러 프로바이더 설정" aria-label="프로바이더 관리" style="display:none"><span class="btn-icon">⚡</span> <span class="btn-label">프로바이더</span></button>
-            <button id="limitmanagebtn" class="sec" onclick="openLimitManager()" title="상황 별 적재 제한 및 슬라이싱 예산 설정" aria-label="적재 제한 관리" style="display:none"><span class="btn-icon">📏</span> <span class="btn-label">적재 제한</span></button>
-            <button id="tokenmanagebtn" class="sec" onclick="openTokenManager()" title="API 및 MCP 상시 이용 토큰 관리" aria-label="API/MCP 토큰 관리" style="display:none"><span class="btn-icon">🔑</span> <span class="btn-label">API/MCP 키</span></button>
-          </div>
-        </div>
       </div>
       <div id="panel"></div>
       <div id="drawerfooter">
@@ -449,7 +438,6 @@
 <script src=/static/js/graph/network.js></script>
 <script src=/static/js/renderers/adoc_parser.js></script>
 <script src=/static/js/reader.js></script>
-<script src=/static/js/manage_panels.js></script>
 <script src=/static/js/app.js></script>
 </body>
 </html>
