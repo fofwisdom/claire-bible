@@ -1,0 +1,64 @@
+<section id="panel-feeds" class="pref-panel" data-settings-panel="feeds">
+  <div class="pref-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <h2>📡 정기 수집 대상 및 카테고리 폴더 관리</h2>
+        <p class="pref-desc">선택한 테마 DB의 RSS/Atom 피드와, <b>연결 계정을 경유</b>해 수집하는 ActivityPub · AT Protocol 대상(계정 · 해시태그 · 리스트 · 커스텀 피드)과 수집 주기를 관리합니다.</p>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table class="pref-table" aria-label="정기 수집 대상 목록">
+        <thead>
+          <tr>
+            <th>프로토콜</th>
+            <th>카테고리 폴더</th>
+            <th>수집 대상 이름</th>
+            <th>식별자 / 피드 URI</th>
+            <th>경유 계정</th>
+            <th>수집 주기</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody id="pref-feeds-tbody"></tbody>
+      </table>
+    </div>
+
+    <form id="pref-add-feed-form" style="display:grid;grid-template-columns:130px 140px 1fr 1.2fr 1fr 110px auto;gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)">
+      <div>
+        <label for="new-feed-proto" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">프로토콜</label>
+        <select id="new-feed-proto" class="pref-select" style="width:100%">
+          <option value="rss">RSS / ATOM</option>
+          <option value="ap">ActivityPub</option>
+          <option value="at">AT Protocol</option>
+        </select>
+      </div>
+      <div>
+        <label for="new-feed-folder" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">폴더</label>
+        <input id="new-feed-folder" type="text" class="pref-input" style="width:100%" value="엔지니어링 블로그"/>
+      </div>
+      <div>
+        <label for="new-feed-title" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">표시 이름</label>
+        <input id="new-feed-title" type="text" required class="pref-input" style="width:100%" placeholder="예: LWN.net Kernel"/>
+      </div>
+      <div>
+        <label for="new-feed-url" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">URL / @핸들 / #태그</label>
+        <input id="new-feed-url" type="text" required class="pref-input" style="width:100%" placeholder="https://lwn.net/headlines/rss"/>
+      </div>
+      <div>
+        <label for="new-feed-via" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">경유 계정 (AP · AT)</label>
+        <select id="new-feed-via" class="pref-select" style="width:100%" disabled></select>
+      </div>
+      <div>
+        <label for="new-feed-interval" style="display:block;font-size:11.5px;font-weight:700;margin-bottom:4px">주기</label>
+        <select id="new-feed-interval" class="pref-select" style="width:100%">
+          <option value="15m">매 15분</option>
+          <option value="5m">매 5분</option>
+          <option value="1h">매 1시간</option>
+          <option value="stream">스트리밍 (연결 계정)</option>
+        </select>
+      </div>
+      <button type="submit" class="pref-btn pref-btn-pri">+ 추가</button>
+    </form>
+  </div>
+</section>

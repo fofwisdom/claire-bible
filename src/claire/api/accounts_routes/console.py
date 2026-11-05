@@ -35,6 +35,16 @@ from .common import (
     open_db,
     render_template,
 )
+from .console_syndication_panels import SYNDICATION_SECTION_SLUGS, SettingsSectionRender, build_syndication_section
+
+# P3-a: Group 1 (내 계정 · 워크스페이스) 섹션이 쓰는 모듈.
+from ...accounts import server_tier as server_tier_mod
+from ...accounts.provider_policy import MEMBER_KEY_PROVIDERS, ServerTier
+from ...store import auth_db
+from ...store import usage_ledger
+from . import keys as keys_routes
+from .admin import ROLE_TEXT, STATUS_TEXT
+from .common import open_auth_db
 
 ADMIN_INDEX_PATH = "/admin"
 SETTINGS_INDEX_PATH = "/settings"
@@ -650,6 +660,453 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tupl
     ), {}
 
 
+def _build_settings_account_section(
+    ctx: AccountsContext,
+    *,
+    spec: ConsoleSectionSpec,
+    principal: Principal,
+    mode: accounts_store.InstanceMode,
+    account: accounts_store.Account,
+    owned_themes: list[ThemeInfo],
+) -> SettingsSectionRender:
+    """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
+
+    - 기존 API만 쓴다(C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``POST /graph/bundle``, ``/api/me/keys*``, ``/themes``, ``/tokens``.
+    - 싱글 모드에서는 USERNAME과 ``profile_public`` 행을 내지 않는다(S9).
+    - 비관리자 응답에는 ``/admin/*`` 링크를 넣지 않는다(불변식 3). ``/admin/providers`` 링크는 관리자 뷰어에게만 준다.
+    """
+    if principal.account_id is None or principal.account_id != account.id:
+        raise RuntimeError("settings Group 1 requires the caller's own account principal")
+    admin_viewer = is_admin(principal)
+    if spec.slug == "account":
+        body, extra = _settings_account_body(ctx, principal=principal, mode=mode, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer)
+    elif spec.slug == "keys":
+        body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
+    elif spec.slug == "themes":
+        if admin_viewer:
+            # D3: 라우터가 관리자를 /admin/themes로 보낸다. 여기에 오면 결함이다.
+            raise RuntimeError("/settings/themes must redirect the admin to /admin/themes")
+        body, extra = _settings_themes_body(ctx, account=account, owned_themes=owned_themes)
+    elif spec.slug == "tokens":
+        if admin_viewer:
+            raise RuntimeError("/settings/tokens must redirect the admin to /admin/tokens")
+        body, extra = _settings_tokens_body(ctx, account=account)
+    else:
+        raise KeyError(spec.slug)
+    return SettingsSectionRender(
+        body_html=f'<div class="settings-group1" data-settings-section="{escape(spec.slug)}">{body}</div>',
+        extra_bootstrap={"settings_account": extra},
+        extra_scripts_html='<script src="/static/js/console_account.js" defer></script>',
+    )
+
+
+def _settings_format_bytes(value: int) -> str:
+    if value < 1024:
+        return f"{value} B"
+    if value < 1024 * 1024:
+        return f"{value / 1024:.1f} KB"
+    return f"{value / (1024 * 1024):.1f} MB"
+
+
+def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, Any]:
+    """호출자 계정의 자원 사용량과 서버 등급. 다른 계정 행은 읽지 않는다."""
+    conn = open_db(ctx)
+    try:
+        tier = server_tier_mod.load_server_tier(conn)
+        themes = server_tier_mod.account_theme_count(conn, account_id)
+        documents = server_tier_mod.account_document_count(conn, account_id)
+        storage_bytes = server_tier_mod.account_storage_bytes(conn, account_id)
+    finally:
+        conn.close()
+    auth = open_auth_db(ctx)
+    try:
+        usage = usage_ledger.get_usage(auth, account_id=account_id)
+    finally:
+        auth.close()
+    return {
+        "tier": tier,
+        "themes": themes,
+        "documents": documents,
+        "storage_bytes": storage_bytes,
+        "period": usage.period,
+        "tokens_total": usage.tokens_total,
+        "daily_day": usage.daily_day,
+        "daily_ingests": usage.daily_ingests,
+    }
+
+
+def _settings_tier_rows_html(tier: ServerTier) -> str:
+    features = ", ".join(sorted(tier.features)) if tier.features else "없음"
+    rows = (
+        ("서버 등급 프로바이더", "없음 (none)" if tier.provider == "none" else tier.provider),
+        ("모델", tier.model or "-"),
+        ("월 LLM 토큰 상한 (UTC 월)", f"{tier.monthly_tokens:,}"),
+        ("일 적재 건수 상한 (UTC 일)", f"{tier.daily_ingests:,}"),
+        ("최대 처리 강도 (max_effort)", tier.max_effort),
+        ("허용 기능", features),
+        ("저장 용량 상한", f"{tier.storage_mb:,} MB"),
+        ("테마 수 상한", f"{tier.max_themes:,}"),
+        ("문서 수 상한", f"{tier.max_documents:,}"),
+        ("BYOK 동시 작업 상한", f"{tier.byok_max_concurrency:,}"),
+    )
+    return "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
+
+
+def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> str:
+    tier: ServerTier = usage["tier"]
+    if admin_viewer:
+        stats = (
+            ("themes", f"{usage['themes']:,}", "내 테마 수"),
+            ("documents", f"{usage['documents']:,}", "내 문서 수"),
+            ("storage", _settings_format_bytes(usage["storage_bytes"]), "저장 용량 (근사)"),
+        )
+    else:
+        stats = (
+            ("themes", f"{usage['themes']:,} / {tier.max_themes:,}", "테마 수 / 상한"),
+            ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", "문서 수 / 상한"),
+            ("storage", f"{_settings_format_bytes(usage['storage_bytes'])} / {tier.storage_mb:,} MB", "저장 용량 (근사) / 상한"),
+            ("tokens", f"{usage['tokens_total']:,} / {tier.monthly_tokens:,}", f"이번 달 LLM 토큰 ({usage['period']} UTC) / 서버 등급 상한"),
+            ("ingests", f"{usage['daily_ingests']:,} / {tier.daily_ingests:,}", f"오늘 적재 건수 ({usage['daily_day']} UTC) / 상한"),
+        )
+    return "".join(
+        f'<div class="pref-stat" data-usage-stat="{escape(key)}"><b>{escape(value)}</b><span>{escape(label)}</span></div>'
+        for key, value, label in stats
+    )
+
+
+def _settings_reauth_form_html(*, has_password: bool, form_id: str) -> str:
+    if not has_password:
+        return (
+            f'<section class="console-subcard" id="{escape(form_id)}" data-settings-reauth="none" aria-label="본인 확인">'
+            "<h2>🔐 본인 확인</h2>"
+            '<p class="hint">이 계정에는 아직 비밀번호가 없습니다. 로그인 링크로 방금 들어온 세션은 15분 동안 본인 확인을 대신합니다. 시간이 지났으면 새 로그인 링크로 다시 로그인하세요.</p>'
+            "</section>"
+        )
+    return (
+        f'<form class="console-subcard" id="{escape(form_id)}" data-settings-form="reauth" aria-label="본인 확인">'
+        "<h2>🔐 본인 확인 (단계 인증)</h2>"
+        '<p class="hint">비밀번호 변경, 외부 계정 연결·해제, API 키 등록·삭제는 15분 안에 본인 확인을 해야 합니다.</p>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">현재 비밀번호<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        '<button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+    )
+
+
+def _settings_enabled_idp_providers(ctx: AccountsContext) -> list[auth_db.IdpProviderMeta]:
+    data_dir = ctx.data_dir or ctx.auth_db_file.parent.parent
+    return [p for p in auth_db.load_idp_providers(data_dir, include_secrets=False) if p.enabled]
+
+
+def _settings_account_body(
+    ctx: AccountsContext,
+    *,
+    principal: Principal,
+    mode: accounts_store.InstanceMode,
+    account: accounts_store.Account,
+    owned_themes: list[ThemeInfo],
+    admin_viewer: bool,
+) -> tuple[str, dict[str, Any]]:
+    auth = open_auth_db(ctx)
+    try:
+        has_password = auth_db.has_password(auth, account.id)
+    finally:
+        auth.close()
+    usage = _settings_account_usage(ctx, account.id)
+    providers = _settings_enabled_idp_providers(ctx)
+
+    # S9: 싱글 모드에서는 USERNAME과 profile_public 행을 내지 않는다.
+    info_rows: list[tuple[str, str, str]] = [("public_id", "번호", str(account.public_id))]
+    if mode == "network":
+        info_rows.append(("username", "USERNAME", f"@{account.username}" if account.username else "(설정 전)"))
+    info_rows.extend(
+        (
+            ("display_name", "표시 이름", account.display_name),
+            ("role", "역할", ROLE_TEXT.get(account.role, account.role)),
+            ("status", "상태", STATUS_TEXT.get(account.status, account.status)),
+            ("password", "비밀번호", "설정됨" if has_password else "설정 안 됨"),
+        )
+    )
+    if mode == "network":
+        info_rows.append(("profile_public", "프로필 공개", "공개 (공개 디렉터리에 표시)" if account.profile_public else "비공개"))
+    info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
+    profile_hint = (
+        '<p class="hint" data-profile-public-hint>프로필 공개 범위를 바꾸는 API가 아직 없어 이 화면에서는 현재 값만 보여 줍니다.</p>'
+        if mode == "network"
+        else ""
+    )
+
+    current_pw_html = (
+        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">현재 비밀번호<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        if has_password
+        else '<p class="hint">이 계정에는 아직 비밀번호가 없습니다. 본인 확인 시간(15분) 안에 새 비밀번호를 설정하세요.</p>'
+    )
+    min_len = auth_db.MIN_PASSWORD_LENGTH
+
+    provider_buttons = "".join(
+        f'<button type="button" class="pref-btn" data-identity-link="{escape(p.id)}">+ {escape(p.display_name)} 연결</button>'
+        for p in providers
+    )
+    link_html = (
+        f'<div style="display:flex;gap:8px;flex-wrap:wrap" data-identity-link-list>{provider_buttons}</div>'
+        if provider_buttons
+        else '<p class="hint" data-identity-link-empty>이 인스턴스에서 연결할 수 있는 외부 로그인 공급자가 없습니다.</p>'
+    )
+
+    bundle_options = "".join(
+        f'<option value="{escape(ids.format_public_id(t.number) if t.number is not None else str(t.id))}">{escape(t.icon)} {escape(t.label)}</option>'
+        for t in owned_themes
+    )
+    if bundle_options:
+        bundle_html = (
+            '<form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap" data-settings-form="bundle-export">'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">내보낼 테마<select name="theme" class="pref-select" required>{bundle_options}</select></label>'
+            '<button type="submit" class="pref-btn pref-btn-accent">⬇ 그래프 번들 만들기</button>'
+            "</form>"
+            '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+            '<div data-bundle-output aria-live="polite"></div>'
+        )
+    else:
+        bundle_html = '<p class="hint" data-bundle-empty>내 계정이 소유한 테마가 없어 내보낼 번들이 없습니다.</p>'
+
+    if admin_viewer:
+        lifecycle_html = '<p class="hint" data-lifecycle="admin">관리자 계정은 인스턴스 소유 계정이므로 삭제할 수 없습니다.</p>'
+    elif account.status == "deleting":
+        lifecycle_html = (
+            '<div class="pref-notice" data-tone="warn" data-lifecycle="deleting">'
+            f"이 계정은 삭제 예약 상태입니다. 예정 시각: {escape(format_ts(account.delete_after))}. 유예 기간 안에 취소하려면 인스턴스 운영자에게 요청하세요."
+            "</div>"
+        )
+    else:
+        lifecycle_html = (
+            '<p class="hint" data-lifecycle="member">계정 삭제는 인스턴스 운영자가 예약합니다. 예약하면 즉시 로그인 세션과 토큰을 끊고, 7일 유예 뒤 내 테마·문서를 소각합니다.</p>'
+            '<p class="hint">이 화면에서 직접 보낼 수 있는 삭제 요청 API는 아직 없습니다. 삭제를 원하면 인스턴스 운영자에게 요청하세요. 삭제 전에 위의 그래프 번들로 내 테마를 내보낼 수 있습니다.</p>'
+        )
+
+    quota_hint = (
+        "관리자 계정은 서버 등급 한도를 받지 않습니다. 아래는 내 계정의 현재 사용량입니다."
+        if admin_viewer
+        else "서버 등급 한도는 BYOK 키를 등록해도 자원 한도(테마·문서·저장 용량·일 적재 건수)에 적용됩니다. 월 토큰 상한은 서버 등급 프로바이더를 쓸 때만 적용됩니다."
+    )
+
+    body = (
+        '<section class="console-subcard" id="settings-account-info" aria-label="계정 정보">'
+        "<h2>🪪 계정 정보</h2>"
+        f"<dl>{info_html}</dl>"
+        f"{profile_hint}"
+        "</section>"
+        '<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="표시 이름">'
+        "<h2>🏷️ 표시 이름</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">표시 이름<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'
+        '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+        f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
+        f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="비밀번호">'
+        f"<h2>🔑 {'비밀번호 변경' if has_password else '비밀번호 설정'}</h2>"
+        f"{current_pw_html}"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호 확인<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
+        f"<p class=\"hint\">{min_len}자 이상. 영문 대소문자, 숫자, 표준 특수문자만 쓸 수 있고 공백·한글은 쓸 수 없습니다. USERNAME을 넣을 수 없습니다. 바꾸면 이 세션을 뺀 다른 로그인 세션은 모두 끊깁니다.</p>"
+        '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+        '<section class="console-subcard" id="settings-identities" data-settings-identities aria-label="연결된 외부 로그인">'
+        "<h2>🔗 연결된 외부 로그인 (OIDC · GitHub)</h2>"
+        '<p class="hint">연결과 해제는 본인 확인을 먼저 해야 합니다. 비밀번호가 없으면 마지막 외부 로그인은 해제할 수 없습니다.</p>'
+        '<div class="pref-table-wrap"><table class="pref-table">'
+        "<thead><tr><th>공급자</th><th>연결 시각</th><th>마지막 로그인</th><th></th></tr></thead>"
+        '<tbody data-identities-tbody><tr><td colspan="4" style="color:var(--muted);text-align:center;">연결 목록을 불러오는 중입니다...</td></tr></tbody>'
+        "</table></div>"
+        f"{link_html}"
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</section>"
+        '<section class="console-subcard" id="settings-quota" aria-label="할당량 및 사용량">'
+        "<h2>📏 할당량 및 사용량</h2>"
+        f'<p class="hint">{escape(quota_hint)}</p>'
+        f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=admin_viewer)}</div>'
+        "</section>"
+        '<section class="console-subcard" id="settings-bundle" aria-label="테마 그래프 번들 내보내기">'
+        "<h2>📦 내 테마 그래프 번들 내보내기</h2>"
+        '<p class="hint">선택한 내 테마의 엔티티·관계·문서를 그래프 번들(<code>POST /graph/bundle</code>)로 묶고 본인 전용 내려받기 링크를 만듭니다. 링크는 만료 시각까지만 유효합니다.</p>'
+        f"{bundle_html}"
+        "</section>"
+        '<section class="console-subcard" id="settings-account-lifecycle" aria-label="계정 삭제">'
+        "<h2>🗑️ 계정 삭제</h2>"
+        f"{lifecycle_html}"
+        "</section>"
+    )
+    extra = {
+        "has_password": has_password,
+        "identity_providers": [{"id": p.id, "display_name": p.display_name, "type": p.type} for p in providers],
+    }
+    return body, extra
+
+
+def _settings_keys_body(
+    ctx: AccountsContext,
+    *,
+    principal: Principal,
+    mode: accounts_store.InstanceMode,
+    account: accounts_store.Account,
+    admin_viewer: bool,
+) -> tuple[str, dict[str, Any]]:
+    if admin_viewer:
+        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
+        notice = "싱글 모드에서는 인스턴스 프로바이더 설정이 모든 LLM·STT·VLM 작업에 쓰입니다." if mode == "single" else "관리자 계정은 BYOK 키 대신 인스턴스 프로바이더 설정을 씁니다."
+        body = (
+            '<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="프로바이더 설정 안내">'
+            "<h2>⚡ 인스턴스 프로바이더 설정</h2>"
+            f'<p class="hint">{escape(notice)}</p>'
+            '<a class="pref-btn pref-btn-accent" href="/admin/providers">⚡ 프로바이더 설정 열기</a>'
+            "</section>"
+        )
+        return body, {"keys_mode": "admin"}
+    if mode != "network" or principal.instance_role != "member":
+        # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
+        body = (
+            '<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="API 키 안내">'
+            "<h2>🔐 외부 API 키</h2>"
+            '<p class="hint">이 인스턴스는 싱글 모드로 운영 중이므로 개인 API 키(BYOK)를 등록할 수 없습니다. LLM·STT·VLM 프로바이더는 인스턴스 운영자가 관리합니다.</p>'
+            "</section>"
+        )
+        return body, {"keys_mode": "unavailable"}
+
+    items = keys_routes.list_meta(ctx, account.id)
+    usage = _settings_account_usage(ctx, account.id)
+    auth = open_auth_db(ctx)
+    try:
+        has_password = auth_db.has_password(auth, account.id)
+    finally:
+        auth.close()
+    provider_options = "".join(
+        f'<option value="{escape(p)}">{escape(keys_routes.PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
+    )
+    body = (
+        '<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="등록한 API 키">'
+        "<h2>🔐 내 API 키 (쓰기 전용)</h2>"
+        '<p class="hint">LLM 작업에 쓸 본인 API 키입니다. 등록한 키는 암호화해 저장하고, 다시 보거나 복사할 수 없습니다. 화면과 API에는 키에서 파생한 fingerprint만 나옵니다. 키가 거부되거나 할당량이 다 되면 작업은 실패하며, 서버 등급이나 다른 키로 바꿔 쓰지 않습니다.</p>'
+        '<p class="hint">한계: 이 보호는 애플리케이션 경로로 키를 읽는 일을 막습니다. 서버가 키로 API를 호출하려면 복호화할 수밖에 없으므로, 서버 호스트의 root 권한자는 막지 못합니다.</p>'
+        f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
+        "</section>"
+        f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"
+        '<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="키 등록·교체">'
+        "<h2>➕ 키 등록·교체</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">API 키<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
+        '<p class="hint">저장하기 전에 시험 호출로 키를 확인하고, 실패하면 저장하지 않습니다. 이미 등록한 키가 있으면 새 키로 바꿉니다.</p>'
+        '<button type="submit" class="pref-btn pref-btn-accent">확인 후 저장</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+        '<form class="console-subcard" id="settings-keys-verify" data-settings-form="provider-key-verify" aria-label="키 다시 확인">'
+        "<h2>🔁 키 다시 확인</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
+        '<p class="hint">저장한 키로 시험 호출을 다시 해서 상태를 갱신합니다.</p>'
+        '<button type="submit" class="pref-btn">다시 확인</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+        '<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="키 삭제">'
+        "<h2>🗑️ 키 삭제</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
+        '<p class="hint">삭제하면 서버 등급이 허용하는 범위에서만 LLM 작업을 합니다.</p>'
+        '<button type="submit" class="pref-btn pref-btn-danger">삭제</button>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</form>"
+        '<section class="console-subcard" id="settings-keys-tier" aria-label="서버 등급 허용량">'
+        "<h2>📊 현재 서버 등급 허용량 (ServerTier)</h2>"
+        '<p class="hint">키를 등록하지 않으면 아래 서버 등급으로 작업합니다. 자원 한도는 키를 등록해도 적용됩니다.</p>'
+        f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
+        f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
+        "</section>"
+    )
+    return body, {"keys_mode": "byok", "has_password": has_password}
+
+
+def _settings_themes_body(
+    ctx: AccountsContext,
+    *,
+    account: accounts_store.Account,
+    owned_themes: list[ThemeInfo],
+) -> tuple[str, dict[str, Any]]:
+    conn = open_db(ctx)
+    try:
+        tier = server_tier_mod.load_server_tier(conn)
+    finally:
+        conn.close()
+    body = (
+        '<section class="console-subcard" id="settings-themes-quota" aria-label="테마 슬롯">'
+        f'<p class="hint" data-theme-slots>내 테마 {len(owned_themes):,}개 / 서버 등급 상한 {tier.max_themes:,}개</p>'
+        "</section>"
+        '<section class="console-subcard" id="settings-themes-manager-card" aria-label="내 지식 테마 관리">'
+        '<div id="settings-themes-host" data-settings-panel-host="themes">'
+        '<p class="hint">내 지식 테마 목록을 불러오는 중입니다...</p>'
+        "</div>"
+        "</section>"
+    )
+    return body, {"theme_slots": {"owned": len(owned_themes), "max_themes": tier.max_themes}}
+
+
+def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
+    """호출자 계정에 발급된 OAuth 토큰이 있는 클라이언트만 고른다(``oauth_tokens.account_id``). 토큰 값은 읽지 않는다."""
+    conn = open_db(ctx)
+    try:
+        rows = conn.execute(
+            "SELECT c.client_id, c.client_name, c.redirect_uris, MIN(t.created_at), MAX(t.expires_at), COUNT(t.token) "
+            "FROM oauth_tokens t JOIN oauth_clients c ON c.client_id = t.client_id "
+            "WHERE t.account_id = ? GROUP BY c.client_id ORDER BY MIN(t.created_at) DESC",
+            (account_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    clients: list[dict[str, Any]] = []
+    for client_id, client_name, redirect_uris_raw, first_issued, last_expiry, token_count in rows:
+        redirect_uris = json.loads(redirect_uris_raw)
+        if not isinstance(redirect_uris, list):
+            raise ValueError(f"oauth_clients.redirect_uris is not a JSON list for client {client_id!r}")
+        clients.append(
+            {
+                "client_id": str(client_id),
+                "client_name": client_name or "External MCP Client",
+                "redirect_uris": [str(u) for u in redirect_uris],
+                "first_issued_at": first_issued,
+                "expires_at": last_expiry,
+                "token_count": int(token_count),
+            }
+        )
+    return clients
+
+
+def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
+    clients = _settings_own_oauth_clients(ctx, account.id)
+    trs = "".join(
+        "<tr>"
+        f"<td><strong>{escape(c['client_name'])}</strong></td>"
+        f'<td><code class="pref-mono">{escape(c["client_id"])}</code><br/><span class="pref-mono" style="color:var(--muted)">{escape(", ".join(c["redirect_uris"]) or "-")}</span></td>'
+        f"<td>{escape(format_ts(c['first_issued_at']))}</td>"
+        f"<td>{escape(format_ts(c['expires_at']))}</td>"
+        f"<td>{escape(c['token_count'])}</td>"
+        "</tr>"
+        for c in clients
+    )
+    tbody = trs or '<tr><td colspan="5" style="color:var(--muted);text-align:center;">내 계정으로 승인한 OAuth 2.1 클라이언트가 없습니다.</td></tr>'
+    body = (
+        '<section class="console-subcard" id="settings-tokens-manager-card" aria-label="내 상시 이용 토큰">'
+        '<div id="settings-tokens-host" data-settings-panel-host="tokens">'
+        '<p class="hint">내 상시 이용 토큰 목록을 불러오는 중입니다...</p>'
+        "</div>"
+        "</section>"
+        '<section class="console-subcard" id="settings-oauth-clients" aria-label="내가 승인한 OAuth 클라이언트">'
+        "<h2>🔐 내가 승인한 OAuth 2.1 클라이언트</h2>"
+        '<p class="hint">내 계정으로 <code>/oauth/authorize</code> 승인을 받아 토큰을 발급받은 원격 MCP 클라이언트입니다. 토큰 원문은 표시하지 않습니다.</p>'
+        '<div class="pref-table-wrap"><table class="pref-table">'
+        "<thead><tr><th>클라이언트 이름</th><th>client_id · redirect_uris</th><th>첫 발급 시각</th><th>마지막 만료 시각</th><th>토큰 수</th></tr></thead>"
+        f"<tbody data-oauth-clients-tbody>{tbody}</tbody>"
+        "</table></div>"
+        "</section>"
+    )
+    return body, {"oauth_clients": clients}
+
+
 def _render_console_section(
     ctx: AccountsContext,
     *,
@@ -697,11 +1154,31 @@ def _render_console_section(
     elif spec.area == "admin":
         section_body_html, built_extra = _build_admin_section_body_and_extra(ctx, spec.slug)
     else:
-        section_body_html = (
-            f'<div class="console-placeholder" data-area="{escape(spec.area)}" data-slug="{escape(spec.slug)}">'
-            f"<p class=\"console-desc\">경로: <code>{escape(spec.path)}</code></p>"
-            "</div>"
-        )
+        if spec.slug in SYNDICATION_SECTION_SLUGS:
+            # P3-b: Group 2–3 본문은 console_syndication_panels 모듈이 그린다.
+            rendered = build_syndication_section(
+                ctx,
+                slug=spec.slug,
+                path=spec.path,
+                mode=mode,
+                account=account,
+                selected_theme=selected_theme,
+                owned_themes=owned_themes,
+                theme_query=validated_theme_query,
+            )
+        else:
+            # P3-a: Group 1 본문(account, keys, themes, tokens).
+            rendered = _build_settings_account_section(
+                ctx,
+                spec=spec,
+                principal=principal,
+                mode=mode,
+                account=account,
+                owned_themes=owned_themes,
+            )
+        section_body_html = rendered.body_html
+        built_extra = dict(rendered.extra_bootstrap)
+        extra_scripts_html = rendered.extra_scripts_html + extra_scripts_html
     bootstrap_payload: dict[str, Any] = {
         "area": spec.area,
         "section": spec.slug,
@@ -734,8 +1211,11 @@ def _render_console_section(
             "theme_selector_html": theme_selector_html,
             "sidebar_nav_html": sidebar_html,
             "section_body_html": section_body_html,
-            "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False),
+            # <script type="application/json"> 탈출을 막도록 <, >, & 를 유니코드 이스케이프한다.
+            "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
             "extra_scripts_html": extra_scripts_html,
+            # 비관리자 /settings/* 응답에는 관리자 JS 번들을 싣지 않는다(불변식 3).
+            "admin_scripts_html": '<script src="/static/js/console_admin.js" defer></script>' if spec.area == "admin" else "",
         },
     )
 

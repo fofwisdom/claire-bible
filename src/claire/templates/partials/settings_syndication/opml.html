@@ -1,0 +1,18 @@
+<section id="panel-opml" class="pref-panel" data-settings-panel="opml">
+  <div class="pref-card">
+    <h2>📦 OPML 구독 목록 입출력 및 소각 툼스톤 방어벽 진단</h2>
+    <p class="pref-desc">기존 Tiny Tiny RSS / FreshRSS / NetNewsWire 등에서 사용하던 OPML 2.0 파일과 호환되며, 소각된 문서의 재수집을 막는 <code>purged_tombstones</code> 방어벽 상태를 점검합니다.</p>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" id="btn-export-opml" class="pref-btn pref-btn-accent">⬇ 현재 테마 OPML 2.0 내보내기 미리보기</button>
+      <button type="button" id="btn-sim-import-opml" class="pref-btn">⬆ OPML 가져오기 시뮬레이션</button>
+    </div>
+
+    <pre id="opml-preview-box" style="margin:0;padding:12px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);font-family:'D2Coding',monospace;font-size:12px;overflow-x:auto;max-height:240px"></pre>
+
+    <details class="pref-disclosure" open>
+      <summary>🛡️ 소각 툼스톤(<code>purged_tombstones</code>) 재수집 영구 차단 규칙</summary>
+      <p style="margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.55">클레어바이블에서 <code>./cb-manuscript purge</code> 또는 웹 UI 문서 소각으로 제거된 URL·컨텐트 해시는 정기 수집 폴러가 RSS/AP/AT 스트림에서 다시 마주치더라도 <b>자동 적재 및 발행 대상에서 영구 제외</b>됩니다.</p>
+    </details>
+  </div>
+</section>

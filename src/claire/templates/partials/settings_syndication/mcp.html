@@ -1,0 +1,93 @@
+<section id="panel-mcp" class="pref-panel" data-settings-panel="mcp">
+  <div class="pref-card">
+    <h2>🧩 MCP 서버 (<code>/mcp</code>) <span class="pref-pill pref-pill-mcp">구현됨</span><span class="pref-pill">서버 전역</span></h2>
+    <p class="pref-desc">외부 AI 하네스(Claude Desktop · Claude Code · Gemini · Cursor 등)가 지식베이스를 읽는 표준 엔드포인트입니다. <code>claire_api</code> 프로세스 안에서 Streamable HTTP(stateless, JSON 응답)로 동작하며, 도구 10종은 모두 SQLite · FTS5 조회만 해서 LLM 쿼터를 쓰지 않습니다. 이 화면에서 <span class="pref-pill pref-pill-mcp">구현됨</span>은 현재 코드 그대로, <span class="pref-pill pref-pill-prop">제안</span>은 아직 없는 기능입니다.</p>
+
+    <div class="pref-stat-row" id="pref-mcp-stats"></div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>엔드포인트 · Discovery</strong>
+        <span>미인증 호출은 <code>401</code> + <code>WWW-Authenticate: Bearer … resource_metadata=…</code>로 응답합니다. DNS 리바인딩 방어로 <code>public_url</code> 호스트와 localhost만 허용하므로 테마 전용 FQDN으로는 접속되지 않습니다.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+        <div class="pref-endpoint"><code id="pref-mcp-endpoint" class="pref-mono"></code><button type="button" class="pref-btn" data-copy-target="pref-mcp-endpoint">복사</button></div>
+        <span class="pref-mono" style="color:var(--muted)">/.well-known/oauth-protected-resource · /.well-known/oauth-authorization-server</span>
+      </div>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>테마 지정</strong>
+        <span>모든 도구가 <code>theme</code> 인자(번호 또는 레이블)를 받고, 생략하면 Theme 0을 읽습니다. REST와 달리 <code>X-Claire-Theme</code> 헤더와 테마 전용 FQDN은 MCP 도구에 적용되지 않습니다. 오른쪽은 상단에서 고른 테마를 읽는 호출 예시입니다.</span>
+      </div>
+      <code id="pref-mcp-theme-example" class="pref-mono" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);white-space:pre"></code>
+    </div>
+  </div>
+
+  <div class="pref-card">
+    <h2>🔐 인증 채널 <span class="pref-pill pref-pill-mcp">구현됨</span></h2>
+    <p class="pref-desc">한 요청에는 인증 채널을 하나만 씁니다(Bearer · <code>X-Session</code> · 쿠키). 익명 접근은 <code>CLAIRE_ANONYMOUS_READONLY</code>와 관계없이 <code>/mcp</code>에서 항상 거부되고, Cross-Origin 요청은 Bearer만 허용됩니다.</p>
+    <div class="pref-table-wrap">
+      <table class="pref-table">
+        <thead><tr><th>채널</th><th>발급</th><th>권한</th><th>수명</th><th>폐기</th><th>권장 클라이언트</th></tr></thead>
+        <tbody>
+          <tr><td><strong>상시 이용 토큰</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · WebUI 🔑 API/MCP 키 · 텔레그램 <code>/token</code></td><td>owner · collaborator · readonly</td><td>무기한 또는 지정 일수</td><td>즉시 (<code class="pref-mono">/tokens/revoke</code>)</td><td>Claude Desktop · Cursor · Claude Code</td></tr>
+          <tr><td><strong>텔레그램 세션</strong></td><td><code>/web</code> · <code>/webco</code> · <code>/webro</code></td><td>발급 명령에 따름</td><td>7일 슬라이딩</td><td>재발급 시 교체</td><td>일시 테스트</td></tr>
+          <tr><td><strong>OAuth 2.1</strong></td><td>DCR(<code>/oauth/register</code>, 공개) → <code>/oauth/authorize</code>에서 승인 (브라우저 1클릭 또는 텔레그램)</td><td><code>readonly</code> 고정</td><td>access 30일 · refresh 1년 (회전)</td><td>경로 없음</td><td>Gemini 맞춤형 연결 앱 등 원격 커넥터</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>상시 이용 토큰 · OAuth 승인 클라이언트</h3>
+    <p class="pref-desc" id="pref-mcp-tokens-note">상시 이용 토큰의 발급 · 폐기와 OAuth로 승인한 클라이언트 목록은 <a href="$tokens_href" id="pref-mcp-tokens-link">$tokens_label</a> 화면에서 관리합니다. 이 화면에서 중복 구현하지 않습니다.</p>
+
+    <details class="pref-disclosure">
+      <summary>클라이언트 연결 방법 (원격 HTTP 서버)</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div style="font-size:12px;font-weight:700">Claude Code — 상시 이용 토큰</div>
+        <pre id="pref-mcp-snippet-cli" class="pref-code"></pre>
+        <div style="font-size:12px;font-weight:700">Claude Desktop · Cursor 등 — <code>mcpServers</code> 설정</div>
+        <pre id="pref-mcp-snippet-json" class="pref-code"></pre>
+        <div style="font-size:12px;font-weight:700">OAuth 지원 클라이언트 (Gemini 맞춤형 연결 앱 등)</div>
+        <p class="pref-desc">엔드포인트 URL만 입력하면 Discovery → DCR → 승인 화면으로 이어집니다. 승인 화면에서 <b>✅ 바로 승인하기</b> 또는 텔레그램 승인을 누릅니다.</p>
+        <p class="pref-desc">저장소의 기존 예시(<code>MCP_SUPPORT.md</code>의 <code>server-fetch</code>, <code>claire token create</code> 출력의 <code>server-everything</code>)는 원격 HTTP 서버 연결 방식이 아니어서 위 형식으로 교체를 제안합니다.</p>
+      </div>
+    </details>
+  </div>
+
+  <div class="pref-card">
+    <h2>🛠️ 도구 (<code>tools/list</code>)</h2>
+    <p class="pref-desc">구현된 10종은 모두 읽기 전용이고 도구별로 끌 수 없습니다. 아래 Syndication 도구는 제안이며, 스위치는 미리보기 응답에 포함할지만 정합니다.</p>
+    <div class="pref-table-wrap">
+      <table class="pref-table">
+        <thead><tr><th>도구</th><th>인자</th><th>역할</th></tr></thead>
+        <tbody id="pref-mcp-tools-tbody"></tbody>
+      </table>
+    </div>
+
+    <h3>Syndication 도구 <span class="pref-pill pref-pill-prop">제안</span></h3>
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>스코프 구분 <span class="pref-pill pref-pill-prop">제안</span></strong>
+        <span><code>mcp_tools.py</code>에는 "쓰기 툴이 생기면 스코프 구분 도입 필요"라고 적혀 있습니다. <code>syndication:read</code>는 스트림 조회, <code>syndication:draft</code>는 발행 <b>초안</b> 생성만 허용하고 실제 발행은 리더의 발행 대화상자나 텔레그램 승인으로만 이루어집니다.</span>
+      </div>
+      <select id="pref-mcp-write" class="pref-select" aria-label="Syndication 쓰기 범위 (제안)">
+        <option value="none">읽기만 (syndication:read)</option>
+        <option value="draft">발행 초안 허용 (+ syndication:draft)</option>
+      </select>
+    </div>
+    <div class="pref-table-wrap">
+      <table class="pref-table">
+        <thead><tr><th style="width:52px">미리보기</th><th>도구</th><th>필요 스코프</th><th>역할</th></tr></thead>
+        <tbody id="pref-mcp-proposed-tbody"></tbody>
+      </table>
+    </div>
+
+    <details class="pref-disclosure">
+      <summary><code>tools/list</code> 응답 미리보기</summary>
+      <p class="pref-desc" style="margin-top:8px">실제 <code>inputSchema</code>는 함수 시그니처에서 자동 생성됩니다. 여기서는 인자 이름과 타입만 요약했습니다.</p>
+      <pre id="pref-mcp-toolslist" class="pref-code" style="margin-top:8px"></pre>
+    </details>
+  </div>
+</section>

@@ -583,7 +583,7 @@
     } else if (section === "themes") {
       var themeHost = document.getElementById("admin-themes-host");
       if (themeHost && typeof panels.renderThemeManager === "function") {
-        panels.renderThemeManager(themeHost, { showClose: false, isOwner: true, isAdmin: true });
+        panels.renderThemeManager(themeHost, { showClose: false, isOwner: true, isAdmin: true, apiUrl: "/", rootUrl: "/" });
       }
     } else if (section === "tokens") {
       var tokHost = document.getElementById("admin-tokens-host");

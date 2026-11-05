@@ -87,6 +87,36 @@
   .pref-idp-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)}
   .pref-mono{font-family:'D2Coding',monospace;font-size:11.5px}
   .pref-code{margin:0;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);font-family:'D2Coding',monospace;font-size:11.5px;line-height:1.5;overflow-x:auto;white-space:pre}
+  /* Groups 2–3 (/settings/{reader,…,webmcp}) panels ported from syndication_preferences.html (P3-b). */
+  .pref-panel{display:flex;flex-direction:column;gap:14px}
+  .pref-card{background:var(--card-bg,var(--bg));border:1px solid var(--border);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+  .pref-card h2{margin:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pref-card h3{margin:0;font-size:13.5px;font-weight:700}
+  .pref-btn-pri{background:var(--btn-bg);color:var(--btn-fg);border-color:transparent}
+  .pref-pill-rss{color:#bc4c00;background:rgba(251,146,60,0.14);border-color:rgba(251,146,60,0.35)}
+  .pref-pill-ap{color:#8250df;background:rgba(163,113,247,0.14);border-color:rgba(163,113,247,0.35)}
+  .pref-pill-at{color:#0969da;background:rgba(56,139,253,0.14);border-color:rgba(56,139,253,0.35)}
+  .pref-pill-web{color:#9a6700;background:rgba(212,167,44,0.16);border-color:rgba(212,167,44,0.4)}
+  [data-theme="dark"] .pref-pill-rss{color:#ffa657}
+  [data-theme="dark"] .pref-pill-ap{color:#d2a8ff}
+  [data-theme="dark"] .pref-pill-at{color:#79c0ff}
+  [data-theme="dark"] .pref-pill-web{color:#e3b341}
+  [data-theme="dark"] .pref-pill-mcp{color:#56d364}
+  [data-theme="dark"] .pref-pill-warn{color:#ff7b72}
+  input[type="checkbox"][switch]{accent-color:var(--accent,#0969da);margin:0;cursor:pointer;width:18px;height:18px;flex-shrink:0}
+  input[type="checkbox"][switch]:focus-visible{outline:3px solid var(--accent,#0969da);outline-offset:4px}
+  details.pref-disclosure{border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);padding:8px 12px}
+  details.pref-disclosure summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--fg)}
+  .pref-toast{position:fixed;right:18px;bottom:18px;padding:9px 14px;border-radius:8px;background:var(--fg);color:var(--bg);font-size:12.5px;font-weight:700;box-shadow:0 8px 24px var(--shadow,rgba(0,0,0,0.2));opacity:0;pointer-events:none;transition:opacity 0.18s ease;z-index:50}
+  .pref-toast.show{opacity:1}
+  .pref-endpoint{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .pref-endpoint code{padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg)}
+  .pref-table tr[data-off="true"] td:not(:first-child){opacity:0.5}
+  #settings-syndication-root .pref-code{max-height:280px}
+  .pref-sim textarea{width:100%;box-sizing:border-box;min-height:120px;resize:vertical;font-family:'D2Coding',monospace;font-size:11.5px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--fg)}
+  .pref-confirm{border:1px solid var(--accent);border-radius:8px;background:var(--active,var(--panel-bg));padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+  .pref-confirm-actions{display:flex;gap:6px;justify-content:flex-end}
+  @media (max-width:780px){#pref-add-feed-form{grid-template-columns:1fr!important}#settings-syndication-root .pref-input{min-width:0!important;width:100%}}
   .console-modal{position:fixed;inset:0;background:rgba(0,0,0,0.48);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
   .console-modal[hidden]{display:none!important}
   .console-modal-box{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:20px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,0.25)}
@@ -124,8 +154,8 @@
 </div>
 <div id="console-reauth-modal" class="console-modal" role="dialog" aria-modal="true" aria-labelledby="console-reauth-title" hidden>
   <div class="console-modal-box">
-    <h2 id="console-reauth-title" style="margin:0;font-size:15px">🔐 관리자 단계 인증 (본인 확인)</h2>
-    <p class="console-desc">민감한 관리자 작업을 계속하려면 현재 계정 비밀번호를 입력해 주세요 (유효 시간 15분).</p>
+    <h2 id="console-reauth-title" style="margin:0;font-size:15px">🔐 단계 인증 (본인 확인)</h2>
+    <p class="console-desc">민감한 작업을 계속하려면 현재 계정 비밀번호를 입력해 주세요 (유효 시간 15분).</p>
     <form id="console-reauth-form" data-console-reauth-form style="display:flex;flex-direction:column;gap:10px">
       <label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">비밀번호
         <input type="password" name="password" id="console-reauth-password" class="pref-input" autocomplete="current-password" required/>
@@ -140,7 +170,7 @@
 </div>
 <script id="console-bootstrap" type="application/json">$bootstrap_json</script>
 <script src="/static/js/manage_panels.js" defer></script>
-<script src="/static/js/console_admin.js" defer></script>
+$admin_scripts_html
 $extra_scripts_html
 </body>
 </html>

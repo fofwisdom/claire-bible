@@ -1,0 +1,48 @@
+<section id="panel-tags" class="pref-panel" data-settings-panel="tags">
+  <div class="pref-card">
+    <h2>🏷️ 수집 태그 → 적재 시 엔티티 승격 및 생성 정책 (Tags → Ingested Entities)</h2>
+    <p class="pref-desc"><b>수집 시점의 피드 태그는 외부 메타데이터이며, 온톨로지 엔티티는 '적재(Ingestion)'가 수행될 때 비로소 생성 및 해결됩니다.</b> 클레어바이블 지식 그래프에서 태그는 곧 엔티티(<code>entities</code> 노드)이므로, RSS <code>&lt;category&gt;</code>, Atom <code>term</code>, ActivityPub <code>Hashtag</code>, AT Protocol <code>facets</code>에서 수집된 외부 태그는 <b>적재 시점</b>에 프로젝트 적재 정책(<code>[태그]</code> 메타데이터 섹션 주입 및 Entity Resolution)에 따라 테마 DB의 엔티티로 정규화·생성·연결됩니다.</p>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <label for="pref-tag-automap"><strong>수집 원문 태그를 적재 시 <code>[태그]</code> 엔티티 파이프라인으로 자동 전달</strong></label>
+        <span>RSS/Atom/AP/AT 원문이 제시한 태그를 테마 DB의 기존 <code>entities.norm_name</code> 및 <code>aliases</code>와 대조해 동일 엔티티로 연결합니다.</span>
+      </div>
+      <input id="pref-tag-automap" type="checkbox" switch/>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <label for="pref-tag-provisional"><strong>미등록 외부 태그를 잠정 엔티티(<code>provisional=1</code>) 노드로 자동 승격</strong></label>
+        <span>테마 DB에 아직 없는 태그라도 적재 시 온톨로지 엔티티 후보로 생성하여 지식 그래프 탐색 및 추후 병합(Dedup) 대상에 포함합니다.</span>
+      </div>
+      <input id="pref-tag-provisional" type="checkbox" switch/>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <label for="pref-tag-hashtags"><strong>외부 발행/부스트 시 연결된 엔티티를 ActivityPub <code>Hashtag</code> 객체로 역변환 첨부</strong></label>
+        <span><code>[[KV Cache]]</code> → <code>#KVCache</code> 형태로 변환하여 연합우주 검색성을 높입니다.</span>
+      </div>
+      <input id="pref-tag-hashtags" type="checkbox" switch/>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <label for="pref-tag-noise"><strong>엔티티 승격 제외 노이즈 태그 목록 (쉼표 구분)</strong></label>
+        <span>RSS 피드에서 흔히 유입되는 의미 없는 일반 분류어(예: <code>uncategorized, general</code>)가 온톨로지 엔티티를 오염시키지 않도록 적재 전 필터링합니다.</span>
+      </div>
+      <input id="pref-noise-tags" type="text" class="pref-input" style="min-width:300px"/>
+    </div>
+
+    <details class="pref-disclosure">
+      <summary>프로토콜별 태그 수집 필드 ↔ Claire 엔티티 매핑 명세 보기</summary>
+      <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+        <div>• <b>RSS 2.0 / Atom 1.0</b>: <code>&lt;category&gt;</code>, <code>&lt;dc:subject&gt;</code> → 적재 원문 상단 <code>[태그]</code> 섹션 병합 → <code>entities</code> 정규화</div>
+        <div>• <b>ActivityPub (AP)</b>: <code>object.tag[type="Hashtag"].name</code> (<code>#</code> 접두사 제거 후 정규화) → <code>entities</code> 정규화</div>
+        <div>• <b>AT Protocol</b>: <code>app.bsky.richtext.facet#tag</code> 및 레코드 <code>tags[]</code> → <code>entities</code> 정규화</div>
+        <div>• <b>리더 하단 태그 바 조작</b>: 미적재 원문 상태에서는 <code>🏷️ 수집 태그 (#Tag)</code>로 관리되며, <code>적재하기</code> 실행 시 온톨로지 엔티티 <code>[[Entity]]</code>로 승격되어 적재 본문에 귀속됩니다.</div>
+      </div>
+    </details>
+  </div>
+</section>

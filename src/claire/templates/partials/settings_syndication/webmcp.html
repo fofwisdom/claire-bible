@@ -1,0 +1,104 @@
+<section id="panel-webmcp" class="pref-panel" data-settings-panel="webmcp">
+  <div class="pref-card">
+    <h2>🕸️ WebMCP — <code>/syndication</code> 페이지 도구 <span class="pref-pill pref-pill-prop">제안 · 미구현</span></h2>
+    <p class="pref-desc">WebMCP(W3C Web Machine Learning CG, <b>Draft Community Group Report 2026-10-27</b>)는 페이지가 <code>document.modelContext.registerTool()</code>로 도구를 등록하고, 브라우저 내장 · 확장 에이전트가 <b>사용자가 열어 둔 탭 안에서</b> 호출하는 방식입니다. 추가 토큰 없이 현재 세션으로 동작하고, 같은 출처(same-origin) 문서에만 보이며, 탭을 닫거나 등록 신호를 abort하면 사라집니다. 저장소에는 아직 관련 코드가 없습니다.</p>
+
+    <div id="pref-webmcp-support" class="pref-notice"></div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>WebMCP 도구 등록 (전역)</strong>
+        <span>끄면 <code>/syndication</code>이 도구를 등록하지 않고, 서버가 <code>Permissions-Policy: tools=()</code>를 보내 페이지 안의 다른 스크립트도 등록할 수 없게 합니다. 현재 Claire는 <code>Permissions-Policy</code> 헤더를 보내지 않습니다.</span>
+      </div>
+      <input id="pref-webmcp-enabled" type="checkbox" switch aria-label="WebMCP 도구 등록"/>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>이 테마에서 노출</strong>
+        <span id="pref-webmcp-exposed-desc"></span>
+      </div>
+      <input id="pref-webmcp-exposed" type="checkbox" switch aria-label="이 테마에서 WebMCP 노출"/>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>등록 방식</strong>
+        <span>사양이 정의하는 것은 명령형 <code>registerTool()</code>뿐입니다. 폼 속성(<code>toolname</code> · <code>tooldescription</code> · <code>toolautosubmit</code>)으로 <b>+ 구독</b> 폼을 도구로 노출하는 선언형은 explainer 제안 단계라 실험 옵션으로만 둡니다.</span>
+      </div>
+      <select id="pref-webmcp-mode" class="pref-select" aria-label="WebMCP 등록 방식">
+        <option value="imperative">명령형 — registerTool()</option>
+        <option value="both">명령형 + 선언형 폼 (실험, 사양 외)</option>
+      </select>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>사용자 확인 정책</strong>
+        <span>사양에는 도구가 사용자 확인을 요청하는 API가 없습니다(README의 미해결 과제). 그래서 확인이 필요한 도구는 <code>execute()</code> 안에서 <b>페이지 자체 확인 창</b>을 띄워 응답을 기다리고, <code>consequentialHint</code>를 붙여 에이전트 쪽 확인도 유도합니다. 쓰기와 외부 발행은 정책과 관계없이 항상 확인합니다.</span>
+      </div>
+      <select id="pref-webmcp-confirm" class="pref-select" aria-label="사용자 확인 정책">
+        <option value="write">쓰기 도구만 확인 (기본)</option>
+        <option value="ui_and_write">화면 조작 + 쓰기 도구 확인</option>
+        <option value="all">모든 도구 확인</option>
+      </select>
+    </div>
+
+    <div class="pref-row">
+      <div class="pref-row-label">
+        <strong>에이전트 활동 표시</strong>
+        <span><code>toolactivated</code> · <code>toolcancel</code> 이벤트를 받아 리더 하단 상태 표시줄에 <code>🕸️ 에이전트: kb_ingest_item 실행 중</code>처럼 표시하고 작업 기록에 남깁니다.</span>
+      </div>
+      <input id="pref-webmcp-activity" type="checkbox" switch aria-label="에이전트 활동 표시"/>
+    </div>
+
+    <details class="pref-disclosure">
+      <summary>MCP 서버와 WebMCP의 차이</summary>
+      <div class="pref-table-wrap" style="margin-top:8px">
+        <table class="pref-table">
+          <thead><tr><th></th><th>MCP 서버 (<code>/mcp</code>)</th><th>WebMCP (<code>/syndication</code>)</th></tr></thead>
+          <tbody>
+            <tr><td><b>실행 위치</b></td><td>Claire 서버 프로세스</td><td>사용자 브라우저 탭 (페이지 JS)</td></tr>
+            <tr><td><b>호출자</b></td><td>Claude Desktop · Gemini 등 원격 하네스</td><td>브라우저 내장 · 확장 에이전트</td></tr>
+            <tr><td><b>인증</b></td><td>상시 토큰 · 텔레그램 세션 · OAuth 2.1</td><td>현재 페이지 세션 (추가 토큰 없음)</td></tr>
+            <tr><td><b>노출 범위</b></td><td>인증된 클라이언트 전체</td><td>같은 출처 문서 (<code>exposedTo</code> 미사용)</td></tr>
+            <tr><td><b>수명</b></td><td>토큰 만료 · 폐기까지</td><td>탭이 열려 있고 등록 신호가 살아 있는 동안</td></tr>
+            <tr><td><b>결과 형식</b></td><td>MCP <code>content</code> 배열</td><td>JSON 직렬화 가능한 임의 값</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="pref-card">
+    <h2>🧰 페이지 도구 목록</h2>
+    <p class="pref-desc">작업 공간 탭 범위가 맞는 도구만 등록됩니다(예: <code>client_*</code>는 연합 클라이언트 탭이 열려 있을 때). 연합 게시물이나 수집 원문처럼 제3자 콘텐츠를 돌려주는 도구에는 <code>untrustedContentHint</code>를 붙입니다. 비공개 테마에서는 외부 서버에 반영되는 도구가 등록되지 않습니다.</p>
+    <div class="pref-table-wrap">
+      <table class="pref-table">
+        <thead><tr><th style="width:52px">등록</th><th>도구</th><th>탭 범위</th><th>종류</th><th>annotations</th><th>확인</th><th>역할</th></tr></thead>
+        <tbody id="pref-webmcp-tools-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="pref-card">
+    <h2>🔍 등록 코드 미리보기 · 호출 시뮬레이터</h2>
+    <p class="pref-desc">선택한 도구가 사양 형식으로 등록되는 코드와, 에이전트가 호출했을 때 사용자에게 보이는 흐름을 확인합니다. 시뮬레이션은 실제 상태를 바꾸지 않습니다.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label for="pref-webmcp-sim-tool" style="font-size:12.5px;font-weight:700">도구</label>
+      <select id="pref-webmcp-sim-tool" class="pref-select"></select>
+      <button type="button" id="btn-webmcp-sim-run" class="pref-btn pref-btn-accent">▶ 에이전트 호출 시뮬레이션</button>
+    </div>
+    <div class="pref-sim">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:12px;font-weight:700">등록 코드</span>
+        <pre id="pref-webmcp-code" class="pref-code" style="max-height:360px"></pre>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label for="pref-webmcp-sim-input" style="font-size:12px;font-weight:700">에이전트 입력 (JSON)</label>
+        <textarea id="pref-webmcp-sim-input" spellcheck="false"></textarea>
+        <div id="pref-webmcp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+  </div>
+</section>

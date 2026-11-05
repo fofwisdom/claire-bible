@@ -1,0 +1,46 @@
+<section id="panel-accounts" class="pref-panel" data-settings-panel="connections">
+  <div class="pref-card">
+    <h2>🔌 연결 서버 계정 (ActivityPub · AT Protocol)</h2>
+    <p class="pref-desc">Claire 는 ActivityPub 서버(Actor · Inbox · HTTP 서명)나 AT Protocol PDS 를 <b>직접 구현하지 않습니다</b>. 각 테마는 기존 서버의 계정에 <b>클라이언트로 접속</b>하며, 타임라인 열람 · 정기 수집 · 부스트 · 발행은 모두 그 계정의 서버 API(Mastodon Client API · AT XRPC)를 Claire 서버 프록시로 호출합니다. 계정은 테마별로 격리됩니다.</p>
+    <p class="pref-desc"><b>ActivityPub 클라이언트 기능 기준: Mastodon 5.0 이상.</b> 연합 클라이언트는 Mastodon 5.0 이상이 제공하는 클라이언트 기능을 모두 갖춥니다. Mastodon API 를 제공하는 서버라면 종류와 관계없이 연결할 수 있으며, 연결 시 <code>GET /api/v2/instance</code> 로 확인한 결과 서버가 제공하지 않는 기능만 비활성으로 표시합니다.</p>
+    <details class="pref-disclosure">
+      <summary>Mastodon 5.0 기준 클라이언트 기능 (연합 클라이언트 탭의 📋 기능 기준에서 직접 시연)</summary>
+      <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+        <div>• <b>타임라인 · 탐색</b>: 홈(실시간 스트리밍) · 로컬 · 연합 · 해시태그(팔로우) · 리스트 · 탐색(트렌드 게시물·해시태그·링크) · 통합 검색(원격 계정 확인) · 개인 메시지 · 좋아요 · 북마크</div>
+        <div>• <b>알림</b>: 묶음 알림(좋아요·부스트·팔로우·인용·멘션) · 멘션만 보기 · 알림 요청 · 알림 정책</div>
+        <div>• <b>게시물 표시</b>: 부스트한 사람 · 공개 범위 · 언어 · 열람 주의(CW) · 미디어 대체 텍스트 · 민감한 미디어 가림 · 투표 · 인용 게시물 · 수정 이력 · 번역 · 키워드 필터</div>
+        <div>• <b>게시물 동작</b>: 답글 · 부스트 · 좋아요 · 북마크 · 인용(인용 허용 범위) · 고정 · 수정 · 삭제 후 다시 쓰기 · 대화 뮤트 · 신고</div>
+        <div>• <b>작성</b>: 공개 범위 4종 · 언어 · CW · 투표 · 미디어(대체 텍스트·민감함) · 예약 게시</div>
+        <div>• <b>계정 · 관계 · 안전</b>: 프로필(필드·고정 게시물·추천 해시태그) · 팔로우(새 글 알림·부스트 표시) · 개인 메모 · 리스트 · 뮤트 · 차단 · 도메인 차단 · 필터 관리</div>
+      </div>
+    </details>
+
+    <div style="overflow-x:auto">
+      <table class="pref-table" aria-label="연결 서버 계정 목록">
+        <thead>
+          <tr>
+            <th>프로토콜</th>
+            <th>서버 · 소프트웨어</th>
+            <th>계정</th>
+            <th>인증 방식</th>
+            <th>scope</th>
+            <th>발행</th>
+            <th>관리</th>
+          </tr>
+        </thead>
+        <tbody id="pref-accounts-tbody"></tbody>
+      </table>
+    </div>
+    <p class="pref-desc">새 계정 연결은 <a href="$client_href" id="link-connect-client">연합 클라이언트 탭</a>의 <b>🔌 계정 연결</b>에서 OAuth 승인 흐름으로 진행합니다. 연결 해제 시 서버 토큰도 함께 폐기합니다.</p>
+
+    <details class="pref-disclosure" open>
+      <summary>🛡️ 연결 계정 보안 원칙</summary>
+      <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
+        <div>• <b>토큰 서버 보관</b>: 접근 토큰은 테마 DB(<code>syndication_accounts</code>)에 암호화 저장되며 브라우저로 전달하지 않습니다. CSP <code>default-src 'self'</code> 아래에서 모든 원격 호출은 Claire 서버 프록시를 거칩니다.</div>
+        <div>• <b>최소 scope</b>: ActivityPub 은 <code>read</code> + 필요한 <code>write:*</code> 세부 scope 만, AT 는 OAuth(PAR + DPoP) 우선 · 앱 비밀번호는 호환 모드입니다. 비공개 테마는 <code>read</code> 전용으로만 연결합니다.</div>
+        <div>• <b>폐기</b>: 연결 해제 시 <code>POST /oauth/revoke</code>(Mastodon) 또는 AT OAuth 토큰 폐기 · <code>com.atproto.server.deleteSession</code> 을 호출합니다.</div>
+        <div>• <b>서버 예절</b>: 응답의 레이트 리밋 헤더를 준수하고 <code>429</code>/<code>5xx</code> 에는 지수 백오프로 재시도하며, 사용자가 입력한 서버 주소도 SSRF 가드를 통과해야 합니다.</div>
+      </div>
+    </details>
+  </div>
+</section>
