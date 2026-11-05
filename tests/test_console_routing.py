@@ -345,3 +345,39 @@ def test_admin_mcp_telemetry_api_io_and_validation(console_env):
         bad = client.get(f"/api/admin/mcp/telemetry?limit={bad_limit}", headers=console_env.admin_owner)
         assert bad.status_code == 400
         assert bad.json()["error"] == "invalid_limit"
+
+
+def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme_privacy(console_env):
+    _set_mode(console_env.db_file, "network")
+    client = console_env.client
+
+    expected_anchors = {
+        "instance": ('/admin/instance', 'id="instance-mode"', 'id="server-tier"'),
+        "accounts": ('/admin/accounts', 'id="admin-members-section"', 'id="pref-userdb-admin"'),
+        "idp": ('/admin/idp', 'id="pref-idp-tbody"', 'id="pref-idp-add-form"'),
+        "providers": ('/admin/providers', 'id="admin-providers-host"', 'data-admin-panel-host="providers"'),
+        "limits": ('/admin/limits', 'id="admin-limits-host"', 'data-admin-panel-host="limits"'),
+        "themes": ('/admin/themes', 'id="admin-themes-host"', 'id="admin-themes-summary"'),
+        "tokens": ('/admin/tokens', 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
+        "mcp": ('/admin/mcp', 'id="pref-mcp-audit-tbody"', 'id="pref-mcp-rbac-tbody"'),
+    }
+
+    for slug, (path, anchor_a, anchor_b) in expected_anchors.items():
+        resp = client.get(path, headers=console_env.admin_owner)
+        assert resp.status_code == 200, path
+        assert resp.headers.get("referrer-policy") == "same-origin", path
+        body = resp.text
+        assert 'data-active-area="admin"' in body, path
+        assert f'data-active-section="{slug}"' in body, path
+        assert '<script src="/static/js/manage_panels.js" defer></script>' in body, path
+        assert '<script src="/static/js/console_admin.js" defer></script>' in body, path
+        assert anchor_a in body, (path, anchor_a)
+        assert anchor_b in body, (path, anchor_b)
+        if slug == "themes":
+            # D5/K5: /admin/themes 요약 카드는 집계 COUNT(*)만 표시하며 멤버 테마 라벨을 절대 노출하지 않는다.
+            assert "Alice Default" not in body
+            assert "Bob Default" not in body
+        if slug == "mcp":
+            assert 'id="pref-webmcp-enabled"' in body
+            assert "data-support-bundle-form" in body
+

@@ -159,7 +159,13 @@ def test_admin_accounts_api_and_single_mode_card(client, settings):
     page = client.request("GET", "/admin/accounts", session=token)
     assert page.status_code == 200
     assert "관리자 계정" in page.text and admin["public_id"] in page.text and USERNAME in page.text
-    assert "<script" not in page.text
+    assert 'data-active-area="admin"' in page.text and 'data-active-section="accounts"' in page.text
+    assert '<script id="console-bootstrap" type="application/json">' in page.text
+    assert '<script src="/static/js/console_admin.js" defer></script>' in page.text
+    assert 'id="admin-members-section"' in page.text
+    assert 'id="admin-retired-usernames-section"' in page.text
+    assert 'id="pref-userdb-admin"' in page.text
+    assert " onsubmit=" not in page.text and " onclick=" not in page.text
 
 
 # --- /me ------------------------------------------------------------------------

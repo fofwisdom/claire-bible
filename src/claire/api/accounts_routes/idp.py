@@ -66,6 +66,7 @@ from .common import (
     set_session_cookie,
     validate_display_name,
 )
+from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 
 log = logging.getLogger("claire.api.idp")
 
@@ -193,6 +194,128 @@ def _render_admin_idp_cards(providers: list[IdpProviderMeta]) -> str:
         body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v) if not '<span' in v else v}</dd>" for k, v in rows)
         cards.append(f'<section class="card" aria-label="{escape(p.display_name)}"><h2>{escape(p.display_name)} ({escape(p.id)})</h2><dl>{body}</dl></section>')
     return "".join(cards)
+
+
+def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_origin: str) -> str:
+    cards = _render_admin_idp_cards(providers)
+    trs: list[str] = []
+    for p in providers:
+        callback = f"{public_origin.rstrip('/')}/auth/oidc/{p.id}/callback"
+        trs.append(
+            f'<tr data-idp-id="{escape(p.id)}">'
+            f'<td><input type="checkbox" switch data-idp-toggle="{escape(p.id)}"{" checked" if p.enabled else ""} aria-label="{escape(p.display_name)} 사용"/></td>'
+            f"<td><strong>{escape(p.display_name)}</strong> (<code>{escape(p.id)}</code>)</td>"
+            f'<td><span class="pref-mono">{escape(p.issuer or "https://github.com")}</span><br/><span style="color:var(--muted);font-size:11px">{escape(p.type.upper())}</span></td>'
+            f'<td><code class="pref-mono">{escape(p.client_id)}</code></td>'
+            f'<td><code class="pref-mono" style="white-space:normal">{escape(callback)}</code></td>'
+            f'<td><input type="checkbox" switch data-idp-signup="{escape(p.id)}"{" checked" if p.allow_signup else ""} aria-label="{escape(p.display_name)} 가입 허용"/></td>'
+            f'<td><button type="button" class="pref-btn" data-idp-remove="{escape(p.id)}">삭제</button></td>'
+            f"</tr>"
+        )
+    tbody = (
+        "".join(trs)
+        if trs
+        else '<tr><td colspan="7" style="color:var(--muted);text-align:center;">등록된 공급자가 없습니다.</td></tr>'
+    )
+
+    return f"""
+      <section class="card" aria-label="외부 IdP 관리 요약">
+        <h2>외부 IdP 관리</h2>
+        <p class="hint">OpenID Connect 및 GitHub OAuth 공급자를 관리합니다. Client Secret은 환경변수(<code>CLAIRE_OIDC_&lt;ID&gt;_CLIENT_SECRET</code>) 또는 비밀 저장소로 관리됩니다.</p>
+      </section>
+      <div id="admin-idp-cards">{cards}</div>
+      <section class="card" aria-label="공급자 레지스트리 및 CRUD">
+        <h2>🔗 IdP 공급자 레지스트리 (<code>/api/admin/idp</code>)</h2>
+        <div class="pref-table-wrap">
+          <table class="pref-table">
+            <thead>
+              <tr><th style="width:52px">사용</th><th>공급자</th><th>issuer · 방식</th><th>client_id</th><th>리디렉트 URI</th><th>가입 허용</th><th>관리</th></tr>
+            </thead>
+            <tbody id="pref-idp-tbody">{tbody}</tbody>
+          </table>
+        </div>
+        <form id="pref-idp-add-form" class="pref-idp-form">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">공급자 ID
+            <input id="new-idp-id" name="id" type="text" class="pref-input" placeholder="예: keycloak" required/>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">종류
+            <select id="new-idp-type" name="type" class="pref-select">
+              <option value="oidc">OIDC (Google · Keycloak · Entra)</option>
+              <option value="github">GitHub OAuth 2.0</option>
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">표시 이름
+            <input id="new-idp-name" name="display_name" type="text" class="pref-input" placeholder="예: Company SSO"/>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">issuer URL
+            <input id="new-idp-issuer" name="issuer" type="text" class="pref-input" placeholder="https://sso.example.org/realms/claire"/>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">client_id
+            <input id="new-idp-client" name="client_id" type="text" class="pref-input" placeholder="claire-bible" required/>
+          </label>
+          <button type="submit" class="pref-btn pref-btn-accent">Discovery 확인 후 추가 · 저장</button>
+        </form>
+        <p class="result" id="admin-idp-result" data-idp-result role="status" aria-live="polite"></p>
+        <pre id="pref-idp-discovery" class="pref-code" hidden></pre>
+      </section>
+      <section class="card" aria-label="계정 매핑 및 가입 정책">
+        <h2>🧾 로그인 방식 · 계정 매핑 · 가입 정책</h2>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <strong>로그인 방식</strong>
+            <span>운영자 계정은 IdP 클레임으로 승격할 수 없으며, 일반 사용자는 연결된 <code>(iss, sub)</code> 식별자로 로그인합니다.</span>
+          </div>
+          <select id="pref-idp-mode" class="pref-select" aria-label="로그인 방식">
+            <option value="telegram_only">텔레그램 · 로컬 비밀번호만</option>
+            <option value="telegram_and_idp" selected>텔레그램 · 로컬 + 외부 IdP</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <strong>가입 처리 방식</strong>
+            <span>신규 외부 IdP 인증 사용자의 워크스페이스 생성 정책입니다.</span>
+          </div>
+          <select id="pref-idp-provisioning" class="pref-select" aria-label="가입 처리">
+            <option value="invite" selected>초대 코드 보유자만 가입</option>
+            <option value="approval">운영자 승인 후 생성</option>
+            <option value="auto">허용 도메인 즉시 생성</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <strong>허용 이메일 도메인</strong>
+            <span>쉼표 구분 도메인 목록입니다. Google Workspace의 경우 <code>hd</code> 클레임도 함께 대조합니다.</span>
+          </div>
+          <input id="pref-idp-domains" type="text" class="pref-input" style="min-width:260px" value="example.ac.kr, example.org" aria-label="허용 이메일 도메인"/>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <strong>검증된 이메일 필수 (<code>email_verified=true</code>)</strong>
+            <span>미검증 이메일 클레임은 가입 및 연결을 거부합니다.</span>
+          </div>
+          <input id="pref-idp-verified" type="checkbox" switch checked aria-label="검증된 이메일 필수"/>
+        </div>
+        <div class="pref-row">
+          <div class="pref-row-label">
+            <strong>OIDC Back-Channel Logout 연동</strong>
+            <span>IdP 로그아웃 이벤트 수신 시 해당 계정의 세션과 토큰을 함께 만료 처리합니다.</span>
+          </div>
+          <input id="pref-idp-bcl" type="checkbox" switch checked aria-label="Back-Channel Logout"/>
+        </div>
+      </section>
+      <section class="card" aria-label="로그인 흐름 시뮬레이터">
+        <h2>▶ 로그인 화면 · 흐름 시뮬레이터</h2>
+        <p class="hint">현재 설정된 공급자 및 정책에 따른 로그인 화면 미리보기와 클레임 검증 시뮬레이터입니다.</p>
+        <div class="pref-sim">
+          <div id="pref-idp-login-preview" class="pref-login"></div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label for="pref-idp-persona" style="font-size:12px;font-weight:700">가상 사용자 시나리오</label>
+            <select id="pref-idp-persona" class="pref-select"></select>
+            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start">▶ 로그인 시뮬레이션 실행</button>
+            <div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+        </div>
+      </section>"""
 
 
 def _render_invite_complete_html(token: str, prefilled_name: str) -> str:
@@ -752,10 +875,36 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not _is_admin(principal):
             return not_found()
+        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
         data_dir = ctx.data_dir or ctx.auth_db_file.parent.parent
         providers = await asyncio.to_thread(auth_db.load_idp_providers, data_dir, include_secrets=False)
-        cards = _render_admin_idp_cards(providers)
-        return render_template("admin_idp.html", markup={"cards": cards})
+        origin = ctx.config.public_origin.rstrip("/") if ctx.config.public_origin else str(request.base_url).rstrip("/")
+        body_html = _render_admin_idp_section_html(providers, origin)
+        providers_payload = [
+            {
+                "id": p.id,
+                "type": p.type,
+                "display_name": p.display_name,
+                "client_id": p.client_id,
+                "enabled": p.enabled,
+                "allow_signup": p.allow_signup,
+                "issuer": p.issuer,
+                "scopes": list(p.scopes),
+                "hosted_domain": p.hosted_domain,
+                "tenant_id": p.tenant_id,
+                "secret_configured": p.secret_configured,
+            }
+            for p in providers
+        ]
+        return await asyncio.to_thread(
+            _render_console_section,
+            ctx,
+            spec=ADMIN_SPEC_BY_SLUG["idp"],
+            principal=principal,
+            raw_theme=raw_theme,
+            custom_body_html=body_html,
+            extra_bootstrap={"idp_providers": providers_payload, "origin": origin},
+        )
 
     async def admin_idp_get(request: Request) -> Response:
         principal = request_principal(request)

@@ -32,6 +32,64 @@
   .console-card h1{margin:0;font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .console-desc{margin:0;font-size:12.5px;color:var(--muted);line-height:1.55}
   .logout-form{margin:0;display:inline-flex}
+  .card,.console-subcard{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin:0 0 14px;display:flex;flex-direction:column;gap:10px}
+  .card h2,.console-subcard h2{margin:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .card h3,.console-subcard h3{margin:0;font-size:13.5px;font-weight:700}
+  .hint,.pref-desc{margin:0;font-size:12.5px;color:var(--muted);line-height:1.55}
+  dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0;font-size:13px}
+  dt{color:var(--muted);font-weight:600}
+  dd{margin:0;overflow-wrap:anywhere}
+  table,.pref-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td,.pref-table th,.pref-table td{border-bottom:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:middle}
+  th,.pref-table th{background:var(--panel-bg);color:var(--muted);font-weight:700;font-size:11.5px}
+  .pref-table-wrap{overflow-x:auto}
+  .badge,.pref-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--panel-bg);color:var(--fg);border:1px solid var(--border)}
+  .badge-enabled,.pref-pill-mcp{color:#1a7f37;background:rgba(46,160,67,0.14);border-color:rgba(46,160,67,0.35)}
+  .badge-disabled,.pref-pill-warn{color:#cf222e;background:rgba(248,81,73,0.12);border-color:rgba(248,81,73,0.35)}
+  .pref-pill-prop{color:var(--muted);background:transparent;border-style:dashed}
+  .notice,.pref-notice{padding:10px 12px;border-radius:6px;border:1px solid var(--border);border-left:3px solid var(--accent);background:var(--panel-bg);font-size:12.5px;line-height:1.5}
+  .notice.danger,.pref-notice[data-tone="warn"]{border-left-color:#cf222e;background:rgba(248,81,73,0.07)}
+  .pref-notice[data-tone="ok"]{border-left-color:#1a7f37;background:rgba(46,160,67,0.07)}
+  .notice ul{margin:4px 0 0 18px;padding:0}
+  .mode-form,.tier-form{display:grid;gap:10px;margin-top:8px}
+  .mode-form label,.tier-form label{display:grid;gap:4px;font-size:12.5px;font-weight:600}
+  .mode-form label.check,.tier-form label.check{display:inline-flex;gap:6px;align-items:center;margin-right:12px;font-weight:500}
+  .mode-form input[type=password],.tier-form input[type=text],.tier-form input[type=number],.tier-form input[type=password],.tier-form select,.pref-input,.pref-select{font:inherit;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);color:var(--fg);font-size:12.5px;max-width:100%}
+  .tier-form fieldset{border:1px solid var(--border);border-radius:6px;padding:8px 12px}
+  .mode-form button,.tier-form button,.pref-btn{justify-self:start;display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);font-size:12.5px;font-weight:600;cursor:pointer;text-decoration:none}
+  .mode-form button,.tier-form button,.pref-btn-accent{border-color:transparent;background:var(--accent);color:#fff}
+  .mode-form button:disabled,.tier-form button:disabled,.pref-btn:disabled{opacity:0.5;cursor:not-allowed}
+  .mode-form button.btn-danger,.pref-btn-danger{border-color:#cf222e;background:#cf222e;color:#fff}
+  .result:empty{display:none}
+  .result{margin:4px 0 0;font-size:12.5px;font-weight:600}
+  .result[data-state=error]{color:#cf222e}
+  .result[data-state=ok]{color:#1a7f37}
+  .pref-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-top:1px solid var(--border);flex-wrap:wrap}
+  .pref-row:first-of-type{border-top:0;padding-top:2px}
+  .pref-row-label{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+  .pref-row-label strong{font-size:13px;color:var(--fg)}
+  .pref-row-label span{font-size:12px;color:var(--muted);line-height:1.45}
+  .pref-stat-row{display:flex;gap:10px;flex-wrap:wrap}
+  .pref-stat{flex:1 1 140px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+  .pref-stat b{font-size:16px}
+  .pref-stat span{font-size:11.5px;color:var(--muted)}
+  .pref-quota-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+  .pref-quota-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700}
+  .pref-quota-switch{flex-direction:row!important;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--panel-bg)}
+  .pref-sim{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+  @media (max-width:780px){.pref-sim{grid-template-columns:1fr}}
+  .pref-login{border:1px solid var(--border);border-radius:8px;background:var(--panel-bg);padding:14px;display:flex;flex-direction:column;gap:8px;align-self:start}
+  .pref-login-btn{padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--sec-bg);color:var(--fg);font-size:12.5px;font-weight:700;text-align:left;cursor:pointer}
+  .pref-login-sep{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+  .pref-flow{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12px}
+  .pref-flow li{padding:5px 8px;border-left:3px solid #2ea043;background:var(--panel-bg);border-radius:0 6px 6px 0;overflow-wrap:anywhere}
+  .pref-flow li[data-ok="false"]{border-left-color:#cf222e}
+  .pref-idp-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end;padding-top:10px;border-top:1px solid var(--border)}
+  .pref-mono{font-family:'D2Coding',monospace;font-size:11.5px}
+  .pref-code{margin:0;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);font-family:'D2Coding',monospace;font-size:11.5px;line-height:1.5;overflow-x:auto;white-space:pre}
+  .console-modal{position:fixed;inset:0;background:rgba(0,0,0,0.48);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+  .console-modal[hidden]{display:none!important}
+  .console-modal-box{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:20px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,0.25)}
 </style>
 </head>
 <body data-active-area="$active_area" data-active-section="$active_section">
@@ -64,6 +122,25 @@
     </main>
   </div>
 </div>
+<div id="console-reauth-modal" class="console-modal" role="dialog" aria-modal="true" aria-labelledby="console-reauth-title" hidden>
+  <div class="console-modal-box">
+    <h2 id="console-reauth-title" style="margin:0;font-size:15px">🔐 관리자 단계 인증 (본인 확인)</h2>
+    <p class="console-desc">민감한 관리자 작업을 계속하려면 현재 계정 비밀번호를 입력해 주세요 (유효 시간 15분).</p>
+    <form id="console-reauth-form" data-console-reauth-form style="display:flex;flex-direction:column;gap:10px">
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">비밀번호
+        <input type="password" name="password" id="console-reauth-password" class="pref-input" autocomplete="current-password" required/>
+      </label>
+      <p class="result" role="status" aria-live="polite" id="console-reauth-result" data-console-reauth-result></p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="pref-btn" id="console-reauth-cancel" data-console-reauth-cancel>취소</button>
+        <button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>
+      </div>
+    </form>
+  </div>
+</div>
 <script id="console-bootstrap" type="application/json">$bootstrap_json</script>
+<script src="/static/js/manage_panels.js" defer></script>
+<script src="/static/js/console_admin.js" defer></script>
+$extra_scripts_html
 </body>
 </html>

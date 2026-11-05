@@ -114,14 +114,213 @@ def _admin_card(item: dict[str, Any]) -> str:
     return f'<section class="card" aria-label="관리자 계정"><h2>관리자 계정</h2><dl>{body}</dl></section>'
 
 
+def _render_admin_accounts_html(
+    *,
+    mode: str,
+    items: list[dict[str, Any]],
+    retired: list[dict[str, Any]],
+    tier_dict: dict[str, Any],
+) -> str:
+    admin_items = [i for i in items if i["role"] == "admin"]
+    member_items = [i for i in items if i["role"] != "admin"]
+    cards = "".join(_admin_card(i) for i in admin_items)
+
+    member_trs: list[str] = []
+    for m in member_items:
+        pub_id = str(m["public_id"])
+        uname = m.get("username") or "(미설정)"
+        st = m.get("status", "")
+        st_label = STATUS_TEXT.get(st, st)
+        key_tag = "등록됨" if m.get("has_provider_key") else "없음"
+        member_trs.append(
+            f'<tr data-account-public-id="{escape(pub_id)}" data-account-status="{escape(st)}">'
+            f'<td><code class="pref-mono">{escape(pub_id)}</code></td>'
+            f"<td><strong>{escape(uname)}</strong></td>"
+            f'<td><span class="badge">{escape(st_label)}</span></td>'
+            f'<td>{int(m.get("theme_count", 0))}</td>'
+            f"<td>{escape(key_tag)}</td>"
+            f'<td data-member-actions="{escape(pub_id)}">'
+            f'<button type="button" class="pref-btn" data-account-action="suspend" data-public-id="{escape(pub_id)}">정지</button> '
+            f'<button type="button" class="pref-btn" data-account-action="resume" data-public-id="{escape(pub_id)}">재개</button> '
+            f'<button type="button" class="pref-btn" data-account-action="schedule_delete" data-public-id="{escape(pub_id)}">삭제 예약</button> '
+            f'<button type="button" class="pref-btn" data-account-action="cancel_delete" data-public-id="{escape(pub_id)}">예약 취소</button> '
+            f'<button type="button" class="pref-btn pref-btn-danger" data-account-action="purge" data-public-id="{escape(pub_id)}">즉시 소각</button> '
+            f'<button type="button" class="pref-btn" data-account-action="reset_password_link" data-public-id="{escape(pub_id)}">비밀번호 재설정 링크</button>'
+            f"</td>"
+            f"</tr>"
+        )
+    members_tbody = (
+        "".join(member_trs)
+        if member_trs
+        else '<tr><td colspan="6" style="color:var(--muted);text-align:center;">등록된 일반 멤버 계정이 없습니다.</td></tr>'
+    )
+
+    if mode == "network":
+        invites_section = (
+            '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
+            '<h2>✉️ 가입 초대 코드 관리 (<code>/api/invites</code>)</h2>'
+            '<p class="hint">네트워크 모드에서 신규 멤버 가입을 위한 일회용·다회용 초대 코드를 발급하고 비활성화합니다.</p>'
+            '<form id="admin-invite-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">최대 사용 횟수 (1~5)'
+            '<input type="number" name="max_uses" class="pref-input" min="1" max="5" value="1" style="width:90px" required/>'
+            "</label>"
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">예약 USERNAME (선택)'
+            '<input type="text" name="reserved_username" class="pref-input" placeholder="예: alice" style="width:140px"/>'
+            "</label>"
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">메모 (선택)'
+            '<input type="text" name="note" class="pref-input" placeholder="초대 대상 메모" style="width:180px"/>'
+            "</label>"
+            '<button type="submit" class="pref-btn pref-btn-accent">+ 초대 코드 발급</button>'
+            "</form>"
+            '<p class="result" id="admin-invite-result" data-invite-result role="status" aria-live="polite"></p>'
+            '<div class="pref-table-wrap">'
+            '<table class="pref-table">'
+            '<thead><tr><th>번호</th><th>코드 · 링크</th><th>상태</th><th>사용량</th><th>예약 이름</th><th>메모</th><th>관리</th></tr></thead>'
+            '<tbody id="admin-invites-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">초대 목록을 불러오는 중입니다...</td></tr></tbody>'
+            "</table>"
+            "</div>"
+            "</section>"
+        )
+    else:
+        invites_section = (
+            '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
+            '<h2>✉️ 가입 초대 코드 관리</h2>'
+            '<div class="notice">싱글 모드에서는 가입 초대 경로(<code>/api/invites</code>)가 비활성화(404)되어 있습니다. 네트워크 모드로 전환한 뒤 초대를 발급할 수 있습니다.</div>'
+            "</section>"
+        )
+
+    retired_trs: list[str] = []
+    for r in retired:
+        uname = str(r.get("username", ""))
+        ret_at = format_ts(r.get("retired_at"))
+        reason = str(r.get("reason") or "-")
+        retired_trs.append(
+            f'<tr data-retired-username="{escape(uname)}">'
+            f'<td><code class="pref-mono">{escape(uname)}</code></td>'
+            f"<td>{escape(ret_at)}</td>"
+            f"<td>{escape(reason)}</td>"
+            f"<td>"
+            f'<button type="button" class="pref-btn" data-retired-preview="{escape(uname)}">초기화 미리보기</button> '
+            f'<button type="button" class="pref-btn pref-btn-danger" data-retired-release="{escape(uname)}">퇴역 해제 실행</button>'
+            f"</td>"
+            f"</tr>"
+        )
+    retired_tbody = (
+        "".join(retired_trs)
+        if retired_trs
+        else '<tr><td colspan="4" style="color:var(--muted);text-align:center;">퇴역 처리된 USERNAME이 없습니다.</td></tr>'
+    )
+
+    storage_mb = int(tier_dict.get("storage_mb", 0))
+    max_docs = int(tier_dict.get("max_documents", 0))
+    max_themes = int(tier_dict.get("max_themes", 1))
+    monthly_tokens = int(tier_dict.get("monthly_tokens", 0))
+    daily_ingests = int(tier_dict.get("daily_ingests", 0))
+    active_count = sum(1 for i in items if i.get("status") == "active")
+    suspended_count = sum(1 for i in items if i.get("status") in {"suspended", "deleting"})
+    total_themes_count = sum(int(i.get("theme_count", 0)) for i in items)
+
+    return f"""
+      {cards}
+      <section class="card" id="admin-members-section" aria-label="멤버 계정 목록 및 수명주기">
+        <h2>👥 멤버 계정 디렉터리 및 수명주기 관리 (<code>/api/admin/accounts</code>)</h2>
+        <p class="hint">계정 상태 전환(정지·재개·삭제 예약·즉시 소각) 및 비밀번호 재설정 링크 발급은 관리자 단계 인증(15분)을 거칩니다. 멤버의 비공개 콘텐츠는 조회하지 않습니다(D5, K5).</p>
+        <p class="result" id="admin-accounts-result" data-accounts-result role="status" aria-live="polite"></p>
+        <div class="pref-table-wrap">
+          <table class="pref-table">
+            <thead>
+              <tr><th>번호 (public_id)</th><th>USERNAME</th><th>상태</th><th>테마 수</th><th>BYOK 키</th><th>수명주기 작업</th></tr>
+            </thead>
+            <tbody id="admin-accounts-tbody">{members_tbody}</tbody>
+          </table>
+        </div>
+      </section>
+      {invites_section}
+      <section class="card" id="admin-retired-usernames-section" aria-label="퇴역 USERNAME 관리">
+        <h2>♻️ 퇴역 USERNAME 조회 및 해제 (<code>/api/admin/usernames/*</code>)</h2>
+        <p class="hint">삭제된 계정의 USERNAME은 사칭 방지를 위해 퇴역 목록에 잠깁니다. 미리보기 확인 후 단계 인증을 거쳐 잠금을 해제할 수 있습니다.</p>
+        <form id="admin-retired-release-form" data-retired-release-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">대상 USERNAME
+            <input type="text" name="username" id="admin-retired-username-input" class="pref-input" placeholder="퇴역 username 입력" style="width:180px" required/>
+          </label>
+          <button type="button" class="pref-btn" id="admin-retired-preview-btn">영향 미리보기 (apply=false)</button>
+          <button type="submit" class="pref-btn pref-btn-danger" id="admin-retired-apply-btn">퇴역 해제 실행 (apply=true)</button>
+        </form>
+        <p class="result" id="admin-retired-result" data-retired-result role="status" aria-live="polite"></p>
+        <div class="pref-table-wrap">
+          <table class="pref-table">
+            <thead>
+              <tr><th>퇴역 USERNAME</th><th>퇴역 시각</th><th>사유</th><th>관리</th></tr>
+            </thead>
+            <tbody id="admin-retired-tbody">{retired_tbody}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="사용자별 워크스페이스 운영자 보기">
+        <h2>🗄️ 사용자별 워크스페이스 · 디렉터리 격리 구조 (운영자 보기)</h2>
+        <p class="hint">계정별 테마 레지스트리와 데이터베이스 격리 구조 및 기본 할당량 요약입니다. 세부 할당량 수정은 <a href="/admin/instance">🖥️ 인스턴스 모드 · 서버 등급</a>에서 수행합니다.</p>
+        <div class="pref-stat-row" id="pref-userdb-stats">
+          <div class="pref-stat"><b>{active_count}</b><span>활성 계정</span></div>
+          <div class="pref-stat"><b>{suspended_count}</b><span>정지 · 삭제 예약</span></div>
+          <div class="pref-stat"><b>{len(retired)}</b><span>퇴역 USERNAME</span></div>
+          <div class="pref-stat"><b>{total_themes_count}</b><span>전체 테마 슬롯 합계</span></div>
+        </div>
+        <div class="pref-quota-grid">
+          <label>저장 용량 (MB)<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
+          <label>문서 수<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
+          <label>테마 수<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
+          <label>월 LLM 토큰<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
+          <label>일 적재 건수<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
+          <label class="pref-quota-switch"><span>멤버 BYOK 외부 키 허용</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
+        </div>
+        <div class="pref-table-wrap">
+          <table class="pref-table">
+            <thead><tr><th>구분</th><th>격리 경로</th><th>테마 · 콘텐츠 접근</th><th>할당량 적용</th></tr></thead>
+            <tbody id="pref-userdb-tbody">
+              <tr><td><strong>관리자 워크스페이스</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>관리자 전용 소유</td><td>제한 없음 (providers.json 직접 사용)</td></tr>
+              <tr><td><strong>일반 멤버 계정</strong></td><td><code class="pref-mono">account_id 귀속 테마 격리</code></td><td>소유자만 열람 (운영자 내용 열람 불가 · D5/K5)</td><td>서버 등급(ServerTier) 및 BYOK 정책 적용</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>"""
+
+
 def routes(ctx: AccountsContext) -> list[Route]:
     async def admin_accounts_page(request: Request) -> Response:
-        if not is_admin(request_principal(request)):
+        principal = request_principal(request)
+        if not is_admin(principal):
             return not_found()
-        items = await asyncio.to_thread(list_account_summaries, ctx)
-        admin_items = [i for i in items if i["role"] == "admin"]
-        cards = "".join(_admin_card(i) for i in admin_items)
-        return render_template("admin_accounts.html", markup={"cards": cards})
+        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+
+        def _render() -> Response:
+            from ...accounts import server_tier
+            from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
+
+            items = list_account_summaries(ctx)
+            conn = open_db(ctx)
+            try:
+                store = accounts_store.AccountStore(conn)
+                mode = store.instance_mode()
+                retired = store.list_retired_usernames()
+                tier_dict = server_tier.load_server_tier(conn).to_dict()
+            finally:
+                conn.close()
+
+            body_html = _render_admin_accounts_html(
+                mode=mode,
+                items=items,
+                retired=retired,
+                tier_dict=tier_dict,
+            )
+            return _render_console_section(
+                ctx,
+                spec=ADMIN_SPEC_BY_SLUG["accounts"],
+                principal=principal,
+                raw_theme=raw_theme,
+                custom_body_html=body_html,
+            )
+
+        return await asyncio.to_thread(_render)
 
     async def admin_accounts_api(request: Request) -> Response:
         if not is_admin(request_principal(request)):

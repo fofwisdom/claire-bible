@@ -29,6 +29,7 @@ from .common import (
     AccountsContext,
     FORM_PAGE_REFERRER_POLICY,
     escape,
+    format_ts,
     json_error,
     not_found,
     open_db,
@@ -223,7 +224,7 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
         nav_label="🖥️ 인스턴스 모드 · 서버 등급",
-        title="🖥️ 인스턴스 모드 전환 및 서버 등급",
+        title="🖥️ 인스턴스 설정 · 모드 전환 및 서버 등급",
         badge="서버 전역 · 관리자",
         description="싱글 ↔ 네트워크 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰 시계 및 기본 서버 등급을 관리합니다.",
     ),
@@ -236,7 +237,7 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         nav_label="👥 계정 · 초대 · 퇴역 이름",
         title="👥 사용자 계정 · 가입 초대 · 퇴역 USERNAME 관리",
         badge="서버 전역 · 관리자",
-        description="계정 상태 전환, 초대 코드 발급·비활성화 및 퇴역 USERNAME 정보 초기화를 관리합니다.",
+        description="계정 상태 전환, 초대 코드 발급·비활성화, 퇴역 USERNAME 정보 초기화 및 운영자 워크스페이스 현황을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="idp",
@@ -245,7 +246,7 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
         nav_label="🪪 외부 IdP 로그인 정책",
-        title="🪪 외부 OIDC · GitHub IdP 공급자 및 가입 정책",
+        title="🪪 외부 IdP 관리 · OIDC 공급자 및 가입 정책",
         badge="서버 전역 · 관리자",
         description="외부 IdP 공급자 등록, Discovery 검증, 이메일 도메인 제한 및 로그인 흐름 시뮬레이터를 관리합니다.",
     ),
@@ -314,8 +315,13 @@ ALL_SETTINGS_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *SETTINGS_GROUP_2_SPECS,
     *SETTINGS_GROUP_3_SPECS,
 )
+ALL_ADMIN_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    *ADMIN_SIDEBAR_GROUP_4_SPECS,
+    *ADMIN_CONSOLE_GROUP_5_SPECS,
+)
 SETTINGS_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ALL_SETTINGS_SPECS}
 ADMIN_CONSOLE_BY_PATH: dict[str, ConsoleSectionSpec] = {spec.path: spec for spec in ADMIN_CONSOLE_GROUP_5_SPECS}
+ADMIN_SPEC_BY_SLUG: dict[str, ConsoleSectionSpec] = {spec.slug: spec for spec in ALL_ADMIN_SPECS}
 
 
 def _is_owner(principal: Principal) -> bool:
@@ -439,12 +445,220 @@ def _build_theme_selector_html(
     )
 
 
+def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tuple[str, dict[str, Any]]:
+    if slug == "providers":
+        body = (
+            '<div class="card" id="admin-providers-card" aria-label="프로바이더 설정">'
+            '<div id="admin-providers-host" data-admin-panel-host="providers">'
+            '<p class="hint">프로바이더 설정 화면을 불러오는 중입니다...</p>'
+            "</div>"
+            "</div>"
+        )
+        return body, {}
+
+    if slug == "limits":
+        body = (
+            '<div class="card" id="admin-limits-card" aria-label="적재 제한 설정">'
+            '<div id="admin-limits-host" data-admin-panel-host="limits">'
+            '<p class="hint">적재 제한 설정 화면을 불러오는 중입니다...</p>'
+            "</div>"
+            "</div>"
+        )
+        return body, {}
+
+    if slug == "themes":
+        conn = open_db(ctx)
+        try:
+            total_accounts = int(conn.execute("SELECT COUNT(*) FROM accounts WHERE status != 'purged'").fetchone()[0])
+            total_themes = int(conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0])
+            admin_themes = int(conn.execute("SELECT COUNT(*) FROM themes WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
+        finally:
+            conn.close()
+        body = (
+            '<section class="card" id="admin-themes-summary" aria-label="인스턴스 테마 슬롯 현황">'
+            '<h2>📊 인스턴스 전체 테마 슬롯 현황 <span class="badge">집계 전용 · 비공개 콘텐츠 비접근 (D5/K5)</span></h2>'
+            '<p class="hint">운영자는 인스턴스 전체 계정 수와 테마 슬롯 개수만 확인하며, 일반 멤버의 테마 이름·설명·문서 본문은 절대 열람하지 않습니다.</p>'
+            '<div class="pref-stat-row" id="admin-themes-stats">'
+            f'<div class="pref-stat"><b data-stat="total_accounts">{total_accounts}</b><span>활성·등록 계정 수 (total_accounts)</span></div>'
+            f'<div class="pref-stat"><b data-stat="total_themes">{total_themes}</b><span>인스턴스 전체 테마 슬롯 (total_themes)</span></div>'
+            f'<div class="pref-stat"><b data-stat="admin_themes">{admin_themes}</b><span>관리자 소유 테마 수</span></div>'
+            "</div>"
+            "</section>"
+            '<section class="card" id="admin-themes-manager-card" aria-label="관리자 지식 테마 관리">'
+            '<div id="admin-themes-host" data-admin-panel-host="themes">'
+            '<p class="hint">관리자 지식 테마 목록을 불러오는 중입니다...</p>'
+            "</div>"
+            "</section>"
+        )
+        return body, {
+            "theme_summary": {
+                "total_accounts": total_accounts,
+                "total_themes": total_themes,
+                "admin_themes": admin_themes,
+            }
+        }
+
+    if slug == "tokens":
+        conn = open_db(ctx)
+        try:
+            oauth_rows = conn.execute(
+                "SELECT c.client_id, c.client_name, c.redirect_uris, c.created_at, MAX(t.expires_at) "
+                "FROM oauth_clients c LEFT JOIN oauth_tokens t ON c.client_id = t.client_id "
+                "GROUP BY c.client_id ORDER BY c.created_at DESC"
+            ).fetchall()
+        except Exception:
+            oauth_rows = []
+        finally:
+            conn.close()
+
+        client_trs: list[str] = []
+        oauth_clients_list: list[dict[str, Any]] = []
+        for cid, cname, ruris_raw, created_at, max_exp in oauth_rows:
+            try:
+                ruris = json.loads(ruris_raw) if isinstance(ruris_raw, str) else []
+            except Exception:
+                ruris = [str(ruris_raw)] if ruris_raw else []
+            ruri_str = ", ".join(str(u) for u in ruris) if ruris else "-"
+            created_str = format_ts(created_at)
+            exp_str = format_ts(max_exp) if max_exp else "발급 토큰 없음"
+            client_trs.append(
+                f"<tr>"
+                f"<td><strong>{escape(cname or 'External MCP Client')}</strong></td>"
+                f'<td><code class="pref-mono">{escape(cid)}</code><br/><span class="pref-mono" style="color:var(--muted)">{escape(ruri_str)}</span></td>'
+                f"<td>{escape(created_str)}</td>"
+                f"<td>{escape(exp_str)}</td>"
+                f"</tr>"
+            )
+            oauth_clients_list.append(
+                {
+                    "client_id": cid,
+                    "client_name": cname or "External MCP Client",
+                    "redirect_uris": ruris,
+                    "created_at": created_at,
+                    "expires_at": max_exp,
+                }
+            )
+        clients_tbody = (
+            "".join(client_trs)
+            if client_trs
+            else '<tr><td colspan="4" style="color:var(--muted);text-align:center;">등록된 OAuth 2.1 클라이언트가 없습니다.</td></tr>'
+        )
+        body = (
+            '<section class="card" id="admin-tokens-manager-card" aria-label="관리자 상시 이용 토큰 관리">'
+            '<div id="admin-tokens-host" data-admin-panel-host="tokens">'
+            '<p class="hint">관리자 상시 이용 토큰 목록을 불러오는 중입니다...</p>'
+            "</div>"
+            "</section>"
+            '<section class="card" id="admin-oauth-clients-card" aria-label="OAuth 2.1 등록 클라이언트">'
+            '<h2>🔐 OAuth 2.1 등록 및 승인 클라이언트 현황</h2>'
+            '<p class="hint"><code>/oauth/register</code>(DCR) 및 <code>/oauth/authorize</code>로 등록된 원격 MCP 클라이언트 목록입니다. 토큰 원문은 저장·표시하지 않습니다.</p>'
+            '<div class="pref-table-wrap">'
+            '<table class="pref-table">'
+            '<thead><tr><th>클라이언트 이름</th><th>client_id · redirect_uris</th><th>등록 시각</th><th>만료 시각</th></tr></thead>'
+            f'<tbody id="pref-mcp-clients-tbody">{clients_tbody}</tbody>'
+            "</table>"
+            "</div>"
+            "</section>"
+            '<section class="card" id="admin-token-policy-card" aria-label="인스턴스 토큰 정책 요약">'
+            '<h2>🛡️ 인스턴스 인증 채널 및 토큰 정책</h2>'
+            '<dl>'
+            '<dt>상시 이용 토큰 (<code>cb_…</code>)</dt><dd>계정별 격리 발급 · <code>owner</code> / <code>collaborator</code> / <code>readonly</code> 권한 · 즉시 폐기(<code>/tokens/revoke</code>)</dd>'
+            '<dt>OAuth 2.1 원격 커넥터</dt><dd>PKCE(S256) 필수 · <code>readonly</code> 스코프 고정 · Access 30일 / Refresh 1년 회전</dd>'
+            '<dt>세션 쿠키</dt><dd>7일 슬라이딩 만료 · 민감 작업 시 15분 단계 인증(<code>/api/auth/reauth</code>) 요구</dd>'
+            "</dl>"
+            "</section>"
+        )
+        return body, {"oauth_clients": oauth_clients_list}
+
+    if slug == "mcp":
+        body = (
+            '<section class="card" id="admin-mcp-telemetry-card" aria-label="MCP 호출 감사 기록">'
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+            '<h2>📜 실시간 MCP 호출 감사 기록 (<code>mcp_telemetry</code>)</h2>'
+            '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+            '<label style="font-size:12px;font-weight:600">상태 <select id="admin-mcp-filter-status" class="pref-select">'
+            '<option value="">전체 상태</option>'
+            '<option value="SUCCESS">SUCCESS</option>'
+            '<option value="success">success</option>'
+            '<option value="ERROR">ERROR</option>'
+            '<option value="UNAUTHORIZED">UNAUTHORIZED</option>'
+            '<option value="auth_error">auth_error</option>'
+            "</select></label>"
+            '<label style="font-size:12px;font-weight:600">도구 <input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="예: search" style="width:130px"/></label>'
+            '<label style="font-size:12px;font-weight:600">표시 건수 <select id="admin-mcp-filter-limit" class="pref-select">'
+            '<option value="25">25건</option>'
+            '<option value="50" selected>50건</option>'
+            '<option value="100">100건</option>'
+            '<option value="200">200건</option>'
+            "</select></label>"
+            '<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">↻ 새로고침</button>'
+            "</div>"
+            "</div>"
+            '<p class="hint"><code>GET /api/admin/mcp/telemetry</code>에서 조회한 최신 도구 호출 및 인증 감사 기록입니다. 인자 및 응답 본문은 저장하지 않습니다.</p>'
+            '<p class="result" id="admin-mcp-telemetry-status" role="status" aria-live="polite"></p>'
+            '<div class="pref-table-wrap">'
+            '<table class="pref-table">'
+            '<thead><tr><th>시각</th><th>call_type</th><th>tool_name</th><th>status</th><th>duration_ms</th><th>response_bytes</th><th>client_id</th></tr></thead>'
+            '<tbody id="pref-mcp-audit-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">감사 기록을 불러오는 중입니다...</td></tr></tbody>'
+            "</table>"
+            "</div>"
+            "</section>"
+            '<section class="card" id="admin-mcp-rbac-card" aria-label="RBAC 설계 대조 진단">'
+            '<h2>🧭 RBAC 설계 vs 현재 MCP 접근 판정 대조</h2>'
+            '<p class="hint">권한 범위별 REST RBAC 정책과 <code>/mcp</code> 엔드포인트 도구 호출 권한 대조표입니다.</p>'
+            '<div class="pref-table-wrap">'
+            '<table class="pref-table">'
+            '<thead><tr><th>권한 (Scope)</th><th>RBAC 설계 (REST)</th><th>현재 MCP (/mcp)</th><th>판정</th></tr></thead>'
+            '<tbody id="pref-mcp-rbac-tbody">'
+            '<tr><td><code class="pref-mono">owner</code></td><td>읽기 · 쓰기 (자신 소유 테마)</td><td>읽기 전용 도구 10종 실행</td><td><span class="pref-pill pref-pill-mcp">일치</span></td></tr>'
+            '<tr><td><code class="pref-mono">collaborator</code></td><td>협업 허용 테마 읽기 · 쓰기 (Theme 0 차단)</td><td>읽기 전용 도구 실행</td><td><span class="pref-pill pref-pill-mcp">점검 대상</span></td></tr>'
+            '<tr><td><code class="pref-mono">readonly</code></td><td>공개·허용 테마 읽기 전용</td><td>읽기 전용 도구 실행</td><td><span class="pref-pill pref-pill-mcp">일치</span></td></tr>'
+            '<tr><td><code class="pref-mono">anonymous</code></td><td>공개 테마 열람 (비공개 404 은폐)</td><td>항상 거부 (401 Unauthorized)</td><td><span class="pref-pill">더 엄격</span></td></tr>'
+            "</tbody>"
+            "</table>"
+            "</div>"
+            "</section>"
+            '<section class="card" id="admin-webmcp-policy-card" aria-label="전역 WebMCP 정책">'
+            '<h2>🕸️ 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>)</h2>'
+            '<div class="pref-row">'
+            '<div class="pref-row-label">'
+            '<strong>WebMCP 페이지 도구 전역 허용 (<code>document.modelContext</code>)</strong>'
+            '<span>비활성화 시 브라우저 에이전트의 페이지 도구 등록을 차단하고 <code>Permissions-Policy: tools=()</code> 헤더 정책을 적용합니다.</span>'
+            "</div>"
+            '<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="WebMCP 도구 등록 전역 허용"/>'
+            "</div>"
+            '<p class="hint" id="admin-webmcp-policy-hint">현재 상태: 활성 (테마별 상세 노출 설정은 <code>/settings/webmcp</code>에서 구성합니다).</p>'
+            "</section>"
+            '<section class="card" id="admin-support-bundle-card" aria-label="진단 지원 번들 생성">'
+            '<h2>📦 진단 지원 번들 (<code>POST /support/bundle</code>) 내보내기</h2>'
+            '<p class="hint">최근 텔레메트리, 스키마 상태, 환경 구성을 비밀정보 마스킹 후 압축 번들로 생성합니다.</p>'
+            '<form id="admin-support-bundle-form" data-support-bundle-form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">수집 기간 (일)'
+            '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>'
+            "</label>"
+            '<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn">🩺 지원 번들 생성</button>'
+            "</form>"
+            '<p class="result" id="admin-support-bundle-result" data-support-bundle-result role="status" aria-live="polite"></p>'
+            "</section>"
+        )
+        return body, {}
+
+    return (
+        f'<div class="console-placeholder" data-area="admin" data-slug="{escape(slug)}">'
+        f'<p class="console-desc">경로: <code>/admin/{escape(slug)}</code></p>'
+        "</div>"
+    ), {}
+
+
 def _render_console_section(
     ctx: AccountsContext,
     *,
     spec: ConsoleSectionSpec,
     principal: Principal,
-    raw_theme: str | None,
+    raw_theme: str | None = None,
+    custom_body_html: str | None = None,
+    extra_bootstrap: dict[str, Any] | None = None,
+    extra_scripts_html: str = "",
 ) -> Response:
     assert principal.account_id is not None
     theme_lookup = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -477,12 +691,18 @@ def _render_console_section(
         owned_themes=owned_themes,
         selected_theme=selected_theme,
     )
-    section_body_html = (
-        f'<div class="console-placeholder" data-area="{escape(spec.area)}" data-slug="{escape(spec.slug)}">'
-        f"<p class=\"console-desc\">경로: <code>{escape(spec.path)}</code></p>"
-        "</div>"
-    )
-    bootstrap_payload = {
+    built_extra: dict[str, Any] = {}
+    if custom_body_html is not None:
+        section_body_html = custom_body_html
+    elif spec.area == "admin":
+        section_body_html, built_extra = _build_admin_section_body_and_extra(ctx, spec.slug)
+    else:
+        section_body_html = (
+            f'<div class="console-placeholder" data-area="{escape(spec.area)}" data-slug="{escape(spec.slug)}">'
+            f"<p class=\"console-desc\">경로: <code>{escape(spec.path)}</code></p>"
+            "</div>"
+        )
+    bootstrap_payload: dict[str, Any] = {
         "area": spec.area,
         "section": spec.slug,
         "path": spec.path,
@@ -493,6 +713,8 @@ def _render_console_section(
             if (selected_theme is not None and selected_theme.number is not None)
             else (str(selected_theme.id) if selected_theme is not None else None)
         ),
+        **built_extra,
+        **(extra_bootstrap or {}),
     }
     return render_template(
         "console_shell.html",
@@ -513,6 +735,7 @@ def _render_console_section(
             "sidebar_nav_html": sidebar_html,
             "section_body_html": section_body_html,
             "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False),
+            "extra_scripts_html": extra_scripts_html,
         },
     )
 

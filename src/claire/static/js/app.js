@@ -593,6 +593,7 @@ function cancelServerSearch(){
 }
 let synthSet = new Set();
 let AUTH_SCOPE='unknown'; let READONLY=true;
+let IS_ADMIN=false;
 let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
 let edgeLabelsByZoom = false, selectedEdgeIds = new Set(), lastZoomTier = 0;
@@ -4518,11 +4519,27 @@ function setAccessScope(scope, reason){
   const canAccessThemes = (canWrite() || AUTH_SCOPE === 'collaborator') && isMultiThemeEnabled();
   if(tmBtn) tmBtn.style.display = canAccessThemes ? '' : 'none';
   const pmBtn = document.getElementById('providermanagebtn');
-  if(pmBtn) pmBtn.style.display = canWrite() ? '' : 'none';
+  if(pmBtn) pmBtn.style.display = (canWrite() && IS_ADMIN) ? '' : 'none';
   const lmBtn = document.getElementById('limitmanagebtn');
-  if(lmBtn) lmBtn.style.display = canWrite() ? '' : 'none';
+  if(lmBtn) lmBtn.style.display = (canWrite() && IS_ADMIN) ? '' : 'none';
   const kmBtn = document.getElementById('tokenmanagebtn');
   if(kmBtn) kmBtn.style.display = canWrite() ? '' : 'none';
+  const clBtn = document.getElementById('consolelinkbtn');
+  if(clBtn){
+    const showConsole = canWrite();
+    clBtn.style.display = showConsole ? '' : 'none';
+    if(showConsole){
+      if(IS_ADMIN){
+        clBtn.setAttribute('href', '/admin');
+        clBtn.title = '관리자 콘솔';
+        clBtn.innerHTML = '<span class="btn-icon">🛠️</span> <span class="btn-label">관리자 콘솔</span>';
+      } else {
+        clBtn.setAttribute('href', '/settings');
+        clBtn.title = '내 설정';
+        clBtn.innerHTML = '<span class="btn-icon">⚙️</span> <span class="btn-label">내 설정</span>';
+      }
+    }
+  }
   const mgSec = document.getElementById('manage-section');
   if(mgSec) mgSec.style.display = (canAccessThemes || canWrite()) ? '' : 'none';
   if(!canWrite()){
@@ -4539,13 +4556,41 @@ function setAccessScope(scope, reason){
   else if(activeDoc) loadDocPanel(activeDoc);
   else panel.innerHTML=defaultHint();
 }
-function expireWriteAccess(){ setAccessScope('unknown','expired'); }
+function expireWriteAccess(){
+  IS_ADMIN = false;
+  setAccessScope('unknown','expired');
+}
 
 async function openThemeManager(){
   const isOwner = canWrite();
   const isCollab = AUTH_SCOPE === 'collaborator';
   if(!isOwner && !isCollab) return;
   openDetailPane();
+  if(window.ClaireManagePanels && typeof window.ClaireManagePanels.renderThemeManager === 'function'){
+    await window.ClaireManagePanels.renderThemeManager(panel, {
+      apiUrl: apiUrl,
+      rootUrl: rootUrl,
+      isOwner: isOwner,
+      isCollaborator: isCollab,
+      isAdmin: IS_ADMIN,
+      activeThemeId: typeof activeThemeId !== 'undefined' ? activeThemeId : '0',
+      defaultSorcerer: (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner',
+      onClose: closeDrawer,
+      onThemeChange: async (action, themeId) => {
+        if(action === 'delete' && String(activeThemeId) === String(themeId)){
+          activeThemeId = '0';
+          setAccountStorage('claire_active_theme', '0');
+          setAccountStorage('claireKnowledgeTheme', '0');
+        }
+        if(typeof fetchThemes === 'function') await fetchThemes();
+        if(action === 'delete' || action === 'switch'){
+          if(typeof reloadThemeData === 'function') await reloadThemeData();
+          if(typeof loadThemeDocuments === 'function') await loadThemeDocuments();
+        }
+      }
+    });
+    return;
+  }
   panel.innerHTML = '<h2>📁 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
   try{
     const r = await fetch(apiUrl('themes'));
@@ -4899,8 +4944,17 @@ async function deleteThemeFromUI(themeId, label){
 let _provConfig = null;
 
 async function openProviderManager(){
-  if(!canWrite()) return;
+  if(!canWrite() || !IS_ADMIN) return;
   openDetailPane();
+  if(window.ClaireManagePanels && typeof window.ClaireManagePanels.renderProviderManager === 'function'){
+    await window.ClaireManagePanels.renderProviderManager(panel, {
+      rootUrl: rootUrl,
+      apiUrl: apiUrl,
+      canWrite: canWrite,
+      onClose: closeDrawer
+    });
+    return;
+  }
   panel.innerHTML = '<h2>⚡ 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
   try{
     const r = await fetch(rootUrl('providers'));
@@ -5279,8 +5333,17 @@ async function saveProviderSettings(){
 let _limitConfig = null;
 
 async function openLimitManager(){
-  if(!canWrite()) return;
+  if(!canWrite() || !IS_ADMIN) return;
   openDetailPane();
+  if(window.ClaireManagePanels && typeof window.ClaireManagePanels.renderLimitManager === 'function'){
+    await window.ClaireManagePanels.renderLimitManager(panel, {
+      rootUrl: rootUrl,
+      apiUrl: apiUrl,
+      canWrite: canWrite,
+      onClose: closeDrawer
+    });
+    return;
+  }
   panel.innerHTML = '<h2>📏 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
   try{
     const r = await fetch(rootUrl('limits'));
@@ -5549,6 +5612,19 @@ let _tokenList = [];
 async function openTokenManager(msg, isSuccess, newCreatedToken){
   if(!canWrite()) return;
   openDetailPane();
+  if(window.ClaireManagePanels && typeof window.ClaireManagePanels.renderTokenManager === 'function'){
+    await window.ClaireManagePanels.renderTokenManager(panel, {
+      rootUrl: rootUrl,
+      apiUrl: apiUrl,
+      canWrite: canWrite,
+      isAdmin: IS_ADMIN,
+      onClose: closeDrawer,
+      initialMsg: msg,
+      initialSuccess: isSuccess,
+      initialNewToken: newCreatedToken
+    });
+    return;
+  }
   panel.innerHTML = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
   try{
     const r = await fetch(rootUrl('tokens'));
@@ -5746,6 +5822,10 @@ async function revokeApiToken(id, name){
   }catch(e){
     renderTokenManager('오류 발생: ' + (e.message || e), false);
   }
+}
+
+if(window.ClaireManagePanels){
+  Object.assign(window, window.ClaireManagePanels);
 }
 
 async function synth(){
@@ -6001,8 +6081,12 @@ syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테�
 fetchThemes();    // 지식 관리자가 정의한 테마 목록을 조회하여 셀렉터 구성
 loadThemeDocuments();
 fetch(rootUrl('whoami')).then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
+  IS_ADMIN = d.is_admin === true;
   setAccessScope(d.scope);
-}).catch(()=>{ setAccessScope('unknown','failed'); });
+}).catch(()=>{
+  IS_ADMIN = false;
+  setAccessScope('unknown','failed');
+});
 
 // --- 브라우저 히스토리 (뒤로가기 / 앞으로가기) 내비게이션 핸들러 ---
 window.addEventListener('popstate', e => {

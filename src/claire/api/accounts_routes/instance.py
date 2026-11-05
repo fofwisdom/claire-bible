@@ -39,6 +39,7 @@ from .common import (
     require_recent_auth,
     same_origin,
 )
+from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 
 ADMIN_INSTANCE_PATH = "/admin/instance"
 ADMIN_INSTANCE_API_PATH = "/api/admin/instance"
@@ -232,67 +233,7 @@ def _render_instance_html(
 
     readiness_summary = '<span style="color:#2f855a;font-weight:bold;">9/9 통과</span>' if readiness_report.passed else '<span style="color:#c53030;font-weight:bold;">미통과</span>'
 
-    return f"""<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="robots" content="noindex, nofollow">
-    <title>인스턴스 설정 · Claire</title>
-    <style>
-      :root {{ color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --error: #a3261d; }}
-      @media (prefers-color-scheme: dark) {{ :root {{ --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --error: #f08a80; }} }}
-      * {{ box-sizing: border-box; }}
-      body {{ margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Noto Sans KR", sans-serif; }}
-      main {{ max-width: 48rem; margin: 0 auto; padding: 2rem 1rem 3rem; }}
-      h1 {{ font-size: 1.5rem; margin: 0 0 1rem; }}
-      h2 {{ font-size: 1.15rem; margin: 0 0 .75rem; }}
-      .card {{ background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin: 0 0 1.25rem; }}
-      table {{ width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .9rem; }}
-      th, td {{ border-bottom: 1px solid var(--line); padding: .5rem .625rem; text-align: left; vertical-align: top; }}
-      th {{ color: var(--muted); font-weight: 600; }}
-      nav {{ display: flex; gap: 1rem; align-items: center; margin: 0 0 1.5rem; font-size: .9rem; }}
-      nav a {{ color: var(--accent); }}
-      nav form {{ margin: 0 0 0 auto; }}
-      button.link {{ background: none; color: var(--accent); padding: 0; margin: 0; border: 0; cursor: pointer; text-decoration: underline; font: inherit; }}
-      .badge {{ display: inline-block; padding: .2rem .5rem; border-radius: 4px; font-weight: 600; font-size: .85rem; background: var(--line); }}
-      .hint {{ color: var(--muted); font-size: .875rem; margin-top: .25rem; }}
-      dl {{ display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }}
-      dt {{ color: var(--muted); }}
-      dd {{ margin: 0; }}
-      .mode-form {{ display: grid; gap: .75rem; margin-top: .75rem; }}
-      .mode-form label {{ display: grid; gap: .25rem; font-size: .9rem; }}
-      .mode-form label.check {{ display: inline-flex; gap: .4rem; align-items: center; margin: .25rem 0; font-size: .9rem; }}
-      .mode-form input[type=password] {{ font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }}
-      .mode-form button {{ justify-self: start; font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--card); cursor: pointer; }}
-      .mode-form button:disabled {{ opacity: 0.5; cursor: not-allowed; }}
-      .mode-form button.btn-danger {{ border-color: var(--error); background: var(--error); color: #fff; }}
-      .notice {{ background: var(--bg); border-left: 3px solid var(--accent); padding: .75rem 1rem; margin: .5rem 0; font-size: .9rem; }}
-      .notice.danger {{ border-left-color: var(--error); }}
-      .notice ul {{ margin: .25rem 0 0 1.25rem; padding: 0; }}
-      .notice li {{ margin-bottom: .25rem; }}
-      .tier-form {{ display: grid; gap: .75rem; margin-top: .75rem; }}
-      .tier-form label {{ display: grid; gap: .25rem; font-size: .9rem; }}
-      .tier-form label.check {{ display: inline-flex; gap: .4rem; align-items: center; margin-right: 1rem; }}
-      .tier-form input[type=text], .tier-form input[type=number], .tier-form input[type=password], .tier-form select {{ font: inherit; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }}
-      .tier-form fieldset {{ border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; }}
-      .tier-form button {{ justify-self: start; font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--card); cursor: pointer; }}
-      .result:empty {{ display: none; }}
-      .result[data-state=error] {{ color: var(--error); }}
-    </style>
-  </head>
-  <body>
-    <main>
-      <nav aria-label="네비게이션">
-        <a href="/">홈</a>
-        <a href="/admin/accounts">계정 관리</a>
-        <a href="/admin/instance" style="font-weight:bold;">인스턴스 설정</a>
-        <a href="/admin/idp">IdP 관리</a>
-        <a href="/me">내 계정</a>
-        <form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>
-      </nav>
-      <h1>인스턴스 설정</h1>
-
+    return f"""
       <section class="card" aria-label="인스턴스 모드" id="instance-mode">
         <h2>인스턴스 모드</h2>
         <dl>
@@ -342,12 +283,7 @@ def _render_instance_html(
           </tbody>
         </table>
       </section>
-{tier_section}
-    </main>
-    <script src="/static/js/instance_mode.js" defer></script>
-    <script src="/static/js/server_tier.js" defer></script>
-  </body>
-</html>"""
+{tier_section}"""
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -357,8 +293,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
+        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
 
-        def _load_data() -> tuple[str, readiness.ReadinessReport, bool, LegacyHostPolicy, list[LegacyHost], dict[str, Any]]:
+        def _render() -> Response:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
@@ -367,20 +304,31 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
                 tier_state = _server_tier_state(conn)
-                return mode, report, readiness.NETWORK_MODE_AVAILABLE, policy, hosts, tier_state
             finally:
                 conn.close()
 
-        mode, report, avail, policy, hosts, tier_state = await asyncio.to_thread(_load_data)
-        content = _render_instance_html(
-            mode=mode,
-            readiness_report=report,
-            network_mode_available=avail,
-            policy=policy,
-            hosts=hosts,
-            tier_state=tier_state,
-        )
-        return HTMLResponse(content, headers={"Cache-Control": "no-store", "Referrer-Policy": "same-origin"})
+            body_html = _render_instance_html(
+                mode=mode,
+                readiness_report=report,
+                network_mode_available=readiness.NETWORK_MODE_AVAILABLE,
+                policy=policy,
+                hosts=hosts,
+                tier_state=tier_state,
+            )
+            extra_scripts = (
+                '<script src="/static/js/instance_mode.js" defer></script>\n'
+                '<script src="/static/js/server_tier.js" defer></script>'
+            )
+            return _render_console_section(
+                ctx,
+                spec=ADMIN_SPEC_BY_SLUG["instance"],
+                principal=principal,
+                raw_theme=raw_theme,
+                custom_body_html=body_html,
+                extra_scripts_html=extra_scripts,
+            )
+
+        return await asyncio.to_thread(_render)
 
     async def admin_instance_api(request: Request) -> Response:
         principal = request_principal(request)

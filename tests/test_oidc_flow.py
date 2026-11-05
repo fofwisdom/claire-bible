@@ -533,6 +533,10 @@ def test_admin_idp_management(test_env):
     assert resp_html.status_code == 200
     assert "외부 IdP 관리" in resp_html.text
     assert "Google Workspace" in resp_html.text
+    assert 'data-active-area="admin"' in resp_html.text
+    assert 'data-active-section="idp"' in resp_html.text
+    assert 'id="pref-idp-tbody"' in resp_html.text
+    assert 'id="pref-idp-add-form"' in resp_html.text
 
     # Admin GET JSON
     resp_json = test_env.client.get("/api/admin/idp")
