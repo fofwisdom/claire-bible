@@ -379,6 +379,27 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("GET", "/api/me/identities"),
         ("HEAD", "/api/me/identities"),
         ("DELETE", "/api/me/identities/oidc/{id}"),
+        # 통합 콘솔 settings/ 영역 (D1–D3)
+        *(
+            (method, path)
+            for path in (
+                "/settings",
+                "/settings/account",
+                "/settings/keys",
+                "/settings/themes",
+                "/settings/tokens",
+                "/settings/reader",
+                "/settings/connections",
+                "/settings/feeds",
+                "/settings/tags",
+                "/settings/rules",
+                "/settings/outbound",
+                "/settings/opml",
+                "/settings/mcp",
+                "/settings/webmcp",
+            )
+            for method in ("GET", "HEAD")
+        ),
     }
     # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
     admin_methods = {
@@ -413,6 +434,20 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ),
         *((method, "/api/admin/server-tier") for method in ("GET", "HEAD", "PUT")),
         ("PUT", "/api/admin/idp"),
+        # 통합 콘솔 admin/ 영역 (D1–D3)
+        *(
+            (method, path)
+            for path in (
+                "/admin",
+                "/admin/providers",
+                "/admin/limits",
+                "/admin/themes",
+                "/admin/tokens",
+                "/admin/mcp",
+                "/api/admin/mcp/telemetry",
+            )
+            for method in ("GET", "HEAD")
+        ),
     }
     expected = {
         **{
