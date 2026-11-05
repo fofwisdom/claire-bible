@@ -4,10 +4,12 @@ Covers:
 - Single mode:
   * Gate G8: Unauthenticated GET/HEAD /syndication returns 401 or 404 (no public access).
   * Authenticated GET /syndication returns 200, authScope='owner', and safe HTML.
-  * Authenticated GET /syndication/preferences returns 200 with active links to /admin/idp, /admin/accounts, /me, /me/keys.
+  * GET /syndication/preferences is a 302 compatibility redirect (D4): reader → /settings/reader; for the admin, ?tab=idp → /admin/idp and ?tab=userdb → /admin/accounts.
+  * GET /me is a 302 to /settings/account.
   * Connected account token AES-256-GCM encryption with AAD f"{theme_id}|{account_id}" and cross-theme tampering prevention.
   * Dispatch records dispatched_by_account_id=1.
 - Network mode:
+  * Member legacy /@{username}/syndication/preferences?tab= redirects to root-mounted /settings/* (?tab=idp|userdb → /settings/account), never with /@{username} in Location.
   * Namespaced access /@{username}/syndication and /@{username}/themes/{theme_number}/syndication.
   * Caller's account_id is recorded in syndication_dispatches.dispatched_by_account_id.
   * Cross-account write protection: member cannot dispatch into another member's theme.
@@ -158,14 +160,22 @@ def test_e2e_syndication_single_mode(p6_env):
         assert "authScope: 'owner'" in res_auth.text
         assert "Claire Bible — Syndication" in res_auth.text
 
-        # 3. Preferences subpage has active management links
-        res_prefs = client.get("/syndication/preferences", headers=headers)
-        assert res_prefs.status_code == 200
-        assert "/admin/idp" in res_prefs.text
-        assert "/admin/accounts" in res_prefs.text
-        assert "/me" in res_prefs.text
-        assert 'id="panel-idp"' in res_prefs.text
-        assert 'id="panel-userdb"' in res_prefs.text
+        # 3. Legacy preferences URLs are 302 redirects into the console (D4, §2.2)
+        assert 'data-settings-path="/settings/reader"' in res_auth.text
+        res_prefs = client.get("/syndication/preferences", headers=headers, follow_redirects=False)
+        assert res_prefs.status_code == 302
+        assert res_prefs.headers["location"] == "/settings/reader"
+        for tab, target in (("idp", "/admin/idp"), ("userdb", "/admin/accounts"), ("accounts", "/settings/connections")):
+            res_tab = client.get(f"/syndication/preferences?tab={tab}", headers=headers, follow_redirects=False)
+            assert res_tab.status_code == 302, tab
+            assert res_tab.headers["location"] == target, tab
+        for target in ("/settings/reader", "/admin/idp", "/admin/accounts"):
+            assert client.get(target, headers=headers, follow_redirects=False).status_code == 200, target
+        res_me = client.get("/me", headers=headers, follow_redirects=False)
+        assert res_me.status_code == 302
+        assert res_me.headers["location"] == "/settings/account"
+        # Single mode: no @username anywhere in redirect targets (S9).
+        assert "@" not in res_prefs.headers["location"] + res_me.headers["location"]
 
         # 4. Connected account token encryption and AAD verification
         conn = dbm.connect(settings.db_file)
@@ -265,6 +275,47 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         # Unauthenticated access to namespaced syndication is rejected
         res_ns_unauth = client.get("/@alice/syndication")
         assert res_ns_unauth.status_code in (401, 404)
+
+        # Entry links and legacy preferences redirects target root-mounted /settings/* (D1), never /@alice/settings.
+        assert 'data-settings-path="/settings/reader"' in res_ns.text
+        assert "/@alice/settings" not in res_ns.text
+        alice_ref = str(alice_theme.number)
+        for tab, target in (
+            (None, "/settings/reader"),
+            ("reader", "/settings/reader"),
+            ("accounts", "/settings/connections"),
+            ("feeds", "/settings/feeds"),
+            ("tags", "/settings/tags"),
+            ("rules", "/settings/rules"),
+            ("outbound", "/settings/outbound"),
+            ("opml", "/settings/opml"),
+            ("mcp", "/settings/mcp"),
+            ("webmcp", "/settings/webmcp"),
+            ("idp", "/settings/account"),
+            ("userdb", "/settings/account"),
+        ):
+            query = f"?tab={tab}" if tab is not None else ""
+            res_tab = client.get(f"/@alice/syndication/preferences{query}", headers=alice_headers, follow_redirects=False)
+            assert res_tab.status_code == 302, tab
+            assert res_tab.headers["location"] == target, tab
+            sep = "&" if query else "?"
+            res_theme = client.get(f"/@alice/syndication/preferences{query}{sep}theme={alice_ref}", headers=alice_headers, follow_redirects=False)
+            assert res_theme.status_code == 302, tab
+            expected = target if target == "/settings/account" else f"{target}?theme={alice_ref}"
+            assert res_theme.headers["location"] == expected, tab
+        res_member_settings = client.get(f"/settings/feeds?theme={alice_ref}", headers=alice_headers, follow_redirects=False)
+        assert res_member_settings.status_code == 200
+        assert "/admin/" not in res_member_settings.text
+        # Unknown tab and a theme of another account fail closed with 404 (C1).
+        assert client.get("/@alice/syndication/preferences?tab=nope", headers=alice_headers, follow_redirects=False).status_code == 404
+        assert client.get(f"/@alice/syndication/preferences?theme={bob_theme.number}", headers=alice_headers, follow_redirects=False).status_code == 404
+        # A collaborator (Bob) and anonymous callers never see a redirect target.
+        bob_prefs = client.get("/@alice/syndication/preferences", headers={"Authorization": f"Bearer {bob_token}"}, follow_redirects=False)
+        assert bob_prefs.status_code in (401, 403, 404)
+        assert "location" not in bob_prefs.headers
+        assert client.get("/@alice/syndication/preferences", follow_redirects=False).status_code in (401, 404)
+        res_me = client.get("/me", headers=alice_headers, follow_redirects=False)
+        assert res_me.status_code == 302 and res_me.headers["location"] == "/settings/account"
 
         # 2. Alice dispatches within her own theme -> records dispatched_by_account_id=2
         dispatch_payload = {

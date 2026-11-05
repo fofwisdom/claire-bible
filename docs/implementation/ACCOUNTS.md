@@ -33,8 +33,8 @@
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
 | `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`)와 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin` |
-| `src/claire/templates/` | `setup.html`, `login.html`, `me.html`, `admin_accounts.html` | `$이름` 자리채움(`common.render_template`) |
-| `src/claire/static/js/accounts.js` | `/me` 화면의 표시 이름·본인 확인·비밀번호 양식 | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
+| `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html` | `$이름` 자리채움(`common.render_template`) |
+| `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 
 ## 2. 계정 모델과 상태
 
@@ -99,7 +99,7 @@
 - **[코드] [결정] 확인 문구**: "USERNAME은 바꿀 수 없다", "네트워크 모드에서는 `/@USERNAME`으로 공개된다"를 같은 화면에 적고, `ack=1` 필수 체크박스로 받는다. 별도 확정 화면을 두지 않는 것은 비밀번호를 브라우저로 되돌려 보내지 않기 위해서다(설계 §16.3 (d)).
 - **[코드] 처리 순서**(`perform_setup`): 모든 입력 검사(USERNAME 규칙·퇴역·중복, 표시 이름, 비밀번호 정책·확인, 체크박스) → claire.db `complete_setup`(조건부 UPDATE 한 번, 동시 요청 중 하나만 성공) → auth.db `set_password` → 확정 전 세션을 지우고 새 owner 세션 발급(세션 고정 방지) → 감사 기록 `account.setup`.
 - **[코드] 응답**: 검사 실패는 400과 사유 목록이 있는 화면. 동시 확정에서 졌으면 404. 성공은 303 `Location: /`와 새 세션 쿠키.
-- **[코드] 비밀번호 저장만 실패한 경우**: 확정을 되돌리지 않는다. 303 `Location: /me?notice=password_not_saved`. 계정은 `active`이고 비밀번호가 없어 로그인만 막힌다. `/me`에서 단계 인증만으로 비밀번호를 설정한다.
+- **[코드] 비밀번호 저장만 실패한 경우**: 확정을 되돌리지 않는다. 303 `Location: /settings/account?notice=password_not_saved`. 계정은 `active`이고 비밀번호가 없어 로그인만 막힌다. `/settings/account`에서 단계 인증만으로 비밀번호를 설정한다.
 - **[코드]** USERNAME을 정하는 CLI는 없다.
 
 ### 5.2 `/login`, `/logout`
@@ -245,8 +245,8 @@
     - 삭제 성공 시 감사 기록 `account.provider_key_delete`를 남기며, 삭제 후에는 서버 등급 범위에서만 LLM 작업을 수행한다. 응답: `{"ok": true, "deleted": n}`.
 - **폴백 없음 (Fail-closed, Principle C2)**:
   - 멤버가 등록한 키가 거부(`rejected`)되거나 할당량이 소진되면 해당 계정의 LLM 작업은 실패(`ProviderKeyRejected`)하며, 서버 등급이나 관리자 CLI로 자동 전환/폴백하지 않는다.
-- **WebUI `/me` 연동**:
-  - 네트워크 모드 멤버 계정으로 `/me` 페이지에 접속하면 `keys_section_html`을 통해 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
+- **WebUI `/settings/keys` 연동**:
+  - 네트워크 모드 멤버 계정으로 `/settings/keys`에 접속하면 "내 API 키" 메타데이터 카드 및 등록·재확인·삭제 양식이 렌더링된다.
 
 ## 6. 비밀번호
 

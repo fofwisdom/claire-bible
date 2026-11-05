@@ -111,20 +111,9 @@ def _build_standalone_syndication_html() -> str:
     return html
 
 
-def _build_standalone_syndication_preferences_html() -> str:
-    """Combine static/css/theme.css and templates/syndication_preferences.html to build standalone SYNDICATION_PREFERENCES_HTML."""
-    theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
-    prefs_tmpl = (_TEMPLATES_DIR / "syndication_preferences.html").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n</style>"
-    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", prefs_tmpl)
-    html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
-    return html
-
-
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 SYNDICATION_HTML: str = _build_standalone_syndication_html()
-SYNDICATION_PREFERENCES_HTML: str = _build_standalone_syndication_preferences_html()
 
 
 def render_ga_tag(
@@ -654,6 +643,18 @@ def render_graph_html(
     return res
 
 
+def _theme_zero_number(settings: Any) -> str | None:
+    """단일 테마 모드에서 테마 0의 외부 번호(10진 문자열). 테마 행이 없으면 None(콘솔도 내부 id로 참조한다)."""
+    from . import ids
+    from .store.theme import ThemeNotFound, get_theme_manager
+
+    try:
+        number = get_theme_manager(settings).get_theme(0).number
+    except ThemeNotFound:
+        return None
+    return ids.format_public_id(number) if number is not None else None
+
+
 def _render_syndication_bundle(
     bundle_html: str,
     settings: Any = None,
@@ -663,6 +664,7 @@ def _render_syndication_bundle(
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
+    request: Any | None = None,
 ) -> str:
     """Populate common configuration tokens for Syndication HTML bundles."""
     if settings is None:
@@ -709,12 +711,21 @@ def _render_syndication_bundle(
                 "sorcerer": safe_sorcerer,
                 "knowledge_manager": safe_sorcerer,
                 "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
+                # /settings/* 콘솔과 같은 테마 참조(번호)로 설정 슬롯을 찾도록 테마 0의 번호를 싣는다.
+                "number": _theme_zero_number(s),
             }
         ]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)
     themes_json_safe = themes_json.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     active_theme_id = str(theme_id if theme_id is not None else (themes_list[0]["id"] if themes_list else 0))
     safe_scope = _html.escape(str(auth_scope or "owner"), quote=True)
+    # 설정 슬롯 계정 키(``a{public_id}``). /settings/* 콘솔과 같은 값이며 USERNAME을 쓰지 않는다(S9).
+    bootstrap: dict[str, str] | None = None
+    if request is not None:
+        from .api.namespace import shell_bootstrap
+
+        bootstrap = shell_bootstrap(request)
+    storage_key = _html.escape((bootstrap or {}).get("storage-key", "anon"), quote=True)
 
     return (
         bundle_html.replace("__SOURCE_BASE_URL__", base_url)
@@ -727,6 +738,7 @@ def _render_syndication_bundle(
         .replace("__ACTIVE_THEME_ID__", active_theme_id)
         .replace("__AUTH_SCOPE__", safe_scope)
         .replace("__THEMES_JSON__", themes_json_safe)
+        .replace("__CLAIRE_STORAGE_KEY__", storage_key)
     )
 
 
@@ -738,6 +750,7 @@ def render_syndication_html(
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
+    request: Any | None = None,
 ) -> str:
     """Return rendered Syndication UI HTML with settings, active theme, and auth scope variables."""
     return _render_syndication_bundle(
@@ -748,27 +761,7 @@ def render_syndication_html(
         theme=theme,
         host=host,
         auth_scope=auth_scope,
-    )
-
-
-def render_syndication_preferences_html(
-    settings: Any = None,
-    *,
-    include_private: bool = True,
-    collaborator: bool = False,
-    theme: Any | None = None,
-    host: str | None = None,
-    auth_scope: str = "owner",
-) -> str:
-    """Return rendered Syndication Preferences subpage HTML."""
-    return _render_syndication_bundle(
-        SYNDICATION_PREFERENCES_HTML,
-        settings,
-        include_private=include_private,
-        collaborator=collaborator,
-        theme=theme,
-        host=host,
-        auth_scope=auth_scope,
+        request=request,
     )
 
 
@@ -776,7 +769,6 @@ __all__ = [
     "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
     "SYNDICATION_HTML",
-    "SYNDICATION_PREFERENCES_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
     "document_detail",
@@ -790,7 +782,6 @@ __all__ = [
     "render_graph_html",
     "render_open_graph_tags",
     "render_syndication_html",
-    "render_syndication_preferences_html",
     "resolve_preview_image",
     "sanitize_preview_text",
     "shared_html",

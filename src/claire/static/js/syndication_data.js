@@ -1,7 +1,8 @@
 /* Claire Bible — Syndication Prototype Seed Data & Shared Preferences Store */
 window.CLAIRE_SYND_STORAGE = {
-  PREFS_KEY: "claireSyndicationPrefs_v2",
-  CUSTOM_KEY: "claireSyndicationCustomState_v2",
+  /* /settings/* 콘솔(console_syndication.js)과 같은 계정·테마별 슬롯: "claire_synd_prefs_v2:<claire-storage-key>:t<theme ref>" = { v: 2, prefs, custom }.
+     옛 전역 키는 읽지 않고 옮기지도 않는다(C1). */
+  PREFS_SLOT_PREFIX: "claire_synd_prefs_v2:",
   /* 목록 스타일 키 (영문 i18n 명칭): list=목록 · compact=조밀하게 · card=일반 · roomy=넓게 */
   LIST_STYLES: ["list", "compact", "card", "roomy"],
   LEGACY_LIST_STYLES: { flat: "list", cards: "card" },

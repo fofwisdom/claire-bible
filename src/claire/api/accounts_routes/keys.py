@@ -143,7 +143,7 @@ def remove_keys(ctx: AccountsContext, account_id: int, provider: str | None) -> 
         auth.close()
 
 
-# --- /me 화면의 키 절 --------------------------------------------------------------
+# --- 키 메타 목록 마크업 (/settings/keys) --------------------------------------------------------------
 
 
 def _meta_rows(items: list[dict[str, Any]]) -> str:
@@ -162,53 +162,6 @@ def _meta_rows(items: list[dict[str, Any]]) -> str:
         body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
         parts.append(f'<dl data-provider-key="{escape(item["provider"])}">{body}</dl>')
     return "".join(parts)
-
-
-def keys_section_html(ctx: AccountsContext, principal: Principal) -> str:
-    """네트워크 모드 멤버에게만 보이는 키 절. 그 밖에는 빈 문자열. 값은 모두 `escape`를 거친다."""
-    if not _is_member(principal) or principal.account_id is None or not is_network_mode(ctx):
-        return ""
-    items = list_meta(ctx, principal.account_id)
-    options = "".join(
-        f'<option value="{escape(p)}">{escape(PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
-    )
-    has_key = "1" if items else "0"
-    return (
-        '<section class="card" aria-labelledby="keys-title" data-provider-keys>'
-        '<h2 id="keys-title">내 API 키</h2>'
-        '<p class="hint">LLM 작업에 쓸 본인 API 키입니다. 등록한 키는 암호화해 저장하고, 다시 보거나 복사할 수 없습니다. '
-        "화면과 API에는 키에서 파생한 fingerprint만 나옵니다. 키가 거부되거나 할당량이 다 되면 작업은 실패하며, "
-        "서버 등급이나 다른 키로 바꿔 쓰지 않습니다.</p>"
-        '<p class="hint">한계: 이 보호는 애플리케이션 경로로 키를 읽는 일을 막습니다. 서버가 키로 API를 호출하려면 '
-        "복호화할 수밖에 없으므로, 서버 호스트의 root 권한자(프로세스 메모리·마스터 키 파일 접근)는 막지 못합니다.</p>"
-        f'<div data-provider-key-meta aria-live="polite">{_meta_rows(items)}</div>'
-        '</section>'
-        '<form class="card" data-accounts-form="provider-key-put" aria-labelledby="key-put-title">'
-        '<h2 id="key-put-title">키 등록·교체</h2>'
-        '<label for="key_provider">프로바이더</label>'
-        f'<select id="key_provider" name="provider">{options}</select>'
-        '<label for="key_api_key">API 키</label>'
-        '<input id="key_api_key" name="api_key" type="password" required autocomplete="off" '
-        f'spellcheck="false" maxlength="{API_KEY_MAX_LENGTH}">'
-        '<p class="hint">먼저 본인 확인을 해야 합니다. 저장하기 전에 시험 호출로 키를 확인하고, 실패하면 저장하지 않습니다. '
-        "이미 등록한 키가 있으면 새 키로 바꿉니다.</p>"
-        '<button type="submit">확인 후 저장</button>'
-        '<p class="result" data-accounts-result aria-live="polite"></p>'
-        "</form>"
-        f'<form class="card" data-accounts-form="provider-key-verify" data-has-key="{has_key}" aria-labelledby="key-verify-title">'
-        '<h2 id="key-verify-title">키 다시 확인</h2>'
-        f'<input type="hidden" name="provider" value="{escape(MEMBER_KEY_PROVIDERS[0])}">'
-        '<p class="hint">저장한 키로 시험 호출을 다시 해서 상태를 갱신합니다.</p>'
-        '<button type="submit">다시 확인</button>'
-        '<p class="result" data-accounts-result aria-live="polite"></p>'
-        "</form>"
-        '<form class="card" data-accounts-form="provider-key-delete" aria-labelledby="key-delete-title">'
-        '<h2 id="key-delete-title">키 삭제</h2>'
-        '<p class="hint">먼저 본인 확인을 해야 합니다. 삭제하면 서버 등급이 허용하는 범위에서만 LLM 작업을 합니다.</p>'
-        '<button type="submit">삭제</button>'
-        '<p class="result" data-accounts-result aria-live="polite"></p>'
-        "</form>"
-    )
 
 
 # --- 라우트 ------------------------------------------------------------------------

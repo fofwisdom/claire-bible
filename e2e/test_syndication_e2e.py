@@ -74,12 +74,21 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert "수집 태그" in r_pub.text
         assert "생성된 엔티티" in r_pub.text
 
-        r_prefs = client.get("/syndication/preferences?theme=0")
-        assert r_prefs.status_code == 200
-        assert "Syndication 상세 환경설정" in r_prefs.text
-        assert "온톨로지 엔티티" in r_prefs.text
-        assert "연결 서버 계정" in r_prefs.text
-        assert 'href="/syndication"' in r_prefs.text
+        # Entry links go straight to the root-mounted /settings/* console (P4).
+        assert 'data-settings-path="/settings/reader"' in r_pub.text
+        assert "/syndication/preferences" not in r_pub.text
+        # Legacy preferences URL needs the owner (anonymous readonly callers get no redirect target).
+        r_prefs_anon = client.get("/syndication/preferences?theme=0", follow_redirects=False)
+        assert r_prefs_anon.status_code in (401, 403, 404)
+        assert "location" not in r_prefs_anon.headers
+        owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        r_prefs = client.get("/syndication/preferences?tab=accounts&theme=0", headers=owner, follow_redirects=False)
+        assert r_prefs.status_code == 302
+        assert r_prefs.headers["location"].startswith("/settings/connections?theme=")
+        r_console = client.get(r_prefs.headers["location"], headers=owner)
+        assert r_console.status_code == 200
+        assert "연결 서버 계정" in r_console.text
+        assert 'href="/syndication' in r_console.text
 
         r_robots = client.get("/robots.txt")
         assert r_robots.status_code == 200

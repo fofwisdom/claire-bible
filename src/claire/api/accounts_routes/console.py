@@ -660,6 +660,14 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tupl
     ), {}
 
 
+# /settings/account?notice= 안내문 (옛 /me?notice=). 목록에 없는 값은 아무것도 보여 주지 않는다(표시용 힌트일 뿐 식별자가 아니다).
+SETTINGS_ACCOUNT_NOTICE_TEXT = {
+    "password_not_saved": "계정 설정은 확정됐지만 비밀번호를 저장하지 못했습니다. 아래에서 비밀번호를 설정하세요.",
+    "already_linked": "이 외부 계정은 이미 현재 계정에 연결되어 있습니다.",
+    "identity_linked": "외부 계정이 성공적으로 연결되었습니다.",
+}
+
+
 def _build_settings_account_section(
     ctx: AccountsContext,
     *,
@@ -668,6 +676,7 @@ def _build_settings_account_section(
     mode: accounts_store.InstanceMode,
     account: accounts_store.Account,
     owned_themes: list[ThemeInfo],
+    notice: str | None = None,
 ) -> SettingsSectionRender:
     """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
 
@@ -679,7 +688,7 @@ def _build_settings_account_section(
         raise RuntimeError("settings Group 1 requires the caller's own account principal")
     admin_viewer = is_admin(principal)
     if spec.slug == "account":
-        body, extra = _settings_account_body(ctx, principal=principal, mode=mode, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer)
+        body, extra = _settings_account_body(ctx, principal=principal, mode=mode, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
     elif spec.slug == "keys":
         body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "themes":
@@ -806,6 +815,7 @@ def _settings_account_body(
     account: accounts_store.Account,
     owned_themes: list[ThemeInfo],
     admin_viewer: bool,
+    notice: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     auth = open_auth_db(ctx)
     try:
@@ -889,7 +899,10 @@ def _settings_account_body(
         else "서버 등급 한도는 BYOK 키를 등록해도 자원 한도(테마·문서·저장 용량·일 적재 건수)에 적용됩니다. 월 토큰 상한은 서버 등급 프로바이더를 쓸 때만 적용됩니다."
     )
 
+    notice_text = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
+    notice_html = f'<p class="pref-notice" data-account-notice="{escape(notice or "")}" role="status">{escape(notice_text)}</p>' if notice_text else ""
     body = (
+        f"{notice_html}"
         '<section class="console-subcard" id="settings-account-info" aria-label="계정 정보">'
         "<h2>🪪 계정 정보</h2>"
         f"<dl>{info_html}</dl>"
@@ -1116,6 +1129,7 @@ def _render_console_section(
     custom_body_html: str | None = None,
     extra_bootstrap: dict[str, Any] | None = None,
     extra_scripts_html: str = "",
+    notice: str | None = None,
 ) -> Response:
     assert principal.account_id is not None
     theme_lookup = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -1175,6 +1189,7 @@ def _render_console_section(
                 mode=mode,
                 account=account,
                 owned_themes=owned_themes,
+                notice=notice,
             )
         section_body_html = rendered.body_html
         built_extra = dict(rendered.extra_bootstrap)
@@ -1287,6 +1302,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             spec=spec,
             principal=principal,
             raw_theme=raw_theme,
+            notice=request.query_params.get("notice") if spec.slug == "account" else None,
         )
 
     async def admin_mcp_telemetry_api(request: Request) -> Response:

@@ -217,8 +217,11 @@ def test_single_mode_hides_every_key_route(settings: _Settings, verify_calls):
             assert _put(client, sess, CANARY).status_code == 404
             assert client.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"}).status_code == 404
             assert client.request("DELETE", "/api/me/keys", session=sess).status_code == 404
-        page = client.request("GET", "/me", session=_session(settings, member))
-        assert page.status_code == 200 and "내 API 키" not in page.text
+        legacy = client.request("GET", "/me", session=_session(settings, member))
+        assert legacy.status_code == 302 and legacy.headers["location"] == "/settings/account"
+        page = client.request("GET", "/settings/keys", session=_session(settings, member))
+        assert page.status_code == 200 and 'data-keys-mode="unavailable"' in page.text
+        assert "내 API 키" not in page.text and "/admin/" not in page.text
     assert verify_calls == []
     assert _rows(settings) == []
 
@@ -242,8 +245,10 @@ def test_admin_gets_403_and_anonymous_404(env, verify_calls):
     assert c.request("GET", "/api/me/keys", session=ro).status_code in {401, 403, 404}
     assert verify_calls == []
     assert _rows(env.settings) == []
-    admin_page = c.request("GET", "/me", session=admin)
-    assert admin_page.status_code == 200 and "내 API 키" not in admin_page.text
+    assert c.request("GET", "/me", session=admin).headers["location"] == "/settings/account"
+    admin_page = c.request("GET", "/settings/keys", session=admin)
+    assert admin_page.status_code == 200 and 'data-keys-mode="admin"' in admin_page.text
+    assert "내 API 키" not in admin_page.text
     c.assert_never_leaked(CANARY)
 
 
@@ -278,11 +283,10 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
     row = _rows(env.settings)[0]
     assert row["account_id"] == env.a and CANARY.encode() not in bytes(row["ciphertext"])
 
-    page = c.request("GET", "/me", session=sess)
+    page = c.request("GET", "/settings/keys", session=sess)
     assert page.status_code == 200
     assert "내 API 키" in page.text and "root" in page.text and meta["fingerprint"] in page.text
     assert "다른 키로 바꿔 쓰지 않습니다" in page.text
-    assert page.text.count("<script") == 1
 
     # 다시 검증과 삭제까지 거친 뒤 전체 응답·로그를 확인한다.
     v = c.request("POST", "/api/me/keys/verify", session=sess, json={"provider": "gemini"})

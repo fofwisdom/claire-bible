@@ -1178,7 +1178,7 @@ paths:
         '303':
           description: >-
             Setup completed. A new session cookie replaces the old one. Location is /,
-            or /me?notice=password_not_saved when only the password write failed.
+            or /settings/account?notice=password_not_saved when only the password write failed.
         '400':
           description: Input rejected; the form is shown again with reason codes (HTML).
           content:

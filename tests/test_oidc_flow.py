@@ -273,7 +273,7 @@ def test_account_linking_with_step_up_auth(test_env):
             follow_redirects=False,
         )
         assert resp_cb.status_code == 302
-        assert "/me?notice=identity_linked" in resp_cb.headers["location"]
+        assert "/settings/account?notice=identity_linked" in resp_cb.headers["location"]
 
         # Check listed identities
         resp_identities = test_env.client.get("/api/me/identities")
@@ -655,7 +655,7 @@ def test_e2e_oidc_invite_signup_and_login_lifecycle(test_env):
                 follow_redirects=False,
             )
             assert resp_gh_cb.status_code == 302
-            assert "/me?notice=identity_linked" in resp_gh_cb.headers["location"]
+            assert "/settings/account?notice=identity_linked" in resp_gh_cb.headers["location"]
 
             # User logs out
             user_client.post("/logout", headers={"Origin": PUBLIC_URL, "Sec-Fetch-Site": "same-origin"})

@@ -198,7 +198,9 @@ def test_setup_success_rotates_session_and_closes_setup(client, settings):
 
     # 옛 토큰은 지워졌다(세션 고정 방지).
     assert client.request("GET", "/me", session=old).status_code == 404
-    assert client.request("GET", "/me", session=new).status_code == 200
+    assert client.request("GET", "/me", session=new).status_code == 302
+    assert client.request("GET", "/settings/account", session=old).status_code == 404
+    assert client.request("GET", "/settings/account", session=new).status_code == 200
     # 확정 뒤에는 / 가 그대로 열리고 /setup은 다시 열리지 않는다.
     assert client.request("GET", "/", session=new).status_code == 200
     assert client.request("GET", "/setup", session=new).status_code == 404
@@ -341,11 +343,21 @@ def test_password_store_failure_keeps_setup_and_points_to_me(client, settings, m
     token = _admin_session(settings)
     response = client.request("POST", "/setup", session=token, data=_form())
     assert response.status_code == 303
-    assert response.headers["location"] == "/me?notice=password_not_saved"
+    assert response.headers["location"] == "/settings/account?notice=password_not_saved"
     new = _new_session_token(response)
     assert new and new != token
     assert _admin(settings).status == "active"
-    page = client.request("GET", "/me?notice=password_not_saved", session=new)
+    # 콘솔 계정 화면이 안내문과 비밀번호 상태를 함께 보여 준다.
+    page = client.request("GET", "/settings/account?notice=password_not_saved", session=new)
     assert page.status_code == 200
+    assert 'data-account-notice="password_not_saved"' in page.text
     assert "비밀번호를 저장하지 못했습니다" in page.text
     assert "설정 안 됨" in page.text
+    # 목록에 없는 notice 값은 아무것도 그리지 않는다.
+    unknown = client.request("GET", "/settings/account?notice=<script>", session=new)
+    assert unknown.status_code == 200
+    assert "data-account-notice" not in unknown.text
+    # D4: /me는 /settings/account로 가는 호환용 302다.
+    legacy = client.request("GET", "/me", session=new)
+    assert legacy.status_code == 302
+    assert legacy.headers["location"] == "/settings/account"

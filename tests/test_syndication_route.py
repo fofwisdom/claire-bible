@@ -68,7 +68,13 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'id="btn-toggle-list-style"' in res_public.text
         assert 'id="btn-toggle-layout"' in res_public.text
         assert 'id="headlines-container"' in res_public.text
-        assert "/syndication/preferences" in res_public.text
+        # Entry links point straight to the root-mounted /settings/* console (D1, P4).
+        assert "/syndication/preferences" not in res_public.text
+        for path in ("/settings/reader", "/settings/connections", "/settings/tags", "/settings/outbound"):
+            assert f'data-settings-path="{path}"' in res_public.text, path
+        assert 'name="claire-storage-key" content="a' in res_public.text
+        assert "claireSyndicationPrefs_v2" not in res_public.text
+        assert 'PREFS_SLOT_PREFIX: "claire_synd_prefs_v2:"' in res_public.text
         assert "수집 원문" in res_public.text
         assert "적재 본문" in res_public.text
         assert "부스트 / 인용 발행" in res_public.text
@@ -136,41 +142,91 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         res_head = client.head("/syndication", headers=headers)
         assert res_head.status_code == 200
 
-        res_prefs = client.get("/syndication/preferences", headers=headers)
-        assert res_prefs.status_code == 200
-        assert "Syndication 환경설정" in res_prefs.text
-        assert "태그 = 엔티티 적재 정책" in res_prefs.text
-        assert '<option value="list">목록 — 한 줄 행</option>' in res_prefs.text
-        assert '<option value="card">일반 — 요약 2줄 미리보기</option>' in res_prefs.text
-        assert "(리스트)" not in res_prefs.text
-        assert "ActivityPub 클라이언트 기능 기준: Mastodon 5.0 이상" in res_prefs.text
-        assert "Mastodon 5.0 기준 클라이언트 기능" in res_prefs.text
-        assert 'id="pref-list-style"' in res_prefs.text
-        assert 'id="pref-layout-mode"' in res_prefs.text
-        assert 'id="pref-app-tab"' in res_prefs.text
-        assert 'id="panel-accounts"' in res_prefs.text
-        assert "연결 서버 계정" in res_prefs.text
-        assert 'id="panel-mcp"' in res_prefs.text
-        assert 'id="panel-webmcp"' in res_prefs.text
-        assert 'id="pref-mcp-tools-tbody"' in res_prefs.text
-        assert 'id="pref-mcp-clients-tbody"' in res_prefs.text
-        assert 'id="pref-webmcp-tools-tbody"' in res_prefs.text
-        assert 'id="btn-webmcp-sim-run"' in res_prefs.text
-        assert "document.modelContext" in res_prefs.text
-        assert "requestUserInteraction" not in res_prefs.text
-        assert "consequentialHint" in res_prefs.text
-        assert "/.well-known/oauth-protected-resource" in res_prefs.text
-        assert "syndication:draft" in res_prefs.text
-        assert 'id="pref-mcp-rbac-tbody"' in res_prefs.text
-        assert 'id="pref-mcp-apitokens-tbody"' in res_prefs.text
-        assert 'id="panel-idp"' in res_prefs.text
-        assert 'id="panel-userdb"' in res_prefs.text
-        assert 'id="pref-idp-tbody"' in res_prefs.text
-        assert 'id="btn-idp-sim-run"' in res_prefs.text
-        assert 'id="pref-userdb-tbody"' in res_prefs.text
-        assert 'id="pref-peer-listed"' in res_prefs.text
-        assert 'id="pref-peer-import"' in res_prefs.text
-        assert "peerSharePolicy" in res_prefs.text
+        res_prefs = client.get("/syndication/preferences", headers=headers, follow_redirects=False)
+        assert res_prefs.status_code == 302
+        assert res_prefs.headers["location"] == "/settings/reader"
 
-        res_prefs_head = client.head("/syndication/preferences", headers=headers)
-        assert res_prefs_head.status_code == 200
+        res_prefs_head = client.head("/syndication/preferences", headers=headers, follow_redirects=False)
+        assert res_prefs_head.status_code == 302
+        assert res_prefs_head.headers["location"] == "/settings/reader"
+
+
+# D4 / design §2.2: legacy ?tab= → /settings/* (or /admin/* for the admin).
+LEGACY_TAB_TABLE = [
+    (None, "/settings/reader", "/settings/reader"),
+    ("reader", "/settings/reader", "/settings/reader"),
+    ("accounts", "/settings/connections", "/settings/connections"),
+    ("feeds", "/settings/feeds", "/settings/feeds"),
+    ("tags", "/settings/tags", "/settings/tags"),
+    ("rules", "/settings/rules", "/settings/rules"),
+    ("outbound", "/settings/outbound", "/settings/outbound"),
+    ("opml", "/settings/opml", "/settings/opml"),
+    ("mcp", "/settings/mcp", "/settings/mcp"),
+    ("webmcp", "/settings/webmcp", "/settings/webmcp"),
+    ("idp", "/admin/idp", "/settings/account"),
+    ("userdb", "/admin/accounts", "/settings/account"),
+]
+
+
+def _legacy_prefs_url(tab: str | None, theme: str | None = None) -> str:
+    params = []
+    if tab is not None:
+        params.append(f"tab={tab}")
+    if theme is not None:
+        params.append(f"theme={theme}")
+    return "/syndication/preferences" + ("?" + "&".join(params) if params else "")
+
+
+@pytest.mark.parametrize("tab, admin_target, _member_target", LEGACY_TAB_TABLE)
+def test_legacy_preferences_tab_redirects_admin(syndication_env, tab, admin_target, _member_target) -> None:
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        for method in ("GET", "HEAD"):
+            res = client.request(method, _legacy_prefs_url(tab), headers=headers, follow_redirects=False)
+            assert res.status_code == 302, (method, tab)
+            assert res.headers["location"] == admin_target, (method, tab)
+            assert res.headers["cache-control"] == "no-store"
+            assert "@" not in res.headers["location"]
+
+
+def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndication_env) -> None:
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        base = client.get("/syndication/preferences?tab=feeds&theme=0", headers=headers, follow_redirects=False)
+        assert base.status_code == 302
+        location = base.headers["location"]
+        assert location.startswith("/settings/feeds?theme=")
+        theme_ref = location.split("?theme=", 1)[1]
+        assert theme_ref
+        # The console accepts the canonical ref it gets.
+        console = client.get(location, headers=headers, follow_redirects=False)
+        assert console.status_code == 200
+        # Admin-only targets are not theme-scoped: ?theme= is dropped.
+        idp = client.get("/syndication/preferences?tab=idp&theme=0", headers=headers, follow_redirects=False)
+        assert idp.status_code == 302 and idp.headers["location"] == "/admin/idp"
+
+
+@pytest.mark.parametrize("url", [
+    "/syndication/preferences?tab=nope",
+    "/syndication/preferences?tab=",
+    "/syndication/preferences?tab=READER",
+    "/syndication/preferences?theme=nope",
+    "/syndication/preferences?tab=reader&theme=nope",
+    "/syndication/preferences?tab=nope&theme=0",
+])
+def test_legacy_preferences_unknown_tab_or_theme_is_404(syndication_env, url) -> None:
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        res = client.get(url, headers=headers, follow_redirects=False)
+        assert res.status_code == 404, url
+        assert "location" not in res.headers
+
+
+@pytest.mark.parametrize("token", [COLLAB_TOKEN, READONLY_TOKEN, None])
+def test_legacy_preferences_requires_owner(syndication_env, token) -> None:
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        for tab in ("reader", "idp", "nope"):
+            res = client.get(f"/syndication/preferences?tab={tab}", headers=headers, follow_redirects=False)
+            assert res.status_code in {401, 403, 404}, (token, tab)
+            assert "location" not in res.headers

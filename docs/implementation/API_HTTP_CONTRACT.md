@@ -92,7 +92,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/setup` | `owner` (+ 관리자·설정 전·세션 채널) | 200 HTML | 조건 밖 404 |
-| `POST` | `/setup` | 위와 같음 | 303 `/` + 새 세션 쿠키. 비밀번호 저장만 실패하면 303 `/me?notice=password_not_saved` | 400 입력 거부(HTML), 404 조건 밖·동시 확정 패배, 403 쿠키 POST의 origin 불일치 |
+| `POST` | `/setup` | 위와 같음 | 303 `/` + 새 세션 쿠키. 비밀번호 저장만 실패하면 303 `/settings/account?notice=password_not_saved` | 400 입력 거부(HTML), 404 조건 밖·동시 확정 패배, 403 쿠키 POST의 origin 불일치 |
 | `GET` | `/login` | `public` | 200 HTML | — |
 | `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
 | `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |

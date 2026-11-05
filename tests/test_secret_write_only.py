@@ -212,8 +212,17 @@ def test_canary_key_not_in_http_responses_and_headers(tmp_path: Path, mock_verif
         res_verify = tc.post("/api/me/keys/verify", json={"provider": "gemini"}, headers=headers_member)
         assert res_verify.status_code == 200
 
-        res_me = tc.get("/me", headers=headers_member)
-        assert res_me.status_code == 200
+        res_me = tc.get("/me", headers=headers_member, follow_redirects=False)
+        assert res_me.status_code == 302
+        assert res_me.headers["location"] == "/settings/account"
+
+        res_account = tc.get("/settings/account", headers=headers_member, follow_redirects=False)
+        assert res_account.status_code == 200
+        assert res_account.headers["referrer-policy"] == "same-origin"
+
+        res_keys_page = tc.get("/settings/keys", headers=headers_member, follow_redirects=False)
+        assert res_keys_page.status_code == 200
+        assert res_keys_page.headers["referrer-policy"] == "same-origin"
 
         headers_admin = {"Cookie": f"claire_session={env.admin_session}", "Origin": ORIGIN}
         res_admin_accounts = tc.get("/admin/accounts", headers=headers_admin)
@@ -222,7 +231,7 @@ def test_canary_key_not_in_http_responses_and_headers(tmp_path: Path, mock_verif
         res_del = tc.delete("/api/me/keys", headers=headers_member)
         assert res_del.status_code == 200
 
-        for res in (res_put, res_get, res_verify, res_me, res_admin_accounts, res_del):
+        for res in (res_put, res_get, res_verify, res_me, res_account, res_keys_page, res_admin_accounts, res_del):
             blob = res.content.decode("utf-8", errors="replace") + repr(list(res.headers.items()))
             assert CANARY not in blob
 

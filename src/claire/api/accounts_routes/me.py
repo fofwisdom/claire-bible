@@ -1,4 +1,4 @@
-"""``/me`` 최소판 (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경.
+"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``GET/HEAD /me``는 ``/settings/account``로 가는 호환용 302다(D4).
 
 비밀번호 변경은 단계 인증(`common.require_recent_auth`)과 현재 비밀번호를 함께 요구한다. 비밀번호가 아직 없으면(설정 중 저장 실패, §8.4 복구) 단계 인증만 요구한다.
 
@@ -19,16 +19,13 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..principal import Principal, request_principal
 from ..security import read_json_body
-from . import keys as keys_routes
-from .admin import ROLE_TEXT, STATUS_TEXT
 from .common import (
     AccountsContext,
+    FORM_PAGE_REFERRER_POLICY,
     client_ip,
-    escape,
     json_error,
     open_auth_db,
     open_db,
-    render_template,
     request_session_token,
     require_recent_auth,
     retry_after_seconds,
@@ -39,12 +36,7 @@ from .setup import PASSWORD_REASON_TEXT
 ME_PATH = "/me"
 ME_API_PATH = "/api/me"
 ME_PASSWORD_PATH = "/api/me/password"
-
-NOTICE_TEXT = {
-    "password_not_saved": "계정 설정은 확정됐지만 비밀번호를 저장하지 못했습니다. 아래에서 비밀번호를 설정하세요.",
-    "already_linked": "이 외부 계정은 이미 현재 계정에 연결되어 있습니다.",
-    "identity_linked": "외부 계정이 성공적으로 연결되었습니다.",
-}
+SETTINGS_ACCOUNT_PATH = "/settings/account"
 
 
 def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
@@ -126,31 +118,17 @@ def perform_password_change(
         conn.close()
 
 
-def _me_page(payload: dict[str, Any], notice: str | None, keys_html: str = "") -> Response:
-    notice_text = NOTICE_TEXT.get(notice or "")
-    notice_html = f'<p class="notice" role="status">{escape(notice_text)}</p>' if notice_text else ""
-    return render_template(
-        "me.html",
-        text={
-            "public_id": payload["public_id"],
-            "username": payload["username"] if payload["username"] is not None else "(설정 전)",
-            "display_name": payload["display_name"],
-            "role": ROLE_TEXT.get(payload["role"], payload["role"]),
-            "status": STATUS_TEXT.get(payload["status"], payload["status"]),
-            "password_state": "설정됨" if payload["has_password"] else "설정 안 됨",
-            "has_password": "1" if payload["has_password"] else "0",
-            "min_password_length": auth_db.MIN_PASSWORD_LENGTH,
-        },
-        markup={"notice": notice_html, "provider_keys": keys_html},
-    )
-
-
 def routes(ctx: AccountsContext) -> list[Route]:
     async def me_page(request: Request) -> Response:
-        principal = request_principal(request)
-        payload = await asyncio.to_thread(me_payload, ctx, principal)
-        keys_html = await asyncio.to_thread(keys_routes.keys_section_html, ctx, principal)
-        return _me_page(payload, request.query_params.get("notice"), keys_html)
+        # D4: /me는 호환용 302다. 화면은 /settings/account가 그린다. 위치에 USERNAME을 넣지 않는다(S9).
+        return Response(
+            status_code=302,
+            headers={
+                "Location": SETTINGS_ACCOUNT_PATH,
+                "Cache-Control": "no-store",
+                "Referrer-Policy": FORM_PAGE_REFERRER_POLICY,
+            },
+        )
 
     async def me_get(request: Request) -> Response:
         return JSONResponse(await asyncio.to_thread(me_payload, ctx, request_principal(request)))

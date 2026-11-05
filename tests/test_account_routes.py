@@ -193,12 +193,14 @@ def test_me_read_and_display_name_update(client, settings):
 
     updated = client.request("PATCH", "/api/me", session=token, json={"display_name": "<b>김</b>"})
     assert updated.status_code == 200 and updated.json()["display_name"] == "<b>김</b>"
-    page = client.request("GET", "/me", session=token)
+    # D4: /me는 /settings/account로 가는 호환용 302다. 화면은 콘솔이 그린다.
+    legacy = client.request("GET", "/me", session=token)
+    assert legacy.status_code == 302
+    assert legacy.headers["location"] == "/settings/account"
+    page = client.request("GET", "/settings/account", session=token)
     assert page.status_code == 200
     assert "&lt;b&gt;김&lt;/b&gt;" in page.text and "<b>김</b>" not in page.text
-    # 인라인 스크립트·핸들러 없이 외부 스크립트만 쓴다(CSP).
-    assert '<script src="/static/js/accounts.js" defer></script>' in page.text
-    assert page.text.count("<script") == 1
+    # 인라인 이벤트 처리기를 쓰지 않는다(CSP).
     assert " onsubmit=" not in page.text and " onclick=" not in page.text
 
     assert client.request("PATCH", "/api/me", session=token, json={"username": "x"}).status_code == 400
@@ -352,11 +354,15 @@ def test_account_form_pages_send_same_origin_referrer_policy(client, settings):
 
     _activate_admin(settings)
     token = _session(settings)
-    for path in ("/me", "/admin/accounts"):
+    for path in ("/settings/account", "/admin/accounts"):
         page = client.request("GET", path, session=token)
         assert page.status_code == 200, path
         assert page.headers["referrer-policy"] == "same-origin", path
         assert 'action="/logout"' in page.text
+    legacy = client.request("GET", "/me", session=token)
+    assert legacy.status_code == 302
+    assert legacy.headers["location"] == "/settings/account"
+    assert legacy.headers["referrer-policy"] == "same-origin"
     assert client.request("GET", "/login").headers["referrer-policy"] == "same-origin"
     # JSON API와 404는 전역 정책 그대로다.
     assert client.request("GET", "/api/me", session=token).headers["referrer-policy"] == "no-referrer"
@@ -367,13 +373,14 @@ def test_cookie_routes_emit_exactly_one_session_cookie(client, settings):
     _activate_admin(settings)
     token = _session(settings)
     # 핸들러가 쿠키를 건드리지 않는 응답: 미들웨어의 갱신 쿠키 하나.
-    for method, path, kwargs in (
-        ("GET", "/me", {}),
-        ("PATCH", "/api/me", {"json": {"display_name": "a"}}),
-        ("POST", "/api/me/password", {"json": {"current_password": PASSWORD, "new_password": NEW_PASSWORD}}),
+    for method, path, kwargs, status in (
+        ("GET", "/me", {}, 302),
+        ("GET", "/settings/account", {}, 200),
+        ("PATCH", "/api/me", {"json": {"display_name": "a"}}, 200),
+        ("POST", "/api/me/password", {"json": {"current_password": PASSWORD, "new_password": NEW_PASSWORD}}, 200),
     ):
         response = client.request(method, path, session=token, **kwargs)
-        assert response.status_code == 200, (path, response.text)
+        assert response.status_code == status, (path, response.text)
         cookies = _session_cookies(response)
         assert len(cookies) == 1 and cookies[0].startswith(f"claire_session={token};"), (path, cookies)
     # 로그아웃은 공개 라우트다. 지우는 쿠키 하나만 낸다.

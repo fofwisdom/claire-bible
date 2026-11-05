@@ -569,7 +569,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
                         return resp
                     # Already linked to this account
-                    resp = RedirectResponse("/me?notice=already_linked", status_code=302)
+                    resp = RedirectResponse("/settings/account?notice=already_linked", status_code=302)
                     resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
                     return resp
 
@@ -586,7 +586,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="identity.link",
                     detail={"iss": identity.iss, "provider": provider.id},
                 )
-                resp = RedirectResponse("/me?notice=identity_linked", status_code=302)
+                resp = RedirectResponse("/settings/account?notice=identity_linked", status_code=302)
                 resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
                 return resp
 

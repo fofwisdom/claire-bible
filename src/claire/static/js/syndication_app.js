@@ -28,35 +28,67 @@
     return p;
   }
 
-  function loadPrefs() {
+  /* 계정·테마별 설정 슬롯 (/settings/* 콘솔과 같은 키). 계정 키가 없으면 저장소를 쓰지 않는다: 다른 계정과 슬롯을 나누지 않는다(C1). */
+  const STORAGE_ACCOUNT_KEY = (() => {
+    const meta = document.querySelector('meta[name="claire-storage-key"]');
+    const v = meta ? String(meta.getAttribute("content") || "") : "";
+    return v && !v.includes("__") ? v : "";
+  })();
+
+  function themeRefOf(themeKey) {
+    const srv = (Array.isArray(cfg.themes) ? cfg.themes : []).find((t) => String(t.id) === String(themeKey));
+    return srv && srv.number != null ? String(srv.number) : String(themeKey);
+  }
+
+  function slotKey(themeKey) {
+    return STORAGE_ACCOUNT_KEY ? `${ST.PREFS_SLOT_PREFIX}${STORAGE_ACCOUNT_KEY}:t${themeRefOf(themeKey)}` : null;
+  }
+
+  function readSlot(themeKey) {
+    const key = slotKey(themeKey);
+    if (!key) return null;
     try {
-      const p = JSON.parse(localStorage.getItem(ST.PREFS_KEY) || "null");
-      if (!p) return JSON.parse(JSON.stringify(ST.DEFAULT_PREFS));
-      return normalizePrefs({
-        ...ST.DEFAULT_PREFS,
-        ...p,
-        tagPolicy: { ...ST.DEFAULT_PREFS.tagPolicy, ...(p.tagPolicy || {}) },
-        outboundPolicy: { ...ST.DEFAULT_PREFS.outboundPolicy, ...(p.outboundPolicy || {}) }
-      });
+      const parsed = JSON.parse(localStorage.getItem(key) || "null");
+      /* 형식이 다른 슬롯은 쓰지 않고 기본값으로 시작한다(콘솔과 같은 판정). */
+      return parsed && typeof parsed === "object" && parsed.v === 2 ? parsed : null;
     } catch (_) {
-      return JSON.parse(JSON.stringify(ST.DEFAULT_PREFS));
+      return null;
     }
   }
 
+  function writeSlot(themeKey, slotPrefs, slotCustom) {
+    const key = slotKey(themeKey);
+    if (!key) return;
+    try { localStorage.setItem(key, JSON.stringify({ v: 2, prefs: slotPrefs, custom: slotCustom || {} })); } catch (_) {}
+  }
+
+  function loadPrefs(themeKey) {
+    const slot = readSlot(themeKey);
+    const p = slot && slot.prefs && typeof slot.prefs === "object" ? slot.prefs : null;
+    if (!p) return JSON.parse(JSON.stringify(ST.DEFAULT_PREFS));
+    return normalizePrefs({
+      ...ST.DEFAULT_PREFS,
+      ...p,
+      tagPolicy: { ...ST.DEFAULT_PREFS.tagPolicy, ...(p.tagPolicy || {}) },
+      outboundPolicy: { ...ST.DEFAULT_PREFS.outboundPolicy, ...(p.outboundPolicy || {}) }
+    });
+  }
+
+  function loadCustom(themeKey) {
+    const slot = readSlot(themeKey);
+    return slot && slot.custom && typeof slot.custom === "object" ? slot.custom : {};
+  }
+
+  /* 슬롯 하나에 설정과 사용자 추가 항목을 함께 둔다. 현재 테마의 슬롯만 쓴다. */
   function savePrefs() {
-    try { localStorage.setItem(ST.PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
+    writeSlot(state.themeId, prefs, customState[state.themeId]);
   }
 
-  function loadCustom() {
-    try { return JSON.parse(localStorage.getItem(ST.CUSTOM_KEY) || "{}"); } catch (_) { return {}; }
+  function saveCustom() {
+    writeSlot(state.themeId, prefs, customState[state.themeId]);
   }
 
-  function saveCustom(data) {
-    try { localStorage.setItem(ST.CUSTOM_KEY, JSON.stringify(data)); } catch (_) {}
-  }
-
-  let prefs = loadPrefs();
-  let customState = loadCustom();
+  const customState = {};
 
   if (Array.isArray(cfg.themes)) {
     cfg.themes.forEach((srv) => {
@@ -90,6 +122,8 @@
     });
   }
 
+  Object.keys(THEMES).forEach((k) => { customState[k] = loadCustom(k); });
+
   Object.keys(THEMES).forEach((k) => {
     const cs = customState[k];
     if (!cs) return;
@@ -109,6 +143,8 @@
   const reqTheme = urlParams.get("theme");
   const initThemeKey = (reqTheme && THEMES[reqTheme]) ? reqTheme : (THEMES[String(cfg.activeThemeId)] ? String(cfg.activeThemeId) : "0");
   const reqTab = urlParams.get("tab");
+  /* 설정 객체는 클라이언트·발행 모듈과 같은 참조를 쓴다. 테마를 바꾸면 내용만 바꾼다. */
+  const prefs = loadPrefs(initThemeKey);
 
   const state = {
     themeId: initThemeKey,
@@ -421,11 +457,11 @@
     const menu2p = document.getElementById("menu-layout-2pane-label");
     if (menu2p) menu2p.textContent = `${state.layoutMode === "two-panel" ? "✓ " : "　"}2단 상하 분할 뷰 (좌-상하)`;
 
-    const prefLink = document.getElementById("menu-pref-link");
-    const topPrefLink = document.getElementById("top-pref-link");
-    const href = `/syndication/preferences?theme=${encodeURIComponent(state.themeId)}`;
-    if (prefLink) prefLink.href = href;
-    if (topPrefLink) topPrefLink.href = href;
+    /* /settings/*는 루트 경로다(D1). /@USERNAME 접두를 붙이지 않는다. */
+    const themeQuery = `?theme=${encodeURIComponent(themeRefOf(state.themeId))}`;
+    document.querySelectorAll("a[data-settings-path]").forEach((a) => {
+      a.href = `${a.getAttribute("data-settings-path")}${themeQuery}`;
+    });
   }
 
   function renderTabBar() {
@@ -1285,6 +1321,12 @@
 
     document.getElementById("theme-selector").addEventListener("change", (e) => {
       state.themeId = e.target.value;
+      const nextPrefs = loadPrefs(state.themeId);
+      Object.keys(prefs).forEach((k) => { delete prefs[k]; });
+      Object.assign(prefs, nextPrefs);
+      state.appTab = prefs.appTab;
+      state.layoutMode = prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel";
+      state.listStyle = prefs.listStyle;
       state.treeSel = { kind: "virtual", value: "all", label: "전체 아티클 (All articles)" };
       state.checkedIds.clear();
       state.expandedIds.clear();
@@ -1526,7 +1568,7 @@
     if (!customState[state.themeId]) customState[state.themeId] = {};
     if (!Array.isArray(customState[state.themeId].extraFeeds)) customState[state.themeId].extraFeeds = [];
     customState[state.themeId].extraFeeds.push(feed);
-    saveCustom(customState);
+    saveCustom();
   }
 
   function addAccount(acc) {
@@ -1534,7 +1576,7 @@
     if (!customState[state.themeId]) customState[state.themeId] = {};
     if (!Array.isArray(customState[state.themeId].extraAccounts)) customState[state.themeId].extraAccounts = [];
     customState[state.themeId].extraAccounts.push(acc);
-    saveCustom(customState);
+    saveCustom();
   }
 
   function openKbItem(itemId) {

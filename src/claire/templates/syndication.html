@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Claire Bible — Syndication (/syndication)</title>
 <meta name="robots" content="noindex, nofollow, noarchive"/>
+<meta name="claire-storage-key" content="__CLAIRE_STORAGE_KEY__"/>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
 <link rel="icon" type="image/png" sizes="192x192" href="/icon?p=android-chrome-192x192.png"/>
 <link rel="icon" type="image/png" sizes="512x512" href="/icon?p=android-chrome-512x512.png"/>
@@ -47,7 +48,7 @@
       <!-- 공통 컨트롤 -->
       <button type="button" id="btn-toggle-list-style" class="tt-btn" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
       <button type="button" id="btn-toggle-layout" class="tt-btn" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
-      <a id="top-pref-link" class="tt-btn" href="/syndication/preferences" title="하위 환경설정 페이지 열기">⚙️ 환경설정</a>
+      <a id="top-pref-link" class="tt-btn" href="/settings/reader" data-settings-path="/settings/reader" title="설정 콘솔(/settings) 열기">⚙️ 환경설정</a>
       <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
       <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기">☰</button>
     </div>
@@ -112,7 +113,7 @@
   </div>
 
   <div id="pop-main-menu" popover="auto" class="tt-popover tt-popover-end">
-    <a id="menu-pref-link" class="tt-pop-item" href="/syndication/preferences"><span>⚙️ 환경설정... (Preferences...)</span></a>
+    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span>⚙️ 환경설정... (Preferences...)</span></a>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">작업 공간 탭</div>
     <button type="button" class="tt-pop-item" data-app-tab-btn="client"><span>🌐 연합 클라이언트 (ActivityPub · AT)</span><kbd>1</kbd></button>
@@ -122,12 +123,12 @@
     <div class="tt-pop-sec">연합 클라이언트</div>
     <button type="button" id="menu-open-connect" class="tt-pop-item"><span>🔌 서버 계정 연결...</span></button>
     <button type="button" id="menu-open-compose" class="tt-pop-item"><span>✎ 새 글 작성...</span><kbd>n</kbd></button>
-    <a class="tt-pop-item" href="/syndication/preferences?tab=accounts"><span>🔐 연결 계정 · 권한 관리...</span></a>
+    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span>🔐 연결 계정 · 권한 관리...</span></a>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">구독 관리 (Feed actions)</div>
     <button type="button" id="menu-open-subscribe" class="tt-pop-item"><span>+ 새 수집 대상 구독...</span></button>
-    <a class="tt-pop-item" href="/syndication/preferences?tab=tags"><span>🏷️ 수집 태그 → 엔티티 생성 정책...</span></a>
-    <a class="tt-pop-item" href="/syndication/preferences?tab=outbound"><span>🔁 부스트·적재 발행 설정...</span></a>
+    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span>🏷️ 수집 태그 → 엔티티 생성 정책...</span></a>
+    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span>🔁 부스트·적재 발행 설정...</span></a>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">목록 스타일</div>
     <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><kbd>l</kbd></button>

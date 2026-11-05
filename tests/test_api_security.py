@@ -317,7 +317,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/syndication/dispatches",
         "/syndication/dispatches",
         "/syndication",
-        "/syndication/preferences",
     }
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {
@@ -369,7 +368,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("DELETE", "/tokens"),
         *(
             (method, path)
-            for path in ("/setup", "/me", "/api/me")
+            for path in ("/setup", "/me", "/api/me", "/syndication/preferences")
             for method in ("GET", "HEAD")
         ),
         ("PATCH", "/api/me"),

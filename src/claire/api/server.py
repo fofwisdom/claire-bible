@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import mimetypes
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -102,6 +102,25 @@ _MAX_ANONYMOUS_SEARCH_RESULTS = 20
 _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
+
+# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 테마별 화면이라 ?theme=를 넘긴다.
+_LEGACY_PREFS_SETTINGS_TABS = {
+    "reader": "/settings/reader",
+    "accounts": "/settings/connections",
+    "feeds": "/settings/feeds",
+    "tags": "/settings/tags",
+    "rules": "/settings/rules",
+    "outbound": "/settings/outbound",
+    "opml": "/settings/opml",
+    "mcp": "/settings/mcp",
+    "webmcp": "/settings/webmcp",
+}
+# 관리자 대상 탭. 관리자가 아니면 /settings/account로 보낸다.
+_LEGACY_PREFS_ACCOUNT_TABS = {
+    "idp": "/admin/idp",
+    "userdb": "/admin/accounts",
+}
+
 _sitemap_cache: dict[str, tuple[float, str, bytes]] = {}
 
 
@@ -1806,37 +1825,36 @@ def create_app(
                 theme=theme,
                 host=request.headers.get("host"),
                 auth_scope=scope,
+                request=request,
             )
         )
 
-    async def syndication_preferences_ui_route(request: Request) -> HTMLResponse:
-        from ..graphview import render_syndication_preferences_html
+    async def syndication_preferences_ui_route(request: Request) -> Response:
+        """D4 호환 302: 옛 ``/syndication/preferences?tab=``를 ``/settings/*``(또는 관리자의 ``/admin/*``)로 보낸다 (설계 §2.2).
 
-        scope = request_auth_scope(request)
-        include_private = scope in {"owner", "readonly"}
-        is_collaborator = scope == "collaborator"
-        theme = None
-        if getattr(s, "multi_theme", False):
-            try:
-                theme, _, _ = _get_theme_ctx(request)
-                if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
-                    theme = None
-            except HTTPException:
-                # 명시한 테마가 없거나 접근할 수 없으면 404다 (첫 테마로 바꿔 보여 주지 않는다)
-                if _extract_theme_ref(request) is not None:
-                    raise
-                theme = None
-            except Exception:
-                theme = None
-        return HTMLResponse(
-            render_syndication_preferences_html(
-                s,
-                include_private=include_private,
-                collaborator=is_collaborator,
-                theme=theme,
-                host=request.headers.get("host"),
-                auth_scope=scope,
-            )
+        ``?theme=``를 먼저 엄격히 검증한다(없거나 접근할 수 없으면 404, C1). 모르는 ``?tab=``도 404다. ``/settings/*``는 루트 경로라 위치에 ``/@USERNAME``을 붙이지 않는다(D1, S9).
+        """
+        theme_query: str | None = None
+        if _extract_theme_ref(request) is not None:
+            theme, _, _ = _get_theme_ctx(request)
+            theme_query = ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
+        tab = request.query_params.get("tab") if "tab" in request.query_params else None
+        principal = request_principal(request)
+        caller_is_admin = principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None
+        if tab is None:
+            target = "/settings/reader"
+        elif tab in _LEGACY_PREFS_SETTINGS_TABS:
+            target = _LEGACY_PREFS_SETTINGS_TABS[tab]
+        elif tab in _LEGACY_PREFS_ACCOUNT_TABS:
+            # 관리자 화면은 테마와 무관하다. ?theme=를 넘기지 않는다.
+            target = _LEGACY_PREFS_ACCOUNT_TABS[tab] if caller_is_admin else "/settings/account"
+            theme_query = None
+        else:
+            raise HTTPException(status_code=404, detail="unknown preferences tab")
+        location = f"{target}?{urlencode({'theme': theme_query})}" if theme_query else target
+        return Response(
+            status_code=302,
+            headers={"Location": location, "Cache-Control": "no-store", "Referrer-Policy": "same-origin"},
         )
 
     async def syndication_dispatch_route(request: Request) -> JSONResponse:

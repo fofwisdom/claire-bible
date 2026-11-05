@@ -278,8 +278,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         if outcome.session_token is None:
             raise RuntimeError("setup completed without a session token")
-        # 비밀번호 저장만 실패했으면 확정은 끝났으므로 /me로 보내 그 사실과 설정 양식을 보여 준다.
-        location = outcome.redirect_path if outcome.kind == "ok" else "/me?notice=password_not_saved"
+        # 비밀번호 저장만 실패했으면 확정은 끝났으므로 /settings/account로 보내 그 사실과 설정 양식을 보여 준다.
+        location = outcome.redirect_path if outcome.kind == "ok" else "/settings/account?notice=password_not_saved"
         response = Response(status_code=303, headers={"Location": location, "Cache-Control": "no-store"})
         set_session_cookie(response, ctx, outcome.session_token)
         return response
