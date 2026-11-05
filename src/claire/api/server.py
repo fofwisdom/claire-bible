@@ -535,8 +535,9 @@ def create_app(
             relation = "owner"
         else:
             relation = "delegate"
+        is_admin = bool(principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None)
         return JSONResponse(
-            {"scope": scope, "instance": {"mode": namespace.mode}, "relation": relation}
+            {"scope": scope, "instance": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}
         )
 
     async def stats(request: Request) -> JSONResponse:

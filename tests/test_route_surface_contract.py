@@ -45,6 +45,11 @@ SYSTEM = {
     "/admin/instance", "/api/admin/instance", "/api/admin/instance/mode", "/api/admin/instance/legacy-hosts/sunset",
     "/api/admin/server-tier",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
+    "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
+    "/api/admin/mcp/telemetry",
+    "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
+    "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
+    "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",
 }
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
@@ -61,6 +66,7 @@ ADMIN_KEYS = {
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
+    *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {

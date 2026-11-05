@@ -27,7 +27,7 @@ RESERVED_USERNAMES: frozenset[str] = frozenset(
         "private", "me", "self", "null", "undefined", "test", "demo",
         # 서비스
         "claire", "api", "www", "mail", "mcp", "bot", "media", "usercontent", "explore",
-        "invite",
+        "invite", "settings",
     }
 )
 

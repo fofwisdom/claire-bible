@@ -647,7 +647,7 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     client, settings = real_app
     owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
     assert client.get("/whoami").json() == {
-        "scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor",
+        "scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor", "is_admin": False,
     }
     assert client.get("/static/css/theme.css").status_code == 200
     created = client.post("/themes", json={"label": "옛 호스트", "is_public": True}, headers=owner)
@@ -673,4 +673,4 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     assert network.status_code == 308
     assert network.headers["location"] == f"http://127.0.0.1:8765/@{ADMIN_NAME}/themes/{number}/graph"
     whoami = client.get("/whoami", headers=owner)
-    assert whoami.json() == {"scope": "owner", "instance": {"mode": "network"}, "relation": "owner"}
+    assert whoami.json() == {"scope": "owner", "instance": {"mode": "network"}, "relation": "owner", "is_admin": True}

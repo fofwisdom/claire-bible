@@ -20,7 +20,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from .. import security
-from . import admin, idp, instance, invites, keys, login, me, setup
+from . import admin, console, idp, instance, invites, keys, login, me, setup
 from .common import AccountsContext, build_context, prepare_auth_db, require_recent_auth
 
 __all__ = [
@@ -53,5 +53,6 @@ def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> Ac
         *idp.routes(ctx),
         *invites.routes(ctx),
         *keys.routes(ctx),
+        *console.routes(ctx),
     )
     return AccountRoutes(context=ctx, routes=routes)

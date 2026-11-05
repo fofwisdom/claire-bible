@@ -169,9 +169,9 @@ def test_whoami_returns_actual_authenticated_scope(client: TestClient) -> None:
     readonly_response = client.get("/whoami", headers=READONLY_HEADERS)
 
     assert owner_response.status_code == 200
-    assert owner_response.json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner"}
+    assert owner_response.json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": True}
     assert readonly_response.status_code == 200
-    assert readonly_response.json() == {"scope": "readonly", "instance": {"mode": "single"}, "relation": "delegate"}
+    assert readonly_response.json() == {"scope": "readonly", "instance": {"mode": "single"}, "relation": "delegate", "is_admin": False}
 
 
 def test_readonly_document_get_does_not_mark_document_seen(
@@ -490,7 +490,7 @@ def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
         )
 
     assert whoami_response.status_code == 200
-    assert whoami_response.json() == {"scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor"}
+    assert whoami_response.json() == {"scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor", "is_admin": False}
     assert search_response.status_code == 200
     assert search_response.json()["mode"] == "fts"
     assert service.search_calls[-1] == {
