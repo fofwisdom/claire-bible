@@ -93,16 +93,31 @@ def _build_standalone_shared_html() -> str:
 
 
 def _build_standalone_syndication_html() -> str:
-    """Combine static CSS/JS assets and templates/syndication.html to build standalone SYNDICATION_HTML."""
+    """Combine static CSS/JS assets and templates/syndication.html to build standalone live SYNDICATION_HTML."""
+    theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
+    synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
+    synd_live_js = (_STATIC_DIR / "js" / "syndication_live.js").read_text(encoding="utf-8")
+    syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
+    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
+    html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
+    html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
+    js_bundle = f"<script>\n{synd_live_js}\n</script>"
+    html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
+    return html
+
+
+def _build_standalone_prototype_syndication_html() -> str:
+    """Combine static CSS/JS assets and templates/prototype_syndication.html to build standalone PROTOTYPE_SYNDICATION_HTML."""
     theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
     synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
     synd_data_js = (_STATIC_DIR / "js" / "syndication_data.js").read_text(encoding="utf-8")
     synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
     synd_peers_js = (_STATIC_DIR / "js" / "syndication_peers.js").read_text(encoding="utf-8")
     synd_app_js = (_STATIC_DIR / "js" / "syndication_app.js").read_text(encoding="utf-8")
-    syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
+    prototype_tmpl = (_TEMPLATES_DIR / "prototype_syndication.html").read_text(encoding="utf-8")
     css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
-    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
+    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", prototype_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
     # Order matters: seed data, then the client-tab and peer-publication factories, then the shell controller that instantiates them.
@@ -114,6 +129,7 @@ def _build_standalone_syndication_html() -> str:
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 SYNDICATION_HTML: str = _build_standalone_syndication_html()
+PROTOTYPE_SYNDICATION_HTML: str = _build_standalone_prototype_syndication_html()
 
 
 def render_ga_tag(
@@ -690,13 +706,35 @@ def _render_syndication_bundle(
         raw_sorcerer = "owner"
     safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
 
+    caller_account_id: int | None = None
+    is_network_mode = False
+    if request is not None:
+        try:
+            from .api.namespace import request_namespace
+            from .api.principal import request_principal
+
+            ns = request_namespace(request)
+            if ns is not None:
+                is_network_mode = ns.mode == "network"
+                caller_account_id = ns.account_id
+            principal = request_principal(request)
+            if caller_account_id is None and principal.account_id is not None:
+                caller_account_id = principal.account_id
+            if caller_account_id is None and not is_network_mode and getattr(principal, "scope", "anonymous") != "anonymous":
+                caller_account_id = 1
+        except Exception:
+            pass
+
     is_multi = bool(getattr(s, "multi_theme", False))
     theme_mode = "multi" if is_multi else "single"
     if is_multi:
         from .store.theme import get_theme_manager
 
         tm = get_theme_manager(s)
-        themes_list = [t.to_dict() for t in tm.list_themes(include_private=include_private, collaborator=collaborator, host=host)]
+        raw_themes = tm.list_themes(include_private=include_private, collaborator=collaborator, host=host)
+        if is_network_mode and caller_account_id is not None:
+            raw_themes = [t for t in raw_themes if getattr(t, "account_id", 1) == caller_account_id]
+        themes_list = [t.to_dict() for t in raw_themes]
     else:
         themes_list = [
             {
@@ -725,7 +763,21 @@ def _render_syndication_bundle(
         from .api.namespace import shell_bootstrap
 
         bootstrap = shell_bootstrap(request)
-    storage_key = _html.escape((bootstrap or {}).get("storage-key", "anon"), quote=True)
+    raw_storage_key = (bootstrap or {}).get("storage-key", "anon")
+    if raw_storage_key == "anon" and caller_account_id is not None and getattr(s, "db_file", None):
+        try:
+            from .store import accounts as accounts_store
+            from .store import db as dbm
+
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                acc = accounts_store.AccountStore(conn).get(int(caller_account_id))
+                raw_storage_key = f"a{acc.public_id}"
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    storage_key = _html.escape(raw_storage_key, quote=True)
 
     return (
         bundle_html.replace("__SOURCE_BASE_URL__", base_url)
@@ -752,9 +804,32 @@ def render_syndication_html(
     auth_scope: str = "owner",
     request: Any | None = None,
 ) -> str:
-    """Return rendered Syndication UI HTML with settings, active theme, and auth scope variables."""
+    """Return rendered live Syndication UI HTML with settings, active theme, and auth scope variables."""
     return _render_syndication_bundle(
         SYNDICATION_HTML,
+        settings,
+        include_private=include_private,
+        collaborator=collaborator,
+        theme=theme,
+        host=host,
+        auth_scope=auth_scope,
+        request=request,
+    )
+
+
+def render_prototype_syndication_html(
+    settings: Any = None,
+    *,
+    include_private: bool = True,
+    collaborator: bool = False,
+    theme: Any | None = None,
+    host: str | None = None,
+    auth_scope: str = "owner",
+    request: Any | None = None,
+) -> str:
+    """Return rendered Prototype Syndication UI HTML (/prototype/syndication)."""
+    return _render_syndication_bundle(
+        PROTOTYPE_SYNDICATION_HTML,
         settings,
         include_private=include_private,
         collaborator=collaborator,
@@ -768,6 +843,7 @@ def render_syndication_html(
 __all__ = [
     "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
+    "PROTOTYPE_SYNDICATION_HTML",
     "SYNDICATION_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
@@ -781,6 +857,7 @@ __all__ = [
     "render_ga_tag",
     "render_graph_html",
     "render_open_graph_tags",
+    "render_prototype_syndication_html",
     "render_syndication_html",
     "resolve_preview_image",
     "sanitize_preview_text",

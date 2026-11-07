@@ -53,9 +53,8 @@ def _account_is_admin(account: accounts_store.Account) -> bool:
 
 
 def _syndication_base_href(mode: accounts_store.InstanceMode, account: accounts_store.Account) -> str:
-    # S9: 싱글 모드에서는 USERNAME을 쓰지 않는다.
-    if mode == "network" and account.username:
-        return f"/@{account.username}/syndication"
+    # 고유 기능 경로(/syndication)는 유저네임 하단 경로로 분리하지 않고 루트 경로로 안내한다.
+    _ = (mode, account)
     return "/syndication"
 
 

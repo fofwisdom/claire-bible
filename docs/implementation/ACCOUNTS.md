@@ -60,7 +60,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔 경로용 `settings`를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`는 루트 경로 `/settings/*`와 겹치지 않게 하려고 예약한다(콘솔 설계 D1).
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`을 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, `/prototype/syndication`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **인스턴스 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.instance_hosts`). 포트는 뗀다.
 
@@ -294,13 +294,13 @@
 - **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `ThemeManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
 - **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
 - **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
-- **S9**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이고 `@username`을 내지 않는다. 네트워크 모드이고 USERNAME이 있으면 `/@{username}/`, `/@{username}/syndication`이다.
+- **S9**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이고 `@username`을 내지 않는다. 네트워크 모드이고 USERNAME이 있으면 그래프 링크만 `/@{username}/`이고 고유 기능 경로인 신디케이션 링크는 항상 `/syndication`이다.
 - **부트스트랩 JSON**: 셸의 `<script type="application/json">`에는 `area`, `section`, `path`, `mode`, `is_admin`, `theme`과 섹션별 값이 들어간다. `<`, `>`, `&`는 `<`, `>`, `&`으로 이스케이프한다.
 - **루트 `/` 진입점**: 상세 메뉴에는 '관리 및 설정' 패널이 없다(프로바이더·적재 제한·테마 관리·API/MCP 키는 콘솔에서만 다룬다. 콘솔 설계 D2의 드로어 빠른 패널은 폐지). 상단바에서 라이트/다크 전환(`#themebtn`) 바로 왼쪽의 아이콘 링크 `#consolelinkbtn`이 owner에게만 보인다. `GET /whoami`의 `is_admin`이 참이면 `🛠️`(`/admin`, 이름 '관리자 콘솔'), 아니면 `⚙️`(`/settings`, 이름 '내 설정')이다. 협업자·읽기 전용·익명에게는 보이지 않는다.
 
 ### 5.10 옛 `/syndication/preferences` 호환 302
 
-**[코드]** `server.py:syndication_preferences_ui_route`. 규칙 `_namespaced("owner")`(owner가 아니면 404, 위치 헤더 없음).
+**[코드]** `server.py:syndication_preferences_ui_route`. 규칙 `_system("owner")`(루트에서만 받으며 접두 경로 `/@{username}/syndication/preferences` 등은 404. owner가 아니면 404, 위치 헤더 없음).
 
 1. `?theme=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
 2. `?tab=`을 아래 표로 바꾼다. 빈 값, 대소문자가 다른 값, 모르는 값은 404다. `?tab=`이 없으면 `reader`와 같다.
@@ -378,11 +378,11 @@
 
 ## 11. Syndication 병합 기반 (P6)
 
-- **[코드] 경로 네임스페이스화 및 인증 (G8)**: `/syndication`은 `namespaced` 라우트이며 `ROUTE_POLICY`에서 `public` 규칙이 해제되어 `read` 권한이 요구된다. `/syndication/preferences`는 `_namespaced("owner")`의 호환 302다(§5.10). 비인증 요청은 차단되며 Gate G8이 충족된다. 네트워크 모드에서는 `/@{username}/syndication` 및 `/@{username}/themes/{number}/syndication`으로 접근한다.
-- **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
+- **[코드] 루트 고유 기능 경로 및 프로토타입 분리 (G8, N5)**: `/syndication`(현재 구현된 실데이터 기반 리더·지식베이스 적재 워크스페이스)과 `/prototype/syndication`(시각적 연합/피어 시뮬레이션 프로토타입)은 모두 루트 전용 `_system("read")` 라우트이며, `/syndication/preferences`는 `_system("owner")`의 호환 302다(§5.10). 비인증 요청은 차단되며 Gate G8이 충족된다. 유저네임 하단 경로(`/@{username}/syndication`, `/@{username}/prototype/syndication`)나 테마 접두 경로(`/themes/{number}/syndication`)는 404 Not Found를 반환하며(N5), `@username`은 루트 프로필/워크스페이스(`/@{username}/`) 및 기능 내 타 유저 호출 용도로만 사용한다.
+- **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 토큰 암호화**: `syndication_accounts.token_enc`는 `SecretService`의 AES-256-GCM 암호화를 사용하며, AAD로 `f"{theme_id}|{account_id}"`를 결합한다. 데이터베이스 행을 다른 테마나 식별자로 무단 이동·변조하면 복호화 시 `SecretDecryptionError`가 발생한다.
 - **[코드] 테마 경계 및 계정 격리**: 테마는 자신이 소유하지 않은 연결 계정(다른 `theme_id`의 `syndication_accounts`)을 조회하거나 사용할 수 없다. 또한 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `syndication_app.js`가 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 및 `/prototype/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트

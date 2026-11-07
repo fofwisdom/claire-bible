@@ -342,7 +342,13 @@ def create_app(
         except Exception:
             ns = None
 
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
+        principal = request_principal(request)
+        if ns is not None and ns.account_id is not None:
+            account_id = ns.account_id
+        elif principal.account_id is not None:
+            account_id = principal.account_id
+        else:
+            account_id = 1
         ref = _extract_theme_ref(request, body)
 
         try:
@@ -1798,9 +1804,14 @@ def create_app(
             )
         )
 
-    async def syndication_ui_route(request: Request) -> HTMLResponse:
-        from ..graphview import render_syndication_html
-
+    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, ThemeInfo | None]:
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+        principal = request_principal(request)
+        if ns is not None and ns.mode == "network" and principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
         scope = request_auth_scope(request)
         include_private = scope in {"owner", "readonly"}
         is_collaborator = scope == "collaborator"
@@ -1817,8 +1828,30 @@ def create_app(
                 theme = None
             except Exception:
                 theme = None
+        return scope, include_private, is_collaborator, theme
+
+    async def syndication_ui_route(request: Request) -> HTMLResponse:
+        from ..graphview import render_syndication_html
+
+        scope, include_private, is_collaborator, theme = _resolve_syndication_ui_context(request)
         return HTMLResponse(
             render_syndication_html(
+                s,
+                include_private=include_private,
+                collaborator=is_collaborator,
+                theme=theme,
+                host=request.headers.get("host"),
+                auth_scope=scope,
+                request=request,
+            )
+        )
+
+    async def prototype_syndication_ui_route(request: Request) -> HTMLResponse:
+        from ..graphview import render_prototype_syndication_html
+
+        scope, include_private, is_collaborator, theme = _resolve_syndication_ui_context(request)
+        return HTMLResponse(
+            render_prototype_syndication_html(
                 s,
                 include_private=include_private,
                 collaborator=is_collaborator,
@@ -1917,7 +1950,7 @@ def create_app(
 
         if is_network or target_account_id is not None:
             if target_account_id is not None and caller_account_id != target_account_id:
-                if principal.scope != "owner" and getattr(principal, "instance_role", None) != "admin":
+                if getattr(principal, "instance_role", None) != "admin":
                     raise HTTPException(
                         status_code=403,
                         detail="다른 계정의 테마에 적재할 권한이 없습니다.",
@@ -2204,6 +2237,7 @@ def create_app(
             "Disallow: /providers",
             "Disallow: /themes",
             "Disallow: /syndication",
+            "Disallow: /prototype",
         ]
 
         if getattr(s, "block_ai_crawlers", True):
@@ -4497,6 +4531,7 @@ def create_app(
         Route("/explore/accounts", explore_accounts_route, methods=["GET", "HEAD"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
+        Route("/prototype/syndication", prototype_syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),
         Route("/api/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
         Route("/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),

@@ -454,7 +454,10 @@ def test_legacy_syndication_preferences_redirects_for_admin(console_e2e, mode: s
 def test_legacy_syndication_preferences_redirects_for_member_in_network_mode(console_e2e):
     _set_mode(console_e2e.db_file, "network")
     env = console_e2e
-    base = f"/@{MEMBER_USERNAME}/syndication/preferences"
+    base = "/syndication/preferences"
+
+    # Prefixed path under /@username is rejected with 404 (rule N5).
+    assert _get(env, f"/@{MEMBER_USERNAME}/syndication/preferences?tab=feeds", env.alice).status_code == 404
 
     feeds = _get(env, base + "?tab=feeds", env.alice)
     assert feeds.status_code == 302, feeds.status_code

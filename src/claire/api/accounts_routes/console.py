@@ -1145,13 +1145,9 @@ def _render_console_section(
     mode, account = _account_context_info(ctx, principal.account_id)
     admin_viewer = is_admin(principal)
 
-    # S9: 싱글 모드에서는 USERNAME을 어디에도 노출하지 않는다.
-    if mode == "network" and account.username:
-        graph_href = f"/@{account.username}/"
-        syndication_href = f"/@{account.username}/syndication"
-    else:
-        graph_href = "/"
-        syndication_href = "/syndication"
+    # S9: 싱글 모드에서는 USERNAME을 어디에도 노출하지 않는다. 고유 기능 경로(/syndication)는 항상 루트에 마운트한다.
+    graph_href = f"/@{account.username}/" if (mode == "network" and account.username) else "/"
+    syndication_href = "/syndication"
     if validated_theme_query:
         syndication_href = _append_theme_query(syndication_href, validated_theme_query)
 

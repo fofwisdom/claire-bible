@@ -50,6 +50,9 @@ SYSTEM = {
     "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",
+    "/syndication", "/prototype/syndication", "/syndication/preferences",
+    "/api/syndication/dispatch", "/syndication/dispatch",
+    "/api/syndication/dispatches", "/syndication/dispatches",
 }
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),

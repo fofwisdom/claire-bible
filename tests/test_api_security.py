@@ -317,6 +317,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/syndication/dispatches",
         "/syndication/dispatches",
         "/syndication",
+        "/prototype/syndication",
     }
     read_post = {"/search", "/mcp", "/share"}
     collaborator_post = {

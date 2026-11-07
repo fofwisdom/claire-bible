@@ -55,6 +55,8 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         # Gate G8: Unauthenticated access is forbidden or not found
         res_unauthed = client.get("/syndication")
         assert res_unauthed.status_code in {401, 404}
+        res_proto_unauthed = client.get("/prototype/syndication")
+        assert res_proto_unauthed.status_code in {401, 404}
         res_prefs_unauthed = client.get("/syndication/preferences")
         assert res_prefs_unauthed.status_code in {401, 404}
 
@@ -77,20 +79,20 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'PREFS_SLOT_PREFIX: "claire_synd_prefs_v2:"' in res_public.text
         assert "수집 원문" in res_public.text
         assert "적재 본문" in res_public.text
-        assert "부스트 / 인용 발행" in res_public.text
+        assert "생성된 엔티티" in res_public.text
+        assert 'href="/prototype/syndication"' in res_public.text
 
-        # Tab menu bar below the top bar: federated client (tab 1) and knowledge base (tab 2).
-        assert 'data-app-tab="client"' in res_public.text
-        assert 'id="app-tablist"' in res_public.text
-        assert 'id="panel-client"' in res_public.text
-        assert 'id="panel-kb"' in res_public.text
-        assert "연합 클라이언트" in res_public.text
-        assert "CLAIRE_SYND_CLIENT_FACTORY" in res_public.text
+        # Live /syndication does not ship fake seeds or simulated federation prototypes.
+        assert "CLAIRE_SYND_SEEDS" not in res_public.text
+        assert "CLAIRE_SYND_CLIENT_FACTORY" not in res_public.text
+        assert "CLAIRE_SYND_PEERS_FACTORY" not in res_public.text
+        assert "/api/peers/publications" not in res_public.text
+        assert "/api/syndication/dispatch" in res_public.text
+        assert "/api/syndication/dispatches" in res_public.text
 
         # Four list styles: list / compact / card / roomy.
         for style in ("list", "compact", "card", "roomy"):
             assert f'data-set-list-style="{style}"' in res_public.text
-        # Labels show only the localized name; English names live in the i18n table.
         for label in ("☰ 목록<", "≡ 조밀하게<", "▤ 일반<", "▭ 넓게<"):
             assert label in res_public.text
         for paren in ("(리스트)", "(컴팩트)", "(카드)", "(루미)"):
@@ -98,17 +100,41 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'en: "Compact"' in res_public.text
         assert 'en: "Roomy"' in res_public.text
 
-        # ActivityPub and AT go through connected server accounts, not a self-hosted actor.
-        assert "/api/v1/statuses" in res_public.text
-        assert "com.atproto.repo.createRecord" in res_public.text
-        assert 'id="modal-connect"' in res_public.text
+        res_head = client.head("/syndication", headers=headers)
+        assert res_head.status_code == 200
 
-        # ActivityPub client features follow the Mastodon 5.0+ client feature set; servers are never
-        # refused, and features a server lacks are disabled through capability flags.
-        assert "CLAIRE_SYND_AP_FEATURES" in res_public.text
-        assert "accountSupports" in res_public.text
-        assert "checkMastodonBaseline" not in res_public.text
-        assert 'missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"]' in res_public.text
+        res_prefs = client.get("/syndication/preferences", headers=headers, follow_redirects=False)
+        assert res_prefs.status_code == 302
+        assert res_prefs.headers["location"] == "/settings/reader"
+
+        res_prefs_head = client.head("/syndication/preferences", headers=headers, follow_redirects=False)
+        assert res_prefs_head.status_code == 302
+        assert res_prefs_head.headers["location"] == "/settings/reader"
+
+
+def test_prototype_syndication_route_preserves_full_prototype(syndication_env) -> None:
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        res_proto = client.get("/prototype/syndication", headers=headers)
+        assert res_proto.status_code == 200
+        assert "Claire Bible — Syndication Prototype" in res_proto.text
+        assert 'href="/syndication"' in res_proto.text
+        assert "수집 원문" in res_proto.text
+        assert "적재 본문" in res_proto.text
+        assert "부스트 / 인용 발행" in res_proto.text
+        assert 'data-app-tab="client"' in res_proto.text
+        assert 'id="app-tablist"' in res_proto.text
+        assert 'id="panel-client"' in res_proto.text
+        assert 'id="panel-kb"' in res_proto.text
+        assert "연합 클라이언트" in res_proto.text
+        assert "CLAIRE_SYND_CLIENT_FACTORY" in res_proto.text
+        assert "/api/v1/statuses" in res_proto.text
+        assert "com.atproto.repo.createRecord" in res_proto.text
+        assert 'id="modal-connect"' in res_proto.text
+        assert "CLAIRE_SYND_AP_FEATURES" in res_proto.text
+        assert "accountSupports" in res_proto.text
+        assert "checkMastodonBaseline" not in res_proto.text
+        assert 'missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"]' in res_proto.text
         for endpoint in (
             "/api/v2/notifications",
             "/api/v1/notifications/requests",
@@ -123,32 +149,19 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
             "scheduled_at",
             "spoiler_text",
         ):
-            assert endpoint in res_public.text, endpoint
-        assert 'id="pop-post-actions"' in res_public.text
-        assert 'id="modal-report"' in res_public.text
-
-        # Other users' published bodies (proposal): both tabs read the shared publication index and
-        # republish through the viewer's own connected accounts.
-        assert "CLAIRE_SYND_PEERS_FACTORY" in res_public.text
-        assert "window.CLAIRE_SYND_PEERS = {" in res_public.text
-        assert 'id="tree-peers"' in res_public.text
-        assert 'id="modal-reshare"' in res_public.text
-        assert 'data-peer-view="current"' in res_public.text
-        assert "GET /api/peers/publications" in res_public.text
+            assert endpoint in res_proto.text, endpoint
+        assert 'id="pop-post-actions"' in res_proto.text
+        assert 'id="modal-report"' in res_proto.text
+        assert "CLAIRE_SYND_PEERS_FACTORY" in res_proto.text
+        assert "window.CLAIRE_SYND_PEERS = {" in res_proto.text
+        assert 'id="tree-peers"' in res_proto.text
+        assert 'id="modal-reshare"' in res_proto.text
+        assert 'data-peer-view="current"' in res_proto.text
+        assert "GET /api/peers/publications" in res_proto.text
         for mode in ("boost", "quote", "link", "import_publish"):
-            assert f"{mode}: {{ icon:" in res_public.text, mode
-        assert res_public.text.index("CLAIRE_SYND_PEERS_FACTORY = function") < res_public.text.index("window.CLAIRE_SYND_PEERS_FACTORY({")
-
-        res_head = client.head("/syndication", headers=headers)
-        assert res_head.status_code == 200
-
-        res_prefs = client.get("/syndication/preferences", headers=headers, follow_redirects=False)
-        assert res_prefs.status_code == 302
-        assert res_prefs.headers["location"] == "/settings/reader"
-
-        res_prefs_head = client.head("/syndication/preferences", headers=headers, follow_redirects=False)
-        assert res_prefs_head.status_code == 302
-        assert res_prefs_head.headers["location"] == "/settings/reader"
+            assert f"{mode}: {{ icon:" in res_proto.text, mode
+        assert res_proto.text.index("CLAIRE_SYND_PEERS_FACTORY = function") < res_proto.text.index("window.CLAIRE_SYND_PEERS_FACTORY({")
+        assert client.head("/prototype/syndication", headers=headers).status_code == 200
 
 
 # D4 / design §2.2: legacy ?tab= → /settings/* (or /admin/* for the admin).

@@ -267,18 +267,35 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
     app = server.create_app(settings=settings)
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        # 1. Network mode namespaced syndication UI
+        # 1. Network mode: /syndication and /prototype/syndication are root-mounted _system routes.
+        # Prefixed paths under /@{username}/... or /themes/{n}/... fail closed with 404 (rule N5).
         alice_headers = {"Authorization": f"Bearer {alice_token}"}
-        res_ns = client.get("/@alice/syndication", headers=alice_headers)
-        assert res_ns.status_code == 200
+        res_root = client.get("/syndication", headers=alice_headers)
+        assert res_root.status_code == 200
+        assert "Alice Theme" in res_root.text
+        assert "Bob Theme" not in res_root.text
 
-        # Unauthenticated access to namespaced syndication is rejected
-        res_ns_unauth = client.get("/@alice/syndication")
-        assert res_ns_unauth.status_code in (401, 404)
+        res_proto = client.get("/prototype/syndication", headers=alice_headers)
+        assert res_proto.status_code == 200
+        assert "Claire Bible — Syndication Prototype" in res_proto.text
+
+        for bad_path in (
+            "/@alice/syndication",
+            "/@alice/prototype/syndication",
+            "/@alice/syndication/preferences",
+            f"/@alice/themes/{alice_theme.number}/syndication",
+            f"/themes/{alice_theme.number}/syndication",
+        ):
+            assert client.get(bad_path, headers=alice_headers, follow_redirects=False).status_code == 404, bad_path
+
+        # Unauthenticated access to root syndication and prototype is rejected
+        assert client.get("/syndication").status_code in (401, 404)
+        assert client.get("/prototype/syndication").status_code in (401, 404)
 
         # Entry links and legacy preferences redirects target root-mounted /settings/* (D1), never /@alice/settings.
-        assert 'data-settings-path="/settings/reader"' in res_ns.text
-        assert "/@alice/settings" not in res_ns.text
+        assert 'data-settings-path="/settings/reader"' in res_root.text
+        assert "/@alice/settings" not in res_root.text
+        assert "/@alice/syndication" not in res_root.text
         alice_ref = str(alice_theme.number)
         for tab, target in (
             (None, "/settings/reader"),
@@ -295,36 +312,39 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             ("userdb", "/settings/account"),
         ):
             query = f"?tab={tab}" if tab is not None else ""
-            res_tab = client.get(f"/@alice/syndication/preferences{query}", headers=alice_headers, follow_redirects=False)
+            res_tab = client.get(f"/syndication/preferences{query}", headers=alice_headers, follow_redirects=False)
             assert res_tab.status_code == 302, tab
             assert res_tab.headers["location"] == target, tab
             sep = "&" if query else "?"
-            res_theme = client.get(f"/@alice/syndication/preferences{query}{sep}theme={alice_ref}", headers=alice_headers, follow_redirects=False)
+            res_theme = client.get(f"/syndication/preferences{query}{sep}theme={alice_ref}", headers=alice_headers, follow_redirects=False)
             assert res_theme.status_code == 302, tab
             expected = target if target == "/settings/account" else f"{target}?theme={alice_ref}"
             assert res_theme.headers["location"] == expected, tab
         res_member_settings = client.get(f"/settings/feeds?theme={alice_ref}", headers=alice_headers, follow_redirects=False)
         assert res_member_settings.status_code == 200
         assert "/admin/" not in res_member_settings.text
+        assert "/@alice/syndication" not in res_member_settings.text
+        assert 'href="/syndication?theme=' in res_member_settings.text
         # Unknown tab and a theme of another account fail closed with 404 (C1).
-        assert client.get("/@alice/syndication/preferences?tab=nope", headers=alice_headers, follow_redirects=False).status_code == 404
-        assert client.get(f"/@alice/syndication/preferences?theme={bob_theme.number}", headers=alice_headers, follow_redirects=False).status_code == 404
+        assert client.get("/syndication/preferences?tab=nope", headers=alice_headers, follow_redirects=False).status_code == 404
+        assert client.get(f"/syndication/preferences?theme={bob_theme.number}", headers=alice_headers, follow_redirects=False).status_code == 404
         # A collaborator (Bob) and anonymous callers never see a redirect target.
-        bob_prefs = client.get("/@alice/syndication/preferences", headers={"Authorization": f"Bearer {bob_token}"}, follow_redirects=False)
+        bob_prefs = client.get("/syndication/preferences", headers={"Authorization": f"Bearer {bob_token}"}, follow_redirects=False)
         assert bob_prefs.status_code in (401, 403, 404)
         assert "location" not in bob_prefs.headers
-        assert client.get("/@alice/syndication/preferences", follow_redirects=False).status_code in (401, 404)
+        assert client.get("/syndication/preferences", follow_redirects=False).status_code in (401, 404)
         res_me = client.get("/me", headers=alice_headers, follow_redirects=False)
         assert res_me.status_code == 302 and res_me.headers["location"] == "/settings/account"
 
-        # 2. Alice dispatches within her own theme -> records dispatched_by_account_id=2
+        # 2. Alice dispatches within her own theme at root /api/syndication/dispatch -> records dispatched_by_account_id=2
         dispatch_payload = {
             "document_id": "doc_alice_1",
             "source_theme_id": alice_theme.id,
             "target_theme_id": alice_theme.id,
         }
+        assert client.post("/@alice/api/syndication/dispatch", json=dispatch_payload, headers=alice_headers).status_code == 404
         res_dispatch = client.post(
-            "/@alice/api/syndication/dispatch",
+            "/api/syndication/dispatch",
             json=dispatch_payload,
             headers=alice_headers,
         )
@@ -332,10 +352,10 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         data = res_dispatch.json()
         assert data["dispatched_by_account_id"] == 2
 
-        # 3. Bob attempts to dispatch into Alice's theme -> 403 Forbidden
+        # 3. Bob attempts to dispatch into Alice's theme -> 403/404 Forbidden
         bob_headers = {"Authorization": f"Bearer {bob_token}"}
         res_cross_forbidden = client.post(
-            "/@alice/api/syndication/dispatch",
+            "/api/syndication/dispatch",
             json={
                 "document_id": "doc_alice_1",
                 "source_theme_id": alice_theme.id,
@@ -345,9 +365,10 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         )
         assert res_cross_forbidden.status_code in (403, 404)
 
-        # 4. Verify dispatches list filters by caller
+        # 4. Verify dispatches list at root /api/syndication/dispatches
+        assert client.get("/@alice/api/syndication/dispatches?theme_id=" + str(alice_theme.id), headers=alice_headers).status_code == 404
         res_dispatches = client.get(
-            "/@alice/api/syndication/dispatches?theme_id=" + str(alice_theme.id),
+            "/api/syndication/dispatches?theme_id=" + str(alice_theme.id),
             headers=alice_headers,
         )
         assert res_dispatches.status_code == 200
