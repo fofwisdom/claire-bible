@@ -3,7 +3,12 @@
  * Unified parser for workspace reader and standalone share view.
  */
 
-function esc(s) {
+function esc(s, quote) {
+  if (quote === false) {
+    return (s || '').replace(/[&<>]/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c);
+    });
+  }
   return (s || '').replace(/[&<>"']/g, function(c) {
     return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c);
   });
@@ -226,7 +231,12 @@ function renderTableHtml(tableLines, blockMeta, anchorId){
 
 function inlineAdocFormat(text){
   if(!text) return '';
-  var s=esc(text);
+  var s=esc(text, false);
+  var entSpans=[];
+  s=s.replace(/&(?:amp;)?#(?:x[0-9a-fA-F]+|\d+);/g, function(m){
+    entSpans.push(m);
+    return '\x00ADOCENT'+(entSpans.length-1)+'\x00';
+  });
   var codeSpans=[];
   s=s.replace(/`(?![\s])([^`\n]+?)(?<![\s])`/g, function(_, m1){
     codeSpans.push('<code>'+m1+'</code>');
@@ -300,6 +310,7 @@ function inlineAdocFormat(text){
   for(var j=0; j<codeSpans.length; j++) s=s.replace('\x00ADOCCODE'+j+'\x00', codeSpans[j]);
   for(var k=0; k<mathSpans.length; k++) s=s.replace('\x00ADOCMATH'+k+'\x00', mathSpans[k]);
   for(var v=0; v<varSpans.length; v++) s=s.replace('\x00ADOCVAR'+v+'\x00', varSpans[v]);
+  for(var e=0; e<entSpans.length; e++) s=s.replace('\x00ADOCENT'+e+'\x00', entSpans[e]);
   return s;
 }
 

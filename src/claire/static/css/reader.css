@@ -577,11 +577,20 @@ body.stt-modal-open{overflow:hidden}
     #reader .rzoom button,#reader .redit,#reader .rpresentation,#reader .rslides,#reader .rshare,#reader .rclose{min-width:36px!important;min-height:36px!important}
     #reader .rclose{display:inline-flex!important}
     #reader .rbody{
-      padding:8px 16px max(24px,env(safe-area-inset-bottom)) 16px!important;
+      padding:8px 38px max(24px,env(safe-area-inset-bottom)) 16px!important;
       overflow-y:auto!important;overflow-x:auto!important;
       min-width:0!important;max-width:100%!important;
       box-sizing:border-box!important;flex:1!important;min-height:0!important;
       scrollbar-width:none!important;-ms-overflow-style:none!important;
+    }
+    .cb-heading-rail{
+      right:4px;
+      width:26px;
+      top:10px;
+      bottom:max(16px,env(safe-area-inset-bottom));
+    }
+    .cb-diamond-tooltip{
+      max-width:min(200px,60vw);
     }
 }
 

@@ -16,6 +16,15 @@ def _inline_adoc_format(text: str) -> str:
     # HTML 특수문자 이스케이프 선행
     s = html.escape(text, quote=False)
 
+    # 0. 엔티티(Numeric Character References e.g. &#39;, &#1234;) 보호
+    ent_spans: list[str] = []
+
+    def _save_ent(m: re.Match) -> str:
+        ent_spans.append(m.group(0))
+        return f"\x00ADOCENT{len(ent_spans)-1}\x00"
+
+    s = re.sub(r"&(?:amp;)?#(?:x[0-9a-fA-F]+|\d+);", _save_ent, s)
+
     # 1. 인라인 코드 보호 (코드 블록 내부의 *, _, #, $ 등이 다른 서식으로 변환되는 것 방지)
     code_spans: list[str] = []
 
@@ -115,6 +124,8 @@ def _inline_adoc_format(text: str) -> str:
         s = s.replace(f"\x00ADOCMATH{i}\x00", span)
     for i, span in enumerate(var_spans):
         s = s.replace(f"\x00ADOCVAR{i}\x00", span)
+    for i, span in enumerate(ent_spans):
+        s = s.replace(f"\x00ADOCENT{i}\x00", span)
 
     return s
 

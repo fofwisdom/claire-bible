@@ -856,9 +856,10 @@ def test_reader_keyboard_navigation_markup_and_styles():
     assert "#reader .rbody:focus:not(:focus-visible){outline:none}" in GRAPH_HTML
     assert ".doc-content table:focus-visible,.doc-content pre:focus-visible,.doc-content .mathblock:focus-visible" in GRAPH_HTML
 
-    # 3. 데스크톱 overflow-x: hidden 유지 및 모바일 overflow-x: auto 적용
+    # 3. 데스크톱 overflow-x: hidden 유지 및 모바일 overflow-x: auto 적용, 모바일 레일 우측 여백 확보
     assert "#reader .rbody{padding:16px 42px max(28px,env(safe-area-inset-bottom)) 28px;overflow-y:auto;overflow-x:hidden" in GRAPH_HTML
     assert "overflow-y:auto!important;overflow-x:auto!important" in GRAPH_HTML
+    assert "padding:8px 38px max(24px,env(safe-area-inset-bottom)) 16px!important" in GRAPH_HTML
 
     # 4. handleReaderKey 및 자동 포커스/접근성 함수 존재
     assert "function handleReaderKey(e)" in GRAPH_HTML

@@ -55,6 +55,7 @@ function setReadFS(delta){
   readFS = Math.max(12, Math.min(28, readFS + delta));
   try{ localStorage.setItem('claireReadFS', readFS); }catch(e){}
   applyReadFS();
+  if(typeof updateReaderRail === 'function') updateReaderRail();
 }
 
 // 중앙 읽기 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
@@ -319,10 +320,17 @@ function setCenterView(mode){
     tabStream.classList.toggle('active', centerView === 'stream');
     tabStream.setAttribute('aria-selected', centerView === 'stream');
   }
-  if(centerView==='reader' && mobileMQ.matches){
-    const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
-    if(docId && curReaderDoc !== docId && typeof openReader === 'function'){
-      openReader(docId);
+  if(centerView==='reader'){
+    if(mobileMQ.matches){
+      const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
+      if(docId && curReaderDoc !== docId && typeof openReader === 'function'){
+        openReader(docId);
+      }
+    }
+    if(typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'){
+      window.requestAnimationFrame(() => updateReaderRail());
+    } else {
+      updateReaderRail();
     }
   }
   if(centerView==='presentation'){
@@ -890,7 +898,10 @@ function updateReaderRail(){
   });
 
   function _getElTop(el){
-    if(!el) return 0;
+    if(!el || !rbody) return 0;
+    if(typeof el.getBoundingClientRect === 'function' && typeof rbody.getBoundingClientRect === 'function'){
+      return el.getBoundingClientRect().top - rbody.getBoundingClientRect().top + (rbody.scrollTop || 0);
+    }
     return (el.offsetParent === rbody) ? el.offsetTop : Math.max(0, (el.offsetTop || 0) - (rbody.offsetTop || 0));
   }
 
@@ -1039,6 +1050,15 @@ function updateReaderRail(){
     }, { passive: true });
     window.addEventListener('touchend', () => {
       endRailExpand();
+    });
+
+    window.addEventListener('resize', () => {
+      if(typeof centerView !== 'undefined' && centerView === 'reader') updateReaderRail();
+    });
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => {
+        if(typeof centerView !== 'undefined' && centerView === 'reader') updateReaderRail();
+      }, 200);
     });
   }
 }

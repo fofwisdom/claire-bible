@@ -1133,3 +1133,56 @@ process.exit(0);
     finally:
         Path(runner_file).unlink(missing_ok=True)
 
+
+def test_adoc_quotes_and_entities_not_corrupted_into_mark_tags():
+    """따옴표('Difficult advice') 및 엔티티(&#39;)가 #형광펜# 마크업으로 오인되어 &39; 깨짐이 발생하지 않는지 Python 및 JS 런타임에서 동시 검증."""
+    import json
+    import shutil
+    import subprocess
+
+    sample = "사용자 딜레마에 조언하는 분포 밖 'Difficult advice' 데이터셋 훈련 및 #3%까지 급감# 확인. 엔티티 &#39;test&#39; 유지."
+    py_result = render_adoc_to_html(sample)
+
+    assert "'Difficult advice'" in py_result
+    assert "<mark>3%까지 급감</mark>" in py_result
+    assert "<mark>39;" not in py_result
+    assert "&lt;mark&gt;39;" not in py_result
+    assert "&amp;<mark>39;" not in py_result
+
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available")
+
+    adoc_js_path = Path(__file__).resolve().parent.parent / "src" / "claire" / "static" / "js" / "renderers" / "adoc_parser.js"
+    assert adoc_js_path.is_file()
+
+    runner_code = f"""
+const fs = require('fs');
+global.window = {{}};
+global.document = {{}};
+const scriptContent = fs.readFileSync({json.dumps(str(adoc_js_path))}, 'utf8');
+eval(scriptContent);
+
+const input = {json.dumps(sample)};
+const result = convertAsciidocToHtml(input);
+console.log(JSON.stringify({{ html: result }}));
+process.exit(0);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
+        f_runner.write(runner_code)
+        runner_file = f_runner.name
+
+    try:
+        proc = subprocess.run(["node", runner_file], capture_output=True, text=True, timeout=5)
+        assert proc.returncode == 0, f"Node eval failed: {proc.stderr}"
+        res_data = json.loads(proc.stdout)
+        js_result = res_data["html"]
+
+        assert "'Difficult advice'" in js_result
+        assert "<mark>3%까지 급감</mark>" in js_result
+        assert "<mark>39;" not in js_result
+        assert "&39;" not in js_result
+        assert js_result == py_result
+    finally:
+        Path(runner_file).unlink(missing_ok=True)
+
+
