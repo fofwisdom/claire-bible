@@ -50,6 +50,7 @@ function apiUrl(path) {
   const p = (path || '').startsWith('/') ? path.slice(1) : (path || '');
   return API_BASE + p;
 }
+window.apiUrl = apiUrl;
 
 function rootUrl(path) {
   const p = (path || '').startsWith('/') ? path.slice(1) : (path || '');
@@ -105,7 +106,46 @@ const compactMQ = window.matchMedia('(max-width:1100px)');
 const toolbarMQ = window.matchMedia('(max-width:1500px)');
 const reducedMotionMQ = window.matchMedia('(prefers-reduced-motion:reduce)');
 const paneNames=['docs','graph'];
-let activePane='graph', detailOpen=false, centerView='graph', drawerOpen=false;
+function isPwaOrMobileLaunch() {
+  try {
+    var isCompact = !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+    var isStandalone = !!(
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+      (window.navigator && window.navigator.standalone === true)
+    );
+    var params = new URLSearchParams(window.location.search);
+    var isPwaParam = params.get('pwa') === '1';
+    return isCompact || isStandalone || isPwaParam;
+  } catch (e) {
+    return false;
+  }
+}
+
+function shouldDefaultToReader(stats) {
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('node')) return false;
+  var hasActiveIngest = false;
+  if (stats && Array.isArray(stats.jobs)) {
+    hasActiveIngest = stats.jobs.some(function(j) { return j.status === 'running' || j.status === 'pending'; });
+  }
+  if (!hasActiveIngest && stats && Array.isArray(stats.active_jobs)) {
+    hasActiveIngest = stats.active_jobs.some(function(j) { return j && (j.active || j.status === 'running' || j.status === 'pending'); });
+  }
+  if (!hasActiveIngest && stats && ((stats.active_ingest && stats.active_ingest.active) || stats.ingesting)) {
+    hasActiveIngest = true;
+  }
+  if (hasActiveIngest) return false;
+  return isPwaOrMobileLaunch();
+}
+
+function switchView(mode) {
+  if (typeof setCenterView === 'function') {
+    return setCenterView(mode);
+  }
+}
+
+var initialDefaultToReader = shouldDefaultToReader(null);
+let activePane='graph', detailOpen=false, centerView=(initialDefaultToReader ? 'reader' : 'graph'), drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false;
@@ -379,6 +419,33 @@ async function loadThemeDocuments(){
         }
       } else {
         if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.hide();
+      }
+    }
+    if(allDocs && allDocs.length > 0){
+      let docFromUrl = null;
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        const p = sp.get('doc');
+        if(p && allDocs.some(x => x.id === p)) docFromUrl = p;
+      }catch(_){}
+      const currentDoc = (typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc;
+      const isReaderElementOpen = Boolean(document.getElementById('reader') && document.getElementById('reader').classList.contains('open'));
+      const hasDocOpen = Boolean(currentDoc || isReaderElementOpen);
+      if(docFromUrl){
+        if(!currentDoc || currentDoc !== docFromUrl){
+          if(typeof selectDoc === 'function'){
+            selectDoc(docFromUrl);
+          } else if(typeof openReader === 'function'){
+            openReader(docFromUrl, false);
+          }
+        }
+      } else if(typeof centerView !== 'undefined' && centerView === 'reader' && !hasDocOpen){
+        const firstDocId = allDocs[0].id;
+        if(typeof selectDoc === 'function'){
+          selectDoc(firstDocId);
+        } else if(typeof openReader === 'function'){
+          openReader(firstDocId, false);
+        }
       }
     }
   }catch(e){
@@ -1588,18 +1655,27 @@ fetch(apiUrl('stats')).then(r => r.ok ? r.json() : null).then(d => {
     startFastIngestPolling();
   } else if(view === 'graph+banner'){
     initGraph();
+    if(shouldDefaultToReader(d)){
+      setCenterView('reader');
+    }
     showOtherThemeJobBanner(d);
     if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
       renderDecisionStreamCenter(false);
     }
   } else {
     initGraph();
+    if(shouldDefaultToReader(d)){
+      setCenterView('reader');
+    }
     if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
       renderDecisionStreamCenter(false);
     }
   }
 }).catch(() => {
   initGraph();
+  if(shouldDefaultToReader(null)){
+    setCenterView('reader');
+  }
   if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
     renderDecisionStreamCenter(false);
   }
@@ -4798,10 +4874,14 @@ const ClaireStatusBanner = (function(){
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
 syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
 fetchThemes();    // 지식 관리자가 정의한 테마 목록을 조회하여 셀렉터 구성
+if(initialDefaultToReader && typeof setCenterView === 'function'){
+  setCenterView('reader');
+}
 loadThemeDocuments();
-fetch(rootUrl('whoami')).then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
+fetch(apiUrl('whoami')).then(r=>{ if(!r.ok) throw new Error('whoami failed'); return r.json(); }).then(d=>{
   IS_ADMIN = d.is_admin === true;
-  setAccessScope(d.scope);
+  var effectiveScope = (d.relation === 'visitor' || d.relation !== 'owner') ? (d.scope === 'anonymous' ? 'anonymous' : 'readonly') : (d.scope || 'readonly');
+  setAccessScope(effectiveScope); // replaces setAccessScope(d.scope) with relation-checked effectiveScope
 }).catch(()=>{
   IS_ADMIN = false;
   setAccessScope('unknown','failed');
@@ -6022,6 +6102,9 @@ window.extractActiveJobs = extractActiveJobs;
 window.processActiveJobsStats = processActiveJobsStats;
 window.filterDocsByMissingDetail = filterDocsByMissingDetail;
 window.filterDocsByFormatMismatch = filterDocsByFormatMismatch;
+window.shouldDefaultToReader = shouldDefaultToReader;
+window.isPwaOrMobileLaunch = isPwaOrMobileLaunch;
+window.switchView = typeof switchView === 'function' ? switchView : setCenterView;
 
 document.addEventListener('visibilitychange', () => {
   if(document.visibilityState === 'visible'){

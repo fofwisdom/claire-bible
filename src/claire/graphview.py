@@ -66,7 +66,8 @@ def _build_standalone_graph_html() -> str:
     knowledgeManager: '__KNOWLEDGE_MANAGER__',
     themeMode: '__THEME_MODE__',
     themes: __THEMES_JSON__
-  };"""
+  };
+  window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
     js_bundle = f"<script>\n{config_js}\n\n{graph_js}\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
@@ -503,6 +504,7 @@ def render_graph_html(
     host: str | None = None,
     request: Any | None = None,
     bootstrap: dict[str, str] | None = None,
+    account_id: int | None = None,
 ) -> str:
     """Settings 의 저장소 변수, 관리자 변수 및 GA 설정을 반영하여 완성된 그래프 HTML 을 반환한다."""
     if settings is None:
@@ -549,20 +551,54 @@ def render_graph_html(
 
     safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
 
+    if account_id is None and request is not None:
+        try:
+            from .api.namespace import request_namespace
+
+            ns = request_namespace(request)
+            if ns is not None and getattr(ns, "account_id", None) is not None:
+                account_id = ns.account_id
+        except Exception:
+            try:
+                from .api.security import request_namespace
+
+                ns = request_namespace(request)
+                if ns is not None and getattr(ns, "account_id", None) is not None:
+                    account_id = ns.account_id
+            except Exception:
+                pass
+    if account_id is None and theme is not None and getattr(theme, "account_id", None) is not None:
+        account_id = theme.account_id
+    if account_id is None:
+        account_id = 1
+
     is_multi = bool(getattr(s, "multi_theme", False))
     theme_mode = "multi" if is_multi else "single"
     if is_multi:
         from .store.theme import get_theme_manager
 
         tm = get_theme_manager(s)
-        themes_list = [
-            t.to_dict()
-            for t in tm.list_themes(
-                include_private=include_private,
-                collaborator=collaborator,
-                host=host,
-            )
-        ]
+        owned = tm.list_account_themes(account_id)
+        if include_private:
+            filtered = owned
+        elif collaborator:
+            filtered = [t for t in owned if t.is_public or t.is_collaborator_accessible]
+        else:
+            cleaned_host = ""
+            if host:
+                cleaned_host = str(host).strip().lower()
+                if ":" in cleaned_host:
+                    cleaned_host = cleaned_host.split(":", 1)[0].strip()
+
+            if cleaned_host and cleaned_host in getattr(tm, "_fqdn_to_theme_id", {}):
+                dedicated_tid = tm._fqdn_to_theme_id[cleaned_host]
+                if dedicated_tid is not None:
+                    filtered = [t for t in owned if t.id == dedicated_tid and t.is_public]
+                else:
+                    filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_default)]
+            else:
+                filtered = [t for t in owned if t.is_public and (not t.fqdn or t.is_default)]
+        themes_list = [t.to_dict() for t in filtered]
     else:
         themes_list = [
             {

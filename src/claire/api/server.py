@@ -68,6 +68,7 @@ from .oauth import (
     handle_telegram_push,
     handle_token,
 )
+from ..presentation.favicon import inject_favicon_head_tags
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
@@ -79,6 +80,20 @@ from .security import (
 )
 
 log = logging.getLogger("claire.api")
+_SW_JS_CONTENT: str = (
+    "// Claire PWA Network-Passthrough Service Worker\n"
+    "self.addEventListener('install', (event) => {\n"
+    "  self.skipWaiting();\n"
+    "});\n"
+    "\n"
+    "self.addEventListener('activate', (event) => {\n"
+    "  event.waitUntil(self.clients.claim());\n"
+    "});\n"
+    "\n"
+    "self.addEventListener('fetch', (event) => {\n"
+    "  event.respondWith(fetch(event.request));\n"
+    "});\n"
+)
 _IMAGE_PATH_RE = re.compile(
     r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif)$"
 )
@@ -639,6 +654,7 @@ def create_app(
                     theme=None,
                     host=request.headers.get("host"),
                     request=request,
+                    account_id=account_id,
                 )
             )
 
@@ -885,6 +901,7 @@ def create_app(
                 content=content_html,
                 pagination=pagination_html,
             )
+            rendered = inject_favicon_head_tags(rendered)
 
             etag_parts = [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
             etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
@@ -1761,6 +1778,54 @@ def create_app(
 
         if ns is not None and ns.mode == "network" and not ns.via_prefix:
             params = request.query_params
+            if params.get("pwa") == "1":
+                qs = str(request.url.query) or "pwa=1"
+
+                account_id = None
+                try:
+                    principal = request_principal(request)
+                    account_id = principal.account_id
+                except Exception:
+                    pass
+                if account_id is None:
+                    try:
+                        cookie_present, cookie_token = read_session_cookie(request.scope)
+                        if cookie_present and cookie_token:
+                            conn_s = dbm.connect_existing(s.db_file)
+                            try:
+                                binding = accounts_store.validate_session_binding(conn_s, cookie_token)
+                                if binding is not None:
+                                    account_id = binding.account_id
+                            finally:
+                                conn_s.close()
+                    except Exception:
+                        pass
+
+                account = None
+                if account_id is not None:
+                    try:
+                        acc = namespace_directory.account(account_id)
+                        if acc.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES and acc.status == "active" and acc.username:
+                            account = acc
+                    except Exception:
+                        pass
+
+                if account is not None and account.username:
+                    return RedirectResponse(f"/@{account.username}/?{qs}", status_code=302, headers={"Cache-Control": "no-store"})
+
+                if bool(getattr(s, "anonymous_readonly", True)):
+                    admin = None
+                    try:
+                        adm = namespace_directory.admin()
+                        if adm.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES and adm.status == "active" and adm.username:
+                            admin = adm
+                    except Exception:
+                        pass
+                    if admin is not None and admin.username:
+                        return RedirectResponse(f"/@{admin.username}/?{qs}", status_code=302, headers={"Cache-Control": "no-store"})
+
+                return RedirectResponse("/login", status_code=302, headers={"Cache-Control": "no-store"})
+
             if any(k in params for k in ("doc", "node", "theme")):
                 admin_username = None
                 try:
@@ -1801,6 +1866,7 @@ def create_app(
                 theme=theme,
                 host=request.headers.get("host"),
                 request=request,
+                account_id=account_id,
             )
         )
 
@@ -2409,6 +2475,16 @@ def create_app(
             return PlainTextResponse("Not Found", status_code=404)
         return FileResponse(path, media_type="application/xml")
 
+    async def service_worker_route(request: Request) -> Response:
+        headers = {
+            "Content-Type": "application/javascript; charset=utf-8",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        }
+        if request.method == "HEAD":
+            return Response(status_code=200, headers=headers, media_type="application/javascript")
+        return Response(content=_SW_JS_CONTENT, status_code=200, headers=headers, media_type="application/javascript")
+
     async def icon_file_route(request: Request) -> Response:
         rel = request.query_params.get("p", "") or request.query_params.get("name", "")
         if not _ICON_FILENAME_RE.fullmatch(rel):
@@ -2553,7 +2629,10 @@ def create_app(
         report = await asyncio.to_thread(_load, theme_settings, theme)
 
         if report is None and theme_ref is None and getattr(s, "multi_theme", False):
-            scope = request_auth_scope(request)
+            try:
+                ns = request_namespace(request)
+            except Exception:
+                ns = None
             targets = await asyncio.to_thread(
                 theme_mgr.resolve_document_targets, doc_id=document_id
             )
@@ -2565,11 +2644,9 @@ def create_app(
                     cand_theme = theme_mgr.get_theme(tid)
                 except Exception:
                     continue
-                if scope == "anonymous" and not cand_theme.is_public:
+                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
                     continue
-                if scope == "collaborator" and not (
-                    cand_theme.is_public or cand_theme.is_collaborator_accessible
-                ):
+                if not _theme_accessible(request, cand_theme):
                     continue
                 cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
                 cand_report = await asyncio.to_thread(_load, cand_settings, cand_theme)
@@ -2632,7 +2709,10 @@ def create_app(
         active_settings = theme_settings
 
         if resolved is None and theme_ref is None and getattr(s, "multi_theme", False):
-            scope = request_auth_scope(request)
+            try:
+                ns = request_namespace(request)
+            except Exception:
+                ns = None
             targets = await asyncio.to_thread(
                 theme_mgr.resolve_document_targets, doc_id=doc_id
             )
@@ -2644,9 +2724,9 @@ def create_app(
                     cand_theme = theme_mgr.get_theme(tid)
                 except Exception:
                     continue
-                if scope == "collaborator" and not (
-                    cand_theme.is_public or cand_theme.is_collaborator_accessible
-                ):
+                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
+                    continue
+                if not _theme_accessible(request, cand_theme):
                     continue
                 cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
                 cand_res = await asyncio.to_thread(_find_raw, cand_settings, cand_theme.id)
@@ -3645,7 +3725,10 @@ def create_app(
         target_theme_id = theme.id
 
         if not token and getattr(s, "multi_theme", False):
-            scope = request_auth_scope(request)
+            try:
+                ns = request_namespace(request)
+            except Exception:
+                ns = None
             targets = await asyncio.to_thread(
                 theme_mgr.resolve_document_targets, doc_id=document_id
             )
@@ -3657,12 +3740,9 @@ def create_app(
                     candidate_theme = theme_mgr.get_theme(tid)
                 except Exception:
                     continue
-                if scope == "anonymous" and not candidate_theme.is_public:
+                if ns is not None and ns.account_id is not None and candidate_theme.account_id != ns.account_id:
                     continue
-                if scope == "collaborator" and not (
-                    candidate_theme.is_public
-                    or candidate_theme.is_collaborator_accessible
-                ):
+                if not _theme_accessible(request, candidate_theme):
                     continue
                 cand_settings = theme_mgr.get_settings_for_theme(candidate_theme.id, s)
                 cand_token = await asyncio.to_thread(_share, cand_settings, candidate_theme)
@@ -3816,10 +3896,28 @@ def create_app(
                 finally:
                     conn.close()
         elif getattr(s, "multi_theme", False) and resolved_doc_id:
+            try:
+                ns = request_namespace(request)
+            except Exception:
+                ns = None
             targets = theme_mgr.resolve_document_targets(doc_id=resolved_doc_id)
-            live = _first_live_target(targets) if targets else None
+            live: tuple[dict[str, Any], ThemeInfo] | None = None
+            for target in targets:
+                tid = target.get("theme_id")
+                if tid is None:
+                    continue
+                try:
+                    cand_theme = theme_mgr.get_theme(tid)
+                except ThemeNotFound:
+                    continue
+                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
+                    continue
+                if not _theme_accessible(request, cand_theme):
+                    continue
+                live = (target, cand_theme)
+                break
             if targets and live is None:
-                # 삭제된 테마에만 남은 문서는 찾지 못한 것으로 본다 (테마 0 설정으로 다루지 않는다)
+                # 접근 불가 또는 삭제된 테마에만 남은 문서는 찾지 못한 것으로 본다 (테마 0 설정으로 다루지 않는다)
                 raise HTTPException(status_code=404, detail="not found")
             if live is not None and live[0].get("db_file"):
                 live_target, target_theme = live
@@ -4496,6 +4594,7 @@ def create_app(
         Route("/manifest.json", manifest_route, methods=["GET"]),
         Route("/site.webmanifest", manifest_route, methods=["GET"]),
         Route("/browserconfig.xml", browserconfig_route, methods=["GET"]),
+        Route("/sw.js", service_worker_route, methods=["GET"]),
         Route("/icon", icon_file_route, methods=["GET"]),
         Route("/font", font_file_route, methods=["GET"]),
         *(

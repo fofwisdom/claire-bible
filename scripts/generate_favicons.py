@@ -536,6 +536,7 @@ def generate_all_icons(output_dir: Path):
 
     # Generate manifest.json / site.webmanifest
     manifest_content = """{
+  "id": "/",
   "name": "Claire Bible",
   "short_name": "Claire Bible",
   "description": "Personal Knowledge Base and Ontology Graph",
@@ -575,7 +576,14 @@ def generate_all_icons(output_dir: Path):
       "sizes": "192x192",
       "type": "image/png",
       "density": "4.0",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon?p=android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "density": "4.0",
+      "purpose": "maskable"
     },
     {
       "src": "/icon?p=android-chrome-256x256.png",
@@ -591,14 +599,21 @@ def generate_all_icons(output_dir: Path):
       "src": "/icon?p=android-chrome-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon?p=android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "theme_color": "#0e1116",
   "background_color": "#0e1116",
   "display": "standalone",
   "orientation": "any",
-  "start_url": "/"
+  "scope": "/",
+  "start_url": "/?pwa=1"
 }
 """
     (output_dir / "manifest.json").write_text(manifest_content, encoding="utf-8")
@@ -623,8 +638,9 @@ def generate_all_icons(output_dir: Path):
 
 
 def main():
-    pkg_target_dir = Path("/home/fow/projects/claire-bible/src/claire/static/icons")
-    root_target_dir = Path("/home/fow/projects/claire-bible/icons")
+    repo_root = Path(__file__).resolve().parent.parent
+    pkg_target_dir = repo_root / "src" / "claire" / "static" / "icons"
+    root_target_dir = repo_root / "icons"
     generate_all_icons(pkg_target_dir)
     generate_all_icons(root_target_dir)
 

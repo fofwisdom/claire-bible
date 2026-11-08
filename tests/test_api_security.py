@@ -261,6 +261,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/manifest.json",
         "/site.webmanifest",
         "/browserconfig.xml",
+        "/sw.js",
         "/icon",
         "/font",
         "/fonts/NotoSansKR-Regular.woff2",

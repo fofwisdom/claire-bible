@@ -18,40 +18,45 @@ MANIFEST_PATH: str = "/manifest.json"
 MASK_ICON_COLOR: str = "#00ffaa"
 THEME_COLOR: str = "#0e1116"
 APPLICATION_NAME: str = "Claire Bible"
+PWA_REGISTER_SCRIPT_PATH: str = "/static/js/pwa-register.js"
 
 FAVICON_PLACEHOLDER: str = "<!-- __FAVICON_TAGS__ -->"
 
 
-def render_favicon_head_tags(*, base_url: str = "") -> str:
+def render_favicon_head_tags(*, base_url: str = "", include_pwa_register: bool = True) -> str:
     """Render the standard favicon and application metadata HTML tags."""
     prefix = base_url.rstrip("/")
-    return (
-        f'<meta name="mobile-web-app-capable" content="yes"/>\n'
-        f'<meta name="apple-mobile-web-app-capable" content="yes"/>\n'
-        f'<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>\n'
-        f'<meta name="apple-mobile-web-app-title" content="{APPLICATION_NAME}"/>\n'
-        f'<meta name="application-name" content="{APPLICATION_NAME}"/>\n'
-        f'<link rel="icon" type="image/svg+xml" href="{prefix}{FAVICON_SVG_PATH}"/>\n'
-        f'<link rel="icon" type="image/png" sizes="192x192" href="{prefix}{ICON_PNG_192_PATH}"/>\n'
-        f'<link rel="icon" type="image/png" sizes="512x512" href="{prefix}{ICON_PNG_512_PATH}"/>\n'
-        f'<link rel="alternate icon" href="{prefix}{FAVICON_ICO_PATH}"/>\n'
-        f'<link rel="apple-touch-icon" sizes="180x180" href="{prefix}{APPLE_TOUCH_ICON_PATH}"/>\n'
-        f'<link rel="manifest" href="{prefix}{MANIFEST_PATH}"/>\n'
-        f'<link rel="mask-icon" href="{prefix}{FAVICON_SVG_PATH}" color="{MASK_ICON_COLOR}"/>\n'
-        f'<meta name="theme-color" content="{THEME_COLOR}"/>'
-    )
+    tags = [
+        '<meta name="mobile-web-app-capable" content="yes"/>',
+        '<meta name="apple-mobile-web-app-capable" content="yes"/>',
+        '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>',
+        f'<meta name="apple-mobile-web-app-title" content="{APPLICATION_NAME}"/>',
+        f'<meta name="application-name" content="{APPLICATION_NAME}"/>',
+        f'<link rel="icon" type="image/svg+xml" href="{prefix}{FAVICON_SVG_PATH}"/>',
+        f'<link rel="icon" type="image/png" sizes="192x192" href="{prefix}{ICON_PNG_192_PATH}"/>',
+        f'<link rel="icon" type="image/png" sizes="512x512" href="{prefix}{ICON_PNG_512_PATH}"/>',
+        f'<link rel="alternate icon" href="{prefix}{FAVICON_ICO_PATH}"/>',
+        f'<link rel="apple-touch-icon" sizes="180x180" href="{prefix}{APPLE_TOUCH_ICON_PATH}"/>',
+        f'<link rel="manifest" href="{prefix}{MANIFEST_PATH}"/>',
+        f'<link rel="mask-icon" href="{prefix}{FAVICON_SVG_PATH}" color="{MASK_ICON_COLOR}"/>',
+        f'<meta name="theme-color" content="{THEME_COLOR}"/>',
+    ]
+    if include_pwa_register:
+        tags.append(f'<script src="{prefix}{PWA_REGISTER_SCRIPT_PATH}" defer></script>')
+    return "\n".join(tags)
 
 
 FAVICON_TAGS_HTML: str = render_favicon_head_tags()
+FAVICON_HEAD_TAGS: str = FAVICON_TAGS_HTML
 
 
-def inject_favicon_head_tags(html_content: str, *, base_url: str = "") -> str:
+def inject_favicon_head_tags(html_content: str, *, base_url: str = "", include_pwa_register: bool = True) -> str:
     """Inject standard favicon tags into an HTML string.
 
     If the placeholder exists, replace it.
     If no placeholder exists, insert the tags before the closing head tag.
     """
-    tags = render_favicon_head_tags(base_url=base_url)
+    tags = render_favicon_head_tags(base_url=base_url, include_pwa_register=include_pwa_register)
     if FAVICON_PLACEHOLDER in html_content:
         return html_content.replace(FAVICON_PLACEHOLDER, tags)
 
@@ -74,6 +79,7 @@ def get_scalar_favicon_config(*, base_url: str = "") -> dict[str, Any]:
 __all__ = [
     "APPLICATION_NAME",
     "APPLE_TOUCH_ICON_PATH",
+    "FAVICON_HEAD_TAGS",
     "FAVICON_ICO_PATH",
     "FAVICON_PLACEHOLDER",
     "FAVICON_SVG_PATH",
@@ -82,6 +88,7 @@ __all__ = [
     "ICON_PNG_512_PATH",
     "MANIFEST_PATH",
     "MASK_ICON_COLOR",
+    "PWA_REGISTER_SCRIPT_PATH",
     "THEME_COLOR",
     "get_scalar_favicon_config",
     "inject_favicon_head_tags",

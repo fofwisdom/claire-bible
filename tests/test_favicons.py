@@ -52,23 +52,37 @@ def test_apple_touch_icon(client: TestClient) -> None:
 
 
 def test_manifest_json(client: TestClient) -> None:
-    resp = client.get("/manifest.json")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["name"] == "Claire Bible"
-    assert data["short_name"] == "Claire Bible"
-    assert len(data["icons"]) >= 9
-    for icon_entry in data["icons"]:
-        icon_url = icon_entry["src"]
-        icon_resp = client.get(icon_url)
-        assert icon_resp.status_code == 200, f"Failed to fetch {icon_url}"
-        assert "image/png" in icon_resp.headers.get("content-type", "")
+    for endpoint in ("/manifest.json", "/site.webmanifest"):
+        resp = client.get(endpoint)
+        assert resp.status_code == 200
+        assert "application/manifest+json" in resp.headers.get("content-type", "")
+        data = resp.json()
+        assert data["id"] == "/"
+        assert data["scope"] == "/"
+        assert data["start_url"] == "/?pwa=1"
+        assert data["display"] == "standalone"
+        assert data["orientation"] == "any"
+        assert "Claire" in data["name"]
+        assert "Claire" in data["short_name"]
+        assert len(data["icons"]) >= 9
 
-    resp_webmanifest = client.get("/site.webmanifest")
-    assert resp_webmanifest.status_code == 200
-    webmanifest_data = resp_webmanifest.json()
-    assert webmanifest_data["name"] == "Claire Bible"
-    assert webmanifest_data["short_name"] == "Claire Bible"
+        icons_192 = [i for i in data["icons"] if i.get("sizes") == "192x192"]
+        assert len(icons_192) >= 2
+        purposes_192 = {i.get("purpose") for i in icons_192}
+        assert "any" in purposes_192
+        assert "maskable" in purposes_192
+
+        icons_512 = [i for i in data["icons"] if i.get("sizes") == "512x512"]
+        assert len(icons_512) >= 2
+        purposes_512 = {i.get("purpose") for i in icons_512}
+        assert "any" in purposes_512
+        assert "maskable" in purposes_512
+
+        for icon_entry in data["icons"]:
+            icon_url = icon_entry["src"]
+            icon_resp = client.get(icon_url)
+            assert icon_resp.status_code == 200, f"Failed to fetch {icon_url}"
+            assert "image/png" in icon_resp.headers.get("content-type", "")
 
 
 def test_browserconfig_xml(client: TestClient) -> None:
@@ -109,6 +123,7 @@ def test_graph_ui_contains_favicon_tags(client: TestClient) -> None:
         assert 'href="/favicon.ico"' in html
         assert 'href="/apple-touch-icon.png"' in html
         assert 'href="/manifest.json"' in html
+        assert 'src="/static/js/pwa-register.js"' in html
 
 
 def test_shared_favicon_module_interface() -> None:
@@ -126,11 +141,13 @@ def test_shared_favicon_module_interface() -> None:
     assert "/manifest.json" in rendered
     assert "/icon?p=android-chrome-192x192.png" in rendered
     assert "/favicon.ico" in rendered
+    assert "/static/js/pwa-register.js" in rendered
     assert rendered == FAVICON_TAGS_HTML
 
     # Test prefix support
     custom_prefix = render_favicon_head_tags(base_url="https://cdn.example.com/")
     assert 'href="https://cdn.example.com/favicon.svg"' in custom_prefix
+    assert 'src="https://cdn.example.com/static/js/pwa-register.js"' in custom_prefix
 
     # Test injection with placeholder
     html_with_placeholder = f"<html><head>{FAVICON_PLACEHOLDER}</head><body></body></html>"
@@ -205,3 +222,122 @@ def test_oauth_and_presentation_views_favicon_integration() -> None:
     mock_pres_html = "<html><head><title>Pres</title></head><body><div class='reveal'></div></body></html>"
     pres_hud_html = inject_hud_toolbar(mock_pres_html)
     assert 'href="/favicon.svg"' in pres_hud_html
+
+
+def test_service_worker_route(client: TestClient) -> None:
+    # GET /sw.js
+    resp = client.get("/sw.js")
+    assert resp.status_code == 200
+    assert "application/javascript" in resp.headers.get("content-type", "")
+    assert resp.headers.get("service-worker-allowed") == "/"
+    assert "no-cache" in resp.headers.get("cache-control", "")
+
+    body = resp.text
+    assert "skipWaiting" in body
+    assert "claim" in body
+    assert "respondWith" in body
+
+    # HEAD /sw.js
+    head_resp = client.head("/sw.js")
+    assert head_resp.status_code == 200
+    assert "application/javascript" in head_resp.headers.get("content-type", "")
+    assert head_resp.headers.get("service-worker-allowed") == "/"
+
+
+def test_pwa_register_script_route(client: TestClient) -> None:
+    resp = client.get("/static/js/pwa-register.js")
+    assert resp.status_code == 200
+    assert "javascript" in resp.headers.get("content-type", "")
+    body = resp.text
+    assert "serviceWorker" in body
+    assert "register('/sw.js'" in body or 'register("/sw.js"' in body
+    assert "scope" in body
+
+
+def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path) -> None:
+    import time
+    from claire.api.accounts_routes.common import render_template
+    from claire.store import db as dbm
+
+    # Login template (script-free for credential isolation, includes full PWA head tags)
+    resp_login = client.get("/login")
+    assert resp_login.status_code == 200
+    assert 'href="/manifest.json"' in resp_login.text
+    assert 'name="apple-mobile-web-app-capable"' in resp_login.text
+    assert 'name="theme-color"' in resp_login.text
+
+    # Setup template (script-free for credential isolation, includes full PWA head tags)
+    rendered_setup = render_template(
+        "setup.html",
+        text={
+            "username": "",
+            "display_name": "",
+            "min_password_length": 8,
+        },
+        markup={"errors": ""},
+    )
+    setup_html = rendered_setup.body.decode("utf-8")
+    assert 'href="/manifest.json"' in setup_html
+    assert 'name="apple-mobile-web-app-capable"' in setup_html
+
+    # Console shell template
+    rendered_console = render_template(
+        "console_shell.html",
+        text={
+            "page_title": "콘솔",
+            "storage_key": "1",
+            "active_area": "admin",
+            "active_section": "instance",
+            "graph_href": "/",
+            "syndication_href": "/syndication",
+            "scope_badge": "",
+            "section_title": "콘솔",
+            "section_badge": "",
+            "section_desc": "",
+        },
+        markup={
+            "theme_selector_html": "",
+            "sidebar_nav_html": "",
+            "section_body_html": "<div>test</div>",
+            "bootstrap_json": "{}",
+            "extra_scripts_html": "",
+            "admin_scripts_html": "",
+        },
+    )
+    console_html = rendered_console.body.decode("utf-8")
+    assert 'href="/manifest.json"' in console_html
+    assert '/static/js/pwa-register.js' in console_html
+
+    # Explore accounts (public directory in network mode)
+    from claire.store import accounts as accounts_store
+    net_db = tmp_path / "net_claire.db"
+    conn = dbm.connect(net_db)
+    dbm.init_db(conn)
+    conn.execute(
+        "UPDATE accounts SET username='adminuser', status='active', activated_at=?, profile_public=1 WHERE id=1",
+        (time.time(),),
+    )
+    store = accounts_store.AccountStore(conn)
+    store.set_setting("mode", "network", updated_by=1)
+    conn.commit()
+    conn.close()
+    net_settings = Settings(
+        CLAIRE_DB_PATH=str(net_db),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
+        CLAIRE_PUBLIC_URL="http://127.0.0.1:8000",
+        CLAIRE_ENVIRONMENT="development",
+    )
+    net_app = server.create_app(net_settings)
+    net_client = TestClient(net_app, base_url="http://127.0.0.1:8000")
+    resp_explore = net_client.get("/explore/accounts", headers={"Accept": "text/html"})
+    assert resp_explore.status_code == 200
+    assert 'href="/manifest.json"' in resp_explore.text
+    assert '/static/js/pwa-register.js' in resp_explore.text
+
+    # Workspace index template
+    resp_index = client.get("/")
+    assert resp_index.status_code == 200
+    assert 'href="/manifest.json"' in resp_index.text
+    assert '/static/js/pwa-register.js' in resp_index.text
+
+

@@ -3,6 +3,22 @@
  * Manages document reading view, heading navigation rail, STT modal, font sizing, and sharing.
  */
 
+function readerApiUrl(path) {
+  var cleanPath = String(path || '').replace(/^\/+/, '');
+  if (typeof apiUrl === 'function') {
+    return apiUrl(cleanPath);
+  }
+  if (typeof window !== 'undefined' && typeof window.apiUrl === 'function') {
+    return window.apiUrl(cleanPath);
+  }
+  var meta = typeof document !== 'undefined' ? document.querySelector('meta[name="claire-api-base"]') : null;
+  var base = meta ? meta.getAttribute('content') : '';
+  if (base) {
+    return base.replace(/\/+$/, '') + '/' + cleanPath;
+  }
+  return cleanPath;
+}
+
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
 // 차지한다는 피드백(사용자 지적) → #docs 에 lc0/lc4 클래스로 CSS line-clamp 토글(기본 2줄).
 let descLines = 3;
@@ -203,7 +219,7 @@ function handleReaderKey(e){
 async function markDocumentSeen(docId){
   if(!canWrite()) return;
   try{
-    const r=await fetch('document/seen',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(readerApiUrl('document/seen'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:docId})});
     if(r.status===401||r.status===404){ expireWriteAccess(); return; }
     if(!r.ok) return;
@@ -392,7 +408,7 @@ function openReader(docId, pushHist=true){
       if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
     }});
   }
-  fetch('document?id='+encodeURIComponent(docId)).then(x=>x.json()).then(dc=>{
+  fetch(readerApiUrl('document?id=' + encodeURIComponent(docId))).then(x=>x.json()).then(dc=>{
     if(!dc || dc.error){
       document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
       r.setAttribute('aria-busy','false');
@@ -1077,7 +1093,7 @@ function openSttReader(docId){
   if(curReaderDocData && (!docId || curReaderDocData.id === docId) && (curReaderDocData.stt_transcript || curReaderDocData.transcript_segments)){
     _render(curReaderDocData);
   } else {
-    fetch('document?id=' + encodeURIComponent(did)).then(r=>r.json()).then(dc=>{
+    fetch(readerApiUrl('document?id=' + encodeURIComponent(did))).then(r=>r.json()).then(dc=>{
       _render(dc);
     }).catch(e=>{
       alert('전사 데이터를 불러오지 못했습니다: ' + e);
@@ -1287,7 +1303,7 @@ async function editDocTitle(){
   if(newTitle === null) return;
   const trimmed = newTitle.trim();
   try{
-    const r = await fetch('document/title', {
+    const r = await fetch(readerApiUrl('document/title'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({id: curReaderDoc, title: trimmed})
@@ -1322,7 +1338,7 @@ async function shareDoc(){
   if(!sb) return;
   sb.className='sharebox on'; sb.innerHTML='<span class=pt>공유 링크 생성 중…</span>';
   try{
-    const r=await fetch('share',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(readerApiUrl('share'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({doc_id:curReaderDoc})});
     if(r.status===401||r.status===404){
       if(typeof canWrite === 'function' && canWrite()){
@@ -1587,7 +1603,7 @@ async function presentationShare(){
   sb.className = 'sharebox on';
   sb.innerHTML = '<span class="pt">공유 링크 생성 중…</span>';
   try{
-    const r = await fetch('share', {
+    const r = await fetch(readerApiUrl('share'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({doc_id: targetId})
@@ -1711,7 +1727,7 @@ async function generatePresentationForCurrentDoc(){
   const startTime = Date.now();
 
   try {
-    const res = await fetch('/document/presentation/generate?id=' + encodeURIComponent(targetId) + '&wait=false', { method: 'POST' });
+    const res = await fetch(readerApiUrl('document/presentation/generate?id=' + encodeURIComponent(targetId) + '&wait=false'), { method: 'POST' });
     const data = await res.json().catch(() => ({}));
 
     if(res.status === 200 && data.status === 'ready'){
@@ -1737,7 +1753,7 @@ async function generatePresentationForCurrentDoc(){
         }
 
         try {
-          const pollRes = await fetch('/document/presentation?id=' + encodeURIComponent(targetId));
+          const pollRes = await fetch(readerApiUrl('document/presentation?id=' + encodeURIComponent(targetId)));
           if(presPollTargetId !== targetId) return;
           if(!pollRes.ok){
             presPollTimer = setTimeout(pollStep, 2500);

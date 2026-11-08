@@ -335,6 +335,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/site.webmanifest"): _system("public"),
     ("GET", "/browserconfig.xml"): _system("public"),
     ("HEAD", "/browserconfig.xml"): _system("public"),
+    ("GET", "/sw.js"): _system("public"),
+    ("HEAD", "/sw.js"): _system("public"),
     ("GET", "/icon"): _system("public"),
     ("HEAD", "/icon"): _system("public"),
     ("GET", "/font"): _system("public"),
@@ -2157,6 +2159,9 @@ class _PublicDirectoryNamespaceResolver(NamespaceResolverMiddleware):
         if mode == "single":
             return super()._root(mode, scope)
         query_string = scope.get("query_string", b"") or b""
+        query_params = parse_qs(query_string.decode("latin-1"), keep_blank_values=True)
+        if query_params.get("pwa") == ["1"]:
+            return _Outcome(ResolvedNamespace(mode, None, None, None, "", False))
         if _spa_query(query_string):
             return super()._root(mode, scope)
         return _Outcome(ResolvedNamespace(mode, None, None, None, "", False))

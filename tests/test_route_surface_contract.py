@@ -31,6 +31,7 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
+    "/sw.js",
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",
     "/fonts/NotoSerifKR-Regular.woff2", "/fonts/NotoSerifKR-Bold.woff2", "/fonts/D2Coding.woff2",
     "/fonts/D2CodingBold.woff2", "/p", "/p/presentation", "/image", "/images/{filename:path}",

@@ -21,6 +21,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from ...accounts.username_policy import instance_reserved_labels
+from ...presentation.favicon import inject_favicon_head_tags
 from ...store import auth_db
 from ...store import db as dbm
 from .. import security
@@ -254,6 +255,8 @@ def render_template(
     values: dict[str, str] = {k: escape(v) for k, v in (text or {}).items()}
     values.update(markup or {})
     body = template.substitute(values)
+    include_script = name not in ("login.html", "setup.html")
+    body = inject_favicon_head_tags(body, include_pwa_register=include_script)
     response = HTMLResponse(body, status_code=status_code)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = FORM_PAGE_REFERRER_POLICY
