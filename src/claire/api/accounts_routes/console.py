@@ -846,8 +846,12 @@ def _settings_account_body(
     if mode == "network":
         info_rows.append(("profile_public", "프로필 공개", "공개 (공개 디렉터리에 표시)" if account.profile_public else "비공개"))
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
-    profile_hint = (
-        '<p class="hint" data-profile-public-hint>프로필 공개 범위를 바꾸는 API가 아직 없어 이 화면에서는 현재 값만 보여 줍니다.</p>'
+    profile_toggle_html = (
+        '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
+        '<label for="pref-profile-public" style="font-size:12.5px;font-weight:600">프로필 공개</label>'
+        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{" checked" if account.profile_public else ""} aria-label="프로필 공개 여부"/>'
+        '</div>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         if mode == "network"
         else ""
     )
@@ -912,7 +916,7 @@ def _settings_account_body(
         '<section class="console-subcard" id="settings-account-info" aria-label="계정 정보">'
         "<h2>🪪 계정 정보</h2>"
         f"<dl>{info_html}</dl>"
-        f"{profile_hint}"
+        f"{profile_toggle_html}"
         "</section>"
         '<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="표시 이름">'
         "<h2>🏷️ 표시 이름</h2>"

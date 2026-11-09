@@ -288,7 +288,7 @@ def test_document_raw_error_responses_carry_sandbox_headers(ctx) -> None:
 
 _ESC_HELPERS = [
     (STATIC_JS / "app.js", r"function esc\(s\)\{.*?\}\s*\n"),
-    (STATIC_JS / "renderers" / "adoc_parser.js", r"function esc\(s\) \{.*?\n\}\n"),
+    (STATIC_JS / "renderers" / "adoc_parser.js", r"function esc\(s(?:,\s*quote)?\) \{.*?\n\}\n"),
     (STATIC_JS / "syndication_app.js", r"function esc\(s\) \{.*?\}\n"),
     (STATIC_JS / "syndication_live.js", r"function esc\(s\) \{.*?\}\n"),
     (STATIC_JS / "console_syndication.js", r"function escapeHtml\(s\) \{.*?\n  \}\n"),

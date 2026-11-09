@@ -893,39 +893,33 @@ async def handle_token(request: Request) -> Response:
 
         conn = dbm.connect_existing(config.db_file)
         try:
-            exchange_account_id: int | None = None
             binding = accounts_store.validate_session_binding(conn, subject_token)
-            if binding is not None:
-                try:
-                    acc = accounts_store.AccountStore(conn).get(binding.account_id)
-                    if acc.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
-                        return JSONResponse({"error": "invalid_grant", "error_description": f"Account is {acc.status}"}, status_code=400)
-                    exchange_account_id = binding.account_id
-                except accounts_store.AccountNotFound:
-                    return JSONResponse({"error": "invalid_grant", "error_description": "Account not found"}, status_code=400)
-            else:
-                # Check session or bootstrap
-                exchanged = dbm.exchange_session_token(
-                    conn, subject_token, scopes=("owner", "collaborator", "readonly")
+            if binding is None or binding.account_id is None:
+                return JSONResponse(
+                    {"error": "invalid_grant", "error_description": "Subject token is invalid, expired, or unbound"},
+                    status_code=400,
                 )
-                if not exchanged:
-                    # Also check if it's already an active session token
-                    v_scope = dbm.validate_session_scope(
-                        conn, subject_token, scopes=("owner", "collaborator", "readonly")
+
+            try:
+                acc = accounts_store.AccountStore(conn).get(binding.account_id)
+                if acc.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                    return JSONResponse(
+                        {"error": "invalid_grant", "error_description": f"Account is {acc.status}"},
+                        status_code=400,
                     )
-                    if not v_scope:
-                        return JSONResponse(
-                            {"error": "invalid_grant", "error_description": "Subject token is invalid or expired"},
-                            status_code=400,
-                        )
+                exchange_account_id: int = int(binding.account_id)
+            except accounts_store.AccountNotFound:
+                return JSONResponse(
+                    {"error": "invalid_grant", "error_description": "Account not found"},
+                    status_code=400,
+                )
 
             # Issue isolated oauth token
             access_token, refresh_token = dbm.create_oauth_token(
                 conn, client_id="token_exchange_client", scope="readonly"
             )
-            if exchange_account_id is not None:
-                conn.execute("UPDATE oauth_tokens SET account_id=? WHERE token=?", (exchange_account_id, access_token))
-                conn.commit()
+            conn.execute("UPDATE oauth_tokens SET account_id=? WHERE token=?", (exchange_account_id, access_token))
+            conn.commit()
         finally:
             conn.close()
 

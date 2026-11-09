@@ -375,6 +375,20 @@ class AccountStore:
         self.conn.commit()
         return self.get(account_id)
 
+    def update_profile_public(self, account_id: int, profile_public: int | bool, *, now: float | None = None) -> Account:
+        when = time.time() if now is None else now
+        value = 1 if profile_public else 0
+        cur = self.conn.execute(
+            "UPDATE accounts SET profile_public=?, updated_at=? WHERE id=?",
+            (value, when, account_id),
+        )
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountNotFound(account_id)
+        self.conn.commit()
+        return self.get(account_id)
+
+
     def suspend(self, account_id: int, *, now: float | None = None) -> Account:
         """active 계정을 suspended 상태로 전이하고 모든 자격증명을 즉시 정리한다."""
         when = time.time() if now is None else now

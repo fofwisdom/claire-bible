@@ -28,6 +28,10 @@ RESERVED_USERNAMES: frozenset[str] = frozenset(
         # 서비스
         "claire", "api", "www", "mail", "mcp", "bot", "media", "usercontent", "explore",
         "invite", "settings", "syndication", "prototype",
+        # 연합·인증 (Fedify / IdP)
+        "inbox", "outbox", "actor", "actors", "ap", "fedify", "federation", "nodeinfo",
+        "oauth", "auth", "followers", "following", "shared_inbox", "sharedinbox",
+        "webfinger", "idp", "oidc", "openid", "activitypub", "wellknown", "well_known",
     }
 )
 

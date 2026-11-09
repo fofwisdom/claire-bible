@@ -188,6 +188,7 @@ def test_me_read_and_display_name_update(client, settings):
         "scope": "owner",
         "status": "active",
         "has_password": True,
+        "profile_public": 0,
     }
     assert isinstance(me["public_id"], str)
 
@@ -216,6 +217,126 @@ def test_me_bearer_owner_reads_admin_account(client, settings):
     _activate_admin(settings)
     me = client.request("GET", "/api/me", bearer=OWNER_TOKEN)
     assert me.status_code == 200 and me.json()["username"] == USERNAME
+
+
+def test_account_store_update_profile_public_unit(client, settings):
+    _activate_admin(settings)
+    conn = _db(settings)
+    try:
+        store = accounts_store.AccountStore(conn)
+        acc = store.get(1)
+        assert acc.profile_public is False
+
+        updated = store.update_profile_public(1, True, now=12345.0)
+        assert updated.profile_public is True
+        assert updated.updated_at == 12345.0
+
+        updated2 = store.update_profile_public(1, 0, now=12346.0)
+        assert updated2.profile_public is False
+        assert updated2.updated_at == 12346.0
+
+        with pytest.raises(accounts_store.AccountNotFound):
+            store.update_profile_public(999999, 1)
+    finally:
+        conn.close()
+
+
+def test_me_patch_profile_public_and_combinations(client, settings):
+    _activate_admin(settings)
+    token = _session(settings)
+
+    me = client.request("GET", "/api/me", session=token).json()
+    assert me["profile_public"] == 0
+
+    res1 = client.request("PATCH", "/api/me", session=token, json={"profile_public": 1})
+    assert res1.status_code == 200
+    assert res1.json()["profile_public"] == 1
+    assert client.request("GET", "/api/me", session=token).json()["profile_public"] == 1
+
+    res0 = client.request("PATCH", "/api/me", session=token, json={"profile_public": 0})
+    assert res0.status_code == 200
+    assert res0.json()["profile_public"] == 0
+    assert client.request("GET", "/api/me", session=token).json()["profile_public"] == 0
+
+    res_true = client.request("PATCH", "/api/me", session=token, json={"profile_public": True})
+    assert res_true.status_code == 200 and res_true.json()["profile_public"] == 1
+
+    res_false = client.request("PATCH", "/api/me", session=token, json={"profile_public": False})
+    assert res_false.status_code == 200 and res_false.json()["profile_public"] == 0
+
+    res_both = client.request(
+        "PATCH", "/api/me", session=token, json={"display_name": "운영팀장", "profile_public": 1}
+    )
+    assert res_both.status_code == 200
+    assert res_both.json()["display_name"] == "운영팀장"
+    assert res_both.json()["profile_public"] == 1
+    me_now = client.request("GET", "/api/me", session=token).json()
+    assert me_now["display_name"] == "운영팀장"
+    assert me_now["profile_public"] == 1
+
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": 2}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": -1}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": "yes"}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": "1"}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": None}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": 1.0}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={}).status_code == 400
+    assert client.request("PATCH", "/api/me", session=token, json={"profile_public": 1, "extra": "x"}).status_code == 400
+
+    assert client.request("GET", "/api/me", session=token).json()["profile_public"] == 1
+
+
+def test_settings_account_profile_public_toggle_e2e(client, settings):
+    _activate_admin(settings)
+    token = _session(settings)
+
+    conn = _db(settings)
+    try:
+        accounts_store.AccountStore(conn).set_setting("mode", "network", updated_by=1)
+    finally:
+        conn.close()
+
+    page = client.request("GET", "/settings/account", session=token)
+    assert page.status_code == 200
+    assert 'data-settings-toggle="profile-public"' in page.text
+    assert '<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"' in page.text
+    assert 'switch data-settings-toggle="profile-public" checked' not in page.text
+    assert '<dd data-account-field="profile_public">비공개</dd>' in page.text
+    assert "data-profile-public-hint" not in page.text
+
+    patch_res = client.request("PATCH", "/api/me", session=token, json={"profile_public": 1})
+    assert patch_res.status_code == 200
+    assert patch_res.json()["profile_public"] == 1
+
+    me_res = client.request("GET", "/api/me", session=token)
+    assert me_res.status_code == 200 and me_res.json()["profile_public"] == 1
+
+    page2 = client.request("GET", "/settings/account", session=token)
+    assert page2.status_code == 200
+    assert 'switch data-settings-toggle="profile-public" checked' in page2.text
+    assert '<dd data-account-field="profile_public">공개 (공개 디렉터리에 표시)</dd>' in page2.text
+
+    patch_res2 = client.request("PATCH", "/api/me", session=token, json={"profile_public": 0})
+    assert patch_res2.status_code == 200
+    assert patch_res2.json()["profile_public"] == 0
+
+    page3 = client.request("GET", "/settings/account", session=token)
+    assert page3.status_code == 200
+    assert 'switch data-settings-toggle="profile-public" checked' not in page3.text
+    assert '<dd data-account-field="profile_public">비공개</dd>' in page3.text
+
+    conn = _db(settings)
+    try:
+        accounts_store.AccountStore(conn).set_setting("mode", "single", updated_by=1)
+    finally:
+        conn.close()
+
+    single_page = client.request("GET", "/settings/account", session=token)
+    assert single_page.status_code == 200
+    assert 'data-settings-toggle="profile-public"' not in single_page.text
+    assert 'data-account-field="profile_public"' not in single_page.text
+    assert "data-profile-public-hint" not in single_page.text
+
 
 
 # --- 단계 인증과 비밀번호 변경 -------------------------------------------------------------

@@ -243,3 +243,25 @@ def test_legacy_preferences_requires_owner(syndication_env, token) -> None:
             res = client.get(f"/syndication/preferences?tab={tab}", headers=headers, follow_redirects=False)
             assert res.status_code in {401, 403, 404}, (token, tab)
             assert "location" not in res.headers
+
+
+def test_prototype_syndication_sealed_and_isolated(syndication_env) -> None:
+    """Verify /prototype/syndication is sealed as an authenticated, isolated reference prototype."""
+    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+        res_anon = client.get("/prototype/syndication")
+        assert res_anon.status_code in {401, 403, 404}
+
+        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        res_proto = client.get("/prototype/syndication", headers=owner_headers)
+        assert res_proto.status_code == 200
+        assert "Claire Bible — Syndication Prototype" in res_proto.text
+        assert 'href="/syndication"' in res_proto.text
+
+        res_live = client.get("/syndication", headers=owner_headers)
+        assert res_live.status_code == 200
+        assert "CLAIRE_SYND_SEEDS" not in res_live.text
+        assert "CLAIRE_SYND_CLIENT_FACTORY" not in res_live.text
+        assert "CLAIRE_SYND_PEERS_FACTORY" not in res_live.text
+        assert "/api/peers/publications" not in res_live.text
+        assert "/api/syndication/dispatch" in res_live.text
+

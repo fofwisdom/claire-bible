@@ -1,103 +1,144 @@
-# Project: Admin and Settings Path Separation — Phase P2
+# Project: Account, IdP, and Fedify Preparation Sealing and Cleanup
 
 ## Architecture
-Phase P2 establishes shared client-side management controllers, integrates role-aware management controls into the root service drawer (D2), and consolidates all 8 administrator sections into a unified `console_shell.html` host (Lane P2-b).
+This project prepares Claire Bible for account, IdP, and Fedify MIT sidecar integration.
+It seals canonical contracts, fixes baseline tests, updates project status, and enforces clean CI execution.
 
-- **Client Modules**:
-  - `src/claire/static/js/manage_panels.js`: Reusable DOM and API controllers for providers, limits, themes, and tokens.
-  - `src/claire/static/js/app.js`: Root application client script. Tracks `IS_ADMIN` and controls `#providermanagebtn`, `#limitmanagebtn`, and `#consolelinkbtn`. (Hotspot file: owned exclusively by Milestone 1 / Lane P2-a).
-  - `src/claire/static/js/console_admin.js`: Client controller for the 8 `/admin/*` console sections, step-up reauthentication modal, and live telemetry.
-- **Templates**:
-  - `src/claire/templates/index.html`: Root workspace template with `#manage-section` drawer actions and script inclusion for `manage_panels.js`.
-  - `src/claire/templates/console_shell.html`: Shared console shell hosting all `/admin/*` sections, topbar back links, logout form, reauth modal, and script inclusions.
-- **Backend Route Handlers**:
-  - `src/claire/api/accounts_routes/console.py`: Core console section dispatcher, metadata registry, and `GET /api/admin/mcp/telemetry`.
-  - `src/claire/api/accounts_routes/instance.py`: Mode switch, G1–G9 checklist, legacy host sunset table, and server tier form rendered via `console_shell.html`.
-  - `src/claire/api/accounts_routes/admin.py`: Member directory table, lifecycle actions, invites, and retired username management rendered via `console_shell.html`.
-  - `src/claire/api/accounts_routes/idp.py`: External IdP registry, discovery check, policy controls, and login simulator rendered via `console_shell.html`.
+The architecture establishes:
+1. **Canonical Account Profile Public Contract (R1)**:
+   - Exposes `profile_public` (0 or 1) in `AccountStore`, `GET /api/me`, and `PATCH /api/me`.
+   - Renders the profile public switch toggle in `/settings/account` in network mode.
+   - Enforces single-mode privacy (rule S9) by omitting the toggle when `mode == "single"`.
+2. **Reserved Usernames Synchronization (R2)**:
+   - Adds 21 Fedify federation and IdP reserved words to `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py`.
+   - Synchronizes test specifications in `tests/test_username_policy.py` and `tests/test_route_surface_contract.py`.
+3. **Token Exchange Account Binding Integrity (R3)**:
+   - Enforces strict account binding for RFC 8693 Token Exchange (`urn:ietf:params:oauth:grant-type:token-exchange`) in `src/claire/api/oauth.py`.
+   - Verifies subject token session binding and validates active account status.
+   - Rejects unauthenticated or unbound tokens with HTTP 400 `invalid_grant`.
+   - Blocks unauthorized fallbacks to admin account ID 1.
+4. **Project Status and Hygiene (R4)**:
+   - Resolves all remaining items from Admin-Settings Phase P2.
+   - Marks Phase P2 milestones as completed.
+   - Updates `PROJECT.md` to reflect current project architecture, feature inventory, interface contracts, and code layout.
+5. **Syndication Prototype Sealing and Cleanup (R5)**:
+   - Seals `/prototype/syndication` as an authenticated reference prototype under system permission.
+   - Isolates the live `/syndication` console from prototype seed data and mock factories.
+   - Retains full compatibility across all syndication test suites.
+6. **Baseline Test Fix and CI Gate (R6)**:
+   - Corrects the escape helper regex in `tests/test_security_hotfixes.py` for `adoc_parser.js`.
+   - Verifies clean execution of `./scripts/ci.sh` across all test targets.
+
+---
+
+## Completed Phase P2: Admin and Settings Path Separation
+Phase P2 established shared client-side management controllers, integrated role-aware management controls into the root service drawer, and consolidated all 8 administrator sections into `console_shell.html`.
+- **Status**: Completed on 2026-11-05.
+- **Verification Gate**: Passed with zero test failures (`.agent-work/admin-settings/P2.md`).
 
 ---
 
 ## Feature Inventory
-Every feature identified during Phase 0 Survey is cataloged below with its assigned milestone:
 
-| # | Feature | Description | Milestone | Source |
-|---|---------|-------------|-----------|--------|
-| 1 | `manage_panels.js` extraction | Shared controller helpers for providers, limits, themes, tokens | M1 (Lane P2-a) | Survey §1.1 |
-| 2 | `renderProviderManager(container, opts)` | Provider selector, credentials, test connection, save settings | M1 (Lane P2-a) | Survey §1.1 |
-| 3 | `renderLimitManager(container, opts)` | Ingest limits, PDF max chars, KG budgets, slicing strategies | M1 (Lane P2-a) | Survey §1.1 |
-| 4 | `renderThemeManager(container, opts)` | Knowledge theme list, badges, options, edit, create, delete | M1 (Lane P2-a) | Survey §1.1 |
-| 5 | `renderTokenManager(container, opts)` | API/MCP token list, token issue with copy box, revocation | M1 (Lane P2-a) | Survey §1.1 |
-| 6 | `IS_ADMIN` client state tracking | Track admin role from `GET /whoami` (`is_admin === true`) in `app.js` | M1 (Lane P2-a) | Survey §1.2 |
-| 7 | Role-aware drawer buttons | Show `#providermanagebtn` and `#limitmanagebtn` only for `canWrite() && IS_ADMIN` | M1 (Lane P2-a) | Survey §1.2 |
-| 8 | `#consolelinkbtn` root entry | Add console button in `#manage-section`: `/admin` for admin, `/settings` for owner | M1 (Lane P2-a) | Survey §1.2 |
-| 9 | `/admin/instance` unified screen | Render mode switch, G1–G9, sunset, server tier form in `console_shell.html` | M2 (Lane P2-b) | Survey §1.3 |
-| 10 | `/admin/accounts` unified screen | Render member table, lifecycle actions, invites, retired usernames, userdb view | M2 (Lane P2-b) | Survey §1.3 |
-| 11 | `/admin/idp` unified screen | Render IdP registry, discovery check, policies, login simulator in `console_shell.html` | M2 (Lane P2-b) | Survey §1.3 |
-| 12 | `/admin/providers` full-page host | Host `renderProviderManager` in `console_shell.html` + `console_admin.js` | M2 (Lane P2-b) | Survey §1.3 |
-| 13 | `/admin/limits` full-page host | Host `renderLimitManager` in `console_shell.html` + `console_admin.js` | M2 (Lane P2-b) | Survey §1.3 |
-| 14 | `/admin/themes` full-page host | Host `renderThemeManager` + instance summary card (total_accounts, total_themes) | M2 (Lane P2-b) | Survey §1.3 |
-| 15 | `/admin/tokens` full-page host | Host `renderTokenManager` + OAuth 2.1 authorized client list card | M2 (Lane P2-b) | Survey §1.3 |
-| 16 | `/admin/mcp` unified screen | Live telemetry audit table, RBAC parity table, WebMCP policy, support bundle | M2 (Lane P2-b) | Survey §1.3 |
-| 17 | `GET /api/admin/mcp/telemetry` | Query SQLite MCP telemetry records with limit and filter validation | M2 (Lane P2-b) | Survey §1.3 |
-| 18 | Step-up reauth modal | Universal modal in `console_shell.html` calling `POST /api/auth/reauth` on 401 | M2 (Lane P2-b) | Survey §1.3 |
-| 19 | Support bundle export trigger | Trigger diagnostic archive export via `POST /support/bundle` | M2 (Lane P2-b) | Survey §1.3 |
-| 20 | Single mode no username leak (S9) | Omit `@username` in single mode across all console responses | M2 (Lane P2-b) | Survey §1.3 |
-| 21 | Non-admin 404 enforcement (B1/N5) | Return 404 for non-admin callers on all 8 `/admin/*` routes | M2 (Lane P2-b) | Survey §1.3 |
-| 22 | Content peeking isolation (D5/K5) | Aggregate count only for `/admin/themes`; zero member theme/token leaks | M2 (Lane P2-b) | Survey §1.3 |
-| 23 | Create `tests/test_admin_instance.py` | Create dedicated test suite for `/admin/instance` console rendering | M2 (Lane P2-b) | Survey §1.4 |
-| 24 | Update `tests/test_account_routes.py` | Align script tag assertion with `console_shell.html` bootstrap scripts | M2 (Lane P2-b) | Survey §1.4 |
-| 25 | Verification Gate & Phase P2 Notes | Run full verification suite and write `.agent-work/admin-settings/P2.md` | M3 (E2E & Notes) | Survey §1.4 |
+| # | Feature | Description | Milestone | Requirement | Status |
+|---|---------|-------------|-----------|-------------|--------|
+| 1 | `AccountStore.update_profile_public` | Update database column `profile_public` and commit transaction | M1 | R1 | COMPLETED |
+| 2 | `GET /api/me` profile_public field | Include `profile_public` (0 or 1) in `me_payload` response | M1 | R1 | COMPLETED |
+| 3 | `PATCH /api/me` profile_public toggle | Validate and persist `profile_public` in account update handler | M1 | R1 | COMPLETED |
+| 4 | `/settings/account` switch UI | Render accessible switch toggle in network mode; omit in single mode (S9) | M1 | R1 | COMPLETED |
+| 5 | `console_account.js` toggle binding | Listen to toggle changes and dispatch `PATCH /api/me` | M1 | R1 | COMPLETED |
+| 6 | Fedify and IdP reserved words | Add federation and auth words to `RESERVED_USERNAMES` policy | M1 | R2 | COMPLETED |
+| 7 | Policy tests synchronization | Align `SPEC_RESERVED` and test assertions with updated policy | M1 | R2 | COMPLETED |
+| 8 | Token exchange fallback removal | Remove unauthenticated fallback logic in RFC 8693 token exchange handler | M2 | R3 | COMPLETED |
+| 9 | Token exchange binding verification | Require bound session account and valid status; reject invalid tokens | M2 | R3 | COMPLETED |
+| 10 | Token exchange dedicated tests | Provide comprehensive test coverage in `tests/test_oauth_token_exchange.py` | M2 | R3 | COMPLETED |
+| 11 | Syndication prototype sealing | Seal reference prototype under system permission and isolate live console | M2 | R5 | COMPLETED |
+| 12 | Baseline escape helper regex fix | Update regex in `tests/test_security_hotfixes.py` to match `adoc_parser.js` | M3 | R6 | COMPLETED |
+| 13 | `PROJECT.md` status update and hygiene | Update milestone records, interface contracts, and layout boundaries | M3 | R4 | COMPLETED |
+| 14 | Full CI verification suite gate | Execute `bash ./scripts/ci.sh` with all syntax, docker, lock, and test checks | M3 | R6 | COMPLETED |
 
 ---
 
 ## Milestones
 
+### Historical Milestones: Admin and Settings Path Separation (Phase P2)
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Lane P2-a: Shared Controllers & Drawer | Extract `manage_panels.js`, update `app.js` and `index.html` | none | IN_PROGRESS |
-| M2 | Lane P2-b: Unified Admin Console Screens | Implement 8 `/admin/*` screens in `console_shell.html` + `console_admin.js` + route handlers | M1 | PLANNED |
-| M3 | Final Verification & Documentation | Execute pytest verification gate, full test suites, and write `P2.md` | M1, M2 | PLANNED |
+| P2-M1 | Lane P2-a: Shared Controllers & Drawer | Extract `manage_panels.js`, update `app.js` and `index.html` | none | COMPLETED |
+| P2-M2 | Lane P2-b: Unified Admin Console Screens | Implement 8 `/admin/*` screens in `console_shell.html` + `console_admin.js` | P2-M1 | COMPLETED |
+| P2-M3 | Final Verification & Documentation | Execute pytest verification gate, full test suites, and write `P2.md` | P2-M1, P2-M2 | COMPLETED |
+
+### Current Milestones: Account, IdP, and Fedify Preparation Sealing and Cleanup
+| # | Name | Scope | Dependencies | Status |
+|---|------|-------|-------------|--------|
+| M1 | Account & Username Surface Contracts | Implement R1 (`profile_public` toggle) and R2 (Reserved usernames sync) | Phase P2 | COMPLETED |
+| M2 | Token Exchange & Syndication Sealing | Implement R3 (Token exchange binding integrity) and R5 (Syndication prototype sealing) | M1 | COMPLETED |
+| M3 | Hygiene, Baseline Fix & CI Gate | Implement R4 (`PROJECT.md` hygiene) and R6 (Baseline test fix and CI gate) | M1, M2 | COMPLETED |
 
 ---
 
 ## Interface Contracts
 
-### 1. `manage_panels.js` ↔ `app.js` & `console_admin.js`
-- `window.ClaireManagePanels = { renderProviderManager, renderLimitManager, renderThemeManager, renderTokenManager };`
-- Each function is also available directly on `window`:
-  - `renderProviderManager(container, opts)`
-    - `container`: HTMLElement.
-    - `opts`: `{ rootUrl, apiUrl, canWrite, showClose, onClose }`.
-  - `renderLimitManager(container, opts)`
-    - `container`: HTMLElement.
-    - `opts`: `{ rootUrl, apiUrl, canWrite, showClose, onClose }`.
-  - `renderThemeManager(container, opts)`
-    - `container`: HTMLElement.
-    - `opts`: `{ rootUrl, apiUrl, isOwner, isCollaborator, isAdmin, activeThemeId, defaultSorcerer, showClose, onClose, onThemeChange }`.
-  - `renderTokenManager(container, opts)`
-    - `container`: HTMLElement.
-    - `opts`: `{ rootUrl, apiUrl, canWrite, isAdmin, showClose, onClose, initialMsg, initialSuccess, initialNewToken, onTokenChange }`.
+### 1. Canonical Account Profile Contract (R1)
+- **Store Interface**:
+  - `AccountStore.update_profile_public(account_id: int, profile_public: int | bool, *, now: float | None = None) -> Account`
+  - Updates `profile_public` column (value 0 or 1) and commits transaction. Raises `AccountNotFound` if row does not exist.
+- **REST API Endpoints**:
+  - `GET /api/me`: Returns JSON object with `"profile_public": 0` or `"profile_public": 1`.
+  - `PATCH /api/me`: Accepts JSON body `{"profile_public": 0}` or `{"profile_public": 1}`. Validates boolean or integer values. Returns updated `me_payload`.
+- **Console UI Contract**:
+  - Element: `<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public">` rendered in `/settings/account`.
+  - Behavior: Dispatches `PATCH /api/me` with `{ profile_public: 1 }` or `{ profile_public: 0 }` on toggle change.
+  - Privacy Constraint (S9): In single mode (`mode == "single"`), the toggle element is omitted completely.
 
-### 2. Backend Routes ↔ `console_shell.html` & `console_admin.js`
-- Bootstrap payload: `<script id="console-bootstrap" type="application/json">{ "section": "<section_name>", "role": "admin", "mode": "single"|"network", ... }</script>`.
-- Reauthentication Modal: `<dialog id="console-reauth-modal" class="console-modal">` or `<div id="console-reauth-modal" class="console-modal" hidden>` with form submitting to `POST /api/auth/reauth`.
-- Header requirements: All `/admin/*` routes must return `Referrer-Policy: same-origin` and `Cache-Control: no-store`.
+### 2. Username Policy Contract (R2)
+- **Module Interface**:
+  - `src/claire/accounts/username_policy.py`: `RESERVED_USERNAMES` includes Fedify and IdP terms:
+    `{"inbox", "outbox", "actor", "actors", "ap", "fedify", "federation", "nodeinfo", "oauth", "auth", "followers", "following", "shared_inbox", ...}`.
+  - Function `validate_username_candidate(raw: str) -> None` rejects reserved terms with `InvalidUsernameError`.
+  - Function `is_reserved_username(raw: str) -> bool` returns true for all reserved terms.
+
+### 3. RFC 8693 Token Exchange Contract (R3)
+- **OAuth Endpoint**:
+  - `POST /oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`
+  - Required Parameter: `subject_token` (and `subject_token_type=urn:ietf:params:oauth:token-type:access_token`).
+  - Validation: Resolves session binding via `validate_session_binding(conn, subject_token)`.
+  - Status Check: Verifies account exists and `status in CREDENTIAL_ACCEPTING_STATUSES`.
+  - Failure Responses: Returns HTTP 400 `{"error": "invalid_grant", "error_description": "..."}` for missing, expired, unbound, or disabled accounts.
+  - Integrity Guarantee: Binds token directly to resolved account ID via `UPDATE oauth_tokens SET account_id=?`. Never falls back to admin account ID 1.
+
+### 4. Syndication Prototype Contract (R5)
+- **Reference Prototype**:
+  - `GET /prototype/syndication`: Sealed as an authenticated reference prototype under system read permission (`_system("read")`).
+- **Production Console**:
+  - `GET /settings/connections` and `GET /settings/feeds`: Cleanly separated from prototype seed data and mock factories.
+
+### 5. Shared Admin and Settings Console Contracts (Phase P2 Reference)
+- `window.ClaireManagePanels = { renderProviderManager, renderLimitManager, renderThemeManager, renderTokenManager };`
+- Console Bootstrap: `<script id="console-bootstrap" type="application/json">{ "section": "<section_name>", "role": "admin"|"owner", "mode": "single"|"network", ... }</script>`
+- Header Policy: Console routes return `Referrer-Policy: same-origin` and `Cache-Control: no-store`.
 
 ---
 
 ## Code Layout
-- Exclusive File Boundaries:
-  - Lane P2-a exclusive files:
-    - `src/claire/static/js/app.js` (hotspot file)
-    - `src/claire/static/js/manage_panels.js`
-    - `src/claire/templates/index.html`
-  - Lane P2-b exclusive files:
-    - `src/claire/templates/console_shell.html`
-    - `src/claire/static/js/console_admin.js`
+- **Exclusive File Boundaries**:
+  - **Milestone M1**:
+    - `src/claire/store/accounts.py`
+    - `src/claire/api/accounts_routes/me.py`
     - `src/claire/api/accounts_routes/console.py`
-    - `src/claire/api/accounts_routes/instance.py`
-    - `src/claire/api/accounts_routes/admin.py`
-    - `src/claire/api/accounts_routes/idp.py`
-    - `tests/test_admin_instance.py`
+    - `src/claire/static/js/console_account.js`
+    - `src/claire/accounts/username_policy.py`
     - `tests/test_account_routes.py`
+    - `tests/test_username_policy.py`
+    - `tests/test_route_surface_contract.py`
+  - **Milestone M2**:
+    - `src/claire/api/oauth.py`
+    - `tests/test_oauth_token_exchange.py`
+    - `tests/test_oauth_flow.py`
+    - `tests/test_syndication_route.py`
+    - `e2e/test_syndication_e2e.py`
+    - `tests/test_e2e_syndication_namespace.py`
+  - **Milestone M3**:
+    - `PROJECT.md`
+    - `tests/test_security_hotfixes.py`
+    - `.agent-work/admin-settings/P2.md`

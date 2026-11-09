@@ -382,6 +382,32 @@
     });
   }
 
+  function bindToggles() {
+    var toggles = document.querySelectorAll("input[data-settings-toggle='profile-public']");
+    Array.prototype.forEach.call(toggles, function (input) {
+      input.addEventListener("change", function () {
+        var section = input.closest("section") || input.parentElement;
+        var checked = input.checked;
+        input.disabled = true;
+        request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
+          if (r.ok) {
+            show(section, "저장했습니다.", false);
+            var dd = document.querySelector("[data-account-field='profile_public']");
+            if (dd) dd.textContent = checked ? "공개 (공개 디렉터리에 표시)" : "비공개";
+          } else {
+            input.checked = !checked;
+            show(section, errorText(r.status, r.body), true);
+          }
+        }).catch(function () {
+          input.checked = !checked;
+          show(section, "서버에 연결하지 못했습니다.", true);
+        }).then(function () {
+          input.disabled = false;
+        });
+      });
+    });
+  }
+
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
     // The console page has no app.js apiUrl/rootUrl. Unprefixed /themes and /tokens resolve to the caller's own account (N3).
@@ -405,7 +431,10 @@
     if (["account", "keys", "themes", "tokens"].indexOf(section) < 0) return;
     var extra = bootstrap.settings_account || {};
     bindForms();
-    if (section === "account") bindIdentities(extra);
+    if (section === "account") {
+      bindIdentities(extra);
+      bindToggles();
+    }
     initManagers(section);
   }
 

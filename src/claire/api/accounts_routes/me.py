@@ -58,6 +58,7 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "scope": principal.scope,
         "status": account.status,
         "has_password": has_pw,
+        "profile_public": 1 if account.profile_public else 0,
     }
 
 
@@ -65,6 +66,14 @@ def update_display_name(ctx: AccountsContext, account_id: int, display_name: str
     conn = open_db(ctx)
     try:
         accounts_store.AccountStore(conn).update_display_name(account_id, display_name)
+    finally:
+        conn.close()
+
+
+def update_profile_public(ctx: AccountsContext, account_id: int, profile_public: int | bool) -> None:
+    conn = open_db(ctx)
+    try:
+        accounts_store.AccountStore(conn).update_profile_public(account_id, profile_public)
     finally:
         conn.close()
 
@@ -136,15 +145,30 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if set(body) != {"display_name"}:
-            # 지금 바꿀 수 있는 항목은 표시 이름뿐이다. 모르는 키를 조용히 버리지 않는다(C1).
-            return json_error(400, "invalid_request", fields=["display_name"])
-        display_name = validate_display_name(body["display_name"])
-        if display_name is None:
-            return json_error(400, "invalid_display_name")
+        if not body or not (set(body) <= {"display_name", "profile_public"}):
+            return json_error(400, "invalid_request", fields=["display_name", "profile_public"])
+        display_name: str | None = None
+        if "display_name" in body:
+            display_name = validate_display_name(body["display_name"])
+            if display_name is None:
+                return json_error(400, "invalid_display_name")
+        profile_public: int | None = None
+        if "profile_public" in body:
+            raw_pp = body["profile_public"]
+            if raw_pp is True:
+                profile_public = 1
+            elif raw_pp is False:
+                profile_public = 0
+            elif isinstance(raw_pp, int) and raw_pp in (0, 1):
+                profile_public = raw_pp
+            else:
+                return json_error(400, "invalid_profile_public")
         if principal.account_id is None:
             raise RuntimeError("/api/me requires an account principal")
-        await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
+        if display_name is not None:
+            await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
+        if profile_public is not None:
+            await asyncio.to_thread(update_profile_public, ctx, principal.account_id, profile_public)
         return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
 
     async def me_password(request: Request) -> Response:

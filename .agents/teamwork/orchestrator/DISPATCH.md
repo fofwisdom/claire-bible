@@ -1,21 +1,24 @@
-## 2026-11-05T04:59:47Z
-From: 2e1cff97-2a1a-41f9-8dca-1b568e47efa6
-Message: Implement Phase P2 (Shared Management Modules, Root '관리 및 설정' Integration (D2), and Full `admin/` Console) of Admin and Settings Path Separation for the Claire repository, covering both Lane P2-a and Lane P2-b.
+# Dispatch Record
 
+## 2026-11-09T08:51:11Z
+Execute sealing and cleanup tasks in Claire Bible to prepare for account, IdP, and Fedify MIT sidecar integration.
+
+Working directory: /home/fow/Projects/claire-bible
 Integrity mode: development
 
-References:
-- Design specification: docs/design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md (Section 4 and Phase P2)
-- Phase P1 handoff note: .agent-work/admin-settings/P1.md
-- Architectural principles: docs/PRINCIPLES.md
-
 Requirements:
-- R1. Lane P2-a: Shared Management Controllers & Root '관리 및 설정' Drawer Integration (D2)
-- R2. Lane P2-b: Unified admin/ Console Screens
-- R3. Implementation and Safety Constraints
+- R1. profile_public Toggle and Account Contract Seal
+- R2. Reserved Usernames Synchronization
+- R3. Token Exchange Account Binding Integrity
+- R4. PROJECT.md Status Update and Hygiene
+- R5. Syndication Prototype Sealing and Cleanup
+- R6. Engineering Rules
 
-Acceptance Criteria:
-- Test Suite Verification Gate passes with 0 failures:
-  uv run pytest tests/test_account_routes.py tests/test_admin_instance.py tests/test_oidc_flow.py tests/test_console_routing.py tests/test_single_mode_no_username_leak.py
-- Existing test suites remain green.
-- Phase P2 completion documented in .agent-work/admin-settings/P2.md.
+## 2026-11-09T10:17:49Z
+Server was restarted. All 3 explorer survey handoffs have completed and are available:
+- .agents/teamwork/teamwork_explorer_survey_1/handoff.md (R1 & R2: account profile_public and reserved usernames)
+- .agents/teamwork/teamwork_explorer_survey_2/handoff.md (R3 & R5: token exchange binding and syndication cleanup)
+- .agents/teamwork/teamwork_explorer_survey_3/handoff.md (R4 & R6: PROJECT.md hygiene and CI baseline)
+
+Please resume execution: synthesize the survey findings, decompose implementation milestones, update PROJECT.md / plan.md, and proceed with worker dispatch.
+
