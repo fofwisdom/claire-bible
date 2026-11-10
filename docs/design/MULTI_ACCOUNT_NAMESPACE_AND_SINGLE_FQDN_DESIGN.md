@@ -48,7 +48,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 - 관리자 2명 이상, 관리자 양도.
 - 계정별 서브도메인, 커스텀 도메인.
 - 관리자의 멤버 비공개 데이터 접근. 잠정 불가다(D5, §8.6).
-- ActivityPub 액터 직접 구현. Syndication 설계에서 철회한 결정을 유지한다.
+- ActivityPub 액터 직접 구현. Syndication 설계에서 철회한 결정을 유지한다. (2026-11-10 보완: 소유자 결정 FD1로 Fedify 사이드카를 통한 계정 액터와 WebFinger를 승인했다. [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.3 참고)
 - SCIM, SAML 직접 지원.
 
 ---
@@ -953,7 +953,7 @@ CREATE TABLE admin_audit (
 7. **스트림**: `items` 스트림은 컬렉션 계약(§7.4)을 적용할 첫 후속 후보다. 항목 ID를 시간 정렬 번호로 바꿀지는 Syndication 2단계에서 정한다.
 8. **사용자 간 발행 본문**: 단일 DB가 되었으므로, 기존 설계의 별도 `data/shared/publications.db` 대신 `claire.db`의 `publications` 테이블(`account_id` 포함)로 둘 수 있다. 그 목록은 `/explore` 통합 뷰(§4.4)의 후보다. 결정은 Syndication 2단계에서 한다.
 9. **프로토타입 패널 교체**: `/syndication/preferences?tab=idp`와 `?tab=userdb`의 제안 패널은 실제 `/admin/accounts`, `/me`로 연결한다.
-10. **명명 규칙**: `/@username`은 Mastodon 프로필 URL 관례와 같다. `acct:username@FQDN` 형식은 예약만 해 두고 WebFinger는 구현하지 않는다(철회 결정 유지).
+10. **명명 규칙**: `/@username`은 Mastodon 프로필 URL 관례와 같다. `acct:username@FQDN` 형식은 예약만 해 두고 WebFinger는 구현하지 않는다(철회 결정 유지). (2026-11-10 보완: 소유자 결정 FD1로 Fedify 사이드카를 통한 계정 액터와 WebFinger를 승인했다. [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.3 참고)
 
 ---
 

@@ -2,6 +2,8 @@
 
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`) 간의 상호 이해와 데이터 호환성을 보장하기 위해 제정된 공식 표준 용어집(Canonical Glossary)이다.
 
+- **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). "테제 계보", "증강 계보"는 기존 문서와 스키마 이력을 읽을 때 쓰는 이력 용어다. 현재 정본 저장소는 `fofwisdom/claire-bible` 하나다.
+
 양 계보의 메인테이너, 협력자, 자율 에이전트(AI Agent)는 본 문서에 정의된 표준 명칭과 의미를 준수하여 문서 작성, 코드 구현, API 모델링, 커뮤니케이션 시 발생할 수 있는 의미 왜곡(Semantic Drift)과 오인을 방지한다.
 
 ---
@@ -146,7 +148,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | **스텔스 모드** | Stealth Mode (Fail-Closed) | 비인가자가 보호된 엔드포인트에 접근할 때 401/403 대신 404 Not Found를 반환하여 서비스의 실존 자체를 은폐하는 방어 규약. |
 | **세션 토큰** | Session Token (`cb_session`) | 쿠키 또는 `Authorization: Bearer <token>`으로 전달되는 서명된 HTTP 작업 세션 자격 증명. |
 | **부트스트랩 토큰** | Bootstrap Token | 초기 환경 설정 또는 텔레그램 일회용 링크를 통해 1회성 세션을 발급받기 위한 시드 자격 증명. |
-| **토큰 교환** | RFC 8693 Token Exchange | 외부 OAuth 토큰, 세션 토큰, 또는 MCP 클라이언트 토큰을 인가 범위에 맞는 새 액세스 토큰으로 안전하게 교환하는 표준 프로토콜. |
+| **토큰 교환** | RFC 8693 Token Exchange | 계정에 귀속된 세션 토큰을 같은 계정의 `readonly` 액세스 토큰으로 교환하는 표준 프로토콜. 현재 구현 범위는 `TOKEN_EXCHANGE.md` §7에 있다. |
 
 ---
 

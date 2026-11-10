@@ -2,7 +2,7 @@
 
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 공유하는 HTTP REST/ASGI 와이어 프로토콜, 인증 채널 및 보안 경계의 최소 공통 계약을 정의한다. 외부 클라이언트(Web UI, CLI, Telegram 봇, MCP 에이전트)가 구현 계보에 무관하게 안전하고 일관되게 통신하기 위한 프로토콜 규약이다.
 
-계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다. 테제 계보 병합 후에만 `accepted`로 갱신한다.
+- **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). 이 문서는 이 저장소의 HTTP 계약 정본이다. 아래에 남은 "계보", "최소 공통" 표현은 작성 당시의 이력이며, 다른 계보의 승인을 기다리는 항목은 없다.
 
 ## 1. 네트워크 및 와이어 보안 불변식
 
@@ -65,7 +65,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/health` | `public` | 서비스 liveness 및 DB 연결 검사 (`{"ok": true}`) |
 | `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "instance": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 |
-| `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급 |
+| `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급. 토큰 교환은 계정에 귀속된 세션 토큰만 받는다([`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) §7) |
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
 | `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회 |
 | `GET` | `/document` | `read` | 특정 문서 상세 및 본문 조회 |
@@ -101,7 +101,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
 | `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
-| `PATCH` | `/api/me` | `owner` | 200 계정 정보 | 400 `invalid_request`, 400 `invalid_display_name` |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
 
 ### 6.1 단계 인증 응답 규약

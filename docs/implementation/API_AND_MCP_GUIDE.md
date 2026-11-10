@@ -234,12 +234,12 @@ curl -O -J "https://claire.example.com/support/bundle?token=sec_tok_xyz987..."
 
 ### 2.5 RFC 8693 OAuth 2.0 Token Exchange
 
-신뢰된 주체 간의 토큰 교환을 지원한다. (`application/x-www-form-urlencoded` 사용)
+계정에 귀속된 세션 토큰을 같은 계정의 `readonly` Bearer 토큰으로 교환한다. 주입 토큰이나 계정에 귀속되지 않은 토큰은 400 `invalid_grant`로 거부한다. 현재 구현 범위는 [`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) §7에 있다. (`application/x-www-form-urlencoded` 사용)
 ```bash
 curl -s -X POST https://claire.example.com/oauth/token \
      -H "Content-Type: application/x-www-form-urlencoded" \
      -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-     -d "subject_token=<INJECT_OR_SESSION_TOKEN>" \
+     -d "subject_token=<SESSION_TOKEN>" \
      -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
      -d "scope=readonly"
 ```

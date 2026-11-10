@@ -2,6 +2,8 @@
 
 **계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
+> **[결정]** 테제 계보는 더 이상 없다(소유자, 2026-11-02). 이 저장소가 유일한 정본이다. 아래의 "증강 계보", "업스트림" 표현은 출발점을 설명하는 이력이다.
+
 ---
 
 ## 1. 비전과 범위 (Scope)
@@ -14,7 +16,9 @@
 
 | 범위 안 (In Scope) | 범위 밖 (Out of Scope) |
 |---|---|
-| **일련번호 기반 멀티 테마(다중 DB 격리)**: 관심사 분리와 오염 방지를 위한 `themes/{seq}/` 물리 격리 (`CLAIRE_MULTI_THEME`) | 범용 B2C 멀티테넌시 및 불특정 다수 셀프 회원가입 |
+| **멀티 테마(단일 DB 파티셔닝)**: 관심사 분리와 오염 방지를 위한 `theme_id` 파티셔닝 (`CLAIRE_MULTI_THEME`) | 범용 B2C 멀티테넌시 및 불특정 다수 셀프 회원가입 |
+| **로컬 계정과 네트워크 모드**: 불변 USERNAME, 초대제 가입, 계정 네임스페이스(`/@USERNAME`), 외부 IdP(OIDC·GitHub) 로그인 | 계정별 서브도메인·커스텀 도메인, SCIM·SAML 직접 지원 |
+| **신디케이션과 연합**: 연결 계정을 통한 ActivityPub·AT 클라이언트, Fedify 사이드카를 통한 공개 프로필 계정의 ActivityPub 액터(설계 승인, 미구현) | Mastodon 호환 클라이언트 API 서버, 테마 액터, 계정 이전, 릴레이 |
 | **역할 기반 접근 제어(RBAC)**: 지식 관리자(Owner)와 협업자(Collaborator) 간의 권한 분리 | 복잡한 계층형 엔터프라이즈 인사 조직도 연동 |
 | **표준 인증 및 토큰 교환**: RFC 8693 OAuth 2.0 Token Exchange, OIDC Discovery, 세션 프리픽스 게이트 | 외부 상용 IAM/IDaaS 서비스에 대한 강제 종속 |
 | **듀얼 포맷 지식 표현**: Markdown 및 AsciiDoc(.adoc) 듀얼 포맷 파이프라인, 수식(LaTeX/KaTeX), 표(Table) 구조 보존 | 완전 무제한 임의 바이너리 문서 파싱 |
@@ -45,10 +49,11 @@
    - 2D 지식 그래프 시각화, 노드 차수(Degree) 필터링, 엔티티 간 최단 관계 경로(BFS) 추적.
    - 다중 노드 종합(Synthesis) 리포트 생성 및 전용 리더 뷰.
 6. **멀티 테마 및 거버넌스 (`CLAIRE_MULTI_THEME`)**:
-   - 기본 테마(#0) 영구 보존 및 `themes/{seq}/` 독립 DB 디렉터리 라우팅.
+   - 기본 테마 영구 보존 및 단일 DB(`data/claire.db`)의 `theme_id` 파티셔닝. 구현 정본은 [`THEMES.md`](implementation/THEMES.md)다.
    - 테마별 독립 Obsidian Vault 내보내기 및 FTS/벡터 색인 분리.
 7. **표준 인증 및 상호운용성**:
-   - RFC 8693 OAuth 2.0 Token Exchange 및 OIDC 호환 토큰 교환.
+   - RFC 8693 OAuth 2.0 Token Exchange(계정에 귀속된 세션 토큰만 교환, [`TOKEN_EXCHANGE.md`](implementation/TOKEN_EXCHANGE.md)).
+   - 로컬 계정, 초대제 가입, 싱글·네트워크 인스턴스 모드, 외부 IdP(OIDC·GitHub) 로그인. 구현 정본은 [`ACCOUNTS.md`](implementation/ACCOUNTS.md)다.
    - OpenAPI 3.1.0 공통 사양 정본([`openapi.yaml`](implementation/openapi.yaml)) 준수.
 8. **신뢰성 및 오퍼레이션**:
    - 지수 백오프 기반 오류 자동 복구 루프(`claire_recover`).
@@ -89,12 +94,16 @@
 - [ ] 그래프 뷰 모듈화 및 정적 자산 분리 배포
 
 ### 트랙 4: 멀티 테마, 거버넌스, 상호운용성
-- [x] 일련번호 기반 멀티 테마(`themes/{seq}/`) 다중 DB 물리 격리 코어
+- [x] 일련번호 기반 멀티 테마(`themes/{seq}/`) 다중 DB 물리 격리 코어 (스키마 v14에서 단일 DB `theme_id` 파티셔닝으로 전환)
 - [x] 테마별 Web UI 셀렉터, 텔레그램 인라인 지원, REST API 라우팅
 - [x] RFC 8693 OAuth 2.0 Token Exchange 및 OIDC 호환 사양 표준화
 - [x] Support Bundle 팩트 엔지니어링 및 진단 관측성 파이프라인
 - [ ] 멀티 테마 소유자(Owner) / 협업자(Collaborator) 세부 RBAC UI 완료
-- [ ] 계보 간(Thesis vs Augmentation) 지식 전송 및 테마 간 문서 마이그레이션 CLI
+- [ ] 테마 간 문서 마이그레이션 CLI
+- [x] 로컬 계정 코어, 단일 FQDN URI 네임스페이스, 네트워크 모드, 초대, 계정 API 키(BYOK), 외부 IdP 로그인, Syndication 병합 기반 ([설계](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) P1–P6)
+- [x] `/admin/*`·`/settings/*` 통합 콘솔 경로 분리
+- [x] 계정·IdP·Fedify 연동 준비 봉인 (`profile_public` 계약, 연합·인증 예약 이름, 토큰 교환 계정 귀속, Syndication 프로토타입 봉인)
+- [ ] Fedify 사이드카 연합 FP0–FP3: 기술 검증, 내부 계약과 탐색, 팔로워, 발행 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md), 소유자 결정 FD1–FD12 확정 2026-11-10)
 
 ---
 

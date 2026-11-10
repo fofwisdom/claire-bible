@@ -4,7 +4,7 @@
 
 > [!NOTE] `POST /oauth/token` 엔드포인트는 본 RFC 8693 외에도, Google Gemini 등 MCP 클라이언트의 표준 OAuth 2.1 인가를 위한 `grant_type=authorization_code` (PKCE S256) 및 `grant_type=refresh_token`을 단일 엔드포인트에서 통합 처리한다. 상세 사양은 [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md)를 참고한다.
 
-계약 상태는 증강 계보(`fofwisdom`)에서 `adopted`, 테제 계보(`blackan`)에서 `candidate`다. 테제 계보 병합 후에만 `accepted`로 갱신한다.
+- **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). 이 문서는 이 저장소의 토큰 교환 계약 정본이다. §1–§6은 와이어 계약이고, 현재 구현이 실제로 받는 범위는 §7이다. 둘이 다르면 §7을 따른다.
 
 ## 1. 프로토콜 기본 사양
 
@@ -85,3 +85,14 @@
 2. 동일한 일회용 토큰의 재사용 시도(Replay Attack)는 즉시 `invalid_grant` 오류로 거부되어야 한다.
 3. 세션 토큰 다운스케이프 시 원본 세션이 가진 권한 스코프를 초과하는 `scope` 요청은 `invalid_scope`로 즉시 차단되어야 한다.
 4. 토큰 교환 실패 시 원본 저장소의 데이터나 세션 상태를 손상시키지 않고 트랜잭션을 롤백해야 한다.
+
+## 7. 현재 구현 범위
+
+확인 기준: 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), `src/claire/api/oauth.py`의 `handle_token`. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+
+- **[코드] 받는 토큰**: `subject_token`은 `validate_session_binding`(`src/claire/store/accounts.py`)이 계정 귀속을 확인할 수 있는 승인된 세션 토큰(`auth_sessions`)이어야 한다. 없거나, 만료되었거나, 계정에 귀속되지 않은 토큰은 400 `invalid_grant`다. `subject_token`이 비어 있으면 400 `invalid_request`다.
+- **[코드] 계정 상태**: 귀속 계정이 없거나 상태가 `CREDENTIAL_ACCEPTING_STATUSES`(`setup_required`, `active`)가 아니면 400 `invalid_grant`다.
+- **[코드] 발급 토큰**: 그 계정에 귀속된 `readonly` OAuth 접근 토큰과 갱신 토큰이다. `expires_in`은 `OAUTH_ACCESS_TOKEN_TTL`(30일, `2592000`)이다. 클라이언트 식별자는 `token_exchange_client`다.
+- **[코드] 읽지 않는 매개변수**: `subject_token_type`, `scope`, `resource`, `audience`, `requested_token_type`, `actor_token`, `actor_token_type`의 값은 판정에 쓰지 않는다. 요청한 `scope`와 무관하게 `readonly`만 발급한다. §3.2의 `telegram-bootstrap` 교환은 이 엔드포인트에 구현되어 있지 않다.
+- **[코드] 폴백 없음**: 계정을 정하지 못한 요청을 관리자 계정(`accounts.id = 1`)으로 발급하는 분기는 없다(PRINCIPLES C1). 집행: `tests/test_oauth_token_exchange.py`.
+- **[결정] Fedify 사이드카는 토큰 교환을 쓰지 않는다.** 사이드카에는 계정이 없으므로 계정 귀속 토큰을 받을 수 없다. 사이드카는 내부 연합 API 전용 서비스 자격증명을 쓴다([설계](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §6.1, §8.3, 미구현).

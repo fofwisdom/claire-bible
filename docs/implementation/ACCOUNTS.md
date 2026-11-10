@@ -1,6 +1,6 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
+확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.5·§5.9·§13은 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
 
 이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
@@ -34,7 +34,7 @@
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
 | `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
 | `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
-| `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
+| `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·프로필 공개 스위치·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 | `src/claire/static/js/console_admin.js` | `/admin/*` 화면 컨트롤러와 단계 인증 모달. `/admin/*` 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
 | `src/claire/static/js/console_syndication.js` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
 | `src/claire/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/settings/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`, `renderTokenManager`) |
@@ -60,7 +60,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`을 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, `/prototype/syndication`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1).
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`과 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, `/prototype/syndication`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **인스턴스 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.instance_hosts`). 포트는 뗀다.
 
@@ -149,8 +149,8 @@
 
 - **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
-- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password}`. `/settings/account`가 이 값을 화면으로 보인다.
-- **[코드] `PATCH /api/me`**: 본문 키가 정확히 `display_name` 하나여야 한다(아니면 400 `invalid_request`). 값이 규칙에 맞지 않으면 400 `invalid_display_name`. 성공하면 `GET /api/me`와 같은 본문.
+- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다.
+- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 요구하지 않는다. 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
 ### 5.6 초대 파이프라인 (Invitation Pipeline)
@@ -283,7 +283,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?theme=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/keys` | 1 | §5.8 WebUI |
 | `/settings/themes` | 1 | 본인 테마 관리(`/themes`)와 슬롯 수(`내 테마 수 / 서버 등급 max_themes`) |
 | `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
@@ -387,4 +387,11 @@
 
 ## 12. 테스트
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_instance.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oauth_token_exchange.py`(토큰 교환 계정 귀속), `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_instance.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).
+
+## 13. 후속 설계: Fedify 사이드카 연합 (미구현)
+
+- **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 공개 프로필 계정을 Fedify 사이드카를 거쳐 ActivityPub 액터로 내보내는 설계다. 연결 계정(클라이언트) 방식(§11)은 그대로 둔다.
+- **[코드]** 기준 커밋에는 연합 코드가 없다. `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`는 `ROUTE_POLICY`에 없으므로 404다. `instance_settings`에 `federation` 키가 없고, 사이드카 서비스도 Compose에 없다.
+- **[코드] 이 설계가 전제로 삼는 현재 계약**: `profile_public` 조회·변경(§5.5), 연합·인증용 예약 이름(§3), 토큰 교환의 계정 귀속([TOKEN_EXCHANGE.md](TOKEN_EXCHANGE.md) §7), `/prototype/syndication`의 인증 봉인(§11).
+- **[결정] 구현 때 이 문서에서 바뀔 곳**: 연합이 켜진 상태에서 `profile_public`을 0에서 1로 바꾸려면 단계 인증이 필요하다(FD11, 설계 §8.4). 그때 §5.5의 "단계 인증은 요구하지 않는다"를 고친다. 액터 키는 `auth.db`의 새 테이블에 둔다(FD5, 설계 §7, §10.2).

@@ -25,6 +25,9 @@ Claire Bible ingests web pages, documents, videos, and social threads into isola
 Operators and collaborators need a unified workspace to register external information streams, collect updates periodically, classify incoming items against the existing knowledge graph of each theme, forward selected items to the Claire ingestion pipeline, and publish curated outputs to federated networks.
 
 ### 1.2 Revision 2026-10-29: Server-Mediated ActivityPub · AT
+
+> [!NOTE]
+> **Changed in part on 2026-11-10.** Owner decision FD1 in [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) approves ActivityPub actors for accounts through a Fedify sidecar. The connected-account client model in this section stays. The per-theme actor in the withdrawn column stays withdrawn.
 The first revision of this document had Claire **implement federation directly**: a per-theme ActivityPub Actor with key pairs, a signed `POST /ap/inbox`, `/ap/outbox`, WebFinger, follower delivery, and direct AT PDS polling. That design is withdrawn.
 
 ActivityPub and AT Protocol are now consumed **as a client of an existing server account** (서버에 접속하여 사용하는 형태):

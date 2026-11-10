@@ -29,6 +29,27 @@ The architecture establishes:
    - Corrects the escape helper regex in `tests/test_security_hotfixes.py` for `adoc_parser.js`.
    - Verifies clean execution of `./scripts/ci.sh` across all test targets.
 
+**Status**: Completed on 2026-11-09 (commit `7bc536f`). All requirements R1 through R6 are complete.
+
+---
+
+## Next Project: Fedify Sidecar Federation
+
+The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. No federation code exists at this time.
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| FP0 | Technical checks for the items that the design marks as not verified (FT1 through FT7) | PLANNED |
+| FP1 | Internal federation API, service key, actor keys, sidecar with WebFinger, NodeInfo, and actor documents | PLANNED |
+| FP2 | Followers, inbox events, domain blocks, console sections | PLANNED |
+| FP3 | Publishing, outbox, lifecycle tasks, privacy triggers | PLANNED |
+
+Effects on the contracts in this file:
+- **Contract 1 (R1)**: Decision FD11 adds one condition in phase FP1. When federation is on, a `profile_public` change from 0 to 1 requires recent authentication. The contract below is correct until FP1.
+- **Contract 2 (R2)**: No change. The reserved words protect the federation endpoint names.
+- **Contract 3 (R3)**: No change. The sidecar does not use token exchange.
+- **Contract 4 (R5)**: No change.
+
 ---
 
 ## Completed Phase P2: Admin and Settings Path Separation
@@ -85,7 +106,7 @@ Phase P2 established shared client-side management controllers, integrated role-
   - Updates `profile_public` column (value 0 or 1) and commits transaction. Raises `AccountNotFound` if row does not exist.
 - **REST API Endpoints**:
   - `GET /api/me`: Returns JSON object with `"profile_public": 0` or `"profile_public": 1`.
-  - `PATCH /api/me`: Accepts JSON body `{"profile_public": 0}` or `{"profile_public": 1}`. Validates boolean or integer values. Returns updated `me_payload`.
+  - `PATCH /api/me`: Accepts JSON body `{"profile_public": 0}` or `{"profile_public": 1}`. Also accepts `true` and `false`. Refuses other values with HTTP 400 `invalid_profile_public`. Returns updated `me_payload`.
 - **Console UI Contract**:
   - Element: `<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public">` rendered in `/settings/account`.
   - Behavior: Dispatches `PATCH /api/me` with `{ profile_public: 1 }` or `{ profile_public: 0 }` on toggle change.
@@ -101,10 +122,11 @@ Phase P2 established shared client-side management controllers, integrated role-
 ### 3. RFC 8693 Token Exchange Contract (R3)
 - **OAuth Endpoint**:
   - `POST /oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`
-  - Required Parameter: `subject_token` (and `subject_token_type=urn:ietf:params:oauth:token-type:access_token`).
+  - Required Parameter: `subject_token`. The handler does not use the value of `subject_token_type`.
   - Validation: Resolves session binding via `validate_session_binding(conn, subject_token)`.
   - Status Check: Verifies account exists and `status in CREDENTIAL_ACCEPTING_STATUSES`.
   - Failure Responses: Returns HTTP 400 `{"error": "invalid_grant", "error_description": "..."}` for missing, expired, unbound, or disabled accounts.
+  - Issued Token: A `readonly` OAuth access token and a refresh token for the same account.
   - Integrity Guarantee: Binds token directly to resolved account ID via `UPDATE oauth_tokens SET account_id=?`. Never falls back to admin account ID 1.
 
 ### 4. Syndication Prototype Contract (R5)

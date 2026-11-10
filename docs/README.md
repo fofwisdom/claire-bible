@@ -22,9 +22,12 @@ docs/
 │   ├── EXPAND_FILTERING_DESIGN.md
 │   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md
 │   ├── MCP_SUPPORT.md
+│   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md
 │   ├── SYNDICATION_ENDPOINT_DESIGN.md
+│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (미구현, 2026-11-10)
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
+│   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본
 │   ├── API_AND_MCP_GUIDE.md    # REST API 및 MCP 연결·인증·도구 활용 종합 가이드
 │   ├── API_HTTP_CONTRACT.md    # HTTP REST/ASGI 와이어 프로토콜 및 인증 보안 계약
 │   ├── COMMANDS.md             # 전체 CLI 명령어 및 레퍼런스
@@ -36,7 +39,7 @@ docs/
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
 │   ├── PLAN.md                 # 공개 아키텍처 및 파이프라인 처리 계획 정본
-│   ├── SCHEMA_VERSIONING.md    # SQLite 공통 schema version v13 및 lineage 계약
+│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v16, auth.db v3)
 │   ├── THEMES.md               # 멀티 테마(단일 DB 파티셔닝) 저장·조회·라우팅·접근 경계 구현 정본
 │   ├── TOKEN_EXCHANGE.md       # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
 │   └── openapi.yaml            # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
@@ -59,6 +62,7 @@ docs/
 2. **[`docs/design/`](design/)**
    - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
    - 현재 동작은 `implementation/` 문서나 코드로 확인합니다.
+   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인했지만 아직 구현하지 않은 설계입니다(2026-11-10). 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
 
 ## 문서 정합성 검사
 

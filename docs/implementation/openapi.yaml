@@ -585,8 +585,10 @@ paths:
     post:
       summary: OAuth 2.0 Token Endpoint (RFC 6749, RFC 7636, RFC 8693)
       description: >-
-        Exchanges a subject token (such as a Telegram bootstrap ticket, static inject token,
-        or existing session token) for a scoped Bearer access token.
+        Issues tokens for the authorization_code and refresh_token grants, and exchanges a
+        subject token (RFC 8693). The token exchange accepts only an approved session token
+        that is bound to an account. It issues a readonly Bearer access token bound to the
+        same account. All other subject tokens get invalid_grant. There is no default account.
       operationId: exchangeToken
       x-claire-access: public
       security: []
@@ -1639,7 +1641,7 @@ paths:
         '404':
           description: Not an owner-scope credential.
     patch:
-      summary: Change own display name
+      summary: Change own display name or profile visibility
       operationId: updateMe
       x-claire-access: owner
       security:
@@ -1653,11 +1655,17 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [display_name]
+              minProperties: 1
               properties:
                 display_name:
                   type: string
                   maxLength: 64
+                profile_public:
+                  description: Public profile switch. The values true and false are also accepted.
+                  oneOf:
+                    - type: integer
+                      enum: [0, 1]
+                    - type: boolean
       responses:
         '200':
           description: Updated account.
@@ -1666,7 +1674,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (keys other than display_name) or `invalid_display_name`.'
+          description: '`invalid_request` (empty body, or keys other than display_name and profile_public), `invalid_display_name`, or `invalid_profile_public`.'
           content:
             application/json:
               schema:
@@ -2067,7 +2075,7 @@ components:
 
     AccountSelf:
       type: object
-      required: [public_id, username, display_name, role, scope, status, has_password]
+      required: [public_id, username, display_name, role, scope, status, has_password, profile_public]
       properties:
         public_id:
           type: string
@@ -2089,6 +2097,10 @@ components:
           enum: [setup_required, active, suspended, deleting, purged]
         has_password:
           type: boolean
+        profile_public:
+          type: integer
+          enum: [0, 1]
+          description: 1 when the profile is public. The default is 0.
 
     AccountSummary:
       type: object
