@@ -2274,4 +2274,11 @@ def wrap_web_app(
     )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)
-    return SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)
+    secured = SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)
+    # The internal federation API (Fedify sidecar design, Section 6.1) is selected by the listener, not by the Host header. It is outside all public middleware.
+    data_dir = getattr(settings, "data_dir", None)
+    if data_dir is None:
+        return secured
+    from .federation_internal import ListenerRouter, create_internal_federation_app, federation_socket_path
+
+    return ListenerRouter(secured, create_internal_federation_app(settings), federation_socket_path(data_dir))

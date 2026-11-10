@@ -43,7 +43,7 @@ The Telegram bot, support bundle, data bundle, and backup are per-account featur
 
 ## Next Project: Fedify Sidecar Federation
 
-The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. No federation code exists at this time.
+The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. Implementation started with unit FP1-1.
 
 The design divides each phase into work units (Section 14.4 of the design). The owner starts each unit with an instruction that names the unit ID, for example "Do FP1-3". The agent does one unit, updates this table, and stops.
 

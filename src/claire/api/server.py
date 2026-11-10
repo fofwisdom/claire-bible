@@ -4837,19 +4837,30 @@ def run_api() -> int:
         "limit_concurrency": 64,
         "timeout_keep_alive": 5,
     }
-    if len(listeners) == 1:
+    import socket
+
+    from .federation_internal import federation_socket_path, open_federation_socket
+
+    # The internal federation listener (Fedify sidecar design, Section 6.1). A failure here does not stop the public service: the sidecar cannot connect, and the federation readiness check shows that state.
+    internal_path = federation_socket_path(s.data_dir)
+    internal_sock: socket.socket | None = None
+    if hasattr(socket, "AF_UNIX"):
+        try:
+            internal_sock = open_federation_socket(internal_path)
+        except OSError as exc:
+            print(f"internal federation listener failed {internal_path}: {exc}", flush=True)
+    if internal_sock is None and len(listeners) == 1:
         uvicorn.run(app, host=s.inject_host, port=s.inject_port, **uvicorn_options)
         return 0
 
-    # 개발 환경의 역할 호스트 포트(§5.1, O16). 한 Server가 리스너 소켓 여럿을 함께 연다.
-    # Server를 리스너마다 두면 lifespan(MCP 세션 관리자 등)이 여러 번 돌고 신호 처리기가
-    # 서로 덮이므로, 같은 app·같은 이벤트 루프·같은 신호 처리를 쓰도록 소켓만 늘린다.
-    import socket
-
+    # One Server opens all listener sockets: the app listener, the development role-host ports (§5.1, O16), and the internal federation socket.
+    # One Server for each listener would run the lifespan (MCP session manager and others) more than one time and would replace the signal handlers.
     sockets: list[socket.socket] = []
     try:
+        if internal_sock is not None:
+            sockets.append(internal_sock)
         for host, port in listeners:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
             sockets.append(sock)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -4862,6 +4873,8 @@ def run_api() -> int:
         server = uvicorn.Server(config)
         for host, port in listeners:
             logging.getLogger("uvicorn.error").info("Uvicorn running on http://%s:%d", host, port)
+        if internal_sock is not None:
+            logging.getLogger("uvicorn.error").info("Internal federation listener on unix:%s", internal_path)
         try:
             server.run(sockets=sockets)
         except KeyboardInterrupt:
@@ -4869,4 +4882,9 @@ def run_api() -> int:
     finally:
         for sock in sockets:
             sock.close()
+        if internal_sock is not None:
+            try:
+                internal_path.unlink()
+            except OSError:
+                pass
     return 0 if server.started else 1
