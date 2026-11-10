@@ -45,9 +45,13 @@ from ...accounts import server_tier as server_tier_mod
 from ...accounts.provider_policy import MEMBER_KEY_PROVIDERS, ServerTier
 from ...store import auth_db
 from ...store import usage_ledger
+from . import features as feature_routes
 from . import keys as keys_routes
 from .admin import ROLE_TEXT, STATUS_TEXT
 from .common import open_auth_db
+
+# 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
+FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})
 
 ADMIN_INDEX_PATH = "/admin"
 SETTINGS_INDEX_PATH = "/settings"
@@ -112,6 +116,39 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         title="🔑 내 API · MCP 상시 이용 토큰",
         badge="계정 전역",
         description="내 계정에 귀속된 API · MCP 상시 이용 토큰 발급·폐기 및 OAuth 2.1 승인 클라이언트를 관리합니다.",
+    ),
+    ConsoleSectionSpec(
+        slug="telegram",
+        path="/settings/telegram",
+        area="settings",
+        group_id="workspace",
+        group_label="내 계정 · 워크스페이스",
+        nav_label="🤖 텔레그램 봇",
+        title="🤖 내 텔레그램 봇",
+        badge="계정 전역",
+        description="내 계정 전용 텔레그램 봇 토큰 등록, 허용 사용자, 켜기·끄기와 실행 상태를 관리합니다.",
+    ),
+    ConsoleSectionSpec(
+        slug="bundles",
+        path="/settings/bundles",
+        area="settings",
+        group_id="workspace",
+        group_label="내 계정 · 워크스페이스",
+        nav_label="📦 서포트 · 데이터 번들",
+        title="📦 서포트 번들 · 데이터 번들",
+        badge="계정 전역",
+        description="내 계정 범위의 진단 서포트 번들과 테마 데이터 번들을 만들고 내려받고 지웁니다.",
+    ),
+    ConsoleSectionSpec(
+        slug="backups",
+        path="/settings/backups",
+        area="settings",
+        group_id="workspace",
+        group_label="내 계정 · 워크스페이스",
+        nav_label="💾 백업",
+        title="💾 내 계정 백업",
+        badge="계정 전역",
+        description="내 계정 데이터 백업을 만들고 내려받고 지우며, 자동 백업 주기와 보존 개수를 설정합니다.",
     ),
 )
 
@@ -321,6 +358,17 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         badge="서버 전역 · 관리자",
         description="인스턴스 전역 MCP 호출 기록 조회, RBAC 대조 진단, 전역 WebMCP 헤더 정책 및 지원 번들 생성을 관리합니다.",
     ),
+    ConsoleSectionSpec(
+        slug="backups",
+        path="/admin/backups",
+        area="admin",
+        group_id="admin_system",
+        group_label="시스템 관리 및 설정 (관리자)",
+        nav_label="♻️ 계정 백업 복원",
+        title="♻️ 계정 백업 복원",
+        badge="서버 전역 · 관리자",
+        description="계정 소유자가 만든 계정 백업을 그 계정에 복원합니다(운영자 전용).",
+    ),
 )
 
 ALL_SETTINGS_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -458,7 +506,10 @@ def _build_theme_selector_html(
     )
 
 
-def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str) -> tuple[str, dict[str, Any]]:
+def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, principal: Principal | None = None) -> tuple[str, dict[str, Any]]:
+    if slug == "backups" and principal is not None:
+        return feature_routes.admin_backups_body(ctx, principal=principal), {}
+
     if slug == "providers":
         body = (
             '<div class="card" id="admin-providers-card" aria-label="프로바이더 설정">'
@@ -706,6 +757,18 @@ def _build_settings_account_section(
         if admin_viewer:
             raise RuntimeError("/settings/tokens must redirect the admin to /admin/tokens")
         body, extra = _settings_tokens_body(ctx, account=account)
+    elif spec.slug in FEATURE_SETTINGS_SLUGS:
+        if spec.slug == "telegram":
+            body = feature_routes.settings_telegram_body(ctx, account=account)
+        elif spec.slug == "bundles":
+            body = feature_routes.settings_bundles_body(ctx, account=account, owned_themes=owned_themes)
+        else:
+            body = feature_routes.settings_backups_body(ctx, account=account)
+        return SettingsSectionRender(
+            body_html=body,
+            extra_bootstrap={},
+            extra_scripts_html='<script src="/static/js/console_features.js" defer></script>',
+        )
     else:
         raise KeyError(spec.slug)
     return SettingsSectionRender(
@@ -1172,7 +1235,9 @@ def _render_console_section(
     if custom_body_html is not None:
         section_body_html = custom_body_html
     elif spec.area == "admin":
-        section_body_html, built_extra = _build_admin_section_body_and_extra(ctx, spec.slug)
+        section_body_html, built_extra = _build_admin_section_body_and_extra(ctx, spec.slug, principal)
+        if spec.slug == "backups":
+            extra_scripts_html = '<script src="/static/js/console_features.js" defer></script>' + extra_scripts_html
     else:
         if spec.slug in SYNDICATION_SECTION_SLUGS:
             # P3-b: Group 2–3 본문은 console_syndication_panels 모듈이 그린다.

@@ -216,6 +216,12 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 `backups/`는 Git, Docker build context와 원격 `rsync --delete`에서 모두 제외한다. 운영 backup을 컨테이너 내부 `claire` 명령으로 만들거나 복원하지 않는다.
 
+## 계정 백업과 계정 기능
+
+계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/settings/telegram`), 서포트·데이터 번들(`/settings/bundles`), 계정 백업과 자동 백업 주기(`/settings/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 인스턴스 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 인스턴스 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
+
+`bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(인스턴스 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 자세한 내용은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)를 본다.
+
 ## 참고문헌
 
 [^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

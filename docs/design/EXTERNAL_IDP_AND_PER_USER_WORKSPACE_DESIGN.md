@@ -25,7 +25,7 @@
 - SAML 직접 지원. 필요하면 Keycloak 같은 브로커를 거친다.
 - 사용자 간 테마 공유, 교차 워크스페이스 검색.
 - SCIM 프로비저닝.
-- 사용자용 텔레그램 봇. 봇은 운영자 전용으로 남는다.
+- 사용자용 텔레그램 봇. 봇은 운영자 전용으로 남는다. (2026-11-10 결정 PA1로 바뀜: 계정별 봇을 지원한다. [PER_ACCOUNT_FEATURES_DESIGN.md](PER_ACCOUNT_FEATURES_DESIGN.md))
 
 ## 2. 용어
 

@@ -35,7 +35,8 @@ from ..accounts.invites import (
 from .secrets import SecretDecryptionError, SecretService, get_secret_service
 
 # v3 (P5 L5-b): ``oidc_states``에 계정 연결용 ``account_id``를 더한다(§12-7, §13.3).
-AUTH_DB_SCHEMA_VERSION = 3
+# v4 (유저 단위 기능): ``account_telegram_bots``(계정별 텔레그램 봇)와 ``account_backup_policies``(계정 백업 주기)를 더한다.
+AUTH_DB_SCHEMA_VERSION = 4
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -507,6 +508,30 @@ CREATE TABLE IF NOT EXISTS account_usage (
     daily_day TEXT NOT NULL DEFAULT '',
     daily_ingests INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account_id, period)
+);
+CREATE TABLE IF NOT EXISTS account_telegram_bots (
+    account_id INTEGER PRIMARY KEY,
+    key_id TEXT NOT NULL,
+    ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, key_version INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    bot_id INTEGER NOT NULL UNIQUE,
+    bot_username TEXT NOT NULL DEFAULT '',
+    allowed_user_ids TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    status TEXT NOT NULL DEFAULT 'pending',
+    last_error TEXT,
+    status_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS account_backup_policies (
+    account_id INTEGER PRIMARY KEY,
+    schedule TEXT NOT NULL DEFAULT 'off' CHECK (schedule IN ('off', 'daily', 'weekly')),
+    keep INTEGER NOT NULL DEFAULT 3 CHECK (keep BETWEEN 1 AND 10),
+    last_run_at REAL,
+    last_status TEXT,
+    last_error TEXT,
+    updated_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS admin_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,

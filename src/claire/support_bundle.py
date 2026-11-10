@@ -276,6 +276,7 @@ def _read_bundle_sidecar(
                 "size_bytes",
                 "created_at",
                 "expires_at",
+                "account_id",
             )
         }
         if (

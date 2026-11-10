@@ -674,7 +674,7 @@ class RouteRule:
 
 - 분류표에 없는 새 프로바이더는 `host-cli`로 본다(fail-closed).
 - `openai`는 아직 구현이 없다([`PROVIDERS.md`](../implementation/PROVIDERS.md) §6). 그래서 멤버 키 등록 화면에도 내놓지 않는다.
-- `research`(`allow_tools=True`), Jev 평가, 텔레그램 봇 경로는 관리자 전용이다.
+- `research`(`allow_tools=True`), Jev 평가는 관리자 전용이다. 텔레그램 봇은 2026-11-10 결정 PA1부터 계정별 봇이다([PER_ACCOUNT_FEATURES_DESIGN.md](PER_ACCOUNT_FEATURES_DESIGN.md)).
 
 ### 10.2 ProviderContext
 

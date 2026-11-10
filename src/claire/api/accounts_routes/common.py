@@ -42,6 +42,8 @@ class AccountsContext:
     # §8.1-4 인스턴스 예약 라벨(현재 호스트 설정값에서 뽑는다).
     instance_reserved: frozenset[str]
     data_dir: Path | None = None
+    # 계정 기능(번들·백업)이 앱 설정(공개 URL·테마 관리자)을 쓴다. 테스트 대역은 None일 수 있다.
+    settings: Any = None
 
 
 def _host_of(value: Any) -> str:
@@ -74,6 +76,7 @@ def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsC
         config=config,
         instance_reserved=instance_reserved_labels(instance_hosts(settings, config)),
         data_dir=data_dir,
+        settings=settings,
     )
 
 

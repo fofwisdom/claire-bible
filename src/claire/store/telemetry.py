@@ -91,7 +91,16 @@ def connect_telemetry(db_path: Path | str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout=1000;")
     conn.executescript(TELEMETRY_SCHEMA)
+    _migrate_support_bundles_account_id(conn)
     return conn
+
+
+def _migrate_support_bundles_account_id(conn: sqlite3.Connection) -> None:
+    """``support_bundles``에 소유 계정 열을 더한다(멱등). NULL은 인스턴스 전체 번들(관리자 전용)이다."""
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(support_bundles)")}
+    if "account_id" not in existing:
+        conn.execute("ALTER TABLE support_bundles ADD COLUMN account_id INTEGER")
+        conn.commit()
 
 
 def diagnose_google_block(
@@ -593,8 +602,9 @@ def register_support_bundle(
     created_at: float,
     expires_at: float,
     target_doc_id: str | None = None,
+    account_id: int | None = None,
 ) -> None:
-    """생성된 Support Bundle 메타데이터를 telemetry.db에 등록."""
+    """생성된 Support Bundle 메타데이터를 telemetry.db에 등록. ``account_id``가 있으면 그 계정 범위 번들이다."""
     db_path = get_telemetry_db_path(data_dir)
     conn = connect_telemetry(db_path)
     try:
@@ -602,8 +612,8 @@ def register_support_bundle(
             """
             INSERT OR REPLACE INTO support_bundles (
                 bundle_id, token, filename, filepath, days_covered,
-                target_doc_id, size_bytes, created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                target_doc_id, size_bytes, created_at, expires_at, account_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 bundle_id,
@@ -615,6 +625,7 @@ def register_support_bundle(
                 size_bytes,
                 created_at,
                 expires_at,
+                account_id,
             ),
         )
         conn.commit()
@@ -660,18 +671,26 @@ def delete_support_bundle(
 def list_active_support_bundles(
     data_dir: Path | str | None,
     now_epoch: float | None = None,
+    *,
+    account_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """만료되지 않은 활성 Support Bundle 목록 조회."""
+    """만료되지 않은 활성 Support Bundle 목록 조회. ``account_id``를 주면 그 계정 범위 번들만 돌려준다."""
     db_path = get_telemetry_db_path(data_dir)
     if not db_path.is_file():
         return []
     now = now_epoch if now_epoch is not None else time.time()
     conn = connect_telemetry(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM support_bundles WHERE expires_at > ? ORDER BY created_at DESC",
-            (now,),
-        ).fetchall()
+        if account_id is None:
+            rows = conn.execute(
+                "SELECT * FROM support_bundles WHERE expires_at > ? ORDER BY created_at DESC",
+                (now,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM support_bundles WHERE expires_at > ? AND account_id = ? ORDER BY created_at DESC",
+                (now, int(account_id)),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

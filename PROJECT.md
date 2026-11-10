@@ -33,6 +33,14 @@ The architecture establishes:
 
 ---
 
+## Completed Project: Per-Account Features
+
+The Telegram bot, support bundle, data bundle, and backup are per-account features. Each account owner configures and controls them in the WebUI (`/settings/telegram`, `/settings/bundles`, `/settings/backups`). Only the operator restores an account backup (`/admin/backups`). Design and owner decisions PA1 through PA4: [`docs/design/PER_ACCOUNT_FEATURES_DESIGN.md`](docs/design/PER_ACCOUNT_FEATURES_DESIGN.md).
+
+**Status**: Completed on 2026-11-10.
+
+---
+
 ## Next Project: Fedify Sidecar Federation
 
 The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. No federation code exists at this time.

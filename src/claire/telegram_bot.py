@@ -19,11 +19,11 @@ from .store import db as dbm
 log = logging.getLogger("claire.telegram")
 
 
-class AdminThemeScope:
-    """텔레그램 봇이 보는 테마 관리자. 관리자 계정 소유 테마만 드러낸다(설계 §10.1 텔레그램은 관리자 전용).
+class AccountThemeScope:
+    """텔레그램 봇이 보는 테마 관리자. 봇 소유 계정의 테마만 드러낸다(유저 단위 봇).
 
     다른 계정의 테마는 없는 테마와 같게 다룬다(``ThemeNotFound``). 그래서 ``#태그``·``/theme`` 선택·재생성 대상·공유 토큰 어느 경로로도
-    멤버 테마에 적재하거나 멤버 계정의 컨텍스트로 작업하지 않는다. 나머지 메서드는 감싼 관리자에게 넘긴다.
+    다른 계정 테마에 적재하거나 다른 계정의 컨텍스트로 작업하지 않는다. 나머지 메서드는 감싼 관리자에게 넘긴다.
     """
 
     def __init__(self, inner: Any, account_id: int = dbm.ADMIN_ACCOUNT_ID) -> None:
@@ -68,6 +68,36 @@ class AdminThemeScope:
         if resolved is None or not self._theme_id_owned(resolved[0]):
             return None
         return resolved
+
+
+# 이전 이름. 관리자 봇도 같은 범위 규칙을 쓴다.
+AdminThemeScope = AccountThemeScope
+
+# 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(인스턴스 세션·토큰·전체 현황을 다루기 때문이다).
+ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webco", "webro", "token", "status"})
+# 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
+ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
+MEMBER_REFUSAL_TEXT = "이 명령은 운영자 봇에서만 쓸 수 있습니다. 웹 설정(/settings)을 쓰세요."
+
+
+def instance_bot_profile(settings: Any) -> Any:
+    """``TELEGRAM_BOT_TOKEN``(인스턴스 봇)을 관리자 계정 봇 프로필로 만든다. 토큰이 없으면 None.
+
+    허용 목록은 ``TELEGRAM_ALLOWED_USERS``이다. 비어 있으면 예전처럼 모두 허용한다(인스턴스 봇 호환).
+    """
+    from .store.telegram_bots import TelegramBotProfile, bot_id_from_token
+
+    token = str(getattr(settings, "telegram_bot_token", "") or "").strip()
+    if not token:
+        return None
+    return TelegramBotProfile(
+        account_id=dbm.ADMIN_ACCOUNT_ID,
+        bot_id=bot_id_from_token(token) or 0,
+        token=token,
+        allowed_user_ids=tuple(sorted(getattr(settings, "allowed_user_ids", None) or ())),
+        fingerprint="instance",
+        source="instance",
+    )
 
 
 def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
@@ -744,16 +774,28 @@ async def _create_graph_bundle_for_delivery(
         raise RuntimeError("Graph Bundle API returned an invalid response") from exc
 
 
-def build_app(settings: Settings | None = None) -> Any:
+def build_app(settings: Settings | None = None, *, profile: Any | None = None) -> Any:
+    """봇 하나의 Application을 만든다.
+
+    ``profile``이 None이면 인스턴스 봇(``TELEGRAM_BOT_TOKEN``, 관리자 계정)이다. 계정 봇은 ``store.telegram_bots.TelegramBotProfile``을 넘긴다.
+    계정 봇은 그 계정의 테마·프로바이더 컨텍스트로만 동작하고, 허용 목록(``allowed_user_ids``)에 없는 사용자는 무시한다.
+    """
     s = settings or get_settings()
-    if not s.telegram_bot_token:
-        raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+    if profile is None:
+        profile = instance_bot_profile(s)
+        if profile is None:
+            raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
     setup_telegram_logging(s.data_dir)
+    bot_account_id = int(profile.account_id)
+    is_admin_bot = bot_account_id == dbm.ADMIN_ACCOUNT_ID
+    is_instance_bot = getattr(profile, "source", "account") == "instance"
+    allowed_ids = frozenset(int(i) for i in (profile.allowed_user_ids or ()))
 
     def _is_allowed(user_id: int | None) -> bool:
-        if not s.allowed_user_ids:
-            return True
-        return user_id in s.allowed_user_ids
+        if not allowed_ids:
+            # 허용 목록이 빈 봇은 인스턴스 봇뿐이다(예전 동작). 계정 봇은 저장 때 빈 목록을 거부한다.
+            return is_instance_bot
+        return user_id in allowed_ids
 
     try:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -778,9 +820,50 @@ def build_app(settings: Settings | None = None) -> Any:
     logging.basicConfig(level=logging.INFO)
     # 텔레그램 봇은 관리자 전용이다(설계 §10.1). 서비스·풀은 관리자 컨텍스트(전역 settings = providers.json)로 만들고,
     # 테마 관리자를 관리자 계정 소유 테마로 좁혀 #태그·/theme·재생성 대상이 멤버 테마를 고르지 못하게 한다.
-    svc = IngestService(s, theme_id=None, account_id=dbm.ADMIN_ACCOUNT_ID)
-    theme_mgr = AdminThemeScope(get_theme_manager(s), dbm.ADMIN_ACCOUNT_ID)
-    service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr, account_id=dbm.ADMIN_ACCOUNT_ID)
+    theme_mgr = AccountThemeScope(get_theme_manager(s), bot_account_id)
+    if is_admin_bot:
+        svc = IngestService(s, theme_id=None, account_id=dbm.ADMIN_ACCOUNT_ID)
+        service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr, account_id=dbm.ADMIN_ACCOUNT_ID)
+    else:
+        # 멤버 계정 봇: 그 계정의 기본 테마 서비스(멤버 프로바이더 컨텍스트, 설계 §10.2)를 기본으로 쓴다.
+        service_pool = IngestServicePool(s, None, theme_manager=theme_mgr, account_id=bot_account_id)
+        svc = service_pool.get_service(None)
+
+    async def _deliver_support_bundle(*, days: int, target: str | None, channel: str):
+        if is_admin_bot:
+            return await _create_support_bundle_for_delivery(s, days=days, target=target, channel=channel)
+        from .account_support_bundle import create_account_support_bundle
+
+        return await asyncio.to_thread(
+            create_account_support_bundle,
+            s,
+            account_id=bot_account_id,
+            days=days,
+            target=target,
+            request_context={"channel": channel},
+        )
+
+    async def _deliver_graph_bundle(*, theme_id: int, channel: str):
+        if is_admin_bot:
+            return await _create_graph_bundle_for_delivery(s, theme_id=theme_id, channel=channel)
+        from .graph_bundle import create_graph_bundle
+
+        return await asyncio.to_thread(
+            create_graph_bundle,
+            s,
+            theme_id=theme_id,
+            request_context={"channel": channel},
+            account_id=bot_account_id,
+        )
+
+    async def _refuse_member(update: Any) -> bool:
+        """멤버 계정 봇이면 거부 응답을 보내고 True."""
+        if is_admin_bot:
+            return False
+        msg = getattr(update, "effective_message", None)
+        if msg is not None:
+            await msg.reply_text(MEMBER_REFUSAL_TEXT)
+        return True
     user_active_themes: dict[int, int] = {}
     pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, theme_id))
     pending_ingest: dict[str, dict[str, Any]] = {}  # 적재 대기 요청 임시 보관(콜백 토큰 -> dict)
@@ -1046,6 +1129,14 @@ def build_app(settings: Settings | None = None) -> Any:
         "  /help — 이 도움말\n"
         "  /start — 시작 안내"
     )
+
+    if not is_admin_bot:
+        # 멤버 계정 봇 도움말에서 운영자 전용 명령 줄을 뺀다.
+        HELP = "\n".join(
+            line
+            for line in HELP.splitlines()
+            if not any(line.strip().startswith(f"/{cmd} ") or line.strip() == f"/{cmd}" for cmd in ADMIN_ONLY_COMMANDS)
+        )
 
     async def on_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(HELP)
@@ -1631,6 +1722,9 @@ def build_app(settings: Settings | None = None) -> Any:
             data,
             query.from_user.id if query.from_user else None,
         )
+        if not is_admin_bot and data.startswith(ADMIN_ONLY_CALLBACK_PREFIXES):
+            # 멤버 계정 봇은 웹 로그인·OAuth 승인 콜백을 처리하지 않는다(위조 콜백 방지).
+            return
         if data.startswith("oauth_appr:"):
             user = update.effective_user
             if not _is_allowed(user.id if user else None):
@@ -1818,8 +1912,7 @@ def build_app(settings: Settings | None = None) -> Any:
                 pass
             status_msg = await query.message.reply_text(f"⏳ 문서 `{did}` 대상 Support Bundle 생성 중…")
             try:
-                info = await _create_support_bundle_for_delivery(
-                    s,
+                info = await _deliver_support_bundle(
                     days=1,
                     target=did,
                     channel="telegram_callback",
@@ -1962,6 +2055,8 @@ def build_app(settings: Settings | None = None) -> Any:
         # 링크는 첫 접속에서 cookie 세션으로 회전하고 URL 자체는 즉시 무효화된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        if await _refuse_member(update):
+            return
 
         if not s.public_url:
             await update.message.reply_text(
@@ -1993,6 +2088,8 @@ def build_app(settings: Settings | None = None) -> Any:
         # 내 소유자 세션은 그대로 살아있다. 소유자만 발급 가능.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        if await _refuse_member(update):
+            return
 
         if not s.public_url:
             await update.message.reply_text(
@@ -2021,6 +2118,8 @@ def build_app(settings: Settings | None = None) -> Any:
         # 공개된 추가 지식 테마에 접근하고 자료를 적재할 수 있으며, 기본 지식베이스 및 관리 기능은 제한된다.
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        if await _refuse_member(update):
+            return
 
         if not s.public_url:
             await update.message.reply_text(
@@ -2047,6 +2146,8 @@ def build_app(settings: Settings | None = None) -> Any:
     async def on_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """API 및 MCP 상시 이용 토큰 관리 (조회/생성/폐기)."""
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
+            return
+        if await _refuse_member(update):
             return
         msg = update.effective_message
         if not msg:
@@ -2146,6 +2247,8 @@ def build_app(settings: Settings | None = None) -> Any:
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
+        if await _refuse_member(update):
+            return
         msg = update.effective_message
         if not msg:
             return
@@ -2197,7 +2300,16 @@ def build_app(settings: Settings | None = None) -> Any:
         )
 
         if sub_args and sub_args[0].lower() == "list":
-            bundles = await asyncio.to_thread(list_active_support_bundles, s.data_dir)
+            if is_admin_bot:
+                # 운영자 봇은 인스턴스 번들만 본다(계정 번들은 그 계정의 것이다).
+                bundles = [
+                    b for b in await asyncio.to_thread(list_active_support_bundles, s.data_dir)
+                    if b.get("account_id") is None
+                ]
+            else:
+                bundles = await asyncio.to_thread(
+                    lambda: list_active_support_bundles(s.data_dir, account_id=bot_account_id)
+                )
             if not bundles:
                 await msg.reply_text("현재 활성화된 유효 Support Bundle이 없습니다.")
                 return
@@ -2250,8 +2362,7 @@ def build_app(settings: Settings | None = None) -> Any:
         status_msg = await msg.reply_text(f"⏳ Support Bundle 생성 중… (최근 {days}일){target_info}")
 
         try:
-            info = await _create_support_bundle_for_delivery(
-                s,
+            info = await _deliver_support_bundle(
                 days=days,
                 target=target,
                 channel="telegram_command",
@@ -2324,7 +2435,12 @@ def build_app(settings: Settings | None = None) -> Any:
         )
 
         if sub_args and sub_args[0].lower() == "list":
-            bundles = await asyncio.to_thread(list_active_graph_bundles, s.data_dir)
+            if is_admin_bot:
+                bundles = await asyncio.to_thread(list_active_graph_bundles, s.data_dir)
+            else:
+                from .graph_bundle import list_account_graph_bundles
+
+                bundles = await asyncio.to_thread(list_account_graph_bundles, s.data_dir, bot_account_id)
             if not bundles:
                 await msg.reply_text("현재 활성화된 유효 Graph Bundle이 없습니다.")
                 return
@@ -2357,11 +2473,17 @@ def build_app(settings: Settings | None = None) -> Any:
                     "사용법: /export graph [theme_id]"
                 )
                 return
+        if not is_admin_bot:
+            # 멤버 계정 봇은 자기 테마만 내보낸다. 번호가 없으면 기본 테마다.
+            try:
+                theme_id = theme_mgr.get_theme(theme_id if sub_args else None).id
+            except ThemeNotFound:
+                await msg.reply_text("⚠️ 내 계정의 테마가 아닙니다. /theme 으로 테마 번호를 확인하세요.")
+                return
 
         status_msg = await msg.reply_text("⏳ 그래프 데이터 번들 생성 중…")
         try:
-            info = await _create_graph_bundle_for_delivery(
-                s,
+            info = await _deliver_graph_bundle(
                 theme_id=theme_id,
                 channel="telegram_command",
             )
@@ -2537,7 +2659,7 @@ def build_app(settings: Settings | None = None) -> Any:
         except Exception as e:  # noqa: BLE001
             await status.edit_text(f"❌ 재시도 오류: {e}")
 
-    app = Application.builder().token(s.telegram_bot_token).build()
+    app = Application.builder().token(profile.token).build()
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("help", on_help))
     app.add_handler(CommandHandler("status", on_status))
@@ -2579,7 +2701,7 @@ def build_app(settings: Settings | None = None) -> Any:
         # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.
         from telegram import BotCommand
 
-        await application.bot.set_my_commands([
+        commands = [
             BotCommand("theme", "테마(지식베이스) 선택 및 확인"),
             BotCommand("help", "사용법"),
             BotCommand("status", "현황(그래프/수렴/최근)"),
@@ -2595,25 +2717,25 @@ def build_app(settings: Settings | None = None) -> Any:
             BotCommand("failed", "실패/영구실패 점검"),
             BotCommand("retry", "실패 항목 재시도"),
             BotCommand("start", "시작 안내"),
-        ])
+        ]
+        if not is_admin_bot:
+            commands = [c for c in commands if c.command not in ADMIN_ONLY_COMMANDS]
+        await application.bot.set_my_commands(commands)
 
     app.post_init = _post_init
     return app
 
 
 def run_bot() -> int:
-    s = get_settings()
-    if not s.telegram_bot_token:
-        print("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
-        return 2
-    setup_telegram_logging(s.data_dir)
+    """``claire bot``: 인스턴스 봇과 계정 봇을 함께 돌린다(``telegram_supervisor``).
 
+    ``TELEGRAM_BOT_TOKEN``이 없어도 멈추지 않는다. 계정이 WebUI에서 봇을 등록하면 다음 주기에 시작한다.
+    """
     try:
-        app = build_app(s)
-    except Exception as e:
-        print(f"Telegram bot 초기화 실패: {e}")
+        import telegram  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        print(f"python-telegram-bot 미설치: {e}")
         return 2
+    from .telegram_supervisor import run_supervisor
 
-    print("claire telegram bot 시작 (long-polling). Ctrl+C 로 종료.")
-    app.run_polling()
-    return 0
+    return run_supervisor(get_settings())

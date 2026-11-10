@@ -80,6 +80,9 @@ from .security import (
 )
 
 log = logging.getLogger("claire.api")
+# 계정 자동 백업 주기 검사(초). 백업 주기 자체는 계정 정책(매일·매주)이 정한다.
+ACCOUNT_BACKUP_SCHEDULER_START_DELAY = 60.0
+ACCOUNT_BACKUP_SCHEDULER_INTERVAL = 600.0
 _SW_JS_CONTENT: str = (
     "// Claire PWA Network-Passthrough Service Worker\n"
     "self.addEventListener('install', (event) => {\n"
@@ -4550,8 +4553,30 @@ def create_app(
 
         await asyncio.to_thread(purge_expired_bundles, s.data_dir)
         await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
-        async with mcp_app.router.lifespan_context(mcp_app):
-            yield
+        backup_task = asyncio.create_task(_account_backup_scheduler())
+        try:
+            async with mcp_app.router.lifespan_context(mcp_app):
+                yield
+        finally:
+            backup_task.cancel()
+            try:
+                await backup_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
+    async def _account_backup_scheduler() -> None:
+        """계정 자동 백업(``account_backup.run_due_backups``)을 주기적으로 실행한다. 첫 실행은 기동 1분 뒤다."""
+        from ..account_backup import run_due_backups
+
+        await asyncio.sleep(ACCOUNT_BACKUP_SCHEDULER_START_DELAY)
+        while True:
+            try:
+                results = await asyncio.to_thread(run_due_backups, s)
+                for item in results:
+                    log.info("scheduled account backup: %s", item)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("scheduled account backup cycle failed: %s", type(exc).__name__)
+            await asyncio.sleep(ACCOUNT_BACKUP_SCHEDULER_INTERVAL)
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
     static_dir.mkdir(parents=True, exist_ok=True)

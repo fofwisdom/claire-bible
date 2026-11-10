@@ -27,7 +27,11 @@ SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespa
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
        "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
-       "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}"}
+       "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
+       # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
+       "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
+       "/api/me/data-bundles", "/api/me/data-bundles/download",
+       "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -48,6 +52,8 @@ SYSTEM = {
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
     "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
     "/api/admin/mcp/telemetry",
+    "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
+    "/settings/telegram", "/settings/bundles", "/settings/backups",
     "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",
@@ -71,6 +77,8 @@ ADMIN_KEYS = {
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
+    *((m, p) for p in ("/admin/backups", "/api/admin/account-backups") for m in ("GET", "HEAD")),
+    ("POST", "/api/admin/account-backups/restore"),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {

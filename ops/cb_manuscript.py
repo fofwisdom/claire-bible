@@ -4231,7 +4231,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Display logs of Docker Compose services (docker compose logs).\n\n"
             "Target services:\n"
             "  api                   API web server container\n"
-            "  bot                   Telegram bot container (when TELEGRAM_BOT_TOKEN is set)"
+            "  bot                   Telegram bot runner (instance bot and per-account bots)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(

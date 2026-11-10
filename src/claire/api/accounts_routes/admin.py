@@ -432,6 +432,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         updated = store.purge(target.id, data_dir=data_dir)
                     except accounts_store.AccountStateError as exc:
                         return json_error(400, "invalid_state_transition", detail=str(exc))
+                    # 유저 단위 기능의 계정 자료(봇 토큰·백업 정책·계정 백업·계정 번들)도 지운다.
+                    from .features import purge_account_features
+
+                    purge_account_features(auth_conn, target.id, data_dir=ctx.data_dir or data_dir)
                     auth_db.record_admin_audit(
                         auth_conn,
                         actor_account_id=principal.account_id,

@@ -1864,3 +1864,89 @@ async def test_on_callback_oauth_approve_and_deny(tmp_path: Path):
     conn_check.close()
 
 
+
+
+async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monkeypatch):
+    """계정 봇: 허용 목록 밖 사용자는 무시하고, 운영자 전용 명령·콜백을 거부하고, 다른 계정 테마를 내보내지 않는다."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from claire.config import Settings
+    from claire.store import db as dbm
+    from claire.store.telegram_bots import TelegramBotProfile
+    from claire.store.theme import ThemeManager
+    from claire import telegram_bot
+    from claire.telegram_bot import build_app
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    settings = Settings(
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_MULTI_THEME=True,
+        telegram_bot_token="",
+    )
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    member = conn.execute(
+        "INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)"
+    ).lastrowid
+    conn.commit()
+    conn.close()
+    tm = ThemeManager(settings)
+    own = tm.define_theme("내 테마", account_id=member, is_default=True)
+    other = tm.define_theme("관리자 테마")
+
+    profile = TelegramBotProfile(account_id=member, bot_id=7100000001, token="7100000001:" + "A" * 35, allowed_user_ids=(42,), fingerprint="abcd1234")
+    app = build_app(settings, profile=profile)
+    handlers = {getattr(h.callback, "__name__", ""): h.callback for h in app.handlers[0]}
+
+    def _update(user_id: int):
+        msg = AsyncMock()
+        msg.reply_text = AsyncMock(return_value=AsyncMock())
+        update = MagicMock()
+        update.effective_user = SimpleNamespace(id=user_id)
+        update.effective_message = msg
+        update.message = msg
+        return update, msg
+
+    ctx = MagicMock()
+    ctx.args = []
+    # 허용 목록 밖 사용자는 무시한다.
+    update, msg = _update(7)
+    await handlers["on_web"](update, ctx)
+    msg.reply_text.assert_not_called()
+    # 운영자 전용 명령은 거부한다(세션을 만들지 않는다).
+    for name in ("on_web", "on_webco", "on_webro", "on_token", "on_status"):
+        update, msg = _update(42)
+        await handlers[name](update, ctx)
+        assert msg.reply_text.call_args[0][0] == telegram_bot.MEMBER_REFUSAL_TEXT
+    # 도움말에 운영자 전용 명령이 없다.
+    update, msg = _update(42)
+    await handlers["on_help"](update, ctx)
+    assert "/web " not in msg.reply_text.call_args[0][0] and "/search" in msg.reply_text.call_args[0][0]
+    # 웹 로그인 승인 콜백은 처리하지 않는다.
+    query = AsyncMock()
+    query.data = "auth:nonce"
+    cb_update = MagicMock()
+    cb_update.callback_query = query
+    cb_update.effective_user = SimpleNamespace(id=42)
+    await handlers["on_callback"](cb_update, ctx)
+    query.edit_message_text.assert_not_called()
+
+    # 다른 계정 테마는 내보내지 않고, 내 테마는 계정 소유로 만든다.
+    created: list[dict] = []
+
+    def _fake_create(_s, **kwargs):
+        created.append(kwargs)
+        raise RuntimeError("stop after capture")
+
+    monkeypatch.setattr("claire.graph_bundle.create_graph_bundle", _fake_create)
+    update, msg = _update(42)
+    ctx.args = ["graph", str(other.id)]
+    await handlers["on_export"](update, ctx)
+    assert "내 계정의 테마가 아닙니다" in msg.reply_text.call_args[0][0] and created == []
+    update, msg = _update(42)
+    ctx.args = ["graph"]
+    await handlers["on_export"](update, ctx)
+    assert created and created[0]["theme_id"] == own.id and created[0]["account_id"] == member

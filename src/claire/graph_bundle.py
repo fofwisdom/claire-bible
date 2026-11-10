@@ -230,6 +230,7 @@ def _read_bundle_sidecar(
                 "size_bytes",
                 "created_at",
                 "expires_at",
+                "account_id",
             )
         }
         if (
@@ -328,6 +329,101 @@ def list_active_graph_bundles(
     return active_bundles
 
 
+def _record_account_id(record: dict[str, Any]) -> int:
+    """Return the owner account of a registry record. Records without owner come from the admin era."""
+    raw = record.get("account_id")
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    return dbm.ADMIN_ACCOUNT_ID
+
+
+def _public_bundle_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Registry record without token digest or file path."""
+    return {
+        "bundle_id": record.get("bundle_id"),
+        "filename": record.get("filename"),
+        "theme_id": record.get("theme_id"),
+        "entities_count": record.get("entities_count"),
+        "relations_count": record.get("relations_count"),
+        "documents_count": record.get("documents_count"),
+        "size_bytes": record.get("size_bytes"),
+        "created_at": datetime.fromtimestamp(float(record.get("created_at") or 0.0), timezone.utc).isoformat(),
+        "expires_at": datetime.fromtimestamp(float(record.get("expires_at") or 0.0), timezone.utc).isoformat(),
+    }
+
+
+def list_account_graph_bundles(
+    data_dir: Path | str | None,
+    account_id: int,
+    now_epoch: float | None = None,
+) -> list[dict[str, Any]]:
+    """List active graph bundles of one account. The result has no token and no file path."""
+    return [
+        _public_bundle_record(r)
+        for r in list_active_graph_bundles(data_dir, now_epoch=now_epoch)
+        if _record_account_id(r) == int(account_id)
+    ]
+
+
+def _find_account_sidecar(
+    data_dir: Path | str | None,
+    account_id: int,
+    bundle_id: str,
+) -> tuple[Path, dict[str, Any]] | None:
+    registry_dir = _bundle_registry_path(data_dir)
+    if not registry_dir.is_dir():
+        return None
+    for sidecar in registry_dir.glob("*.json"):
+        try:
+            raw = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(raw, dict) or raw.get("bundle_id") != bundle_id:
+            continue
+        if _record_account_id(raw) != int(account_id):
+            return None
+        return sidecar, raw
+    return None
+
+
+def find_account_graph_bundle(
+    data_dir: Path | str | None,
+    account_id: int,
+    bundle_id: str,
+    now_epoch: float | None = None,
+) -> dict[str, Any] | None:
+    """Return one active bundle of the account with a validated ``filepath``, or None."""
+    found = _find_account_sidecar(data_dir, account_id, bundle_id)
+    if found is None:
+        return None
+    _sidecar, raw = found
+    now = now_epoch if now_epoch is not None else time.time()
+    expires_at = raw.get("expires_at")
+    if not isinstance(expires_at, (int, float)) or expires_at <= now:
+        return None
+    path = _validated_archive_path(data_dir, raw)
+    if path is None or not path.is_file():
+        return None
+    return {**_public_bundle_record(raw), "filepath": str(path)}
+
+
+def delete_account_graph_bundle(
+    data_dir: Path | str | None,
+    account_id: int,
+    bundle_id: str,
+) -> bool:
+    """Delete one bundle of the account (archive and registry). Return False when the account has no such bundle."""
+    found = _find_account_sidecar(data_dir, account_id, bundle_id)
+    if found is None:
+        return False
+    sidecar, raw = found
+    path = _validated_archive_path(data_dir, raw)
+    if path is not None:
+        path.unlink(missing_ok=True)
+    sidecar.unlink(missing_ok=True)
+    return True
+
+
 def purge_expired_graph_bundles(
     data_dir: Path | str | None,
     now_epoch: float | None = None,
@@ -378,8 +474,12 @@ def create_graph_bundle(
     request_context: dict[str, Any] | None = None,
     output_path: str | Path | None = None,
     now_epoch: float | None = None,
+    account_id: int | None = None,
 ) -> GraphBundleInfo:
-    """Create a compressed graph data bundle with entities, relations, and documents."""
+    """Create a compressed graph data bundle with entities, relations, and documents.
+
+    ``account_id`` records the owner account in the registry. When it is None, the owner of the theme is used.
+    """
     s = settings or get_settings()
     data_dir = getattr(s, "data_dir", Path("data"))
     now = now_epoch if now_epoch is not None else time.time()
@@ -402,6 +502,8 @@ def create_graph_bundle(
             tm = get_theme_manager(s)
             theme_info = tm.get_theme(resolved_theme_id)
             db_file = Path(theme_info.db_path)
+            if account_id is None:
+                account_id = getattr(theme_info, "account_id", None)
         except Exception as exc:
             logger.warning("Theme lookup failed for %s (%s). Fall back to settings.db_file.", theme_id, exc)
 
@@ -680,6 +782,7 @@ def create_graph_bundle(
         "documents_count": documents_count,
         "created_at": now,
         "expires_at": expires_at,
+        "account_id": int(account_id) if account_id is not None else dbm.ADMIN_ACCOUNT_ID,
     }
     _write_bundle_sidecar(data_dir, token=token, record=sidecar_record)
 
