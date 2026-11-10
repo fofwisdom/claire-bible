@@ -51,7 +51,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 |------|--------|--------|
 | FP0 | COMPLETED (2026-11-10) | `116d530` |
 | FP1-1 | COMPLETED (2026-11-10) | `56d40c9` |
-| FP1-2 | PLANNED | |
+| FP1-2 | COMPLETED (2026-11-10) | `ef42ef2` |
 | FP1-3 | PLANNED | |
 | FP1-4 | PLANNED | |
 | FP1-5 | PLANNED | |
@@ -67,6 +67,8 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP3-3 | PLANNED | |
 | FP3-4 | PLANNED | |
 | FP3-5 | PLANNED | |
+
+Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
 
 Effects on the contracts in this file:
 - **Contract 1 (R1)**: Decision FD11 adds one condition in phase FP1. When federation is on, a `profile_public` change from 0 to 1 requires recent authentication. The contract below is correct until FP1.
