@@ -36,7 +36,8 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 
 # v3 (P5 L5-b): ``oidc_states``에 계정 연결용 ``account_id``를 더한다(§12-7, §13.3).
 # v4 (유저 단위 기능): ``account_telegram_bots``(계정별 텔레그램 봇)와 ``account_backup_policies``(계정 백업 주기)를 더한다.
-AUTH_DB_SCHEMA_VERSION = 4
+# v5 (Fedify sidecar FP1-2): adds ``actor_keys`` (federation actor key pairs, ``store/actor_keys.py``). The design document names this change "auth.db version 4" because it was written before v4 was used.
+AUTH_DB_SCHEMA_VERSION = 5
 AUTH_DB_RELATIVE_PATH = Path("auth") / "auth.db"
 
 # §8.5 scrypt 매개변수. n=2^15, r=8이면 128·n·r = 32MiB이므로 hashlib 기본 maxmem(32MiB)으로는
@@ -532,6 +533,16 @@ CREATE TABLE IF NOT EXISTS account_backup_policies (
     last_status TEXT,
     last_error TEXT,
     updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS actor_keys (
+    account_id INTEGER NOT NULL,
+    alg TEXT NOT NULL CHECK (alg IN ('rsa2048', 'ed25519')),
+    public_jwk TEXT NOT NULL,
+    private_ciphertext BLOB NOT NULL,
+    private_nonce BLOB NOT NULL,
+    key_version INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (account_id, alg)
 );
 CREATE TABLE IF NOT EXISTS admin_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,

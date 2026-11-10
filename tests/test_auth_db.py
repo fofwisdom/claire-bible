@@ -63,7 +63,7 @@ def test_schema_creates_all_tables_and_is_idempotent(conn):
     adb.init_auth_db(conn)
     assert [tuple(r) for r in _schema_snapshot(conn)] == before
     rows = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchall()
-    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["4"]
+    assert [r[0] for r in rows] == [str(adb.AUTH_DB_SCHEMA_VERSION)] == ["5"]
 
 
 def test_reconnect_keeps_data(tmp_path, fast_scrypt):
