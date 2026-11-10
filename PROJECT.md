@@ -39,7 +39,7 @@ The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| FP0 | Technical checks for the items that the design marks as not verified (FT1 through FT7) | PLANNED |
+| FP0 | Technical checks FT1 through FT7. Check programs: `sidecar/fedify/spike/` | COMPLETED (2026-11-10) |
 | FP1 | Internal federation API, service key, actor keys, sidecar with WebFinger, NodeInfo, and actor documents | PLANNED |
 | FP2 | Followers, inbox events, domain blocks, console sections | PLANNED |
 | FP3 | Publishing, outbox, lifecycle tasks, privacy triggers | PLANNED |
