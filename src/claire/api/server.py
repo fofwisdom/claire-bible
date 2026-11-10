@@ -1861,17 +1861,41 @@ def create_app(
                 raise
             except Exception:
                 pass
-        return HTMLResponse(
-            render_graph_html(
-                s,
-                include_private=include_private,
-                collaborator=is_collaborator,
-                theme=theme,
-                host=request.headers.get("host"),
-                request=request,
-                account_id=account_id,
-            )
+        html_text = render_graph_html(
+            s,
+            include_private=include_private,
+            collaborator=is_collaborator,
+            theme=theme,
+            host=request.headers.get("host"),
+            request=request,
+            account_id=account_id,
         )
+        # The profile page of a federation actor points to the actor ID (Fedify sidecar design Section 5.1 rule 2). The path has no content negotiation.
+        headers: dict[str, str] = {}
+        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_theme_id is None:
+            actor_url = await asyncio.to_thread(_profile_actor_url, account_id)
+            if actor_url is not None:
+                link_tag = f'<link rel="alternate" type="application/activity+json" href="{html.escape(actor_url, quote=True)}">'
+                html_text = html_text.replace("</head>", f"{link_tag}\n</head>", 1)
+                headers["Link"] = f'<{actor_url}>; rel="alternate"; type="application/activity+json"'
+        return HTMLResponse(html_text, headers=headers)
+
+    def _profile_actor_url(account_id: int) -> str | None:
+        """Actor ID of the account, or ``None`` when the account is not a federation actor (FK4)."""
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            store = accounts_store.AccountStore(conn)
+            if store.federation_state() != "on" or store.instance_mode() != "network":
+                return None
+            try:
+                account = store.get(account_id)
+            except accounts_store.AccountNotFound:
+                return None
+        finally:
+            conn.close()
+        if account.status != "active" or not account.profile_public:
+            return None
+        return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
 
     def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, ThemeInfo | None]:
         try:

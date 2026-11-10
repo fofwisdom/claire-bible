@@ -382,6 +382,83 @@
     });
   }
 
+  // --- Step-up dialog (Fedify sidecar design Section 8.4). With federation on, the server refuses the profile_public change 0 -> 1 without recent authentication. ---
+
+  // Resolves to true after POST /api/auth/reauth succeeds, and to false when the user closes the dialog.
+  function openStepUpDialog() {
+    return new Promise(function (resolve) {
+      var dialog = document.createElement("dialog");
+      dialog.className = "console-step-up";
+      dialog.setAttribute("data-step-up-dialog", "");
+      dialog.setAttribute("aria-labelledby", "step-up-title");
+      var form = document.createElement("form");
+      form.setAttribute("method", "dialog");
+      var title = document.createElement("h2");
+      title.id = "step-up-title";
+      title.textContent = "본인 확인";
+      var text = document.createElement("p");
+      text.className = "hint";
+      text.textContent = "프로필을 공개하면 다른 서버에서 이 계정을 찾고 팔로우할 수 있습니다. 계속하려면 현재 비밀번호를 입력하세요.";
+      var label = document.createElement("label");
+      label.textContent = "현재 비밀번호";
+      var field = document.createElement("input");
+      field.type = "password";
+      field.name = "password";
+      field.className = "pref-input";
+      field.required = true;
+      field.autocomplete = "current-password";
+      label.appendChild(field);
+      var result = document.createElement("p");
+      result.className = "result";
+      result.setAttribute("data-settings-result", "");
+      result.setAttribute("role", "status");
+      result.setAttribute("aria-live", "polite");
+      var confirm = document.createElement("button");
+      confirm.type = "submit";
+      confirm.className = "pref-btn pref-btn-accent";
+      confirm.setAttribute("data-step-up-confirm", "");
+      confirm.textContent = "확인하고 공개";
+      var cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "pref-btn";
+      cancel.setAttribute("data-step-up-cancel", "");
+      cancel.textContent = "취소";
+      [title, text, label, result, confirm, cancel].forEach(function (node) { form.appendChild(node); });
+      dialog.appendChild(form);
+      document.body.appendChild(dialog);
+
+      var confirmed = false;
+      dialog.addEventListener("close", function () {
+        field.value = "";
+        dialog.remove();
+        resolve(confirmed);
+      });
+      cancel.addEventListener("click", function () { dialog.close(); });
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var value = field.value;
+        field.value = "";
+        confirm.disabled = true;
+        request("POST", "/api/auth/reauth", { password: value }).then(function (r) {
+          value = "";
+          if (r.ok) {
+            confirmed = true;
+            dialog.close();
+            return;
+          }
+          show(form, errorText(r.status, r.body), true);
+          field.focus();
+        }).catch(function () {
+          show(form, "서버에 연결하지 못했습니다.", true);
+        }).then(function () {
+          confirm.disabled = false;
+        });
+      });
+      dialog.showModal();
+      field.focus();
+    });
+  }
+
   function bindToggles() {
     var toggles = document.querySelectorAll("input[data-settings-toggle='profile-public']");
     Array.prototype.forEach.call(toggles, function (input) {
@@ -389,15 +466,23 @@
         var section = input.closest("section") || input.parentElement;
         var checked = input.checked;
         input.disabled = true;
-        request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
-          if (r.ok) {
-            show(section, "저장했습니다.", false);
-            var dd = document.querySelector("[data-account-field='profile_public']");
-            if (dd) dd.textContent = checked ? "공개 (공개 디렉터리에 표시)" : "비공개";
-          } else {
+        // The step-up dialog opens before the change to public is sent. An account without a password has no dialog: the server answers from the session age.
+        var ready = checked && input.getAttribute("data-step-up") === "password" ? openStepUpDialog() : Promise.resolve(true);
+        ready.then(function (confirmed) {
+          if (!confirmed) {
             input.checked = !checked;
-            show(section, errorText(r.status, r.body), true);
+            return null;
           }
+          return request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
+            if (r.ok) {
+              show(section, "저장했습니다.", false);
+              var dd = document.querySelector("[data-account-field='profile_public']");
+              if (dd) dd.textContent = checked ? "공개 (공개 디렉터리에 표시)" : "비공개";
+            } else {
+              input.checked = !checked;
+              show(section, errorText(r.status, r.body), true);
+            }
+          });
         }).catch(function () {
           input.checked = !checked;
           show(section, "서버에 연결하지 못했습니다.", true);

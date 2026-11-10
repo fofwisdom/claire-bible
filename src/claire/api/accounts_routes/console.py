@@ -876,6 +876,14 @@ def _settings_enabled_idp_providers(ctx: AccountsContext) -> list[auth_db.IdpPro
     return [p for p in auth_db.load_idp_providers(data_dir, include_secrets=False) if p.enabled]
 
 
+def _federation_on(ctx: AccountsContext) -> bool:
+    conn = open_db(ctx)
+    try:
+        return accounts_store.AccountStore(conn).federation_state() == "on"
+    finally:
+        conn.close()
+
+
 def _settings_account_body(
     ctx: AccountsContext,
     *,
@@ -909,11 +917,22 @@ def _settings_account_body(
     if mode == "network":
         info_rows.append(("profile_public", "프로필 공개", "공개 (공개 디렉터리에 표시)" if account.profile_public else "비공개"))
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
+    # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
+    federation_on = mode == "network" and _federation_on(ctx)
+    step_up_attr = ""
+    if federation_on:
+        step_up_attr = ' data-step-up="password"' if has_password else ' data-step-up="session"'
+    federation_hint_html = (
+        '<p class="hint" data-federation-hint>연합이 켜져 있습니다. 프로필을 공개하면 다른 서버에서 이 계정을 찾고 팔로우할 수 있으며, 공개로 바꿀 때 본인 확인이 필요합니다. 비공개로 바꾸면 연합이 일시 중지되지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.</p>'
+        if federation_on
+        else ""
+    )
     profile_toggle_html = (
         '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
         '<label for="pref-profile-public" style="font-size:12.5px;font-weight:600">프로필 공개</label>'
-        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{" checked" if account.profile_public else ""} aria-label="프로필 공개 여부"/>'
+        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{step_up_attr}{" checked" if account.profile_public else ""} aria-label="프로필 공개 여부"/>'
         '</div>'
+        f'{federation_hint_html}'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         if mode == "network"
         else ""
