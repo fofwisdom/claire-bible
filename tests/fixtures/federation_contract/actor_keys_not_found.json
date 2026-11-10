@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/216412345678901234/keys"
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

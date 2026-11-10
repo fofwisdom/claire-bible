@@ -412,6 +412,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return 200, {"mode": "network", "changed": True}
 
                 # network -> single:
+                # Federation operates in network mode only (Fedify sidecar design FK3, Section 8.1). The admin must turn federation off first.
+                if store.federation_state() == "on":
+                    return 400, {
+                        "error": "federation_enabled",
+                        "detail": "Cannot switch to single mode while federation is on",
+                    }
                 # invited/active/suspended 상태의 멤버가 없어야 한다
                 rows = conn.execute(
                     "SELECT id, username, status, role FROM accounts WHERE role != 'admin' AND status IN ('invited', 'active', 'suspended')"

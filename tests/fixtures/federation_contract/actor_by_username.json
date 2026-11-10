@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/by-username/alice"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "116412345678901234",
+    "username": "alice",
+    "display_name": "Alice Kim",
+    "activated_at": 1800000100.5,
+    "updated_at": 1800000200.25,
+    "profile_url": "https://claire.example.com/@alice/"
+  }
+}

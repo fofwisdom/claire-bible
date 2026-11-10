@@ -284,13 +284,19 @@ def test_e2e_internal_paths_answer_on_the_socket_only(tmp_path):
             return _signed(key, method, path, timestamp=int(time.time()))
 
         with httpx.Client(transport=httpx.HTTPTransport(uds=str(sock_path)), base_url="http://internal") as internal:
-            # The internal sub-application answers on the socket. It has no routes at unit FP1-1.
+            # The internal sub-application answers on the socket.
             assert internal.get(target).status_code == 401
             assert internal.get(target, headers={**fresh("GET", target), SIGNATURE_HEADER: "0" * 64}).status_code == 401
             assert internal.get(target, headers=_signed(key, "GET", target, timestamp=int(time.time()) - 600)).status_code == 401
             signed = internal.get(target, headers=fresh("GET", target))
-            assert signed.status_code == 404
-            assert signed.json() == {"error": "not_found"}
+            assert signed.status_code == 200
+            assert signed.json()["canonical_origin"] == public
+            assert (signed.json()["mode"], signed.json()["federation"]) == ("single", "off")
+            unknown = f"{INTERNAL_PREFIX}/unknown"
+            assert internal.get(unknown, headers=fresh("GET", unknown)).json() == {"error": "not_found"}
+            # The instance actor has no keys while federation is off.
+            keys = f"{INTERNAL_PREFIX}/actors/instance/keys"
+            assert internal.get(keys, headers=fresh("GET", keys)).status_code == 404
             # The Host header of the public listener does not select the public application.
             assert internal.get("/health", headers={"Host": f"127.0.0.1:{port}"}).status_code == 401
             assert internal.get("/health", headers={**fresh("GET", "/health"), "Host": f"127.0.0.1:{port}"}).json() == {"error": "not_found"}

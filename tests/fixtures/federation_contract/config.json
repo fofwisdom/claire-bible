@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/config"
+  },
+  "status": 200,
+  "response": {
+    "contract_version": "1.0",
+    "canonical_origin": "https://claire.example.com",
+    "handle_host": "claire.example.com",
+    "mode": "network",
+    "federation": "on",
+    "software": {
+      "name": "claire-bible",
+      "version": "0.0.0+fixture"
+    },
+    "trusted_proxies": [
+      "10.0.0.0/8",
+      "fd00::/8"
+    ]
+  }
+}

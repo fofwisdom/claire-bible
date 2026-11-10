@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/by-username/private_bob"
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

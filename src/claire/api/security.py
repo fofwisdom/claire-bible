@@ -2281,4 +2281,7 @@ def wrap_web_app(
         return secured
     from .federation_internal import ListenerRouter, create_internal_federation_app, federation_socket_path
 
-    return ListenerRouter(secured, create_internal_federation_app(settings), federation_socket_path(data_dir))
+    from .federation_routes import federation_internal_routes
+
+    internal = create_internal_federation_app(settings, routes=federation_internal_routes(settings))
+    return ListenerRouter(secured, internal, federation_socket_path(data_dir))

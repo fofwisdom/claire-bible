@@ -173,6 +173,24 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     assert admin_doc_res.status_code == 200
     assert "지식 그래프" in admin_doc_res.text
 
+    # 6b. While federation is on, the change to single mode is refused (Fedify sidecar design Section 8.1).
+    from claire.store import accounts as _accounts_store
+    from claire.store import db as _dbm
+
+    def _set_federation(state: str) -> None:
+        fed_conn = _dbm.connect_existing(app_env.settings.db_file)
+        try:
+            _accounts_store.AccountStore(fed_conn).set_federation_state(state, updated_by=1)
+        finally:
+            fed_conn.close()
+
+    _set_federation("on")
+    refused = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    assert refused.status_code == 400
+    assert refused.json()["error"] == "federation_enabled"
+    assert app_env.client.get("/whoami", headers=headers).json()["instance"]["mode"] == "network"
+    _set_federation("off")
+
     # 7. Transition back network -> single mode -> succeeds when no non-admin members exist
     back_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
     assert back_resp.status_code == 200

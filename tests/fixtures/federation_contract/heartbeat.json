@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/heartbeat",
+    "body": {
+      "contract_version": "1.0",
+      "sidecar_version": "0.1.0",
+      "queue_depth": 3,
+      "self_check": {
+        "ok": true,
+        "checked_at": 1800000300.0
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "contract_version": "1.0",
+    "federation": "on"
+  }
+}
