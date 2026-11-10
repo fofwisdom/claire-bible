@@ -53,7 +53,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP1-1 | COMPLETED (2026-11-10) | `56d40c9` |
 | FP1-2 | COMPLETED (2026-11-10) | `ef42ef2` |
 | FP1-3 | COMPLETED (2026-11-11) | `2a0819e` |
-| FP1-4 | PLANNED | |
+| FP1-4 | COMPLETED (2026-11-11) | `b65b1e3` |
 | FP1-5 | PLANNED | |
 | FP1-6 | PLANNED | |
 | FP1-7 | PLANNED | |
@@ -71,7 +71,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
 
 Effects on the contracts in this file:
-- **Contract 1 (R1)**: Decision FD11 adds one condition in phase FP1. When federation is on, a `profile_public` change from 0 to 1 requires recent authentication. The contract below is correct until FP1.
+- **Contract 1 (R1)**: Decision FD11 adds one condition (unit FP1-4, implemented). When the instance setting `federation` is `on`, a `profile_public` change from 0 to 1 through `PATCH /api/me` requires recent authentication: a session without it gets 401 `reauth_required`, and a bearer credential gets 403 `step_up_requires_session`. The change from 1 to 0 has no condition. When `federation` is `off`, the contract below is unchanged.
 - **Contract 2 (R2)**: No change. The reserved words protect the federation endpoint names.
 - **Contract 3 (R3)**: No change. The sidecar does not use token exchange.
 - **Contract 4 (R5)**: No change.
