@@ -547,6 +547,53 @@ Verification is in development mode only. The agent does not access the producti
 
 This design document is a historical record after implementation starts (PRINCIPLES F2).
 
+### 14.4 Work Units
+
+"FP" means "Federation Phase". Each phase FP1 to FP3 is divided into work units. A unit ID has the phase and a sequence number: `FP1-3` is the third unit of phase FP1. The owner starts each unit with an instruction that names the unit ID, for example "Do FP1-3".
+
+Rules for each unit:
+
+1. The agent does one unit for each instruction and then stops. It does not start the next unit.
+2. A unit starts only when all units in its "After" column are complete.
+3. A unit ends with passing tests for its scope and one commit. If a unit cannot be completed, the agent commits nothing that breaks the tests and reports what remains.
+4. The agent records the status and the commit of each unit in the table in `PROJECT.md`. A new session reads that table and this section to continue.
+5. A unit can be done in a new session. This decreases the cost of each turn.
+6. The size column is a relative estimate of the work: S (small), M (medium), L (large). Start an L unit when the usage limit has sufficient margin.
+
+**Phase FP1: internal contract and discovery**
+
+| Unit | Scope | Completion criteria | After | Size |
+| :--- | :--- | :--- | :--- | :--- |
+| FP1-1 | Internal listener on a Unix socket, internal sub-application with its own route table, service key file, signed-request verification (Section 6.1) | The internal paths answer on the socket only. A request with a bad signature or an old timestamp is refused. The public listener returns 404 for internal paths. | FP0 | M |
+| FP1-2 | `auth.db` version 4 with `actor_keys`, key generation and encrypted storage for accounts and the instance actor (Sections 7, 10.2) | The migration is idempotent. A stored private key decrypts only with its own account and algorithm. | FP0 | S |
+| FP1-3 | `instance_settings.federation`, internal endpoints `config`, `heartbeat`, `actors`, `keys`, contract fixtures (Section 6.2) | Each endpoint agrees with its fixture. A non-federated account gets 404. No `auth.db` identity field is in a response. | FP1-1, FP1-2 | M |
+| FP1-4 | Recent authentication for the `profile_public` change 0 → 1 when federation is `on` (FD11), step-up dialog in `console_account.js`, alternate link on the profile page (Sections 5.1, 8.4) | The change without recent authentication is refused when federation is `on`. The contract is unchanged when federation is `off`. | FP1-3 | S |
+| FP1-5 | Sidecar source in `sidecar/fedify/`: internal API client, WebFinger, NodeInfo, actor document, instance actor, sidecar tests. Removal of `sidecar/fedify/spike/`. (Sections 4.2, 5) | The sidecar tests pass against the contract fixtures. A handle resolves to an actor document with the canonical origin. | FP1-3 | L |
+| FP1-6 | Compose service `fedify` with profile `federation`, `cb-manuscript` wiring, environment variables, readiness checks GF1–GF7, `/api/admin/federation` switch (Sections 4.2, 12) | `scripts/ci.sh` passes its Compose checks. The switch refuses `on` when a readiness check fails. | FP1-5 | M |
+| FP1-7 | End-to-end test for discovery, single-mode USERNAME test for the sidecar (S9), implementation documents (Section 14.3), full CI | The end-to-end test passes in development mode. `scripts/ci.sh` passes. | FP1-4, FP1-6 | M |
+
+**Phase FP2: followers**
+
+| Unit | Scope | Completion criteria | After | Size |
+| :--- | :--- | :--- | :--- | :--- |
+| FP2-1 | `claire.db` version 17 with `federation_followers`, `federation_tombstones`, `federation_domain_blocks`, and the store functions (Section 10.1) | The migration is idempotent. The follower key is `(account_id, actor_iri)`. | FP1-7 | S |
+| FP2-2 | Internal endpoints `inbox-events`, `followers`, `domain-blocks`, with fixtures (Sections 6.2, 6.3) | A repeated `Follow` event makes one row. An event from a blocked domain is `rejected`. An event type outside the v1 set is `ignored`. | FP2-1 | M |
+| FP2-3 | Sidecar inbox listeners, `Accept` and `Reject`, followers collection with the total only, cached domain blocks (Sections 5.1, 6.3, 11) | A signed `Follow` gives an `Accept`. An invalid signature gets 401. A blocked domain gets 403. | FP2-2 | M |
+| FP2-4 | Console sections `/settings/federation` and `/admin/federation`, routes `GET /api/federation/status`, `DELETE /api/federation/followers`, domain block management (Section 9.2) | An owner sees the handle and the follower count and can remove a follower. Only the admin can change domain blocks. | FP2-2 | M |
+| FP2-5 | End-to-end test for a follow from a second development instance, implementation documents, full CI | The end-to-end test passes. `scripts/ci.sh` passes. | FP2-3, FP2-4 | S |
+
+**Phase FP3: publishing**
+
+| Unit | Scope | Completion criteria | After | Size |
+| :--- | :--- | :--- | :--- | :--- |
+| FP3-1 | `federation_objects` and `federation_outbox` tables, routes `POST /api/federation/publish` and `POST /api/federation/retract` (Sections 9.1–9.3, 10.1) | Only a document of a public theme of a federated account can be published. The object row and the task row are in one transaction. Each task has an account. | FP2-5 | M |
+| FP3-2 | Internal endpoints `outbox-tasks`, task acknowledgement, lease expiry, `objects`, `outbox`, with fixtures (Sections 6.2, 9.3) | A task that is not acknowledged becomes `pending` again after its lease. A deleted object returns 410. | FP3-1 | S |
+| FP3-3 | Sidecar task poller, conversion to `Create`, `Update`, and `Delete` of an `Article`, delivery to followers, object endpoint and outbox collection (Sections 5.1, 9.1, 9.3) | A published document arrives at a test inbox with a valid signature. A second handoff of the same task makes no second object. | FP3-2 | L |
+| FP3-4 | Lifecycle tasks: `Update(Person)`, purge with `Delete(Person)` and the skip option, privacy triggers for a private theme, a purged document, and a deleted theme (Sections 8.1, 9.4) | A theme change to private makes `Delete` tasks in the same transaction as the `visibility_epoch` increment. A purged actor returns 410. | FP3-3 | M |
+| FP3-5 | Native actor as a target in the `/syndication` publish dialog, end-to-end test for publishing, recovery command for a lost sidecar database, implementation documents, full CI | The end-to-end test passes. `scripts/ci.sh` passes. | FP3-4 | M |
+
+Units that can be done in any order after their "After" units: FP1-1 and FP1-2; FP1-4 and FP1-5; FP2-3 and FP2-4.
+
 ---
 
 ## 15. Owner Decisions

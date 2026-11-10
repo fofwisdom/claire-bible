@@ -45,12 +45,28 @@ The Telegram bot, support bundle, data bundle, and backup are per-account featur
 
 The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. No federation code exists at this time.
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| FP0 | Technical checks FT1 through FT7. Check programs: `sidecar/fedify/spike/` | COMPLETED (2026-11-10) |
-| FP1 | Internal federation API, service key, actor keys, sidecar with WebFinger, NodeInfo, and actor documents | PLANNED |
-| FP2 | Followers, inbox events, domain blocks, console sections | PLANNED |
-| FP3 | Publishing, outbox, lifecycle tasks, privacy triggers | PLANNED |
+The design divides each phase into work units (Section 14.4 of the design). The owner starts each unit with an instruction that names the unit ID, for example "Do FP1-3". The agent does one unit, updates this table, and stops.
+
+| Unit | Status | Commit |
+|------|--------|--------|
+| FP0 | COMPLETED (2026-11-10) | `116d530` |
+| FP1-1 | PLANNED | |
+| FP1-2 | PLANNED | |
+| FP1-3 | PLANNED | |
+| FP1-4 | PLANNED | |
+| FP1-5 | PLANNED | |
+| FP1-6 | PLANNED | |
+| FP1-7 | PLANNED | |
+| FP2-1 | PLANNED | |
+| FP2-2 | PLANNED | |
+| FP2-3 | PLANNED | |
+| FP2-4 | PLANNED | |
+| FP2-5 | PLANNED | |
+| FP3-1 | PLANNED | |
+| FP3-2 | PLANNED | |
+| FP3-3 | PLANNED | |
+| FP3-4 | PLANNED | |
+| FP3-5 | PLANNED | |
 
 Effects on the contracts in this file:
 - **Contract 1 (R1)**: Decision FD11 adds one condition in phase FP1. When federation is on, a `profile_public` change from 0 to 1 requires recent authentication. The contract below is correct until FP1.
