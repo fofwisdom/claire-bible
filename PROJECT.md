@@ -50,7 +50,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | Unit | Status | Commit |
 |------|--------|--------|
 | FP0 | COMPLETED (2026-11-10) | `116d530` |
-| FP1-1 | PLANNED | |
+| FP1-1 | COMPLETED (2026-11-10) | `56d40c9` |
 | FP1-2 | PLANNED | |
 | FP1-3 | PLANNED | |
 | FP1-4 | PLANNED | |
