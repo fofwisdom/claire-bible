@@ -567,6 +567,260 @@
     }
   }
 
+  // --- /admin/federation: switch, readiness checks, sidecar heartbeat, domain blocks (Fedify sidecar design Sections 9.2, 11, and 12) ---
+
+  function initFederationSection() {
+    var FED_ERROR_TEXT = {
+      step_up_requires_session: "로그인 세션에서만 할 수 있습니다. API 토큰으로는 할 수 없습니다.",
+      forbidden: "요청 출처(Origin)를 확인하지 못했습니다.",
+      invalid_domain: "도메인 형식이 맞지 않습니다. 스킴·포트·경로 없이 호스트 이름만 넣으세요 (예: spam.example).",
+      invalid_note: "메모는 200자 이하이고 제어 문자를 넣을 수 없습니다.",
+      invalid_request: "요청 형식이 맞지 않습니다.",
+      domain_block_not_found: "이미 목록에 없는 도메인입니다."
+    };
+    var switchCard = document.getElementById("admin-federation-switch");
+    var switchResult = document.getElementById("admin-federation-switch-result");
+    var readinessTbody = document.getElementById("admin-federation-readiness-tbody");
+    var readinessResult = document.getElementById("admin-federation-readiness-result");
+    var refreshBtn = document.getElementById("admin-federation-refresh");
+    var heartbeatDl = document.getElementById("admin-federation-heartbeat");
+    var blocksTbody = document.getElementById("admin-federation-domain-blocks-tbody");
+    var blocksResult = document.getElementById("admin-federation-domain-blocks-result");
+    var blockForm = document.getElementById("admin-federation-domain-block-form");
+
+    function setResult(el, text, isError) {
+      if (!el) return;
+      el.textContent = text;
+      el.setAttribute("data-state", isError ? "error" : "ok");
+    }
+
+    function clear(node) {
+      while (node && node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function cell(text) {
+      var td = document.createElement("td");
+      td.textContent = text == null ? "" : String(text);
+      return td;
+    }
+
+    function messageRow(tbody, colSpan, text, marker) {
+      var tr = document.createElement("tr");
+      if (marker) tr.setAttribute(marker, "");
+      var td = cell(text);
+      td.colSpan = colSpan;
+      td.style.color = "var(--muted)";
+      td.style.textAlign = "center";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+
+    function send(method, url, payload) {
+      var init = { method: method, credentials: "same-origin", headers: { "Accept": "application/json" } };
+      if (payload !== undefined) {
+        init.headers["Content-Type"] = "application/json";
+        init.body = JSON.stringify(payload);
+      }
+      return fetch(url, init).then(function (resp) {
+        return resp.json().catch(function () { return null; }).then(function (body) {
+          return { ok: resp.ok, status: resp.status, body: body };
+        });
+      });
+    }
+
+    function errorText(res) {
+      var body = res.body;
+      if (body && body.error === "readiness_failed") {
+        var fails = (body.failures || []).map(function (f) { return f.id + " (" + (f.detail || f.name) + ")"; });
+        return "준비 검사를 통과하지 못했습니다: " + (fails.join(", ") || body.detail || "");
+      }
+      if (body && typeof body.error === "string" && FED_ERROR_TEXT[body.error]) return FED_ERROR_TEXT[body.error];
+      if (body && typeof body.detail === "string" && body.detail) return body.detail;
+      return "요청을 처리하지 못했습니다 (HTTP " + res.status + ").";
+    }
+
+    // Sends a change. When the server asks for recent authentication, the shared dialog opens and the change is sent again after it.
+    function sendChange(method, url, payload, resultEl, onDone) {
+      var attempt = function () {
+        send(method, url, payload).then(function (res) {
+          if (res.status === 401 && res.body && res.body.error === "reauth_required") {
+            setResult(resultEl, "본인 확인(비밀번호)이 필요합니다.", true);
+            openReauthModal(attempt);
+            return;
+          }
+          onDone(res);
+        }).catch(function () {
+          setResult(resultEl, "네트워크 오류로 요청을 완료하지 못했습니다.", true);
+        });
+      };
+      attempt();
+    }
+
+    function renderReadiness(readiness) {
+      if (!readinessTbody) return;
+      clear(readinessTbody);
+      var items = (readiness && readiness.items) || [];
+      items.forEach(function (item) {
+        var tr = document.createElement("tr");
+        tr.setAttribute("data-readiness-item", String(item.id));
+        tr.setAttribute("data-readiness-passed", item.passed ? "1" : "0");
+        var tdId = document.createElement("td");
+        var code = document.createElement("code");
+        code.textContent = String(item.id);
+        tdId.appendChild(code);
+        var tdState = document.createElement("td");
+        var pill = document.createElement("span");
+        pill.className = item.passed ? "badge badge-enabled" : "badge badge-disabled";
+        pill.textContent = item.passed ? "통과" : "실패";
+        tdState.appendChild(pill);
+        [tdId, cell(item.name), tdState, cell(item.detail)].forEach(function (td) { tr.appendChild(td); });
+        readinessTbody.appendChild(tr);
+      });
+      if (!items.length) messageRow(readinessTbody, 4, "준비 검사 결과가 없습니다.");
+      setResult(readinessResult, readiness && readiness.passed ? "모든 준비 검사를 통과했습니다." : "통과하지 못한 준비 검사가 있습니다.", !(readiness && readiness.passed));
+    }
+
+    function renderHeartbeat(heartbeat) {
+      if (!heartbeatDl) return;
+      clear(heartbeatDl);
+      var rows;
+      if (!heartbeat) {
+        rows = [["하트비트", "받은 기록이 없습니다. 사이드카가 실행 중인지 확인하세요."]];
+      } else {
+        var check = heartbeat.self_check || {};
+        rows = [
+          ["마지막 하트비트", formatTs(heartbeat.received_at)],
+          ["계약 버전", heartbeat.contract_version],
+          ["사이드카 버전", heartbeat.sidecar_version],
+          ["대기열 깊이", heartbeat.queue_depth],
+          ["공개 경로 자가 검사", check.ok === true ? "통과" : (check.ok === false ? "실패" : "아직 실행 전")]
+        ];
+      }
+      heartbeatDl.setAttribute("data-heartbeat", heartbeat ? "present" : "absent");
+      rows.forEach(function (row) {
+        var dt = document.createElement("dt");
+        dt.textContent = row[0];
+        var dd = document.createElement("dd");
+        dd.textContent = row[1] == null ? "-" : String(row[1]);
+        heartbeatDl.appendChild(dt);
+        heartbeatDl.appendChild(dd);
+      });
+    }
+
+    function loadState() {
+      if (refreshBtn) refreshBtn.disabled = true;
+      return send("GET", "/api/admin/federation").then(function (res) {
+        if (!res.ok || !res.body) {
+          setResult(readinessResult, "연합 상태를 불러오지 못했습니다. " + errorText(res), true);
+          return;
+        }
+        renderReadiness(res.body.readiness);
+        renderHeartbeat(res.body.heartbeat);
+      }).catch(function () {
+        setResult(readinessResult, "네트워크 오류로 연합 상태를 불러오지 못했습니다.", true);
+      }).then(function () {
+        if (refreshBtn) refreshBtn.disabled = false;
+      });
+    }
+
+    function renderBlocks(blocks) {
+      if (!blocksTbody) return;
+      clear(blocksTbody);
+      if (!blocks.length) {
+        messageRow(blocksTbody, 4, "차단한 도메인이 없습니다.", "data-domain-block-empty");
+        return;
+      }
+      blocks.forEach(function (block) {
+        var tr = document.createElement("tr");
+        tr.setAttribute("data-domain-block", String(block.domain));
+        var tdDomain = document.createElement("td");
+        var code = document.createElement("code");
+        code.className = "pref-mono";
+        code.textContent = String(block.domain);
+        tdDomain.appendChild(code);
+        var tdBtn = document.createElement("td");
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "pref-btn pref-btn-danger";
+        btn.textContent = "차단 해제";
+        btn.setAttribute("data-domain-block-remove", String(block.domain));
+        tdBtn.appendChild(btn);
+        [tdDomain, cell(block.note), cell(formatTs(block.created_at)), tdBtn].forEach(function (td) { tr.appendChild(td); });
+        blocksTbody.appendChild(tr);
+      });
+    }
+
+    function loadBlocks() {
+      return send("GET", "/api/admin/federation/domain-blocks").then(function (res) {
+        if (res.ok && res.body && Array.isArray(res.body.domain_blocks)) renderBlocks(res.body.domain_blocks);
+      }).catch(function () {});
+    }
+
+    if (switchCard) {
+      switchCard.addEventListener("click", function (ev) {
+        var btn = ev.target.closest("[data-federation-switch]");
+        if (!btn) return;
+        var target = btn.getAttribute("data-federation-switch");
+        if (target === "off" && !window.confirm("연합을 끌까요? 모든 액터 경로가 404를 돌려줍니다.")) return;
+        setResult(switchResult, "처리 중입니다...", false);
+        sendChange("POST", "/api/admin/federation", { federation: target }, switchResult, function (res) {
+          if (res.ok) {
+            setResult(switchResult, target === "on" ? "연합을 켰습니다. 화면을 새로 고칩니다..." : "연합을 껐습니다. 화면을 새로 고칩니다...", false);
+            window.location.reload();
+            return;
+          }
+          setResult(switchResult, errorText(res), true);
+        });
+      });
+    }
+
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", function () {
+        setResult(readinessResult, "준비 검사를 실행하는 중입니다...", false);
+        loadState();
+      });
+    }
+
+    if (blockForm) {
+      blockForm.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var domainInput = blockForm.elements.namedItem("domain");
+        var noteInput = blockForm.elements.namedItem("note");
+        var payload = { domain: domainInput.value.trim(), note: noteInput.value };
+        if (!payload.domain) return;
+        sendChange("POST", "/api/admin/federation/domain-blocks", payload, blocksResult, function (res) {
+          if (res.ok && res.body) {
+            setResult(blocksResult, res.body.created ? "도메인을 차단했습니다: " + res.body.domain_block.domain : "이미 차단한 도메인입니다: " + res.body.domain_block.domain, false);
+            domainInput.value = "";
+            noteInput.value = "";
+            loadBlocks();
+            return;
+          }
+          setResult(blocksResult, errorText(res), true);
+        });
+      });
+    }
+
+    if (blocksTbody) {
+      blocksTbody.addEventListener("click", function (ev) {
+        var btn = ev.target.closest("[data-domain-block-remove]");
+        if (!btn) return;
+        var domain = btn.getAttribute("data-domain-block-remove") || "";
+        if (!window.confirm("이 도메인의 차단을 해제할까요? " + domain)) return;
+        sendChange("DELETE", "/api/admin/federation/domain-blocks", { domain: domain }, blocksResult, function (res) {
+          if (res.ok) {
+            setResult(blocksResult, "차단을 해제했습니다: " + domain, false);
+          } else {
+            setResult(blocksResult, errorText(res), true);
+          }
+          loadBlocks();
+        });
+      });
+    }
+
+    loadState();
+  }
+
   function initAdminSection(bootstrap) {
     var panels = window.ClaireManagePanels || {};
     var section = bootstrap.section;
@@ -596,6 +850,8 @@
       initIdpSection(bootstrap);
     } else if (section === "mcp") {
       initMcpSection();
+    } else if (section === "federation") {
+      initFederationSection();
     }
   }
 

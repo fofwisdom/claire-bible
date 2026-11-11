@@ -38,6 +38,7 @@ from .common import (
     prototype_note,
     render_template,
 )
+from .console_federation_panels import settings_federation_body
 from .console_syndication_panels import SYNDICATION_SECTION_SLUGS, SettingsSectionRender, build_syndication_section
 
 # P3-a: Group 1 (내 계정 · 워크스페이스) 섹션이 쓰는 모듈.
@@ -83,6 +84,17 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         title="👤 내 계정 · 프로필 · 보안",
         badge="계정 전역",
         description="프로필 표시 이름, 비밀번호 및 단계 인증, 외부 IdP 연결, 할당량 현황 및 계정 수명주기를 관리합니다.",
+    ),
+    ConsoleSectionSpec(
+        slug="federation",
+        path="/settings/federation",
+        area="settings",
+        group_id="workspace",
+        group_label="내 계정 · 워크스페이스",
+        nav_label="🌐 연합 · 팔로워",
+        title="🌐 연합 (ActivityPub) · 팔로워",
+        badge="계정 전역",
+        description="내 계정의 연합 핸들과 액터 상태, 팔로워 수를 확인하고 팔로워를 제거합니다.",
     ),
     ConsoleSectionSpec(
         slug="keys",
@@ -277,6 +289,17 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         title="🖥️ 인스턴스 설정 · 모드 전환 및 서버 등급",
         badge="서버 전역 · 관리자",
         description="싱글 ↔ 네트워크 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰 시계 및 기본 서버 등급을 관리합니다.",
+    ),
+    ConsoleSectionSpec(
+        slug="federation",
+        path="/admin/federation",
+        area="admin",
+        group_id="admin_instance",
+        group_label="인스턴스 · 계정 · 인증 (관리자)",
+        nav_label="🌐 연합 · 도메인 차단",
+        title="🌐 연합 (ActivityPub) 스위치 · 사이드카 · 도메인 차단",
+        badge="서버 전역 · 관리자",
+        description="연합 스위치와 GF1–GF7 준비 검사, Fedify 사이드카 상태, 차단 도메인 목록을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="accounts",
@@ -746,6 +769,8 @@ def _build_settings_account_section(
     admin_viewer = is_admin(principal)
     if spec.slug == "account":
         body, extra = _settings_account_body(ctx, principal=principal, mode=mode, account=account, owned_themes=owned_themes, admin_viewer=admin_viewer, notice=notice)
+    elif spec.slug == "federation":
+        body, extra = settings_federation_body(ctx, mode=mode, account=account)
     elif spec.slug == "keys":
         body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "themes":

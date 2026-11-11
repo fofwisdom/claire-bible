@@ -401,9 +401,13 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/settings/telegram",
                 "/settings/bundles",
                 "/settings/backups",
+                "/settings/federation",
+                "/api/federation/status",
+                "/api/federation/followers",
             )
             for method in ("GET", "HEAD")
         ),
+        ("DELETE", "/api/federation/followers"),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         *(
@@ -435,11 +439,15 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/admin/instance",
                 "/api/admin/instance",
                 "/api/admin/federation",
+                "/api/admin/federation/domain-blocks",
+                "/admin/federation",
                 "/admin/idp",
                 "/api/admin/idp",
             )
             for method in ("GET", "HEAD")
         ),
+        ("POST", "/api/admin/federation/domain-blocks"),
+        ("DELETE", "/api/admin/federation/domain-blocks"),
         ("POST", "/api/admin/instance/mode"),
         ("POST", "/api/admin/instance/legacy-hosts/sunset"),
         ("POST", "/api/admin/federation"),
@@ -503,6 +511,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
         *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
         ("POST", "/api/me/keys/verify"),
+        *((m, "/api/federation/status") for m in ("GET", "HEAD")),
+        *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
     }
     assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
     assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())

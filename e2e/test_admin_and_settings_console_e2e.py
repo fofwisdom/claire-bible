@@ -42,9 +42,9 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("instance", "accounts", "idp", "providers", "limits", "themes", "tokens", "mcp")
-SETTINGS_SECTIONS: tuple[str, ...] = ("account", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
-MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "keys", "themes", "tokens", *SETTINGS_SECTIONS[1:])
+ADMIN_SECTIONS: tuple[str, ...] = ("instance", "federation", "accounts", "idp", "providers", "limits", "themes", "tokens", "mcp")
+SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
+MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "themes", "tokens", *SETTINGS_SECTIONS[2:])
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/api/admin/mcp/telemetry")
 
 

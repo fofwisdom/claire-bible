@@ -36,10 +36,12 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
     "/admin/tokens",
     "/admin/mcp",
     "/api/admin/mcp/telemetry",
+    "/admin/federation",
 )
 
 ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/settings/account",
+    "/settings/federation",
     "/settings/keys",
     "/settings/themes",
     "/settings/tokens",

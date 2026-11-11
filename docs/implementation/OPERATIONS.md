@@ -205,11 +205,11 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 ./cb-manuscript app instance check --federation --json
 ```
 
-6. 관리자가 `POST /api/admin/federation`으로 인스턴스 설정 `federation`을 `on`으로 바꾼다. 화면(`/admin/federation`)은 아직 없다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
+6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 인스턴스 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF7 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
 
 사이드카는 `federation`이 `off`인 동안에도 heartbeat마다 공개 자가 검사를 한다. 그래서 리버스 프록시 규칙이 맞으면 스위치를 켜기 전에 GF6이 통과한다([FEDERATION.md](FEDERATION.md) §7.2).
 
-끄려면 `POST /api/admin/federation`으로 `off`를 보낸다(준비 검사 조건 없음). 컨테이너까지 내리려면 `CB_FEDERATION=0`으로 바꾸고 `./cb-manuscript up`을 다시 실행한다. `network` → `single` 모드 전환은 `federation`이 `on`이면 거부된다.
+끄려면 `/admin/federation` 화면에서 끄거나 `POST /api/admin/federation`으로 `off`를 보낸다(준비 검사 조건 없음). 컨테이너까지 내리려면 `CB_FEDERATION=0`으로 바꾸고 `./cb-manuscript up`을 다시 실행한다. `network` → `single` 모드 전환은 `federation`이 `on`이면 거부된다.
 
 ### 파일
 

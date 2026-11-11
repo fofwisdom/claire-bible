@@ -1,5 +1,5 @@
-/* Claire user console controller for /settings Group 1 (account, keys, themes, tokens). Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /graph/bundle, /api/me/keys*, /themes, /tokens.
+/* Claire user console controller for /settings Group 1 (account, federation, keys, themes, tokens). Design P3-a.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /graph/bundle, /api/me/keys*, /api/federation/status, /api/federation/followers, /themes, /tokens.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -19,6 +19,7 @@
     invalid_api_key: "API 키 형식이 맞지 않습니다. 공백 없이 붙여 넣으세요.",
     key_not_found: "등록한 키가 없습니다.",
     key_unreadable: "저장한 키를 읽지 못했습니다. 키를 다시 등록하세요.",
+    follower_not_found: "이미 목록에 없는 팔로워입니다.",
     cannot_unlink_last_credential: "마지막 로그인 수단은 해제할 수 없습니다. 먼저 비밀번호를 설정하거나 다른 외부 로그인을 연결하세요.",
     unauthorized: "로그인이 필요합니다."
   };
@@ -230,6 +231,133 @@
           unlinkBtn.disabled = false;
         });
       }
+    });
+  }
+
+  // --- /settings/federation: actor state and followers (Fedify sidecar design Sections 9.2 and 11) ---
+
+  // The server has the same table (console_federation_panels.ACTOR_STATE_TEXT).
+  var ACTOR_STATE_TEXT = {
+    active: "연합 중",
+    account_not_active: "일시 중지 · 계정이 활성 상태가 아닙니다",
+    no_username: "일시 중지 · USERNAME이 아직 없습니다",
+    federation_off: "꺼짐 · 인스턴스 운영자가 연합을 켜지 않았습니다",
+    profile_not_public: "일시 중지 · 프로필이 비공개입니다"
+  };
+
+  function setFederationField(name, text) {
+    var dd = document.querySelector("[data-federation-field='" + name + "']");
+    if (dd) dd.textContent = text;
+  }
+
+  function renderFederationStatus(status) {
+    setFederationField("handle", status.handle || "(USERNAME 설정 전)");
+    setFederationField("actor_id", status.actor_id || "-");
+    setFederationField("actor_state", ACTOR_STATE_TEXT[status.actor_state] || String(status.actor_state));
+    if (status.followers && typeof status.followers.total === "number") {
+      setFederationField("followers_total", status.followers.total.toLocaleString("en-US"));
+    }
+    var card = document.getElementById("settings-federation-status");
+    if (card) card.setAttribute("data-actor-state", String(status.actor_state));
+  }
+
+  function followerRow(item) {
+    var tr = document.createElement("tr");
+    tr.setAttribute("data-follower", String(item.id));
+    var tdActor = document.createElement("td");
+    var code = document.createElement("code");
+    code.className = "pref-mono";
+    code.textContent = String(item.actor_iri);
+    tdActor.appendChild(code);
+    var tdTime = document.createElement("td");
+    tdTime.textContent = formatTs(item.created_at);
+    var tdBtn = document.createElement("td");
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pref-btn pref-btn-danger";
+    btn.textContent = "제거";
+    btn.setAttribute("data-follower-remove", String(item.actor_iri));
+    tdBtn.appendChild(btn);
+    [tdActor, tdTime, tdBtn].forEach(function (td) { tr.appendChild(td); });
+    return tr;
+  }
+
+  function bindFederation() {
+    var box = document.querySelector("[data-federation-followers]");
+    if (!box) return;
+    var tbody = box.querySelector("[data-followers-tbody]");
+    var more = box.querySelector("[data-followers-more]");
+    var nextMaxId = null;
+
+    function showEmptyRow() {
+      var tr = document.createElement("tr");
+      tr.setAttribute("data-followers-empty", "");
+      var td = document.createElement("td");
+      td.colSpan = 3;
+      td.style.color = "var(--muted)";
+      td.style.textAlign = "center";
+      td.textContent = "팔로워가 없습니다.";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+
+    // Gets one page. Without a cursor the list starts again from the newest follower.
+    function loadPage(maxId) {
+      var url = "/api/federation/followers" + (maxId ? "?max_id=" + encodeURIComponent(maxId) : "");
+      return request("GET", url).then(function (r) {
+        if (!r.ok || !r.body || !Array.isArray(r.body.items)) {
+          show(box, "팔로워 목록을 불러오지 못했습니다. " + errorText(r.status, r.body), true);
+          return;
+        }
+        if (!maxId) {
+          while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+          if (!r.body.items.length) showEmptyRow();
+        }
+        r.body.items.forEach(function (item) { tbody.appendChild(followerRow(item)); });
+        nextMaxId = typeof r.body.next_max_id === "string" ? r.body.next_max_id : null;
+        if (more) more.hidden = !nextMaxId;
+        if (typeof r.body.total === "number") setFederationField("followers_total", r.body.total.toLocaleString("en-US"));
+      });
+    }
+
+    function refreshStatus() {
+      return request("GET", "/api/federation/status").then(function (r) {
+        if (r.ok && r.body) renderFederationStatus(r.body);
+      });
+    }
+
+    loadPage(null).catch(function () {
+      show(box, "서버에 연결하지 못했습니다.", true);
+    });
+    if (more) {
+      more.addEventListener("click", function () {
+        if (!nextMaxId) return;
+        more.disabled = true;
+        loadPage(nextMaxId).catch(function () {
+          show(box, "서버에 연결하지 못했습니다.", true);
+        }).then(function () {
+          more.disabled = false;
+        });
+      });
+    }
+    box.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("[data-follower-remove]");
+      if (!btn) return;
+      var actorIri = btn.getAttribute("data-follower-remove") || "";
+      if (!window.confirm("이 팔로워를 제거할까요?")) return;
+      btn.disabled = true;
+      request("DELETE", "/api/federation/followers", { actor_iri: actorIri }).then(function (r) {
+        // An unknown follower means that the row left the list in the meantime. The list is read again in the two cases.
+        if (r.ok || (r.body && r.body.error === "follower_not_found")) {
+          show(box, r.ok ? "팔로워를 제거했습니다." : errorText(r.status, r.body), !r.ok);
+          return loadPage(null).then(refreshStatus);
+        }
+        show(box, errorText(r.status, r.body), true);
+        btn.disabled = false;
+      }).catch(function () {
+        show(box, "서버에 연결하지 못했습니다.", true);
+        btn.disabled = false;
+      });
     });
   }
 
@@ -513,12 +641,14 @@
     var bootstrap = parseBootstrap();
     if (!bootstrap || bootstrap.area !== "settings") return;
     var section = bootstrap.section;
-    if (["account", "keys", "themes", "tokens"].indexOf(section) < 0) return;
+    if (["account", "federation", "keys", "themes", "tokens"].indexOf(section) < 0) return;
     var extra = bootstrap.settings_account || {};
     bindForms();
     if (section === "account") {
       bindIdentities(extra);
       bindToggles();
+    } else if (section === "federation") {
+      bindFederation();
     }
     initManagers(section);
   }

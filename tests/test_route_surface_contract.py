@@ -31,7 +31,8 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
-       "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy"}
+       "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
+       "/api/federation/status", "/api/federation/followers"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -48,12 +49,12 @@ SYSTEM = {
     "/invite/{code}",
     "/explore/accounts",
     "/admin/instance", "/api/admin/instance", "/api/admin/instance/mode", "/api/admin/instance/legacy-hosts/sunset",
-    "/api/admin/server-tier", "/api/admin/federation",
+    "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/admin/federation",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
     "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
-    "/settings/telegram", "/settings/bundles", "/settings/backups",
+    "/settings/telegram", "/settings/bundles", "/settings/backups", "/settings/federation",
     "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",
@@ -75,6 +76,8 @@ ADMIN_KEYS = {
     ("POST", "/api/admin/instance/legacy-hosts/sunset"),
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),
+    *((m, "/api/admin/federation/domain-blocks") for m in ("GET", "HEAD", "POST", "DELETE")),
+    *((m, "/admin/federation") for m in ("GET", "HEAD")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
@@ -89,6 +92,8 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
     ("POST", "/api/me/keys/verify"),
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
+    *((m, "/api/federation/status") for m in ("GET", "HEAD")),
+    *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
 }
 
 

@@ -118,7 +118,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), 텔레그램 승인(`approve_auth_nonce`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
