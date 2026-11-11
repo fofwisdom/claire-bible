@@ -43,7 +43,7 @@ The Telegram bot, support bundle, data bundle, and backup are per-account featur
 
 ## Next Project: Fedify Sidecar Federation
 
-The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. Implementation started with unit FP1-1.
+The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. Phase FP1 (internal contract and discovery) is complete. The implementation reference is [`docs/implementation/FEDERATION.md`](docs/implementation/FEDERATION.md); its Sections 12 and 13 list the known limits and the differences from the design.
 
 The design divides each phase into work units (Section 14.4 of the design). The owner starts each unit with an instruction that names the unit ID, for example "Do FP1-3". The agent does one unit, updates this table, and stops.
 
@@ -56,7 +56,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP1-4 | COMPLETED (2026-11-11) | `b65b1e3` |
 | FP1-5 | COMPLETED (2026-11-11) | `34d46b96` |
 | FP1-6 | COMPLETED (2026-11-11) | `75d79e18` |
-| FP1-7 | IN PROGRESS: tests done (not committed), implementation documents remain | |
+| FP1-7 | COMPLETED (2026-11-11) | `420c8fc7` |
 | FP2-1 | PLANNED | |
 | FP2-2 | PLANNED | |
 | FP2-3 | PLANNED | |
