@@ -17,6 +17,7 @@
     "trusted_proxies": [
       "10.0.0.0/8",
       "fd00::/8"
-    ]
+    ],
+    "federated_actors": 1
   }
 }

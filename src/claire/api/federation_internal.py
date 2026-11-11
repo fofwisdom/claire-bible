@@ -27,6 +27,7 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -128,6 +129,21 @@ def _request_target(scope: Scope) -> str:
     return f"{path}?{query.decode('latin-1')}" if query else path
 
 
+def _origin_form(scope: Scope) -> Scope:
+    """Return a scope whose path is in origin form.
+
+    A client that uses the Unix socket as an HTTP proxy (the Deno HTTP client of the sidecar) sends the absolute form: ``GET http://claire.internal/internal/...``. The authority has no function here, because the listener selects this sub-application. The signature and the route table use the path only.
+    """
+    path = str(scope.get("path", ""))
+    if not path.lower().startswith(("http://", "https://")):
+        return scope
+    parts = urlsplit(path)
+    fixed = dict(scope)
+    fixed["path"] = unquote(parts.path) or "/"
+    fixed["raw_path"] = (parts.path or "/").encode("latin-1")
+    return fixed
+
+
 def _header(scope: Scope, name: str) -> str | None:
     """Return the value of a header that occurs one time. A header that occurs more than one time is not valid."""
     wanted = name.encode("latin-1")
@@ -160,6 +176,7 @@ class SignedRequestMiddleware:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1008})
             return
+        scope = _origin_form(scope)
         try:
             key = self._load_key()
         except ServiceKeyError as exc:

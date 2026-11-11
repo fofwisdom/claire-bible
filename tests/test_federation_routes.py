@@ -259,6 +259,7 @@ def test_no_actor_when_federation_is_off_or_the_mode_is_single(internal, state):
     # The config endpoint stays available. The sidecar reads the state from it.
     config = internal.get("/config").json()
     assert (config["mode"], config["federation"]) == (state.get("mode", "network"), state.get("federation", "on"))
+    assert config["federated_actors"] == 0
     assert "alice" not in "".join(internal.bodies)
 
 

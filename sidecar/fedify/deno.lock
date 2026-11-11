@@ -2,6 +2,7 @@
   "version": "5",
   "specifiers": {
     "jsr:@fedify/fedify@2.3": "2.3.15",
+    "jsr:@fedify/fedify@^2.3.15": "2.3.15",
     "jsr:@fedify/sqlite@2.3": "2.3.15",
     "jsr:@fedify/uri-template@^2.3.15": "2.4.5",
     "jsr:@fedify/vocab-runtime@^2.3.15": "2.4.5",
@@ -27,6 +28,7 @@
     "@fedify/fedify@2.3.15": {
       "integrity": "e2c6a7b84a3bd7586021f62b42befa71490ba2b9416d95377ae04c48f7e1a1e9",
       "dependencies": [
+        "jsr:@fedify/fedify@^2.3.15",
         "jsr:@fedify/uri-template",
         "jsr:@fedify/vocab",
         "jsr:@fedify/vocab-runtime@^2.3.15",
@@ -44,6 +46,7 @@
     "@fedify/sqlite@2.3.15": {
       "integrity": "4fead541ca557807313eccebad183028c52f1d209acb483bc60a245bdcce2d9e",
       "dependencies": [
+        "jsr:@fedify/fedify@^2.3.15",
         "jsr:@logtape/logtape",
         "npm:es-toolkit"
       ]

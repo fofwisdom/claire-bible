@@ -117,6 +117,41 @@ def test_valid_signature_reaches_the_route(internal):
     assert r.json() == {"body": "payload", "query": "max_id=5"}
 
 
+def test_absolute_form_request_target_is_read_as_its_path(tmp_path):
+    # The Deno HTTP client of the sidecar uses the Unix socket as a proxy and sends the absolute form.
+    import asyncio
+
+    async def echo(request):
+        return JSONResponse({"path": request.url.path, "query": request.url.query})
+
+    key_file = service_key_path(tmp_path)
+    ensure_service_key(key_file)
+    key = load_service_key(key_file)
+    app = create_internal_federation_app(SimpleNamespace(data_dir=tmp_path), routes=[Route("/echo", echo)], now=lambda: float(NOW))
+    target = f"{INTERNAL_PREFIX}/echo?max_id=5"
+    absolute = f"http://claire.internal{INTERNAL_PREFIX}/echo"
+
+    async def call(headers: dict[str, str]):
+        messages = []
+        scope = {"type": "http", "method": "GET", "path": absolute, "raw_path": absolute.encode(), "query_string": b"max_id=5", "headers": [(k.encode(), v.encode()) for k, v in headers.items()], "server": None, "client": None, "scheme": "http", "http_version": "1.1"}
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            messages.append(message)
+
+        await app(scope, receive, send)
+        return messages[0]["status"], b"".join(m.get("body", b"") for m in messages[1:])
+
+    status, body = asyncio.run(call(_signed(key, "GET", target)))
+    assert status == 200
+    assert body == b'{"path":"/internal/federation/v1/echo","query":"max_id=5"}'
+    # The signature is for the path. A signature for the absolute form is not valid.
+    status, _ = asyncio.run(call(_signed(key, "GET", f"http://claire.internal{target}")))
+    assert status == 401
+
+
 @pytest.mark.parametrize("age", [-61, 61, 3600])
 def test_timestamp_outside_the_window_is_refused(internal, age):
     client, key = internal

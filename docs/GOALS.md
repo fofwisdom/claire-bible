@@ -103,7 +103,7 @@
 - [x] 로컬 계정 코어, 단일 FQDN URI 네임스페이스, 네트워크 모드, 초대, 계정 API 키(BYOK), 외부 IdP 로그인, Syndication 병합 기반 ([설계](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) P1–P6)
 - [x] `/admin/*`·`/settings/*` 통합 콘솔 경로 분리
 - [x] 계정·IdP·Fedify 연동 준비 봉인 (`profile_public` 계약, 연합·인증 예약 이름, 토큰 교환 계정 귀속, Syndication 프로토타입 봉인)
-- [x] Fedify 사이드카 연합 FP0: 기술 검증 FT1–FT7 (`sidecar/fedify/spike/`)
+- [x] Fedify 사이드카 연합 FP0: 기술 검증 FT1–FT7 (검증 프로그램은 커밋 `116d530`의 `sidecar/fedify/spike/`에 있으며, FP1-5에서 사이드카 소스로 대체됨)
 - [ ] Fedify 사이드카 연합 FP1–FP3: 내부 계약과 탐색, 팔로워, 발행 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md), 소유자 결정 FD1–FD12 확정 2026-11-10)
 
 ---

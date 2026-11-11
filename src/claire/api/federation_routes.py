@@ -69,6 +69,8 @@ class ConfigResponse(_Sealed):
     federation: Literal["off", "on"]
     software: SoftwareInfo
     trusted_proxies: list[str]
+    # Number of federation actors. NodeInfo shows this number only (design Section 5.1 rule 6). It is 0 when federation is not active.
+    federated_actors: int
 
 
 class SelfCheck(_Sealed):
@@ -183,6 +185,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         store = _open_store()
         try:
             mode, federation = store.instance_mode(), store.federation_state()
+            federated_actors = 0
+            if _federation_active(store):
+                federated_actors = int(store.conn.execute("SELECT COUNT(*) FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL").fetchone()[0])
         finally:
             store.conn.close()
         return _json(
@@ -194,6 +199,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 federation=federation,
                 software=SoftwareInfo(name=SOFTWARE_NAME, version=software_version()),
                 trusted_proxies=[str(network) for network in runtime.trusted_proxies],
+                federated_actors=federated_actors,
             )
         )
 

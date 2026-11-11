@@ -3,5 +3,9 @@
   "imports": {
     "@fedify/fedify": "jsr:@fedify/fedify@~2.3.0",
     "@fedify/sqlite": "jsr:@fedify/sqlite@~2.3.0"
+  },
+  "tasks": {
+    "test": "deno test --frozen --allow-read=.,../../tests/fixtures tests/",
+    "check": "deno check --frozen src/main.ts tests/"
   }
 }
