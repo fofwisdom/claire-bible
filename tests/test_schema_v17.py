@@ -42,6 +42,7 @@ def _make_v16_database(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with monkeypatch.context() as m:
         m.setattr(dbm, "SCHEMA_VERSION", 16)
         m.setattr(dbm, "_migrate_v17_federation", lambda conn: None)
+        m.setattr(dbm, "_migrate_v18_federation_publishing", lambda conn: None)
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
@@ -63,10 +64,8 @@ def test_v16_database_migrates_and_the_migration_is_idempotent(tmp_path: Path, m
     try:
         assert not {"federation_followers", "federation_tombstones", "federation_domain_blocks"} & _tables(conn)
         dbm.init_db(conn)
-        assert dbm.SCHEMA_VERSION == 17 and dbm.require_current_schema(conn) == 17
+        assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
         assert {"federation_followers", "federation_tombstones", "federation_domain_blocks"} <= _tables(conn)
-        # The tables of phase FP3 are not in this version.
-        assert not {"federation_objects", "federation_outbox"} & _tables(conn)
         assert conn.execute("SELECT username FROM accounts WHERE public_id=116412345678901234").fetchone()[0] == "alice"
         account_id = conn.execute("SELECT id FROM accounts WHERE username='alice'").fetchone()[0]
         _follow(conn, account_id)

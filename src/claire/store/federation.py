@@ -1,10 +1,13 @@
-"""Store functions for the federation tables of ``claire.db`` version 17 (Fedify sidecar design Section 10.1, unit FP2-1).
+"""Store functions for the federation tables of ``claire.db`` (Fedify sidecar design Section 10.1, units FP2-1 and FP3-1).
 
-Tables: ``federation_followers``, ``federation_tombstones``, ``federation_domain_blocks``. The migration is in ``store.db``.
+Tables of version 17: ``federation_followers``, ``federation_tombstones``, ``federation_domain_blocks``. Tables of version 18: ``federation_objects``, ``federation_outbox``. The migrations are in ``store.db``.
 
 - The follower key is ``(account_id, actor_iri)``. ``public_id`` is a time-ordered number (``claire.ids``) and is the collection cursor.
 - A tombstone has no USERNAME and no foreign key to ``accounts``, because the row must stay after the purge.
 - A blocked domain is lowercase ASCII (punycode). A block of a domain also applies to its subdomains.
+- A published object is one document of one theme. Its ``public_id`` is the object ID and the outbox cursor. A deleted object is a tombstone, and its row is deleted in the same transaction.
+- Each outbox task has an account. No function has a default account (design Section 8.3 item 5).
+- A task is ready when its status is ``pending`` and it has no lease that is in effect. A lease that the sidecar does not acknowledge ends at ``lease_until``, and the task is ready again.
 
 No function in this module commits. The caller owns the transaction.
 """
@@ -23,13 +26,27 @@ from .. import ids
 
 __all__ = [
     "DomainBlock",
+    "FederationObject",
     "Follower",
+    "OutboxKind",
+    "OutboxTask",
     "Tombstone",
     "TombstoneKind",
+    "ack_outbox_task",
     "add_domain_block",
+    "add_outbox_task",
     "add_tombstone",
     "blocking_domain",
     "count_followers",
+    "count_objects",
+    "count_pending_tasks",
+    "get_object",
+    "get_object_for_document",
+    "get_outbox_task",
+    "lease_outbox_tasks",
+    "list_objects",
+    "publish_document",
+    "retract_object",
     "domain_blocks_etag",
     "get_follower",
     "get_tombstone",
@@ -273,3 +290,177 @@ def domain_blocks_etag(domains: list[str]) -> str:
     """Return a strong entity tag for a list of blocked domains. The order of the list has no effect."""
     digest = hashlib.sha256("\n".join(sorted(domains)).encode("ascii")).hexdigest()
     return f'"{digest[:32]}"'
+
+
+# --- Published objects and the outbox (version 18) ---------------------------
+
+OutboxKind = Literal["create", "update", "delete", "update_actor", "delete_actor"]
+OutboxStatus = Literal["pending", "handed_off", "rejected"]
+
+_OBJECTS_TABLE = "federation_objects"
+_OBJECT_COLUMNS = "public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at"
+_TASK_COLUMNS = "id, account_id, kind, object_public_id, status, lease_until, error_code, created_at, handed_off_at"
+
+
+@dataclass(frozen=True, slots=True)
+class FederationObject:
+    public_id: int
+    account_id: int
+    theme_id: int
+    document_id: str
+    published_by_account_id: int
+    published_at: float
+    updated_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxTask:
+    id: int
+    account_id: int
+    kind: OutboxKind
+    object_public_id: int | None
+    status: OutboxStatus
+    lease_until: float | None
+    error_code: str | None
+    created_at: float
+    handed_off_at: float | None
+
+
+def _object(row: sqlite3.Row | tuple) -> FederationObject:
+    public_id, account_id, theme_id, document_id, published_by, published_at, updated_at = tuple(row)
+    return FederationObject(int(public_id), int(account_id), int(theme_id), str(document_id), int(published_by), float(published_at), float(updated_at))
+
+
+def _task(row: sqlite3.Row | tuple) -> OutboxTask:
+    task_id, account_id, kind, object_public_id, status, lease_until, error_code, created_at, handed_off_at = tuple(row)
+    return OutboxTask(int(task_id), int(account_id), kind, None if object_public_id is None else int(object_public_id), status, None if lease_until is None else float(lease_until), error_code, float(created_at), None if handed_off_at is None else float(handed_off_at))
+
+
+def get_object(conn: sqlite3.Connection, public_id: int) -> FederationObject | None:
+    row = conn.execute(f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE public_id=?", (public_id,)).fetchone()
+    return None if row is None else _object(row)
+
+
+def get_object_for_document(conn: sqlite3.Connection, *, theme_id: int, document_id: str) -> FederationObject | None:
+    row = conn.execute(f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE theme_id=? AND document_id=?", (theme_id, document_id)).fetchone()
+    return None if row is None else _object(row)
+
+
+def add_outbox_task(conn: sqlite3.Connection, *, account_id: int, kind: OutboxKind, object_public_id: int | None, now: float) -> OutboxTask:
+    """Add one task with the status ``pending``. ``account_id`` is the account whose actor sends the activity."""
+    if isinstance(account_id, bool) or not isinstance(account_id, int):
+        raise TypeError("account_id must be an int")
+    cur = conn.execute("INSERT INTO federation_outbox (account_id, kind, object_public_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)", (account_id, kind, object_public_id, now))
+    task = get_outbox_task(conn, int(cur.lastrowid))
+    assert task is not None
+    return task
+
+
+def get_outbox_task(conn: sqlite3.Connection, task_id: int) -> OutboxTask | None:
+    row = conn.execute(f"SELECT {_TASK_COLUMNS} FROM federation_outbox WHERE id=?", (task_id,)).fetchone()
+    return None if row is None else _task(row)
+
+
+def publish_document(conn: sqlite3.Connection, *, account_id: int, theme_id: int, document_id: str, published_by_account_id: int, salt: bytes, now: float) -> tuple[FederationObject, OutboxTask, bool]:
+    """Publish one document, or publish it again. Return the object, the task, and ``True`` when this call made the object.
+
+    The first call makes the object row and a ``create`` task. A later call changes ``updated_at`` and makes an ``update`` task. The caller commits: the object row and the task row must be in one transaction (design Section 9.3 item 1).
+    """
+    existing = get_object_for_document(conn, theme_id=theme_id, document_id=document_id)
+    if existing is None:
+
+        def _insert(public_id: int) -> None:
+            conn.execute(
+                f"INSERT INTO {_OBJECTS_TABLE} (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (public_id, account_id, theme_id, document_id, published_by_account_id, now, now),
+            )
+
+        public_id = ids.insert_with_timestamp_id(conn, table=_OBJECTS_TABLE, column="public_id", salt=salt, insert=_insert, now_ms=lambda: int(now * 1000))
+        made = get_object(conn, public_id)
+        assert made is not None
+        return made, add_outbox_task(conn, account_id=account_id, kind="create", object_public_id=public_id, now=now), True
+    if existing.account_id != account_id:
+        raise ValueError("the object is of a different account")
+    conn.execute(f"UPDATE {_OBJECTS_TABLE} SET updated_at=? WHERE public_id=?", (now, existing.public_id))
+    updated = get_object(conn, existing.public_id)
+    assert updated is not None
+    return updated, add_outbox_task(conn, account_id=account_id, kind="update", object_public_id=existing.public_id, now=now), False
+
+
+def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: float) -> OutboxTask:
+    """Delete one published object: write its tombstone, delete its row, and make a ``delete`` task. The caller commits: the three changes must be in one transaction."""
+    add_tombstone(conn, obj.public_id, "object", gone_at=now)
+    conn.execute(f"DELETE FROM {_OBJECTS_TABLE} WHERE public_id=?", (obj.public_id,))
+    return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)
+
+
+def count_objects(conn: sqlite3.Connection, account_id: int) -> int:
+    return int(conn.execute(f"SELECT COUNT(*) FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,)).fetchone()[0])
+
+
+def list_objects(conn: sqlite3.Connection, account_id: int, *, limit: int, max_id: int | None = None, min_id: int | None = None, since_id: int | None = None) -> list[FederationObject]:
+    """Return one cursor page of the published objects of an account, newest first. The cursors are those of ``list_followers``."""
+    if limit < 1:
+        raise ValueError("limit must be 1 or more")
+    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE account_id=?"
+    params: list[object] = [account_id]
+    if max_id is not None:
+        sql += " AND public_id < ?"
+        params.append(max_id)
+    for value in (min_id, since_id):
+        if value is not None:
+            sql += " AND public_id > ?"
+            params.append(value)
+    sql += f" ORDER BY public_id {'ASC' if min_id is not None else 'DESC'} LIMIT ?"
+    params.append(limit)
+    rows = [_object(row) for row in conn.execute(sql, params).fetchall()]
+    if min_id is not None:
+        rows.reverse()
+    return rows
+
+
+def count_pending_tasks(conn: sqlite3.Connection, account_id: int) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=? AND status='pending'", (account_id,)).fetchone()[0])
+
+
+def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int) -> list[OutboxTask]:
+    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` and return them.
+
+    A task is ready when its status is ``pending`` and its lease is absent or ended. Thus a task that was not acknowledged is given again after its lease. The caller commits.
+    """
+    if limit < 1 or lease_seconds <= 0:
+        raise ValueError("limit and lease_seconds must be more than 0")
+    if not account_ids:
+        return []
+    marks = ",".join("?" for _ in account_ids)
+    rows = conn.execute(
+        f"SELECT id FROM federation_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND account_id IN ({marks}) ORDER BY id LIMIT ?",
+        (now, *account_ids, limit),
+    ).fetchall()
+    leased: list[OutboxTask] = []
+    for row in rows:
+        # The condition is in the UPDATE again: a different connection can take the task between the two statements.
+        changed = conn.execute("UPDATE federation_outbox SET lease_until=? WHERE id=? AND status='pending' AND (lease_until IS NULL OR lease_until <= ?)", (now + lease_seconds, int(row[0]), now)).rowcount
+        if changed:
+            task = get_outbox_task(conn, int(row[0]))
+            assert task is not None
+            leased.append(task)
+    return leased
+
+
+def ack_outbox_task(conn: sqlite3.Connection, task_id: int, *, result: Literal["handed_off", "rejected"], error_code: str | None, now: float) -> OutboxTask | None:
+    """Record the result of the handoff of a task. Return the task, or ``None`` when there is no such task.
+
+    A ``pending`` task gets the result. A task that has a result is not changed: a second acknowledgement returns the first result.
+    """
+    task = get_outbox_task(conn, task_id)
+    if task is None:
+        return None
+    if task.status == "pending":
+        conn.execute(
+            "UPDATE federation_outbox SET status=?, error_code=?, lease_until=NULL, handed_off_at=? WHERE id=? AND status='pending'",
+            (result, error_code, now if result == "handed_off" else None, task_id),
+        )
+        task = get_outbox_task(conn, task_id)
+    return task
+

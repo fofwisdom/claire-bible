@@ -19,7 +19,8 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
 | Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
-| Outbox, published objects, publishing | Not implemented (phase FP3). The paths return 404. |
+| `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1) |
+| Delivery of published objects, public outbox and object paths of the sidecar | Not implemented (units FP3-3 to FP3-5). The public paths return 404. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, and deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3). Claire publishes nothing before phase FP3.
 
@@ -358,12 +359,12 @@ uv run claire instance check --federation --json
 `GET /api/federation/status` returns, with `Cache-Control: no-store`:
 
 ```json
-{"federation": "on", "handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}}
+{"federation": "on", "handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}, "pending_tasks": 0}
 ```
 
 - `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`, `federation_off`, `profile_not_public`.
 - `handle` and `actor_id` are null only when the account has no USERNAME.
-- The response has no pending task count. The outbox table comes in phase FP3.
+- `pending_tasks` is the number of outbox tasks of the account with the status `pending` (unit FP3-1).
 
 `GET /api/federation/followers` returns one cursor page, newest first: `total`, `items` (`id`, `actor_iri`, `created_at`), `next_max_id`. Query parameters: `limit` (1 to 80, default 20) and one of `max_id`, `min_id`, `since_id`. A query that is not valid gets 400 `invalid_request`. The inbox addresses are not in the response.
 
@@ -395,6 +396,38 @@ uv run claire instance check --federation --json
 - `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). In single mode the section shows a notice only and no USERNAME.
 - `/admin/federation` (admin): the switch, the readiness checks GF1 to GF7, the last heartbeat of the sidecar, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because check GF7 sends a network request. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
 - A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
+
+### 7.6 Publishing Routes (Unit FP3-1)
+
+The routes need `collaborator` access or more, in network mode only (`ROUTE_POLICY`: `_any("collaborator", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the theme must be of that account: the admin cannot publish for a member. A collaborator can use only a theme with `is_collaborator_accessible`.
+
+`POST /api/federation/publish` with the body `{"theme": "<theme number>", "document_id": "..."}`:
+
+| Condition | Response |
+| :--- | :--- |
+| The body is not this object (`theme` is a decimal string, `document_id` has 1 to 200 characters) | 400 `invalid_request` |
+| No theme with this number that the caller can use | 404 `theme_not_found` |
+| The account is not an actor (Section 3) | 409 `not_an_actor` with `actor_state` |
+| The theme is not public | 409 `theme_not_public` |
+| No document with this ID in the theme | 404 `document_not_found` |
+| The document is hidden | 409 `document_not_public` |
+| The document has no body (`detail` and `detail_html` are empty) | 409 `document_has_no_body` |
+| Published | 202 with `object` (`id`, `url`, `published_at`, `updated_at`), `task` (`id`, `kind`), `created` |
+
+- The first publish of a document makes the `federation_objects` row and a `create` task. A later publish changes `updated_at` and makes an `update` task. The object ID stays.
+- The object row and the task row are in one transaction. If the task insert fails, the object row is not stored.
+- Before that transaction the route makes sure that the document has a share page (`doc_shares`). That page is the public page of the document.
+- `object.url` is `{origin}/ap/objects/{id}`. The sidecar does not serve that path before unit FP3-3.
+- The account of the task and `published_by_account_id` are the account of the caller. No function has a default account (`tests/test_federation_publish.py` reads the federation modules for this).
+
+`POST /api/federation/retract` with the body `{"object_id": "<decimal>"}`:
+
+- An object that does not exist, or is of a different account, or is in a theme that the caller cannot use, gets 404 `object_not_found`.
+- If not, one transaction writes the tombstone (`federation_tombstones`, kind `object`), deletes the object row, and makes a `delete` task. The response is 202 with `retracted`, `object_id`, and `task`.
+- A new publish of the same document makes a new object ID. The old ID stays a tombstone.
+- A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8).
+
+A cookie request that is not from the same origin gets 403 (`AuthenticationMiddleware`). The routes need no recent authentication.
 
 ## 8. Account Effects
 
@@ -543,7 +576,7 @@ These statements are true for the code now.
 | :--- | :--- |
 | `actor_keys` is `auth.db` version 4 (§10.2) | Version 5. Version 4 was used by the per-account features before FP1. |
 | `GET`, `PUT /api/admin/federation` with the switch, the domain blocks, and the sidecar health (§9.2) | `GET`, `POST /api/admin/federation` for the switch and the health. The domain blocks are at `/api/admin/federation/domain-blocks` (`GET`, `POST`, `DELETE`). |
-| `GET /api/federation/status` has the follower count and the pending task count (§9.2) | No pending task count before FP3. The follower list is a second route, `GET /api/federation/followers`. |
+| `GET /api/federation/status` has the follower count and the pending task count (§9.2) | The follower list is a second route, `GET /api/federation/followers`. |
 | After a follower removal the sidecar sends `Reject(Follow)` (§11 item 2) | Not sent before the outbox of FP3 |
 | End-to-end test: follow from a second development instance (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1). |
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
@@ -552,7 +585,7 @@ These statements are true for the code now.
 | Actor document has `outbox` and `followers` (§5.2) | `followers` is in the document (FP2-3). `outbox` is not. |
 | `rejected`: the sidecar sends `Reject` for a `Follow` (§6.3) | Only for the reason `recipient_mismatch` (Section 4.3) |
 | An `ignored` activity increments a telemetry counter (§6.3) | A counter in the memory of the sidecar and a log line |
-| `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). The tables of FP3 come with unit FP3-1. |
+| `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). Version 18 has the two tables of FP3 and one more index (`idx_federation_objects_account`). |
 | The inbox event has `event_id`, `type`, `recipient_public_id`, `actor`, `object_iri`, `verified_by` (§6.3) | The event also has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision also has `reason`. |
 | `rejected` is for a blocked domain or a recipient that is not an actor (§6.3) | Also for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` |
 | `/config` has limits (§6.2) | One limit: `inbox_body_bytes`. `federated_actors` is also in the response. |
@@ -570,6 +603,7 @@ These statements are true for the code now.
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
 | `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, and the inbox answers 405, 401, 413, and 404; and the self-check while federation is off |
+| `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account |
 | `tests/test_federation_console.py` | Status and actor state, follower pages, follower removal for the own account only, single mode, domain block guards and audit rows, the two console sections, and one end-to-end run in a browser |
 | `sidecar/fedify/e2e/follow_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Phase FP2 end to end: signed `Follow` through the sidecar code to a real Claire process, `Accept` with a signature check, shared inbox, blocked domain, `Undo(Follow)`, and the follower rows in `claire.db` |
 | `sidecar/fedify/tests/inbox_test.ts` | Signed `Follow` to `Accept` with a signature check of the delivery, 401, 403 for a blocked domain, block list in memory, event fields against the fixtures, `Reject` rule, internal API failure, body limit, followers collection |

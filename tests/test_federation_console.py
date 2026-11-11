@@ -195,6 +195,7 @@ def test_status_shows_the_handle_the_actor_id_and_the_condition_that_fails(env):
         "is_actor": False,
         "actor_state": "federation_off",
         "followers": {"total": 1},
+        "pending_tasks": 0,
     }
     assert (private["federation"], private["is_actor"], private["actor_state"]) == ("on", False, "profile_not_public")
     assert (active["is_actor"], active["actor_state"]) == (True, "active")

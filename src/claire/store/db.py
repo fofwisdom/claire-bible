@@ -21,7 +21,7 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -993,6 +993,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v15_accounts(conn)
     _migrate_v16_themes(conn)
     _migrate_v17_federation(conn)
+    _migrate_v18_federation_publishing(conn)
     backfill_embedding_models(conn)
 
 
@@ -1239,7 +1240,7 @@ def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
 def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
     """v17 (Fedify sidecar design Section 10.1, unit FP2-1): followers, tombstones, and domain blocks. Idempotent, adds tables only (A3).
 
-    The tables ``federation_objects`` and ``federation_outbox`` of the same design section come with phase FP3.
+    The tables ``federation_objects`` and ``federation_outbox`` of the same design section are in version 18.
     """
     conn.execute(
         """
@@ -1276,6 +1277,45 @@ def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _migrate_v18_federation_publishing(conn: sqlite3.Connection) -> None:
+    """v18 (Fedify sidecar design Section 10.1, unit FP3-1): published objects and the transactional outbox. Idempotent, adds tables only (A3).
+
+    ``federation_outbox.account_id`` has no default and no foreign key: a ``delete_actor`` task must stay after the purge of its account.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_objects (
+            public_id INTEGER PRIMARY KEY,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+            document_id TEXT NOT NULL,
+            published_by_account_id INTEGER NOT NULL REFERENCES accounts(id),
+            published_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE (theme_id, document_id)
+        )
+        """
+    )
+    # The outbox collection of an actor reads its objects in the order of the number.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_objects_account ON federation_objects(account_id, public_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'update_actor', 'delete_actor')),
+            object_public_id INTEGER,
+            status TEXT NOT NULL CHECK (status IN ('pending', 'handed_off', 'rejected')),
+            lease_until REAL,
+            error_code TEXT,
+            created_at REAL NOT NULL,
+            handed_off_at REAL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_outbox_ready ON federation_outbox(status, id)")
 
 
 def backfill_embedding_models(conn: sqlite3.Connection) -> int:

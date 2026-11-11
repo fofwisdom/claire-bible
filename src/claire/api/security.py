@@ -515,6 +515,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
     ("HEAD", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
     ("DELETE", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
+    # Unit FP3-1: a publish or a retract causes an outbound activity. A ``readonly`` credential cannot call these routes (design Section 8.3 item 4).
+    ("POST", "/api/federation/publish"): _any("collaborator", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/retract"): _any("collaborator", modes=NETWORK_ONLY),
     ("GET", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
     ("HEAD", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
     ("POST", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),

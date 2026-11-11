@@ -46,6 +46,7 @@ def _make_v15_database(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         m.setattr(dbm, "SCHEMA_VERSION", 15)
         m.setattr(dbm, "_migrate_v16_themes", lambda conn: None)
         m.setattr(dbm, "_migrate_v17_federation", lambda conn: None)
+        m.setattr(dbm, "_migrate_v18_federation_publishing", lambda conn: None)
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
@@ -272,7 +273,7 @@ def test_v15_database_with_newer_code_is_rejected_by_require_current_schema(
     _make_v15_database(path, monkeypatch)
     conn = dbm.connect_existing(path, readonly=True)
     try:
-        with pytest.raises(RuntimeError, match="actual=15, expected=17"):
+        with pytest.raises(RuntimeError, match="actual=15, expected=18"):
             dbm.require_current_schema(conn)
     finally:
         conn.close()

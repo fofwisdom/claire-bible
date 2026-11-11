@@ -21,12 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claire.store import db as store_db
+from claire.store import federation as store_federation
 from claire.store import queries as store_queries
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
-STORE_MODULES = (store_db, store_queries)
+STORE_MODULES = (store_db, store_queries, store_federation)
 
 # 요청 경로 모듈 (설계 §18.3 L0-b)
 REQUEST_PATH_GLOBS = (
@@ -42,6 +43,9 @@ REQUEST_PATH_GLOBS = (
     "claire/retrieval/*.py",
     "claire/presentation/*.py",
     "claire/graph_bundle.py",
+    # Fedify 사이드카 설계 §10.1: federation_objects 질의도 theme_id를 명시한다.
+    "claire/api/accounts_routes/federation.py",
+    "claire/api/federation_routes.py",
 )
 
 

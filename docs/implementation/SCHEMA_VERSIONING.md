@@ -18,8 +18,9 @@
 | 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
 | 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
-| 17 | 현재 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
-| 18 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
+| 18 | 현재 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
+| 19 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -83,15 +84,28 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: FP2-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §10.1.
 
-- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 17`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 17보다 크면 변경 없이 거부한다.
+- **[코드] 버전 상수**: v17 도입 당시 `SCHEMA_VERSION`은 17이었다(현재 값은 아래 "v18" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v17_federation`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
   - 테이블 `federation_followers`: `(public_id INTEGER UNIQUE NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, actor_iri TEXT NOT NULL, inbox_iri TEXT NOT NULL, shared_inbox_iri TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY (account_id, actor_iri))`. `public_id`는 시간 정렬 번호(`claire.ids`)이고 컬렉션 커서다.
   - 인덱스 `idx_federation_followers_actor`(`actor_iri`): 원격 액터의 `Delete`·`Update`가 계정과 무관하게 행을 찾는다. 설계 §10.1에는 없는 인덱스다.
   - 테이블 `federation_tombstones`: `(public_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('actor', 'object')), gone_at REAL NOT NULL)`. USERNAME이 없고(K4) `accounts` 외래 키도 없다. 퍼지 뒤에도 행이 남아야 하기 때문이다.
   - 테이블 `federation_domain_blocks`: `(domain TEXT PRIMARY KEY, created_at REAL NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id), note TEXT NOT NULL DEFAULT '')`. `domain`은 소문자 ASCII(punycode)다.
 - **[코드] 저장소 함수**: `src/claire/store/federation.py`. 팔로워 저장(`upsert_follower`, 키는 `(account_id, actor_iri)`), 삭제, 원격 액터 단위 삭제·인박스 갱신, 개수, 커서 페이지(`max_id`·`min_id`·`since_id`), 툼스톤 기록·조회, 도메인 정규화·차단·해제·목록·판정(`blocking_domain`, 차단은 하위 도메인에도 적용), 차단 목록 ETag. 이 모듈의 함수는 커밋하지 않는다.
-- **[코드] 설계와 다른 점**: 설계 §10.1은 `federation_objects`와 `federation_outbox`도 version 17에 적었다. 이 두 테이블은 FP3-1에서 그 코드와 함께 더한다(쓰이지 않는 스키마를 먼저 만들지 않는다). 따라서 FP3-1은 version을 한 번 더 올린다.
+- **[코드] 설계와 다른 점**: 설계 §10.1은 `federation_objects`와 `federation_outbox`도 version 17에 적었다. 이 두 테이블은 FP3-1에서 그 코드와 함께 v18로 더했다(쓰이지 않는 스키마를 먼저 만들지 않는다).
 - **[테스트]** `tests/test_schema_v17.py`.
+
+## v18 (연합 발행 객체와 아웃박스, Fedify 사이드카 FP3-1)
+
+확인 기준: FP3-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §9.3, §10.1.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 18`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 18보다 크면 변경 없이 거부한다.
+- **[코드] 추가 객체**(`_migrate_v18_federation_publishing`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더한다, A3):
+  - 테이블 `federation_objects`: `(public_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, document_id TEXT NOT NULL, published_by_account_id INTEGER NOT NULL REFERENCES accounts(id), published_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (theme_id, document_id))`. `public_id`는 시간 정렬 번호이고 객체 ID이자 아웃박스 컬렉션 커서다.
+  - 인덱스 `idx_federation_objects_account`(`account_id, public_id`). 설계 §10.1에는 없는 인덱스다.
+  - 테이블 `federation_outbox`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'update_actor', 'delete_actor')), object_public_id INTEGER, status TEXT NOT NULL CHECK (status IN ('pending', 'handed_off', 'rejected')), lease_until REAL, error_code TEXT, created_at REAL NOT NULL, handed_off_at REAL)`. `account_id`에는 기본값도 외래 키도 없다(설계 §8.3 항목 5, 퍼지 뒤에도 `delete_actor` 작업이 남아야 한다).
+  - 인덱스 `idx_federation_outbox_ready`(`status, id`).
+- **[코드] 저장소 함수**: `src/claire/store/federation.py`의 `publish_document`, `retract_object`, `add_outbox_task`, `lease_outbox_tasks`, `ack_outbox_task`, `count_pending_tasks`, `list_objects`, `count_objects`. 커밋은 호출자가 한다. 객체 행과 작업 행은 한 트랜잭션에 쓴다.
+- **[테스트]** `tests/test_federation_publish.py`. `tests/test_theme_id_explicit.py`가 `federation_objects` 질의의 `theme_id` 명시를 검사한다.
 
 ### 별도 저장소: `data/auth/auth.db`
 

@@ -32,7 +32,7 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
-       "/api/federation/status", "/api/federation/followers"}
+       "/api/federation/status", "/api/federation/followers", "/api/federation/publish", "/api/federation/retract"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
@@ -94,6 +94,8 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/federation/status") for m in ("GET", "HEAD")),
     *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
+    ("POST", "/api/federation/publish"),
+    ("POST", "/api/federation/retract"),
 }
 
 

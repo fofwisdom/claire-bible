@@ -70,6 +70,8 @@ def account_federation_status(ctx: AccountsContext, conn: sqlite3.Connection, ac
         "is_actor": state == "active",
         "actor_state": state,
         "followers": {"total": federation_store.count_followers(conn, account.id)},
+        # Outbox tasks that the sidecar did not take or did not acknowledge.
+        "pending_tasks": federation_store.count_pending_tasks(conn, account.id),
     }
 
 

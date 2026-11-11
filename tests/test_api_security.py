@@ -334,6 +334,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/document/presentation/compile",
         "/api/syndication/dispatch",
         "/syndication/dispatch",
+        "/api/federation/publish",
+        "/api/federation/retract",
     }
     collaborator_methods = {
         ("PUT", "/document/presentation/adoc"),
@@ -513,6 +515,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/me/keys/verify"),
         *((m, "/api/federation/status") for m in ("GET", "HEAD")),
         *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
+        ("POST", "/api/federation/publish"),
+        ("POST", "/api/federation/retract"),
     }
     assert {k for k, r in security.ROUTE_POLICY.items() if r.modes != security.ALL_MODES} == network_only_keys
     assert all(r.modes in (security.ALL_MODES, security.NETWORK_ONLY) for r in security.ROUTE_POLICY.values())
