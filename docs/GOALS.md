@@ -106,7 +106,8 @@
 - [x] Fedify 사이드카 연합 FP0: 기술 검증 FT1–FT7 (검증 프로그램은 커밋 `116d530`의 `sidecar/fedify/spike/`에 있으며, FP1-5에서 사이드카 소스로 대체됨)
 - [x] Fedify 사이드카 연합 FP1: 내부 계약과 탐색 — WebFinger, NodeInfo, 액터 문서, 준비 검사 ([구현](implementation/FEDERATION.md))
 - [x] Fedify 사이드카 연합 FP2: 팔로워 — 인박스, `Accept(Follow)`, 팔로워 컬렉션, 도메인 차단, 콘솔 `/settings/federation`·`/admin/federation` ([구현](implementation/FEDERATION.md))
-- [ ] Fedify 사이드카 연합 FP3: 발행 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md), 소유자 결정 FD1–FD12 확정 2026-11-10)
+- [x] Fedify 사이드카 연합 FP3: 발행 — `Article` 발행·갱신·철회, 아웃박스 컬렉션, 수명 주기 작업, 비공개 전환 트리거, `/syndication` 대화상자의 네이티브 액터 대상 ([구현](implementation/FEDERATION.md))
+- [ ] Fedify 사이드카 연합 FP4: 원격 읽기 — 설계 개정 필요 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §14.1)
 
 ---
 

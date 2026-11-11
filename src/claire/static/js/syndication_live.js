@@ -573,6 +573,17 @@
     } catch (_) {}
   }
 
+  /* 네이티브 연합 액터 (Fedify 사이드카 설계 §9.2): 이 계정이 연합 액터일 때만 발행 대상으로 보인다. 단독 모드에서는 상태 경로가 404 이고, 연합 off · 일시 중지에서는 is_actor 가 false 이므로 null 로 남는다. */
+  let nativeActor = null;
+  (async () => {
+    try {
+      const resp = await fetch("/api/federation/status", { headers: { Accept: "application/json" } });
+      if (!resp.ok) return;
+      const st = await resp.json();
+      if (st && st.is_actor && st.handle) nativeActor = { handle: String(st.handle) };
+    } catch (_) {}
+  })();
+
   function openDispatchModal(docId) {
     const theme = curTheme();
     const doc = (theme.documents || []).find((x) => x.id === docId);
@@ -603,7 +614,43 @@
         <button type="button" id="btn-cancel-dispatch" class="tt-btn">취소</button>
         <button type="button" id="btn-confirm-dispatch" class="tt-btn tt-btn-pri">📡 대상 테마로 적재 전달</button>
       </div>
+      ${nativeActor ? `<fieldset id="dispatch-native" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+        <legend style="font-size:12px;font-weight:700;padding:0 4px">🏠 네이티브 액터로 발행 (POST /api/federation/publish)</legend>
+        <div style="font-size:12.5px">대상: <b data-native-handle>${esc(nativeActor.handle)}</b> 의 팔로워 · 형식: Article</div>
+        <div style="font-size:11.5px;color:var(--muted)">${theme.isPublic ? "이 문서의 적재 본문을 팔로워의 서버로 전달합니다. 이미 발행한 문서는 갱신으로 전달합니다. 나중에 철회하거나 테마를 비공개로 바꾸면 삭제를 요청하지만, 원격 서버의 삭제는 보장되지 않습니다." : "비공개 테마의 문서는 발행할 수 없습니다."}</div>
+        <div id="dispatch-native-msg" style="font-size:12px;color:var(--muted)"></div>
+        <div style="display:flex;justify-content:flex-end"><button type="button" id="btn-native-publish" class="tt-btn tt-btn-pri" ${theme.isPublic ? "" : "disabled"}>🏠 네이티브 액터로 발행</button></div>
+      </fieldset>` : ""}
     `;
+
+    const nativeBtn = document.getElementById("btn-native-publish");
+    if (nativeBtn) {
+      nativeBtn.addEventListener("click", async () => {
+        const msgEl = document.getElementById("dispatch-native-msg");
+        nativeBtn.disabled = true;
+        if (msgEl) msgEl.textContent = "발행을 요청하고 있습니다…";
+        try {
+          const resp = await fetch("/api/federation/publish", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ theme: themeRefOf(theme.id), document_id: doc.id })
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (resp.status !== 202 || !data.object) {
+            const errText = data.error || `HTTP ${resp.status}`;
+            if (msgEl) msgEl.textContent = `발행 실패: ${errText}`;
+            ticker(`네이티브 액터 발행 실패: ${errText}`);
+            nativeBtn.disabled = false;
+            return;
+          }
+          modal.close();
+          ticker(`🏠 네이티브 액터 ${data.created ? "발행" : "갱신"} 요청 완료: ${doc.id} → ${nativeActor.handle}`);
+        } catch (err) {
+          if (msgEl) msgEl.textContent = `네트워크 오류: ${err.message || err}`;
+          nativeBtn.disabled = false;
+        }
+      });
+    }
 
     const closeBtn = document.getElementById("btn-close-dispatch");
     const cancelBtn = document.getElementById("btn-cancel-dispatch");

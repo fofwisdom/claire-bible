@@ -402,3 +402,27 @@ def test_requeue_sets_recent_handed_off_tasks_to_pending(env):
     finally:
         conn.close()
     assert sorted((row[2], row[3]) for row in _tasks(env.settings)) == sorted([(env.objects["doc-a"], "handed_off"), (env.objects["doc-b"], "pending"), (env.objects["doc-c"], "pending"), (env.objects["doc-b"], "rejected")])
+
+
+def test_cli_requeue_counts_without_apply_and_changes_with_apply(env, monkeypatch, capsys):
+    from claire import cli
+    from claire.config import get_settings
+
+    conn = _connect(env.settings)
+    try:
+        conn.execute("UPDATE federation_outbox SET handed_off_at=?", (time.time() - 3600,))
+        conn.execute("UPDATE federation_outbox SET handed_off_at=? WHERE object_public_id=?", (time.time() - 100 * 3600, env.objects["doc-a"]))
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(env.settings.db_file))
+    monkeypatch.setenv("CB_DATA_DIR", str(env.settings.data_dir))
+    get_settings.cache_clear() if hasattr(get_settings, "cache_clear") else None
+
+    assert cli.main(["federation", "requeue", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"] == {"applied": False, "max_age_hours": 72.0, "tasks": 2}
+    assert _new_tasks(env.settings) == []
+    assert cli.main(["federation", "requeue", "--apply", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"] == {"applied": True, "max_age_hours": 72.0, "tasks": 2}
+    assert sorted((row[2], row[3]) for row in _tasks(env.settings)) == sorted([(env.objects["doc-a"], "handed_off"), (env.objects["doc-b"], "pending"), (env.objects["doc-c"], "pending")])
+    assert cli.main(["federation", "requeue", "--max-age-hours", "0"]) == 2

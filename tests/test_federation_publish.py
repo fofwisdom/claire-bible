@@ -382,3 +382,113 @@ def test_single_mode_has_no_publishing_routes(env):
     for path, body in (("/api/federation/publish", {"theme": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
         assert env.post(path, body, session_token=env.admin_session).status_code == 404
     assert _tasks(env.settings) == []
+
+
+# --- End to end: the native actor in the dialog of /syndication, in a real browser (unit FP3-5) ---
+
+
+def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
+    import socket
+    import threading
+
+    sync_api = pytest.importorskip("playwright.sync_api")
+    uvicorn = pytest.importorskip("uvicorn")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+    base = f"http://127.0.0.1:{port}"
+    from claire.config import Settings
+
+    (tmp_path / "vault").mkdir()
+    # The page reads the document list, so this test needs the full settings object.
+    settings = Settings(CLAIRE_DATA_DIR=str(tmp_path), CLAIRE_DB_PATH=str(tmp_path / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL=base, CLAIRE_FQDN=f"127.0.0.1:{port}", CLAIRE_INJECT_TOKEN="owner-" + "o" * 32, CLAIRE_ANONYMOUS_READONLY=False, CLAIRE_MULTI_THEME=True)
+    conn = dbm.connect(settings.db_file)
+    try:
+        dbm.init_db(conn)
+        store = accounts_store.AccountStore(conn)
+        store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
+        store.set_setting("mode", "network", updated_by=1)
+        store.set_federation_state("on", updated_by=1)
+        alpha = int(conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'member_alpha', 'member', 'active', 'Alpha', 1, 0, 0, 0)", (ALPHA_PUBLIC_ID,)).lastrowid)
+        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 0, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
+        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))
+        _add_document(conn, "doc-a", 11)
+        _add_document(conn, "doc-private", 12)
+        conn.commit()
+        owner = accounts_store.create_account_session(conn, account_id=alpha, scope="owner", now=time.time())
+    finally:
+        conn.close()
+
+    def rows(sql: str) -> list[tuple]:
+        c = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            return [tuple(r) for r in c.execute(sql)]
+        finally:
+            c.close()
+
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))
+    srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"))
+    thread = threading.Thread(target=srv.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while not srv.started:
+        assert thread.is_alive() and time.monotonic() < deadline, "test server did not start"
+        time.sleep(0.05)
+    try:
+        with sync_api.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch()
+            except Exception as exc:  # noqa: BLE001
+                pytest.skip(f"Playwright Chromium is not available: {exc}")
+            try:
+                ctx = browser.new_context()
+                ctx.add_cookies([{"name": "claire_session", "value": owner, "url": base}])
+                page = ctx.new_page()
+                page.goto(f"{base}/syndication?theme={ALPHA_THEME}")
+                page.locator("[data-quick-dispatch='doc-a']").first.click()
+                native = page.locator("#dispatch-native")
+                native.wait_for(state="visible")
+                # The native actor is one more target of the dialog, with the handle of the account and the notice about remote copies.
+                assert native.locator("[data-native-handle]").inner_text() == f"@member_alpha@127.0.0.1:{port}"
+                assert "보장되지 않습니다" in native.inner_text()
+                with page.expect_response(lambda r: r.url.endswith("/api/federation/publish")) as published:
+                    native.locator("#btn-native-publish").click()
+                assert published.value.status == 202
+                assert published.value.json()["created"] is True
+                page.locator("#modal-dispatch").wait_for(state="hidden")
+                assert rows("SELECT account_id, theme_id, document_id FROM federation_objects") == [(alpha, 11, "doc-a")]
+                assert rows("SELECT account_id, kind, status FROM federation_outbox") == [(alpha, "create", "pending")]
+
+                # A second publish from the dialog is an update of the same object.
+                page.locator("[data-quick-dispatch='doc-a']").first.click()
+                with page.expect_response(lambda r: r.url.endswith("/api/federation/publish")) as published:
+                    page.locator("#btn-native-publish").click()
+                assert published.value.json()["created"] is False
+                assert [r[1] for r in rows("SELECT account_id, kind, status FROM federation_outbox")] == ["create", "update"]
+
+                # A document of a private theme cannot go to the native actor.
+                page.goto(f"{base}/syndication?theme={ALPHA_PRIVATE_THEME}")
+                page.locator("[data-quick-dispatch='doc-private']").first.click()
+                page.locator("#dispatch-native").wait_for(state="visible")
+                assert page.locator("#btn-native-publish").is_disabled()
+                ctx.close()
+
+                # An account that is not an actor sees no native target.
+                c = dbm.connect_existing(settings.db_file)
+                try:
+                    accounts_store.AccountStore(c).update_profile_public(alpha, 0)
+                finally:
+                    c.close()
+                ctx = browser.new_context()
+                ctx.add_cookies([{"name": "claire_session", "value": owner, "url": base}])
+                page = ctx.new_page()
+                page.goto(f"{base}/syndication?theme={ALPHA_THEME}")
+                page.locator("[data-quick-dispatch='doc-a']").first.click()
+                page.locator("#btn-confirm-dispatch").wait_for(state="visible")
+                assert page.locator("#dispatch-native").count() == 0
+                ctx.close()
+            finally:
+                browser.close()
+    finally:
+        srv.should_exit = True
+        thread.join(timeout=10)

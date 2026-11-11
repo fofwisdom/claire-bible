@@ -3473,6 +3473,47 @@ def cmd_instance(args) -> int:
     return 0 if report.passed else 1
 
 
+def cmd_federation(args) -> int:
+    """Recovery for a lost sidecar database (Fedify sidecar design Section 9.4): set the tasks that the sidecar took in the last hours to ``pending`` again.
+
+    The deliveries that were in the queue of the sidecar are lost with its database. A second handoff makes the same activities with the same IDs, so a remote server that has an activity makes no second object. Without ``--apply`` the command only counts the tasks.
+    """
+    import json
+    import sqlite3
+    import time
+
+    from .store import db as dbm
+    from .store import federation as federation_store
+
+    hours = float(args.max_age_hours)
+    if not 0 < hours <= 24 * 30:
+        print("federation requeue: --max-age-hours must be more than 0 and not more than 720", file=sys.stderr)
+        return 2
+    s = get_settings()
+    since = time.time() - hours * 3600
+    try:
+        conn = dbm.connect_existing(s.db_file, readonly=not args.apply)
+    except sqlite3.Error as e:
+        print(f"federation requeue: cannot open the database: {e}", file=sys.stderr)
+        return 1
+    try:
+        if args.apply:
+            count = federation_store.requeue_handed_off_tasks(conn, since=since)
+            conn.commit()
+        else:
+            count = int(conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE status='handed_off' AND handed_off_at >= ?", (since,)).fetchone()[0])
+    finally:
+        conn.close()
+    result = {"applied": bool(args.apply), "max_age_hours": hours, "tasks": count}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.apply:
+        print(f"federation requeue: {count} task(s) set to pending. The sidecar sends them again at its next poll.")
+    else:
+        print(f"federation requeue: {count} task(s) were handed off in the last {hours:g} hour(s). Use --apply to set them to pending.")
+    return 0
+
+
 def cmd_auth(args) -> int:
     """웹 UI 접속을 위한 1회용 인증 매직 링크 및 세션 토큰 발급."""
     import json
@@ -5406,6 +5447,22 @@ def build_parser() -> argparse.ArgumentParser:
     pinst_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF7")
     pinst_check.add_argument("--json", action="store_true", help="output the readiness report in JSON format")
     pinst_check.set_defaults(func=cmd_instance)
+
+    pfed = sub.add_parser(
+        "federation",
+        help="federation maintenance: recovery after the loss of the sidecar database",
+        description="Federation maintenance commands for the admin.",
+    )
+    pfed_sub = pfed.add_subparsers(dest="federation_action", required=True)
+    pfed_requeue = pfed_sub.add_parser(
+        "requeue",
+        help="set outbox tasks that the sidecar took to pending again, after the loss of the sidecar database",
+        description="Use this command after the sidecar database (data/fedify/fedify.db) was lost. The deliveries in its queue are lost. This command sets the tasks with the status handed_off to pending again, so the sidecar sends them again with the same activity IDs. Without --apply the command only counts the tasks.",
+    )
+    pfed_requeue.add_argument("--max-age-hours", type=float, default=72.0, help="only tasks that were handed off in this number of hours (default: 72, the retry period of a delivery)")
+    pfed_requeue.add_argument("--apply", action="store_true", help="change the tasks. Without this option the command only counts them")
+    pfed_requeue.add_argument("--json", action="store_true", help="output the result in JSON format")
+    pfed_requeue.set_defaults(func=cmd_federation)
 
     ptok = sub.add_parser(
         "token",

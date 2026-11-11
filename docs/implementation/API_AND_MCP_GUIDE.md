@@ -336,6 +336,21 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 }
 ```
 
+### 2.7 연합 발행 API (`/api/federation/*`, 네트워크 모드)
+
+네이티브 연합 액터로 문서를 발행하거나 철회한다. 인스턴스 설정 `federation`이 `on`이고 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다. 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
+
+| 메서드 | 경로 | 스코프 | 기능 |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/federation/status` | `owner` | 핸들, 액터 상태, 팔로워 수, 대기 중인 작업 수 |
+| `POST` | `/api/federation/publish` | `collaborator` | 본문 `{"theme": "<테마 번호>", "document_id": "<문서 ID>"}`. 공개 테마의 숨기지 않은 문서만 발행한다. 처음이면 `create`, 다시 호출하면 같은 객체의 `update` 작업을 만든다. 응답 202 |
+| `POST` | `/api/federation/retract` | `collaborator` | 본문 `{"object_id": "<객체 ID>"}`. 객체를 지우고 팔로워에게 `Delete`를 요청한다. 응답 202 |
+
+- 발행은 비동기다. 202는 Claire가 객체와 작업을 저장했다는 뜻이고, 사이드카가 5초 안에 작업을 가져가 팔로워의 서버로 전달한다.
+- 오류 코드: 400 `invalid_request`, 404 `theme_not_found`·`document_not_found`·`object_not_found`, 409 `not_an_actor`·`theme_not_public`·`document_not_public`·`document_has_no_body`.
+- 철회와 테마 비공개 전환은 원격 서버에 삭제를 **요청**한다. 원격 서버가 사본을 지운다는 보장은 없다.
+- `readonly` 스코프는 발행할 수 없다. 관리자도 다른 계정을 대신해 발행할 수 없다.
+
 ---
 
 ## 3. MCP (Model Context Protocol) 연동 및 도구 가이드

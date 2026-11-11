@@ -23,7 +23,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2) |
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
 | Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
-| Native actor in the `/syndication` dialog, recovery command | Not implemented (unit FP3-5) |
+| Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -417,6 +417,23 @@ uv run claire instance check --federation --json
 - The exit code is 0 only when all checks pass.
 - `--network` and `--federation` are mutually exclusive, and one of them is necessary.
 
+**Recovery after the loss of the sidecar database** (design Section 9.4, unit FP3-5):
+
+```bash
+uv run claire federation requeue --max-age-hours 72
+```
+
+```bash
+uv run claire federation requeue --max-age-hours 72 --apply
+```
+
+- If `data/fedify/fedify.db` is lost, the deliveries in its queue are lost. Claire has the tasks with the status `handed_off` and cannot see which deliveries were completed.
+- Without `--apply` the command counts the tasks with the status `handed_off` and a handoff time in the last `--max-age-hours` hours (default 72, more than 0, 720 at most). It changes no data.
+- With `--apply` it sets those tasks to `pending` again and removes the handoff time. The sidecar takes them at its next poll and sends the same activities with the same IDs (Section 4.4). A remote server that has an activity makes no second object.
+- The admin starts this command. Claire does not start it automatically. `--json` gives `applied`, `max_age_hours`, and `tasks`.
+- A task of a `delete_actor` kind that is set to `pending` again is rejected by the sidecar with `no_actor_key`, because Claire deleted the keys at the first acknowledgement. `Delete(Person)` cannot be sent again.
+- The command is `./cb-manuscript app federation requeue ...` in a Compose installation.
+
 ### 7.5 Console and Account Routes (Unit FP2-4)
 
 **Account routes.** The routes are for the owner of an account, in network mode only (`ROUTE_POLICY`: `_any("owner", modes=NETWORK_ONLY)`). Single mode gives 404. The routes use the account of the credential. No route reads an account from the request.
@@ -493,6 +510,17 @@ The routes need `collaborator` access or more, in network mode only (`ROUTE_POLI
 - A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8). The object ID gives 410 immediately.
 
 A cookie request that is not from the same origin gets 403 (`AuthenticationMiddleware`). The routes need no recent authentication.
+
+### 7.7 Native Actor in the Dialog of `/syndication` (Unit FP3-5)
+
+The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/claire/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
+
+- The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. In single mode the status route gives 404, and the dialog does not change.
+- The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee (design Section 9.4).
+- The button sends `POST /api/federation/publish` with the theme number and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
+- The button is disabled for a document of a private theme.
+- The dialog has no control for a retract. `POST /api/federation/retract` is an API call.
+- The page `/prototype/syndication` is a sealed prototype and has no native target.
 
 ## 8. Account Effects
 
@@ -653,7 +681,7 @@ These statements are true for the code now.
 6. An account that was purged before unit FP3-4 has no actor tombstone. Its actor ID returns 404.
 7. The keys of an account that was purged before unit FP3-4 are not deleted. The admin purge route deletes the keys; `AccountStore.purge` alone (for example from a script) does not.
 8. The sidecar does not use `trusted_proxies`. It removes all `X-Forwarded-*` headers.
-9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
+9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The admin can send them again with `claire federation requeue` (Section 7.4). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
 11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
@@ -703,9 +731,9 @@ These statements are true for the code now.
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
 | `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-check while federation is off. Also the runs of the two files in `sidecar/fedify/e2e/`. |
-| `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks |
+| `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks, the CLI command `federation requeue` |
 | `sidecar/fedify/e2e/lifecycle_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-4 end to end: a theme change to private and a display name change through the public API of a real Claire process, `Delete` and `Update(Person)` at a test inbox with a signature check, 410 for the object |
-| `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account |
+| `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account, and one end-to-end run in a browser: the native actor in the dialog of `/syndication` |
 | `tests/test_federation_console.py` | Status and actor state, follower pages, follower removal for the own account only, single mode, domain block guards and audit rows, the two console sections, and one end-to-end run in a browser |
 | `sidecar/fedify/e2e/follow_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Phase FP2 end to end: signed `Follow` through the sidecar code to a real Claire process, `Accept` with a signature check, shared inbox, blocked domain, `Undo(Follow)`, and the follower rows in `claire.db` |
 | `sidecar/fedify/e2e/publish_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-3 end to end: documents that were published and retracted through the public API of a real Claire process, the handoff through the sidecar code, `Create` and `Delete` at a test inbox with a signature check, no delivery to a blocked domain, the object path with 200 and 410, the outbox collection, and the task rows in `claire.db` |

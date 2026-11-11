@@ -228,6 +228,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 코드에서 확인한 현재 동작이다. 연합 파일을 위한 전용 규칙은 없다.
 
 - **인스턴스 `backup`의 `data` component**: 제외 목록에 `run`, `fedify`, `auth/fedify_service.key`가 들어 있다. 따라서 소켓과 하트비트 파일, `data/fedify/fedify.db`(대기 중인 전달의 개인 키가 들어 있는 비밀 저장소), 서비스 키는 backup에 들어가지 않는다. restore 뒤에는 `claire migrate`가 새 서비스 키를 만들고, `cb-manuscript`가 `data/run/`과 `data/fedify/`를 다시 만들며, 사이드카는 빈 DB로 시작한다. 큐에서 기다리던 전달은 사라진다.
+- **사이드카 DB 유실 뒤 복구**: `data/fedify/fedify.db`가 없어지면 대기 중이던 전달이 사라진다. `./cb-manuscript app federation requeue --max-age-hours 72`로 대상 작업 수를 확인하고, `--apply`를 붙여 다시 전달하게 한다. 같은 활동 ID로 다시 보내므로 이미 받은 원격 서버에는 중복 객체가 생기지 않는다. 자동으로 실행되지 않는다([FEDERATION.md](FEDERATION.md) §7.4).
 - **소켓 파일**: `data/run/`이 제외 목록에 있으므로 남아 있는 `federation.sock`은 backup을 막지 않는다.
 - **Support Bundle**: 저장소 진단은 `data/` 아래에서 `auth`, `fedify`, `run` 디렉터리를 건너뛴다. 그래서 `fedify.db`와 서비스 키는 이 진단에 나오지 않는다.
 - **계정 백업**(`data/account_backups/`): `auth.db`를 담지 않으므로 액터 키가 들어가지 않는다.
