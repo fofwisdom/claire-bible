@@ -57,7 +57,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP1-5 | COMPLETED (2026-11-11) | `34d46b96` |
 | FP1-6 | COMPLETED (2026-11-11) | `75d79e18` |
 | FP1-7 | COMPLETED (2026-11-11) | `420c8fc7` |
-| FP2-1 | PLANNED | |
+| FP2-1 | COMPLETED (2026-11-11) | `73c85a16` |
 | FP2-2 | PLANNED | |
 | FP2-3 | PLANNED | |
 | FP2-4 | PLANNED | |
@@ -69,6 +69,8 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP3-5 | PLANNED | |
 
 Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
+
+Difference from the design: `claire.db` version 17 has the three tables of phase FP2 only (unit FP2-1). The tables `federation_objects` and `federation_outbox` come with unit FP3-1 in a later version, together with the code that uses them.
 
 Effects on the contracts in this file:
 - **Contract 1 (R1)**: Decision FD11 adds one condition (unit FP1-4, implemented). When the instance setting `federation` is `on`, a `profile_public` change from 0 to 1 through `PATCH /api/me` requires recent authentication: a session without it gets 401 `reauth_required`, and a bearer credential gets 403 `step_up_requires_session`. The change from 1 to 0 has no condition. When `federation` is `off`, the contract below is unchanged.
