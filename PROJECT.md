@@ -66,7 +66,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP3-2 | COMPLETED (2026-11-11) | `9d91813f` |
 | FP3-3 | COMPLETED (2026-11-12) | `085b48d5` |
 | FP3-4 | COMPLETED (2026-11-12) | `46f46630` |
-| FP3-5 | PLANNED | |
+| FP3-5 | COMPLETED (2026-11-12) | `90000a00` |
 
 Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
 
