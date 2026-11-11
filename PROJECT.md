@@ -64,7 +64,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP2-5 | COMPLETED (2026-11-11) | `c3cd5d1b` |
 | FP3-1 | COMPLETED (2026-11-11) | `abaf0988` |
 | FP3-2 | COMPLETED (2026-11-11) | `9d91813f` |
-| FP3-3 | PLANNED | |
+| FP3-3 | COMPLETED (2026-11-12) | `085b48d5` |
 | FP3-4 | PLANNED | |
 | FP3-5 | PLANNED | |
 
