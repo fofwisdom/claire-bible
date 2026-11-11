@@ -189,6 +189,49 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 원격 `remote install/update`는 production 전용이다. `dev remote` 또는 프로세스 `CLAIRE_ENVIRONMENT=development`는 원격 접속 전에 실패하며, 허용된 배포는 로컬 `deploy.sh`와 원격 `cb-manuscript` 모두에 production 값을 명시적으로 전달한다. 기본 `DEPLOY_ENV_SYNC=if-missing`은 기존 원격 `.env`를 유지하므로 코드 update만으로 anonymous readonly가 켜지지 않는다. 원격 파일을 직접 수정하거나 `always` 동기화를 명시한 뒤 원격 `preflight` 출력으로 유효값을 확인한다.
 
+## Fedify 사이드카(연합) 운영
+
+연합 구현의 정본은 [FEDERATION.md](FEDERATION.md)다. 지금 구현은 FP1(탐색)까지이며 받은편지함·팔로워·발행은 없다.
+
+### 시작과 중지
+
+1. env 파일에 `CB_FEDERATION=1`을 둔다(정확히 `0` 또는 `1`). 필요하면 `CB_FEDIFY_PORT`(기본 `8790`, 개발 예시 `8791`)를 바꾼다. 이 포트는 `CB_API_PORT`나 역할 호스트 포트와 같을 수 없다.
+2. `./cb-manuscript update` 또는 `./cb-manuscript up`을 실행한다. `cb-manuscript`는 `CB_FEDERATION=1`일 때 모든 Compose 호출에 `--profile federation`을 붙이고, 기동 전에 `data/run/`(0770)과 `data/fedify/`(0700)를 만든다. `./cb-manuscript preflight` 출력의 `federation profile: enabled|disabled` 줄로 확인한다.
+3. 서비스 키 `data/auth/fedify_service.key`는 `claire migrate`(`install`·`update`의 한 단계)가 만든다. 이 파일이 없으면 Compose가 `fedify` 컨테이너를 시작하지 않는다(`create_host_path: false`).
+4. reverse proxy에 연합 경로 규칙을 넣는다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)의 「Fedify 사이드카 경로」).
+5. 준비 검사를 실행한다.
+
+```bash
+./cb-manuscript app instance check --federation --json
+```
+
+6. 관리자가 `POST /api/admin/federation`으로 인스턴스 설정 `federation`을 `on`으로 바꾼다. 화면(`/admin/federation`)은 아직 없다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
+
+사이드카는 `federation`이 `off`인 동안에도 heartbeat마다 공개 자가 검사를 한다. 그래서 리버스 프록시 규칙이 맞으면 스위치를 켜기 전에 GF6이 통과한다([FEDERATION.md](FEDERATION.md) §7.2).
+
+끄려면 `POST /api/admin/federation`으로 `off`를 보낸다(준비 검사 조건 없음). 컨테이너까지 내리려면 `CB_FEDERATION=0`으로 바꾸고 `./cb-manuscript up`을 다시 실행한다. `network` → `single` 모드 전환은 `federation`이 `on`이면 거부된다.
+
+### 파일
+
+| 경로 | 만드는 주체 | 내용 |
+| :--- | :--- | :--- |
+| `data/run/federation.sock` | `api` 프로세스 (기동할 때마다, `CB_FEDERATION` 값과 무관) | 내부 연합 API의 Unix 소켓, 권한 0660. 정상 종료 때 지우고, 남아 있던 소켓 파일은 다음 기동 때 교체한다 |
+| `data/run/federation_heartbeat.json` | `api` 프로세스 | 사이드카가 마지막으로 보낸 heartbeat와 받은 시각. GF2·GF6이 읽는다. 120초보다 오래되면 검사 실패 |
+| `data/auth/fedify_service.key` | `claire migrate` | 내부 연합 API 서명용 서비스 키, 32바이트, 권한 0600. `fedify` 컨테이너에는 이 파일 하나만 읽기 전용으로 마운트된다 |
+| `data/fedify/fedify.db` (`-wal`, `-shm`) | 사이드카 | Fedify 캐시와 메시지 큐, 권한 0600. Claire는 이 파일을 읽지 않는다 |
+| `data/auth/auth.db`의 `actor_keys` | `api` 프로세스 (사이드카가 키를 처음 요청할 때) | 액터 키. 개인 키는 `master.key`로 암호화되어 있다 |
+
+서비스 키를 바꾸려면 파일을 지우고 `claire migrate`를 다시 실행한 뒤 `api`와 `fedify`를 재시작한다. 두 프로세스 모두 키를 메모리에 들고 있어서 재시작 전에는 새 키를 쓰지 않는다.
+
+### 백업과 번들에서의 취급
+
+코드에서 확인한 현재 동작이다. 연합 파일을 위한 전용 규칙은 없다.
+
+- **인스턴스 `backup`의 `data` component**: 제외 목록에 `run`, `fedify`, `auth/fedify_service.key`가 들어 있다. 따라서 소켓과 하트비트 파일, `data/fedify/fedify.db`(대기 중인 전달의 개인 키가 들어 있는 비밀 저장소), 서비스 키는 backup에 들어가지 않는다. restore 뒤에는 `claire migrate`가 새 서비스 키를 만들고, `cb-manuscript`가 `data/run/`과 `data/fedify/`를 다시 만들며, 사이드카는 빈 DB로 시작한다. 큐에서 기다리던 전달은 사라진다.
+- **소켓 파일**: `data/run/`이 제외 목록에 있으므로 남아 있는 `federation.sock`은 backup을 막지 않는다.
+- **Support Bundle**: 저장소 진단은 `data/` 아래에서 `auth`, `fedify`, `run` 디렉터리를 건너뛴다. 그래서 `fedify.db`와 서비스 키는 이 진단에 나오지 않는다.
+- **계정 백업**(`data/account_backups/`): `auth.db`를 담지 않으므로 액터 키가 들어가지 않는다.
+
 ## 백업과 복원
 
 ```bash

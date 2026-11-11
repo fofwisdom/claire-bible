@@ -146,6 +146,39 @@ server {
 
 같은 proxy의 unmatched/default server는 연결을 거부해야 한다. `$request_uri`는 query를 포함하므로 위 안전 로그에서는 사용하지 않는다.
 
+## Fedify 사이드카 경로 (연합)
+
+Fedify 사이드카를 쓰는 인스턴스(`CB_FEDERATION=1`)에서는 reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
+
+| 일치 방식 | 경로 | 목적지 |
+|---|---|---|
+| 정확히 일치 | `/.well-known/webfinger` | 사이드카 |
+| 정확히 일치 | `/.well-known/nodeinfo` | 사이드카 |
+| 접두어 | `/nodeinfo/` | 사이드카 |
+| 접두어 | `/ap/` | 사이드카 |
+
+- `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다. `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
+- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 인스턴스 설정 `federation`이 `off`이거나 모드가 `single`이면 사이드카는 연합 경로에도 404를 낸다.
+- 사이드카는 URL을 Claire가 알려 준 정규 origin으로 만들고 요청의 `Host`를 쓰지 않는다. `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` 헤더는 사이드카가 읽지 않고 지운다.
+- 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.
+- Claire host firewall은 `CB_FEDIFY_PORT`의 source도 reverse proxy의 고정 LAN IP로만 허용한다.
+- 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. `./cb-manuscript app instance check --federation --json`으로 실행한다.
+
+아래는 위 Nginx 예시의 `server` 블록에 더하는 예시다. 이 저장소의 테스트는 Nginx 설정을 실행하지 않는다.
+
+```nginx
+upstream claire_fedify {
+    server 192.168.10.25:8790;
+    keepalive 16;
+}
+
+# server { ... } 안에 추가한다.
+location = /.well-known/webfinger { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location = /.well-known/nodeinfo  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location ^~ /nodeinfo/            { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+location ^~ /ap/                  { proxy_pass http://claire_fedify; proxy_http_version 1.1; proxy_set_header Connection ""; }
+```
+
 ---
 
 ## 인증 계층 및 접근 권한 제어 (Authentication & RBAC)
@@ -353,4 +386,5 @@ development에서는 설정한 IPv4 URL로 직접 접속하고 다른 interface�
 6. Claire Bible과 proxy access log에 query string과 인증 정보가 남지 않는다.
 7. 레거시 테마 FQDN 접근 시 정규 네임스페이스 경로로 308 리다이렉트되며, 일몰 도래 시 410 Gone으로 응답한다.
 8. `CLAIRE_CLOUDFLARE_IPS_ONLY=1` 설정 시 비-Cloudflare 공인 IP 직접 접근이 403으로 차단되고 LAN/사설 접근은 유지된다.
+9. Fedify 사이드카를 쓰면 `/.well-known/webfinger`·`/.well-known/nodeinfo`·`/nodeinfo/`·`/ap/`만 사이드카로 가고, `/.well-known/oauth-authorization-server`는 계속 Claire의 메타데이터를 돌려준다(준비 검사 GF6, GF7).
  

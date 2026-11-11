@@ -2,13 +2,15 @@
 //
 // Rules of this module:
 // - Claire is canonical. Each request reads account data through the internal API. The sidecar stores no account data.
-// - All URLs come from the canonical origin that Claire supplies. The request Host header and the X-Forwarded-* headers are not read.
+// - All URLs come from the canonical origin that Claire supplies. The request Host header and the X-Forwarded-* headers do not change a URL in an answer.
+// - Phase FP1 has read paths only. A method that is not GET or HEAD gets 405.
+// - Each answer has the header SIDECAR_HEADER with a random value of this process. The public self-check uses it to see that a request through the public origin gets to this sidecar. The value shows no instance data.
 // - Cookie and Authorization headers are removed before a request gets to Fedify. A response never sets a cookie.
 // - When federation is off or the mode is single, each path returns the same 404.
 // - The option that permits private network addresses is never set (design Section 13, FS1). A test reads this directory to make sure.
 // - Inbox paths, the followers collection, and the outbox come in phases FP2 and FP3. Until then those paths return 404.
 
-import { createFederation, type Federation, importJwk, type KvStore, type MessageQueue } from "@fedify/fedify";
+import { type Context, createFederation, type Federation, importJwk, type KvStore, type MessageQueue } from "@fedify/fedify";
 import { Application, Endpoints, Person } from "@fedify/fedify/vocab";
 import { type ActorRecord, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi } from "./internal_api.ts";
 
@@ -16,6 +18,7 @@ import { type ActorRecord, INSTANCE_ACTOR_ID, type InstanceConfig, type Internal
 export const INSTANCE_ACTOR_USERNAME = "claire";
 export const KEY_CACHE_SECONDS = 60;
 export const CONFIG_CACHE_SECONDS = 5;
+export const SIDECAR_HEADER = "x-claire-fedify-instance";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
@@ -61,9 +64,23 @@ export class Sidecar {
     return `${config.canonical_origin}/ap/actors/${INSTANCE_ACTOR_ID}`;
   }
 
+  // A random value of this process. It is in the header SIDECAR_HEADER of each answer.
+  readonly marker: string = crypto.randomUUID();
+
   async handle(request: Request): Promise<Response> {
+    const response = await this.#respond(request);
+    const headers = new Headers(response.headers);
+    headers.set(SIDECAR_HEADER, this.marker);
+    headers.delete("set-cookie");
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+
+  async #respond(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (!FEDERATION_PATHS.test(path)) return notFound();
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method Not Allowed", { status: 405, headers: { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" } });
+    }
     let config: InstanceConfig;
     try {
       config = await this.config();
@@ -76,15 +93,17 @@ export class Sidecar {
     const headers = new Headers(request.headers);
     for (const name of REMOVED_REQUEST_HEADERS) headers.delete(name);
     const clean = new Request(request.url, { method: request.method, headers, body: request.body, redirect: "manual" });
-    const response = await this.#federationFor(config).fetch(clean, {
+    return await this.#federationFor(config).fetch(clean, {
       contextData: undefined,
       onNotFound: notFound,
       onNotAcceptable: () => new Response("Not Acceptable", { status: 406, headers: { "content-type": "text/plain; charset=utf-8", vary: "Accept" } }),
     });
-    if (!response.headers.has("set-cookie")) return response;
-    const safe = new Headers(response.headers);
-    safe.delete("set-cookie");
-    return new Response(response.body, { status: response.status, headers: safe });
+  }
+
+  // A Fedify context for code that has no HTTP request, for example a signed fetch with the key of the instance actor.
+  async createContext(): Promise<Context<void>> {
+    const config = await this.config();
+    return this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
   }
 
   #federationFor(config: InstanceConfig): Federation<void> {
@@ -170,15 +189,14 @@ export class Sidecar {
   }
 }
 
-// Public self-check (design Section 12, GF6): a request through the public origin must get the WebFinger answer of this sidecar for the instance actor.
-export async function publicSelfCheck(config: InstanceConfig, fetcher: typeof fetch = fetch): Promise<boolean> {
+// Public self-check (design Section 12, GF6): a request through the public origin must get to this sidecar process.
+// The check does not depend on the federation switch: the admin can set the switch to `on` only after this check passes. Thus the status of the answer is not important (it is 404 while federation is off). The marker header shows which process answered.
+export async function publicSelfCheck(config: InstanceConfig, marker: string, fetcher: typeof fetch = fetch): Promise<boolean> {
   const url = `${config.canonical_origin}/.well-known/webfinger?resource=${encodeURIComponent(`acct:${INSTANCE_ACTOR_USERNAME}@${config.handle_host}`)}`;
   try {
     const response = await fetcher(url, { headers: { accept: "application/jrd+json" }, redirect: "manual", signal: AbortSignal.timeout(10_000) });
-    if (response.status !== 200) return false;
-    const body = await response.json();
-    const links = Array.isArray(body?.links) ? body.links as { rel?: string; href?: string }[] : [];
-    return links.some((link) => link.rel === "self" && link.href === `${config.canonical_origin}/ap/actors/${INSTANCE_ACTOR_ID}`);
+    await response.body?.cancel();
+    return response.headers.get(SIDECAR_HEADER) === marker;
   } catch {
     return false;
   }

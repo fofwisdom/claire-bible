@@ -108,7 +108,7 @@ _BUNDLE_TOKEN_PREFIX = "sb3_"
 _MAX_STORAGE_SCAN_ENTRIES = 2_000
 _MAX_STORAGE_DATABASES = 100
 _STORAGE_SCAN_SKIP_DIRS = frozenset(
-    {"auth", "backups", "cache", "logs", "offsite-backups", "raw", "support_bundles"}
+    {"auth", "backups", "cache", "fedify", "logs", "offsite-backups", "raw", "run", "support_bundles"}
 )
 
 

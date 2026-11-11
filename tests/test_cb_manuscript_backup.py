@@ -333,6 +333,45 @@ def test_directory_and_archive_round_trip(
         assert artifact.read_bytes() == artifact_bytes
 
 
+def test_backup_leaves_out_the_fedify_sidecar_files_and_restore_makes_the_directories_again(tmp_path: Path) -> None:
+    """The socket directory has special files, the sidecar database is a secret store, and `claire migrate` makes a new service key (federation design Section 7 item 5)."""
+    import socket
+
+    root = tmp_path / "project"
+    _write_layout(root, dev=False)
+    with (root / ".env").open("a", encoding="utf-8") as env_file:
+        env_file.write("\nCB_FEDERATION=1\n")
+    _seed_storage(root)
+    data = root / "data"
+    for name in ("run", "fedify", "auth"):
+        (data / name).mkdir(exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(data / "run" / "federation.sock"))
+        (data / "run" / "federation_heartbeat.json").write_text("{}", encoding="utf-8")
+        (data / "fedify" / "fedify.db").write_bytes(b"queue-with-private-keys")
+        (data / "fedify" / "fedify.db-wal").write_bytes(b"wal")
+        (data / "auth" / "fedify_service.key").write_bytes(b"k" * 32)
+
+        with _docker(DockerHarness(running=("api-id",))):
+            assert cb.main(["backup", "--format", "directory"], root=root) == 0
+    finally:
+        listener.close()
+
+    artifact = _visible_artifacts(root)[0]
+    names = [path.relative_to(artifact).as_posix() for path in artifact.rglob("*")]
+    assert any(name.endswith("data/marker.txt") for name in names)
+    for forbidden in ("federation.sock", "federation_heartbeat.json", "fedify.db", "fedify_service.key", "/run", "/fedify"):
+        assert not any(name.endswith(forbidden) for name in names), forbidden
+    assert "fedify" not in json.dumps(_read_manifest(artifact))
+
+    # A restore replaces the data tree. The mount directories of the sidecar must exist again before the stack starts.
+    with _docker(DockerHarness(running=("api-id",))):
+        assert cb.main(["restore", str(artifact), "--yes"], root=root) == 0
+    assert (data / "run").is_dir() and (data / "fedify").is_dir()
+    assert not (data / "fedify" / "fedify.db").exists()
+
+
 def test_backup_and_restore_component_selection(tmp_path: Path) -> None:
     root = tmp_path / "project"
     _write_layout(root, dev=False)

@@ -27,7 +27,7 @@ The Python test `tests/test_fedify_sidecar.py` runs the same tests and starts th
 
 ## Public Paths in Phase FP1
 
-`/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, and `/ap/actors/instance`. Inbox paths, the followers collection, and the outbox come in phases FP2 and FP3 and return 404 until then. All paths return 404 when federation is `off` or the instance mode is `single`.
+`/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, and `/ap/actors/instance`. Inbox paths, the followers collection, and the outbox come in phases FP2 and FP3. Until then a `GET` of those paths returns 404, and a method that is not `GET` or `HEAD` returns 405 on each path. All paths return 404 when federation is `off` or the instance mode is `single`.
 
 ## Dependencies
 

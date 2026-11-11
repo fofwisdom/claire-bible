@@ -80,12 +80,15 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 ### 별도 저장소: `data/auth/auth.db`
 
-- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 3`이다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
+- **[코드]** 계정 비밀과 제어 평면은 지식 DB와 분리된 `data/auth/auth.db`에 있다(`src/claire/store/auth_db.py`). 자체 `meta.schema_version`을 쓰며 현재 값은 `AUTH_DB_SCHEMA_VERSION = 5`다. 이 번호는 위 공통 version과 무관하다("v14 불변 규칙"의 보조 저장소 규칙).
   - **v1 (P1/P3)**: 계정 자격증명(`auth_secrets`), 초대(`invitations`, `invitation_redemptions`), 사용량(`account_usage`), 로그인 스로틀(`login_throttle`), 단기 OIDC 상태(`oidc_states`).
   - **v2 (P4)**: `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열 추가(설계 §10.3, §13.3).
   - **v3 (P5)**: `oidc_states`에 계정 연결용 `account_id` 열 추가, 외부 IdP 계정 연결 테이블 `account_identities` 연동(설계 §12, §13.3).
-- **[코드]** 저장된 값이 3보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
+  - **v4 (유저 단위 기능)**: 계정별 텔레그램 봇 `account_telegram_bots`와 계정 백업 주기 `account_backup_policies` 테이블 추가.
+  - **v5 (Fedify 사이드카 FP1-2)**: 연합 액터 키 테이블 `actor_keys` 추가. 기본 키는 `(account_id, alg)`이고 `account_id` 0은 인스턴스 액터다. `alg`는 `rsa2048`·`ed25519`만 받는다. 개인 키는 `SecretService`가 AAD `actor_key|{account_id}|{alg}`로 암호화한다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6, `tests/test_actor_keys.py`). 설계 문서는 이 변경을 "auth.db version 4"라고 적었지만, 설계 작성 뒤에 v4가 먼저 쓰여서 코드에서는 v5다.
+- **[코드]** 저장된 값이 5보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
+- **[코드]** 연합 스위치 `instance_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `instance_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. claire.db는 v16 그대로다([FEDERATION.md](FEDERATION.md) §7.1).
 
 ## 운영 경계
 

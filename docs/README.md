@@ -24,7 +24,7 @@ docs/
 │   ├── MCP_SUPPORT.md
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md
 │   ├── SYNDICATION_ENDPOINT_DESIGN.md
-│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (미구현, 2026-11-10)
+│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (2026-11-10, FP1 구현 내용은 implementation/FEDERATION.md)
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
 │   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본
@@ -33,13 +33,14 @@ docs/
 │   ├── COMMANDS.md             # 전체 CLI 명령어 및 레퍼런스
 │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정 및 Pydantic 검증 매뉴얼
 │   ├── EXTERNAL_ACCESS.md      # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세
+│   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1: 내부 연합 API, 탐색, 액터 키, 준비 검사, 배포)
 │   ├── GLOSSARY.md             # 지식 코어 데이터 모델 및 시스템 공통 표준 용어집
 │   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라) 구현 정본과 검증 절차
 │   ├── ONEHOP_MERGE_DESIGN.md  # 1홉 확장 중복 완화 및 동일 주제 병합 구현 명세
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
 │   ├── PLAN.md                 # 공개 아키텍처 및 파이프라인 처리 계획 정본
-│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v16, auth.db v3)
+│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v16, auth.db v5)
 │   ├── THEMES.md               # 멀티 테마(단일 DB 파티셔닝) 저장·조회·라우팅·접근 경계 구현 정본
 │   ├── TOKEN_EXCHANGE.md       # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
 │   └── openapi.yaml            # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
@@ -57,12 +58,13 @@ docs/
    - 현재 실행 코드와 정확히 일치하는 기능 명세, 와이어 프로토콜, 스키마 계약 및 운영 문서 집합입니다.
    - HTTP 와이어 및 인증 보안 규칙은 [`API_HTTP_CONTRACT.md`](implementation/API_HTTP_CONTRACT.md), 기계 판독용 OpenAPI 사양은 [`openapi.yaml`](implementation/openapi.yaml)을 따릅니다.
    - SQLite DB 스키마 버전 및 마이그레이션 규칙은 [`SCHEMA_VERSIONING.md`](implementation/SCHEMA_VERSIONING.md), OAuth 2.0 토큰 교환은 [`TOKEN_EXCHANGE.md`](implementation/TOKEN_EXCHANGE.md)에 정의되어 있습니다.
+   - Fedify 사이드카 연합(ActivityPub 탐색, 내부 연합 API, 액터 키, 준비 검사, reverse proxy 규칙)은 [`FEDERATION.md`](implementation/FEDERATION.md)에 정의되어 있습니다.
    - 지식 모델 표준 용어 및 코드 매핑은 [`GLOSSARY.md`](implementation/GLOSSARY.md), 공개 파이프라인 아키텍처는 [`PLAN.md`](implementation/PLAN.md)를 참조합니다.
 
 2. **[`docs/design/`](design/)**
    - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
    - 현재 동작은 `implementation/` 문서나 코드로 확인합니다.
-   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인했지만 아직 구현하지 않은 설계입니다(2026-11-10). 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
+   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인한 설계입니다(2026-11-10). 지금 구현된 범위는 FP1(내부 연합 API와 탐색)이며, 현재 동작은 [`FEDERATION.md`](implementation/FEDERATION.md)에 있습니다. 팔로워(FP2)와 발행(FP3)은 구현하지 않았습니다. 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
 
 ## 문서 정합성 검사
 

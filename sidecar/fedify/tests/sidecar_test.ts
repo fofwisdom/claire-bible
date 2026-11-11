@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
 import { InternalApi } from "../src/internal_api.ts";
-import { CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, publicSelfCheck, Sidecar } from "../src/sidecar.ts";
+import { CONFIG_CACHE_SECONDS, KEY_CACHE_SECONDS, publicSelfCheck, Sidecar, SIDECAR_HEADER } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY } from "./fixtures.ts";
 
 const ORIGIN = "https://claire.example.com";
@@ -147,9 +147,9 @@ Deno.test("paths of Claire and paths of later phases are 404 without a call to C
     assert.equal((await sidecar.handle(new Request(`${LISTEN}${path}`))).status, 404, path);
   }
   assert.deepEqual(fake.calls, []);
-  for (const [method, path] of [["POST", `/ap/actors/${ALICE}/inbox`], ["POST", "/ap/inbox"], ["GET", `/ap/actors/${ALICE}/followers`], ["GET", `/ap/actors/${ALICE}/outbox`]]) {
-    const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { method, headers: { accept: AS2, "content-type": AS2 }, body: method === "POST" ? "{}" : undefined }));
-    assert.ok(response.status === 404 || response.status === 405, `${method} ${path} -> ${response.status}`);
+  for (const path of [`/ap/actors/${ALICE}/inbox`, "/ap/inbox", `/ap/actors/${ALICE}/followers`, `/ap/actors/${ALICE}/outbox`, "/ap/objects/1"]) {
+    const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { headers: { accept: AS2 } }));
+    assert.equal(response.status, 404, path);
   }
 });
 
@@ -208,20 +208,48 @@ Deno.test("an internal API failure is 503, not 404 and not a cached answer", asy
   assert.equal(response.status, 503);
 });
 
-Deno.test("the public self-check accepts the answer of this sidecar only", async () => {
-  const { sidecar } = setup();
-  const config = await sidecar.config();
-  const requested: string[] = [];
-  const throughProxy = ((input: string | URL | Request) => {
-    requested.push(String(input));
-    return sidecar.handle(new Request(String(input), { headers: { accept: JRD } }));
-  }) as typeof fetch;
-  assert.equal(await publicSelfCheck(config, throughProxy), true);
-  assert.deepEqual(requested, [`${ORIGIN}/.well-known/webfinger?resource=acct%3Aclaire%40claire.example.com`]);
-  // A wrong proxy rule sends the request to Claire, which answers 404.
-  assert.equal(await publicSelfCheck(config, (() => Promise.resolve(new Response("Not Found", { status: 404 }))) as typeof fetch), false);
-  assert.equal(await publicSelfCheck(config, (() => Promise.resolve(Response.json({ links: [{ rel: "self", href: "https://other.example/ap/actors/instance" }] }))) as typeof fetch), false);
-  assert.equal(await publicSelfCheck(config, (() => Promise.reject(new Error("network"))) as typeof fetch), false);
+Deno.test("the public self-check accepts the answer of this sidecar process only, also while federation is off", async () => {
+  for (const state of [{}, { federation: "off", federated_actors: 0 }]) {
+    const { sidecar, fake } = setup();
+    fake.config = state;
+    const config = await sidecar.config();
+    const requested: string[] = [];
+    const throughProxy = ((input: string | URL | Request) => {
+      requested.push(String(input));
+      return sidecar.handle(new Request(String(input), { headers: { accept: JRD } }));
+    }) as typeof fetch;
+    assert.equal(await publicSelfCheck(config, sidecar.marker, throughProxy), true, JSON.stringify(state));
+    assert.deepEqual(requested, [`${ORIGIN}/.well-known/webfinger?resource=acct%3Aclaire%40claire.example.com`]);
+    // A wrong proxy rule sends the request to Claire, which answers 404 without the marker.
+    assert.equal(await publicSelfCheck(config, sidecar.marker, (() => Promise.resolve(new Response("Not Found", { status: 404 }))) as typeof fetch), false);
+    // A different sidecar process has a different marker.
+    const other = setup().sidecar;
+    assert.equal(await publicSelfCheck(config, sidecar.marker, ((input: string | URL | Request) => other.handle(new Request(String(input)))) as typeof fetch), false);
+    assert.equal(await publicSelfCheck(config, sidecar.marker, (() => Promise.reject(new Error("network"))) as typeof fetch), false);
+  }
+});
+
+Deno.test("each answer has the marker header, and it shows no instance data", async () => {
+  const { sidecar, fake } = setup();
+  fake.config = { mode: "single", federation: "off", federated_actors: 0 };
+  for (const path of ["/", "/ap/actors/instance", "/.well-known/webfinger?resource=acct:alice@claire.example.com"]) {
+    const response = await sidecar.handle(new Request(`${LISTEN}${path}`));
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get(SIDECAR_HEADER), sidecar.marker);
+  }
+  assert.match(sidecar.marker, /^[0-9a-f-]{36}$/);
+});
+
+Deno.test("a method that is not GET or HEAD gets 405 on each federation path", async () => {
+  const { sidecar, fake } = setup();
+  for (const [method, path] of [["POST", `/ap/actors/${ALICE}`], ["PUT", `/ap/actors/${ALICE}`], ["DELETE", "/ap/actors/instance"], ["POST", `/ap/actors/${ALICE}/inbox`], ["POST", "/ap/inbox"], ["POST", "/.well-known/webfinger"]]) {
+    const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { method, headers: { accept: AS2, "content-type": AS2 }, body: method === "DELETE" ? undefined : "{}" }));
+    assert.equal(response.status, 405, `${method} ${path}`);
+    assert.equal(response.headers.get("allow"), "GET, HEAD");
+  }
+  assert.deepEqual(fake.calls, []);
+  const head = await sidecar.handle(new Request(`${LISTEN}/ap/actors/${ALICE}`, { method: "HEAD", headers: { accept: AS2 } }));
+  assert.equal(head.status, 200);
 });
 
 Deno.test("the source never permits private network addresses (FS1)", () => {

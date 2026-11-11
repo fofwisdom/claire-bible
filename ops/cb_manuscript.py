@@ -2554,6 +2554,10 @@ def _build_backup_staging(
                     Path("auth/auth.db"),
                     Path("auth/auth.db-wal"),
                     Path("auth/auth.db-shm"),
+                    # Fedify sidecar (design Section 7 item 5): the socket directory has special files, the sidecar database is a secret store that can be lost, and `claire migrate` makes a new service key.
+                    Path("run"),
+                    Path("fedify"),
+                    Path("auth/fedify_service.key"),
                 }
             )
         _copy_path_safely(
@@ -3442,6 +3446,8 @@ def command_restore(
 
 
 def _migrate(runtime: Runtime) -> None:
+    # The directories come before the migration: the entrypoint of the migration container sets the owner of the data tree to CB_UID:CB_GID. A restore replaces the data tree, and a backup does not contain these directories.
+    _prepare_federation_mounts(runtime)
     run_compose(
         runtime,
         (
@@ -3484,8 +3490,6 @@ def _transition(runtime: Runtime) -> None:
     legacy_stopped: list[str] = []
     try:
         legacy_stopped = stop_legacy_containers(runtime.layout)
-        # The directories come before the migration: the entrypoint of the migration container sets the owner of the data tree to CB_UID:CB_GID.
-        _prepare_federation_mounts(runtime)
         _migrate(runtime)
     except BaseException:
         # No replacement has occurred yet: resume exactly what was running.

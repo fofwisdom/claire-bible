@@ -56,8 +56,8 @@ if (import.meta.main) {
   const beat = async () => {
     try {
       const config = await sidecar.config();
-      const active = config.federation === "on" && config.mode === "network";
-      const selfCheck = active ? { ok: await publicSelfCheck(config), checked_at: Date.now() / 1000 } : { ok: null, checked_at: null };
+      // The self-check runs also while federation is off: readiness check GF6 must pass before the admin can set the switch to `on`.
+      const selfCheck = { ok: await publicSelfCheck(config, sidecar.marker), checked_at: Date.now() / 1000 };
       await api.heartbeat({ contract_version: CONTRACT_VERSION, sidecar_version: SIDECAR_VERSION, queue_depth: queueDepth(db), self_check: selfCheck });
     } catch (error) {
       console.error(`heartbeat failed: ${(error as Error).message}`);

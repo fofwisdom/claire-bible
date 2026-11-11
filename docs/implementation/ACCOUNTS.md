@@ -1,6 +1,6 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.5·§5.9·§13은 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
+확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.9는 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), §5.5의 연합 조건·§8의 버전·§13은 Fedify 사이드카 연합 FP1-1~FP1-6 커밋(`56d40c9`~`75d79e18`, 2026-11-11) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
 
 이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
@@ -118,7 +118,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), 텔레그램 승인(`approve_auth_nonce`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경)다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
@@ -150,7 +150,7 @@
 - **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다.
-- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 요구하지 않는다. 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
+- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 인스턴스 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
 ### 5.6 초대 파이프라인 (Invitation Pipeline)
@@ -284,7 +284,7 @@
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
 | `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?theme=`를 붙인다 |
-| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
+| `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 네트워크 모드이고 `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다 |
 | `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다 |
@@ -350,8 +350,8 @@
 - **[코드] 분리 이유**(모듈 설명): graph bundle·support bundle·내보내기에 비밀이 섞이지 않게 하고, 지식 DB 장애가 로그인으로 번지지 않게 한다. support bundle이 이 파일을 실제로 제외하는지 확인하는 테스트는 없다 [미검증].
 - **[코드] 파일 권한**: 디렉터리를 0700으로 만들고(이미 있으면 POSIX에서 chmod), 파일은 SQLite가 열기 전에 0600으로 먼저 만든다(이미 있으면 chmod 0600). 디렉터리 chmod는 같은 디렉터리의 `api_tokens.json` 접근에도 적용된다. WAL·SHM 파일 권한은 [미검증].
 - **[코드] 스키마**: 설계 §13.3의 테이블 전부와 `meta`를 `CREATE TABLE IF NOT EXISTS`로 만든다. P1이 다루는 테이블은 `account_passwords`, `login_throttle`, `admin_audit`다. P3에서 `invitations`, `invitation_redemptions`, `username_tombstones`, P4에서 `provider_keys`, `account_usage`(v2)가 활성화되었다.
-- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 3`이며 claire.db의 버전과 별개다. v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었고, v3(P5)에서 `oidc_states`에 계정 연결용 `account_id` 열이 추가되었다. 저장된 값이 3보다 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
-- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=3`을 출력한다. 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
+- **[코드] 버전**: `meta.schema_version`은 `AUTH_DB_SCHEMA_VERSION = 5`이며 claire.db의 버전과 별개다. v2(P4)에서 `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열이 추가되었고, v3(P5)에서 `oidc_states`에 계정 연결용 `account_id` 열이 추가되었다. v4(유저 단위 기능)에서 `account_telegram_bots`와 `account_backup_policies` 테이블이, v5(Fedify 사이드카 FP1-2)에서 연합 액터 키 테이블 `actor_keys`가 추가되었다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6). 설계 문서는 `actor_keys`를 "auth.db version 4"라고 적었지만 코드에서는 5다. 저장된 값이 5보다 크면 `RuntimeError`(다운그레이드 거부), 1보다 작거나 정수가 아니면 `RuntimeError`. [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) 참고.
+- **[코드] 준비 시점**: `claire migrate`가 claire.db보다 먼저 만들고 `auth_db schema_version=5`를 출력한다. 이어서 내부 연합 API의 서비스 키 `data/auth/fedify_service.key`(32바이트, 0600)가 없으면 만든다([FEDERATION.md](FEDERATION.md) §5.2). 서비스 기동(`create_app`)도 `prepare_auth_db`로 만들고 정리한다. 라우트는 `mode=rw`로 열어 파일이 없으면 만들지 않고 실패한다(`common.open_auth_db`).
 
 ## 9. 감사 기록
 
@@ -393,9 +393,15 @@
 
 `tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oauth_token_exchange.py`(토큰 교환 계정 귀속), `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_account_tokens.py`(연결 계정 토큰 암호화 및 AAD 격리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_instance.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).
 
-## 13. 후속 설계: Fedify 사이드카 연합 (미구현)
+## 13. Fedify 사이드카 연합 (FP1 구현)
 
-- **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 공개 프로필 계정을 Fedify 사이드카를 거쳐 ActivityPub 액터로 내보내는 설계다. 연결 계정(클라이언트) 방식(§11)은 그대로 둔다.
-- **[코드]** 기준 커밋에는 연합 코드가 없다. `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`는 `ROUTE_POLICY`에 없으므로 404다. `instance_settings`에 `federation` 키가 없고, 사이드카 서비스도 Compose에 없다.
-- **[코드] 이 설계가 전제로 삼는 현재 계약**: `profile_public` 조회·변경(§5.5), 연합·인증용 예약 이름(§3), 토큰 교환의 계정 귀속([TOKEN_EXCHANGE.md](TOKEN_EXCHANGE.md) §7), `/prototype/syndication`의 인증 봉인(§11).
-- **[결정] 구현 때 이 문서에서 바뀔 곳**: 연합이 켜진 상태에서 `profile_public`을 0에서 1로 바꾸려면 단계 인증이 필요하다(FD11, 설계 §8.4). 그때 §5.5의 "단계 인증은 요구하지 않는다"를 고친다. 액터 키는 `auth.db`의 새 테이블에 둔다(FD5, 설계 §7, §10.2).
+연합 구현의 정본은 [FEDERATION.md](FEDERATION.md)다. 여기에는 계정 쪽에서 바뀐 것만 적는다.
+
+- **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 연결 계정(클라이언트) 방식(§11)은 그대로 둔다.
+- **[코드] 구현 범위**: FP1(탐색)까지다. 받은편지함·팔로워·발행은 없다. Claire의 공개 리스너는 `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`를 등록하지 않으므로 이 경로가 Claire에 닿으면 404다. 이 경로는 reverse proxy가 사이드카로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)).
+- **[코드] `instance_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 준비 검사 GF1–GF7이 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. `/admin/federation` 화면은 없다([FEDERATION.md](FEDERATION.md) §7).
+- **[코드] 액터 조건**: `federation`이 `on`, 모드가 `network`, 계정 `status`가 `active`, `profile_public`이 1인 계정만 연합 액터다. 액터인 계정의 프로필 페이지 `/@{username}/`에는 `rel="alternate"` 링크와 `Link` 헤더가 붙는다([FEDERATION.md](FEDERATION.md) §3, §8.2).
+- **[코드] `profile_public` 단계 인증**: §5.5.
+- **[코드] 액터 키**: `auth.db`의 `actor_keys`(§8). 계정 퇴역(purge) 때 이 행을 지우는 코드는 아직 없다.
+- **[코드] 모드 전환 거부**: `federation`이 `on`이면 `POST /api/admin/instance/mode`의 `network` → `single` 전환이 400 `federation_enabled`로 거부된다(`instance.py`).
+- **[코드] 근거 테스트**: `tests/test_federation_step_up.py`, `tests/test_federation_readiness.py`, `tests/test_actor_keys.py`.

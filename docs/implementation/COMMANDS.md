@@ -147,6 +147,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
     NOTICE: data/auth/master.key is excluded from the backup archive.
     Store the master key (or CLAIRE_SECRET_KEY) separately in a secure offsite location.
     ```
+  * **연합(Fedify 사이드카) 파일**: `data/run/`, `data/fedify/`, `data/auth/fedify_service.key`는 backup에서 제외된다. restore 뒤 `claire migrate`가 새 서비스 키를 만든다([`OPERATIONS.md`](OPERATIONS.md) 「Fedify 사이드카(연합) 운영」).
 
 #### `restore`
 백업 아카이브로부터 데이터와 설정을 복원한다.
@@ -198,11 +199,14 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 | `queue` | `./cb-manuscript app queue status` / `... queue list <inbox\|refresh\|expand>` | `uv run claire queue status` | 비동기 큐 상태 분포와 대기·오류 항목 조회 |
 | `stats` | `./cb-manuscript app stats [-t <theme>]` | `uv run claire stats [...]` | 지식그래프 노드(엔티티) 및 엣지(관계) 카운트 출력 (멀티 테마 지원) |
 | `repo` | `./cb-manuscript app repo` | `uv run claire repo` | Git 소스 저장소 정보 및 원격 URL 출력 |
+| `instance check` | `./cb-manuscript app instance check {--network \| --federation} [--json]` | `uv run claire instance check {--network \| --federation} [--json]` | 인스턴스 준비 검사. `--network`는 네트워크 모드 검사 G1–G9, `--federation`은 연합 검사 GF1–GF7을 실행한다. 둘 중 하나는 반드시 주어야 하고 함께 줄 수 없다. 모든 검사가 통과할 때만 종료 코드 `0` |
 | `migrate` | *(배포 시 install/update 단계에서 자동 실행)* | `uv run claire migrate` | 싱글 모드에서는 기본 DB, 멀티 테마 모드에서는 등록된 모든 DB를 공통 v13으로 초기화/업그레이드하고 버전·계보를 검증 |
 
 `CLAIRE_MULTI_THEME=1`일 때 `migrate`는 레지스트리를 테마 ID 순서로 읽고 각 DB의 마이그레이션 결과를 개별 출력한다. 한 DB가 실패해도 나머지를 계속 점검하며, 하나라도 실패하면 최종 종료 코드는 `1`이다. `health`와 `liveness`는 DB를 생성하거나 마이그레이션하지 않고 읽기 전용 연결과 스키마 버전·계보를 검사한다. v12는 진단 행을 보존해 v11로 철회한 뒤 같은 실행에서 v13으로 승격한다. 손상된 `themes.json`도 기본 레지스트리로 덮어쓰지 않고 실패로 보고한다.[^multi-theme-operations]
 
-`migrate`는 지식 DB보다 먼저 계정 비밀 저장소 `data/auth/auth.db`를 만들거나 스키마를 맞추고 `auth_db schema_version=3`을 출력한다. 실패하면 지식 DB를 건드리지 않고 종료 코드 `1`로 끝난다. auth.db의 버전은 지식 DB 버전과 별개다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md), [`ACCOUNTS.md`](ACCOUNTS.md) §8). 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음), P4(auth.db v2), P5(auth.db v3), `src/claire/cli.py`의 `cmd_migrate`, `tests/test_login_flow.py`의 `test_migrate_initializes_auth_db`.
+`migrate`는 지식 DB보다 먼저 계정 비밀 저장소 `data/auth/auth.db`를 만들거나 스키마를 맞추고 `auth_db schema_version=5`를 출력한다. 실패하면 지식 DB를 건드리지 않고 종료 코드 `1`로 끝난다. 이어서 내부 연합 API의 서비스 키 `data/auth/fedify_service.key`(32바이트, 권한 0600)가 없으면 만든다. 이미 있는 키는 바꾸지 않고 권한만 0600으로 다시 맞추며, 파일이 32바이트가 아니면 `migrate: fedify service key error`를 출력하고 지식 DB를 건드리지 않은 채 종료 코드 `1`로 끝난다([`FEDERATION.md`](FEDERATION.md) §5.2). auth.db의 버전은 지식 DB 버전과 별개다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md), [`ACCOUNTS.md`](ACCOUNTS.md) §8). 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음), P4(auth.db v2), P5(auth.db v3), 유저 단위 기능(auth.db v4), Fedify 사이드카 FP1-1·FP1-2(서비스 키, auth.db v5), `src/claire/cli.py`의 `cmd_migrate`, `tests/test_login_flow.py`의 `test_migrate_initializes_auth_db`, `tests/test_federation_internal.py`의 `test_migrate_makes_the_service_key`.
+
+`instance check`는 지식 DB를 읽기 전용으로 열고 데이터를 바꾸지 않는다. DB를 열 수 없으면 종료 코드 `1`이다. 기본 출력은 검사마다 `<ID> PASS|FAIL <이름>: <설명>` 한 줄과 마지막 요약 줄(`network readiness: PASS` 또는 `federation readiness: FAIL` 형태)이다. `--json`은 `{"check": "network"|"federation", "items": [{"id", "name", "passed", "detail"}], "passed": bool}`을 출력한다. 관리자 API(`POST /api/admin/instance/mode`, `POST /api/admin/federation`)가 같은 검사 함수를 쓴다. `--federation`의 GF7은 이 명령을 실행한 프로세스에서 공개 origin으로 HTTP 요청을 한 번 보낸다. 검사 항목은 [`FEDERATION.md`](FEDERATION.md) §7.2에 있다. 확인 기준: `src/claire/cli.py`의 `cmd_instance`, `tests/test_federation_readiness.py`.
 
 v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_default`를 0으로 고친 뒤(`data/themes.json`과 `themes` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
 

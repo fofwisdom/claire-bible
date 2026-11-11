@@ -84,6 +84,21 @@ graph TD
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
+| `CB_FEDERATION` | `0` | 정확히 `0` 또는 `1` | Fedify 사이드카 스위치. `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile federation`을 붙여 `fedify` 서비스를 빌드·기동하고, 기동 전에 `data/run/`과 `data/fedify/`를 만든다. 컨테이너만 띄우며 인스턴스 설정 `federation`은 바꾸지 않는다. 다른 값은 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §9 |
+| `CB_FEDIFY_PORT` | `8790` / `8791` | 정수 (`1~65535`) | 사이드카를 `CB_API_BIND`에 퍼블리시하는 호스트 포트. 컨테이너 포트는 항상 `8790`이다. `CB_FEDERATION=1`일 때 `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. reverse proxy가 연합 경로만 이 포트로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
+| `CB_FEDIFY_IMAGE` | `claire-bible-fedify` | 문자열 | 사이드카 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. |
+
+#### 2.2.1 Fedify 사이드카 컨테이너 (`CLAIRE_FEDIFY_*`)
+
+이 변수들은 `fedify` 컨테이너 안의 Deno 프로세스(`sidecar/fedify/src/main.ts`)만 읽는다. `Settings`에는 없고 Python 애플리케이션은 읽지 않는다. `docker-compose.yml`이 아래 기본값과 같은 값을 고정해 넣으며, `fedify` 서비스에는 `env_file`이 없어서 `.env`에 적어도 컨테이너에 전달되지 않는다. 이미지의 Deno 권한 플래그(`--allow-read`, `--allow-write`, `--allow-env`)가 기본 경로에 맞춰져 있으므로 경로를 바꾸려면 플래그도 함께 바꿔야 한다. 상세는 [FEDERATION.md](FEDERATION.md) §9.2, §9.3을 본다.
+
+| 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `CLAIRE_FEDIFY_SOCKET` | `/data/run/federation.sock` | 컨테이너 내부 경로 | Claire 내부 연합 API의 Unix 소켓 경로. |
+| `CLAIRE_FEDIFY_SERVICE_KEY_FILE` | `/data/auth/fedify_service.key` | 컨테이너 내부 경로 | 내부 연합 API 요청 서명에 쓰는 서비스 키 파일(32바이트). `claire migrate`가 호스트의 `data/auth/fedify_service.key`로 만든다. |
+| `CLAIRE_FEDIFY_DB` | `/data/fedify/fedify.db` | 컨테이너 내부 경로 | 사이드카 DB(Fedify 캐시와 메시지 큐). 사이드카가 권한 0600으로 만든다. |
+| `CLAIRE_FEDIFY_HOST` | `0.0.0.0` | IP 주소 | 사이드카 HTTP 리스너 주소(컨테이너 내부). |
+| `CLAIRE_FEDIFY_PORT` | `8790` | 정수 | 사이드카 HTTP 리스너 포트(컨테이너 내부). 호스트 포트는 `CB_FEDIFY_PORT`다. |
 
 ---
 
@@ -457,6 +472,7 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 - [COMMANDS.md](COMMANDS.md): 전체 CLI 명령어 및 `cb-manuscript` / `claire` 실행 레퍼런스
 - [OPERATIONS.md](OPERATIONS.md): 호스트 운영 및 서비스 수명주기 관리 가이드
 - [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md): 웹 접속, Reverse Proxy, 포트 및 인증/CORS 경계 명세
+- [FEDERATION.md](FEDERATION.md): Fedify 사이드카 연합(FP1) 구현 정본
 - [OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md): 환경변수 및 DB 스키마 자동 마이그레이션 설계 명세
 
 ---
