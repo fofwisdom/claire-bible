@@ -1,0 +1,4 @@
+tests/
+README.md
+node_modules/
+.dockerignore

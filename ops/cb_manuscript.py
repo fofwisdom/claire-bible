@@ -38,6 +38,11 @@ DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
 ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
+# Fedify sidecar (federation design, Section 4.2): the switch that activates the Compose profile, the profile name, and the host port of the sidecar.
+FEDERATION_KEY = "CB_FEDERATION"
+FEDERATION_PROFILE = "federation"
+FEDIFY_PORT_KEY = "CB_FEDIFY_PORT"
+DEFAULT_FEDIFY_PORT = 8790
 # Optional role hosts besides app (design §5.1): (role, host setting, development host port).
 ROLE_HOST_SETTINGS = (
     ("usercontent", "CLAIRE_USERCONTENT_FQDN", "CB_USERCONTENT_PORT"),
@@ -157,6 +162,7 @@ APP_ONE_OFF_COMMANDS = {
     "token",
     "key",
     "api-key",
+    "instance",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",
@@ -360,6 +366,7 @@ class Runtime:
     wait_timeout: int
     bot_enabled: bool
     anonymous_readonly: bool
+    federation_enabled: bool = False
 
     @property
     def dev(self) -> bool:
@@ -394,6 +401,8 @@ class Runtime:
             argv.extend(("--profile", "*"))
         elif self.bot_enabled:
             argv.extend(("--profile", "bot"))
+        if self.federation_enabled and not all_profiles:
+            argv.extend(("--profile", FEDERATION_PROFILE))
         argv.extend(args)
         return argv
 
@@ -1018,6 +1027,50 @@ def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
     return raw == "1"
 
 
+def _validate_federation(values: Mapping[str, str], *, port: int) -> bool:
+    """Return True when the operator activated the Compose profile of the Fedify sidecar."""
+
+    # The switch and the host port are Compose inputs, so the process environment wins, the same as CB_API_PORT.
+    raw = _effective(values, FEDERATION_KEY)
+    if raw not in {"", "0", "1"}:
+        raise ManuscriptError(f"{FEDERATION_KEY} must be exactly 0 or 1.")
+    if raw != "1":
+        return False
+    fedify_port = _parse_role_port(values, FEDIFY_PORT_KEY) or DEFAULT_FEDIFY_PORT
+    used = {"CB_API_PORT": port}
+    for _role, _host_key, port_key in ROLE_HOST_SETTINGS:
+        role_port = _parse_role_port(values, port_key)
+        if role_port is not None:
+            used[port_key] = role_port
+    for key, value in used.items():
+        if value == fedify_port:
+            raise ManuscriptError(
+                f"{FEDIFY_PORT_KEY} ({fedify_port}) must be different from {key}."
+            )
+    return True
+
+
+def _prepare_federation_mounts(runtime: Runtime) -> None:
+    """Make the host directories that the `fedify` container mounts.
+
+    Compose does not make these paths (`create_host_path: false`), because Docker makes a missing path as root. The service key file is not made here: `claire migrate` makes it.
+    """
+
+    if not runtime.federation_enabled:
+        return
+    data = resolve_storage(runtime).data
+    for name, mode in (("run", 0o770), ("fedify", 0o700)):
+        path = data / name
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise ManuscriptError(f"Federation mount source must be a directory: {path}")
+        try:
+            path.mkdir(mode=mode, parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ManuscriptError(
+                f"Cannot make the federation directory {path}: {exc}"
+            ) from exc
+
+
 def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     base_values = read_dotenv(layout.env)
     environment, values = _resolve_environment(
@@ -1065,6 +1118,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     anonymous_readonly = _validate_anonymous_readonly(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
+    federation_enabled = _validate_federation(values, port=parsed_port)
     return Runtime(
         layout=layout,
         environment=environment,
@@ -1073,6 +1127,7 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         wait_timeout=wait_timeout,
         bot_enabled=bot_enabled,
         anonymous_readonly=anonymous_readonly,
+        federation_enabled=federation_enabled,
     )
 
 
@@ -3429,6 +3484,8 @@ def _transition(runtime: Runtime) -> None:
     legacy_stopped: list[str] = []
     try:
         legacy_stopped = stop_legacy_containers(runtime.layout)
+        # The directories come before the migration: the entrypoint of the migration container sets the owner of the data tree to CB_UID:CB_GID.
+        _prepare_federation_mounts(runtime)
         _migrate(runtime)
     except BaseException:
         # No replacement has occurred yet: resume exactly what was running.
@@ -3559,6 +3616,7 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"profile: {runtime.environment}")
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
+    print(f"federation profile: {'enabled' if runtime.federation_enabled else 'disabled'}")
     anonymous_status = "disabled"
     if runtime.anonymous_readonly:
         anonymous_status = (
@@ -3828,6 +3886,7 @@ def dispatch_passthrough(
     runtime: Runtime, command: str, args: Sequence[str]
 ) -> int:
     if command == "up":
+        _prepare_federation_mounts(runtime)
         if args:
             compose_args = ("up", *args)
         else:
@@ -3940,6 +3999,8 @@ def build_parser() -> argparse.ArgumentParser:
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
             "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
+            "  - Fedify sidecar switch CB_FEDERATION (exactly 0 or 1) and CB_FEDIFY_PORT\n"
+            "      (different from CB_API_PORT and the role host ports)\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
             "  - data/ and vault/ directory permissions (0700)"
         ),
@@ -4152,7 +4213,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Start Docker Compose services.\n"
             "Running without arguments starts safely in background (-d --wait --wait-timeout <timeout>).\n"
-            "Passing additional arguments forwards them to docker compose up."
+            "Passing additional arguments forwards them to docker compose up.\n"
+            "CB_FEDERATION=1 adds the Compose profile `federation` (service fedify) to all commands."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(

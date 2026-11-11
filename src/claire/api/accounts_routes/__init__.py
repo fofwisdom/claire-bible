@@ -6,6 +6,7 @@
 - `me`: ``/me``, ``/api/me``, ``/api/me/password``
 - `keys`: ``/api/me/keys``, ``/api/me/keys/verify`` (네트워크 모드 멤버, §11)
 - `features`: 유저 단위 기능 ``/api/me/telegram``, ``/api/me/support-bundles*``, ``/api/me/data-bundles*``, ``/api/me/backups*``, ``/api/admin/account-backups*``
+- `federation`: ``/api/admin/federation`` (Fedify sidecar design Section 12)
 - `common`: DB·쿠키·origin·단계 인증·템플릿 공용 헬퍼
 
 `api.server.create_app`이 `build_account_routes`로 라우트를 마운트하고, 접근 규칙은 `api.security.ROUTE_POLICY`에 있다.
@@ -21,7 +22,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from .. import security
-from . import admin, console, features, idp, instance, invites, keys, login, me, setup
+from . import admin, console, features, federation, idp, instance, invites, keys, login, me, setup
 from .common import AccountsContext, build_context, prepare_auth_db, require_recent_auth
 
 __all__ = [
@@ -51,6 +52,7 @@ def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> Ac
         *admin.routes(ctx),
         *me.routes(ctx),
         *instance.routes(ctx),
+        *federation.routes(ctx),
         *idp.routes(ctx),
         *invites.routes(ctx),
         *keys.routes(ctx),

@@ -92,3 +92,48 @@ services:
       - "${CB_EXPAND_INTERVAL:-900}"
       - --batch
       - "${CB_EXPAND_BATCH:-3}"
+
+  # Fedify sidecar (design docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md, Sections 4.2 and 6.1).
+  # The service starts only when the Compose profile `federation` is active. cb-manuscript activates the profile when CB_FEDERATION=1.
+  # The service has no env_file: the secrets of Claire in .env do not go into this container.
+  # The process uses the uid and gid of the Claire services (CB_UID, CB_GID). Thus it can read the service key (mode 0600), connect to the socket (mode 0660), and write data/fedify/.
+  # The mounts are the socket directory, data/fedify/, and the service key file only. Do not add data/auth/ as a directory. Do not add the Claire database.
+  # `create_host_path: false` stops the start when a source path does not exist. Docker must not make these paths as root.
+  # The reverse proxy sends these public paths to this service: exact /.well-known/webfinger, exact /.well-known/nodeinfo, prefix /nodeinfo/, prefix /ap/.
+  fedify:
+    profiles: ["federation"]
+    image: "${CB_FEDIFY_IMAGE:-claire-bible-fedify}:${CB_IMAGE_TAG:-local}"
+    build:
+      context: sidecar/fedify
+    restart: unless-stopped
+    user: "${CB_UID:-1000}:${CB_GID:-1000}"
+    environment:
+      TZ: "${TZ:-}"
+      CLAIRE_FEDIFY_SOCKET: "/data/run/federation.sock"
+      CLAIRE_FEDIFY_SERVICE_KEY_FILE: "/data/auth/fedify_service.key"
+      CLAIRE_FEDIFY_DB: "/data/fedify/fedify.db"
+      CLAIRE_FEDIFY_HOST: "0.0.0.0"
+      CLAIRE_FEDIFY_PORT: "8790"
+    ports:
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_FEDIFY_PORT:-8790}:8790"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: "${CB_DATA_DIR:-./data}/run"
+        target: /data/run
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${CB_DATA_DIR:-./data}/fedify"
+        target: /data/fedify
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${CB_DATA_DIR:-./data}/auth/fedify_service.key"
+        target: /data/auth/fedify_service.key
+        read_only: true
+        bind:
+          create_host_path: false
+    stop_grace_period: 20s

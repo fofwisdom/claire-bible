@@ -434,6 +434,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/api/admin/accounts",
                 "/admin/instance",
                 "/api/admin/instance",
+                "/api/admin/federation",
                 "/admin/idp",
                 "/api/admin/idp",
             )
@@ -441,6 +442,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ),
         ("POST", "/api/admin/instance/mode"),
         ("POST", "/api/admin/instance/legacy-hosts/sunset"),
+        ("POST", "/api/admin/federation"),
         ("PATCH", "/api/admin/accounts"),
         ("GET", "/api/admin/usernames/retired"),
         ("HEAD", "/api/admin/usernames/retired"),

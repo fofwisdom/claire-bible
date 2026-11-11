@@ -3433,6 +3433,46 @@ def cmd_share(args) -> int:
         conn.close()
 
 
+def cmd_instance(args) -> int:
+    """Do the instance readiness checks and print the report. The exit code is 0 only when all checks pass.
+
+    ``--network`` does the network-mode checks G1 to G9. ``--federation`` does the federation checks GF1 to GF7 (Fedify sidecar design Section 12). The admin API uses the same check functions.
+    """
+    import json
+    import sqlite3
+
+    from .store import db as dbm
+
+    s = get_settings()
+    try:
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+    except sqlite3.Error as e:
+        print(f"instance check: cannot open the database: {e}", file=sys.stderr)
+        return 1
+    try:
+        if getattr(args, "federation", False):
+            from .accounts import federation_readiness
+
+            check = "federation"
+            report = federation_readiness.check_federation_readiness(conn, s)
+        else:
+            from .accounts import readiness
+
+            check = "network"
+            report = readiness.check_readiness(conn, s)
+    finally:
+        conn.close()
+
+    result = {"check": check, **report.to_dict()}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        for item in report.items:
+            print(f"{item.id} {'PASS' if item.passed else 'FAIL'} {item.name}: {item.detail}")
+        print(f"{check} readiness: {'PASS' if report.passed else 'FAIL'}")
+    return 0 if report.passed else 1
+
+
 def cmd_auth(args) -> int:
     """웹 UI 접속을 위한 1회용 인증 매직 링크 및 세션 토큰 발급."""
     import json
@@ -5349,6 +5389,23 @@ def build_parser() -> argparse.ArgumentParser:
     pauth.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
+
+    pinst = sub.add_parser(
+        "instance",
+        help="check instance readiness for network mode or federation",
+        description="Run instance readiness checks. The admin API uses the same checks before a mode or federation change.",
+    )
+    pinst_sub = pinst.add_subparsers(dest="instance_action", required=True)
+    pinst_check = pinst_sub.add_parser(
+        "check",
+        help="run readiness checks and exit with 0 only when all checks pass",
+        description="Run the network-mode readiness checks (G1-G9) or the federation readiness checks (GF1-GF7). The exit code is 0 only when all checks pass.",
+    )
+    pinst_kind = pinst_check.add_mutually_exclusive_group(required=True)
+    pinst_kind.add_argument("--network", action="store_true", help="run the network-mode readiness checks G1-G9")
+    pinst_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF7")
+    pinst_check.add_argument("--json", action="store_true", help="output the readiness report in JSON format")
+    pinst_check.set_defaults(func=cmd_instance)
 
     ptok = sub.add_parser(
         "token",

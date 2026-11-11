@@ -22,6 +22,12 @@ CB_ENV_FILE=.env.example \
 CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
   docker compose --env-file .env.example --env-file .env.dev.example \
     -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+# The same two models with the Compose profile `federation` active (service fedify).
+CB_ENV_FILE=.env.example \
+  docker compose --env-file .env.example --profile federation -f docker-compose.yml config --quiet
+CB_ENV_FILE=.env.example CB_DEV_ENV_FILE=.env.dev.example \
+  docker compose --env-file .env.example --env-file .env.dev.example --profile federation \
+    -f docker-compose.yml -f docker-compose.dev.yml config --quiet
 
 # Volume specification assertions: /host-bin and /extra-certs must be present; Ubuntu system paths must not regress
 grep -q '/host-bin:ro' docker-compose.yml || { echo "CI Error: /host-bin:ro volume missing in docker-compose.yml"; exit 1; }
@@ -31,6 +37,30 @@ grep -q '/extra-certs:ro' docker-compose.dev.yml || { echo "CI Error: /extra-cer
 if grep -Eq '^[[:space:]]*-[[:space:]]*/etc/(ssl/certs|ca-certificates|localtime)' docker-compose.yml docker-compose.dev.yml; then
   echo "CI Error: Host Ubuntu system paths must not be mounted in docker-compose files"
   exit 1
+fi
+
+# Fedify sidecar mount assertions: the service has the profile `federation`, mounts the service key file, and does not mount data/auth as a directory, the complete data directory, or the Claire database.
+for compose_file in docker-compose.yml docker-compose.dev.yml; do
+  fedify_block="$(awk '/^  fedify:[[:space:]]*$/ {found=1; next} found && /^  [^[:space:]#]/ {found=0} found' "$compose_file")"
+  [ -n "$fedify_block" ] || { echo "CI Error: service fedify missing in $compose_file"; exit 1; }
+  grep -q 'auth/fedify_service\.key' <<<"$fedify_block" || { echo "CI Error: fedify must mount the service key file in $compose_file"; exit 1; }
+  if grep -Eq 'claire\.db|/app/data|/auth/?"?[[:space:]]*$|/auth/?:|(CB_DATA_DIR[^}]*\}|/data)/?"?[[:space:]]*$' <<<"$fedify_block"; then
+    echo "CI Error: fedify must not mount data/auth as a directory, the data directory, or claire.db in $compose_file"
+    exit 1
+  fi
+done
+grep -Eq '^    profiles: \["federation"\]' docker-compose.yml || { echo "CI Error: service fedify must have the Compose profile federation"; exit 1; }
+if CB_ENV_FILE=.env.example docker compose --env-file .env.example -f docker-compose.yml config --services | grep -qx fedify; then
+  echo "CI Error: service fedify must not start when the profile federation is not active"
+  exit 1
+fi
+
+# Sidecar tests run only when deno is installed. tests/test_fedify_sidecar.py has the same condition.
+if command -v deno >/dev/null 2>&1; then
+  echo "[ci] 2/4 Fedify sidecar tests (deno task test)"
+  (cd sidecar/fedify && deno task test)
+else
+  echo "[ci] 2/4 Fedify sidecar tests skipped: deno is not installed"
 fi
 
 echo "[ci] 3/4 uv.lock 일관성 검사 (pyproject 와 동기인지)"

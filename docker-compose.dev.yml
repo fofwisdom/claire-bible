@@ -41,3 +41,25 @@ services:
 
   expand:
     <<: *claire-dev-service
+
+  # Development entry of the Fedify sidecar. The profile `federation`, the user, the environment, and the host port come from docker-compose.yml.
+  # The host port is CB_API_BIND:CB_FEDIFY_PORT (127.0.0.1:8791 in .env.dev.example). Only the data paths and the build policy are different.
+  fedify:
+    pull_policy: build
+    volumes: !override
+      - type: bind
+        source: "${CB_DATA_DIR:-./.dev/data}/run"
+        target: /data/run
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${CB_DATA_DIR:-./.dev/data}/fedify"
+        target: /data/fedify
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${CB_DATA_DIR:-./.dev/data}/auth/fedify_service.key"
+        target: /data/auth/fedify_service.key
+        read_only: true
+        bind:
+          create_host_path: false

@@ -3,10 +3,16 @@
 FROM denoland/deno:2.9.8
 
 WORKDIR /app
-COPY deno.json deno.lock ./
+COPY deno.json deno.lock THIRD_PARTY_LICENSES.md ./
 COPY src ./src
 # The frozen lock file fixes each dependency version (design Section 13, FS11).
-RUN deno cache --frozen src/main.ts
+# The image keeps the license files of the npm dependencies in /app/licenses (design Section 4.2). The JSR packages have no license file: THIRD_PARTY_LICENSES.md records their licenses.
+# Compose starts the process with the uid and gid of the Claire services (CB_UID, CB_GID), not with the user `deno`. Thus all users must be able to read the module cache and the application files. No user other than root can write them.
+RUN deno cache --frozen src/main.ts \
+    && mkdir -p /app/licenses \
+    && cd "$DENO_DIR/npm/registry.npmjs.org" \
+    && find . -mindepth 3 -maxdepth 4 -type f \( -iname 'licen[sc]e*' -o -iname 'notice*' -o -iname 'copying*' \) -exec cp --parents {} /app/licenses/ \; \
+    && chmod -R a+rX "$DENO_DIR" /app
 
 USER deno
 EXPOSE 8790
