@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/inbox-events",
+    "body": {
+      "event_id": "https://remote.example/activities/125",
+      "type": "Delete",
+      "object_type": "Person",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/bob",
+        "inbox": "https://remote.example/users/bob/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "object_iri": "https://remote.example/users/bob",
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reply": null,
+    "reason": null
+  }
+}

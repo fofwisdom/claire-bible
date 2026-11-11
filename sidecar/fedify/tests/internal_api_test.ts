@@ -1,7 +1,7 @@
 // Internal API client against the shared contract fixtures (module interface between the sidecar and Claire).
 
 import assert from "node:assert/strict";
-import { ContractError, InternalApi, InternalApiError, signRequest } from "../src/internal_api.ts";
+import { ContractError, type InboxEvent, InternalApi, InternalApiError, signRequest } from "../src/internal_api.ts";
 import { fakeClaire, fixture, FIXTURE_DIR, fixtureNames, KEY, NOW } from "./fixtures.ts";
 
 function client(fake = fakeClaire(), now = NOW) {
@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_keys", "actor_keys_not_found", "actor_not_found", "config", "heartbeat", "heartbeat_version_mismatch", "instance_actor_keys"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_keys", "actor_keys_not_found", "actor_not_found", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "heartbeat", "heartbeat_version_mismatch", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_update_actor", "instance_actor_keys"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -52,7 +52,7 @@ Deno.test("a request outside the time window or with a different key is refused"
 });
 
 Deno.test("a response outside the sealed shape is an error", async () => {
-  for (const change of [{ extra_field: 1 }, { federation: "maybe" }, { federated_actors: "1" }, { trusted_proxies: [1] }, { software: { name: "claire-bible" } }]) {
+  for (const change of [{ extra_field: 1 }, { federation: "maybe" }, { federated_actors: "1" }, { trusted_proxies: [1] }, { software: { name: "claire-bible" } }, { limits: {} }, { domain_blocks_etag: null }]) {
     const { api, fake } = client();
     fake.config = change;
     await assert.rejects(api.config(), ContractError, JSON.stringify(change));
@@ -62,6 +62,36 @@ Deno.test("a response outside the sealed shape is an error", async () => {
   await assert.rejects(api.config(), ContractError);
   fake.config = { contract_version: "1.7" };
   assert.equal((await api.config()).contract_version, "1.7");
+});
+
+Deno.test("follower pages and domain blocks agree with the fixtures", async () => {
+  const { api, fake } = client();
+  const first = await api.followers("116412345678901234", { limit: 2 });
+  assert.deepEqual(first, fixture("followers").response);
+  assert.deepEqual(await api.followers("116412345678901234", { limit: 2, maxId: first!.next_max_id! }), fixture("followers_next").response);
+  assert.equal(await api.followers("216412345678901234"), null);
+  const blocks = await api.domainBlocks();
+  assert.deepEqual(blocks, fixture("domain_blocks").response);
+  assert.equal(blocks.etag, (await api.config()).domain_blocks_etag);
+  assert.deepEqual(fake.calls.slice(0, 4), ["followers", "followers_next", "followers_not_found", "domain_blocks"].map((n) => `GET ${fixture(n).request.path}`));
+});
+
+Deno.test("each inbox event gets the decision of its fixture", async () => {
+  const { api } = client();
+  for (const name of fixtureNames().filter((n) => n.startsWith("inbox_event_"))) {
+    const fx = fixture(name);
+    assert.deepEqual(await api.inboxEvent(fx.request.body as InboxEvent), fx.response, name);
+  }
+  assert.deepEqual(await api.inboxEvent(fixture("inbox_event_follow").request.body as InboxEvent), { decision: "accepted", reply: "accept", reason: null });
+});
+
+Deno.test("an inbox event without a decision is an error", async () => {
+  const { api, fake } = client();
+  const event = fixture("inbox_event_follow").request.body as InboxEvent;
+  // The fake has no fixture for this body. A 404 is not a decision.
+  await assert.rejects(api.inboxEvent({ ...event, event_id: "https://remote.example/activities/unknown" }), (error: InternalApiError) => error.status === 404);
+  fake.failStatus = 503;
+  await assert.rejects(api.inboxEvent(event), (error: InternalApiError) => error.status === 503);
 });
 
 Deno.test("a server error is an error, not an absent actor", async () => {

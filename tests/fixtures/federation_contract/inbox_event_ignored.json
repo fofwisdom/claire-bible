@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/inbox-events",
+    "body": {
+      "event_id": "https://remote.example/activities/128",
+      "type": "Like",
+      "object_type": "Article",
+      "recipient_public_id": "116412345678901234",
+      "actor": {
+        "iri": "https://remote.example/users/bob",
+        "inbox": "https://remote.example/users/bob/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "object_iri": "https://claire.example.com/ap/objects/1",
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "ignored",
+    "reply": null,
+    "reason": "unsupported_type"
+  }
+}

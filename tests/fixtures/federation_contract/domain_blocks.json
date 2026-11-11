@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/domain-blocks"
+  },
+  "status": 200,
+  "response": {
+    "etag": "\"1f30273176bf43428242811a3bd5e046\"",
+    "domains": [
+      "blocked.example"
+    ]
+  }
+}

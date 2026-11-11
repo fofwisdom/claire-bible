@@ -6,16 +6,18 @@ This document tells what the code does now. The design document is a historical 
 
 ## 1. Scope and State
 
-Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor.
+Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is in progress: units FP2-1 and FP2-2 add the follower data and the internal endpoints of Claire. The sidecar does not use them until unit FP2-3.
 
-| Function | State in FP1 |
+| Function | State |
 | :--- | :--- |
 | WebFinger, NodeInfo, actor document, instance actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
 | Instance switch `federation`, readiness checks GF1 to GF7 | Implemented (API and CLI). There is no console screen. |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
-| Inbox, followers, domain blocks | Not implemented (phase FP2). The sidecar has read paths only: a method that is not `GET` or `HEAD` gets 405 on each federation path, and thus `POST /ap/actors/{public_id}/inbox` and `POST /ap/inbox` return 405. A `GET` of an inbox, followers, or outbox path returns 404. |
+| `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
+| Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented in Claire, with client functions in the sidecar (FP2-2). No public path uses them. |
+| Public inbox, public followers collection, management of followers and domain blocks | Not implemented (units FP2-3 and FP2-4). There is no API or screen that changes the domain blocks. The sidecar has read paths only: a method that is not `GET` or `HEAD` gets 405 on each federation path, and thus `POST /ap/actors/{public_id}/inbox` and `POST /ap/inbox` return 405. A `GET` of an inbox, followers, or outbox path returns 404. |
 | Outbox, published objects, publishing | Not implemented (phase FP3). The paths return 404. |
 
 Claire sends no activity to a remote server in FP1. The sidecar makes one type of outbound request: the public self-check to the public origin of this instance (Section 7.2).
@@ -166,29 +168,75 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 | Method | Path | Response fields |
 | :--- | :--- | :--- |
-| `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors` |
+| `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag` |
 | `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`). Response: `contract_version`, `federation`. |
 | `GET` | `/actors/by-username/{username}` | Actor record, or 404. The lookup changes the USERNAME to lowercase. |
 | `GET` | `/actors/{public_id}` | Actor record, or 404 |
 | `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `instance`. 404 when the account is not an actor, or when federation is not active. |
+| `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor. 400 `invalid_request` for a query that is not valid. |
+| `POST` | `/inbox-events` | One verified inbound activity. The response is the decision (Section 5.7). |
+| `GET` | `/domain-blocks` | `etag`, `domains` (lowercase ASCII, in order). The response has an `ETag` header. A request with the same value in `If-None-Match` gets 304 without a body. |
 
 - Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`. The record has no field from `auth.db`.
 - `federated_actors` is 0 when federation is not active. If not, it is the number of accounts that agree with the actor rule.
 - `/config` answers in all states. It does not return 404 when federation is `off`.
 - The sidecar does not use `trusted_proxies` in FP1.
+- `limits.inbox_body_bytes` is 1048576 (`INBOX_BODY_LIMIT_BYTES`). It is the largest body of a public inbox request that the sidecar must read (unit FP2-3).
+- `domain_blocks_etag` is the entity tag of the `/domain-blocks` response. The sidecar reads `config` at short intervals and can thus see a change of the list without a second request.
+- `/domain-blocks` answers in all states of the federation switch.
+- `next_max_id` is the `id` of the last item when the page is full. If not, it is null. `id` is `federation_followers.public_id` as a decimal string.
 - Heartbeat record: Claire writes the request and `received_at` to `{data_dir}/run/federation_heartbeat.json` (temporary file, then `os.replace`). A heartbeat with a different major version is not recorded.
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.0"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.1"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
+- Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
 ### 5.5 Contract Fixtures
 
 - Directory: `tests/fixtures/federation_contract/`. Each JSON file is one call, with the keys `request`, `status`, and `response`.
 - The Python test `tests/test_federation_routes.py` and the Deno tests in `sidecar/fedify/tests/` read the same files. Each side has a test that fails when a fixture file has no test.
 - The key pairs in `actor_keys.json` and `instance_actor_keys.json` are test keys.
+
+### 5.6 Follower Data (`claire.db` Version 17)
+
+- Tables: `federation_followers` (key `(account_id, actor_iri)`, `public_id` is the time-ordered cursor number), `federation_tombstones`, `federation_domain_blocks`. The definitions are in [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md).
+- Store functions: `src/claire/store/federation.py`. No function there commits.
+- Domain form: lowercase ASCII (punycode) without a trailing dot. An IPv4 address is permitted, for development instances. `normalize_domain` refuses a scheme, a port, a path, and a space.
+- A block of a domain also applies to its subdomains (`blocking_domain`). An IP address has an exact comparison only. The port has no effect.
+- The entity tag of the block list is the first 32 hexadecimal characters of the SHA-256 of the domains in order, with one line for each domain, in double quotation marks.
+
+### 5.7 Inbox Event Contract
+
+Request body of `POST /inbox-events` (all fields are necessary; a field that can be null is marked):
+
+| Field | Value |
+| :--- | :--- |
+| `event_id` | ID of the activity. Claire writes nothing with it. |
+| `type` | Type of the activity, for example `Follow` |
+| `object_type` | Null, or the type of the object. For an `Undo` it is the type of the activity that is undone. |
+| `recipient_public_id` | Public ID of the actor whose inbox got the activity. Null for the shared inbox. |
+| `actor` | `iri`, `inbox`, `shared_inbox` (can be null) of the remote actor |
+| `object_iri` | Null, or the ID of the object. For an `Undo` it is the object of the activity that is undone. |
+| `verified_by` | `http-signature`, `ld-signature`, or `object-integrity-proof` |
+
+Response: `decision` (`accepted`, `rejected`, `ignored`), `reply` (`accept` or null), `reason` (a code or null). A body outside the model gets 400 `invalid_request`.
+
+Claire makes the decision in this sequence:
+
+1. Federation is not active (the switch is `off`, or the mode is `single`): `rejected`, reason `federation_off`.
+2. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the instance uses `http` (development). An address with credentials, without a valid host, or on the origin of this instance is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
+3. The host of one of these addresses is blocked: `rejected`, reason `blocked_domain`. This check comes before the type check.
+4. The type is outside the v1 set: `ignored`, reason `unsupported_type`. The v1 set is `Follow`; `Undo` with `object_type` `Follow`; `Delete` with `object_iri` equal to `actor.iri`; `Update` with `object_iri` equal to `actor.iri`.
+5. `Delete` of the remote actor: Claire deletes the actor from the followers of all accounts. `accepted`.
+6. `Update` of the remote actor: Claire replaces the inbox addresses in all rows of the actor. `accepted`.
+7. `Follow` and `Undo(Follow)`: `object_iri` must be `{canonical_origin}/ap/actors/{public_id}`. If not: `rejected`, reason `not_an_actor`. If `recipient_public_id` is not null and is a different ID: `rejected`, reason `recipient_mismatch`.
+8. `Follow`: the account must agree with the actor rule (Section 3). If not: `rejected`, reason `not_an_actor`. Claire stores the follower. `accepted` with `reply` `accept`. A repeated `Follow` keeps the row and its number, replaces the inbox addresses if they are different, and gives the same decision.
+9. `Undo(Follow)`: the account must exist. Claire deletes the row, also for a paused account. `accepted`. A repeated `Undo` gives the same decision.
+
+Claire writes one log line for each event with the type, the decision, and the reason. The line has no address.
 
 ## 6. Keys
 
@@ -404,7 +452,9 @@ These statements are true for the code now.
 7. `actor_keys` rows are not deleted at purge. `delete_actor_keys` exists but no code calls it.
 8. The sidecar does not use `trusted_proxies`. It removes all `X-Forwarded-*` headers.
 9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
-10. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
+10. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
+11. The follower page has 80 items at most. A delivery to many followers (phase FP3) needs one request for each page.
+12. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
 
 ## 13. Differences from the Design
 
@@ -416,7 +466,10 @@ These statements are true for the code now.
 | `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 404 only in FP1 |
 | The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
 | Actor document has `outbox` and `followers` (§5.2) | Not in the document in FP1 |
-| `/config` has limits and a domain-block ETag (§6.2) | Not in the response. `federated_actors` is in the response. |
+| `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). The tables of FP3 come with unit FP3-1. |
+| The inbox event has `event_id`, `type`, `recipient_public_id`, `actor`, `object_iri`, `verified_by` (§6.3) | The event also has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision also has `reason`. |
+| `rejected` is for a blocked domain or a recipient that is not an actor (§6.3) | Also for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` |
+| `/config` has limits (§6.2) | One limit: `inbox_body_bytes`. `federated_actors` is also in the response. |
 | Deno flags limit the process to the network, the data directory, and the socket directory (§4.2) | `--allow-read=/data,/app`, and `--allow-net` without a host list |
 
 ## 14. Tests
@@ -425,7 +478,8 @@ These statements are true for the code now.
 | :--- | :--- |
 | `tests/test_federation_internal.py` | Service key file, signature, time window, body limit, listener selection, socket mode, internal paths on the socket only |
 | `tests/test_actor_keys.py` | `auth.db` version 5 migration, key generation, encryption with the additional authenticated data |
-| `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field |
+| `tests/test_schema_v17.py` | `claire.db` version 17 migration, follower key, cursor pages, tombstones, domain form and subdomain rule |
+| `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, and one end-to-end run of follow events through the socket of a real `api` process |
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |

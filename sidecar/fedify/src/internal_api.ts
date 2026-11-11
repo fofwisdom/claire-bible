@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.0";
+export const CONTRACT_VERSION = "1.1";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -26,6 +26,9 @@ export interface InstanceConfig {
   software: { name: string; version: string };
   trusted_proxies: string[];
   federated_actors: number;
+  limits: { inbox_body_bytes: number };
+  // Entity tag of the domain-blocks response. Read the list again when this value changes.
+  domain_blocks_etag: string;
 }
 
 export interface ActorRecord {
@@ -58,6 +61,47 @@ export interface Heartbeat {
 export interface HeartbeatReply {
   contract_version: string;
   federation: "off" | "on";
+}
+
+// One inbound activity that Fedify verified (design Section 6.3).
+// type is the type of the activity. object_iri is the ID of its object. For an Undo, object_type is the type of the activity that is undone and object_iri is the object of that activity.
+// recipient_public_id is the actor of the inbox that got the activity, or null for the shared inbox.
+export interface InboxEvent {
+  event_id: string;
+  type: string;
+  object_type: string | null;
+  recipient_public_id: string | null;
+  actor: { iri: string; inbox: string; shared_inbox: string | null };
+  object_iri: string | null;
+  verified_by: "http-signature" | "ld-signature" | "object-integrity-proof";
+}
+
+// reply "accept": send Accept(Follow). "rejected": send Reject for a Follow and drop other types. "ignored": drop the activity and count it.
+export interface InboxDecision {
+  decision: "accepted" | "rejected" | "ignored";
+  reply: "accept" | null;
+  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "not_an_actor" | "recipient_mismatch" | "unsupported_type" | null;
+}
+
+export interface FollowerItem {
+  id: string;
+  actor_iri: string;
+  inbox_iri: string;
+  shared_inbox_iri: string | null;
+}
+
+// items are newest first. next_max_id is the cursor of the next page, or null when this page is not full.
+export interface FollowersPage {
+  public_id: string;
+  total: number;
+  items: FollowerItem[];
+  next_max_id: string | null;
+}
+
+// domains are lowercase ASCII. A block of a domain also applies to its subdomains.
+export interface DomainBlocks {
+  etag: string;
+  domains: string[];
 }
 
 export class InternalApiError extends Error {
@@ -137,9 +181,18 @@ const configShape = sealed({
   software: sealed({ name: str, version: str }),
   trusted_proxies: list(str),
   federated_actors: int,
+  limits: sealed({ inbox_body_bytes: int }),
+  domain_blocks_etag: str,
 });
 const actorShape = sealed({ public_id: str, username: str, display_name: str, activated_at: nullable(num), updated_at: num, profile_url: str });
 const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa2048", "ed25519"), public_jwk: stringMap, private_jwk: stringMap })) });
+const decisionShape = sealed({
+  decision: oneOf("accepted", "rejected", "ignored"),
+  reply: nullable(oneOf("accept")),
+  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type")),
+});
+const followersShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, actor_iri: str, inbox_iri: str, shared_inbox_iri: nullable(str) })), next_max_id: nullable(str) });
+const domainBlocksShape = sealed({ etag: str, domains: list(str) });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -221,5 +274,30 @@ export class InternalApi {
     const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/keys`);
     if (value !== null) keysShape(value, "keys");
     return value as ActorKeys | null;
+  }
+
+  // Sends one verified inbound activity. The result is the decision of Claire. An error means no decision: the caller must fail, and the Fedify inbox queue tries again.
+  async inboxEvent(event: InboxEvent): Promise<InboxDecision> {
+    const value = await this.#call("POST", "/inbox-events", event);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    decisionShape(value, "decision");
+    return value as InboxDecision;
+  }
+
+  // One cursor page of the followers of an actor, or null when the account is not an actor.
+  async followers(publicId: string, page: { limit?: number; maxId?: string } = {}): Promise<FollowersPage | null> {
+    const query = new URLSearchParams();
+    if (page.limit !== undefined) query.set("limit", String(page.limit));
+    if (page.maxId !== undefined) query.set("max_id", page.maxId);
+    const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/followers${query.size > 0 ? `?${query}` : ""}`);
+    if (value !== null) followersShape(value, "followers");
+    return value as FollowersPage | null;
+  }
+
+  async domainBlocks(): Promise<DomainBlocks> {
+    const value = await this.#call("GET", "/domain-blocks");
+    if (value === null) throw new InternalApiError(404, "not_found");
+    domainBlocksShape(value, "domain_blocks");
+    return value as DomainBlocks;
   }
 }

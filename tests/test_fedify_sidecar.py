@@ -198,7 +198,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         while (record := read_heartbeat(data_dir)) is None:
             assert time.monotonic() < deadline, "no heartbeat"
             time.sleep(0.2)
-        assert record["contract_version"] == "1.0" and record["queue_depth"] == 0
+        assert record["contract_version"] == "1.1" and record["queue_depth"] == 0
         # The sidecar database is a secret store (design Section 7 item 5).
         assert (sidecar_db.stat().st_mode & 0o777) == 0o600
 

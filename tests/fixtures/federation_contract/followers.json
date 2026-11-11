@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/116412345678901234/followers?limit=2"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "116412345678901234",
+    "total": 3,
+    "items": [
+      {
+        "id": "716412345678901233",
+        "actor_iri": "https://remote.example/users/u3",
+        "inbox_iri": "https://remote.example/users/u3/inbox",
+        "shared_inbox_iri": "https://remote.example/inbox"
+      },
+      {
+        "id": "716412345678901232",
+        "actor_iri": "https://remote.example/users/u2",
+        "inbox_iri": "https://remote.example/users/u2/inbox",
+        "shared_inbox_iri": null
+      }
+    ],
+    "next_max_id": "716412345678901232"
+  }
+}

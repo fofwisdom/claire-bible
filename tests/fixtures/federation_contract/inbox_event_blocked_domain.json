@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/inbox-events",
+    "body": {
+      "event_id": "https://sub.blocked.example/activities/9",
+      "type": "Follow",
+      "object_type": null,
+      "recipient_public_id": "116412345678901234",
+      "actor": {
+        "iri": "https://sub.blocked.example/users/eve",
+        "inbox": "https://sub.blocked.example/users/eve/inbox",
+        "shared_inbox": "https://sub.blocked.example/inbox"
+      },
+      "object_iri": "https://claire.example.com/ap/actors/116412345678901234",
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "rejected",
+    "reply": null,
+    "reason": "blocked_domain"
+  }
+}
