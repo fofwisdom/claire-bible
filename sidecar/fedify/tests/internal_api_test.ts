@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "heartbeat", "heartbeat_version_mismatch", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_update_actor", "instance_actor_keys", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "heartbeat", "heartbeat_version_mismatch", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_update_actor", "instance_actor_keys", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -107,6 +107,11 @@ Deno.test("outbox tasks, acknowledgements, objects, and the outbox collection ag
   assert.equal(await api.object("816412345678901999"), null);
 
   assert.deepEqual(await api.actorOutbox("116412345678901234", { limit: 1 }), fixture("actor_outbox").response);
+  // A purged actor (unit FP3-4).
+  assert.deepEqual(await api.actorResult("916412345678901234"), { state: "gone", gone_at: 1800000350.0 });
+  assert.equal(await api.actor("916412345678901234"), null);
+  assert.deepEqual(await api.actorResult("116412345678901234"), { state: "found", record: fixture("actor").response });
+  assert.equal(await api.actorResult("216412345678901234"), null);
   assert.equal(await api.actorOutbox("216412345678901234"), null);
   assert.equal(fake.calls[0], `GET ${fixture("outbox_tasks").request.path}`);
 

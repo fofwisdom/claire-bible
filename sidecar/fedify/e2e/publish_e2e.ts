@@ -41,7 +41,7 @@ Deno.test("a published document of a real Claire arrives at a test inbox with a 
   try {
     // Three tasks: Create of the first document, Create of the second document (retracted, thus rejected), and Delete of the second document.
     assert.equal(await sidecar.processOutboxTasks(), 3);
-    assert.deepEqual(sidecar.outboxCounters, { handed_off: 2, rejected: 1, failed: 0, skipped: 0 });
+    assert.deepEqual(sidecar.outboxCounters, { handed_off: 2, rejected: 1, failed: 0 });
 
     // The follower on the blocked domain gets nothing. The other follower gets the two activities at its shared inbox.
     assert.deepEqual(deliveries.map((d) => `${d.body.type} ${d.url}`), ["Create https://remote.example/inbox", "Delete https://remote.example/inbox"]);

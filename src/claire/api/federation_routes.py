@@ -64,7 +64,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.1"
+CONTRACT_VERSION = "1.2"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -369,6 +369,19 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             account = store.find_by_public_id(int(public_id))
         return account if _is_actor(account) else None
 
+    def _parse_actor_id(public_id: str) -> int | None:
+        return int(public_id) if public_id and public_id.isascii() and public_id.isdigit() and public_id[0] != "0" and len(public_id) <= 19 else None
+
+    def _find_departing(store: accounts_store.AccountStore, public_id: str) -> accounts_store.Account | None:
+        """Return a purged account whose ``delete_actor`` task waits for the sidecar, or ``None``. The sidecar needs the keys and the followers of this account for that one task (design Section 8.1)."""
+        number = _parse_actor_id(public_id)
+        if number is None or not _federation_active(store):
+            return None
+        account = store.find_by_public_id(number)
+        if account is None or account.status != "purged" or not federation_store.has_pending_delete_actor(store.conn, account.id):
+            return None
+        return account
+
     def config(_request: Request) -> Response:
         runtime = _runtime()
         store = _open_store()
@@ -426,6 +439,11 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def actor(request: Request) -> Response:
         store = _open_store()
         try:
+            # A purged actor is gone (design Section 8.1). This check comes first, the same as for a deleted object.
+            number = _parse_actor_id(request.path_params["public_id"])
+            tombstone = None if number is None else federation_store.get_tombstone(store.conn, number)
+            if tombstone is not None and tombstone.kind == "actor":
+                return JSONResponse({"error": "gone", "gone_at": tombstone.gone_at}, status_code=410, headers=_NO_STORE)
             account = _find_actor(store, public_id=request.path_params["public_id"])
         finally:
             store.conn.close()
@@ -435,11 +453,13 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         raw_id = request.path_params["public_id"]
         store = _open_store()
         try:
+            departing = None
             if raw_id == INSTANCE_ACTOR_ID:
                 key_owner = actor_keys.INSTANCE_ACTOR_ACCOUNT_ID if _federation_active(store) else None
             else:
                 account = _find_actor(store, public_id=raw_id)
-                key_owner = None if account is None else account.id
+                departing = _find_departing(store, raw_id) if account is None else None
+                key_owner = departing.id if departing is not None else None if account is None else account.id
         finally:
             store.conn.close()
         if key_owner is None:
@@ -448,7 +468,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         secret_service = get_secret_service(data_dir / "auth" / "master.key")
         auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
         try:
-            actor_keys.ensure_actor_keys(auth, key_owner, secret_service, now=now())
+            if departing is None:
+                actor_keys.ensure_actor_keys(auth, key_owner, secret_service, now=now())
             pairs = actor_keys.load_actor_keys(auth, key_owner, secret_service)
         finally:
             auth.close()
@@ -525,7 +546,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return _error(400, "invalid_request")
         store = _open_store()
         try:
-            account = _find_actor(store, public_id=request.path_params["public_id"])
+            account = _find_actor(store, public_id=request.path_params["public_id"]) or _find_departing(store, request.path_params["public_id"])
             if account is None:
                 return _not_found()
             total = federation_store.count_followers(store.conn, account.id)
@@ -553,9 +574,18 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         store = accounts_store.AccountStore(dbm.connect_existing(settings.db_file))
         try:
             # Only a task of an account that is an actor now is given. A task of a paused account waits: the sidecar cannot get the key of that account.
-            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit))
+            # A ``delete_actor`` task is the exception: its account is purged, and the task is given while federation is active.
+            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), include_delete_actor=_federation_active(store))
+            items = []
+            for task in leased:
+                try:
+                    actor_public_id = str(store.get(task.account_id).public_id)
+                except accounts_store.AccountNotFound:
+                    # The account row is gone (the USERNAME of a purged account was released). No actor can send this task.
+                    federation_store.ack_outbox_task(store.conn, task.id, result="rejected", error_code="account_missing", now=now())
+                    continue
+                items.append(OutboxTaskItem(id=task.id, kind=task.kind, actor_public_id=actor_public_id, object_public_id=None if task.object_public_id is None else str(task.object_public_id), created_at=task.created_at, lease_until=float(task.lease_until or 0.0)))
             store.conn.commit()
-            items = [OutboxTaskItem(id=task.id, kind=task.kind, actor_public_id=str(store.get(task.account_id).public_id), object_public_id=None if task.object_public_id is None else str(task.object_public_id), created_at=task.created_at, lease_until=float(task.lease_until or 0.0)) for task in leased]
         finally:
             store.conn.close()
         return _json(OutboxTasksResponse(tasks=items))
@@ -573,10 +603,21 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             conn = dbm.connect_existing(settings.db_file)
             try:
                 task = federation_store.ack_outbox_task(conn, int(raw_id), result=body.result, error_code=body.error_code, now=now())
+                finished = task is not None and task.kind == "delete_actor" and task.status != "pending"
+                if finished:
+                    # The last task of a purged actor has a result: its followers go now (design Section 8.1).
+                    federation_store.finish_delete_actor(conn, task.account_id)
                 conn.commit()
-                return task
             finally:
                 conn.close()
+            if finished:
+                # The queue of the sidecar has the signed deliveries. Claire needs the keys no more.
+                auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+                try:
+                    actor_keys.delete_actor_keys(auth, task.account_id)
+                finally:
+                    auth.close()
+            return task
 
         task = await run_in_threadpool(_apply)
         if task is None:

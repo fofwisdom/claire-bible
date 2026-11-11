@@ -27,6 +27,7 @@ from .readiness import ReadinessItem, ReadinessReport
 
 __all__ = [
     "HEARTBEAT_MAX_AGE_SECONDS",
+    "heartbeat_is_recent",
     "METADATA_FETCH_TIMEOUT_SECONDS",
     "METADATA_MAX_BYTES",
     "METADATA_PATH",
@@ -70,6 +71,11 @@ def _heartbeat_age(heartbeat: dict[str, Any] | None, now: float) -> float | None
 def _is_recent(age: float | None) -> bool:
     # A heartbeat time that is later than the clock is not valid (fail closed).
     return age is not None and 0.0 <= age <= HEARTBEAT_MAX_AGE_SECONDS
+
+
+def heartbeat_is_recent(heartbeat: dict[str, Any] | None, now: float | None = None) -> bool:
+    """Return ``True`` when the sidecar sent a heartbeat in the last ``HEARTBEAT_MAX_AGE_SECONDS`` seconds."""
+    return _is_recent(_heartbeat_age(heartbeat, time.time() if now is None else now))
 
 
 def _major(version: Any) -> str | None:

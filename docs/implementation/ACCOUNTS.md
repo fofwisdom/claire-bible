@@ -201,6 +201,7 @@
   - 소각된 계정이 이전에 공개 프로필(`was_public=1`)이었으면 `/@{name}` 접근 시 410 Gone(삭제된 계정 안내)을 응답하고, 비공개였으면 404 Not Found를 응답한다.
 - **디스크 가비지 컬렉션 (Disk GC)**:
   - 계정이 `purged`될 때 DB 외래 키 cascade 삭제에 더해, 다른 계정이나 테마에서 더 이상 참조하지 않는 디스크 산출물(참조 카운트 확인 뒤 아티팩트 `data/raw/artifacts/`, 파일 `data/raw/files/`, 이미지 `data/images/`, 프레젠테이션 컴파일 HTML·캐시, 그래프 번들 아카이브)을 안전하게 삭제한다.
+  - 연합 액터였던 계정은 소각할 때 액터 tombstone(410)을 남기고, 팔로워가 있으면 `Delete(Person)` 작업을 만든다. 사이드카가 응답하지 않으면 소각 요청은 409 `federation_sidecar_unavailable`로 대기하며, `skip_federated_delete: true`로 건너뛸 수 있다([`FEDERATION.md`](FEDERATION.md) 8.5절).
 - **정보 초기화 API (`POST /api/admin/usernames/release`)**:
   - **단계 인증 필수**: 관리자 세션이면서 최근 15분 이내 인증(`require_recent_auth`)된 경우에만 실행 가능하다.
   - **미리보기 기본 (`apply=false`, 기본값)**:

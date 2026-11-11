@@ -5660,6 +5660,14 @@ def purge_document_cascade(
             f"DELETE FROM documents WHERE id IN ({ph_matched}){where_th}", matched_ids
         ).rowcount
 
+        # Fedify sidecar design Section 9.4: a purged document that was published gets a tombstone and a Delete task, in this transaction.
+        from . import federation as federation_store
+
+        by_theme: dict[int, list[str]] = {}
+        for d in target_docs:
+            by_theme.setdefault(int(d["theme_id"]), []).append(str(d["id"]))
+        stats["federation_delete_tasks"] = sum(len(federation_store.retract_objects(conn, theme_id=tid_, document_ids=doc_ids, now=now)) for tid_, doc_ids in by_theme.items())
+
         conn.commit()
     except Exception:
         conn.rollback()

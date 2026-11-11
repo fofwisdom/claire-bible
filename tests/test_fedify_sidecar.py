@@ -249,7 +249,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         while (record := read_heartbeat(data_dir)) is None:
             assert time.monotonic() < deadline, "no heartbeat"
             time.sleep(0.2)
-        assert record["contract_version"] == "1.1" and record["queue_depth"] == 0
+        assert record["contract_version"] == "1.2" and record["queue_depth"] == 0
         # The sidecar database is a secret store (design Section 7 item 5).
         assert (sidecar_db.stat().st_mode & 0o777) == 0o600
 
@@ -519,6 +519,23 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         finally:
             conn.close()
         assert rows == [("create", int(object_id), "handed_off", None), ("create", int(gone_id), "rejected", "object_gone"), ("delete", int(gone_id), "handed_off", None)]
+
+        # Unit FP3-4: the owner makes the theme private and changes the display name. The sidecar sends Delete for the object and Update(Person).
+        cookie = {"Cookie": f"claire_session={session}", "Origin": origin}
+        private = httpx.patch(f"{origin}/@alice/themes", json={"id": str(theme_number), "is_public": False}, headers=cookie, timeout=10)
+        assert private.status_code == 200, private.text
+        renamed = httpx.patch(f"{origin}/api/me", json={"display_name": "Alice Park"}, headers=cookie, timeout=10)
+        assert renamed.status_code == 200, renamed.text
+        command[-1] = "e2e/lifecycle_e2e.ts"
+        run = subprocess.run(command, cwd=SIDECAR_DIR, env={**deno_env, "E2E_NAME": "Alice Park"}, capture_output=True, text=True, timeout=300)
+        assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-4000:]
+        conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
+        try:
+            rows = [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status FROM federation_outbox ORDER BY id")][3:]
+            assert conn.execute("SELECT is_public FROM themes WHERE id=31").fetchone()[0] == 0
+        finally:
+            conn.close()
+        assert rows == [("delete", int(object_id), "handed_off"), ("update_actor", None, "handed_off")]
     except BaseException:
         print("claire output:", _stop(claire)[-3000:])
         raise

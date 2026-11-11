@@ -940,9 +940,11 @@ class ThemeManager:
         if icon is not None:
             theme.icon = str(icon).strip() or "📁"
 
+        became_private = False
         if is_public is not None:
             new_public = bool(is_public)
             if new_public != theme.is_public:
+                became_private = not new_public
                 theme.is_public = new_public
                 # §5.4: 테마가 비공개로 바뀌거나 공개 상태가 바뀌면 visibility_epoch를 올리고 CDN에서 무효화
                 theme.visibility_epoch += 1
@@ -1013,6 +1015,11 @@ class ThemeManager:
                     tid,
                 ),
             )
+            if became_private:
+                # Fedify 사이드카 설계 §9.4: 비공개 전환은 발행된 객체마다 Delete 작업을 만든다. visibility_epoch 증가와 같은 트랜잭션이다.
+                from . import federation as federation_store
+
+                federation_store.retract_objects(conn, theme_id=tid, now=theme.updated_at)
             conn.commit()
         finally:
             conn.close()
@@ -1043,8 +1050,12 @@ class ThemeManager:
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         conn = dbm.connect(db_file)
         try:
+            # Fedify 사이드카 설계 §9.4: 테마 삭제는 발행된 객체마다 tombstone과 Delete 작업을 만든다. 테마 행 삭제와 같은 트랜잭션이다(행 삭제가 federation_objects를 연쇄 삭제하기 전).
+            from . import federation as federation_store
+
             if purge:
                 dbm.reset_graph(conn, theme_id=tid)
+                federation_store.retract_objects(conn, theme_id=tid, now=time.time())
                 for tbl in (
                     "documents",
                     "document_snapshots",
@@ -1067,7 +1078,9 @@ class ThemeManager:
                 conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
                 conn.commit()
             else:
+                # The PRAGMA has no effect in a transaction, so it comes before the first write.
                 conn.execute("PRAGMA foreign_keys = OFF;")
+                federation_store.retract_objects(conn, theme_id=tid, now=time.time())
                 conn.execute("DELETE FROM themes WHERE id = ?", (tid,))
                 conn.commit()
                 conn.execute("PRAGMA foreign_keys = ON;")

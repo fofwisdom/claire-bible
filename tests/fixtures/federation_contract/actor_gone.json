@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/916412345678901234"
+  },
+  "status": 410,
+  "response": {
+    "error": "gone",
+    "gone_at": 1800000350.0
+  }
+}

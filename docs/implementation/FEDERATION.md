@@ -22,7 +22,8 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1) |
 | Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2) |
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
-| Actor tasks (`update_actor`, `delete_actor`), privacy triggers, native actor in the `/syndication` dialog, recovery command | Not implemented (units FP3-4 and FP3-5). The sidecar leaves an actor task with Claire. |
+| Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
+| Native actor in the `/syndication` dialog, recovery command | Not implemented (unit FP3-5) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -157,7 +158,8 @@ Answer of an inbox path, in this sequence:
 | `create` | `Create` with the `Article` | `{object ID}#create` |
 | `update` | `Update` with the `Article` | `{object ID}#updates/{updated_at in milliseconds}` |
 | `delete` | `Delete` with a `Tombstone` that has the object ID | `{object ID}#delete` |
-| `update_actor`, `delete_actor` | None in this unit. The sidecar sends no acknowledgement, and Claire gives the task again after its lease (unit FP3-4). | |
+| `update_actor` | `Update` with the actor document (`Person`) | `{actor ID}#updates/{updated_at in milliseconds}` |
+| `delete_actor` | `Delete` with the actor ID as the object | `{actor ID}#delete` |
 
 - The object ID is `{origin}/ap/objects/{object_public_id}`. The activity IDs have no random part and no task number. Thus a second handoff of the same task makes the same activity, and a remote server that has the activity makes no second object (design Section 9.3).
 - For `create` and `update` the sidecar reads `/objects/{id}`. For `delete` it reads nothing.
@@ -165,6 +167,8 @@ Answer of an inbox path, in this sequence:
 - Recipients: all followers of the actor (`Sidecar.deliveryRecipients`). A follower whose actor, inbox, or shared inbox is on a blocked domain gets no delivery. A shared inbox gets one delivery for all its followers.
 - The sidecar gives the activity to Fedify (`sendActivity`), signed with the key of the actor, and then sends the acknowledgement `handed_off`. With the queue of `data/fedify/fedify.db`, Fedify delivers from the queue and tries again after a failure. The ordering key of the queue is the object ID: the activities of one object go to a remote server in sequence.
 - An actor without followers that can get a delivery: the task is `handed_off` and nothing is sent.
+- For `update_actor` the sidecar reads the actor record. For `delete_actor` it reads the keys and the followers that Claire gives for a purged actor while the task waits (Section 8.5). The ordering key of the two actor tasks is the actor ID.
+- `rejected` for an actor task: `not_an_actor` (`update_actor` of an account that is paused or purged now), `no_actor_key` (`delete_actor` of an actor that has no key: no remote server has a key to verify with).
 - `rejected` with an error code, and no delivery: `object_gone` (the object was retracted before the handoff: its `delete` task follows), `object_not_found` (Claire does not show the object, for example the theme is private now), `actor_mismatch` (the object is of a different actor).
 - An error in one task (the internal API or the followers are not available, the actor has no key) gives no acknowledgement for that task and does not stop the other tasks. Claire gives the task again after its lease.
 - Counters: `Sidecar.outboxCounters` has the number of tasks by result (`handed_off`, `rejected`, `failed`, `skipped`) since the start of the process. The counters do not go to Claire.
@@ -239,9 +243,9 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | `GET` | `/config` | `contract_version`, `canonical_origin`, `handle_host`, `mode` (`single` or `network`), `federation` (`off` or `on`), `software` (`name`, `version`), `trusted_proxies` (list of networks from `CLAIRE_TRUSTED_PROXIES`), `federated_actors`, `limits` (`inbox_body_bytes`), `domain_blocks_etag` |
 | `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`). Response: `contract_version`, `federation`. |
 | `GET` | `/actors/by-username/{username}` | Actor record, or 404. The lookup changes the USERNAME to lowercase. |
-| `GET` | `/actors/{public_id}` | Actor record, or 404 |
-| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `instance`. 404 when the account is not an actor, or when federation is not active. |
-| `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor. 400 `invalid_request` for a query that is not valid. |
+| `GET` | `/actors/{public_id}` | Actor record, 404, or 410 `{"error": "gone", "gone_at"}` for a purged actor (Section 8.5) |
+| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `instance`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
+| `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor: the exception is a purged actor with a `delete_actor` task that waits. 400 `invalid_request` for a query that is not valid. |
 | `POST` | `/inbox-events` | One verified inbound activity. The response is the decision (Section 5.7). |
 | `GET` | `/actors/{public_id}/outbox` | `public_id`, `total`, `items` (newest first: `id`, `published_at`, `updated_at`), `next_max_id`. The query is that of `/followers`. 404 when the account is not an actor. |
 | `GET` | `/outbox-tasks` | `tasks`: oldest first, each with `id`, `kind`, `actor_public_id`, `object_public_id`, `created_at`, `lease_until`. Query: `limit` (1 to 50, default 20). The request gives a lease on each task that it returns (Section 5.8). |
@@ -264,7 +268,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - `CONTRACT_VERSION` is `"1.1"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
-- Unit FP3-2 added four endpoints and changed no shape that existed. The version stays 1.1.
+- Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
+- Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version is 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
 ### 5.5 Contract Fixtures
@@ -523,6 +528,33 @@ The page keeps its HTML format for all `Accept` values. The path has no content 
 
 A change of `profile_public` to 0, a suspension, and `federation` `off` make the actor paths return 404. Claire sends no activity for these events in FP1. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
 
+### 8.5 Lifecycle Tasks and Privacy Triggers (Unit FP3-4)
+
+**Privacy triggers** (design Section 9.4). Each trigger calls `retract_objects` (`src/claire/store/federation.py`): for each published object it writes the tombstone, deletes the object row, and makes a `delete` task. The sidecar sends `Delete` to the followers (Section 4.4), and the object ID gives 410.
+
+| Event | Code | Transaction |
+| :--- | :--- | :--- |
+| A theme changes from public to private | `ThemeManager.update_theme` | The same transaction as the `is_public` change and the `visibility_epoch` increment. If a task insert fails, the theme stays public. |
+| A theme is deleted | `ThemeManager.delete_theme`, with and without `purge` | The same transaction as the delete of the theme row |
+| A document is purged | `purge_document_cascade` | The same transaction as the delete of the document rows. The report has `federation_delete_tasks`. A dry run makes no task. |
+
+- A theme that changes back to public does not publish its documents again. The owner publishes them again, and each gets a new object ID.
+- A hidden document makes no task. Claire does not show the object while the document is hidden (Section 5.8).
+- A task of an account that is not an actor now waits (Section 5.8).
+
+**Display name.** `AccountStore.update_display_name` makes an `update_actor` task in the transaction of the change, when the name is different, federation is active, and the account is an actor. The sidecar sends `Update` with the actor document.
+
+**Purge.** `AccountStore.purge` calls `purge_account_federation` in the transaction of the purge, before the themes of the account are deleted:
+
+1. Each published object of the account gets a tombstone. There is no `delete` task for an object: the `Delete` of the actor removes the objects on a remote server.
+2. Each `pending` task of the account gets the result `rejected` with the code `account_purged`.
+3. An account that has a USERNAME, and that has `profile_public` 1 or one follower or more, gets an actor tombstone. From then on `/actors/{public_id}` gives 410, and the sidecar answers the actor ID with 410 and a `Tombstone` (`formerType` `Person`). An account that was never an actor gets no tombstone and stays 404.
+4. If federation is active and the account has one follower or more, the purge makes a `delete_actor` task. The followers and the keys stay until the sidecar acknowledges that task. In that time Claire gives the task, the keys, and the followers of the purged account to the sidecar. No other endpoint shows the account.
+5. The acknowledgement (`handed_off` or `rejected`) deletes the followers in `claire.db` and the keys in `auth.db`. If there is no `delete_actor` task, the purge deletes the followers, and the admin route deletes the keys, immediately.
+6. If the account row is gone when the sidecar asks for tasks (the USERNAME was released), Claire sets the task to `rejected` with the code `account_missing`.
+
+**Purge while the sidecar is not available.** `PATCH /api/admin/accounts` with `action` `purge`: when the purge needs a `delete_actor` task (item 4) and the last heartbeat is older than 120 seconds, the answer is 409 `federation_sidecar_unavailable`. The account keeps its status, so the admin sees that the purge waits. The request field `skip_federated_delete: true` continues without the task: the followers and the keys are deleted, the actor ID gives 410, and no remote server gets `Delete(Person)`. Claire records `federation.purge_skip_delete` in `admin_audit`. The console has no control for this field.
+
 ## 9. Deployment
 
 ### 9.1 Compose
@@ -618,8 +650,8 @@ These statements are true for the code now.
 3. Unix socket path limit: Linux permits about 107 bytes for a socket path. On a host run with a long data directory path the bind fails, and the internal listener does not start (Section 5.1). The Compose path `/app/data/run/federation.sock` is short.
 4. A socket file can stay after the process stops on a signal. The next start replaces it.
 5. The middleware keeps the service key in memory. A replaced key file has no effect until the `api` process and the sidecar start again.
-6. No 410 for a purged actor. The actor ID of a purged account returns 404. Tombstones come in a later phase.
-7. `actor_keys` rows are not deleted at purge. `delete_actor_keys` exists but no code calls it.
+6. An account that was purged before unit FP3-4 has no actor tombstone. Its actor ID returns 404.
+7. The keys of an account that was purged before unit FP3-4 are not deleted. The admin purge route deletes the keys; `AccountStore.purge` alone (for example from a script) does not.
 8. The sidecar does not use `trusted_proxies`. It removes all `X-Forwarded-*` headers.
 9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
@@ -629,8 +661,8 @@ These statements are true for the code now.
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
 16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.
-17. A theme that changes to private makes no `Delete` task before unit FP3-4. The object path and the outbox stop immediately (Section 5.8), but remote servers keep their copy.
-18. An actor task (`update_actor`, `delete_actor`) that Claire gives stays `pending` and comes again each 300 seconds. No code makes such a task before unit FP3-4.
+17. A `Delete` is a request. A remote server can ignore it and keep its copy (design Section 9.4).
+18. A `delete_actor` task is given only while federation is active. If the admin sets the switch to `off` after a purge, the task, the followers, and the keys of the purged account stay until the switch is `on` again.
 19. A block of a domain after the handoff does not remove a delivery that is in the queue of the sidecar.
 20. The outbox collection has `Create` items only. It does not list `Update` and `Delete` activities.
 21. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
@@ -645,7 +677,9 @@ These statements are true for the code now.
 | After a follower removal the sidecar sends `Reject(Follow)` (§11 item 2) | Not sent before the outbox of FP3 |
 | End-to-end test: follow from a second development instance (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1). |
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
-| `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 404 only in FP1 |
+| `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 410 for an account that was an actor at its purge (Section 8.5). 404 for an account that was never an actor. |
+| If the sidecar is not available at purge, the purge waits in a visible state (§8.1) | The purge request gets 409 and the account keeps its status. There is no separate waiting status. |
+| The `visibility_epoch` increment and the `Delete` tasks of a purged document are in the same transaction (§9.4) | A document purge does not change `visibility_epoch`. The tasks are in the transaction that deletes the document rows. |
 | The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
 | The outbox is a paged `OrderedCollection` of public objects (§5.1) | The items are `Create` activities that refer to the objects by ID |
 | A deleted object returns 410 with a `Tombstone` (§5.3) | The same. The `Tombstone` is plain JSON from the sidecar, not a Fedify object. |
@@ -669,6 +703,8 @@ These statements are true for the code now.
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
 | `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-check while federation is off. Also the runs of the two files in `sidecar/fedify/e2e/`. |
+| `tests/test_federation_lifecycle.py` | Privacy triggers with their transactions, `update_actor` task, purge with tombstones, `delete_actor` task, keys and followers until the acknowledgement, the admin purge route with the sidecar check and the skip option, requeue of handed-off tasks |
+| `sidecar/fedify/e2e/lifecycle_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-4 end to end: a theme change to private and a display name change through the public API of a real Claire process, `Delete` and `Update(Person)` at a test inbox with a signature check, 410 for the object |
 | `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account |
 | `tests/test_federation_console.py` | Status and actor state, follower pages, follower removal for the own account only, single mode, domain block guards and audit rows, the two console sections, and one end-to-end run in a browser |
 | `sidecar/fedify/e2e/follow_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Phase FP2 end to end: signed `Follow` through the sidecar code to a real Claire process, `Accept` with a signature check, shared inbox, blocked domain, `Undo(Follow)`, and the follower rows in `claire.db` |

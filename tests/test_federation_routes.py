@@ -36,10 +36,11 @@ ALICE_IRI = f"https://claire.example.com/ap/actors/{ALICE_PUBLIC_ID}"
 BOB_IRI = "https://remote.example/users/bob"
 INBOX_EVENT_FIXTURES = ["inbox_event_follow", "inbox_event_undo_follow", "inbox_event_delete_actor", "inbox_event_update_actor", "inbox_event_blocked_domain", "inbox_event_not_an_actor", "inbox_event_ignored"]
 FP2_FIXTURES = ["followers", "followers_next", "followers_not_found", "domain_blocks", *INBOX_EVENT_FIXTURES]
-FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found"]
+FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found", "actor_gone"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
 GONE_OBJECT_ID = 816412345678901239
+GONE_ACTOR_ID = 916412345678901234
 ALICE_THEME_ID = 31
 CANARY_ISS = "https://idp-canary.example/issuer"
 CANARY_SUB = "canary-subject-7f3a"
@@ -158,6 +159,7 @@ def internal(tmp_path):
         for public_id, document_id, account_id, theme_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-bob", bob, 32, 1800000350.0, 1800000350.0)):
             conn.execute("INSERT INTO federation_objects (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, theme_id, document_id, account_id, published_at, updated_at))
         federation_store.add_tombstone(conn, GONE_OBJECT_ID, "object", gone_at=1800000330.0)
+        federation_store.add_tombstone(conn, GONE_ACTOR_ID, "actor", gone_at=1800000350.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="create", object_public_id=OBJECT_ID, now=1800000310.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="delete", object_public_id=GONE_OBJECT_ID, now=1800000331.0)
         # ``private_bob`` is not an actor. Its task waits.
@@ -255,9 +257,9 @@ def test_response_models_are_sealed():
     [
         b"",
         b"[]",
-        b'{"contract_version": "1.1"}',
-        b'{"contract_version": "1.1", "sidecar_version": "0.1.0", "queue_depth": "3", "self_check": {"ok": true, "checked_at": 1.0}}',
-        b'{"contract_version": "1.1", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "extra": 1}',
+        b'{"contract_version": "1.2"}',
+        b'{"contract_version": "1.2", "sidecar_version": "0.1.0", "queue_depth": "3", "self_check": {"ok": true, "checked_at": 1.0}}',
+        b'{"contract_version": "1.2", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}, "extra": 1}',
         b'{"contract_version": "one", "sidecar_version": "0.1.0", "queue_depth": 3, "self_check": {"ok": true, "checked_at": 1.0}}',
     ],
 )

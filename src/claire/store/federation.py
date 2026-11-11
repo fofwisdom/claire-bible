@@ -394,6 +394,59 @@ def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: floa
     return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)
 
 
+def retract_objects(conn: sqlite3.Connection, *, theme_id: int, document_ids: list[str] | None = None, now: float) -> list[OutboxTask]:
+    """Delete the published objects of a theme, or of some documents of that theme, with ``retract_object``. Return the ``delete`` tasks.
+
+    This is the privacy trigger of design Section 9.4: the caller uses it in the transaction that makes the theme private, purges the documents, or deletes the theme. The caller commits.
+    """
+    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE theme_id=?"
+    params: list[object] = [theme_id]
+    if document_ids is not None:
+        if not document_ids:
+            return []
+        sql += f" AND document_id IN ({','.join('?' for _ in document_ids)})"
+        params += list(document_ids)
+    return [retract_object(conn, _object(row), now=now) for row in conn.execute(sql + " ORDER BY public_id", params).fetchall()]
+
+
+def purge_account_federation(conn: sqlite3.Connection, *, account_id: int, public_id: int, was_actor: bool, send_delete: bool, now: float) -> OutboxTask | None:
+    """Apply the purge of an account to the federation data (design Section 8.1). Return the ``delete_actor`` task, or ``None`` when there is none. The caller commits.
+
+    - Each published object of the account gets a tombstone and its row is deleted. No ``delete`` task is made: the ``Delete`` of the actor removes the objects on a remote server.
+    - Each ``pending`` task of the account gets the result ``rejected`` with the code ``account_purged``.
+    - ``was_actor``: the actor ID gets a tombstone, and it returns 410 from then on.
+    - ``send_delete`` and one follower or more: a ``delete_actor`` task is made, and the followers stay until the acknowledgement of that task (``finish_delete_actor``). If not, the followers are deleted now.
+    """
+    for row in conn.execute(f"SELECT public_id FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,)).fetchall():
+        add_tombstone(conn, int(row[0]), "object", gone_at=now)
+    conn.execute(f"DELETE FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,))
+    conn.execute("UPDATE federation_outbox SET status='rejected', error_code='account_purged', lease_until=NULL WHERE account_id=? AND status='pending'", (account_id,))
+    if was_actor:
+        add_tombstone(conn, public_id, "actor", gone_at=now)
+    if was_actor and send_delete and count_followers(conn, account_id) > 0:
+        return add_outbox_task(conn, account_id=account_id, kind="delete_actor", object_public_id=None, now=now)
+    conn.execute("DELETE FROM federation_followers WHERE account_id=?", (account_id,))
+    return None
+
+
+def has_pending_delete_actor(conn: sqlite3.Connection, account_id: int) -> bool:
+    """Return ``True`` while the account has a ``delete_actor`` task that the sidecar did not acknowledge. In that time the sidecar can read the keys and the followers of the purged account."""
+    return conn.execute("SELECT 1 FROM federation_outbox WHERE account_id=? AND kind='delete_actor' AND status='pending' LIMIT 1", (account_id,)).fetchone() is not None
+
+
+def finish_delete_actor(conn: sqlite3.Connection, account_id: int) -> int:
+    """Delete the followers of a purged account after the acknowledgement of its ``delete_actor`` task. Return the number of deleted rows. The caller commits and deletes the keys in ``auth.db``."""
+    return conn.execute("DELETE FROM federation_followers WHERE account_id=?", (account_id,)).rowcount
+
+
+def requeue_handed_off_tasks(conn: sqlite3.Connection, *, since: float) -> int:
+    """Set the tasks with the status ``handed_off`` and a handoff time at or after ``since`` to ``pending`` again. Return the number of tasks. The caller commits.
+
+    This is the recovery for a lost sidecar database (design Section 9.4): the deliveries that were in the queue of the sidecar are lost, and a second handoff makes the same activities.
+    """
+    return conn.execute("UPDATE federation_outbox SET status='pending', lease_until=NULL, handed_off_at=NULL WHERE status='handed_off' AND handed_off_at >= ?", (since,)).rowcount
+
+
 _PUBLIC_THEMES_ONLY = " AND theme_id IN (SELECT id FROM themes WHERE is_public=1)"
 
 
@@ -427,18 +480,19 @@ def count_pending_tasks(conn: sqlite3.Connection, account_id: int) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM federation_outbox WHERE account_id=? AND status='pending'", (account_id,)).fetchone()[0])
 
 
-def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int) -> list[OutboxTask]:
-    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` and return them.
+def lease_outbox_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int, include_delete_actor: bool = False) -> list[OutboxTask]:
+    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` and return them. ``include_delete_actor`` adds the ``delete_actor`` tasks of all accounts: the account of such a task is purged and is in no list of actors.
 
     A task is ready when its status is ``pending`` and its lease is absent or ended. Thus a task that was not acknowledged is given again after its lease. The caller commits.
     """
     if limit < 1 or lease_seconds <= 0:
         raise ValueError("limit and lease_seconds must be more than 0")
-    if not account_ids:
+    if not account_ids and not include_delete_actor:
         return []
     marks = ",".join("?" for _ in account_ids)
+    owner = f"(account_id IN ({marks}) OR kind='delete_actor')" if include_delete_actor else f"account_id IN ({marks})"
     rows = conn.execute(
-        f"SELECT id FROM federation_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND account_id IN ({marks}) ORDER BY id LIMIT ?",
+        f"SELECT id FROM federation_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND {owner} ORDER BY id LIMIT ?",
         (now, *account_ids, limit),
     ).fetchall()
     leased: list[OutboxTask] = []

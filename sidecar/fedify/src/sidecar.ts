@@ -13,6 +13,7 @@
 // - The option that permits private network addresses is never set (design Section 13, FS1). A test reads this directory to make sure.
 // - A published object is an Article. Claire supplies its canonical form and decides if it is public. A deleted object gets 410 with a Tombstone.
 // - The outbox collection has one Create for each public object. The item refers to the object by its ID.
+// - An actor task becomes Update(Person) or Delete(Person) (unit FP3-4). A purged actor gets 410 with a Tombstone.
 // - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
 // - A delivery does not go to a follower on a blocked domain.
 
@@ -28,7 +29,8 @@ export const SIDECAR_HEADER = "x-claire-fedify-instance";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox)$/;
-const OBJECT_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})$/;
+// The paths that can give 410 with a Tombstone: a deleted object and a purged actor.
+const TOMBSTONE_PATH = /^\/ap\/(objects|actors)\/([1-9][0-9]{0,18})$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
 const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
 // The largest page of the internal followers endpoint.
@@ -57,12 +59,11 @@ export interface InboxCounters {
   dropped: number;
 }
 
-// Numbers of outbox tasks since the start of this process, by result. failed: an error occurred, there was no acknowledgement, and Claire gives the task again after the lease. skipped: a task kind that this version does not send.
+// Numbers of outbox tasks since the start of this process, by result. failed: an error occurred, there was no acknowledgement, and Claire gives the task again after the lease.
 export interface OutboxCounters {
   handed_off: number;
   rejected: number;
   failed: number;
-  skipped: number;
 }
 
 function instant(seconds: number): Temporal.Instant {
@@ -122,8 +123,8 @@ export class Sidecar {
   readonly #keys = new Map<string, { pairs: CryptoKeyPair[]; expires: number }>();
   #blocks: { etag: string; domains: Set<string> } | null = null;
   readonly counters: InboxCounters = { accepted: 0, rejected: 0, ignored: 0, blocked: 0, dropped: 0 };
-  readonly outboxCounters: OutboxCounters = { handed_off: 0, rejected: 0, failed: 0, skipped: 0 };
-  // Deleted objects that the object dispatcher found, with the time of removal. The answer code reads the entry and removes it.
+  readonly outboxCounters: OutboxCounters = { handed_off: 0, rejected: 0, failed: 0 };
+  // Deleted objects and purged actors that a dispatcher found, with the time of removal. The key is the path. The answer code reads the entry and removes it.
   readonly #gone = new Map<string, number>();
 
   constructor(options: SidecarOptions) {
@@ -205,13 +206,13 @@ export class Sidecar {
       await response.body?.cancel();
       return text(403, "Forbidden");
     }
-    const objectId = OBJECT_PATH.exec(path)?.[1];
-    if (objectId !== undefined) {
-      const goneAt = this.#gone.get(objectId);
-      this.#gone.delete(objectId);
+    const tombstonePath = TOMBSTONE_PATH.exec(path);
+    if (tombstonePath !== null) {
+      const goneAt = this.#gone.get(path);
+      this.#gone.delete(path);
       if (response.status === 404 && goneAt !== undefined) {
         await response.body?.cancel();
-        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: "Article", deleted: instant(goneAt).toString() };
+        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: tombstonePath[1] === "objects" ? "Article" : "Person", deleted: instant(goneAt).toString() };
         return new Response(JSON.stringify(tombstone), { status: 410, headers: { "content-type": "application/activity+json" } });
       }
     }
@@ -261,6 +262,25 @@ export class Sidecar {
     return recipients;
   }
 
+  async #person(ctx: Context<void>, record: ActorRecord): Promise<Person> {
+    const identifier = record.public_id;
+    const keys = await ctx.getActorKeyPairs(identifier);
+    return new Person({
+      id: ctx.getActorUri(identifier),
+      preferredUsername: record.username,
+      name: record.display_name,
+      url: new URL(record.profile_url),
+      inbox: ctx.getInboxUri(identifier),
+      outbox: ctx.getOutboxUri(identifier),
+      followers: ctx.getFollowersUri(identifier),
+      endpoints: new Endpoints({ sharedInbox: ctx.getInboxUri() }),
+      publicKey: keys[0]?.cryptographicKey,
+      assertionMethods: keys.map((k) => k.multikey),
+      published: record.activated_at === null ? null : instant(record.activated_at),
+      manuallyApprovesFollowers: false,
+    });
+  }
+
   #article(ctx: Context<void>, record: ObjectRecord): Article {
     return new Article({
       id: ctx.getObjectUri(Article, { id: record.public_id }),
@@ -294,17 +314,36 @@ export class Sidecar {
     return tasks.length;
   }
 
-  async #handOff(ctx: Context<void>, task: OutboxTask): Promise<"handed_off" | "rejected" | "skipped"> {
-    // The actor tasks come in unit FP3-4. This version leaves them with Claire.
-    if ((task.kind !== "create" && task.kind !== "update" && task.kind !== "delete") || task.object_public_id === null) return "skipped";
+  async #handOff(ctx: Context<void>, task: OutboxTask): Promise<"handed_off" | "rejected"> {
     const reject = async (code: string): Promise<"rejected"> => {
       console.warn(`outbox task ${task.id} (${task.kind}) rejected: ${code}`);
       await this.#api.ackOutboxTask(task.id, "rejected", code);
       return "rejected";
     };
     const actor = ctx.getActorUri(task.actor_public_id);
-    const objectUri = ctx.getObjectUri(Article, { id: task.object_public_id });
     const audience = { actor, to: PUBLIC_COLLECTION, cc: ctx.getFollowersUri(task.actor_public_id) };
+    if (task.kind === "update_actor" || task.kind === "delete_actor") {
+      let activity: Activity;
+      if (task.kind === "update_actor") {
+        const record = await this.#api.actor(task.actor_public_id);
+        // The account is not an actor now (pause or purge). A pause sends nothing (design Section 8.1).
+        if (record === null) return await reject("not_an_actor");
+        // The ID has the time of the change, the same rule as for the Update of an object.
+        activity = new Update({ id: new URL(`#updates/${Math.round(record.updated_at * 1000)}`, actor), object: await this.#person(ctx, record), ...audience });
+      } else {
+        // Claire gives the keys of a purged actor only for this task. Without a key no remote server has a key to verify with, and nothing can be sent.
+        if ((await ctx.getActorKeyPairs(task.actor_public_id)).length === 0) return await reject("no_actor_key");
+        activity = new Delete({ id: new URL("#delete", actor), object: actor, ...audience });
+      }
+      const recipients = await this.deliveryRecipients(task.actor_public_id);
+      if (recipients.length > 0) await ctx.sendActivity({ identifier: task.actor_public_id }, recipients, activity, { preferSharedInbox: true, orderingKey: actor.href });
+      // After this acknowledgement of a delete_actor task, Claire deletes the followers and the keys of the actor.
+      await this.#api.ackOutboxTask(task.id, "handed_off");
+      this.#keys.delete(task.actor_public_id);
+      return "handed_off";
+    }
+    if (task.object_public_id === null) return await reject("no_object");
+    const objectUri = ctx.getObjectUri(Article, { id: task.object_public_id });
     let activity: Activity;
     if (task.kind === "delete") {
       activity = new Delete({ id: new URL("#delete", objectUri), object: new Tombstone({ id: objectUri }), ...audience });
@@ -441,23 +480,13 @@ export class Sidecar {
           });
         }
         if (!PUBLIC_ID.test(identifier)) return null;
-        const record: ActorRecord | null = await this.#api.actor(identifier);
-        if (record === null) return null;
-        const keys = await ctx.getActorKeyPairs(identifier);
-        return new Person({
-          id: ctx.getActorUri(identifier),
-          preferredUsername: record.username,
-          name: record.display_name,
-          url: new URL(record.profile_url),
-          inbox: inbox(identifier),
-          outbox: ctx.getOutboxUri(identifier),
-          followers: ctx.getFollowersUri(identifier),
-          endpoints: new Endpoints({ sharedInbox }),
-          publicKey: keys[0]?.cryptographicKey,
-          assertionMethods: keys.map((k) => k.multikey),
-          published: record.activated_at === null ? null : Temporal.Instant.fromEpochMilliseconds(Math.round(record.activated_at * 1000)),
-          manuallyApprovesFollowers: false,
-        });
+        const result = await this.#api.actorResult(identifier);
+        if (result === null) return null;
+        if (result.state === "gone") {
+          this.#gone.set(`/ap/actors/${identifier}`, result.gone_at);
+          return null;
+        }
+        return await this.#person(ctx, result.record);
       })
       .mapHandle(async (_ctx, username) => {
         if (username === INSTANCE_ACTOR_USERNAME) return INSTANCE_ACTOR_ID;
@@ -490,7 +519,7 @@ export class Sidecar {
       const result = await this.#api.object(values.id);
       if (result === null) return null;
       if (result.state === "gone") {
-        this.#gone.set(values.id, result.gone_at);
+        this.#gone.set(`/ap/objects/${values.id}`, result.gone_at);
         return null;
       }
       return this.#article(ctx, result.record);

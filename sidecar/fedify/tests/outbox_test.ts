@@ -58,7 +58,7 @@ Deno.test("a create task and a delete task become signed activities for the inbo
     setAck(2, "handed_off");
     assert.equal(await sidecar.processOutboxTasks(), 2);
     assert.deepEqual(fake.acks, ["1 handed_off null", "2 handed_off null"]);
-    assert.deepEqual(sidecar.outboxCounters, { handed_off: 2, rejected: 0, failed: 0, skipped: 0 });
+    assert.deepEqual(sidecar.outboxCounters, { handed_off: 2, rejected: 0, failed: 0 });
 
     // The shared inbox gets one delivery for the two followers that have it. The follower without a shared inbox gets a delivery to its inbox.
     assert.equal(deliveries.length, 4);
@@ -159,7 +159,7 @@ Deno.test("a task whose object is not available is rejected and sends nothing", 
     assert.equal(await sidecar.processOutboxTasks(), 3);
     assert.deepEqual(fake.acks, ["2 rejected object_gone", "3 rejected object_not_found", "4 rejected actor_mismatch"]);
     assert.deepEqual(deliveries, []);
-    assert.deepEqual(sidecar.outboxCounters, { handed_off: 0, rejected: 3, failed: 0, skipped: 0 });
+    assert.deepEqual(sidecar.outboxCounters, { handed_off: 0, rejected: 3, failed: 0 });
   } finally {
     restore();
   }
@@ -169,15 +169,14 @@ Deno.test("an error in one task gives no acknowledgement and does not stop the o
   const { fake, sidecar, deliveries, setTasks, setFollowers, setAck, restore } = setup();
   try {
     setFollowers([(fixture("followers").response.items as unknown[])[1]]);
-    // 5: Claire gives an error for the object. 6: an actor task of unit FP3-4. 1: a good task.
-    setTasks([task(5, "update", "816412345678901232"), task(6, "update_actor", null), task(1, "create")]);
+    // 5: Claire gives an error for the object. 1: a good task.
+    setTasks([task(5, "update", "816412345678901232"), task(1, "create")]);
     fake.overrides.set(`GET ${PREFIX}/objects/816412345678901232`, { status: 500, response: { error: "internal_error" } });
     setAck(5, "handed_off");
-    setAck(6, "handed_off");
-    assert.equal(await sidecar.processOutboxTasks(), 3);
+    assert.equal(await sidecar.processOutboxTasks(), 2);
     assert.deepEqual(fake.acks, ["1 handed_off null"]);
     assert.deepEqual(deliveries.map((d) => d.body.id), [`${OBJECT_URL}#create`]);
-    assert.deepEqual(sidecar.outboxCounters, { handed_off: 1, rejected: 0, failed: 1, skipped: 1 });
+    assert.deepEqual(sidecar.outboxCounters, { handed_off: 1, rejected: 0, failed: 1 });
 
     // The followers are not available: the task stays with Claire.
     fake.overrides.set(`GET ${PREFIX}/actors/${ALICE}/followers?limit=80`, { status: 500, response: { error: "internal_error" } });
@@ -280,6 +279,76 @@ Deno.test("the outbox collection has one Create for each public object, in pages
     }
     // The outbox accepts no activity from a client.
     assert.equal((await sidecar.handle(new Request(`${ALICE_URL}/outbox`, { method: "POST", body: "{}" }))).status, 405);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("an update_actor task becomes Update(Person) with the actor document", async () => {
+  const { fake, sidecar, deliveries, setTasks, setFollowers, setAck, get, restore } = setup();
+  try {
+    setFollowers([(fixture("followers").response.items as unknown[])[1]]);
+    setTasks([task(8, "update_actor", null)]);
+    setAck(8, "handed_off");
+    await sidecar.processOutboxTasks();
+    await sidecar.processOutboxTasks();
+    assert.deepEqual(fake.acks, ["8 handed_off null", "8 handed_off null"]);
+    const record = fixture("actor").response as { updated_at: number; display_name: string };
+    const [update, again] = deliveries.map((d) => d.body);
+    assert.deepEqual([update.type, update.id, update.actor, update.to, update.cc], ["Update", `${ALICE_URL}#updates/${Math.round(record.updated_at * 1000)}`, ALICE_URL, PUBLIC, `${ALICE_URL}/followers`]);
+    assert.equal(again.id, update.id);
+    // The object is the actor document that the actor path gives.
+    const person = update.object as Record<string, unknown>;
+    const document = await (await get(ALICE_URL)).json();
+    for (const field of ["id", "type", "preferredUsername", "name", "url", "inbox", "outbox", "followers", "published"]) assert.deepEqual(person[field], document[field], field);
+    assert.equal(person.name, record.display_name);
+    assert.equal((person.publicKey as Record<string, unknown>).publicKeyPem, document.publicKey.publicKeyPem);
+    assert.ok(!JSON.stringify(update).includes('"d"'));
+
+    // A paused account sends nothing: the task is rejected.
+    setTasks([{ ...task(9, "update_actor", null), actor_public_id: "216412345678901234" }]);
+    setAck(9, "rejected");
+    await sidecar.processOutboxTasks();
+    assert.equal(fake.acks[2], "9 rejected not_an_actor");
+    assert.equal(deliveries.length, 2);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a delete_actor task becomes Delete(Person), signed with the keys that Claire gives for the purged actor", async () => {
+  const { fake, sidecar, deliveries, setTasks, setFollowers, setAck, get, restore } = setup();
+  try {
+    // The purged actor of the actor-gone fixture. Claire gives its keys and its followers while the task waits.
+    const purged = "916412345678901234";
+    const purgedUrl = `${ORIGIN}/ap/actors/${purged}`;
+    const follower = (fixture("followers").response.items as unknown[])[1];
+    fake.overrides.set(`GET ${PREFIX}/actors/${purged}/keys`, { status: 200, response: { ...fixture("actor_keys").response, public_id: purged } });
+    fake.overrides.set(`GET ${PREFIX}/actors/${purged}/followers?limit=80`, { status: 200, response: { public_id: purged, total: 1, items: [follower], next_max_id: null } });
+    setFollowers([]);
+    setTasks([{ ...task(10, "delete_actor", null), actor_public_id: purged }]);
+    setAck(10, "handed_off");
+    await sidecar.processOutboxTasks();
+    assert.deepEqual(fake.acks, ["10 handed_off null"]);
+    assert.equal(deliveries.length, 1);
+    const body = deliveries[0].body;
+    assert.deepEqual([body.type, body.id, body.actor, body.object, body.to], ["Delete", `${purgedUrl}#delete`, purgedUrl, purgedUrl, PUBLIC]);
+    assert.equal(deliveries[0].url, "https://remote.example/users/u2/inbox");
+    const signatureHeaders = `${deliveries[0].request.headers.get("signature")} ${deliveries[0].request.headers.get("signature-input")}`;
+    assert.ok(signatureHeaders.includes(`keyid="${purgedUrl}#main-key"`) || signatureHeaders.includes(`keyId="${purgedUrl}#main-key"`), signatureHeaders);
+
+    // The actor path of the purged actor: 410 with a Tombstone.
+    const gone = await get(purgedUrl);
+    assert.equal(gone.status, 410);
+    assert.deepEqual(await gone.json(), { "@context": "https://www.w3.org/ns/activitystreams", id: purgedUrl, type: "Tombstone", formerType: "Person", deleted: "2027-01-15T08:05:50Z" });
+    assert.equal((await get(`${ORIGIN}/ap/actors/216412345678901234`)).status, 404);
+
+    // After the acknowledgement Claire gives no key. A task that comes again is rejected, and nothing is sent.
+    fake.overrides.delete(`GET ${PREFIX}/actors/${purged}/keys`);
+    setAck(10, "rejected");
+    await sidecar.processOutboxTasks();
+    assert.equal(fake.acks[1], "10 rejected no_actor_key");
+    assert.equal(deliveries.length, 1);
   } finally {
     restore();
   }

@@ -390,6 +390,7 @@ class AccountStore:
 
     def update_display_name(self, account_id: int, display_name: str, *, now: float | None = None) -> Account:
         when = time.time() if now is None else now
+        before = self.conn.execute("SELECT display_name FROM accounts WHERE id=?", (account_id,)).fetchone()
         cur = self.conn.execute(
             "UPDATE accounts SET display_name=?, updated_at=? WHERE id=?",
             (display_name, when, account_id),
@@ -397,6 +398,13 @@ class AccountStore:
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)
+        # 연합 액터의 이름이 바뀌면 팔로워에게 Update(Person)을 보낸다(Fedify 사이드카 설계 §8.1). 이름 변경과 같은 트랜잭션이다.
+        if before is not None and str(before[0]) != display_name and self.federation_state() == "on" and self.instance_mode() == "network":
+            row = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
+            if row["status"] == "active" and row["profile_public"] and row["username"]:
+                from . import federation as federation_store
+
+                federation_store.add_outbox_task(self.conn, account_id=account_id, kind="update_actor", object_public_id=None, now=when)
         self.conn.commit()
         return self.get(account_id)
 
@@ -485,8 +493,11 @@ class AccountStore:
         self.conn.commit()
         return self.get(account_id)
 
-    def purge(self, account_id: int, *, data_dir: Path | str | None = None, now: float | None = None) -> Account:
-        """계정을 완전히 삭제(purged) 처리하고, tombstones 등록, 자격증명 및 디스크 산출물을 정리한다."""
+    def purge(self, account_id: int, *, data_dir: Path | str | None = None, now: float | None = None, skip_federated_delete: bool = False) -> Account:
+        """계정을 완전히 삭제(purged) 처리하고, tombstones 등록, 자격증명 및 디스크 산출물을 정리한다.
+
+        연합(Fedify 사이드카 설계 §8.1): 액터였던 계정은 액터 tombstone을 남기고, 팔로워가 있으면 ``delete_actor`` 작업을 같은 트랜잭션에서 만든다. ``skip_federated_delete``는 그 작업을 만들지 않는다.
+        """
         when = time.time() if now is None else now
         current = self.get(account_id)
         if current.role == "admin":
@@ -505,6 +516,13 @@ class AccountStore:
                 "released_at=NULL, released_by=NULL",
                 (current.username, current.id, 1 if current.profile_public else 0, when),
             )
+
+        # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
+        from . import federation as federation_store
+
+        federation_active = self.federation_state() == "on" and self.instance_mode() == "network"
+        was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
+        federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=federation_active and not skip_federated_delete, now=when)
 
         _gc_account_disk_artifacts(self.conn, account_id, data_dir=data_dir)
 

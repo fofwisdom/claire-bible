@@ -428,10 +428,28 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
                 if action == "purge" or mode in ("immediate", "purge") or immediate or status == "purged":
                     data_dir = getattr(ctx.config, "data_dir", None)
+                    # Fedify sidecar design Section 8.1: the purge of an actor with followers sends Delete(Person) through the sidecar.
+                    # If the sidecar is not available, the purge waits: the account keeps its status, and the admin can continue with the explicit option that skips the federated delete.
+                    from ...accounts import federation_readiness
+                    from ...store import actor_keys
+                    from ...store import federation as federation_store
+                    from .. import federation_routes
+
+                    skip_federated_delete = body.get("skip_federated_delete") is True
+                    needs_federated_delete = store.federation_state() == "on" and store.instance_mode() == "network" and bool(target.username) and federation_store.count_followers(conn, target.id) > 0
+                    if needs_federated_delete and not skip_federated_delete:
+                        heartbeat = federation_routes.read_heartbeat(ctx.data_dir or data_dir) if (ctx.data_dir or data_dir) else None
+                        if not federation_readiness.heartbeat_is_recent(heartbeat):
+                            return json_error(409, "federation_sidecar_unavailable", detail="The federation sidecar is not available, so the followers of this actor cannot get the Delete activity. Start the sidecar and try again, or send skip_federated_delete: true.")
                     try:
-                        updated = store.purge(target.id, data_dir=data_dir)
+                        updated = store.purge(target.id, data_dir=data_dir, skip_federated_delete=skip_federated_delete)
                     except accounts_store.AccountStateError as exc:
                         return json_error(400, "invalid_state_transition", detail=str(exc))
+                    # The keys stay only while a delete_actor task waits for the sidecar. The acknowledgement of that task deletes them.
+                    if not federation_store.has_pending_delete_actor(conn, target.id):
+                        actor_keys.delete_actor_keys(auth_conn, target.id)
+                    if needs_federated_delete and skip_federated_delete:
+                        auth_db.record_admin_audit(auth_conn, actor_account_id=principal.account_id, action="federation.purge_skip_delete", target_account_id=target.id)
                     # 유저 단위 기능의 계정 자료(봇 토큰·백업 정책·계정 백업·계정 번들)도 지운다.
                     from .features import purge_account_features
 

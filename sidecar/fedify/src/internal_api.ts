@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.1";
+export const CONTRACT_VERSION = "1.2";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -136,6 +136,9 @@ export interface ActorOutboxPage {
   items: { id: string; published_at: number; updated_at: number }[];
   next_max_id: string | null;
 }
+
+// The result of an actor read: the record, the time of removal of a purged actor (410), or null (404).
+export type ActorResult = { state: "found"; record: ActorRecord } | { state: "gone"; gone_at: number } | null;
 
 export class InternalApiError extends Error {
   // The parsed body of the error answer, when it is JSON.
@@ -308,10 +311,24 @@ export class InternalApi {
     return value as ActorRecord | null;
   }
 
+  // The record of an actor, or null when the account is not an actor now. A purged actor is null here: use actorResult to see it.
   async actor(publicId: string): Promise<ActorRecord | null> {
-    const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}`);
-    if (value !== null) actorShape(value, "actor");
-    return value as ActorRecord | null;
+    const result = await this.actorResult(publicId);
+    return result?.state === "found" ? result.record : null;
+  }
+
+  async actorResult(publicId: string): Promise<ActorResult> {
+    let value: unknown | null;
+    try {
+      value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}`);
+    } catch (error) {
+      if (!(error instanceof InternalApiError) || error.status !== 410) throw error;
+      goneShape(error.detail, "gone");
+      return { state: "gone", gone_at: (error.detail as { gone_at: number }).gone_at };
+    }
+    if (value === null) return null;
+    actorShape(value, "actor");
+    return { state: "found", record: value as ActorRecord };
   }
 
   // publicId is an account public ID or INSTANCE_ACTOR_ID. The result contains private keys: do not write it to a log.
