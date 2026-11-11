@@ -43,7 +43,7 @@ The Telegram bot, support bundle, data bundle, and backup are per-account featur
 
 ## Next Project: Fedify Sidecar Federation
 
-The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. Phase FP1 (internal contract and discovery) is complete. The implementation reference is [`docs/implementation/FEDERATION.md`](docs/implementation/FEDERATION.md); its Sections 12 and 13 list the known limits and the differences from the design.
+The approved design is [`docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md). The owner locked decisions FD1 through FD12 on 2026-11-10. Phases FP1 (internal contract and discovery) and FP2 (followers) are complete. The implementation reference is [`docs/implementation/FEDERATION.md`](docs/implementation/FEDERATION.md); its Sections 12 and 13 list the known limits and the differences from the design.
 
 The design divides each phase into work units (Section 14.4 of the design). The owner starts each unit with an instruction that names the unit ID, for example "Do FP1-3". The agent does one unit, updates this table, and stops.
 
@@ -60,8 +60,8 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP2-1 | COMPLETED (2026-11-11) | `73c85a16` |
 | FP2-2 | COMPLETED (2026-11-11) | `f967d36b` |
 | FP2-3 | COMPLETED (2026-11-11) | `db9a524c` |
-| FP2-4 | PLANNED | |
-| FP2-5 | PLANNED | |
+| FP2-4 | COMPLETED (2026-11-11) | `1774f8d1` |
+| FP2-5 | COMPLETED (2026-11-11) | `c3cd5d1b` |
 | FP3-1 | PLANNED | |
 | FP3-2 | PLANNED | |
 | FP3-3 | PLANNED | |
@@ -71,6 +71,10 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
 
 Difference from the design: `claire.db` version 17 has the three tables of phase FP2 only (unit FP2-1). The tables `federation_objects` and `federation_outbox` come with unit FP3-1 in a later version, together with the code that uses them.
+
+Difference from the design: the end-to-end test of phase FP2 (unit FP2-5) has the remote server in the test process, not in a second development instance. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1).
+
+Open item for phase FP3: follower removal by the owner (unit FP2-4) sends no `Reject(Follow)`. It needs the outbox.
 
 Effects on the contracts in this file:
 - **Contract 1 (R1)**: Decision FD11 adds one condition (unit FP1-4, implemented). When the instance setting `federation` is `on`, a `profile_public` change from 0 to 1 through `PATCH /api/me` requires recent authentication: a session without it gets 401 `reauth_required`, and a bearer credential gets 403 `step_up_requires_session`. The change from 1 to 0 has no condition. When `federation` is `off`, the contract below is unchanged.
