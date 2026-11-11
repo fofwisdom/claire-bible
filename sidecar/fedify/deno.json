@@ -6,6 +6,6 @@
   },
   "tasks": {
     "test": "deno test --frozen --allow-read=.,../../tests/fixtures tests/",
-    "check": "deno check --frozen src/main.ts tests/"
+    "check": "deno check --frozen src/main.ts tests/ e2e/"
   }
 }

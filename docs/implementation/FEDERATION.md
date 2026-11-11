@@ -6,19 +6,19 @@ This document tells what the code does now. The design document is a historical 
 
 ## 1. Scope and State
 
-Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is in progress: units FP2-1 and FP2-2 add the follower data and the internal endpoints of Claire, and unit FP2-3 adds the public inboxes and the followers collection of the sidecar.
+Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is complete: a remote server can follow an actor and gets an `Accept`, an account owner can see and remove followers, and the admin can block domains.
 
 | Function | State |
 | :--- | :--- |
 | WebFinger, NodeInfo, actor document, instance actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
-| Instance switch `federation`, readiness checks GF1 to GF7 | Implemented (API and CLI). There is no console screen. |
+| Instance switch `federation`, readiness checks GF1 to GF7 | Implemented (API, CLI, and the console section `/admin/federation`) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
-| Management of followers and domain blocks (API and console) | Unit FP2-4 |
+| Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
 | Outbox, published objects, publishing | Not implemented (phase FP3). The paths return 404. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, and deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3). Claire publishes nothing before phase FP3.
@@ -351,6 +351,51 @@ uv run claire instance check --federation --json
 - The exit code is 0 only when all checks pass.
 - `--network` and `--federation` are mutually exclusive, and one of them is necessary.
 
+### 7.5 Console and Account Routes (Unit FP2-4)
+
+**Account routes.** The routes are for the owner of an account, in network mode only (`ROUTE_POLICY`: `_any("owner", modes=NETWORK_ONLY)`). Single mode gives 404. The routes use the account of the credential. No route reads an account from the request.
+
+`GET /api/federation/status` returns, with `Cache-Control: no-store`:
+
+```json
+{"federation": "on", "handle": "@alice@claire.example.com", "actor_id": "https://claire.example.com/ap/actors/116412345678901234", "is_actor": true, "actor_state": "active", "followers": {"total": 2}}
+```
+
+- `actor_state` is `active`, or the first condition of the actor rule (Section 3) that fails, in this sequence: `account_not_active`, `no_username`, `federation_off`, `profile_not_public`.
+- `handle` and `actor_id` are null only when the account has no USERNAME.
+- The response has no pending task count. The outbox table comes in phase FP3.
+
+`GET /api/federation/followers` returns one cursor page, newest first: `total`, `items` (`id`, `actor_iri`, `created_at`), `next_max_id`. Query parameters: `limit` (1 to 80, default 20) and one of `max_id`, `min_id`, `since_id`. A query that is not valid gets 400 `invalid_request`. The inbox addresses are not in the response.
+
+`DELETE /api/federation/followers` with the body `{"actor_iri": "..."}`:
+
+| Condition | Response |
+| :--- | :--- |
+| Cookie request that is not from the same origin | 403 (`AuthenticationMiddleware`) |
+| The body is not an object with the one field `actor_iri` (string, 1 to 2048 characters) | 400 `invalid_request` |
+| The account of the caller has no follower with this address | 404 `follower_not_found` |
+| Row deleted | 200 `{"removed": true, "followers": {"total": n}}` |
+
+- The delete key is `(account of the caller, actor_iri)`. The route cannot delete a follower of a different account.
+- The route needs no recent authentication and writes no audit row.
+- The route deletes the row only. Claire sends no `Reject(Follow)`: that needs the outbox of phase FP3. The remote server can send `Follow` again, and Claire stores the follower again.
+
+**Domain blocks.** The routes are for the admin only (`_system("admin")`). Other principals get 404, as on all `/api/admin/*` routes.
+
+- `GET /api/admin/federation/domain-blocks` returns `domain_blocks`: a list of `domain`, `note`, `created_at`, in the order of the domain.
+- `POST` with `{"domain": "...", "note": "..."}` adds a block. `note` is optional: 200 characters at most, no control characters. A new block gets 201 with `"created": true`. An existing block gets 200 with `"created": false`, and the row is not changed.
+- `DELETE` with `{"domain": "..."}` removes a block: 200, or 404 `domain_block_not_found`.
+- `POST` and `DELETE` have the guards of `POST /api/admin/federation`: same origin (403 `forbidden`), then recent authentication (401 `reauth_required`, or 403 `step_up_requires_session` for a bearer credential).
+- A domain that `normalize_domain` refuses gets 400 `invalid_domain`. Other body errors get 400 `invalid_request` or `invalid_note`.
+- Each change writes an `admin_audit` row: `federation.domain_block_add` or `federation.domain_block_remove`, with the detail `{"domain": "..."}`.
+- A new block does not delete followers that exist. The sidecar reads the new list when the entity tag in `config` changes, after 5 seconds at most.
+
+**Console sections.**
+
+- `/settings/federation` (owner): handle, actor ID, actor state, follower count, and the follower list with a remove control (`console_account.js`). In single mode the section shows a notice only and no USERNAME.
+- `/admin/federation` (admin): the switch, the readiness checks GF1 to GF7, the last heartbeat of the sidecar, and the domain block list with add and remove (`console_admin.js`). The page gets the checks from `GET /api/admin/federation` after it loads, because check GF7 sends a network request. When a change gets 401 `reauth_required`, the shared reauth dialog of the console opens and the change is sent again.
+- A member response has no `/admin/` link and no `console_admin.js`. The pages have no inline event handlers.
+
 ## 8. Account Effects
 
 ### 8.1 Step-Up Rule for `profile_public` (FD11)
@@ -475,7 +520,7 @@ These statements are true for the code now.
 
 ## 12. Known Limits
 
-1. There is no console screen `/admin/federation`. The admin uses the API or the CLI.
+1. Follower removal by the owner sends no `Reject(Follow)` (Section 7.5). A new domain block does not delete followers that exist.
 2. `GET /api/admin/federation` has no cache. Each request sends the GF7 request to the public origin from the `api` process (timeout 5 seconds). The check runs in a thread, not in the event loop.
 3. Unix socket path limit: Linux permits about 107 bytes for a socket path. On a host run with a long data directory path the bind fails, and the internal listener does not start (Section 5.1). The Compose path `/app/data/run/federation.sock` is short.
 4. A socket file can stay after the process stops on a signal. The next start replaces it.
@@ -497,7 +542,10 @@ These statements are true for the code now.
 | Design | Code |
 | :--- | :--- |
 | `actor_keys` is `auth.db` version 4 (§10.2) | Version 5. Version 4 was used by the per-account features before FP1. |
-| `GET`, `PUT /api/admin/federation` (§9.2) | `GET`, `POST` |
+| `GET`, `PUT /api/admin/federation` with the switch, the domain blocks, and the sidecar health (§9.2) | `GET`, `POST /api/admin/federation` for the switch and the health. The domain blocks are at `/api/admin/federation/domain-blocks` (`GET`, `POST`, `DELETE`). |
+| `GET /api/federation/status` has the follower count and the pending task count (§9.2) | No pending task count before FP3. The follower list is a second route, `GET /api/federation/followers`. |
+| After a follower removal the sidecar sends `Reject(Follow)` (§11 item 2) | Not sent before the outbox of FP3 |
+| End-to-end test: follow from a second development instance (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1). |
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
 | `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 404 only in FP1 |
 | The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
@@ -522,6 +570,8 @@ These statements are true for the code now.
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
 | `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, and the inbox answers 405, 401, 413, and 404; and the self-check while federation is off |
+| `tests/test_federation_console.py` | Status and actor state, follower pages, follower removal for the own account only, single mode, domain block guards and audit rows, the two console sections, and one end-to-end run in a browser |
+| `sidecar/fedify/e2e/follow_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Phase FP2 end to end: signed `Follow` through the sidecar code to a real Claire process, `Accept` with a signature check, shared inbox, blocked domain, `Undo(Follow)`, and the follower rows in `claire.db` |
 | `sidecar/fedify/tests/inbox_test.ts` | Signed `Follow` to `Accept` with a signature check of the delivery, 401, 403 for a blocked domain, block list in memory, event fields against the fixtures, `Reject` rule, internal API failure, body limit, followers collection |
 | `sidecar/fedify/tests/` | Internal API client, public paths, discovery end-to-end with a signed fetch |
 

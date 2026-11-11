@@ -350,3 +350,71 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         if sidecar is not None:
             _stop(sidecar)
         _stop(claire)
+
+
+def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
+    """Phase FP2 end to end: a signed ``Follow`` goes through the sidecar code to a real Claire process, and the follower is in ``claire.db``.
+
+    The remote server is in the Deno process (``sidecar/fedify/e2e/follow_e2e.ts``). Claire has no function that sends a ``Follow``, and Fedify refuses the loopback address of a second development instance (FS1).
+    """
+    claire_port = _free_port()
+    data_dir = tmp_path / "data"
+    env = _clean_env()
+    env.update(
+        CLAIRE_APP_ROOT=str(tmp_path),
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CB_DATA_DIR=str(data_dir),
+        CLAIRE_INJECT_HOST="127.0.0.1",
+        CLAIRE_INJECT_PORT=str(claire_port),
+        CLAIRE_FQDN=f"127.0.0.1:{claire_port}",
+        CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert migrate.returncode == 0, migrate.stdout + migrate.stderr
+    conn = dbm.connect_existing(data_dir / "claire.db")
+    try:
+        store = accounts_store.AccountStore(conn)
+        store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
+        store.set_setting("mode", "network", updated_by=1)
+        store.set_federation_state("on", updated_by=1)
+        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
+        federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
+        conn.commit()
+        alice = store.find_by_username("alice").id
+    finally:
+        conn.close()
+
+    sock_path = federation_socket_path(data_dir)
+    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        deadline = time.monotonic() + 60
+        while True:
+            assert claire.poll() is None, claire.stdout.read()
+            try:
+                if httpx.get(f"http://127.0.0.1:{claire_port}/health", timeout=2).status_code == 200 and sock_path.exists():
+                    break
+            except httpx.HTTPError:
+                pass
+            assert time.monotonic() < deadline, "serve-api did not start in time"
+            time.sleep(0.2)
+
+        deno_env = {**_clean_env(), "CLAIRE_FEDIFY_SOCKET": str(sock_path), "CLAIRE_FEDIFY_SERVICE_KEY_FILE": str(service_key_path(data_dir)), "E2E_ACTOR": str(ALICE_PUBLIC_ID)}
+        command = [DENO, "test", "--frozen", f"--allow-net=claire.internal:80,unix:{sock_path}", "--allow-env", f"--allow-read={SIDECAR_DIR},{data_dir}", f"--allow-write={sock_path}", "e2e/follow_e2e.ts"]
+        run = subprocess.run(command, cwd=SIDECAR_DIR, env=deno_env, capture_output=True, text=True, timeout=300)
+        assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-4000:]
+
+        # The canonical data is in Claire: bob left, dan stays, and the blocked actor was never stored.
+        conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
+        try:
+            rows = [tuple(r) for r in conn.execute("SELECT account_id, actor_iri, inbox_iri, shared_inbox_iri FROM federation_followers")]
+        finally:
+            conn.close()
+        assert rows == [(alice, "https://remote.example/users/dan", "https://remote.example/users/dan/inbox", "https://remote.example/inbox")]
+    except BaseException:
+        print("claire output:", _stop(claire)[-3000:])
+        raise
+    finally:
+        _stop(claire)

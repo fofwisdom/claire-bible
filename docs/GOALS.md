@@ -18,7 +18,7 @@
 |---|---|
 | **멀티 테마(단일 DB 파티셔닝)**: 관심사 분리와 오염 방지를 위한 `theme_id` 파티셔닝 (`CLAIRE_MULTI_THEME`) | 범용 B2C 멀티테넌시 및 불특정 다수 셀프 회원가입 |
 | **로컬 계정과 네트워크 모드**: 불변 USERNAME, 초대제 가입, 계정 네임스페이스(`/@USERNAME`), 외부 IdP(OIDC·GitHub) 로그인 | 계정별 서브도메인·커스텀 도메인, SCIM·SAML 직접 지원 |
-| **신디케이션과 연합**: 연결 계정을 통한 ActivityPub·AT 클라이언트, Fedify 사이드카를 통한 공개 프로필 계정의 ActivityPub 액터(FP1 탐색 구현, 팔로워·발행은 미구현) | Mastodon 호환 클라이언트 API 서버, 테마 액터, 계정 이전, 릴레이 |
+| **신디케이션과 연합**: 연결 계정을 통한 ActivityPub·AT 클라이언트, Fedify 사이드카를 통한 공개 프로필 계정의 ActivityPub 액터(FP1 탐색·FP2 팔로워 구현, 발행은 미구현) | Mastodon 호환 클라이언트 API 서버, 테마 액터, 계정 이전, 릴레이 |
 | **역할 기반 접근 제어(RBAC)**: 지식 관리자(Owner)와 협업자(Collaborator) 간의 권한 분리 | 복잡한 계층형 엔터프라이즈 인사 조직도 연동 |
 | **표준 인증 및 토큰 교환**: RFC 8693 OAuth 2.0 Token Exchange, OIDC Discovery, 세션 프리픽스 게이트 | 외부 상용 IAM/IDaaS 서비스에 대한 강제 종속 |
 | **듀얼 포맷 지식 표현**: Markdown 및 AsciiDoc(.adoc) 듀얼 포맷 파이프라인, 수식(LaTeX/KaTeX), 표(Table) 구조 보존 | 완전 무제한 임의 바이너리 문서 파싱 |
@@ -105,7 +105,8 @@
 - [x] 계정·IdP·Fedify 연동 준비 봉인 (`profile_public` 계약, 연합·인증 예약 이름, 토큰 교환 계정 귀속, Syndication 프로토타입 봉인)
 - [x] Fedify 사이드카 연합 FP0: 기술 검증 FT1–FT7 (검증 프로그램은 커밋 `116d530`의 `sidecar/fedify/spike/`에 있으며, FP1-5에서 사이드카 소스로 대체됨)
 - [x] Fedify 사이드카 연합 FP1: 내부 계약과 탐색 — WebFinger, NodeInfo, 액터 문서, 준비 검사 ([구현](implementation/FEDERATION.md))
-- [ ] Fedify 사이드카 연합 FP2–FP3: 팔로워, 발행 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md), 소유자 결정 FD1–FD12 확정 2026-11-10)
+- [x] Fedify 사이드카 연합 FP2: 팔로워 — 인박스, `Accept(Follow)`, 팔로워 컬렉션, 도메인 차단, 콘솔 `/settings/federation`·`/admin/federation` ([구현](implementation/FEDERATION.md))
+- [ ] Fedify 사이드카 연합 FP3: 발행 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md), 소유자 결정 FD1–FD12 확정 2026-11-10)
 
 ---
 
