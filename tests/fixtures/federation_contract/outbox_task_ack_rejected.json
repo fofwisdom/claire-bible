@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/outbox-tasks/2/ack",
+    "body": {
+      "result": "rejected",
+      "error_code": "object_gone"
+    }
+  },
+  "status": 200,
+  "response": {
+    "id": 2,
+    "status": "rejected"
+  }
+}

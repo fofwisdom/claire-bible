@@ -394,15 +394,19 @@ def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: floa
     return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)
 
 
-def count_objects(conn: sqlite3.Connection, account_id: int) -> int:
-    return int(conn.execute(f"SELECT COUNT(*) FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,)).fetchone()[0])
+_PUBLIC_THEMES_ONLY = " AND theme_id IN (SELECT id FROM themes WHERE is_public=1)"
 
 
-def list_objects(conn: sqlite3.Connection, account_id: int, *, limit: int, max_id: int | None = None, min_id: int | None = None, since_id: int | None = None) -> list[FederationObject]:
-    """Return one cursor page of the published objects of an account, newest first. The cursors are those of ``list_followers``."""
+def count_objects(conn: sqlite3.Connection, account_id: int, *, public_themes_only: bool = False) -> int:
+    """Return the number of published objects of an account. ``public_themes_only`` leaves out the objects of a theme that is not public now."""
+    return int(conn.execute(f"SELECT COUNT(*) FROM {_OBJECTS_TABLE} WHERE account_id=?{_PUBLIC_THEMES_ONLY if public_themes_only else ''}", (account_id,)).fetchone()[0])
+
+
+def list_objects(conn: sqlite3.Connection, account_id: int, *, limit: int, max_id: int | None = None, min_id: int | None = None, since_id: int | None = None, public_themes_only: bool = False) -> list[FederationObject]:
+    """Return one cursor page of the published objects of an account, newest first. The cursors are those of ``list_followers``. ``public_themes_only`` leaves out the objects of a theme that is not public now."""
     if limit < 1:
         raise ValueError("limit must be 1 or more")
-    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE account_id=?"
+    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE account_id=?{_PUBLIC_THEMES_ONLY if public_themes_only else ''}"
     params: list[object] = [account_id]
     if max_id is not None:
         sql += " AND public_id < ?"

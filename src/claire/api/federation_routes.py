@@ -2,7 +2,7 @@
 
 Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddleware`` checks each request before a handler runs. The handlers do not read a ``Principal`` credential.
 
-Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. The other endpoints of Section 6.2 come in phase FP3, each with the schema that it reads (FK10).
+Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3).
 
 Actor rule (FK4): an account is an actor only when the instance setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
 
@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import nh3
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -34,6 +35,7 @@ from ..store import auth_db
 from .. import ids
 from ..store import db as dbm
 from ..store import federation as federation_store
+from ..render.aot import render_to_html
 from ..store.secrets import get_secret_service
 from .collections import parse_collection_query
 
@@ -41,6 +43,12 @@ __all__ = [
     "CONTRACT_VERSION",
     "HEARTBEAT_FILE",
     "INBOX_BODY_LIMIT_BYTES",
+    "OUTBOX_LEASE_SECONDS",
+    "ActorOutboxResponse",
+    "ObjectRecord",
+    "OutboxAckRequest",
+    "OutboxAckResponse",
+    "OutboxTasksResponse",
     "ActorKeysResponse",
     "ActorRecord",
     "ConfigResponse",
@@ -63,6 +71,10 @@ INSTANCE_ACTOR_ID = "instance"
 # The largest body of a public inbox request that the sidecar reads (design Section 11 item 4). The sidecar gets the value from ``config``.
 INBOX_BODY_LIMIT_BYTES = 1024 * 1024
 _MAX_IRI_LENGTH = 2048
+# A task that the sidecar took and did not acknowledge is ready again after this time (design Section 9.3 item 4).
+OUTBOX_LEASE_SECONDS = 300.0
+OUTBOX_TASKS_DEFAULT = 20
+OUTBOX_TASKS_MAX = 50
 
 _log = logging.getLogger("claire.federation.routes")
 
@@ -185,6 +197,61 @@ class DomainBlocksResponse(_Sealed):
     etag: str
     # Lowercase ASCII, in order. A block of a domain also applies to its subdomains.
     domains: list[str]
+
+
+class OutboxTaskItem(_Sealed):
+    id: int
+    kind: Literal["create", "update", "delete", "update_actor", "delete_actor"]
+    # The actor that sends the activity.
+    actor_public_id: str
+    object_public_id: str | None
+    created_at: float
+    lease_until: float
+
+
+class OutboxTasksResponse(_Sealed):
+    # Oldest first. Each task has a lease until ``lease_until``.
+    tasks: list[OutboxTaskItem]
+
+
+class OutboxAckRequest(_Sealed):
+    # ``handed_off``: the Fedify queue has the activity. ``rejected``: the sidecar cannot make the activity, and a new attempt has no use.
+    result: Literal["handed_off", "rejected"]
+    error_code: str | None = Field(pattern=r"^[a-z0-9_]{1,64}$")
+
+
+class OutboxAckResponse(_Sealed):
+    id: int
+    status: Literal["pending", "handed_off", "rejected"]
+
+
+class ObjectRecord(_Sealed):
+    """The canonical form of one published object (design Section 9.1). The sidecar makes the ``Article`` from it."""
+
+    public_id: str
+    actor_public_id: str
+    type: Literal["Article"]
+    name: str
+    # HTML after the ``nh3`` allowlist sanitizer.
+    content: str
+    # The public page of the document, or ``None`` when the document has no share page.
+    url: str | None
+    published_at: float
+    updated_at: float
+
+
+class OutboxItem(_Sealed):
+    id: str
+    published_at: float
+    updated_at: float
+
+
+class ActorOutboxResponse(_Sealed):
+    public_id: str
+    total: int
+    # Newest first.
+    items: list[OutboxItem]
+    next_max_id: str | None
 
 
 def _remote_host(iri: str, origin: str) -> str | None:
@@ -474,6 +541,113 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             )
         )
 
+    def _actor_account_ids(store: accounts_store.AccountStore) -> list[int]:
+        if not _federation_active(store):
+            return []
+        return [int(row[0]) for row in store.conn.execute("SELECT id FROM accounts WHERE status='active' AND profile_public=1 AND username IS NOT NULL")]
+
+    def outbox_tasks(request: Request) -> Response:
+        raw_limit = request.query_params.get("limit", str(OUTBOX_TASKS_DEFAULT))
+        if not (raw_limit.isascii() and raw_limit.isdigit() and 1 <= int(raw_limit) <= OUTBOX_TASKS_MAX):
+            return _error(400, "invalid_request")
+        store = accounts_store.AccountStore(dbm.connect_existing(settings.db_file))
+        try:
+            # Only a task of an account that is an actor now is given. A task of a paused account waits: the sidecar cannot get the key of that account.
+            leased = federation_store.lease_outbox_tasks(store.conn, account_ids=_actor_account_ids(store), now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit))
+            store.conn.commit()
+            items = [OutboxTaskItem(id=task.id, kind=task.kind, actor_public_id=str(store.get(task.account_id).public_id), object_public_id=None if task.object_public_id is None else str(task.object_public_id), created_at=task.created_at, lease_until=float(task.lease_until or 0.0)) for task in leased]
+        finally:
+            store.conn.close()
+        return _json(OutboxTasksResponse(tasks=items))
+
+    async def outbox_task_ack(request: Request) -> Response:
+        raw_id = request.path_params["task_id"]
+        try:
+            body = OutboxAckRequest.model_validate_json(await request.body())
+        except ValidationError:
+            return _error(400, "invalid_request")
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            return _not_found()
+
+        def _apply() -> federation_store.OutboxTask | None:
+            conn = dbm.connect_existing(settings.db_file)
+            try:
+                task = federation_store.ack_outbox_task(conn, int(raw_id), result=body.result, error_code=body.error_code, now=now())
+                conn.commit()
+                return task
+            finally:
+                conn.close()
+
+        task = await run_in_threadpool(_apply)
+        if task is None:
+            return _not_found()
+        _log.info("outbox task %s (%s): %s%s", task.id, task.kind, task.status, "" if task.error_code is None else f" ({task.error_code})")
+        return _json(OutboxAckResponse(id=task.id, status=task.status))
+
+    def published_object(request: Request) -> Response:
+        raw_id = request.path_params["object_public_id"]
+        try:
+            public_id = ids.parse_public_id(raw_id)
+        except ValueError:
+            return _not_found()
+        origin = _runtime().public_origin
+        store = _open_store()
+        try:
+            conn = store.conn
+            tombstone = federation_store.get_tombstone(conn, public_id)
+            if tombstone is not None and tombstone.kind == "object":
+                return JSONResponse({"error": "gone", "gone_at": tombstone.gone_at}, status_code=410, headers=_NO_STORE)
+            obj = federation_store.get_object(conn, public_id)
+            if obj is None or not _federation_active(store):
+                return _not_found()
+            account = store.get(obj.account_id)
+            # The object is public only while its account is an actor, its theme is public, and its document is not hidden.
+            theme = conn.execute("SELECT is_public FROM themes WHERE id=?", (obj.theme_id,)).fetchone()
+            document = dbm.get_document_row(conn, obj.document_id, theme_id=obj.theme_id)
+            if not _is_actor(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
+                return _not_found()
+            share = conn.execute(
+                "SELECT token FROM doc_shares WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (obj.document_id, obj.theme_id, now()),
+            ).fetchone()
+            html = document["detail_html"] or render_to_html(document["detail"] or "", document["detail_format"] or "md")
+            record = ObjectRecord(
+                public_id=str(obj.public_id),
+                actor_public_id=str(account.public_id),
+                type="Article",
+                name=document["title"] or "",
+                content=nh3.clean(html),
+                url=None if share is None else f"{origin}/p?s={share['token']}",
+                published_at=obj.published_at,
+                updated_at=obj.updated_at,
+            )
+        finally:
+            store.conn.close()
+        return _json(record)
+
+    def actor_outbox(request: Request) -> Response:
+        try:
+            query = parse_collection_query(request.query_params)
+        except HTTPException:
+            return _error(400, "invalid_request")
+        store = _open_store()
+        try:
+            account = _find_actor(store, public_id=request.path_params["public_id"])
+            if account is None:
+                return _not_found()
+            total = federation_store.count_objects(store.conn, account.id, public_themes_only=True)
+            rows = federation_store.list_objects(store.conn, account.id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id, public_themes_only=True)
+        finally:
+            store.conn.close()
+        return _json(
+            ActorOutboxResponse(
+                public_id=str(account.public_id),
+                total=total,
+                items=[OutboxItem(id=str(row.public_id), published_at=row.published_at, updated_at=row.updated_at) for row in rows],
+                next_max_id=str(rows[-1].public_id) if len(rows) == query.limit else None,
+            )
+        )
+
     def domain_blocks(request: Request) -> Response:
         store = _open_store()
         try:
@@ -494,4 +668,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/actors/{public_id}/followers", followers, methods=["GET"]),
         Route("/inbox-events", inbox_event, methods=["POST"]),
         Route("/domain-blocks", domain_blocks, methods=["GET"]),
+        Route("/actors/{public_id}/outbox", actor_outbox, methods=["GET"]),
+        Route("/outbox-tasks", outbox_tasks, methods=["GET"]),
+        Route("/outbox-tasks/{task_id}/ack", outbox_task_ack, methods=["POST"]),
+        Route("/objects/{object_public_id}", published_object, methods=["GET"]),
     ]

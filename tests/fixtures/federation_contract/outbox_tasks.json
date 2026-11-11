@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/outbox-tasks?limit=10"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 1,
+        "kind": "create",
+        "actor_public_id": "116412345678901234",
+        "object_public_id": "816412345678901234",
+        "created_at": 1800000310.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 2,
+        "kind": "delete",
+        "actor_public_id": "116412345678901234",
+        "object_public_id": "816412345678901239",
+        "created_at": 1800000331.0,
+        "lease_until": 1800000700.0
+      }
+    ]
+  }
+}

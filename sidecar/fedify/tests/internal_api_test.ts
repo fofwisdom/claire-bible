@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_keys", "actor_keys_not_found", "actor_not_found", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "heartbeat", "heartbeat_version_mismatch", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_update_actor", "instance_actor_keys"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "heartbeat", "heartbeat_version_mismatch", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_update_actor", "instance_actor_keys", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -92,6 +92,27 @@ Deno.test("an inbox event without a decision is an error", async () => {
   await assert.rejects(api.inboxEvent({ ...event, event_id: "https://remote.example/activities/unknown" }), (error: InternalApiError) => error.status === 404);
   fake.failStatus = 503;
   await assert.rejects(api.inboxEvent(event), (error: InternalApiError) => error.status === 503);
+});
+
+Deno.test("outbox tasks, acknowledgements, objects, and the outbox collection agree with the fixtures", async () => {
+  const { api, fake } = client();
+  assert.deepEqual(await api.outboxTasks(10), (fixture("outbox_tasks").response as { tasks: unknown }).tasks);
+  assert.equal(await api.ackOutboxTask(1, "handed_off"), "handed_off");
+  assert.equal(await api.ackOutboxTask(2, "rejected", "object_gone"), "rejected");
+  assert.equal(await api.ackOutboxTask(999, "handed_off"), null);
+
+  assert.deepEqual(await api.object("816412345678901234"), { state: "found", record: fixture("object").response });
+  // A deleted object is not an absent object: the sidecar must answer 410 for it.
+  assert.deepEqual(await api.object("816412345678901239"), { state: "gone", gone_at: 1800000330 });
+  assert.equal(await api.object("816412345678901999"), null);
+
+  assert.deepEqual(await api.actorOutbox("116412345678901234", { limit: 1 }), fixture("actor_outbox").response);
+  assert.equal(await api.actorOutbox("216412345678901234"), null);
+  assert.equal(fake.calls[0], `GET ${fixture("outbox_tasks").request.path}`);
+
+  fake.failStatus = 500;
+  await assert.rejects(api.object("816412345678901234"), (error: InternalApiError) => error.status === 500);
+  await assert.rejects(api.outboxTasks(), (error: InternalApiError) => error.status === 500);
 });
 
 Deno.test("a server error is an error, not an absent actor", async () => {

@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/outbox-tasks/999/ack",
+    "body": {
+      "result": "handed_off",
+      "error_code": null
+    }
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

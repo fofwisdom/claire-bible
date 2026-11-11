@@ -104,7 +104,43 @@ export interface DomainBlocks {
   domains: string[];
 }
 
+// One outbound task with a lease (design Section 9.3). actor_public_id is the actor that sends the activity.
+export interface OutboxTask {
+  id: number;
+  kind: "create" | "update" | "delete" | "update_actor" | "delete_actor";
+  actor_public_id: string;
+  object_public_id: string | null;
+  created_at: number;
+  lease_until: number;
+}
+
+// The canonical form of one published object. content is HTML that Claire sanitized.
+export interface ObjectRecord {
+  public_id: string;
+  actor_public_id: string;
+  type: "Article";
+  name: string;
+  content: string;
+  url: string | null;
+  published_at: number;
+  updated_at: number;
+}
+
+// The result of an object read: the record, the time of removal of a deleted object (410), or null (404).
+export type ObjectResult = { state: "found"; record: ObjectRecord } | { state: "gone"; gone_at: number } | null;
+
+// items are newest first.
+export interface ActorOutboxPage {
+  public_id: string;
+  total: number;
+  items: { id: string; published_at: number; updated_at: number }[];
+  next_max_id: string | null;
+}
+
 export class InternalApiError extends Error {
+  // The parsed body of the error answer, when it is JSON.
+  detail: unknown = undefined;
+
   constructor(readonly status: number, readonly code: string) {
     super(`internal federation API error: ${status} ${code}`);
     this.name = "InternalApiError";
@@ -193,6 +229,13 @@ const decisionShape = sealed({
 });
 const followersShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, actor_iri: str, inbox_iri: str, shared_inbox_iri: nullable(str) })), next_max_id: nullable(str) });
 const domainBlocksShape = sealed({ etag: str, domains: list(str) });
+const outboxTasksShape = sealed({
+  tasks: list(sealed({ id: int, kind: oneOf("create", "update", "delete", "update_actor", "delete_actor"), actor_public_id: str, object_public_id: nullable(str), created_at: num, lease_until: num })),
+});
+const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejected") });
+const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num });
+const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
+const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -236,7 +279,9 @@ export class InternalApi {
     }
     if (response.status !== 200) {
       const code = typeof parsed === "object" && parsed !== null && typeof (parsed as { error?: unknown }).error === "string" ? (parsed as { error: string }).error : "error";
-      throw new InternalApiError(response.status, code);
+      const error = new InternalApiError(response.status, code);
+      error.detail = parsed;
+      throw error;
     }
     return parsed;
   }
@@ -299,5 +344,46 @@ export class InternalApi {
     if (value === null) throw new InternalApiError(404, "not_found");
     domainBlocksShape(value, "domain_blocks");
     return value as DomainBlocks;
+  }
+
+  // Takes the oldest ready tasks. Each task has a lease: if it is not acknowledged before lease_until, Claire gives it again.
+  async outboxTasks(limit?: number): Promise<OutboxTask[]> {
+    const value = await this.#call("GET", `/outbox-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    outboxTasksShape(value, "outbox_tasks");
+    return (value as { tasks: OutboxTask[] }).tasks;
+  }
+
+  // Records the result of the handoff to the Fedify queue. Returns the status of the task, or null when there is no such task.
+  // A second acknowledgement returns the first result.
+  async ackOutboxTask(id: number, result: "handed_off" | "rejected", errorCode: string | null = null): Promise<"pending" | "handed_off" | "rejected" | null> {
+    const value = await this.#call("POST", `/outbox-tasks/${id}/ack`, { result, error_code: errorCode });
+    if (value === null) return null;
+    ackShape(value, "ack");
+    return (value as { status: "pending" | "handed_off" | "rejected" }).status;
+  }
+
+  async object(publicId: string): Promise<ObjectResult> {
+    let value: unknown | null;
+    try {
+      value = await this.#call("GET", `/objects/${encodeURIComponent(publicId)}`);
+    } catch (error) {
+      if (!(error instanceof InternalApiError) || error.status !== 410) throw error;
+      goneShape(error.detail, "gone");
+      return { state: "gone", gone_at: (error.detail as { gone_at: number }).gone_at };
+    }
+    if (value === null) return null;
+    objectShape(value, "object");
+    return { state: "found", record: value as ObjectRecord };
+  }
+
+  // One cursor page of the published objects of an actor, or null when the account is not an actor.
+  async actorOutbox(publicId: string, page: { limit?: number; maxId?: string } = {}): Promise<ActorOutboxPage | null> {
+    const query = new URLSearchParams();
+    if (page.limit !== undefined) query.set("limit", String(page.limit));
+    if (page.maxId !== undefined) query.set("max_id", page.maxId);
+    const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/outbox${query.size > 0 ? `?${query}` : ""}`);
+    if (value !== null) actorOutboxShape(value, "outbox");
+    return value as ActorOutboxPage | null;
   }
 }

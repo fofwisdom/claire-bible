@@ -6,4 +6,6 @@ The Python tests (`tests/test_federation_routes.py`) and the sidecar tests (`sid
 
 The `inbox_event_*.json` files have the same method and path. The body selects the call. The follower numbers in `followers.json` and `followers_next.json` are fixed test values, and the tests store them before the call.
 
+`outbox_tasks.json` gives a lease on the tasks: the `lease_until` value is the fixed test clock plus the lease time. The object numbers, the share token, and the tasks are fixed test values that the tests store before the call.
+
 The key pairs in `actor_keys.json` and `instance_actor_keys.json` are test keys. Do not use them in an instance.

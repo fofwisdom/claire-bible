@@ -20,7 +20,8 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
 | Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
 | `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1) |
-| Delivery of published objects, public outbox and object paths of the sidecar | Not implemented (units FP3-3 to FP3-5). The public paths return 404. |
+| Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2). The sidecar does not take tasks before unit FP3-3. |
+| Delivery of published objects, public outbox and object paths of the sidecar | Not implemented (units FP3-3 to FP3-5). The public paths return 404. A published document stays a `pending` task. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, and deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3). Claire publishes nothing before phase FP3.
 
@@ -207,6 +208,10 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `instance`. 404 when the account is not an actor, or when federation is not active. |
 | `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor. 400 `invalid_request` for a query that is not valid. |
 | `POST` | `/inbox-events` | One verified inbound activity. The response is the decision (Section 5.7). |
+| `GET` | `/actors/{public_id}/outbox` | `public_id`, `total`, `items` (newest first: `id`, `published_at`, `updated_at`), `next_max_id`. The query is that of `/followers`. 404 when the account is not an actor. |
+| `GET` | `/outbox-tasks` | `tasks`: oldest first, each with `id`, `kind`, `actor_public_id`, `object_public_id`, `created_at`, `lease_until`. Query: `limit` (1 to 50, default 20). The request gives a lease on each task that it returns (Section 5.8). |
+| `POST` | `/outbox-tasks/{id}/ack` | Request: `result` (`handed_off` or `rejected`), `error_code` (null, or 1 to 64 characters of `a-z`, `0-9`, `_`). Response: `id`, `status`. 404 for a task that does not exist. |
+| `GET` | `/objects/{object_public_id}` | Object record: `public_id`, `actor_public_id`, `type` (`Article`), `name`, `content`, `url`, `published_at`, `updated_at`. 404, or 410 `{"error": "gone", "gone_at": ...}` for a deleted object. |
 | `GET` | `/domain-blocks` | `etag`, `domains` (lowercase ASCII, in order). The response has an `ETag` header. A request with the same value in `If-None-Match` gets 304 without a body. |
 
 - Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`. The record has no field from `auth.db`.
@@ -224,6 +229,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - `CONTRACT_VERSION` is `"1.1"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
+- Unit FP3-2 added four endpoints and changed no shape that existed. The version stays 1.1.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
 ### 5.5 Contract Fixtures
@@ -269,6 +275,25 @@ Claire makes the decision in this sequence:
 9. `Undo(Follow)`: the account must exist. Claire deletes the row, also for a paused account. `accepted`. A repeated `Undo` gives the same decision.
 
 Claire writes one log line for each event with the type, the decision, and the reason. The line has no address.
+
+### 5.8 Outbox Tasks and Objects (Unit FP3-2)
+
+**Tasks.**
+
+- A task is ready when its status is `pending` and it has no lease, or its lease ended (`lease_until` is not after the time of the request).
+- `GET /outbox-tasks` returns the oldest ready tasks and sets `lease_until` to the time of the request plus 300 seconds (`OUTBOX_LEASE_SECONDS`). A second request in that time does not get the same task. The request changes data, although the method is `GET` (design Section 6.2).
+- A task that the sidecar does not acknowledge stays `pending`, and Claire gives it again after its lease.
+- Claire gives only the tasks of accounts that are actors now. When federation is not active the list is empty. A task of a paused account waits, because the sidecar cannot get the key of that account.
+- `POST /outbox-tasks/{id}/ack` with `handed_off` sets the status and `handed_off_at`. `rejected` sets the status and `error_code`: the sidecar uses it for a task that it cannot convert, and Claire does not give the task again. A task that has a result does not change: a second acknowledgement returns the first result.
+- The task has IDs only. The sidecar reads the object with `/objects/{id}` when it converts the task.
+
+**Objects.**
+
+- A tombstone of kind `object` gives 410 with `gone_at`. This check comes first, and it does not depend on the federation switch.
+- The record is given only while federation is active, the account of the object is an actor, the theme is public, and the document exists and is not hidden. All other conditions give the same 404.
+- `content` is `documents.detail_html`, or the render of `documents.detail` (`render_to_html`) when there is no compiled HTML. Then the `nh3` sanitizer with its default allowlist cleans it. `name` is the document title.
+- `url` is the share page of the document, `{origin}/p?s={token}`, or null when the document has no share that is in effect. The publish route makes a share.
+- The outbox collection counts and lists only the objects of themes that are public now.
 
 ## 6. Keys
 
@@ -425,7 +450,7 @@ The routes need `collaborator` access or more, in network mode only (`ROUTE_POLI
 - An object that does not exist, or is of a different account, or is in a theme that the caller cannot use, gets 404 `object_not_found`.
 - If not, one transaction writes the tombstone (`federation_tombstones`, kind `object`), deletes the object row, and makes a `delete` task. The response is 202 with `retracted`, `object_id`, and `task`.
 - A new publish of the same document makes a new object ID. The old ID stays a tombstone.
-- A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8).
+- A retract is permitted when the account is not an actor now. The task waits until the account is an actor again (Section 5.8). The object ID gives 410 immediately.
 
 A cookie request that is not from the same origin gets 403 (`AuthenticationMiddleware`). The routes need no recent authentication.
 
@@ -598,7 +623,7 @@ These statements are true for the code now.
 | `tests/test_federation_internal.py` | Service key file, signature, time window, body limit, listener selection, socket mode, internal paths on the socket only |
 | `tests/test_actor_keys.py` | `auth.db` version 5 migration, key generation, encryption with the additional authenticated data |
 | `tests/test_schema_v17.py` | `claire.db` version 17 migration, follower key, cursor pages, tombstones, domain form and subdomain rule |
-| `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, and one end-to-end run of follow events through the socket of a real `api` process |
+| `tests/test_federation_routes.py` | Internal endpoints against the fixtures, actor rule, sealed models, no identity field, inbox event decisions, follower pages, domain block entity tag, outbox task lease and acknowledgement, object record and its public conditions, outbox collection, and two end-to-end runs with a real `api` process: follow events through the socket, and publish on the public listener with the handoff on the socket |
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |

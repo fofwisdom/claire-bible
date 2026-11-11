@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/objects/816412345678901999"
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

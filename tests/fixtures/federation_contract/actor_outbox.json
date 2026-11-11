@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/116412345678901234/outbox?limit=1"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "116412345678901234",
+    "total": 2,
+    "items": [
+      {
+        "id": "816412345678901235",
+        "published_at": 1800000340.0,
+        "updated_at": 1800000340.0
+      }
+    ],
+    "next_max_id": "816412345678901235"
+  }
+}
