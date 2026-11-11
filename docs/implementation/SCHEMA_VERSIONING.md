@@ -17,8 +17,9 @@
 | 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
 | 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
 | 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
-| 16 | 현재 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
-| 17 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
+| 17 | 현재 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
+| 18 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -69,7 +70,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: P2 멀티 서브에이전트 통합 (2026-11-03). 설계: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §7.2, §13.2.
 
-- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 16`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 16보다 크면 변경 없이 거부한다.
+- **[코드] 버전 상수**: v16 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 16이었다(현재 값은 아래 "v17" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v16_theme_numbers`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등):
   - 테이블 `legacy_hosts`: `(host TEXT PRIMARY KEY, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, activated_at REAL, sunset_at REAL, indefinitely INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL)`
   - 인덱스 `idx_legacy_hosts_theme_id`
@@ -77,6 +78,20 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 테마 번호 백필**: `themes.number`가 비어 있는 행을 `timestamp_id("themes", salt, unix_ms)`로 채운다. `created_at=0`이거나 비어 있는 레거시 행은 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 하한을 고정하여 모든 이관 번호가 `>= 2^56`이 되도록 보장한다(A3).
 - **[코드] 레거시 호스트 이관**: 기존 `themes.fqdn` 값이 있는 행을 `legacy_hosts` 테이블로 복사하고, `sunset_at = NULL` 상태로 보존하여 관리자가 이관을 활성화할 때까지 일몰 시계를 유예한다(R23-2).
 - **[코드] 인스턴스 정책**: `instance_settings`에 `legacy_host_policy`(`default_sunset_days`, `allow_indefinite`)가 기록된다.
+
+## v17 (연합 팔로워, 툼스톤, 도메인 차단, Fedify 사이드카 FP2-1)
+
+확인 기준: FP2-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §10.1.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 17`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 17보다 크면 변경 없이 거부한다.
+- **[코드] 추가 객체**(`_migrate_v17_federation`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
+  - 테이블 `federation_followers`: `(public_id INTEGER UNIQUE NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, actor_iri TEXT NOT NULL, inbox_iri TEXT NOT NULL, shared_inbox_iri TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY (account_id, actor_iri))`. `public_id`는 시간 정렬 번호(`claire.ids`)이고 컬렉션 커서다.
+  - 인덱스 `idx_federation_followers_actor`(`actor_iri`): 원격 액터의 `Delete`·`Update`가 계정과 무관하게 행을 찾는다. 설계 §10.1에는 없는 인덱스다.
+  - 테이블 `federation_tombstones`: `(public_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('actor', 'object')), gone_at REAL NOT NULL)`. USERNAME이 없고(K4) `accounts` 외래 키도 없다. 퍼지 뒤에도 행이 남아야 하기 때문이다.
+  - 테이블 `federation_domain_blocks`: `(domain TEXT PRIMARY KEY, created_at REAL NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id), note TEXT NOT NULL DEFAULT '')`. `domain`은 소문자 ASCII(punycode)다.
+- **[코드] 저장소 함수**: `src/claire/store/federation.py`. 팔로워 저장(`upsert_follower`, 키는 `(account_id, actor_iri)`), 삭제, 원격 액터 단위 삭제·인박스 갱신, 개수, 커서 페이지(`max_id`·`min_id`·`since_id`), 툼스톤 기록·조회, 도메인 정규화·차단·해제·목록·판정(`blocking_domain`, 차단은 하위 도메인에도 적용), 차단 목록 ETag. 이 모듈의 함수는 커밋하지 않는다.
+- **[코드] 설계와 다른 점**: 설계 §10.1은 `federation_objects`와 `federation_outbox`도 version 17에 적었다. 이 두 테이블은 FP3-1에서 그 코드와 함께 더한다(쓰이지 않는 스키마를 먼저 만들지 않는다). 따라서 FP3-1은 version을 한 번 더 올린다.
+- **[테스트]** `tests/test_schema_v17.py`.
 
 ### 별도 저장소: `data/auth/auth.db`
 
@@ -88,7 +103,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
   - **v5 (Fedify 사이드카 FP1-2)**: 연합 액터 키 테이블 `actor_keys` 추가. 기본 키는 `(account_id, alg)`이고 `account_id` 0은 인스턴스 액터다. `alg`는 `rsa2048`·`ed25519`만 받는다. 개인 키는 `SecretService`가 AAD `actor_key|{account_id}|{alg}`로 암호화한다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6, `tests/test_actor_keys.py`). 설계 문서는 이 변경을 "auth.db version 4"라고 적었지만, 설계 작성 뒤에 v4가 먼저 쓰여서 코드에서는 v5다.
 - **[코드]** 저장된 값이 5보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
-- **[코드]** 연합 스위치 `instance_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `instance_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. claire.db는 v16 그대로다([FEDERATION.md](FEDERATION.md) §7.1).
+- **[코드]** 연합 스위치 `instance_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `instance_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 그 시점의 claire.db는 v16 그대로였다([FEDERATION.md](FEDERATION.md) §7.1).
 
 ## 운영 경계
 

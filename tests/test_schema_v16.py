@@ -45,6 +45,7 @@ def _make_v15_database(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with monkeypatch.context() as m:
         m.setattr(dbm, "SCHEMA_VERSION", 15)
         m.setattr(dbm, "_migrate_v16_themes", lambda conn: None)
+        m.setattr(dbm, "_migrate_v17_federation", lambda conn: None)
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
@@ -74,8 +75,7 @@ def _numbers(conn: sqlite3.Connection) -> dict[int, int]:
 
 def test_fresh_database_declares_v16_objects() -> None:
     conn = _memory_database()
-    assert dbm.SCHEMA_VERSION == 16
-    assert dbm.require_current_schema(conn) == 16
+    assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
     assert {"number", "visibility_epoch", "embed_provider", "embed_model", "fqdn"} <= dbm._column_names(
         conn, "themes"
     )
@@ -119,7 +119,7 @@ def test_v15_upgrade_fills_numbers_with_floor(tmp_path: Path, monkeypatch: pytes
     conn = dbm.connect(path)
     try:
         dbm.init_db(conn)
-        assert dbm.require_current_schema(conn) == 16
+        assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
         numbers = _numbers(conn)
         assert all(n is not None and n >= ids.MIN_CURRENT_NUMBER for n in numbers.values())
         # created_at=0이어도 하한(ADMIN_LEGACY_PUBLIC_ID_UNIX_MS) 덕분에 2^56 이상이다(Rev. 2.3).
@@ -272,7 +272,7 @@ def test_v15_database_with_newer_code_is_rejected_by_require_current_schema(
     _make_v15_database(path, monkeypatch)
     conn = dbm.connect_existing(path, readonly=True)
     try:
-        with pytest.raises(RuntimeError, match="actual=15, expected=16"):
+        with pytest.raises(RuntimeError, match="actual=15, expected=17"):
             dbm.require_current_schema(conn)
     finally:
         conn.close()

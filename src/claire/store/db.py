@@ -21,7 +21,7 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -992,6 +992,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
     _migrate_v15_accounts(conn)
     _migrate_v16_themes(conn)
+    _migrate_v17_federation(conn)
     backfill_embedding_models(conn)
 
 
@@ -1233,6 +1234,48 @@ def _migrate_v16_themes(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_themes_account_number ON themes(account_id, number DESC)"
     )
     backfill_theme_numbers(conn)
+
+
+def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
+    """v17 (Fedify sidecar design Section 10.1, unit FP2-1): followers, tombstones, and domain blocks. Idempotent, adds tables only (A3).
+
+    The tables ``federation_objects`` and ``federation_outbox`` of the same design section come with phase FP3.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_followers (
+            public_id INTEGER UNIQUE NOT NULL,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            actor_iri TEXT NOT NULL,
+            inbox_iri TEXT NOT NULL,
+            shared_inbox_iri TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (account_id, actor_iri)
+        )
+        """
+    )
+    # A ``Delete`` or an ``Update`` of a remote actor finds its rows by the actor only.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_followers_actor ON federation_followers(actor_iri)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_tombstones (
+            public_id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('actor', 'object')),
+            gone_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_domain_blocks (
+            domain TEXT PRIMARY KEY,
+            created_at REAL NOT NULL,
+            created_by INTEGER NOT NULL REFERENCES accounts(id),
+            note TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
 
 
 def backfill_embedding_models(conn: sqlite3.Connection) -> int:

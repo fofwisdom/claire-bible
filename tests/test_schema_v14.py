@@ -28,7 +28,7 @@ def test_fresh_database_declares_schema_v14() -> None:
     """Verify that a fresh database initializes schema version 14."""
     conn = _memory_database()
 
-    assert dbm.require_current_schema(conn) == 16
+    assert dbm.require_current_schema(conn) == 17
     assert dbm.stored_schema_lineage(conn) == "claire-bible/common"
 
     # Verify default theme 0 exists

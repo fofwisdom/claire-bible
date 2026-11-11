@@ -66,7 +66,7 @@ def _dump(conn: sqlite3.Connection) -> list[str]:
 
 def test_fresh_database_declares_v15_objects() -> None:
     conn = _memory_database()
-    assert dbm.require_current_schema(conn) == 16
+    assert dbm.require_current_schema(conn) == 17
     names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert {
         "accounts",
@@ -131,7 +131,7 @@ def test_v14_database_upgrades_and_binds_rows_to_admin(tmp_path: Path, monkeypat
     conn = dbm.connect(path)
     try:
         dbm.init_db(conn)
-        assert dbm.require_current_schema(conn) == 16
+        assert dbm.require_current_schema(conn) == 17
         themes = conn.execute("SELECT id, account_id FROM themes ORDER BY id").fetchall()
         assert [(r["id"], r["account_id"]) for r in themes] == [(0, 1), (1, 1)]
         session = conn.execute("SELECT account_id, authenticated_at FROM auth_sessions").fetchone()
