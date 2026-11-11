@@ -25,9 +25,11 @@ deno task check
 
 The Python test `tests/test_fedify_sidecar.py` runs the same tests and starts the sidecar with a real Claire process.
 
-## Public Paths in Phase FP1
+## Public Paths
 
-`/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, and `/ap/actors/instance`. Inbox paths, the followers collection, and the outbox come in phases FP2 and FP3. Until then a `GET` of those paths returns 404, and a method that is not `GET` or `HEAD` returns 405 on each path. All paths return 404 when federation is `off` or the instance mode is `single`.
+`GET`: `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, `/ap/actors/instance`, and `/ap/actors/{public_id}/followers` (total only). `POST`: `/ap/actors/{public_id}/inbox` and `/ap/inbox`. The outbox and the object paths come in phase FP3: until then a `GET` of those paths returns 404. A wrong method returns 405. All paths return 404 when federation is `off` or the instance mode is `single`.
+
+Fedify verifies each inbox activity. Claire makes the decision for each verified activity through `POST /inbox-events` of the internal API. The reference is `docs/implementation/FEDERATION.md` Section 4.3.
 
 ## Dependencies
 

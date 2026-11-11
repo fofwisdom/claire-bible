@@ -23,6 +23,7 @@ from claire.api.federation_internal import federation_socket_path, service_key_p
 from claire.api.federation_routes import read_heartbeat
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
+from claire.store import federation as federation_store
 
 SIDECAR_DIR = Path(__file__).resolve().parents[1] / "sidecar" / "fedify"
 DENO = shutil.which("deno")
@@ -192,6 +193,36 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         # An account that is not an actor, and a path of Claire.
         assert httpx.get(finger_url, params={"resource": f"acct:private_bob@127.0.0.1:{claire_port}"}, timeout=10).status_code == 404
         assert httpx.get(f"{base}/api/me", timeout=10).status_code == 404
+
+        # Followers collection (unit FP2-3): the total comes from Claire, and no follower is shown.
+        assert doc["followers"] == f"{actor_url}/followers"
+        conn = dbm.connect_existing(data_dir / "claire.db")
+        try:
+            store = accounts_store.AccountStore(conn)
+            for name in ("u1", "u2"):
+                federation_store.upsert_follower(conn, account_id=store.find_by_username("alice").id, actor_iri=f"https://remote.example/users/{name}", inbox_iri=f"https://remote.example/users/{name}/inbox", shared_inbox_iri=None, salt=store.id_salt(), now=time.time())
+            conn.commit()
+        finally:
+            conn.close()
+        followers = httpx.get(f"{base}/ap/actors/{ALICE_PUBLIC_ID}/followers", headers={"Accept": "application/activity+json"}, timeout=10)
+        assert followers.status_code == 200, followers.text
+        assert (followers.json()["id"], followers.json()["totalItems"]) == (f"{actor_url}/followers", 2)
+        assert "remote.example" not in followers.text
+        assert httpx.get(f"{base}/ap/actors/216412345678901234/followers", headers={"Accept": "application/activity+json"}, timeout=10).status_code == 404
+
+        # Inbox (unit FP2-3): POST only, an activity without a signature gets 401, and a body above the limit of Claire gets 413. Claire stores nothing.
+        follow = {"@context": "https://www.w3.org/ns/activitystreams", "id": "https://remote.example/activities/1", "type": "Follow", "actor": "https://remote.example/users/mallory", "object": actor_url}
+        activity_headers = {"Content-Type": "application/activity+json"}
+        for inbox_path in (f"/ap/actors/{ALICE_PUBLIC_ID}/inbox", "/ap/inbox"):
+            assert httpx.get(f"{base}{inbox_path}", timeout=10).status_code == 405
+            assert httpx.post(f"{base}{inbox_path}", json=follow, headers=activity_headers, timeout=10).status_code == 401
+            assert httpx.post(f"{base}{inbox_path}", json={**follow, "summary": "x" * (1024 * 1024)}, headers=activity_headers, timeout=10).status_code == 413
+        assert httpx.post(f"{base}/ap/actors/216412345678901234/inbox", json=follow, headers=activity_headers, timeout=10).status_code == 404
+        conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM federation_followers").fetchone()[0] == 2
+        finally:
+            conn.close()
 
         # The heartbeat got to Claire through the signed socket.
         deadline = time.monotonic() + 30

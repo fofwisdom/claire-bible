@@ -5,7 +5,7 @@
     "body": {
       "event_id": "https://remote.example/activities/126",
       "type": "Update",
-      "object_type": "Person",
+      "object_type": null,
       "recipient_public_id": null,
       "actor": {
         "iri": "https://remote.example/users/bob",

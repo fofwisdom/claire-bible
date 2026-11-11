@@ -67,8 +67,9 @@ Deno.test("a handle resolves to an actor document with the canonical origin", as
   assert.match(String(publicKey.publicKeyPem), /^-----BEGIN PUBLIC KEY-----/);
   const assertion = ([doc.assertionMethod].flat() as Record<string, unknown>[]);
   assert.ok(assertion.some((m) => m.controller === ALICE_URL && String(m.publicKeyMultibase).startsWith("z6Mk")), "Ed25519 multikey");
+  assert.equal(doc.followers, `${ALICE_URL}/followers`);
   // Collections of later phases and fields that the account does not have are not in the document.
-  for (const field of ["outbox", "followers", "following", "summary", "icon"]) assert.ok(!(field in doc), field);
+  for (const field of ["outbox", "following", "summary", "icon"]) assert.ok(!(field in doc), field);
   assert.ok(!bodies.join("").includes("127.0.0.1"), "the request host is not in an answer");
 });
 
@@ -147,7 +148,7 @@ Deno.test("paths of Claire and paths of later phases are 404 without a call to C
     assert.equal((await sidecar.handle(new Request(`${LISTEN}${path}`))).status, 404, path);
   }
   assert.deepEqual(fake.calls, []);
-  for (const path of [`/ap/actors/${ALICE}/inbox`, "/ap/inbox", `/ap/actors/${ALICE}/followers`, `/ap/actors/${ALICE}/outbox`, "/ap/objects/1"]) {
+  for (const path of [`/ap/actors/${ALICE}/outbox`, `/ap/actors/${ALICE}/following`, "/ap/objects/1"]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { headers: { accept: AS2 } }));
     assert.equal(response.status, 404, path);
   }
@@ -240,9 +241,9 @@ Deno.test("each answer has the marker header, and it shows no instance data", as
   assert.match(sidecar.marker, /^[0-9a-f-]{36}$/);
 });
 
-Deno.test("a method that is not GET or HEAD gets 405 on each federation path", async () => {
+Deno.test("a method that is not GET or HEAD gets 405 on each federation path that is not an inbox", async () => {
   const { sidecar, fake } = setup();
-  for (const [method, path] of [["POST", `/ap/actors/${ALICE}`], ["PUT", `/ap/actors/${ALICE}`], ["DELETE", "/ap/actors/instance"], ["POST", `/ap/actors/${ALICE}/inbox`], ["POST", "/ap/inbox"], ["POST", "/.well-known/webfinger"]]) {
+  for (const [method, path] of [["POST", `/ap/actors/${ALICE}`], ["PUT", `/ap/actors/${ALICE}`], ["DELETE", "/ap/actors/instance"], ["POST", `/ap/actors/${ALICE}/followers`], ["POST", `/ap/actors/${ALICE}/outbox`], ["POST", "/.well-known/webfinger"]]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { method, headers: { accept: AS2, "content-type": AS2 }, body: method === "DELETE" ? undefined : "{}" }));
     assert.equal(response.status, 405, `${method} ${path}`);
     assert.equal(response.headers.get("allow"), "GET, HEAD");

@@ -6,7 +6,7 @@ This document tells what the code does now. The design document is a historical 
 
 ## 1. Scope and State
 
-Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is in progress: units FP2-1 and FP2-2 add the follower data and the internal endpoints of Claire. The sidecar does not use them until unit FP2-3.
+Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is in progress: units FP2-1 and FP2-2 add the follower data and the internal endpoints of Claire, and unit FP2-3 adds the public inboxes and the followers collection of the sidecar.
 
 | Function | State |
 | :--- | :--- |
@@ -16,11 +16,12 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Instance switch `federation`, readiness checks GF1 to GF7 | Implemented (API and CLI). There is no console screen. |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
-| Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented in Claire, with client functions in the sidecar (FP2-2). No public path uses them. |
-| Public inbox, public followers collection, management of followers and domain blocks | Not implemented (units FP2-3 and FP2-4). There is no API or screen that changes the domain blocks. The sidecar has read paths only: a method that is not `GET` or `HEAD` gets 405 on each federation path, and thus `POST /ap/actors/{public_id}/inbox` and `POST /ap/inbox` return 405. A `GET` of an inbox, followers, or outbox path returns 404. |
+| Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
+| Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
+| Management of followers and domain blocks (API and console) | Unit FP2-4 |
 | Outbox, published objects, publishing | Not implemented (phase FP3). The paths return 404. |
 
-Claire sends no activity to a remote server in FP1. The sidecar makes one type of outbound request: the public self-check to the public origin of this instance (Section 7.2).
+The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, and deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3). Claire publishes nothing before phase FP3.
 
 ## 2. Architecture
 
@@ -76,6 +77,9 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 | `GET` | `/nodeinfo/2.1` | `software.name` `claire-bible`, `software.version`, `protocols` `["activitypub"]`, `openRegistrations` `false`, `usage.users.total` = number of federation actors, `localPosts` 0, `localComments` 0 |
 | `GET` | `/ap/actors/{public_id}` | Actor document of type `Person` |
 | `GET` | `/ap/actors/instance` | Instance actor of type `Application` |
+| `POST` | `/ap/actors/{public_id}/inbox` | Personal inbox (Section 4.3) |
+| `POST` | `/ap/inbox` | Shared inbox (Section 4.3) |
+| `GET` | `/ap/actors/{public_id}/followers` | `OrderedCollection` with `totalItems` and no follower |
 
 Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 
@@ -101,8 +105,8 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | `published` | `accounts.activated_at`. The sidecar sets no value when the account has no activation time. |
 | `manuallyApprovesFollowers` | `false` |
 
-- The document has no `outbox`, `followers`, `following`, `summary`, or `icon` property.
-- The `inbox` and `sharedInbox` URLs are in the document, but those paths return 404 until phase FP2.
+- `followers` is `{actor ID}/followers`.
+- The document has no `outbox`, `following`, `summary`, or `icon` property.
 - The document has no email address, no external identity value, no instance role, and no internal `accounts.id`.
 
 ### 4.2 Instance Actor
@@ -111,6 +115,33 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 - The WebFinger handle is `acct:claire@{handle_host}`. `claire` is in `RESERVED_USERNAMES`, so no account can have this USERNAME.
 - The instance actor has its own key pairs (`actor_keys.account_id` 0).
 - Claire has no actor record for `instance`: `GET /internal/federation/v1/actors/instance` returns 404. The sidecar makes the document from `config` and the keys.
+
+### 4.3 Inboxes and the Followers Collection (Unit FP2-3)
+
+Answer of an inbox path, in this sequence:
+
+| Condition | Answer |
+| :--- | :--- |
+| The method is not `POST` | 405 with `Allow: POST` |
+| The internal API is not available | 503 with `Retry-After: 5` |
+| Federation is not active | 404 |
+| The body is larger than `limits.inbox_body_bytes` of `config` (1048576) | 413. The sidecar stops the read at the limit. |
+| The account of a personal inbox is not an actor | 404 |
+| Fedify cannot verify the signature | 401 |
+| The host of the `actor` of the activity is a blocked domain | 403. This answer comes only after a valid signature. |
+| All other conditions | 202 |
+
+- Fedify verifies the activity (HTTP Signatures, Linked Data Signatures, or Object Integrity Proofs) and fetches the key of the remote actor. That fetch is signed: with the key of the recipient for a personal inbox, and with the key of the instance actor for the shared inbox.
+- With the queue of `data/fedify/fedify.db`, Fedify gives 202 and then runs the listener from the inbox queue. If the listener fails (for example, the internal API is not available), Fedify tries again. The sidecar never accepts an activity on behalf of Claire.
+- One listener gets all activity types. It makes the event of Section 5.7 and sends it to `POST /inbox-events`. Claire decides: the sidecar has no list of the v1 types.
+- Event fields: `object_type` has a value only for an `Undo` (the type of the activity that is undone). `recipient_public_id` is null for the shared inbox and for the inbox of the instance actor. `verified_by` names the strongest mechanism that the activity has (`proof`, then `signature`, then the HTTP signature); the sidecar cannot see which mechanism Fedify used.
+- `accepted` with `reply` `accept` for a `Follow`: the sidecar sends `Accept` to the inbox of the remote actor, signed with the key of the actor that was followed. The `Accept` ID is `{actor ID}#accepts/{hash of the Follow ID}`. The object is the `Follow` with IDs only.
+- `rejected` for a `Follow`: the sidecar sends `Reject` only for the reason `recipient_mismatch` and only when the actor that was followed has a key. For the other reasons there is no key to sign with (the account is not an actor, federation is off), or a delivery is not permitted (blocked domain, address that is not permitted).
+- The sidecar drops an activity without a call to Claire when: the actor host is blocked; the activity has no ID or no actor; or the document of the remote actor has no inbox or cannot be read. A `Delete` of an actor whose document is gone is in this group.
+- Blocked domains: the sidecar keeps the list of `/domain-blocks` in memory and reads it again when `domain_blocks_etag` in `config` changes (`config` stays 5 seconds in memory). The subdomain rule is the same as in Claire (Section 5.6). Claire makes the final check for each event.
+- Fedify does not run the listener two times for the same activity ID in the same inbox. Thus a `Follow` that comes again with the same ID gets no second `Accept`.
+- Counters: `Sidecar.counters` has the number of activities by result (`accepted`, `rejected`, `ignored`, `blocked`, `dropped`) since the start of the process. The sidecar writes one log line for each result that is not `accepted`. The counters do not go to Claire.
+- Followers collection: a public read gets `totalItems` from Claire and an empty item list. The delivery code (phase FP3) reads all pages of `/actors/{public_id}/followers` through `Sidecar.followerRecipients`.
 
 ## 5. Internal Federation API
 
@@ -425,6 +456,7 @@ The repository has no reverse proxy configuration. The operator configures the p
 - Do not send the prefix `/.well-known/` to the sidecar. `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` must stay on Claire. GF7 examines this.
 - Wrong rules fail closed: Claire returns 404 for the federation paths, and the sidecar returns 404 for the paths of Claire. GF6 and GF7 show the two directions.
 - The rules apply to the app host only (`CLAIRE_FQDN`).
+- The inbox paths get `POST` requests from remote servers. The proxy must send the body and the headers `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, and `Host` without a change. The `Host` value must be the app host, because the signature includes it.
 - The sidecar has no request rate limit. A rate limit is a function of the reverse proxy.
 
 ## 11. Security Notes
@@ -452,9 +484,13 @@ These statements are true for the code now.
 7. `actor_keys` rows are not deleted at purge. `delete_actor_keys` exists but no code calls it.
 8. The sidecar does not use `trusted_proxies`. It removes all `X-Forwarded-*` headers.
 9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
-10. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
-11. The follower page has 80 items at most. A delivery to many followers (phase FP3) needs one request for each page.
-12. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
+10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
+11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
+12. The inbox counters of the sidecar are in memory only. Claire does not get them.
+13. A development instance on a private address cannot follow: Fedify refuses private and loopback addresses for the key fetch (FS1).
+14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
+15. The follower page has 80 items at most. A delivery to many followers (phase FP3) needs one request for each page.
+16. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
 
 ## 13. Differences from the Design
 
@@ -465,7 +501,9 @@ These statements are true for the code now.
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
 | `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 404 only in FP1 |
 | The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
-| Actor document has `outbox` and `followers` (§5.2) | Not in the document in FP1 |
+| Actor document has `outbox` and `followers` (§5.2) | `followers` is in the document (FP2-3). `outbox` is not. |
+| `rejected`: the sidecar sends `Reject` for a `Follow` (§6.3) | Only for the reason `recipient_mismatch` (Section 4.3) |
+| An `ignored` activity increments a telemetry counter (§6.3) | A counter in the memory of the sidecar and a log line |
 | `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). The tables of FP3 come with unit FP3-1. |
 | The inbox event has `event_id`, `type`, `recipient_public_id`, `actor`, `object_iri`, `verified_by` (§6.3) | The event also has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision also has `reason`. |
 | `rejected` is for a blocked domain or a recipient that is not an actor (§6.3) | Also for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` |
@@ -483,7 +521,8 @@ These statements are true for the code now.
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
-| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, and the self-check while federation is off |
+| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, and the inbox answers 405, 401, 413, and 404; and the self-check while federation is off |
+| `sidecar/fedify/tests/inbox_test.ts` | Signed `Follow` to `Accept` with a signature check of the delivery, 401, 403 for a blocked domain, block list in memory, event fields against the fixtures, `Reject` rule, internal API failure, body limit, followers collection |
 | `sidecar/fedify/tests/` | Internal API client, public paths, discovery end-to-end with a signed fetch |
 
 ```bash
