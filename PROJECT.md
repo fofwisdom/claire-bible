@@ -62,7 +62,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 | FP2-3 | COMPLETED (2026-11-11) | `db9a524c` |
 | FP2-4 | COMPLETED (2026-11-11) | `1774f8d1` |
 | FP2-5 | COMPLETED (2026-11-11) | `c3cd5d1b` |
-| FP3-1 | PLANNED | |
+| FP3-1 | COMPLETED (2026-11-11) | `abaf0988` |
 | FP3-2 | PLANNED | |
 | FP3-3 | PLANNED | |
 | FP3-4 | PLANNED | |
@@ -70,7 +70,7 @@ The design divides each phase into work units (Section 14.4 of the design). The 
 
 Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. The per-account features project used version 4 after the design was written.
 
-Difference from the design: `claire.db` version 17 has the three tables of phase FP2 only (unit FP2-1). The tables `federation_objects` and `federation_outbox` come with unit FP3-1 in a later version, together with the code that uses them.
+Difference from the design: `claire.db` version 17 has the three tables of phase FP2 only (unit FP2-1). The tables `federation_objects` and `federation_outbox` are in version 18 (unit FP3-1), together with the code that uses them.
 
 Difference from the design: the end-to-end test of phase FP2 (unit FP2-5) has the remote server in the test process, not in a second development instance. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1).
 
