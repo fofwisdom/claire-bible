@@ -182,6 +182,26 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
             auth.close()
         assert (2, "ed25519") in owners and (2, "rsa2048") in owners
 
+        # Outbox poller of the process (unit FP3-3): the sidecar takes a ready task and acknowledges it. The actor has no follower at this time, so no delivery starts.
+        conn = dbm.connect_existing(data_dir / "claire.db")
+        try:
+            polled_task = federation_store.add_outbox_task(conn, account_id=accounts_store.AccountStore(conn).find_by_username("alice").id, kind="delete", object_public_id=816412345678901239, now=time.time())
+            conn.commit()
+        finally:
+            conn.close()
+        deadline = time.monotonic() + 60
+        while True:
+            conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
+            try:
+                polled_status = federation_store.get_outbox_task(conn, polled_task.id).status
+            finally:
+                conn.close()
+            if polled_status == "handed_off":
+                break
+            assert sidecar.poll() is None, sidecar.stdout.read()
+            assert time.monotonic() < deadline, f"the sidecar did not take the outbox task: {polled_status}"
+            time.sleep(0.5)
+
         instance = httpx.get(f"{base}/ap/actors/instance", headers={"Accept": "application/activity+json"}, timeout=10)
         assert instance.status_code == 200 and instance.json()["type"] == "Application"
         nodeinfo = httpx.get(f"{base}/nodeinfo/2.1", timeout=10).json()
@@ -413,6 +433,92 @@ def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
         finally:
             conn.close()
         assert rows == [(alice, "https://remote.example/users/dan", "https://remote.example/users/dan/inbox", "https://remote.example/inbox")]
+    except BaseException:
+        print("claire output:", _stop(claire)[-3000:])
+        raise
+    finally:
+        _stop(claire)
+
+
+def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
+    """Unit FP3-3 end to end: a document that is published through the public API of a real Claire process arrives at a test inbox with a valid signature.
+
+    The sidecar code and the test inbox are in the Deno process (``sidecar/fedify/e2e/publish_e2e.ts``), for the same reason as in the follow test.
+    """
+    claire_port = _free_port()
+    data_dir = tmp_path / "data"
+    origin = f"http://127.0.0.1:{claire_port}"
+    env = _clean_env()
+    env.update(
+        CLAIRE_APP_ROOT=str(tmp_path),
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CB_DATA_DIR=str(data_dir),
+        CLAIRE_INJECT_HOST="127.0.0.1",
+        CLAIRE_INJECT_PORT=str(claire_port),
+        CLAIRE_FQDN=f"127.0.0.1:{claire_port}",
+        CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
+        CLAIRE_MULTI_THEME="1",
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    migrate = subprocess.run([sys.executable, "-m", "claire.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert migrate.returncode == 0, migrate.stdout + migrate.stderr
+    theme_number = 516412345678901234
+    conn = dbm.connect_existing(data_dir / "claire.db")
+    try:
+        store = accounts_store.AccountStore(conn)
+        store.complete_setup(1, username="admin_kim", display_name="Admin Kim")
+        store.set_setting("mode", "network", updated_by=1)
+        store.set_federation_state("on", updated_by=1)
+        conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
+        alice = store.find_by_username("alice").id
+        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
+        for doc_id, title in (("doc-1", "First Post"), ("doc-2", "Second Post")):
+            conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>"))
+        federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
+        for host in ("remote.example", "blocked.example"):
+            federation_store.upsert_follower(conn, account_id=alice, actor_iri=f"https://{host}/users/bob", inbox_iri=f"https://{host}/users/bob/inbox", shared_inbox_iri=f"https://{host}/inbox", salt=store.id_salt(), now=time.time())
+        conn.commit()
+        session = accounts_store.create_account_session(conn, account_id=alice, scope="owner", now=time.time())
+    finally:
+        conn.close()
+
+    sock_path = federation_socket_path(data_dir)
+    claire = subprocess.Popen([sys.executable, "-m", "claire.cli", "serve-api"], cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        deadline = time.monotonic() + 60
+        while True:
+            assert claire.poll() is None, claire.stdout.read()
+            try:
+                if httpx.get(f"{origin}/health", timeout=2).status_code == 200 and sock_path.exists():
+                    break
+            except httpx.HTTPError:
+                pass
+            assert time.monotonic() < deadline, "serve-api did not start in time"
+            time.sleep(0.2)
+
+        def public(path: str, body: dict) -> httpx.Response:
+            return httpx.post(f"{origin}{path}", json=body, headers={"Cookie": f"claire_session={session}", "Origin": origin}, timeout=10)
+
+        first = public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-1"})
+        second = public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-2"})
+        assert (first.status_code, second.status_code) == (202, 202), first.text + second.text
+        object_id, gone_id = first.json()["object"]["id"], second.json()["object"]["id"]
+        assert public("/api/federation/retract", {"object_id": gone_id}).status_code == 202
+
+        deno_env = {**_clean_env(), "CLAIRE_FEDIFY_SOCKET": str(sock_path), "CLAIRE_FEDIFY_SERVICE_KEY_FILE": str(service_key_path(data_dir)), "E2E_ACTOR": str(ALICE_PUBLIC_ID), "E2E_OBJECT": object_id, "E2E_GONE": gone_id}
+        command = [DENO, "test", "--frozen", f"--allow-net=claire.internal:80,unix:{sock_path}", "--allow-env", f"--allow-read={SIDECAR_DIR},{data_dir}", f"--allow-write={sock_path}", "e2e/publish_e2e.ts"]
+        run = subprocess.run(command, cwd=SIDECAR_DIR, env=deno_env, capture_output=True, text=True, timeout=300)
+        assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-4000:]
+
+        # The canonical record of the handoff is in Claire.
+        conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
+        try:
+            rows = [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status, error_code FROM federation_outbox ORDER BY id")]
+        finally:
+            conn.close()
+        assert rows == [("create", int(object_id), "handed_off", None), ("create", int(gone_id), "rejected", "object_gone"), ("delete", int(gone_id), "handed_off", None)]
     except BaseException:
         print("claire output:", _stop(claire)[-3000:])
         raise

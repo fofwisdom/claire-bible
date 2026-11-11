@@ -14,10 +14,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
-import { publicSelfCheck, Sidecar } from "./sidecar.ts";
+import { OUTBOX_TASK_BATCH, publicSelfCheck, Sidecar } from "./sidecar.ts";
 
 export const SIDECAR_VERSION = "0.1.0";
 const HEARTBEAT_SECONDS = 30;
+// The interval between two reads of the outbox tasks of Claire (design Section 9.3).
+const OUTBOX_POLL_SECONDS = 5;
 
 function env(name: string, fallback: string): string {
   return Deno.env.get(name) || fallback;
@@ -65,6 +67,23 @@ if (import.meta.main) {
   };
   beat();
   setInterval(beat, HEARTBEAT_SECONDS * 1000);
+
+  // One poll at a time. An error (for example: Claire is not available) stops this poll only.
+  let polling = false;
+  const poll = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      // A full batch can mean that more tasks are ready.
+      while ((await sidecar.processOutboxTasks()) >= OUTBOX_TASK_BATCH);
+    } catch (error) {
+      console.error(`outbox poll failed: ${(error as Error).name}: ${(error as Error).message}`);
+    } finally {
+      polling = false;
+    }
+  };
+  poll();
+  setInterval(poll, OUTBOX_POLL_SECONDS * 1000);
 
   Deno.serve({ hostname: env("CLAIRE_FEDIFY_HOST", "0.0.0.0"), port: Number(env("CLAIRE_FEDIFY_PORT", "8790")) }, (request) => sidecar.handle(request));
 }

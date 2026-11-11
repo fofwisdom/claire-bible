@@ -1,4 +1,4 @@
-// Public federation surface of the sidecar: WebFinger, NodeInfo, actor documents, the instance actor (phase FP1), inboxes, and the followers collection (unit FP2-3) (design Section 5).
+// Public federation surface of the sidecar: WebFinger, NodeInfo, actor documents, the instance actor (phase FP1), inboxes, the followers collection (unit FP2-3), published objects, the outbox collection, and the handoff of outbox tasks (unit FP3-3) (design Sections 5 and 9).
 //
 // Rules of this module:
 // - Claire is canonical. Each request reads account data through the internal API. The sidecar stores no account data.
@@ -11,11 +11,14 @@
 // - Cookie and Authorization headers are removed before a request gets to Fedify. A response never sets a cookie.
 // - When federation is off or the mode is single, each path returns the same 404.
 // - The option that permits private network addresses is never set (design Section 13, FS1). A test reads this directory to make sure.
-// - The outbox and the object paths come in phase FP3. Until then those paths return 404.
+// - A published object is an Article. Claire supplies its canonical form and decides if it is public. A deleted object gets 410 with a Tombstone.
+// - The outbox collection has one Create for each public object. The item refers to the object by its ID.
+// - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
+// - A delivery does not go to a follower on a blocked domain.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
-import { Accept, Activity, Application, Endpoints, Follow, getTypeId, Person, type Recipient, Reject, Undo } from "@fedify/fedify/vocab";
-import { type ActorRecord, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi } from "./internal_api.ts";
+import { Accept, Activity, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
+import { type ActorRecord, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask } from "./internal_api.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -25,10 +28,16 @@ export const SIDECAR_HEADER = "x-claire-fedify-instance";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox)$/;
+const OBJECT_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
 const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
 // The largest page of the internal followers endpoint.
 const FOLLOWERS_PAGE_SIZE = 80;
+// The number of objects in one page of the public outbox collection.
+export const OUTBOX_PAGE_SIZE = 20;
+// The number of outbox tasks that one poll takes.
+export const OUTBOX_TASK_BATCH = 10;
+const AS2_CONTEXT = "https://www.w3.org/ns/activitystreams";
 const REMOVED_REQUEST_HEADERS = ["cookie", "authorization", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port"];
 
 export interface SidecarOptions {
@@ -46,6 +55,18 @@ export interface InboxCounters {
   ignored: number;
   blocked: number;
   dropped: number;
+}
+
+// Numbers of outbox tasks since the start of this process, by result. failed: an error occurred, there was no acknowledgement, and Claire gives the task again after the lease. skipped: a task kind that this version does not send.
+export interface OutboxCounters {
+  handed_off: number;
+  rejected: number;
+  failed: number;
+  skipped: number;
+}
+
+function instant(seconds: number): Temporal.Instant {
+  return Temporal.Instant.fromEpochMilliseconds(Math.round(seconds * 1000));
 }
 
 function text(status: number, body: string, headers: Record<string, string> = {}): Response {
@@ -101,6 +122,9 @@ export class Sidecar {
   readonly #keys = new Map<string, { pairs: CryptoKeyPair[]; expires: number }>();
   #blocks: { etag: string; domains: Set<string> } | null = null;
   readonly counters: InboxCounters = { accepted: 0, rejected: 0, ignored: 0, blocked: 0, dropped: 0 };
+  readonly outboxCounters: OutboxCounters = { handed_off: 0, rejected: 0, failed: 0, skipped: 0 };
+  // Deleted objects that the object dispatcher found, with the time of removal. The answer code reads the entry and removes it.
+  readonly #gone = new Map<string, number>();
 
   constructor(options: SidecarOptions) {
     this.#api = options.api;
@@ -181,6 +205,16 @@ export class Sidecar {
       await response.body?.cancel();
       return text(403, "Forbidden");
     }
+    const objectId = OBJECT_PATH.exec(path)?.[1];
+    if (objectId !== undefined) {
+      const goneAt = this.#gone.get(objectId);
+      this.#gone.delete(objectId);
+      if (response.status === 404 && goneAt !== undefined) {
+        await response.body?.cancel();
+        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: "Article", deleted: instant(goneAt).toString() };
+        return new Response(JSON.stringify(tombstone), { status: 410, headers: { "content-type": "application/activity+json" } });
+      }
+    }
     return response;
   }
 
@@ -213,6 +247,82 @@ export class Sidecar {
       maxId = page.next_max_id;
     }
     return recipients;
+  }
+
+  // The followers of an actor that can get a delivery: a follower with an actor, an inbox, or a shared inbox on a blocked domain is not in the list.
+  async deliveryRecipients(identifier: string): Promise<Recipient[]> {
+    const recipients: Recipient[] = [];
+    for (const recipient of await this.followerRecipients(identifier)) {
+      const hosts = [recipient.id, recipient.inboxId, recipient.endpoints?.sharedInbox ?? null].filter((url) => url !== null).map((url) => url.hostname);
+      let blocked = false;
+      for (const host of hosts) blocked ||= await this.isBlocked(host);
+      if (!blocked) recipients.push(recipient);
+    }
+    return recipients;
+  }
+
+  #article(ctx: Context<void>, record: ObjectRecord): Article {
+    return new Article({
+      id: ctx.getObjectUri(Article, { id: record.public_id }),
+      attribution: ctx.getActorUri(record.actor_public_id),
+      name: record.name,
+      content: record.content,
+      url: record.url === null ? null : new URL(record.url),
+      published: instant(record.published_at),
+      updated: instant(record.updated_at),
+      to: PUBLIC_COLLECTION,
+      cc: ctx.getFollowersUri(record.actor_public_id),
+    });
+  }
+
+  // Takes the ready outbox tasks from Claire and gives each one to Fedify as an activity (design Section 9.3). Returns the number of tasks that Claire gave.
+  // An error in one task does not stop the other tasks. A task without an acknowledgement comes again after its lease.
+  async processOutboxTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const tasks = await this.#api.outboxTasks(limit);
+    if (tasks.length === 0) return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    for (const task of tasks) {
+      try {
+        this.outboxCounters[await this.#handOff(ctx, task)] += 1;
+      } catch (error) {
+        this.outboxCounters.failed += 1;
+        console.error(`outbox task ${task.id} (${task.kind}) failed: ${(error as Error).name}: ${(error as Error).message}`);
+      }
+    }
+    return tasks.length;
+  }
+
+  async #handOff(ctx: Context<void>, task: OutboxTask): Promise<"handed_off" | "rejected" | "skipped"> {
+    // The actor tasks come in unit FP3-4. This version leaves them with Claire.
+    if ((task.kind !== "create" && task.kind !== "update" && task.kind !== "delete") || task.object_public_id === null) return "skipped";
+    const reject = async (code: string): Promise<"rejected"> => {
+      console.warn(`outbox task ${task.id} (${task.kind}) rejected: ${code}`);
+      await this.#api.ackOutboxTask(task.id, "rejected", code);
+      return "rejected";
+    };
+    const actor = ctx.getActorUri(task.actor_public_id);
+    const objectUri = ctx.getObjectUri(Article, { id: task.object_public_id });
+    const audience = { actor, to: PUBLIC_COLLECTION, cc: ctx.getFollowersUri(task.actor_public_id) };
+    let activity: Activity;
+    if (task.kind === "delete") {
+      activity = new Delete({ id: new URL("#delete", objectUri), object: new Tombstone({ id: objectUri }), ...audience });
+    } else {
+      const result = await this.#api.object(task.object_public_id);
+      if (result === null) return await reject("object_not_found");
+      if (result.state === "gone") return await reject("object_gone");
+      const record = result.record;
+      if (record.actor_public_id !== task.actor_public_id) return await reject("actor_mismatch");
+      const article = this.#article(ctx, record);
+      // The ID of an Update has the time of the change: each change is one activity, and a second handoff of the same change is the same activity.
+      activity = task.kind === "create" ? new Create({ id: new URL("#create", objectUri), object: article, published: instant(record.published_at), ...audience }) : new Update({ id: new URL(`#updates/${Math.round(record.updated_at * 1000)}`, objectUri), object: article, published: instant(record.updated_at), ...audience });
+    }
+    const recipients = await this.deliveryRecipients(task.actor_public_id);
+    // The ordering key keeps the Create, the Update, and the Delete of one object in sequence for each remote server.
+    if (recipients.length > 0) await ctx.sendActivity({ identifier: task.actor_public_id }, recipients, activity, { preferSharedInbox: true, orderingKey: objectUri.href });
+    await this.#api.ackOutboxTask(task.id, "handed_off");
+    return "handed_off";
   }
 
   // One verified inbound activity: makes the event, gets the decision of Claire, and sends the reply (design Section 6.3).
@@ -340,6 +450,7 @@ export class Sidecar {
           name: record.display_name,
           url: new URL(record.profile_url),
           inbox: inbox(identifier),
+          outbox: ctx.getOutboxUri(identifier),
           followers: ctx.getFollowersUri(identifier),
           endpoints: new Endpoints({ sharedInbox }),
           publicKey: keys[0]?.cryptographicKey,
@@ -372,6 +483,37 @@ export class Sidecar {
       .setCounter(async (_ctx, identifier) => {
         if (!PUBLIC_ID.test(identifier)) return null;
         return (await this.#api.followers(identifier, { limit: 1 }))?.total ?? null;
+      });
+
+    federation.setObjectDispatcher(Article, "/ap/objects/{id}", async (ctx, values) => {
+      if (!PUBLIC_ID.test(values.id)) return null;
+      const result = await this.#api.object(values.id);
+      if (result === null) return null;
+      if (result.state === "gone") {
+        this.#gone.set(values.id, result.gone_at);
+        return null;
+      }
+      return this.#article(ctx, result.record);
+    });
+
+    federation
+      .setOutboxDispatcher("/ap/actors/{identifier}/outbox", async (ctx, identifier, cursor) => {
+        // The cursor is the empty string for the first page, or the ID of the last object of the page before.
+        if (!PUBLIC_ID.test(identifier) || (cursor !== null && cursor !== "" && !PUBLIC_ID.test(cursor))) return null;
+        const page = await this.#api.actorOutbox(identifier, { limit: OUTBOX_PAGE_SIZE, maxId: cursor || undefined });
+        if (page === null) return null;
+        const audience = { actor: ctx.getActorUri(identifier), to: PUBLIC_COLLECTION, cc: ctx.getFollowersUri(identifier) };
+        const items = page.items.map((item) => {
+          const objectUri = ctx.getObjectUri(Article, { id: item.id });
+          return new Create({ id: new URL("#create", objectUri), object: objectUri, published: instant(item.published_at), ...audience });
+        });
+        return { items, nextCursor: page.next_max_id };
+      })
+      // An account that is not an actor has no first page. Then Fedify asks the dispatcher for the full collection, and the dispatcher gives 404.
+      .setFirstCursor(async (_ctx, identifier) => PUBLIC_ID.test(identifier) && (await this.#api.actorOutbox(identifier, { limit: 1 })) !== null ? "" : null)
+      .setCounter(async (_ctx, identifier) => {
+        if (!PUBLIC_ID.test(identifier)) return null;
+        return (await this.#api.actorOutbox(identifier, { limit: 1 }))?.total ?? null;
       });
 
     federation.setNodeInfoDispatcher("/nodeinfo/2.1", async () => {

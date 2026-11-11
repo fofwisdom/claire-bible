@@ -68,8 +68,9 @@ Deno.test("a handle resolves to an actor document with the canonical origin", as
   const assertion = ([doc.assertionMethod].flat() as Record<string, unknown>[]);
   assert.ok(assertion.some((m) => m.controller === ALICE_URL && String(m.publicKeyMultibase).startsWith("z6Mk")), "Ed25519 multikey");
   assert.equal(doc.followers, `${ALICE_URL}/followers`);
-  // Collections of later phases and fields that the account does not have are not in the document.
-  for (const field of ["outbox", "following", "summary", "icon"]) assert.ok(!(field in doc), field);
+  assert.equal(doc.outbox, `${ALICE_URL}/outbox`);
+  // Collections that v1 does not have and fields that the account does not have are not in the document.
+  for (const field of ["following", "summary", "icon"]) assert.ok(!(field in doc), field);
   assert.ok(!bodies.join("").includes("127.0.0.1"), "the request host is not in an answer");
 });
 
@@ -142,13 +143,13 @@ Deno.test("all paths are 404 when federation is off or the mode is single", asyn
   }
 });
 
-Deno.test("paths of Claire and paths of later phases are 404 without a call to Claire", async () => {
+Deno.test("paths of Claire are 404 without a call to Claire, and paths that v1 does not have are 404", async () => {
   const { sidecar, fake } = setup();
   for (const path of ["/", "/api/me", "/@alice/", "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/", "/nodeinfo/2.0", "/ap", "/internal/federation/v1/config"]) {
     assert.equal((await sidecar.handle(new Request(`${LISTEN}${path}`))).status, 404, path);
   }
   assert.deepEqual(fake.calls, []);
-  for (const path of [`/ap/actors/${ALICE}/outbox`, `/ap/actors/${ALICE}/following`, "/ap/objects/1"]) {
+  for (const path of [`/ap/actors/${ALICE}/following`, "/ap/objects/1", "/ap/objects/x", "/ap/objects/1/replies"]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { headers: { accept: AS2 } }));
     assert.equal(response.status, 404, path);
   }

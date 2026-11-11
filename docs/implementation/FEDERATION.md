@@ -20,10 +20,11 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Public inboxes, `Accept(Follow)`, public followers collection, blocked domains in the sidecar (Section 4.3) | Implemented (FP2-3) |
 | Management of followers and domain blocks: API and console sections `/settings/federation` and `/admin/federation` (Section 7.5) | Implemented (FP2-4) |
 | `claire.db` version 18: published objects and the outbox; routes `POST /api/federation/publish` and `POST /api/federation/retract` (Section 7.6) | Implemented (FP3-1) |
-| Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2). The sidecar does not take tasks before unit FP3-3. |
-| Delivery of published objects, public outbox and object paths of the sidecar | Not implemented (units FP3-3 to FP3-5). The public paths return 404. A published document stays a `pending` task. |
+| Internal federation API: `outbox-tasks`, task acknowledgement, `objects`, `actors/{public_id}/outbox` (Section 5.8) | Implemented in Claire, with client functions in the sidecar (FP3-2) |
+| Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
+| Actor tasks (`update_actor`, `delete_actor`), privacy triggers, native actor in the `/syndication` dialog, recovery command | Not implemented (units FP3-4 and FP3-5). The sidecar leaves an actor task with Claire. |
 
-The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, and deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3). Claire publishes nothing before phase FP3.
+The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
 ## 2. Architecture
 
@@ -82,6 +83,8 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 | `POST` | `/ap/actors/{public_id}/inbox` | Personal inbox (Section 4.3) |
 | `POST` | `/ap/inbox` | Shared inbox (Section 4.3) |
 | `GET` | `/ap/actors/{public_id}/followers` | `OrderedCollection` with `totalItems` and no follower |
+| `GET` | `/ap/actors/{public_id}/outbox` | `OrderedCollection` of the public objects, in pages (Section 4.4) |
+| `GET` | `/ap/objects/{object_public_id}` | Published object of type `Article`, or 410 with a `Tombstone` (Section 4.4) |
 
 Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 
@@ -143,7 +146,39 @@ Answer of an inbox path, in this sequence:
 - Blocked domains: the sidecar keeps the list of `/domain-blocks` in memory and reads it again when `domain_blocks_etag` in `config` changes (`config` stays 5 seconds in memory). The subdomain rule is the same as in Claire (Section 5.6). Claire makes the final check for each event.
 - Fedify does not run the listener two times for the same activity ID in the same inbox. Thus a `Follow` that comes again with the same ID gets no second `Accept`.
 - Counters: `Sidecar.counters` has the number of activities by result (`accepted`, `rejected`, `ignored`, `blocked`, `dropped`) since the start of the process. The sidecar writes one log line for each result that is not `accepted`. The counters do not go to Claire.
-- Followers collection: a public read gets `totalItems` from Claire and an empty item list. The delivery code (phase FP3) reads all pages of `/actors/{public_id}/followers` through `Sidecar.followerRecipients`.
+- Followers collection: a public read gets `totalItems` from Claire and an empty item list. The delivery code (Section 4.4) reads all pages of `/actors/{public_id}/followers` through `Sidecar.followerRecipients`.
+
+### 4.4 Publishing: Task Poller, Objects, and the Outbox Collection (Unit FP3-3)
+
+**Task poller.** `sidecar/fedify/src/main.ts` calls `Sidecar.processOutboxTasks` each 5 seconds. One call takes 10 tasks at most from `GET /outbox-tasks`. When a call gets 10 tasks, the next call follows immediately. Only one poll runs at a time. No task is taken while federation is not active.
+
+| Task | Activity | Activity ID |
+| :--- | :--- | :--- |
+| `create` | `Create` with the `Article` | `{object ID}#create` |
+| `update` | `Update` with the `Article` | `{object ID}#updates/{updated_at in milliseconds}` |
+| `delete` | `Delete` with a `Tombstone` that has the object ID | `{object ID}#delete` |
+| `update_actor`, `delete_actor` | None in this unit. The sidecar sends no acknowledgement, and Claire gives the task again after its lease (unit FP3-4). | |
+
+- The object ID is `{origin}/ap/objects/{object_public_id}`. The activity IDs have no random part and no task number. Thus a second handoff of the same task makes the same activity, and a remote server that has the activity makes no second object (design Section 9.3).
+- For `create` and `update` the sidecar reads `/objects/{id}`. For `delete` it reads nothing.
+- `Article` fields: `id`, `attributedTo` (the actor ID), `name`, `content`, `url`, `published`, `updated`, `to` (the public collection), and `cc` (the followers collection of the actor). The activity has the same `actor`, `to`, and `cc`. There are no tags and no attachments (design Section 9.1).
+- Recipients: all followers of the actor (`Sidecar.deliveryRecipients`). A follower whose actor, inbox, or shared inbox is on a blocked domain gets no delivery. A shared inbox gets one delivery for all its followers.
+- The sidecar gives the activity to Fedify (`sendActivity`), signed with the key of the actor, and then sends the acknowledgement `handed_off`. With the queue of `data/fedify/fedify.db`, Fedify delivers from the queue and tries again after a failure. The ordering key of the queue is the object ID: the activities of one object go to a remote server in sequence.
+- An actor without followers that can get a delivery: the task is `handed_off` and nothing is sent.
+- `rejected` with an error code, and no delivery: `object_gone` (the object was retracted before the handoff: its `delete` task follows), `object_not_found` (Claire does not show the object, for example the theme is private now), `actor_mismatch` (the object is of a different actor).
+- An error in one task (the internal API or the followers are not available, the actor has no key) gives no acknowledgement for that task and does not stop the other tasks. Claire gives the task again after its lease.
+- Counters: `Sidecar.outboxCounters` has the number of tasks by result (`handed_off`, `rejected`, `failed`, `skipped`) since the start of the process. The counters do not go to Claire.
+
+**Object path.** `GET /ap/objects/{object_public_id}`:
+
+| Condition | Answer |
+| :--- | :--- |
+| Claire gives the record | 200 with the `Article`, the same form as in the delivery |
+| Claire gives 410 | 410 with `{"@context", "id", "type": "Tombstone", "formerType": "Article", "deleted"}` and the content type `application/activity+json` |
+| All other conditions | 404, the same body as for all 404 answers |
+| The `Accept` header does not permit an ActivityPub format | 406 |
+
+**Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article`: a reader gets it from the object path. The collection has the objects of public themes only (Section 5.8). An account that is not an actor, and the instance actor, get 404.
 
 ## 5. Internal Federation API
 
@@ -442,7 +477,7 @@ The routes need `collaborator` access or more, in network mode only (`ROUTE_POLI
 - The first publish of a document makes the `federation_objects` row and a `create` task. A later publish changes `updated_at` and makes an `update` task. The object ID stays.
 - The object row and the task row are in one transaction. If the task insert fails, the object row is not stored.
 - Before that transaction the route makes sure that the document has a share page (`doc_shares`). That page is the public page of the document.
-- `object.url` is `{origin}/ap/objects/{id}`. The sidecar does not serve that path before unit FP3-3.
+- `object.url` is `{origin}/ap/objects/{id}`. The sidecar serves that path (Section 4.4).
 - The account of the task and `published_by_account_id` are the account of the caller. No function has a default account (`tests/test_federation_publish.py` reads the federation modules for this).
 
 `POST /api/federation/retract` with the body `{"object_id": "<decimal>"}`:
@@ -592,8 +627,13 @@ These statements are true for the code now.
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
 13. A development instance on a private address cannot follow: Fedify refuses private and loopback addresses for the key fetch (FS1).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
-15. The follower page has 80 items at most. A delivery to many followers (phase FP3) needs one request for each page.
-16. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
+15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
+16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.
+17. A theme that changes to private makes no `Delete` task before unit FP3-4. The object path and the outbox stop immediately (Section 5.8), but remote servers keep their copy.
+18. An actor task (`update_actor`, `delete_actor`) that Claire gives stays `pending` and comes again each 300 seconds. No code makes such a task before unit FP3-4.
+19. A block of a domain after the handoff does not remove a delivery that is in the queue of the sidecar.
+20. The outbox collection has `Create` items only. It does not list `Update` and `Delete` activities.
+21. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
 
 ## 13. Differences from the Design
 
@@ -607,7 +647,8 @@ These statements are true for the code now.
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
 | `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 404 only in FP1 |
 | The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
-| Actor document has `outbox` and `followers` (§5.2) | `followers` is in the document (FP2-3). `outbox` is not. |
+| The outbox is a paged `OrderedCollection` of public objects (§5.1) | The items are `Create` activities that refer to the objects by ID |
+| A deleted object returns 410 with a `Tombstone` (§5.3) | The same. The `Tombstone` is plain JSON from the sidecar, not a Fedify object. |
 | `rejected`: the sidecar sends `Reject` for a `Follow` (§6.3) | Only for the reason `recipient_mismatch` (Section 4.3) |
 | An `ignored` activity increments a telemetry counter (§6.3) | A counter in the memory of the sidecar and a log line |
 | `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). Version 18 has the two tables of FP3 and one more index (`idx_federation_objects_account`). |
@@ -627,10 +668,12 @@ These statements are true for the code now.
 | `tests/test_federation_step_up.py` | Step-up rule, switch markup, alternate link, step-up dialog in a browser |
 | `tests/test_federation_readiness.py` | GF1 to GF7, admin API, CLI |
 | `tests/test_federation_compose.py` | Mounts, profile, user, Dockerfile flags, license table |
-| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, and the inbox answers 405, 401, 413, and 404; and the self-check while federation is off |
+| `tests/test_fedify_sidecar.py` | Runs the Deno tests, and two end-to-end runs with a real Claire process and a real sidecar process: discovery with the single-mode USERNAME check, the followers total, the inbox answers 405, 401, 413, and 404, and the outbox poller of the process; and the self-check while federation is off. Also the runs of the two files in `sidecar/fedify/e2e/`. |
 | `tests/test_federation_publish.py` | `claire.db` version 18 migration, lease and acknowledgement of outbox tasks, publish and retract rules, one transaction for the object and the task, no default account |
 | `tests/test_federation_console.py` | Status and actor state, follower pages, follower removal for the own account only, single mode, domain block guards and audit rows, the two console sections, and one end-to-end run in a browser |
 | `sidecar/fedify/e2e/follow_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Phase FP2 end to end: signed `Follow` through the sidecar code to a real Claire process, `Accept` with a signature check, shared inbox, blocked domain, `Undo(Follow)`, and the follower rows in `claire.db` |
+| `sidecar/fedify/e2e/publish_e2e.ts` (run by `tests/test_fedify_sidecar.py`) | Unit FP3-3 end to end: documents that were published and retracted through the public API of a real Claire process, the handoff through the sidecar code, `Create` and `Delete` at a test inbox with a signature check, no delivery to a blocked domain, the object path with 200 and 410, the outbox collection, and the task rows in `claire.db` |
+| `sidecar/fedify/tests/outbox_test.ts` | Task conversion to `Create`, `Update`, and `Delete`, signature check of the deliveries, stable IDs at a second handoff, rejected tasks, errors without an acknowledgement, blocked domains, object path, outbox collection |
 | `sidecar/fedify/tests/inbox_test.ts` | Signed `Follow` to `Accept` with a signature check of the delivery, 401, 403 for a blocked domain, block list in memory, event fields against the fixtures, `Reject` rule, internal API failure, body limit, followers collection |
 | `sidecar/fedify/tests/` | Internal API client, public paths, discovery end-to-end with a signed fetch |
 

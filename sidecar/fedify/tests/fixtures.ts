@@ -37,6 +37,8 @@ export interface FakeClaire {
   decision: Record<string, unknown> | null;
   // The bodies of the inbox events, in sequence.
   events: Record<string, unknown>[];
+  // The acknowledgements of outbox tasks, in sequence: "task ID result error code".
+  acks: string[];
 }
 
 // A transport that answers from the fixtures. It refuses a request with a bad signature, the same as Claire.
@@ -50,6 +52,7 @@ export function fakeClaire(): FakeClaire {
     overrides: new Map(),
     decision: null,
     events: [],
+    acks: [],
     transport: async (request) => {
       const url = new URL(request.url);
       const target = url.pathname + url.search;
@@ -63,6 +66,11 @@ export function fakeClaire(): FakeClaire {
       if (request.method === "POST" && target.endsWith("/inbox-events")) {
         fake.events.push(JSON.parse(text));
         if (fake.decision !== null) return Response.json(fake.decision);
+      }
+      const ack = /\/outbox-tasks\/([0-9]+)\/ack$/.exec(target);
+      if (request.method === "POST" && ack !== null) {
+        const sent = JSON.parse(text) as { result: string; error_code: string | null };
+        fake.acks.push(`${ack[1]} ${sent.result} ${sent.error_code}`);
       }
       const override = fake.overrides.get(`${request.method} ${target}`);
       if (override !== undefined) return Response.json(override.response, { status: override.status });
