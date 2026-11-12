@@ -1,0 +1,18 @@
+{
+  "common.action.save": "Save",
+  "common.action.cancel": "Cancel",
+  "common.action.logout": "Log out",
+  "common.status.loading": "Loading…",
+  "nav.topbar.graph": "← Knowledge Graph",
+  "nav.topbar.syndication": "📡 Syndication",
+  "nav.topbar.console": "⚙️ Settings & Admin Console",
+  "console.account.title": "👤 Account · Profile · Security",
+  "console.account.locale_label": "Interface language",
+  "console.account.locale_auto": "Automatic (browser / system)",
+  "console.reauth.title": "🔐 Step-up Authentication",
+  "console.reauth.desc": "Enter your current account password to continue (valid for 15 minutes).",
+  "bot.error.member_refusal": "This command is available only on the operator bot. Use web settings (/settings).",
+  "cli.preflight.header": "claire preflight",
+  "doc.count.one": "{count} document",
+  "doc.count.other": "{count} documents"
+}

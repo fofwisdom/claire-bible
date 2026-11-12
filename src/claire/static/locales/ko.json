@@ -1,0 +1,18 @@
+{
+  "common.action.save": "저장",
+  "common.action.cancel": "취소",
+  "common.action.logout": "로그아웃",
+  "common.status.loading": "불러오는 중…",
+  "nav.topbar.graph": "← 지식 그래프",
+  "nav.topbar.syndication": "📡 신디케이션",
+  "nav.topbar.console": "⚙️ 설정 및 관리 콘솔",
+  "console.account.title": "👤 계정 · 프로필 · 보안",
+  "console.account.locale_label": "인터페이스 언어",
+  "console.account.locale_auto": "자동 (브라우저 / 시스템)",
+  "console.reauth.title": "🔐 단계 인증",
+  "console.reauth.desc": "계속하려면 현재 계정 비밀번호를 입력하세요(15분 동안 유효).",
+  "bot.error.member_refusal": "이 명령은 운영자 봇에서만 쓸 수 있습니다. 웹 설정(/settings)을 이용하세요.",
+  "cli.preflight.header": "claire preflight",
+  "doc.count.one": "{count}개 문서",
+  "doc.count.other": "{count}개 문서"
+}

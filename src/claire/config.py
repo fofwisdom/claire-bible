@@ -604,6 +604,8 @@ class Settings(BaseSettings):
     preferred_languages: str = Field(
         default="ko", alias="CLAIRE_PREFERRED_LANGUAGES"
     )
+    # Instance default locale of the interface (WebUI, Telegram bot, CLI human output). Empty: the resolution chain continues to 'en'. No relation to preferred_languages (I18N design Section 9). The field name is not `lang`: with populate_by_name and no prefix, a field `lang` also reads the POSIX variable LANG.
+    ui_lang: str = Field(default="", alias="CLAIRE_LANG", description="Instance default UI/CLI/Bot locale ('en' or 'ko'; empty uses fallback 'en')")
 
     # --- web service (DM 과 동일 ingest 통로 + graph UI) ---
     # 운영 명령의 canonical selector. cb-manuscript가 development에서는 .env.dev
@@ -716,6 +718,14 @@ class Settings(BaseSettings):
         default="", alias="CLAIRE_PRIVATE_NETWORK_ALLOWLIST"
     )
 
+
+    @field_validator("ui_lang", mode="before")
+    @classmethod
+    def _validate_ui_lang(cls, value: object) -> str:
+        cleaned = str(value or "").strip().lower()
+        if cleaned not in {"", "en", "ko"}:
+            raise ValueError("CLAIRE_LANG must be 'en', 'ko', or empty")
+        return cleaned
 
     @field_validator("render_format", mode="before")
     @classmethod
