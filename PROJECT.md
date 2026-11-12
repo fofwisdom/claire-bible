@@ -88,7 +88,7 @@ Effects on the contracts in this file:
 
 ## Current Project: Interface Internationalization (i18n)
 
-The design is [`docs/design/I18N_DESIGN.md`](docs/design/I18N_DESIGN.md). The owner locked decisions ID1 through ID4 on 2026-11-11. The project translates the interface text of the WebUI, the Telegram bot, and the CLI human output into English (`en`) and Korean (`ko`) from one set of JSON catalogs. Phase IP1 (core runtime, schema, and account locale contract) is complete. Phases IP2 (WebUI localization) and IP3 (Telegram bot and CLI localization) are not started.
+The design is [`docs/design/I18N_DESIGN.md`](docs/design/I18N_DESIGN.md). The owner locked decisions ID1 through ID4 on 2026-11-11. The project translates the interface text of the WebUI, the Telegram bot, and the CLI human output into English (`en`) and Korean (`ko`) from one set of JSON catalogs. Phase IP1 (core runtime, schema, and account locale contract) is complete. Phase IP2 (WebUI localization) is in work: unit IP2-1 is complete. Phase IP3 (Telegram bot and CLI localization) is not started.
 
 The design divides each phase into work units (Section 10.2 of the design).
 
@@ -96,7 +96,7 @@ The design divides each phase into work units (Section 10.2 of the design).
 |------|--------|--------|
 | IP1-1 | COMPLETED (2026-11-12) | `96de5129` |
 | IP1-2 | COMPLETED (2026-11-12) | `0eba37a3` |
-| IP2-1 | NOT STARTED | |
+| IP2-1 | COMPLETED (2026-11-12) | `5856cda7` |
 | IP2-2 | NOT STARTED | |
 | IP2-3 | NOT STARTED | |
 | IP3-1 | NOT STARTED | |
@@ -111,9 +111,15 @@ Difference from the design: `I18nMiddleware` adds `Content-Language` to HTML res
 
 Difference from the design: `POST /api/locale` is a public route, and the authentication middleware does not validate credentials on public routes. The handler validates the session cookie itself and writes `accounts.locale` only for an owner session.
 
-Difference from the design: the phase table (Section 10.1) lists `i18n.js` in phase IP1, but the work unit table (Section 10.2) puts it in unit IP2-1. The work unit table applies: `i18n.js` is not written yet.
+Difference from the design: the phase table (Section 10.1) lists `i18n.js` in phase IP1, but the work unit table (Section 10.2) puts it in unit IP2-1. The work unit table applies: unit IP2-1 added `i18n.js`.
 
-Open items after phase IP1: no interface text is translated yet, thus HTML pages still show their hardcoded text while `Content-Language` shows the resolved locale. `openapi.yaml` does not have the `locale` fields and `POST /api/locale` (unit IP3-3). The account backup does not contain `accounts.locale`.
+Difference from the design (unit IP2-1): the login and setup pages do not load `i18n.js`. These pages have no JavaScript on purpose (credential isolation, `tests/test_login_flow.py` and `tests/test_setup_flow.py`). Their language switch is an HTML form, and `POST /api/locale` accepts a form body (`locale`, `next`) and answers 303 to `/login` or `/setup` only.
+
+Difference from the design (unit IP2-1): a translation slot in a template is `${t:catalog.key}`, not `$t_<key>`. A catalog key has dots and cannot be a `string.Template` identifier.
+
+Difference from the design (unit IP2-1): the inline catalog of a page does not contain the key domains `auth.`, `bot.`, and `cli.`. Only the server renders them.
+
+Open items: the translated screens are `/login`, `/setup`, and the language card of `/settings/account`. All other HTML pages still show their hardcoded text while `Content-Language` and `<html lang>` show the resolved locale (units IP2-2 and IP2-3). The account locale does not apply to the Telegram bot yet (unit IP3-1). `openapi.yaml` does not have the `locale` fields and `POST /api/locale` (unit IP3-3). The account backup does not contain `accounts.locale`.
 
 ---
 
