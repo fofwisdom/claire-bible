@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ... import ids
+from ...i18n import SUPPORTED_LOCALES, get_locale, t
 from ...store import accounts as accounts_store
 from ...store.telemetry import query_mcp_telemetry
 from ...store.theme import ThemeInfo, ThemeManager, ThemeNotFound
@@ -1031,6 +1032,7 @@ def _settings_account_body(
         '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
+        f"{_settings_locale_html(account)}"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
         f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="비밀번호">'
         f"<h2>🔑 {'비밀번호 변경' if has_password else '비밀번호 설정'}</h2>"
@@ -1071,6 +1073,24 @@ def _settings_account_body(
         "identity_providers": [{"id": p.id, "display_name": p.display_name, "type": p.type} for p in providers],
     }
     return body, extra
+
+
+def _settings_locale_html(account: accounts_store.Account) -> str:
+    """The interface language selector ``#pref-account-locale`` (I18N design Section 6.2). The empty value is automatic negotiation. ``console_account.js`` sends the change with ``PATCH /api/me`` and loads the page again."""
+    title = escape(t("console.account.locale_title"))
+    label = escape(t("console.account.locale_label"))
+    options = f'<option value=""{"" if account.locale else " selected"}>{escape(t("console.account.locale_auto"))}</option>' + "".join(
+        f'<option value="{code}"{" selected" if account.locale == code else ""}>{escape(t(f"locale.name.{code}"))}</option>' for code in SUPPORTED_LOCALES
+    )
+    return (
+        f'<section class="console-subcard" id="settings-locale" aria-label="{label}">'
+        f"<h2>{title}</h2>"
+        f'<label for="pref-account-locale" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
+        f'<select id="pref-account-locale" class="pref-input" data-settings-locale>{options}</select></label>'
+        f'<p class="hint">{escape(t("console.account.locale_hint"))}</p>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</section>"
+    )
 
 
 def _settings_keys_body(
@@ -1315,6 +1335,9 @@ def _render_console_section(
         "path": spec.path,
         "mode": mode,
         "is_admin": admin_viewer,
+        # I18N design Section 6.2: the stored preference (None = automatic) and the locale of this response.
+        "locale": account.locale,
+        "effective_locale": get_locale(),
         "theme": (
             ids.format_public_id(selected_theme.number)
             if (selected_theme is not None and selected_theme.number is not None)

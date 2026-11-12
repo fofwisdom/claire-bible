@@ -304,3 +304,86 @@ def test_e2e_locale_journey_from_anonymous_negotiation_to_account_preference(cli
     reset = client.request("PATCH", "/api/me", session=token, json={"locale": None}, cookies={"claire_locale": "ko"})
     assert reset.json()["locale"] is None and reset.json()["effective_locale"] == "en"
     assert client.request("GET", "/settings/account", session=token).headers["content-language"] == "en"
+
+
+# --- IP2-1: auth pages, inline catalog, language selector -------------------------
+
+
+def _bootstrap_json(page_text: str, element_id: str) -> Any:
+    import json
+    import re
+
+    match = re.search(rf'<script id="{element_id}" type="application/json">(.*?)</script>', page_text, re.S)
+    assert match is not None, element_id
+    return json.loads(match.group(1))
+
+
+def test_login_page_is_translated_and_has_a_switch_without_javascript(client, settings) -> None:
+    english = client.request("GET", "/login")
+    assert '<html lang="en">' in english.text and "<h1>Log in</h1>" in english.text and "<title>Log in · Claire</title>" in english.text
+    korean = client.request("GET", "/login", cookies={"claire_locale": "ko"})
+    assert '<html lang="ko">' in korean.text and "<h1>로그인</h1>" in korean.text and korean.headers["content-language"] == "ko"
+    # Credential pages have no script. The switch is a form: the active locale is disabled, the other one is a submit button.
+    assert "<script" not in korean.text
+    assert '<form class="locale-switch" method="post" action="/api/locale"' in korean.text and '<input type="hidden" name="next" value="/login">' in korean.text
+    assert 'name="locale" value="ko" lang="ko" aria-current="true" disabled>' in korean.text and 'name="locale" value="en" lang="en">English (en)</button>' in korean.text
+
+    _activate_admin(settings)
+    failed = client.request("POST", "/login", data={"username": USERNAME, "password": "wrong-password-0000"}, cookies={"claire_locale": "ko"})
+    assert failed.status_code == 401 and "USERNAME 또는 비밀번호가 맞지 않습니다." in failed.text
+    failed_en = client.request("POST", "/login", data={"username": USERNAME, "password": "wrong-password-0000"})
+    assert failed_en.status_code == 401 and "The USERNAME or the password is not correct." in failed_en.text
+
+
+def test_setup_page_escapes_translations_and_their_parameters(client, settings) -> None:
+    token = _session(settings)
+    page = client.request("GET", "/setup", session=token, headers={"Accept-Language": "ko"})
+    assert page.status_code == 200 and '<html lang="ko">' in page.text and "<h1>관리자 계정 설정</h1>" in page.text
+    # The parameter {password_chars} has $, <, > and braces. It is HTML-escaped and string.Template does not read it.
+    assert "표준 특수문자(!&quot;#$%&amp;&#x27;()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~)" in page.text
+    assert '<input type="hidden" name="next" value="/setup">' in page.text and "<script" not in page.text
+    rejected = client.request("POST", "/setup", session=token, data={"username": "x", "password": "short", "password_confirm": "short"}, headers={"Accept-Language": "ko"})
+    assert rejected.status_code == 400 and "USERNAME 형식이 맞지 않습니다." in rejected.text and "(syntax)" in rejected.text
+
+
+def test_locale_form_post_redirects_to_an_allowed_page_only(client, settings) -> None:
+    switched = client.request("POST", "/api/locale", data={"locale": "ko", "next": "/login"})
+    assert switched.status_code == 303 and switched.headers["location"] == "/login" and switched.headers["cache-control"] == "no-store"
+    assert _locale_cookies(switched)[0].startswith("claire_locale=ko;")
+    assert client.request("POST", "/api/locale", data={"locale": "en", "next": "/setup"}).headers["location"] == "/setup"
+    for bad_next in ("/", "//evil.example/login", "https://evil.example/login", "/login?x=1", "/settings/account"):
+        response = client.request("POST", "/api/locale", data={"locale": "ko", "next": bad_next})
+        assert response.status_code == 400 and response.json()["error"] == "invalid_request" and _locale_cookies(response) == [], bad_next
+    assert client.request("POST", "/api/locale", data={"locale": "ko"}).status_code == 400
+    assert client.request("POST", "/api/locale", data={"locale": "ja", "next": "/login"}).json() == {"error": "invalid_locale"}
+    assert client.request("POST", "/api/locale", data={"locale": "ko", "next": "/login"}, origin=False).status_code == 403
+
+
+def test_settings_account_has_the_language_selector_and_the_inline_catalog(client, settings) -> None:
+    from claire.i18n import browser_catalog, load_catalog
+
+    _activate_admin(settings)
+    token = _session(settings)
+    page = client.request("GET", "/settings/account", session=token)
+    assert '<html lang="en">' in page.text
+    assert '<select id="pref-account-locale" class="pref-input" data-settings-locale><option value="" selected>Automatic (browser / system)</option><option value="en">English (en)</option><option value="ko">한국어 (ko)</option></select>' in page.text
+    bootstrap = _bootstrap_json(page.text, "console-bootstrap")
+    assert bootstrap["locale"] is None and bootstrap["effective_locale"] == "en"
+    inline = _bootstrap_json(page.text, "claire-i18n-catalog")
+    # The inline catalog has no server-only domains (auth pages, bot, CLI).
+    assert inline == browser_catalog("en") and inline["common.action.save"] == "Save"
+    assert not [key for key in inline if key.startswith(("auth.", "bot.", "cli."))]
+    # i18n.js comes after the inline catalog and before the deferred console scripts.
+    assert page.text.index('id="claire-i18n-catalog"') < page.text.index('<script src="/static/js/i18n.js"></script>') < page.text.index("/static/js/console_account.js")
+
+    client.request("PATCH", "/api/me", session=token, json={"locale": "ko"})
+    page = client.request("GET", "/settings/account", session=token, headers={"Accept-Language": "en"})
+    assert '<html lang="ko">' in page.text and "<h2>🌐 인터페이스 언어</h2>" in page.text
+    assert '<option value="">자동 (브라우저 / 시스템)</option><option value="en">English (en)</option><option value="ko" selected>한국어 (ko)</option>' in page.text
+    bootstrap = _bootstrap_json(page.text, "console-bootstrap")
+    assert bootstrap["locale"] == "ko" and bootstrap["effective_locale"] == "ko"
+    assert _bootstrap_json(page.text, "claire-i18n-catalog") == browser_catalog("ko")
+
+    script = client.request("GET", "/static/js/i18n.js")
+    assert script.status_code == 200 and "ClaireI18n" in script.text
+    assert client.request("GET", "/static/locales/ko.json").json() == load_catalog("ko")

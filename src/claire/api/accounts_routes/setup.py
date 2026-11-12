@@ -21,6 +21,7 @@ from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
 
 from ...accounts.username_policy import UsernameRejected, validate_username
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..namespace import account_home_path
@@ -41,22 +42,18 @@ log = logging.getLogger("claire.api.accounts")
 
 SETUP_PATH = "/setup"
 
-USERNAME_REASON_TEXT = {
-    "syntax": "USERNAME 형식이 맞지 않습니다. 소문자로 시작하는 3–30자의 영문 소문자·숫자·밑줄만 쓸 수 있고, 밑줄을 연속으로 쓰거나 밑줄로 끝낼 수 없습니다.",
-    "reserved": "예약된 USERNAME입니다.",
-    "retired": "퇴역한 USERNAME이라 쓸 수 없습니다.",
-    "taken": "이미 쓰고 있는 USERNAME입니다.",
-}
-PASSWORD_REASON_TEXT = {
-    "invalid_characters": "비밀번호에는 영문 대소문자, 숫자, 표준 특수문자(ASCII 문장부호)만 쓸 수 있습니다. 공백·한글 등 그 밖의 문자는 쓸 수 없습니다.",
-    "too_short": f"비밀번호는 {auth_db.MIN_PASSWORD_LENGTH}자 이상이어야 합니다.",
-    "contains_username": "비밀번호에 USERNAME을 넣을 수 없습니다.",
-    "mismatch": "비밀번호 확인이 일치하지 않습니다.",
-}
-FORM_REASON_TEXT = {
-    "display_name": "표시 이름은 64자 이하이고 제어 문자를 넣을 수 없습니다.",
-    "ack": "확정 안내를 읽고 확인란을 선택해야 합니다.",
-}
+# Reason code to catalog key (I18N design Section 4.2). The reason codes are wire values and do not change with the locale.
+USERNAME_REASON_KEYS = {reason: f"auth.username.{reason}" for reason in ("syntax", "reserved", "retired", "taken")}
+PASSWORD_REASON_KEYS = {reason: f"auth.password.{reason}" for reason in ("invalid_characters", "too_short", "contains_username", "mismatch")}
+FORM_REASON_KEYS = {reason: f"auth.form.{reason}" for reason in ("display_name", "ack")}
+# The value of the placeholder {password_chars} in the setup page hint.
+PASSWORD_SPECIAL_CHARACTERS = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+
+
+def password_reason_text(reason: str | None) -> str:
+    """The message for a password rejection reason in the active locale. An unknown reason gives the empty string."""
+    key = PASSWORD_REASON_KEYS.get(reason or "")
+    return t(key, min_password_length=auth_db.MIN_PASSWORD_LENGTH) if key else ""
 
 
 def _is_setup_principal(principal: Principal) -> bool:
@@ -219,8 +216,8 @@ def _reason_messages(reasons: tuple[str, ...] | list[str]) -> list[str]:
     messages = []
     for code in reasons:
         kind, _, reason = code.partition(":")
-        table = {"username": USERNAME_REASON_TEXT, "password": PASSWORD_REASON_TEXT, "form": FORM_REASON_TEXT}[kind]
-        messages.append(f"{table[reason]} ({reason})")
+        table = {"username": USERNAME_REASON_KEYS, "password": PASSWORD_REASON_KEYS, "form": FORM_REASON_KEYS}[kind]
+        messages.append(f"{t(table[reason], min_password_length=auth_db.MIN_PASSWORD_LENGTH)} ({reason})")
     return messages
 
 
@@ -237,6 +234,7 @@ def _setup_page(
             "username": username,
             "display_name": display_name,
             "min_password_length": auth_db.MIN_PASSWORD_LENGTH,
+            "password_chars": PASSWORD_SPECIAL_CHARACTERS,
         },
         markup={"errors": error_list(_reason_messages(reasons))},
         status_code=status_code,

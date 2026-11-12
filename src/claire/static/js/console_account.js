@@ -621,6 +621,31 @@
     });
   }
 
+  // I18N design Section 6.2: the interface language selector. The server renders the page text, thus a successful change loads the page again.
+  function bindLocaleSelect() {
+    var select = document.querySelector("select[data-settings-locale]");
+    if (!select) return;
+    var i18n = window.ClaireI18n;
+    var saved = select.value;
+    select.addEventListener("change", function () {
+      var section = select.closest("section") || select.parentElement;
+      select.disabled = true;
+      request("PATCH", "/api/me", { locale: select.value || null }).then(function (r) {
+        if (r.ok) {
+          if (i18n) i18n.reload(); else window.location.reload();
+          return;
+        }
+        select.value = saved;
+        select.disabled = false;
+        show(section, i18n ? i18n.t("console.account.locale_error") : errorText(r.status, r.body), true);
+      }).catch(function () {
+        select.value = saved;
+        select.disabled = false;
+        show(section, i18n ? i18n.t("console.account.locale_error") : "서버에 연결하지 못했습니다.", true);
+      });
+    });
+  }
+
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
     // The console page has no app.js apiUrl/rootUrl. Unprefixed /themes and /tokens resolve to the caller's own account (N3).
@@ -647,6 +672,7 @@
     if (section === "account") {
       bindIdentities(extra);
       bindToggles();
+      bindLocaleSelect();
     } else if (section === "federation") {
       bindFederation();
     }

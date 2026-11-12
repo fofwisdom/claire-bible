@@ -174,8 +174,10 @@ def test_setup_page_shows_both_confirmation_notices(client, settings):
     token = _admin_session(settings)
     response = client.request("GET", "/setup", session=token)
     assert response.status_code == 200
-    assert "USERNAME은 확정한 뒤에 바꿀 수 없습니다." in response.text
-    assert "네트워크 모드에서는 <code>/@USERNAME</code> 주소로 공개됩니다." in response.text
+    assert "You cannot change the USERNAME after you confirm it." in response.text
+    assert "In network mode the address /@USERNAME is public." in response.text
+    korean = client.request("GET", "/setup", session=token, headers={"Accept-Language": "ko"})
+    assert "USERNAME은 확정한 뒤에 바꿀 수 없습니다." in korean.text and "네트워크 모드에서는 /@USERNAME 주소로 공개됩니다." in korean.text
     assert "<script" not in response.text
     assert " onclick=" not in response.text and " onsubmit=" not in response.text
 

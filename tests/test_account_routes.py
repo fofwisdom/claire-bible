@@ -401,7 +401,7 @@ def test_password_change_checks_current_password_and_policy(client, settings):
             "POST", "/api/me/password", session=token, json={"current_password": PASSWORD, "new_password": bad}
         )
         assert rejected.status_code == 400 and rejected.json()["reason"] == "invalid_characters"
-        assert "표준 특수문자" in rejected.json()["message"]
+        assert "standard special characters" in rejected.json()["message"]
     auth = _auth(settings)
     try:
         assert auth_db.verify_password(auth, 1, PASSWORD)

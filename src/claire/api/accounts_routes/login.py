@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ...accounts.username_policy import UsernameRejected, normalize_username
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..namespace import account_home_path
@@ -46,8 +47,9 @@ REAUTH_PATH = "/api/auth/reauth"
 
 # 실패 제한 키에 넣을 USERNAME 원문 길이 상한. 규칙을 벗어난 입력도 같은 방식으로 센다.
 _THROTTLE_NAME_MAX = 64
-LOGIN_FAILED_TEXT = "USERNAME 또는 비밀번호가 맞지 않습니다."
-LOGIN_THROTTLED_TEXT = "로그인 시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요."
+# Catalog keys of the login messages (I18N design Section 4.2).
+LOGIN_FAILED_KEY = "auth.login.failed"
+LOGIN_THROTTLED_KEY = "auth.login.throttled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +171,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         raw_username = form.get("username")
         password = form.get("password")
         if not isinstance(raw_username, str) or not isinstance(password, str):
-            return _login_page(message=LOGIN_FAILED_TEXT, status_code=400)
+            return _login_page(message=t(LOGIN_FAILED_KEY), status_code=400)
         outcome = await asyncio.to_thread(
             perform_login,
             ctx,
@@ -181,12 +183,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if outcome.kind == "throttled":
             return _login_page(
                 username=raw_username,
-                message=LOGIN_THROTTLED_TEXT,
+                message=t(LOGIN_THROTTLED_KEY),
                 status_code=429,
                 headers={"Retry-After": str(retry_after_seconds(outcome.retry_after))},
             )
         if outcome.kind == "failed":
-            return _login_page(username=raw_username, message=LOGIN_FAILED_TEXT, status_code=401)
+            return _login_page(username=raw_username, message=t(LOGIN_FAILED_KEY), status_code=401)
         if outcome.session_token is None:
             raise RuntimeError("login succeeded without a session token")
         response = Response(status_code=303, headers={"Location": outcome.redirect_path, "Cache-Control": "no-store"})

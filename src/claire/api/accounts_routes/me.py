@@ -24,6 +24,7 @@ from ..security import read_json_body
 from .common import (
     AccountsContext,
     FORM_PAGE_REFERRER_POLICY,
+    LOCALE_FORM_RETURN_PATHS,
     client_ip,
     cookie_session_token,
     forbidden,
@@ -36,7 +37,7 @@ from .common import (
     same_origin,
     validate_display_name,
 )
-from .setup import PASSWORD_REASON_TEXT
+from .setup import password_reason_text
 
 ME_PATH = "/me"
 ME_API_PATH = "/api/me"
@@ -255,17 +256,31 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def locale_post(request: Request) -> Response:
         if not same_origin(request):
             return forbidden()
-        body = await read_json_body(request)
-        if set(body) != {"locale"}:
-            return json_error(400, "invalid_request", fields=["locale"])
+        # The login and setup pages have no JavaScript. Their language switch is an HTML form: fields ``locale`` and ``next``, answer 303 to ``next``.
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        return_path: str | None = None
+        if content_type == "application/x-www-form-urlencoded":
+            form = await request.form()
+            raw_locale = form.get("locale")
+            return_path = form.get("next")  # type: ignore[assignment]
+            if set(form.keys()) != {"locale", "next"} or return_path not in LOCALE_FORM_RETURN_PATHS.values():
+                return json_error(400, "invalid_request", fields=["locale", "next"])
+        else:
+            body = await read_json_body(request)
+            if set(body) != {"locale"}:
+                return json_error(400, "invalid_request", fields=["locale"])
+            raw_locale = body["locale"]
         try:
-            locale = parse_explicit_locale(body["locale"])
+            locale = parse_explicit_locale(raw_locale)
         except InvalidLocale:
             return json_error(400, "invalid_locale")
         await asyncio.to_thread(update_locale_for_session, ctx, cookie_session_token(request), locale)
         cookie_carrier = Response()
         effective = apply_locale_choice(ctx, request, cookie_carrier, locale)
-        response = JSONResponse({"locale": locale, "effective_locale": effective})
+        if return_path is not None:
+            response: Response = Response(status_code=303, headers={"Location": return_path, "Cache-Control": "no-store"})
+        else:
+            response = JSONResponse({"locale": locale, "effective_locale": effective})
         response.raw_headers.extend(h for h in cookie_carrier.raw_headers if h[0] == b"set-cookie")
         return response
 
@@ -303,7 +318,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if outcome.kind == "rejected":
             return json_error(
                 400, "password_rejected", reason=outcome.reason,
-                message=PASSWORD_REASON_TEXT.get(outcome.reason or "", ""),
+                message=password_reason_text(outcome.reason),
             )
         if outcome.kind == "not_active":
             return json_error(409, "account_not_active")

@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ko">
+<html lang="$html_lang">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
-    <title>로그인 · Claire</title>
+    <title>${t:auth.login.page_title}</title>
     <style>
       :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d9d9d4; --accent: #2f5d8a; --error: #a3261d; }
       @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #a5a5a0; --card: #20201e; --line: #3a3a37; --accent: #8db6e0; --error: #f08a80; } }
@@ -31,22 +31,25 @@
       nav a { color: var(--accent); }
       nav form { margin: 0 0 0 auto; }
       .section-title { margin-top: 1.5rem; }
+      .locale-switch { display: flex; gap: .75rem; align-items: center; justify-content: flex-end; margin: 0; font-size: .875rem; color: var(--muted); }
+      .locale-switch button[aria-current=true] { color: var(--fg); font-weight: 600; text-decoration: none; cursor: default; }
     </style>
   </head>
   <body>
     <main>
-      <h1>로그인</h1>
+      <h1>${t:auth.login.title}</h1>
       $errors
       <form class="card" method="post" action="/login" autocomplete="on">
-        <label for="username">USERNAME</label>
+        <label for="username">${t:auth.field.username}</label>
         <input id="username" name="username" type="text" value="$username" required maxlength="64"
                autocomplete="username" autocapitalize="none" spellcheck="false">
 
-        <label for="password">비밀번호</label>
+        <label for="password">${t:auth.field.password}</label>
         <input id="password" name="password" type="password" required autocomplete="current-password">
 
-        <button type="submit">로그인</button>
+        <button type="submit">${t:auth.login.submit}</button>
       </form>
+      $locale_switch_html
     </main>
   </body>
 </html>

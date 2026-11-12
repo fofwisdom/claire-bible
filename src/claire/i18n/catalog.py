@@ -40,6 +40,22 @@ def load_catalog(locale: str) -> dict[str, str]:
     return read_catalog_file(LOCALES_DIR / f"{locale}.json")
 
 
+# Key domains that only the server renders: the auth pages have no script, and the bot and the CLI are not in a browser. The inline catalog of a page does not contain them.
+SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.")
+
+
+def browser_catalog(locale: LocaleCode | None = None) -> dict[str, str]:
+    """The catalog that a browser page gets: the keys of ``locale`` (default: the active locale) over the ``en`` keys, without the server-only domains."""
+    active = locale if locale is not None else get_locale()
+    merged = {**load_catalog(DEFAULT_LOCALE), **load_catalog(active)}
+    return {key: value for key, value in merged.items() if not key.startswith(SERVER_ONLY_KEY_PREFIXES)}
+
+
+def browser_catalog_json(locale: LocaleCode | None = None) -> str:
+    """``browser_catalog`` as JSON for ``<script id="claire-i18n-catalog" type="application/json">``. The characters ``<``, ``>`` and ``&`` are Unicode escapes, thus the text cannot close the script element."""
+    return json.dumps(browser_catalog(locale), ensure_ascii=False, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def interpolate(template: str, params: dict[str, Any]) -> str:
     """Replace ``{name}`` with ``str(params[name])``. A placeholder without a parameter stays as it is. ``str.format`` is not used, thus literal braces and attribute access are safe."""
     if not params:

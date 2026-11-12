@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 import sqlite3
 import string
 import time
@@ -21,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from ...accounts.username_policy import instance_reserved_labels
+from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, t
 from ...presentation.favicon import inject_favicon_head_tags
 from ...store import auth_db
 from ...store import db as dbm
@@ -242,6 +244,30 @@ def prototype_note(marker: str, text: str) -> str:
 FORM_PAGE_REFERRER_POLICY = "same-origin"
 
 
+# A translation slot in a template file: ``${t:auth.login.title}``. It is resolved before ``string.Template`` runs, thus request values cannot add a slot.
+_TRANSLATION_SLOT = re.compile(r"\$\{t:([a-z0-9_.]+)\}")
+
+
+def i18n_bootstrap_html() -> str:
+    """The inline catalog of the active locale and the browser runtime. The catalog is in the document, thus ``ClaireI18n.t`` works before all network requests (I18N design Section 6.3)."""
+    return f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script><script src="/static/js/i18n.js"></script>'
+
+
+# Pages that have no JavaScript on purpose (credential isolation). Their language switch is a plain form, and ``POST /api/locale`` sends the browser back to one of these paths only.
+LOCALE_FORM_RETURN_PATHS = {"login.html": "/login", "setup.html": "/setup"}
+
+
+def locale_switch_html(return_path: str) -> str:
+    """The language switch of a page without JavaScript: one submit button for each locale in a form that posts to ``/api/locale``. The button of the active locale is disabled."""
+    current = get_locale()
+    buttons = "".join(
+        f'<button type="submit" class="link" name="locale" value="{code}" lang="{code}"{' aria-current="true" disabled' if code == current else ""}>{escape(t(f"locale.name.{code}"))}</button>'
+        for code in SUPPORTED_LOCALES
+    )
+    label = escape(t("console.account.locale_label"))
+    return f'<form class="locale-switch" method="post" action="/api/locale" aria-label="{label}"><input type="hidden" name="next" value="{escape(return_path)}">{buttons}</form>'
+
+
 def render_template(
     name: str,
     *,
@@ -253,9 +279,14 @@ def render_template(
     """``templates/<name>``의 ``$이름`` 자리를 채운다.
 
     ``text`` 값은 모두 HTML 이스케이프한다. ``markup``은 이 패키지가 `escape`로 이미 만든 조각만 넣는다. 빠진 자리가 있으면 ``KeyError``(C1).
+
+    I18N design Section 6.2: every template gets ``$html_lang`` (the active locale), ``$i18n_bootstrap_html`` (inline catalog and ``i18n.js``, for pages that have scripts) and ``$locale_switch_html`` (the form of the pages in ``LOCALE_FORM_RETURN_PATHS``, empty for other pages). A slot ``${t:catalog.key}`` becomes the escaped translation; the ``text`` values are its ``{name}`` parameters.
     """
-    template = string.Template((TEMPLATES_DIR / name).read_text(encoding="utf-8"))
-    values: dict[str, str] = {k: escape(v) for k, v in (text or {}).items()}
+    source = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **(text or {}))).replace("$", "$$"), (TEMPLATES_DIR / name).read_text(encoding="utf-8"))
+    template = string.Template(source)
+    return_path = LOCALE_FORM_RETURN_PATHS.get(name)
+    values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
+    values.update({k: escape(v) for k, v in (text or {}).items()})
     values.update(markup or {})
     body = template.substitute(values)
     include_script = name not in ("login.html", "setup.html")
