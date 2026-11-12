@@ -485,6 +485,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/login"): _system("public"),
     ("POST", "/login"): _system("public"),
     ("POST", "/logout"): _system("public"),
+    # I18N design Section 5.4: the locale switch of an anonymous visitor. The handler accepts the same origin only.
+    ("POST", "/api/locale"): _system("public"),
     ("POST", "/api/auth/reauth"): _system("owner"),
     ("GET", "/admin/accounts"): _system("admin"),
     ("HEAD", "/admin/accounts"): _system("admin"),
@@ -1132,6 +1134,8 @@ class _Credential:
     instance_role: Literal["admin", "member"]
     credential_id: str
     authenticated_at: float | None = None
+    # accounts.locale of the bound account. The environment token credential does not read the database and has None.
+    locale: str | None = None
 
     def principal(self, channel: Literal["cookie", "bearer", "x-session"]) -> Principal:
         return Principal(
@@ -1144,6 +1148,7 @@ class _Credential:
             authenticated_at=(
                 self.authenticated_at if channel in ("cookie", "x-session") else None
             ),
+            locale=self.locale,  # type: ignore[arg-type]  # AccountStore returns 'en', 'ko' or None
         )
 
 
@@ -1179,6 +1184,7 @@ def _bind_account(
         instance_role=account.role,
         credential_id=credential_id,
         authenticated_at=authenticated_at,
+        locale=account.locale,
     )
 
 
@@ -2234,7 +2240,7 @@ def wrap_web_app(
 ) -> ASGIApp:
     """Starlette 앱 바깥에 보안 경계를 조립한다(§6.7).
 
-    ``SafeAccessLog`` → (``CloudflareIPFilter``) → ``HostRouter``. ``HostRouter``의 app 역할만 PrefixParser → CORS → BodyLimit → ErrorBoundary → Authentication → NamespaceResolver → 라우터를 지난다. usercontent·media 하위 앱(P2에서는 모든 경로 404)과 레거시 호스트 응답은 쿠키를 읽지도 쓰지도 않는다.
+    ``SafeAccessLog`` → (``CloudflareIPFilter``) → ``HostRouter``. ``HostRouter``의 app 역할만 PrefixParser → CORS → BodyLimit → ErrorBoundary → Authentication → I18n → NamespaceResolver → 라우터를 지난다. usercontent·media 하위 앱(P2에서는 모든 경로 404)과 레거시 호스트 응답은 쿠키를 읽지도 쓰지도 않는다.
     ``legacy_hosts``가 없으면 레거시 호스트가 없는 것으로 본다(``create_app``이 ``SqliteLegacyHostDirectory``를 넘긴다).
     ``namespace_directory``가 없으면 ``settings.db_file``로 ``SqliteNamespaceDirectory``를 만든다.
     """
@@ -2259,6 +2265,10 @@ def wrap_web_app(
     )
     # NamespaceResolver는 Authentication 바로 안쪽, ErrorBoundary 안쪽이다. DB 예외가 정제된 500이 된다.
     secured: ASGIApp = _PublicDirectoryNamespaceResolver(app, directory)
+    # I18nMiddleware is immediately inside Authentication: it reads Principal.locale (I18N design Section 6.1).
+    from .i18n_middleware import I18nMiddleware
+
+    secured = I18nMiddleware(secured, default_lang=str(getattr(settings, "ui_lang", "") or ""))
     secured = AuthenticationMiddleware(secured, config, namespace_directory=directory)
     secured = ErrorBoundaryMiddleware(secured)
     secured = BodyLimitMiddleware(secured)

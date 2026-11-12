@@ -96,12 +96,13 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/login` | `public` | 200 HTML | — |
 | `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
 | `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |
+| `POST` | `/api/locale` | `public` (+ 동일 origin) | 200 `{"locale", "effective_locale"}`, 쿠키 `claire_locale`을 쓰거나 지움. owner 세션이면 `accounts.locale`도 저장 | 400 `invalid_request`, 400 `invalid_locale`, 403 동일 origin 아님 |
 | `POST` | `/api/auth/reauth` | `owner` | 200 `{"ok": true, "authenticated_at": <초>}` | 400 `invalid_request`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `password_not_set`, 429 `too_many_attempts` |
 | `GET` | `/admin/accounts` | `admin` | 200 HTML (통합 콘솔, §6.2) | 404 |
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
 | `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
-| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public` |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
 
 ### 6.1 단계 인증 응답 규약

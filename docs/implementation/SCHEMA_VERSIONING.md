@@ -19,8 +19,9 @@
 | 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
-| 18 | 현재 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
-| 19 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
+| 19 | 현재 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
+| 20 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -98,7 +99,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: FP3-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §9.3, §10.1.
 
-- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 18`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 18보다 크면 변경 없이 거부한다.
+- **[코드] 버전 상수**: v18 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 18이었다(현재 값은 아래 "v19" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v18_federation_publishing`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더한다, A3):
   - 테이블 `federation_objects`: `(public_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, document_id TEXT NOT NULL, published_by_account_id INTEGER NOT NULL REFERENCES accounts(id), published_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (theme_id, document_id))`. `public_id`는 시간 정렬 번호이고 객체 ID이자 아웃박스 컬렉션 커서다.
   - 인덱스 `idx_federation_objects_account`(`account_id, public_id`). 설계 §10.1에는 없는 인덱스다.
@@ -106,6 +107,17 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
   - 인덱스 `idx_federation_outbox_ready`(`status, id`).
 - **[코드] 저장소 함수**: `src/claire/store/federation.py`의 `publish_document`, `retract_object`, `add_outbox_task`, `lease_outbox_tasks`, `ack_outbox_task`, `count_pending_tasks`, `list_objects`, `count_objects`. 커밋은 호출자가 한다. 객체 행과 작업 행은 한 트랜잭션에 쓴다.
 - **[테스트]** `tests/test_federation_publish.py`. `tests/test_theme_id_explicit.py`가 `federation_objects` 질의의 `theme_id` 명시를 검사한다.
+
+## v19 (계정 인터페이스 언어, i18n IP1-2)
+
+확인 기준: IP1-2 구현 (2026-11-12). 설계: [I18N_DESIGN.md](../design/I18N_DESIGN.md) §5.1.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 19`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 19보다 크면 변경 없이 거부한다.
+- **[코드] 추가 객체**(`_migrate_v19_account_locale`, `_ensure_column`으로 멱등. NULL 허용 열 하나만 더한다, A3):
+  - 열 `accounts.locale`: `TEXT CHECK (locale IS NULL OR locale IN ('en', 'ko'))`. NULL은 자동 협상(쿠키 → `Accept-Language` → `CLAIRE_LANG` → `en`)이다. 기존 계정과 새 계정의 기본값은 NULL이다.
+- **[코드] 데이터 이관**: 없다.
+- **[코드] 저장소 함수**: `src/claire/store/accounts.py`의 `AccountStore.update_locale`. `None`과 `""`는 NULL을 쓰고, `en`·`ko`가 아닌 값은 쓰기 전에 `ValueError("invalid_locale")`를 낸다.
+- **[테스트]** `tests/test_i18n_api.py`.
 
 ### 별도 저장소: `data/auth/auth.db`
 

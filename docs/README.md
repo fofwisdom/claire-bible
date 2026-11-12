@@ -40,7 +40,7 @@ docs/
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
 │   ├── PLAN.md                 # 공개 아키텍처 및 파이프라인 처리 계획 정본
-│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v18, auth.db v5)
+│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v19, auth.db v5)
 │   ├── THEMES.md               # 멀티 테마(단일 DB 파티셔닝) 저장·조회·라우팅·접근 경계 구현 정본
 │   ├── TOKEN_EXCHANGE.md       # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
 │   └── openapi.yaml            # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본

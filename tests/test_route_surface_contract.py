@@ -43,7 +43,7 @@ SYSTEM = {
     "/p/images/{filename:path}", "/static/{path:path}", "/reference", "/openapi.yaml",
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
-    "/oauth/token", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth",
+    "/oauth/token", "/mcp", "/support/bundle", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",
     "/admin/accounts", "/api/admin/accounts",
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",

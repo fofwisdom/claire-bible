@@ -21,7 +21,7 @@ from .secrets import SecretDecryptionError, SecretService, get_secret_service
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -994,6 +994,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v16_themes(conn)
     _migrate_v17_federation(conn)
     _migrate_v18_federation_publishing(conn)
+    _migrate_v19_account_locale(conn)
     backfill_embedding_models(conn)
 
 
@@ -1277,6 +1278,11 @@ def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _migrate_v19_account_locale(conn: sqlite3.Connection) -> None:
+    """v19 (I18N design Section 5.1, unit IP1-2): the interface locale of an account. NULL means automatic negotiation. Idempotent, adds one nullable column (A3)."""
+    _ensure_column(conn, "accounts", "locale", "TEXT CHECK (locale IS NULL OR locale IN ('en', 'ko'))")
 
 
 def _migrate_v18_federation_publishing(conn: sqlite3.Connection) -> None:

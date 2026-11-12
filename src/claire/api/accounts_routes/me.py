@@ -1,4 +1,4 @@
-"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``GET/HEAD /me``는 ``/settings/account``로 가는 호환용 302다(D4).
+"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``PATCH /api/me``의 ``locale``과 공개 라우트 ``POST /api/locale``은 인터페이스 언어를 정한다(I18N design Section 5.4). ``GET/HEAD /me``는 ``/settings/account``로 가는 호환용 302다(D4).
 
 비밀번호 변경은 단계 인증(`common.require_recent_auth`)과 현재 비밀번호를 함께 요구한다. 비밀번호가 아직 없으면(설정 중 저장 실패, §8.4 복구) 단계 인증만 요구한다.
 
@@ -15,20 +15,25 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ...i18n import InvalidLocale, LocaleCode, get_locale, parse_explicit_locale, resolve_web_locale, set_locale
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..principal import Principal, request_principal
+from ..i18n_middleware import clear_locale_cookie, set_locale_cookie
 from ..security import read_json_body
 from .common import (
     AccountsContext,
     FORM_PAGE_REFERRER_POLICY,
     client_ip,
+    cookie_session_token,
+    forbidden,
     json_error,
     open_auth_db,
     open_db,
     request_session_token,
     require_recent_auth,
     retry_after_seconds,
+    same_origin,
     validate_display_name,
 )
 from .setup import PASSWORD_REASON_TEXT
@@ -36,6 +41,7 @@ from .setup import PASSWORD_REASON_TEXT
 ME_PATH = "/me"
 ME_API_PATH = "/api/me"
 ME_PASSWORD_PATH = "/api/me/password"
+LOCALE_API_PATH = "/api/locale"
 SETTINGS_ACCOUNT_PATH = "/settings/account"
 
 
@@ -59,6 +65,9 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "status": account.status,
         "has_password": has_pw,
         "profile_public": 1 if account.profile_public else 0,
+        # locale: the stored preference (None = automatic). effective_locale: the result of the resolution chain for this request.
+        "locale": account.locale,
+        "effective_locale": get_locale(),
     }
 
 
@@ -86,6 +95,49 @@ def update_profile_public(ctx: AccountsContext, account_id: int, profile_public:
         accounts_store.AccountStore(conn).update_profile_public(account_id, profile_public)
     finally:
         conn.close()
+
+
+def update_locale(ctx: AccountsContext, account_id: int, locale: LocaleCode | None) -> None:
+    conn = open_db(ctx)
+    try:
+        accounts_store.AccountStore(conn).update_locale(account_id, locale)
+    finally:
+        conn.close()
+
+
+def update_locale_for_session(ctx: AccountsContext, token: str | None, locale: LocaleCode | None) -> bool:
+    """``POST /api/locale`` is a public route: the middleware does not validate the credential there. This function validates the session cookie itself. It writes ``accounts.locale`` only for an owner session of an account that accepts credentials. Returns True when it wrote."""
+    if token is None:
+        return False
+    conn = open_db(ctx)
+    try:
+        binding = accounts_store.validate_session_binding(conn, token, scopes=("owner",))
+        if binding is None:
+            return False
+        store = accounts_store.AccountStore(conn)
+        try:
+            account = store.get(binding.account_id)
+        except accounts_store.AccountNotFound:
+            return False
+        if account.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+            return False
+        store.update_locale(account.id, locale)
+        return True
+    finally:
+        conn.close()
+
+
+def _settings_lang(ctx: AccountsContext) -> str:
+    return str(getattr(ctx.settings, "ui_lang", "") or "")
+
+
+def apply_locale_choice(ctx: AccountsContext, request: Request, response: Response, locale: LocaleCode | None) -> LocaleCode:
+    """Set or clear the ``claire_locale`` cookie on ``response`` and return the locale that the next request gets. After a reset the account and the cookie have no value, thus the chain starts at ``Accept-Language``."""
+    if locale is None:
+        clear_locale_cookie(response, secure=ctx.config.secure_cookie)
+        return resolve_web_locale(account_locale=None, cookie_locale=None, accept_language=request.headers.get("accept-language"), settings_lang=_settings_lang(ctx))
+    set_locale_cookie(response, locale, secure=ctx.config.secure_cookie)
+    return locale
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +207,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "profile_public"}):
-            return json_error(400, "invalid_request", fields=["display_name", "profile_public"])
+        if not body or not (set(body) <= {"display_name", "profile_public", "locale"}):
+            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
@@ -173,6 +225,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 profile_public = raw_pp
             else:
                 return json_error(400, "invalid_profile_public")
+        locale: LocaleCode | None = None
+        if "locale" in body:
+            try:
+                locale = parse_explicit_locale(body["locale"])
+            except InvalidLocale:
+                return json_error(400, "invalid_locale")
         if principal.account_id is None:
             raise RuntimeError("/api/me requires an account principal")
         # FD11: with federation on, the change 0 -> 1 requires recent authentication. The change 1 -> 0 never does. The check occurs before all writes.
@@ -184,7 +242,32 @@ def routes(ctx: AccountsContext) -> list[Route]:
             await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
         if profile_public is not None:
             await asyncio.to_thread(update_profile_public, ctx, principal.account_id, profile_public)
-        return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
+        if "locale" not in body:
+            return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
+        # The locale needs no recent authentication (I18N design Section 5.4). The response reports the locale after the change.
+        await asyncio.to_thread(update_locale, ctx, principal.account_id, locale)
+        cookie_carrier = Response()
+        set_locale(apply_locale_choice(ctx, request, cookie_carrier, locale))
+        response = JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
+        response.raw_headers.extend(h for h in cookie_carrier.raw_headers if h[0] == b"set-cookie")
+        return response
+
+    async def locale_post(request: Request) -> Response:
+        if not same_origin(request):
+            return forbidden()
+        body = await read_json_body(request)
+        if set(body) != {"locale"}:
+            return json_error(400, "invalid_request", fields=["locale"])
+        try:
+            locale = parse_explicit_locale(body["locale"])
+        except InvalidLocale:
+            return json_error(400, "invalid_locale")
+        await asyncio.to_thread(update_locale_for_session, ctx, cookie_session_token(request), locale)
+        cookie_carrier = Response()
+        effective = apply_locale_choice(ctx, request, cookie_carrier, locale)
+        response = JSONResponse({"locale": locale, "effective_locale": effective})
+        response.raw_headers.extend(h for h in cookie_carrier.raw_headers if h[0] == b"set-cookie")
+        return response
 
     async def me_password(request: Request) -> Response:
         principal = request_principal(request)
@@ -231,4 +314,5 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ME_API_PATH, me_get, methods=["GET"]),
         Route(ME_API_PATH, me_patch, methods=["PATCH"]),
         Route(ME_PASSWORD_PATH, me_password, methods=["POST"]),
+        Route(LOCALE_API_PATH, locale_post, methods=["POST"]),
     ]

@@ -41,7 +41,7 @@
 
 ## 2. 계정 모델과 상태
 
-**[코드]** 테이블 정의는 `_migrate_v15_accounts`에 있다. 열은 설계 §13.1과 같다: `id`, `public_id`(UNIQUE), `username`(UNIQUE, NULL 허용), `role`(`admin`·`member` CHECK), `status`, `display_name`, `profile_public`, `created_at`, `activated_at`, `delete_after`, `updated_at`.
+**[코드]** 테이블 정의는 `_migrate_v15_accounts`에 있다. 열은 설계 §13.1과 같다: `id`, `public_id`(UNIQUE), `username`(UNIQUE, NULL 허용), `role`(`admin`·`member` CHECK), `status`, `display_name`, `profile_public`, `created_at`, `activated_at`, `delete_after`, `updated_at`. v19(`_migrate_v19_account_locale`)가 `locale`(`en`·`ko`·NULL CHECK, NULL은 자동 협상)을 더했다.
 
 | 항목 | 현재 동작 | 근거 |
 | :--- | :--- | :--- |
@@ -149,8 +149,13 @@
 
 - **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
-- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다.
-- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 인스턴스 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
+- **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다.
+- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 인스턴스 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
+- **[코드] 인터페이스 언어**([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §5, §6.1. 구현 단위 IP1. 화면 문자열 번역과 언어 선택 UI는 IP2 이후다):
+  - **해소 순서**: `I18nMiddleware`(`src/claire/api/i18n_middleware.py`, `AuthenticationMiddleware` 바로 안쪽)가 요청마다 `Principal.locale`(= `accounts.locale`) → 쿠키 `claire_locale` → `Accept-Language`(RFC 9110 q값) → `CLAIRE_LANG` → `en` 순서로 정한다. 공개 라우트(`/login` 등)에서는 주체가 익명이므로 쿠키부터 적용된다. 환경변수 토큰 자격증명은 계정을 읽지 않으므로 `Principal.locale`이 없다. 미들웨어는 HTML 응답에만 `Content-Language`를 붙인다(설계 §6.1은 모든 응답이다. JSON·프로토콜 응답은 언어에 따라 바뀌지 않으므로 붙이지 않는다).
+  - **`PATCH /api/me`의 `locale`**: `"en"`, `"ko"`, `null`, `""`(뒤의 둘은 NULL로 되돌림)만 받고 그 밖의 값(다른 문자열, 숫자, 불리언)은 모든 쓰기보다 먼저 400 `invalid_locale`이다. 단계 인증을 요구하지 않는다. 값을 정하면 응답이 쿠키 `claire_locale`을 쓰고(`Path=/; Max-Age=31536000; SameSite=Lax`, 운영 환경은 `Secure`, `HttpOnly` 아님), 되돌리면 쿠키를 지운다. 응답의 `effective_locale`은 바꾼 뒤의 값이다.
+  - **`POST /api/locale`**: 규칙 `_system("public")`, 핸들러가 동일 origin만 받는다(아니면 403). 본문은 `{"locale": "en" | "ko" | null | ""}`뿐이다(다른 키는 400 `invalid_request`, 다른 값은 400 `invalid_locale`). 쿠키를 쓰거나 지우고 200 `{"locale", "effective_locale"}`를 낸다. 공개 라우트는 미들웨어가 자격증명을 검증하지 않으므로 핸들러가 세션 쿠키를 직접 검증하고(`update_locale_for_session`), 자격증명을 받는 계정의 owner 세션일 때만 `accounts.locale`도 함께 쓴다.
+  - **[테스트]** `tests/test_i18n_api.py`, `tests/test_i18n_resolver.py`, `tests/test_i18n_catalog.py`.
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
 ### 5.6 초대 파이프라인 (Invitation Pipeline)

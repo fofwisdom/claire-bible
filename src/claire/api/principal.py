@@ -13,6 +13,8 @@ from typing import Literal
 
 from starlette.requests import Request
 
+from ..i18n.locales import LocaleCode
+
 PRINCIPAL_STATE_KEY = "claire_principal"
 STEP_UP_WINDOW_SECONDS = 15 * 60
 
@@ -32,6 +34,7 @@ class Principal:
     channel: PrincipalChannel
     credential_id: str | None               # 감사 기록용 식별자. 토큰 값이 아니다
     authenticated_at: float | None = None   # 사람이 마지막으로 인증한 시각 (cookie·x-session)
+    locale: LocaleCode | None = None        # accounts.locale. None = automatic negotiation (I18N design Section 5.3)
 
     @property
     def is_anonymous(self) -> bool:
