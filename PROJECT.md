@@ -86,6 +86,37 @@ Effects on the contracts in this file:
 
 ---
 
+## Current Project: Interface Internationalization (i18n)
+
+The design is [`docs/design/I18N_DESIGN.md`](docs/design/I18N_DESIGN.md). The owner locked decisions ID1 through ID4 on 2026-11-11. The project translates the interface text of the WebUI, the Telegram bot, and the CLI human output into English (`en`) and Korean (`ko`) from one set of JSON catalogs. Phase IP1 (core runtime, schema, and account locale contract) is complete. Phases IP2 (WebUI localization) and IP3 (Telegram bot and CLI localization) are not started.
+
+The design divides each phase into work units (Section 10.2 of the design).
+
+| Unit | Status | Commit |
+|------|--------|--------|
+| IP1-1 | COMPLETED (2026-11-12) | `96de5129` |
+| IP1-2 | COMPLETED (2026-11-12) | `0eba37a3` |
+| IP2-1 | NOT STARTED | |
+| IP2-2 | NOT STARTED | |
+| IP2-3 | NOT STARTED | |
+| IP3-1 | NOT STARTED | |
+| IP3-2 | NOT STARTED | |
+| IP3-3 | NOT STARTED | |
+
+Difference from the design: the `Settings` field for `CLAIRE_LANG` is `ui_lang`, not `lang`. `Settings` has no environment prefix and reads variables by field name, thus a field `lang` also reads the POSIX variable `LANG` (for example `en_US.UTF-8`) and startup fails.
+
+Difference from the design: the `accounts.locale` migration is `claire.db` version 19. Version 18 is the federation publishing schema (unit FP3-1).
+
+Difference from the design: `I18nMiddleware` adds `Content-Language` to HTML responses only. JSON and protocol responses do not change with the locale and do not get the header.
+
+Difference from the design: `POST /api/locale` is a public route, and the authentication middleware does not validate credentials on public routes. The handler validates the session cookie itself and writes `accounts.locale` only for an owner session.
+
+Difference from the design: the phase table (Section 10.1) lists `i18n.js` in phase IP1, but the work unit table (Section 10.2) puts it in unit IP2-1. The work unit table applies: `i18n.js` is not written yet.
+
+Open items after phase IP1: no interface text is translated yet, thus HTML pages still show their hardcoded text while `Content-Language` shows the resolved locale. `openapi.yaml` does not have the `locale` fields and `POST /api/locale` (unit IP3-3). The account backup does not contain `accounts.locale`.
+
+---
+
 ## Completed Phase P2: Admin and Settings Path Separation
 Phase P2 established shared client-side management controllers, integrated role-aware management controls into the root service drawer, and consolidated all 8 administrator sections into `console_shell.html`.
 - **Status**: Completed on 2026-11-05.
