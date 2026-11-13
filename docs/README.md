@@ -24,7 +24,8 @@ docs/
 │   ├── MCP_SUPPORT.md
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md
 │   ├── SYNDICATION_ENDPOINT_DESIGN.md
-│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (2026-11-10, FP1 구현 내용은 implementation/FEDERATION.md)
+│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (2026-11-10, FP1–FP3 구현 내용은 implementation/FEDERATION.md)
+│   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 연합 클라이언트·원격 읽기·피드 설계 초안 (2026-11-13, RD12 보류), 시각 프로토타입은 design/prototypes/
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
 │   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본
@@ -33,7 +34,7 @@ docs/
 │   ├── COMMANDS.md             # 전체 CLI 명령어 및 레퍼런스
 │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정 및 Pydantic 검증 매뉴얼
 │   ├── EXTERNAL_ACCESS.md      # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세
-│   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1: 내부 연합 API, 탐색, 액터 키, 준비 검사, 배포)
+│   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1–FP3: 내부 연합 API, 탐색, 팔로워, 발행, 액터 키, 준비 검사, 배포)
 │   ├── GLOSSARY.md             # 지식 코어 데이터 모델 및 시스템 공통 표준 용어집
 │   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라) 구현 정본과 검증 절차
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
@@ -66,7 +67,7 @@ docs/
 2. **[`docs/design/`](design/)**
    - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
    - 현재 동작은 `implementation/` 문서나 코드로 확인합니다. 구현을 마친 내용은 이 디렉터리에 따로 쓰지 않습니다.
-   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인한 설계입니다(2026-11-10). 지금 구현된 범위는 FP1(내부 연합 API와 탐색)이며, 현재 동작은 [`FEDERATION.md`](implementation/FEDERATION.md)에 있습니다. 팔로워(FP2)와 발행(FP3)은 구현하지 않았습니다. 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
+   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인한 설계입니다(2026-11-10). 지금 구현된 범위는 FP1(내부 연합 API와 탐색), FP2(팔로워), FP3(발행)이며, 현재 동작은 [`FEDERATION.md`](implementation/FEDERATION.md)에 있습니다. FP4(연합 클라이언트, 원격 글 읽기, 피드)는 [`FEDERATION_REMOTE_READING_DESIGN.md`](design/FEDERATION_REMOTE_READING_DESIGN.md)에서 설계 중입니다. 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
 
 ## 문서 정합성 검사
 

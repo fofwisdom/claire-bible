@@ -757,3 +757,7 @@ deno task check
 
 - `tests/test_fedify_sidecar.py` and the sidecar step of `scripts/ci.sh` are skipped when `deno` is not installed.
 - No test calls a public server. All servers are local.
+
+### 14.1 Debugging with DrFed
+
+DrFed is an ActivityPub debugging platform of the Fedify team. It shows objects and activities and helps to find where a delivery fails. It is a tool of the developer only: it is not in the repository, not in CI, and not part of the service (owner decision RD19, 2026-11-13). Run it separately (it needs Node.js 26 or newer) and point it at a development instance. Do not point it at the production server.
