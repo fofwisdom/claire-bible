@@ -4877,7 +4877,7 @@ def run_api() -> int:
 
     from .dev_listeners import dev_listeners
 
-    listeners = dev_listeners(s)
+    listeners = dev_listeners(s, prototype=runtime.host_roles.prototype if runtime.host_roles is not None else None)
     listen = ", ".join(f"{host}:{port}" for host, port in listeners)
     print(
         "Claire ASGI 웹 서비스 시작: "

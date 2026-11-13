@@ -182,7 +182,7 @@ def test_development_role_hosts_use_same_ipv4_and_distinct_ports(tmp_path):
     assert roles.role_of(DEV_HOST) == "app"
     assert roles.role_of(UC_HOST) == "usercontent"
     assert roles.role_of(MEDIA_HOST) == "media"
-    assert roles.role_of(f"{DEV_IP}:8769") is None
+    assert roles.role_of(f"{DEV_IP}:8770") is None  # 8769 is the fixed prototype port (RD20)
     assert roles.origin("app") == DEV_ORIGIN
     assert roles.origin("usercontent") == f"http://{UC_HOST}"
     assert roles.origin("media") == f"http://{MEDIA_HOST}"

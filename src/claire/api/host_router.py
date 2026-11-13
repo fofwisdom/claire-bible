@@ -24,6 +24,7 @@ from urllib.parse import quote
 from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .prototype_host import prototype_authority
 from .security import (
     _parse_authority,
     _parse_dns_name,
@@ -56,7 +57,7 @@ class HostRoles:
     media: str | None
     # 운영 환경의 등록 도메인(``CLAIRE_SITE_DOMAIN``). PSL로 추정하지 않는다(C1).
     site_domain: str | None
-    # 정적 프로토타입 호스트(``CLAIRE_PROTOTYPE_FQDN``, RD20). None이면 역할이 없다.
+    # 정적 프로토타입 호스트(RD20). 설정이 아니라 app 호스트에서 계산한다(``prototype_host.prototype_authority``). None이면 역할이 없다.
     prototype: str | None = None
 
     @classmethod
@@ -81,10 +82,9 @@ class HostRoles:
             getattr(settings, "usercontent_fqdn", "") or "", "CLAIRE_USERCONTENT_FQDN", environment
         )
         media = _role_authority(getattr(settings, "media_fqdn", "") or "", "CLAIRE_MEDIA_FQDN", environment)
-        prototype = _role_authority(getattr(settings, "prototype_fqdn", "") or "", "CLAIRE_PROTOTYPE_FQDN", environment)
         site_domain = _site_domain(getattr(settings, "site_domain", "") or "")
 
-        named = [("app", app), ("usercontent", usercontent), ("media", media), ("prototype", prototype)]
+        named = [("app", app), ("usercontent", usercontent), ("media", media)]
         present = [(name, value) for name, value in named if value is not None]
 
         if environment == "production":
@@ -113,14 +113,20 @@ class HostRoles:
                     raise ValueError(f"development {name} host must use the app IPv4 address {app_ip}")
                 if port == app_port:
                     raise ValueError(f"development {name} host must use a port different from the app port")
-            seen_authority: dict[str, str] = {}
-            for name, value in present[1:]:
-                if value in seen_authority:
-                    raise ValueError(f"role hosts must differ: {seen_authority[value]} and {name} are the same authority")
-                seen_authority[value] = name
+            if usercontent is not None and media is not None and usercontent == media:
+                raise ValueError("role hosts must differ: usercontent and media are the same authority")
+
+        # The prototype host (RD20) is not a setting: it is computed from the app host. It is not in the CLAIRE_SITE_DOMAIN checks above. When it is the same as another role host, the environment has no prototype host.
+        prototype = prototype_authority(app, environment)
+        if prototype is not None:
+            other_hosts = {value if environment == "development" else value.split(":", 1)[0] for _, value in present}
+            if (prototype if environment == "development" else prototype.split(":", 1)[0]) in other_hosts:
+                prototype = None
 
         roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain, prototype=prototype)
         role_origins = {roles.origin(name) for name, _ in present[1:]}
+        if prototype is not None:
+            role_origins.add(roles.origin("prototype"))
         for raw_origin in _split_origins(getattr(settings, "cors_allowed_origins", "") or ""):
             try:
                 _, _, normalized = _parse_url(raw_origin, environment=environment, origin_only=True)

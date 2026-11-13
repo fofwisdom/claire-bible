@@ -304,26 +304,26 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
    - `app`: 메인 웹 애플리케이션 및 API (`CLAIRE_FQDN` 기준). 세션 쿠키(`__Host-claire_session`)를 보유한다.
    - `usercontent`: 샌드박스 HTML 렌더링 origin (`CLAIRE_USERCONTENT_FQDN`). 쿠키가 없는 격리 도메인이다.
    - `media`: 미디어 스트리밍 origin (`CLAIRE_MEDIA_FQDN`). 1시간 열람 capability 서명 URL 기반.
-   - `prototype`: 정적 시각 프로토타입 origin (`CLAIRE_PROTOTYPE_FQDN`, 선택, RD20). `GET`·`HEAD /`만 목업 데이터 페이지(`src/claire/templates/prototype/federation_client_prototype.html`)를 주고 그 밖의 모든 경로와 메서드는 404다. 쿠키를 읽지도 쓰지도 않고, API 경로와 서버 데이터가 없다. 응답 헤더: `X-Robots-Tag: noindex, nofollow`, `X-Frame-Options: DENY`, `Content-Security-Policy`(`default-src 'none'`, inline script·style만 허용, `connect-src 'none'`, `frame-ancestors 'none'`). 값이 비면 역할이 없고 그 호스트는 421이다.
+   - `prototype`: 관리자용 정적 시각 프로토타입 origin (RD20). 환경 변수나 설정이 없다. 이름은 코드가 `CLAIRE_FQDN`에서 계산한다(`src/claire/api/prototype_host.py`의 `prototype_authority`): 운영은 `prototype.` + `CLAIRE_FQDN`의 등록 도메인이다. 등록 도메인은 `publicsuffixlist` 패키지에 든 Public Suffix List 사본으로 구한다(실행 중 목록을 내려받지 않는다). 예: `cb.netspheres.org` → `prototype.netspheres.org`, `claire.example.co.kr` → `prototype.example.co.kr`. `CLAIRE_FQDN`이 IP 주소, `localhost`, 한 레이블이거나 등록 도메인이 없으면 이 역할이 없다. 계산된 이름이 다른 역할 호스트와 같아도 없다. 개발은 app IPv4의 고정 포트 8769다(`DEV_PROTOTYPE_PORT`, 예: `http://127.0.0.1:8769/`). `GET`·`HEAD /`만 목업 데이터 페이지(`src/claire/templates/prototype/federation_client_prototype.html`)를 주고 그 밖의 모든 경로와 메서드는 404다. 쿠키를 읽지도 쓰지도 않고, API 경로와 서버 데이터가 없다. 응답 헤더: `X-Robots-Tag: noindex, nofollow`, `X-Frame-Options: DENY`, `Content-Security-Policy`(`default-src 'none'`, inline script·style만 허용, `connect-src 'none'`, `frame-ancestors 'none'`). 계산된 이름이 아닌 호스트는 전처럼 421이다.
 2. **도메인 설정**:
-   - 운영 환경에서는 모든 역할 호스트가 등록 도메인(`CLAIRE_SITE_DOMAIN`)의 서브도메인이어야 한다.
-   - 개발 환경에서는 `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT`, `CB_PROTOTYPE_PORT` 포트 기반 authority로 분리된다.
+   - 운영 환경에서는 모든 역할 호스트가 등록 도메인(`CLAIRE_SITE_DOMAIN`)의 서브도메인이어야 한다. 계산된 `prototype` 호스트는 이 검사에 들지 않는다.
+   - 개발 환경에서는 `CB_USERCONTENT_PORT`, `CB_MEDIA_PORT` 포트 기반 authority로 분리된다. `prototype`은 고정 포트 8769이고, `docker-compose.dev.yml`이 이 포트를 같은 컨테이너 포트로 연결한다.
    - `usercontent`·`media`·`prototype` origin은 `CLAIRE_CORS_ALLOWED_ORIGINS`에 넣을 수 없다(기동 거부).
 3. **HostRouter 라우팅**:
    - `HostRouter`가 인입된 `Host` 헤더를 보고 역할을 판별하여 적절한 하위 앱으로 분기한다.
    - 등록되지 않은 호스트는 `421 Misdirected Request`로 거부된다.
-4. **프로토타입 호스트 proxy 규칙(운영)**: DNS에 `prototype.<CLAIRE_FQDN>`(또는 `CLAIRE_PROTOTYPE_FQDN` 값) 레코드를 proxy로 추가하고, 위 Nginx 예시와 같은 upstream으로 보내는 server block을 하나 더 둔다. `server_name`과 `proxy_set_header Host`는 그 호스트 이름이다. 운영 환경은 `CLAIRE_SITE_DOMAIN`이 필요하고 호스트는 그 서브도메인이어야 한다.
+4. **프로토타입 호스트 DNS·proxy 규칙(운영)**: 운영자가 DNS에 `prototype.<CLAIRE_FQDN의 등록 도메인>` 레코드(예: `prototype.netspheres.org`)를 proxy로 추가하고, TLS 인증서가 그 이름을 덮게 한다. 위 Nginx 예시와 같은 upstream으로 보내는 server block을 하나 더 둔다. `server_name`과 `proxy_set_header Host`는 그 호스트 이름이다. Claire 설정은 바꾸지 않는다.
    ```nginx
    server {
        listen 443 ssl;
-       server_name prototype.claire.example.com;
+       server_name prototype.example.com;
        access_log /var/log/nginx/claire_access.log claire_safe;
        client_max_body_size 1k;
        location / {
            limit_except GET { deny all; }
            proxy_pass http://claire_backend;
            proxy_http_version 1.1;
-           proxy_set_header Host prototype.claire.example.com;
+           proxy_set_header Host prototype.example.com;
            proxy_set_header Connection "";
            proxy_set_header Cookie "";
            proxy_set_header Forwarded "";

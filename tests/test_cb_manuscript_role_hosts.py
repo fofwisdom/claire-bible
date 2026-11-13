@@ -185,10 +185,9 @@ def test_compose_environment_drops_host_role_host_values(tmp_path, monkeypatch):
     runtime = _load_dev(tmp_path)
     monkeypatch.setenv("CLAIRE_USERCONTENT_FQDN", "evil.example")
     monkeypatch.setenv("CLAIRE_MEDIA_FQDN", "evil.example")
-    monkeypatch.setenv("CLAIRE_PROTOTYPE_FQDN", "evil.example")
     monkeypatch.setenv("CLAIRE_SITE_DOMAIN", "example")
     env = runtime.compose_environment()
-    for key in ("CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_PROTOTYPE_FQDN", "CLAIRE_SITE_DOMAIN"):
+    for key in ("CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_SITE_DOMAIN"):
         assert key not in env
 
 
@@ -342,10 +341,10 @@ def test_repository_templates_validate(tmp_path):
             encoding="utf-8",
         )
     layout = cb.Layout(tmp_path)
-    for key in ("CLAIRE_SITE_DOMAIN", "CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_PROTOTYPE_FQDN"):
+    for key in ("CLAIRE_SITE_DOMAIN", "CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN"):
         assert key in cb.read_dotenv(layout.env)
         assert key in cb.read_dotenv(layout.dev_env)
-    for key in ("CB_USERCONTENT_PORT", "CB_MEDIA_PORT", "CB_PROTOTYPE_PORT"):
+    for key in ("CB_USERCONTENT_PORT", "CB_MEDIA_PORT"):
         assert key in cb.read_dotenv(layout.dev_env)
     assert cb.load_runtime(layout).environment == cb.PRODUCTION
     assert cb.load_runtime(layout, legacy_dev=True).environment == cb.DEVELOPMENT
@@ -354,10 +353,14 @@ def test_repository_templates_validate(tmp_path):
 def test_compose_files_publish_role_ports_only_in_development():
     prod = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     dev = (REPO_ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8")
-    assert "CB_USERCONTENT_PORT" not in prod and "CB_MEDIA_PORT" not in prod and "CB_PROTOTYPE_PORT" not in prod
+    assert "CB_USERCONTENT_PORT" not in prod and "CB_MEDIA_PORT" not in prod
     assert "${CB_USERCONTENT_PORT:-${CB_API_PORT" in dev
     assert "${CB_MEDIA_PORT:-${CB_API_PORT" in dev
-    assert "${CB_PROTOTYPE_PORT:-${CB_API_PORT" in dev
+    # The prototype role (RD20) has no setting: the fixed development port in code is published as a literal.
+    from claire.api.prototype_host import DEV_PROTOTYPE_PORT
+
+    assert f":{DEV_PROTOTYPE_PORT}:${{CB_API_PORT" in dev
+    assert f":{DEV_PROTOTYPE_PORT}:" not in prod
     # Stale dev images must not outlive pyproject/uv.lock changes.
     assert "pull_policy: build" in dev
 
@@ -400,17 +403,19 @@ def _has_compose() -> bool:
 
 @pytest.mark.skipif(not _has_compose(), reason="docker compose is not available")
 def test_dev_compose_model_wires_role_ports_to_api_port(tmp_path):
+    # 8769 is the fixed prototype port (RD20, DEV_PROTOTYPE_PORT). It is always published in development.
     ports = _compose_ports(tmp_path, {})
-    assert ports["api"] == [("127.0.0.1", "8766", 8766)]
+    assert ports["api"] == [("127.0.0.1", "8766", 8766), ("127.0.0.1", "8769", 8766)]
 
     ports = _compose_ports(tmp_path, {"CB_USERCONTENT_PORT": "8767"})
-    assert ports["api"] == [("127.0.0.1", "8766", 8766), ("127.0.0.1", "8767", 8766)]
+    assert ports["api"] == [("127.0.0.1", "8766", 8766), ("127.0.0.1", "8767", 8766), ("127.0.0.1", "8769", 8766)]
 
     ports = _compose_ports(tmp_path, {"CB_USERCONTENT_PORT": "8767", "CB_MEDIA_PORT": "8768"})
     assert ports["api"] == [
         ("127.0.0.1", "8766", 8766),
         ("127.0.0.1", "8767", 8766),
         ("127.0.0.1", "8768", 8766),
+        ("127.0.0.1", "8769", 8766),
     ]
     for worker in ("refresh", "recover", "expand"):
         assert ports[worker] == []

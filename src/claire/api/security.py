@@ -2228,7 +2228,7 @@ class _PublicDirectoryNamespaceResolver(NamespaceResolverMiddleware):
 
 
 def _prototype_app(roles: HostRoles) -> ASGIApp | None:
-    """The static prototype sub-application (RD20), or None when ``CLAIRE_PROTOTYPE_FQDN`` is empty."""
+    """The static prototype sub-application (RD20), or None when the environment has no prototype host (``prototype_host.prototype_authority``)."""
     if roles.prototype is None:
         return None
     from .prototype_host import create_prototype_app

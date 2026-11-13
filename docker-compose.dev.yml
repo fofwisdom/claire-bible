@@ -32,7 +32,8 @@ services:
     ports:
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_USERCONTENT_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_MEDIA_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
-      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_PROTOTYPE_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
+      # Static prototype role (RD20): fixed port 8769, the same as DEV_PROTOTYPE_PORT in src/claire/api/prototype_host.py. It is not a setting.
+      - "${CB_API_BIND:?CB_API_BIND is required}:8769:${CB_API_PORT:?CB_API_PORT is required}"
 
   refresh:
     <<: *claire-dev-service

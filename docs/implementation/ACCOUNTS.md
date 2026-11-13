@@ -60,7 +60,7 @@
 
 1. **정규화**: 비ASCII가 하나라도 있으면 소문자 변환 **전에** `syntax`로 거부한다(`"K".lower() == "k"` 같은 접힘 방지). 그다음 `lower()`. 공백을 자르지 않는다. 저장되는 값은 이 소문자 값이다.
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
-3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`과 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, `/prototype/syndication`)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
+3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`과 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, 옛 `/prototype/syndication`, RD20에서 지움)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
 5. **인스턴스 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.instance_hosts`). 포트는 뗀다.
 
@@ -397,7 +397,7 @@
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 테이블 제거**: 쓰이지 않던 `syndication_accounts`(토큰 암호화 함수 포함), `syndication_targets`, `syndication_items`는 `claire.db` v20에서 제거했다([SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) "v20" 절).
 - **[코드] 계정 격리**: 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 및 `/prototype/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트

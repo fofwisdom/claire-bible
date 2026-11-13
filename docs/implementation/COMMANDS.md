@@ -81,7 +81,7 @@
    ```
    - `CLAIRE_FQDN`(`.env.dev`, 기본 `127.0.0.1:8766`)의 포트와 `CLAIRE_INJECT_PORT`가 같아야 브라우저 `Host`가 app으로 판정된다.
    - docker 개발 스택과 같은 데이터 디렉터리와 포트를 쓰므로 둘을 함께 띄우지 않는다(`./cb-manuscript dev down`).
-3. 역할 호스트 포트(설계 §5.1). `.env.dev`에 `CLAIRE_USERCONTENT_FQDN=127.0.0.1:8767`(선택 `CLAIRE_MEDIA_FQDN=127.0.0.1:8768`, `CLAIRE_PROTOTYPE_FQDN=127.0.0.1:8769`)이 있고 그 IPv4가 `CLAIRE_INJECT_HOST`와 같으면, uv 실행은 같은 프로세스에서 그 포트도 연다(`src/claire/api/dev_listeners.py`). 컨테이너는 `CLAIRE_INJECT_HOST=0.0.0.0`이라 추가로 열지 않고, Compose가 `CB_USERCONTENT_PORT`·`CB_MEDIA_PORT`·`CB_PROTOTYPE_PORT`를 컨테이너 포트로 연결한다. 프로토타입은 `http://127.0.0.1:8769/`에서 연다. 운영 환경은 항상 app 포트 하나다. 확인:
+3. 역할 호스트 포트(설계 §5.1). `.env.dev`에 `CLAIRE_USERCONTENT_FQDN=127.0.0.1:8767`(선택 `CLAIRE_MEDIA_FQDN=127.0.0.1:8768`)이 있고 그 IPv4가 `CLAIRE_INJECT_HOST`와 같으면, uv 실행은 같은 프로세스에서 그 포트도 연다(`src/claire/api/dev_listeners.py`). 컨테이너는 `CLAIRE_INJECT_HOST=0.0.0.0`이라 추가로 열지 않고, Compose가 `CB_USERCONTENT_PORT`·`CB_MEDIA_PORT`를 컨테이너 포트로 연결한다. 정적 프로토타입(RD20)은 설정 없이 app IPv4의 고정 포트 8769에서 열린다(`http://127.0.0.1:8769/`, uv 실행과 Compose 모두). 운영 환경은 항상 app 포트 하나다. 확인:
    ```bash
    # 시작 메시지: Claire ASGI 웹 서비스 시작: http://127.0.0.1:8766 (listen=127.0.0.1:8766, 127.0.0.1:8767, env=development)
    curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8766/health    # 200
