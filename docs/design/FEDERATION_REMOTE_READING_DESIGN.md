@@ -571,6 +571,19 @@ Rules:
 
 Not covered: the display of an approved quote on a Mastodon-compatible server. That needs a real server (FP4-10 end-to-end or a manual check).
 
+**RT1 to RT8 (2026-11-13).** Local test programs, not kept in the repository: two or three Fedify instances on loopback with HTTPS (a local test CA), the sidecar config and lock (`--frozen`); Python checks on a database made by `init_db`. The repository did not change.
+
+| Item | State | Result | Effect on this design |
+| :--- | :--- | :--- | :--- |
+| RT1 follow | Confirmed | WebFinger and `lookupObject` resolve a `Person` and a `Group`; `Follow` with `{actor}#follows/{id}` gets a signed `Accept`. `getObject()` of the `Accept` refetches the embedded `Follow` without the fragment and gives the actor document. | The sidecar matches `Accept` and `Reject` of a `Follow` (and of a `QuoteRequest`, RT9) by `objectId`, read before any `getObject()`, and never calls `getObject()` for them. |
+| RT2 announce fetch | Confirmed | Signed fetch of an `Announce` object works in a personal inbox; in the shared inbox it needs `setSharedKeyDispatcher` (the sidecar has it). Private addresses (`127.0.0.1`, `localhost`, `::1`, `10.0.0.1`, `169.254.169.254`) are refused when `allowPrivateAddress` is false. | Keep the shared key dispatcher. |
+| RT3 outbox kinds | Confirmed; rebuild | The rebuild in an idempotent migration keeps all rows and IDs, the poller index, and the lease and acknowledgement functions. `DROP TABLE` resets the AUTOINCREMENT counter. | The rebuild saves and restores the `sqlite_sequence` value of `federation_outbox`. The store row form adds `target_iri`. |
+| RT4 local media | Confirmed | Only ingest writes `data/images` (`images/{doc_id}_{i}{ext}`); nothing writes `data/media`. Without a media host, the app route `/image` reads the disk only. | Section 9.3 scope is `data/images` with the same keys. `--delete-source` is refused when no media host is set (or the app route also reads the store). |
+| RT5 S3 store | Confirmed with a defect | Put, get, byte ranges, and delete work with a local S3-compatible server. SigV4 signs the raw path, but the client sends the percent-encoded path, so keys with other characters fail on a real S3. The store cannot make a bucket. | Object storage keys use only `[A-Za-z0-9/_.-]` and the store refuses other keys (or FP4-1 encodes the signed path by the AWS rules). The admin test uses an existing bucket. |
+| RT6 backfill | Confirmed | `@fedify/backfill` 2.3.15 (not in the sidecar lock) reads paged `context` collections, `replies` collections, and the parent chain; it has `maxItems`, `maxDepth`, and `maxRequests`; the reply tree goes depth first and costs many fetches. | FP4-6 adds the package to the sidecar config and lock. `context_max_items` → `maxItems`, `context_depth` → `maxDepth`, new setting `context_max_requests` → `maxRequests`. The reply tree runs only when the object has no `context`. |
+| RT7 number space | Proposal | `public_id` is time-based and unique per table, so two tables can get the same number. Two object dispatchers on one path do not work in Fedify (the first wins). | New table `federation_object_numbers` (`public_id`, `kind`, `account_id`, `created_at`): each number row is written first in the same transaction; version 22 fills it from `federation_objects` and the object tombstones. One sidecar dispatcher for `Object` at `/ap/objects/{id}`; `ObjectRecord.type` and the tombstone `formerType` accept `Note`. The outbox collection is a union of documents and notes by `public_id`. |
+| RT8 interactions | Confirmed; Mastodon display not covered | Reply with `inReplyTo`, `Mention`, `audience`, `contentMap`, content warning, and `Hashtag`; `Like`, `Announce`, their `Undo`; `Update(Note)`; `Delete` with a `Tombstone`. With a language, Fedify writes `contentMap` only. | Section 5.4 rule 12: the sidecar sends both `content` and `contentMap`. |
+
 ## 13. Owner Decisions
 
 | ID | Topic | Decision | State |
