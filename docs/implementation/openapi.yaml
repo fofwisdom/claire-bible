@@ -1975,6 +1975,272 @@ paths:
         '404':
           description: '`object_not_found`. Also single mode.'
 
+  /api/feeds:
+    get:
+      summary: List the feeds of the own account
+      description: Feeds of the account (single mode and network mode), with folder, cache and poll state, and item counts.
+      operationId: listFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: Feeds and folders.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feeds: {type: array, items: {$ref: '#/components/schemas/Feed'}}
+                  folders: {type: array, items: {type: string}}
+                  limit: {type: integer}
+        '404':
+          description: Not an owner-scope credential.
+    post:
+      summary: Subscribe to a feed
+      operationId: subscribeFeed
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: {type: string, description: An http or https feed URL.}
+                title: {type: string}
+                folder: {type: string}
+      responses:
+        '201':
+          description: The feed is added (`created` is true).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feed: {$ref: '#/components/schemas/Feed'}
+                  created: {type: boolean}
+        '200':
+          description: The account has a feed with this URL. Nothing is added (`created` is false).
+        '400':
+          description: '`invalid_request` or `invalid_url`.'
+        '409':
+          description: '`feed_limit`.'
+    delete:
+      summary: Unsubscribe from a feed
+      description: Deletes the feed and its items. A linked document stays.
+      operationId: unsubscribeFeed
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [feed_id]
+              properties:
+                feed_id: {type: integer}
+      responses:
+        '200':
+          description: The feed is deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed: {type: boolean}
+                  feed_id: {type: integer}
+                  items: {type: integer}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+
+  /api/feeds/poll:
+    post:
+      summary: Poll the feeds of the own account now
+      description: >-
+        Conditional GET with the stored ETag and Last-Modified. Without
+        `feed_id`, at most 50 feeds (oldest poll first). A feed in backoff is
+        not fetched.
+      operationId: pollFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                feed_id: {type: integer}
+      responses:
+        '200':
+          description: Poll results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  polled: {type: integer}
+                  not_polled: {type: integer}
+                  outcomes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        feed_id: {type: integer}
+                        result: {type: string, enum: [updated, not_modified, error, backoff]}
+                        http_status: {type: [integer, 'null']}
+                        added: {type: integer}
+                        updated: {type: integer}
+                        error: {type: [string, 'null']}
+                        next_poll_at: {type: [number, 'null']}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+
+  /api/feeds/opml:
+    get:
+      summary: Export the feeds of the own account as OPML 2.0
+      operationId: exportFeedsOpml
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: OPML document. A feed with a folder is in a category outline.
+          content:
+            text/x-opml:
+              schema: {type: string}
+    post:
+      summary: Import feeds from an OPML document
+      description: >-
+        Each outline with xmlUrl is a feed. Nested categories give one folder
+        level (names joined with " › "). Outlines without a feed are skipped
+        and listed. A known URL is a duplicate. The import does not poll.
+      operationId: importFeedsOpml
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [opml]
+              properties:
+                opml: {type: string, description: The OPML document as text.}
+      responses:
+        '200':
+          description: Import report.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts:
+                    type: object
+                    properties:
+                      added: {type: integer}
+                      skipped: {type: integer}
+                      duplicate: {type: integer}
+                      failed: {type: integer}
+                  added: {type: array, items: {type: object}}
+                  skipped: {type: array, items: {type: object}}
+                  duplicate: {type: array, items: {type: object}}
+                  failed: {type: array, items: {type: object}}
+        '400':
+          description: '`invalid_request` or `invalid_opml` (with `reason`).'
+
+  /api/feeds/items:
+    get:
+      summary: List feed items of the own account
+      operationId: listFeedItems
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: feed_id, in: query, schema: {type: integer}}
+        - {name: folder, in: query, schema: {type: string}}
+        - {name: unread, in: query, schema: {type: string, enum: ['0', '1']}}
+        - {name: starred, in: query, schema: {type: string, enum: ['0', '1']}}
+        - {name: before_id, in: query, schema: {type: integer}, description: Cursor from next_before_id.}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+        - {name: content, in: query, schema: {type: string, enum: ['0', '1']}, description: '1 adds the HTML body.'}
+      responses:
+        '200':
+          description: One page, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/FeedItem'}}
+                  next_before_id: {type: [integer, 'null']}
+        '400':
+          description: '`invalid_request`.'
+    patch:
+      summary: Mark feed items read, unread, starred, or not starred
+      operationId: markFeedItems
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              description: Either item_ids (1 to 500) with unread and/or starred, or feed_id with unread.
+              properties:
+                item_ids: {type: array, items: {type: integer}, maxItems: 500}
+                feed_id: {type: integer}
+                unread: {type: boolean}
+                starred: {type: boolean}
+      responses:
+        '200':
+          description: Number of matched items.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changed: {type: integer}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`feed_not_found`.'
+
 components:
   parameters:
     ConsoleThemeQuery:
@@ -2024,6 +2290,45 @@ components:
       description: Same-Origin HttpOnly session cookie.
 
   schemas:
+    Feed:
+      type: object
+      properties:
+        id: {type: integer}
+        url: {type: string}
+        site_url: {type: [string, 'null']}
+        title: {type: string}
+        folder: {type: string, description: Empty for no folder.}
+        format: {type: [string, 'null'], enum: [rss, atom, json, null]}
+        websub_hub: {type: [string, 'null']}
+        last_polled_at: {type: [number, 'null']}
+        last_success_at: {type: [number, 'null']}
+        next_poll_at: {type: [number, 'null']}
+        last_status: {type: [integer, 'null']}
+        last_error: {type: [string, 'null']}
+        failure_count: {type: integer}
+        created_at: {type: number}
+        items: {type: integer}
+        unread: {type: integer}
+    FeedItem:
+      type: object
+      properties:
+        id: {type: integer}
+        feed_id: {type: integer}
+        feed_title: {type: string}
+        feed_folder: {type: string}
+        url: {type: [string, 'null']}
+        title: {type: string}
+        author: {type: [string, 'null']}
+        summary: {type: [string, 'null']}
+        content: {type: [string, 'null'], description: Only with content=1. Render it on the usercontent origin only.}
+        categories: {type: array, items: {type: string}, description: Raw tags of the feed.}
+        published_at: {type: [number, 'null']}
+        modified_at: {type: [number, 'null']}
+        fetched_at: {type: number}
+        unread: {type: boolean}
+        starred: {type: boolean}
+        linked_theme_id: {type: [integer, 'null']}
+        linked_doc_id: {type: [string, 'null']}
     McpTelemetryRecord:
       type: object
       properties:
