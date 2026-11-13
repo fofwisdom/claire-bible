@@ -653,7 +653,8 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
     assert "<script" not in first["content"] and "alert" not in first["content"]
     second = internal.get(f"/objects/{SECOND_OBJECT_ID}").json()
     assert (second["name"], second["url"]) == ("Second", None)
-    assert "<em>body</em>" in second["content"]
+    # The document has no compiled HTML, so the object renders its Markdown body. The production image has no Markdown library: the fallback parser of render.aot makes a paragraph and keeps inline marks as text.
+    assert second["content"].startswith("<p>") and "Second" in second["content"] and "body" in second["content"]
     assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at"}
 
 
@@ -748,7 +749,8 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice")
         conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
-        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>",))
+        # The compiled HTML is given: the production image has no Markdown library, so a body without compiled HTML gets the fallback parser of render.aot (no <strong>).
+        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', ?, 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         conn.commit()
         session = accounts_store.create_account_session(conn, account_id=alice, scope="owner", now=time.time())
         readonly = accounts_store.create_account_session(conn, account_id=alice, scope="readonly", now=time.time())

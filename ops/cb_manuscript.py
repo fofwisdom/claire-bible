@@ -278,6 +278,14 @@ class Layout:
         return self.development_state if dev else self.production_state
 
 
+def _path_check(check: Callable[[], bool]) -> bool:
+    """Run one file system check. A path that the process cannot read (for example /root/.gemini when the process is not root) gives False: on Python 3.11 ``Path.is_dir`` and ``Path.is_file`` raise ``PermissionError`` for such a path."""
+    try:
+        return bool(check())
+    except OSError:
+        return False
+
+
 def detect_host_antigravity_paths(
     values: Mapping[str, str] | None = None,
 ) -> tuple[str, str]:
@@ -312,7 +320,7 @@ def detect_host_antigravity_paths(
                 except Exception:
                     pass
             for c in candidates:
-                if c.is_file() and os.access(c, os.X_OK):
+                if _path_check(lambda: c.is_file() and os.access(c, os.X_OK)):
                     agy_path = str(c.resolve())
                     break
 
@@ -333,7 +341,7 @@ def detect_host_antigravity_paths(
 
     # 1순위: 실제 antigravity-oauth-token 또는 settings.json이 존재하는 디렉터리 우선
     for gc in gemini_candidates:
-        if gc.is_dir():
+        if _path_check(gc.is_dir):
             try:
                 if (
                     (gc / "antigravity-cli" / "antigravity-oauth-token").is_file()
@@ -347,7 +355,7 @@ def detect_host_antigravity_paths(
     else:
         # 2순위: 내용물이 존재하는 디렉터리
         for gc in gemini_candidates:
-            if gc.is_dir():
+            if _path_check(gc.is_dir):
                 try:
                     if any(gc.iterdir()):
                         host_gemini_dir = str(gc.resolve())

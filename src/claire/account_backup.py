@@ -638,7 +638,8 @@ def restore_account_backup(
         stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%d_%H%M%S")
         checkpoint = dbm.checkpoint_database(s.db_file, checkpoint_dir / f"account-restore-{int(account_id)}-{stamp}.db")
 
-        conn = sqlite3.connect(str(s.db_file), timeout=30.0, isolation_level=None)
+        # The ATTACH below gives each snapshot as a file: URI with mode=ro. SQLite reads a URI in ATTACH only when the main connection was opened with uri=True; else the result depends on the SQLITE_USE_URI build option (the Python 3.11 build has it off).
+        conn = sqlite3.connect(Path(s.db_file).resolve().as_uri(), uri=True, timeout=30.0, isolation_level=None)
         restored: list[dict[str, Any]] = []
         try:
             conn.execute("PRAGMA busy_timeout=30000")

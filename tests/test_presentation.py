@@ -764,7 +764,12 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         public_url="http://127.0.0.1:8765",
     )
     app = create_app(s)
-    with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
+    # The patch stays active until the client closes: the request with wait=false starts the generation as a background task, and the client waits for that task at exit. A patch that ends earlier lets the task call the real compiler, and the test then waits without end.
+    target_file = tmp_path / "presentations" / f"{doc_id}.html"
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_text("<!DOCTYPE html><html><body><h1>Async Option A</h1></body></html>")
+    with patch("claire.presentation.service.compile_presentation_html") as mock_compile, TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
+        mock_compile.return_value = (target_file, 120)
         # 1. Option A: GET /p/presentation on ungenerated document MUST return 404 guidance HTML
         # and MUST NOT trigger LLM authoring or file generation
         page_res = client.get(f"/p/presentation?id={doc_id}")
@@ -779,19 +784,13 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         assert status_res.json()["status"] == "not_created"
 
         # 3. Test async generation: POST /document/presentation/generate?wait=false
-        with patch("claire.presentation.service.compile_presentation_html") as mock_compile:
-            target_file = tmp_path / "presentations" / f"{doc_id}.html"
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            target_file.write_text("<!DOCTYPE html><html><body><h1>Async Option A</h1></body></html>")
-            mock_compile.return_value = (target_file, 120)
-
-            async_res = client.post(
-                f"/document/presentation/generate?id={doc_id}&wait=false",
-                headers=owner_headers,
-            )
-            assert async_res.status_code == 202
-            assert async_res.json()["status"] == "composing"
-            assert async_res.json()["document_id"] == doc_id
+        async_res = client.post(
+            f"/document/presentation/generate?id={doc_id}&wait=false",
+            headers=owner_headers,
+        )
+        assert async_res.status_code == 202
+        assert async_res.json()["status"] == "composing"
+        assert async_res.json()["document_id"] == doc_id
 
 
 def test_prepare_presentation_adoc_header_attributes():

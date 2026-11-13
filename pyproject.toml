@@ -33,7 +33,7 @@ stealth = ["scrapling[fetchers]>=0.4"]
 audio = ["yt-dlp[curl-cffi]>=2024.8.0"]
 # 한국어 형태소 분석 검색 (Apache 2.0 라이선스 보장 버전 고정)
 ko = ["kiwipiepy>=0.24.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx2>=2.7,<3", "pytest-xdist>=3.6"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx2>=2.7,<3", "pytest-xdist>=3.6", "pytest-timeout>=2.3"]
 
 [project.scripts]
 claire = "claire.cli:main"

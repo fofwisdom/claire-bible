@@ -231,11 +231,19 @@ class ProviderUnavailableError(RuntimeError):
     """설정한 프로바이더를 쓸 수 없는데 mock 으로 대체하면 안 되는 경우(운영 환경)."""
 
 
+def _is_executable_file(path: Path) -> bool:
+    """True when ``path`` is a file that the process can run. A path in a directory that the process cannot read (for example /root/.local/bin when the process is not root) is not a candidate: on Python 3.11 ``Path.is_file`` raises ``PermissionError`` for such a path."""
+    try:
+        return path.is_file() and os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
 def find_agy_executable(agy_bin: str = "agy") -> str | None:
     """Find agy executable in PATH or standard container/host locations."""
     if not agy_bin:
         agy_bin = "agy"
-    if Path(agy_bin).is_file() and os.access(agy_bin, os.X_OK):
+    if _is_executable_file(Path(agy_bin)):
         return str(Path(agy_bin).resolve())
     found = shutil.which(agy_bin)
     if found:
@@ -249,7 +257,7 @@ def find_agy_executable(agy_bin: str = "agy") -> str | None:
     ]
     for d in extra_dirs:
         cand = Path(d) / agy_bin
-        if cand.is_file() and os.access(cand, os.X_OK):
+        if _is_executable_file(cand):
             return str(cand.resolve())
     return None
 
@@ -312,7 +320,7 @@ def find_codex_executable(codex_bin: str = "codex") -> str | None:
     """명시 경로, 현재 PATH 또는 표준 컨테이너/호스트 마운트 위치(/host-bin 등)에서 Codex CLI를 찾는다."""
     raw = str(codex_bin or "codex").strip() or "codex"
     explicit = Path(raw).expanduser()
-    if explicit.is_file() and os.access(explicit, os.X_OK):
+    if _is_executable_file(explicit):
         return str(explicit.resolve())
     found = shutil.which(raw)
     if found:
@@ -326,7 +334,7 @@ def find_codex_executable(codex_bin: str = "codex") -> str | None:
     ]
     for d in extra_dirs:
         cand = Path(d) / raw
-        if cand.is_file() and os.access(cand, os.X_OK):
+        if _is_executable_file(cand):
             return str(cand.resolve())
     return None
 
@@ -337,7 +345,7 @@ def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:
         ffmpeg_bin = "ffmpeg"
     raw = str(ffmpeg_bin).strip()
     explicit = Path(raw).expanduser()
-    if explicit.is_file() and os.access(explicit, os.X_OK):
+    if _is_executable_file(explicit):
         return str(explicit.resolve())
     found = shutil.which(raw)
     if found:
@@ -351,7 +359,7 @@ def find_ffmpeg_executable(ffmpeg_bin: str = "ffmpeg") -> str | None:
     ]
     for d in extra_dirs:
         cand = Path(d) / raw
-        if cand.is_file() and os.access(cand, os.X_OK):
+        if _is_executable_file(cand):
             return str(cand.resolve())
     try:
         import static_ffmpeg
