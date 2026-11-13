@@ -1862,11 +1862,12 @@ def _cached_or_embedded_revision(layout: Layout) -> str | None:
 
 
 def _source_revision(layout: Layout) -> str | None:
-    cached = _cached_or_embedded_revision(layout)
-    if cached:
-        return cached
+    # 1. An explicit process override has priority.
+    env_commit = os.environ.get("CLAIRE_BUILD_COMMIT", "").strip()
+    if env_commit and env_commit.lower() not in {"unknown", "null", "none"}:
+        return env_commit
 
-    # 개발 checkout의 Git CLI 확인
+    # 2. A Git checkout gives the current HEAD. The embedded BUILD_COMMIT file of a previous build must not hide a new pull.
     try:
         revision = run_command(
             ("git", "rev-parse", "HEAD"),
@@ -1880,7 +1881,9 @@ def _source_revision(layout: Layout) -> str | None:
     except ManuscriptError as exc:
         if exc.exit_code != 127:
             raise
-    return None
+
+    # 3. A source tree without Git uses the embedded file or the previous state.
+    return _cached_or_embedded_revision(layout)
 
 
 def _profile_state(runtime: Runtime) -> dict[str, object] | None:

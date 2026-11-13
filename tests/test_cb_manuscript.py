@@ -1772,3 +1772,19 @@ def test_source_revision_detects_embedded_file_and_env(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAIRE_BUILD_COMMIT", "aabbccddeeff00112233445566778899aabbccdd")
     assert cb._source_revision(layout) == "aabbccddeeff00112233445566778899aabbccdd"
     assert cb._cached_or_embedded_revision(layout) == "aabbccddeeff00112233445566778899aabbccdd"
+
+
+def test_source_revision_prefers_git_head_over_stale_embedded_file(tmp_path, monkeypatch):
+    """A BUILD_COMMIT file from a previous build must not hide the HEAD after `git pull`."""
+    monkeypatch.delenv("CLAIRE_BUILD_COMMIT", raising=False)
+    _write_layout(tmp_path, dev=False)
+    layout = cb.Layout(tmp_path)
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([*git, "-C", str(tmp_path), "commit", "-q", "--allow-empty", "-m", "c"], check=True)
+    head = subprocess.run(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    commit_file = tmp_path / "src" / "claire" / "BUILD_COMMIT"
+    commit_file.parent.mkdir(parents=True, exist_ok=True)
+    commit_file.write_text("3f67e14fcc35b67e780434ea31a39bd6f487266f\n", encoding="utf-8")
+
+    assert cb._source_revision(layout) == head

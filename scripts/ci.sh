@@ -15,6 +15,19 @@ cd "$(dirname "$0")/.."
 echo "[ci] 1/4 진입점 구문 검사"
 bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
+# The container image uses Python 3.11 (Dockerfile FROM python:3.11-slim). A newer local Python accepts syntax that 3.11 rejects (for example PEP 701 f-strings), and the api container then restarts without end. Compile all sources with 3.11.
+uv run --no-project --python 3.11 python -I -c '
+import pathlib, sys
+errors = 0
+for root in ("src", "ops", "scripts"):
+    for path in sorted(pathlib.Path(root).rglob("*.py")):
+        try:
+            compile(path.read_text(encoding="utf-8"), str(path), "exec")
+        except SyntaxError as exc:
+            errors += 1
+            print(f"CI Error: Python 3.11 syntax: {path}:{exc.lineno}: {exc.msg}")
+sys.exit(1 if errors else 0)
+'
 
 echo "[ci] 2/4 Compose 운영·개발 설정 및 볼륨 무결성 검사"
 CB_ENV_FILE=.env.example \

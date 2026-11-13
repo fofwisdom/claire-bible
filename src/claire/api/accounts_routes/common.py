@@ -260,8 +260,9 @@ LOCALE_FORM_RETURN_PATHS = {"login.html": "/login", "setup.html": "/setup"}
 def locale_switch_html(return_path: str) -> str:
     """The language switch of a page without JavaScript: one submit button for each locale in a form that posts to ``/api/locale``. The button of the active locale is disabled."""
     current = get_locale()
+    active_attrs = ' aria-current="true" disabled'
     buttons = "".join(
-        f'<button type="submit" class="link" name="locale" value="{code}" lang="{code}"{' aria-current="true" disabled' if code == current else ""}>{escape(t(f"locale.name.{code}"))}</button>'
+        f'<button type="submit" class="link" name="locale" value="{code}" lang="{code}"{active_attrs if code == current else ""}>{escape(t(f"locale.name.{code}"))}</button>'
         for code in SUPPORTED_LOCALES
     )
     label = escape(t("console.account.locale_label"))
