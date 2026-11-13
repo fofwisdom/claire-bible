@@ -162,18 +162,22 @@ def delete_account_feed_data(conn: sqlite3.Connection, account_id: int) -> dict[
     return {"feed_subscriptions": int(feeds), "feed_items": int(items)}
 
 
-def due_feeds(conn: sqlite3.Connection, *, now: float, limit: int, account_id: int | None = None) -> list[dict[str, Any]]:
-    """Feeds with ``next_poll_at`` at or before ``now`` (or not set), oldest poll first. Without ``account_id``: only feeds of accounts that can sign in."""
+def due_feeds(conn: sqlite3.Connection, *, now: float, limit: int, account_id: int | None = None, active_account_ids: list[int] | None = None) -> list[dict[str, Any]]:
+    """Feeds with ``next_poll_at`` at or before ``now`` (or not set), oldest poll first. Without ``account_id``: only feeds of ``active_account_ids``, the accounts that can sign in. The accounts are in ``claire.db`` and the feeds in ``client.db`` (RD27), so the caller reads the accounts."""
     if account_id is not None:
         rows = conn.execute(
             "SELECT * FROM feed_subscriptions WHERE account_id=? AND (next_poll_at IS NULL OR next_poll_at<=?) ORDER BY COALESCE(last_polled_at, 0), id LIMIT ?",
             (account_id, now, limit),
         ).fetchall()
     else:
+        ids = list(active_account_ids or [])
+        if not ids:
+            return []
+        marks = ", ".join("?" for _ in ids)
         rows = conn.execute(
-            "SELECT f.* FROM feed_subscriptions f JOIN accounts a ON a.id=f.account_id WHERE a.status IN ('active', 'setup_required') AND (f.next_poll_at IS NULL OR f.next_poll_at<=?) "
-            "ORDER BY COALESCE(f.last_polled_at, 0), f.id LIMIT ?",
-            (now, limit),
+            f"SELECT * FROM feed_subscriptions WHERE account_id IN ({marks}) AND (next_poll_at IS NULL OR next_poll_at<=?) "
+            "ORDER BY COALESCE(last_polled_at, 0), id LIMIT ?",
+            (*ids, now, limit),
         ).fetchall()
     return [_feed_dict(row) for row in rows]
 

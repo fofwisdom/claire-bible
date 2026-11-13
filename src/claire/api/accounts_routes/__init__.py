@@ -24,13 +24,14 @@ from starlette.routing import Route
 
 from .. import security
 from . import admin, console, features, federation, feeds, idp, instance, invites, keys, login, me, setup
-from .common import AccountsContext, build_context, prepare_auth_db, require_recent_auth
+from .common import AccountsContext, build_context, prepare_auth_db, prepare_client_db, require_recent_auth
 
 __all__ = [
     "AccountRoutes",
     "AccountsContext",
     "build_account_routes",
     "prepare_auth_db",
+    "prepare_client_db",
     "require_recent_auth",
 ]
 

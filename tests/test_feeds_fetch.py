@@ -10,6 +10,7 @@ import pytest
 
 from claire.feeds import poller
 from claire.feeds.fetch import FeedFetcher, parse_retry_after
+from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import feeds as feeds_store
 
@@ -63,17 +64,20 @@ def srv():
 
 @pytest.fixture
 def db_file(tmp_path: Path) -> Path:
+    """The ``client.db`` path (RD27). ``claire.db`` is in the same folder: its accounts decide which feeds are due."""
     path = tmp_path / "claire.db"
     conn = dbm.connect(path)
     try:
         dbm.init_db(conn)
     finally:
         conn.close()
-    return path
+    client = client_db.client_db_path(path)
+    client_db.connect_client_db(client).close()
+    return client
 
 
 def _add(db_file: Path, url: str) -> dict:
-    conn = dbm.connect_existing(db_file)
+    conn = client_db.connect_client_existing(db_file)
     try:
         feed, _ = feeds_store.add_feed(conn, 1, url, now=NOW)
         conn.commit()
@@ -83,7 +87,7 @@ def _add(db_file: Path, url: str) -> dict:
 
 
 def _feed(db_file: Path, feed_id: int) -> dict:
-    conn = dbm.connect_existing(db_file)
+    conn = client_db.connect_client_existing(db_file)
     try:
         return feeds_store.get_feed(conn, 1, feed_id)
     finally:
@@ -146,8 +150,9 @@ def test_poll_backoff_on_429_and_5xx_and_reset_on_success(srv: _Server, db_file:
 def test_due_feeds_respect_the_schedule(srv: _Server, db_file: Path) -> None:
     fetcher = FeedFetcher(allow_private=True)
     feed = _add(db_file, f"{srv.base}/feed")
-    assert [o.added for o in poller.poll_due(db_file, fetcher=fetcher, now=NOW)] == [1]
-    assert poller.poll_due(db_file, fetcher=fetcher, now=NOW + 60) == []
+    claire = db_file.parent / "claire.db"
+    assert [o.added for o in poller.poll_due(db_file, claire_db_file=claire, fetcher=fetcher, now=NOW)] == [1]
+    assert poller.poll_due(db_file, claire_db_file=claire, fetcher=fetcher, now=NOW + 60) == []
     assert _feed(db_file, feed["id"])["etag"] == '"e1"'
 
 

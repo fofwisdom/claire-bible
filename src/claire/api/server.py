@@ -53,7 +53,7 @@ from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
 from ..store.token_store import get_token_store
-from .accounts_routes import build_account_routes, prepare_auth_db
+from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
@@ -239,6 +239,8 @@ def create_app(
         conn.close()
     # auth.db(설계 §13.3)도 요청을 받기 전에 준비하고 지난 로그인 실패 기록을 정리한다.
     prepare_auth_db(s.data_dir)
+    # client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27): the communication data of accounts. init_db above already moved the feed tables of version 21 into it.
+    prepare_client_db(s.db_file)
 
     token_store = get_token_store(data_dir=s.data_dir)
     token_store.migrate_env_tokens(

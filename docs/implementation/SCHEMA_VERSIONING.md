@@ -22,8 +22,9 @@
 | 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
 | 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
 | 20 | 직전 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
-| 21 | 현재 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
-| 22 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
+| 22 | 현재 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
+| 23 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -147,7 +148,23 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 데이터 이관**: 없다.
 - **[코드] 저장소 함수**: `src/claire/store/feeds.py`. 모든 함수가 호출자 계정을 질의에 넣는다. 계정 퍼지(`AccountStore.purge`)는 `delete_account_feed_data`로 그 계정의 두 테이블 행을 지운다. 계정 행은 퍼지 뒤에도 남으므로 `ON DELETE CASCADE`에 기대지 않는다.
 - **[코드] 설계와 다른 점**: 설계 §7.1은 FP4의 테이블을 version 22에 적었다. 피드 단위가 먼저 시작해서(소유자, 2026-11-13) 피드 테이블은 version 21이다. 설계에는 열 목록이 없었다.
-- **[테스트]** `tests/test_schema_v21.py`.
+- **[테스트]** v21의 생성 테스트는 v22에서 지웠다. 이동은 `tests/test_client_db.py`가 검사한다.
+
+## v22 (피드 테이블을 `client.db`로 이동, RD27)
+
+확인 기준: FP4-2와 DS-1 구현 (2026-11-13). 설계: [DATA_STORE_LAYOUT_DESIGN.md](../design/DATA_STORE_LAYOUT_DESIGN.md) §3.2.
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 22`.
+- **[코드] 이관**(`_migrate_v22_move_feed_tables`, 멱등): `claire.db`에 피드 테이블이 있으면, 행을 같은 ID로 `claire.db` 옆의 `client.db`에 복사하고, 모든 ID가 들어갔는지 확인한 뒤에만 두 테이블과 인덱스를 지운다. 복사가 끝나지 않으면(오류, 또는 파일 없는 메모리 DB에 행이 있는 경우) 테이블을 두고 다음 기동에서 다시 시도한다. 행은 잃지 않는다. 운영자가 할 일은 없다.
+- **[코드]** `_migrate_v21_account_feeds`는 이제 아무것도 만들지 않는다. 새 DB의 `claire.db`에는 피드 테이블이 없다.
+- **[테스트]** `tests/test_client_db.py`. 다른 테스트는 버전 번호 대신 `dbm.SCHEMA_VERSION`과 비교한다(DS-2).
+
+### 별도 저장소: `client.db` (`claire.db` 옆)
+
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 1`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+  - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`, `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
+- **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
+- **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 
 ### 별도 저장소: `data/auth/auth.db`
 

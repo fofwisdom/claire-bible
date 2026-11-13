@@ -771,7 +771,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 | Part | Module |
 | :--- | :--- |
-| Tables `feed_subscriptions` and `feed_items` (`claire.db` version 21) | `store/db.py` (`_migrate_v21_account_feeds`), [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) "v21" |
+| Tables `feed_subscriptions` and `feed_items` in `client.db` version 1 (moved from `claire.db` version 21 by version 22, RD27) | `store/client_db.py`, `store/db.py` (`_migrate_v22_move_feed_tables`), [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) "v22" and "`client.db`" |
 | Store functions (each query has the account of the caller) | `store/feeds.py` |
 | Parsers: RSS 2.0 (also RSS 1.0), Atom 1.0, JSON Feed 1.0 and 1.1 | `feeds/parse.py` (`lxml` without entities, DTD, or network) |
 | Fetch with conditional `GET` and the private address check | `feeds/fetch.py` |
@@ -813,7 +813,7 @@ Export: OPML 2.0. A feed with a folder is in a category outline of that name; ot
 
 ### 15.5 Data Deletion
 
-The account purge (`AccountStore.purge`) deletes the feed subscriptions and feed items of the account with `store.feeds.delete_account_feed_data`. A future deletion of the client data of an account uses the same function. No feed action deletes a document (design Section 10 rule 5): `linked_theme_id` and `linked_doc_id` have no foreign key.
+The account purge (`AccountStore.purge`) deletes the client data of the account in `client.db` (feeds, feed items, follows, reading settings, client outbox) with `store.client_db.purge_account_of_claire_db`, in its own transaction (no transaction crosses files, RD27). No feed action deletes a document (design Section 10 rule 5): `linked_theme_id` and `linked_doc_id` are values only.
 
 ### 15.6 Known Limits
 
@@ -824,4 +824,26 @@ The account purge (`AccountStore.purge`) deletes the feed subscriptions and feed
 
 ### 15.7 Tests
 
-`tests/test_e2e_account_feeds.py` (single mode: subscribe, poll, read, mark, poll with `304`, Tiny Tiny RSS style OPML import, export, unsubscribe; network mode: account isolation and purge), `tests/test_feeds_fetch.py`, `tests/test_feeds_parse.py`, `tests/test_feeds_opml.py`, `tests/test_schema_v21.py`. All servers are local.
+`tests/test_e2e_account_feeds.py` (single mode: subscribe, poll, read, mark, poll with `304`, Tiny Tiny RSS style OPML import, export, unsubscribe; network mode: account isolation and purge), `tests/test_feeds_fetch.py`, `tests/test_feeds_parse.py`, `tests/test_feeds_opml.py`, `tests/test_client_db.py`. All servers are local.
+
+
+## 16. Reading Settings (Unit FP4-2)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 10; files: [`DATA_STORE_LAYOUT_DESIGN.md`](../design/DATA_STORE_LAYOUT_DESIGN.md) (RD27).
+
+| Part | Where |
+| :--- | :--- |
+| Instance values (Section 10 table) | `claire.db`, `instance_settings` key `federation_reading` (JSON with the values that differ from the default). `store/federation_client.py` (`READING_DEFAULTS`, `validate_reading_update`, `get_reading_settings`, `set_reading_settings`) |
+| Retention of an account | `client.db`, `federation_account_settings`. `set_account_retention` refuses a value above the instance value; `effective_retention_days` gives the lower value |
+| Follows and client tasks (FP4-3 uses them) | `client.db`, `federation_following` and `federation_client_outbox` (`add_following`, `add_client_task`) |
+
+Routes:
+
+| Method | Path | Access | Body and answer |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/federation/reading` | admin | `{"settings": {...}, "defaults": {...}}` |
+| `PUT` | `/api/admin/federation/reading` | admin, same origin, recent authentication | A partial object of known keys in range; 400 for an unknown key or a value outside its range. An audit record `federation.reading.update`. |
+| `GET` | `/api/federation/settings` | owner, network mode | `{"retention_days", "instance_retention_days", "effective_retention_days"}` |
+| `PUT` | `/api/federation/settings` | owner, network mode | `{"retention_days": null or 1 to the instance value}`; another body is 400 |
+
+The console fields come with FP4-5. Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.

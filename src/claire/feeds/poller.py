@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..store import db as dbm
+from ..store import client_db
 from ..store import feeds as feeds_store
 from .fetch import FeedFetcher, FetchResult
 from .parse import FeedParseError, parse_feed
@@ -96,7 +97,7 @@ def poll_feeds(db_file: Path | str, feeds: list[dict[str, Any]], *, fetcher: Fee
 
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(feeds)))) as pool:
         results = list(pool.map(_fetch, feeds))
-    conn = dbm.connect_existing(db_file)
+    conn = client_db.connect_client_existing(db_file)
     try:
         outcomes = []
         for feed, fetched in zip(feeds, results, strict=True):
@@ -113,7 +114,7 @@ def poll_feeds(db_file: Path | str, feeds: list[dict[str, Any]], *, fetcher: Fee
 def poll_account(db_file: Path | str, account_id: int, *, fetcher: FeedFetcher, feed_id: int | None = None, now: float | None = None, limit: int = ON_DEMAND_LIMIT) -> dict[str, Any]:
     """Poll on demand: the feeds of the account (at most ``limit``, oldest poll first) or one feed. A feed in backoff (a failure and a next poll in the future) is not fetched; its outcome is ``backoff``. An unknown ``feed_id`` gives ``{"found": False}``."""
     when = time.time() if now is None else now
-    conn = dbm.connect_existing(db_file, readonly=True)
+    conn = client_db.connect_client_existing(db_file, readonly=True)
     try:
         feeds = feeds_store.account_feeds_for_poll(conn, account_id, limit=limit, feed_id=feed_id)
         total = feeds_store.count_feeds(conn, account_id)
@@ -128,12 +129,22 @@ def poll_account(db_file: Path | str, account_id: int, *, fetcher: FeedFetcher, 
     return {"found": True, "polled": len(ready), "not_polled": max(total - len(feeds), 0) if feed_id is None else 0, "outcomes": [o.to_dict() for o in outcomes]}
 
 
-def poll_due(db_file: Path | str, *, fetcher: FeedFetcher, now: float | None = None, limit: int = SCHEDULED_BATCH, account_id: int | None = None) -> list[PollOutcome]:
-    """Poll the feeds that are due (``next_poll_at`` at or before now). The scheduler of the ``api`` process and ``claire feeds poll`` use this function."""
-    when = time.time() if now is None else now
-    conn = dbm.connect_existing(db_file, readonly=True)
+def active_account_ids(claire_db_file: Path | str) -> list[int]:
+    """The accounts that can sign in (``claire.db``). Their feeds are polled."""
+    conn = dbm.connect_existing(claire_db_file, readonly=True)
     try:
-        feeds = feeds_store.due_feeds(conn, now=when, limit=limit, account_id=account_id)
+        return [int(r[0]) for r in conn.execute("SELECT id FROM accounts WHERE status IN ('active', 'setup_required')").fetchall()]
+    finally:
+        conn.close()
+
+
+def poll_due(db_file: Path | str, *, claire_db_file: Path | str, fetcher: FeedFetcher, now: float | None = None, limit: int = SCHEDULED_BATCH, account_id: int | None = None) -> list[PollOutcome]:
+    """Poll the feeds that are due (``next_poll_at`` at or before now). ``db_file`` is ``client.db``; ``claire_db_file`` gives the accounts that can sign in. The scheduler of the ``api`` process and ``claire feeds poll`` use this function."""
+    when = time.time() if now is None else now
+    active = None if account_id is not None else active_account_ids(claire_db_file)
+    conn = client_db.connect_client_existing(db_file, readonly=True)
+    try:
+        feeds = feeds_store.due_feeds(conn, now=when, limit=limit, account_id=account_id, active_account_ids=active)
     finally:
         conn.close()
     return poll_feeds(db_file, feeds, fetcher=fetcher, now=when)
@@ -146,7 +157,7 @@ async def run_scheduler(settings: Any) -> None:
     await asyncio.sleep(SCHEDULER_START_DELAY)
     while True:
         try:
-            outcomes = await asyncio.to_thread(poll_due, settings.db_file, fetcher=FeedFetcher.from_settings(settings))
+            outcomes = await asyncio.to_thread(poll_due, client_db.client_db_path(settings.db_file), claire_db_file=settings.db_file, fetcher=FeedFetcher.from_settings(settings))
             if outcomes:
                 log.info("feed poll: %d feed(s), %d new item(s), %d error(s)", len(outcomes), sum(o.added for o in outcomes), sum(1 for o in outcomes if o.result == "error"))
         except Exception as exc:  # noqa: BLE001

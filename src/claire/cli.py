@@ -3525,15 +3525,18 @@ def cmd_feeds(args) -> int:
 
     from .feeds import poller
     from .feeds.fetch import FeedFetcher
-    from .store import db as dbm
+    from .store import client_db
     from .store import feeds as feeds_store
 
     s = get_settings()
     now = time.time()
     fetcher = FeedFetcher.from_settings(s)
+    client_file = client_db.client_db_path(s.db_file)
+    # The feeds are in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Open it once with the migration, as the api process does at start.
+    client_db.connect_client_db(client_file).close()
     try:
         if args.force or args.feed is not None:
-            conn = dbm.connect_existing(s.db_file, readonly=True)
+            conn = client_db.connect_client_existing(client_file, readonly=True)
             try:
                 if args.feed is not None:
                     row = conn.execute("SELECT account_id FROM feed_subscriptions WHERE id=?", (args.feed,)).fetchone()
@@ -3549,9 +3552,9 @@ def cmd_feeds(args) -> int:
                     feeds = [dict(r) for r in conn.execute("SELECT * FROM feed_subscriptions ORDER BY COALESCE(last_polled_at, 0), id LIMIT ?", (args.limit,)).fetchall()]
             finally:
                 conn.close()
-            outcomes = poller.poll_feeds(s.db_file, feeds, fetcher=fetcher, now=now)
+            outcomes = poller.poll_feeds(client_file, feeds, fetcher=fetcher, now=now)
         else:
-            outcomes = poller.poll_due(s.db_file, fetcher=fetcher, now=now, limit=args.limit, account_id=args.account)
+            outcomes = poller.poll_due(client_file, claire_db_file=s.db_file, fetcher=fetcher, now=now, limit=args.limit, account_id=args.account)
     except sqlite3.Error as e:
         print(f"feeds poll: database error: {e}", file=sys.stderr)
         return 1
@@ -4064,6 +4067,15 @@ def cmd_migrate(_args) -> int:
         if auth_conn is not None:
             auth_conn.close()
     print(f"auth_db schema_version={auth_db.AUTH_DB_SCHEMA_VERSION}")
+    # client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27): the communication data of accounts, next to claire.db. The migration of claire.db below moves the feed tables of version 21 into it.
+    from .store import client_db
+
+    try:
+        client_db.connect_client_db(client_db.client_db_path(s.db_file)).close()
+    except Exception as e:  # noqa: BLE001
+        print(f"migrate: client.db error: {e}", file=sys.stderr)
+        return 1
+    print(f"client_db schema_version={client_db.CLIENT_SCHEMA_VERSION}")
 
     # Service key of the internal federation API (Fedify sidecar design, Section 6.1). An existing key is not changed.
     from .api.federation_internal import ServiceKeyError, ensure_service_key, service_key_path

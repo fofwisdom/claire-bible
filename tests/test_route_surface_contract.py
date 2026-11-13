@@ -32,7 +32,7 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
-       "/api/federation/status", "/api/federation/followers", "/api/federation/publish", "/api/federation/retract",
+       "/api/federation/status", "/api/federation/followers", "/api/federation/settings", "/api/federation/publish", "/api/federation/retract",
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items"}
 SYSTEM = {
@@ -51,7 +51,7 @@ SYSTEM = {
     "/invite/{code}",
     "/explore/accounts",
     "/admin/instance", "/api/admin/instance", "/api/admin/instance/mode", "/api/admin/instance/legacy-hosts/sunset",
-    "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/admin/federation",
+    "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
     "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
     "/api/admin/mcp/telemetry",
@@ -79,6 +79,7 @@ ADMIN_KEYS = {
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/admin/federation/domain-blocks") for m in ("GET", "HEAD", "POST", "DELETE")),
+    *((m, "/api/admin/federation/reading") for m in ("GET", "HEAD", "PUT")),
     *((m, "/admin/federation") for m in ("GET", "HEAD")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
@@ -96,6 +97,7 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/federation/status") for m in ("GET", "HEAD")),
     *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
+    *((m, "/api/federation/settings") for m in ("GET", "HEAD", "PUT")),
     ("POST", "/api/federation/publish"),
     ("POST", "/api/federation/retract"),
 }

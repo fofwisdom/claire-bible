@@ -2563,6 +2563,10 @@ def _build_backup_staging(
                     database,
                     Path(str(database) + "-wal"),
                     Path(str(database) + "-shm"),
+                    # client.db next to claire.db (DATA_STORE_LAYOUT_DESIGN.md, RD27): a snapshot below, not a copy of a live file.
+                    database.parent / "client.db",
+                    database.parent / "client.db-wal",
+                    database.parent / "client.db-shm",
                     Path("auth/master.key"),
                     Path("auth/auth.db"),
                     Path("auth/auth.db-wal"),
@@ -2588,6 +2592,12 @@ def _build_backup_staging(
                 .joinpath(*storage.database_relative.parts)
                 .as_posix()
             )
+            client_db_path = storage.database.parent / "client.db"
+            if client_db_path.exists():
+                _snapshot_database(
+                    client_db_path,
+                    payload / "data" / storage.database_relative.parent / "client.db",
+                )
             auth_db_path = storage.data / "auth" / "auth.db"
             if auth_db_path.exists():
                 _snapshot_database(

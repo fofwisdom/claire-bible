@@ -320,22 +320,25 @@ def test_network_mode_feeds_are_per_account_and_purge_keeps_documents(tmp_path: 
         assert _call(client, "POST", "/api/feeds", {**alice, "Origin": "https://evil.example"}, json={"url": "https://x.example/feed"}).status_code == 403
         assert _call(client, "GET", "/api/feeds", {}).status_code == 404
 
-    # An ingested document is linked to one item. The purge of the account deletes the feed data and keeps the document.
+    # An ingested document is linked to one item. The purge of the account deletes the feed data (client.db) and keeps the document (claire.db), RD27.
+    from claire.store import client_db
+    from claire.store import feeds as feeds_store
+
+    client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
     conn = dbm.connect_existing(settings.db_file)
     try:
         dbm.insert_document(conn, Document(id="feed-doc", url="https://garden.example/tomatoes", raw_text="tomatoes", source_type="web", content_hash="hf"), theme_id=theme.id)
-        conn.execute("UPDATE feed_items SET linked_theme_id=?, linked_doc_id='feed-doc' WHERE id=?", (theme.id, alice_items[0]["id"]))
         conn.commit()
-        assert dbm.get_document_row(conn, "feed-doc", theme_id=theme.id) is not None
-        from claire.store import feeds as feeds_store
-
+        client.execute("UPDATE feed_items SET linked_theme_id=?, linked_doc_id='feed-doc' WHERE id=?", (theme.id, alice_items[0]["id"]))
         # The purge touches only the feed data of Alice: the feed of Bob stays.
-        conn.execute("INSERT INTO feed_subscriptions (account_id, url, created_at, updated_at) VALUES (?, 'https://bob.example/feed', 0, 0)", (bob_id,))
-        conn.commit()
+        client.execute("INSERT INTO feed_subscriptions (account_id, url, created_at, updated_at) VALUES (?, 'https://bob.example/feed', 0, 0)", (bob_id,))
+        client.commit()
+        assert dbm.get_document_row(conn, "feed-doc", theme_id=theme.id) is not None
         accounts_store.AccountStore(conn).purge(alice_id, data_dir=settings.data_dir)
-        assert conn.execute("SELECT COUNT(*) FROM feed_subscriptions WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM feed_items WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
-        assert feeds_store.count_feeds(conn, bob_id) == 1
+        assert client.execute("SELECT COUNT(*) FROM feed_subscriptions WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
+        assert client.execute("SELECT COUNT(*) FROM feed_items WHERE account_id=?", (alice_id,)).fetchone()[0] == 0
+        assert feeds_store.count_feeds(client, bob_id) == 1
         assert dbm.get_document_row(conn, "feed-doc", theme_id=theme.id) is not None
     finally:
         conn.close()
+        client.close()

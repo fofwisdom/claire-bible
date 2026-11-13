@@ -158,7 +158,7 @@ def test_v17_database_migrates_and_the_migration_is_idempotent(tmp_path, monkeyp
         tables = lambda: {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}  # noqa: E731
         assert not {"federation_objects", "federation_outbox"} & tables()
         dbm.init_db(conn)
-        assert dbm.SCHEMA_VERSION == 21 and dbm.require_current_schema(conn) == 21
+        assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
         assert {"federation_objects", "federation_outbox"} <= tables()
         salt = accounts_store.AccountStore(conn).id_salt()
         _add_theme(conn, 11, ALPHA_THEME, 1)

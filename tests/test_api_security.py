@@ -407,10 +407,12 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/settings/federation",
                 "/api/federation/status",
                 "/api/federation/followers",
+                "/api/federation/settings",
             )
             for method in ("GET", "HEAD")
         ),
         ("DELETE", "/api/federation/followers"),
+        ("PUT", "/api/federation/settings"),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         *(
@@ -448,6 +450,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/api/admin/instance",
                 "/api/admin/federation",
                 "/api/admin/federation/domain-blocks",
+                "/api/admin/federation/reading",
                 "/admin/federation",
                 "/admin/idp",
                 "/api/admin/idp",
@@ -456,6 +459,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ),
         ("POST", "/api/admin/federation/domain-blocks"),
         ("DELETE", "/api/admin/federation/domain-blocks"),
+        ("PUT", "/api/admin/federation/reading"),
         ("POST", "/api/admin/instance/mode"),
         ("POST", "/api/admin/instance/legacy-hosts/sunset"),
         ("POST", "/api/admin/federation"),
@@ -521,6 +525,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/me/keys/verify"),
         *((m, "/api/federation/status") for m in ("GET", "HEAD")),
         *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
+        *((m, "/api/federation/settings") for m in ("GET", "HEAD", "PUT")),
         ("POST", "/api/federation/publish"),
         ("POST", "/api/federation/retract"),
     }

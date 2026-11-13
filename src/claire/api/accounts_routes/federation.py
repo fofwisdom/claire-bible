@@ -41,12 +41,13 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
 from ...store import federation as federation_store
+from ...store import federation_client as federation_client_store
 from .. import federation_routes
 from ..collections import parse_collection_query
 from ..principal import Principal, request_principal
 from ..security import read_json_body
 from .admin import is_admin
-from .common import AccountsContext, json_error, not_found, open_auth_db, open_db, require_recent_auth, same_origin
+from .common import AccountsContext, json_error, not_found, open_auth_db, open_client_db, open_db, require_recent_auth, same_origin
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 from .console_federation_panels import account_federation_status, actor_state, admin_federation_body, domain_block_view
 
@@ -57,6 +58,10 @@ FEDERATION_STATUS_API_PATH = "/api/federation/status"
 FEDERATION_FOLLOWERS_API_PATH = "/api/federation/followers"
 FEDERATION_PUBLISH_API_PATH = "/api/federation/publish"
 FEDERATION_RETRACT_API_PATH = "/api/federation/retract"
+# FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the instance and the retention of an account.
+ADMIN_FEDERATION_READING_API_PATH = "/api/admin/federation/reading"
+FEDERATION_SETTINGS_API_PATH = "/api/federation/settings"
+READING_AUDIT_ACTION = "federation.reading.update"
 DOCUMENT_ID_MAX_LENGTH = 200
 AUDIT_ACTION = "federation.update"
 AUDIT_DOMAIN_BLOCK_ADD = "federation.domain_block_add"
@@ -163,6 +168,115 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 conn.close()
 
         status_code, data = await asyncio.to_thread(_execute)
+        return JSONResponse(data, status_code=status_code, headers=_NO_STORE)
+
+    # --- Reading settings (FEDERATION_REMOTE_READING_DESIGN.md Section 10, FP4-2) ---
+
+    async def admin_reading_get(request: Request) -> Response:
+        if not is_admin(request_principal(request)):
+            return not_found()
+
+        def _fetch() -> dict[str, Any]:
+            conn = open_db(ctx)
+            try:
+                return {"settings": federation_client_store.get_reading_settings(conn), "defaults": dict(federation_client_store.READING_DEFAULTS)}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_fetch), headers=_NO_STORE)
+
+    async def admin_reading_put(request: Request) -> Response:
+        principal = request_principal(request)
+        denied = _admin_change_denied(request, principal)
+        if denied is not None:
+            return denied
+        body = await read_json_body(request)
+        try:
+            update = federation_client_store.validate_reading_update(body)
+        except federation_client_store.ReadingSettingsError as exc:
+            return json_error(400, "invalid_request", detail=str(exc))
+
+        def _execute() -> dict[str, Any]:
+            conn = open_db(ctx)
+            try:
+                values = federation_client_store.set_reading_settings(conn, update, updated_by=principal.account_id)
+                auth_conn = open_auth_db(ctx)
+                try:
+                    auth_db.record_admin_audit(auth_conn, actor_account_id=principal.account_id, action=READING_AUDIT_ACTION, detail=update)
+                finally:
+                    auth_conn.close()
+                return {"settings": values}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_execute), headers=_NO_STORE)
+
+    def _account_settings_view(client: Any, account_id: int, instance_value: int) -> dict[str, Any]:
+        return {
+            "retention_days": federation_client_store.get_account_retention(client, account_id),
+            "instance_retention_days": instance_value,
+            "effective_retention_days": federation_client_store.effective_retention_days(client, account_id, instance_value=instance_value),
+        }
+
+    def _instance_retention(conn: Any) -> int:
+        return int(federation_client_store.get_reading_settings(conn)["retention_days"])
+
+    async def federation_settings_get(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+
+        def _fetch() -> dict[str, Any] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                instance_value = _instance_retention(conn)
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                return _account_settings_view(client, account_id, instance_value)
+            finally:
+                client.close()
+
+        data = await asyncio.to_thread(_fetch)
+        return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
+
+    async def federation_settings_put(request: Request) -> Response:
+        # Same-origin rule for a cookie request: ``AuthenticationMiddleware`` (as for ``PATCH /api/me``).
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        body = await read_json_body(request)
+        # Sealed body: one field. ``null`` returns to the instance value.
+        if not isinstance(body, dict) or set(body) != {"retention_days"}:
+            return json_error(400, "invalid_request", detail="The body must be an object with one field, retention_days (null or an integer)")
+        value = body["retention_days"]
+
+        def _execute() -> tuple[int, dict[str, Any]] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                instance_value = _instance_retention(conn)
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                try:
+                    federation_client_store.set_account_retention(client, account_id, value, instance_max=instance_value, now=time.time())
+                except federation_client_store.ReadingSettingsError as exc:
+                    return 400, {"error": "invalid_request", "detail": str(exc)}
+                client.commit()
+                return 200, _account_settings_view(client, account_id, instance_value)
+            finally:
+                client.close()
+
+        result = await asyncio.to_thread(_execute)
+        if result is None:
+            return not_found()
+        status_code, data = result
         return JSONResponse(data, status_code=status_code, headers=_NO_STORE)
 
     # --- Domain blocks (design Section 11 item 1) ---
@@ -473,6 +587,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEDERATION_RETRACT_API_PATH, federation_retract_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_get, methods=["GET"]),
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_post, methods=["POST"]),
+        Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_get, methods=["GET"]),
+        Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_put, methods=["PUT"]),
+        Route(FEDERATION_SETTINGS_API_PATH, federation_settings_get, methods=["GET"]),
+        Route(FEDERATION_SETTINGS_API_PATH, federation_settings_put, methods=["PUT"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_get, methods=["GET"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_post, methods=["POST"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_delete, methods=["DELETE"]),

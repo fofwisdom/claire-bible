@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -801,6 +801,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v19_account_locale(conn)
     _migrate_v20_syndication_cleanup(conn)
     _migrate_v21_account_feeds(conn)
+    _migrate_v22_move_feed_tables(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1247,64 +1248,56 @@ def _purge_markdown_bodies(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v21_account_feeds(conn: sqlite3.Connection) -> None:
-    """v21 (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F1): feed subscriptions and feed items of an account. Idempotent, adds tables only (A3).
+    """v21 (unit FP4-F1) made the feed tables in ``claire.db``. Version 22 moves them to ``client.db`` (DATA_STORE_LAYOUT_DESIGN.md Section 3.2, RD27), so this step makes nothing now. A database of version 21 still has the tables; ``_migrate_v22_move_feed_tables`` moves them."""
 
-    The tables belong to the account (RD13). A feed item has no foreign key to ``documents``: an ingested document is a shared asset, and the deletion of feed data never deletes a document (design Section 10 rule 5).
+
+_FEED_TABLES_MOVED = ("feed_subscriptions", "feed_items")
+_FEED_INDEXES_MOVED = ("idx_feed_subscriptions_next_poll", "idx_feed_items_account")
+
+
+def _main_file(conn: sqlite3.Connection) -> Path | None:
+    for row in conn.execute("PRAGMA database_list").fetchall():
+        if row[1] == "main" and row[2]:
+            return Path(row[2])
+    return None
+
+
+def _migrate_v22_move_feed_tables(conn: sqlite3.Connection) -> None:
+    """v22 (DATA_STORE_LAYOUT_DESIGN.md Section 3.2, RD27): move the feed tables to ``client.db`` next to this file. Idempotent (A3).
+
+    The step copies all rows with the same IDs, checks that each row is in ``client.db``, and only then drops the tables here. When the copy does not complete (an error, or no file next to an in-memory database with rows), the tables stay and the next start tries again; no row is lost.
     """
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feed_subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            url TEXT NOT NULL,
-            site_url TEXT,
-            title TEXT NOT NULL DEFAULT '',
-            folder TEXT NOT NULL DEFAULT '',
-            format TEXT CHECK (format IS NULL OR format IN ('rss', 'atom', 'json')),
-            etag TEXT,
-            last_modified TEXT,
-            websub_hub TEXT,
-            websub_topic TEXT,
-            last_polled_at REAL,
-            last_success_at REAL,
-            next_poll_at REAL,
-            last_status INTEGER,
-            last_error TEXT,
-            failure_count INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            UNIQUE (account_id, url)
-        )
-        """
-    )
-    # The scheduler reads the feeds that are due.
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_subscriptions_next_poll ON feed_subscriptions(next_poll_at)")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feed_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            feed_id INTEGER NOT NULL REFERENCES feed_subscriptions(id) ON DELETE CASCADE,
-            item_key TEXT NOT NULL,
-            url TEXT,
-            title TEXT NOT NULL DEFAULT '',
-            author TEXT,
-            summary TEXT,
-            content TEXT,
-            categories TEXT NOT NULL DEFAULT '[]',
-            published_at REAL,
-            modified_at REAL,
-            fetched_at REAL NOT NULL,
-            unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)),
-            starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
-            linked_theme_id INTEGER,
-            linked_doc_id TEXT,
-            UNIQUE (feed_id, item_key)
-        )
-        """
-    )
-    # The item list of an account reads the newest rows first.
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_items_account ON feed_items(account_id, id)")
+    present = [t for t in _FEED_TABLES_MOVED if _table_exists(conn, t)]
+    if not present:
+        return
+    rows = {t: conn.execute(f"SELECT * FROM {t}").fetchall() for t in present}
+    if any(rows.values()):
+        main = _main_file(conn)
+        if main is None:
+            logging.getLogger(__name__).warning("v22: feed tables have rows but claire.db has no file; they stay until client.db can be used")
+            return
+        from .client_db import client_db_path, connect_client_db
+
+        client = connect_client_db(client_db_path(main))
+        try:
+            for table in _FEED_TABLES_MOVED:
+                for row in rows.get(table, []):
+                    columns = row.keys()
+                    client.execute(f"INSERT OR IGNORE INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})", tuple(row))
+            client.commit()
+            for table in _FEED_TABLES_MOVED:
+                ids = {int(r["id"]) for r in rows.get(table, [])}
+                if ids:
+                    found = {int(r[0]) for r in client.execute(f"SELECT id FROM {table} WHERE id IN ({', '.join('?' for _ in ids)})", tuple(ids)).fetchall()}
+                    if found != ids:
+                        logging.getLogger(__name__).warning("v22: %d rows of %s are not in client.db; the table stays", len(ids - found), table)
+                        return
+        finally:
+            client.close()
+    for index in _FEED_INDEXES_MOVED:
+        conn.execute(f"DROP INDEX IF EXISTS {index}")
+    conn.execute("DROP TABLE IF EXISTS feed_items")
+    conn.execute("DROP TABLE IF EXISTS feed_subscriptions")
 
 
 def backfill_embedding_models(conn: sqlite3.Connection) -> int:

@@ -25,6 +25,7 @@ from ...accounts.username_policy import instance_reserved_labels
 from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, t
 from ...presentation.favicon import inject_favicon_head_tags
 from ...store import auth_db
+from ...store import client_db
 from ...store import db as dbm
 from .. import security
 from ..principal import Principal, has_recent_auth
@@ -46,6 +47,11 @@ class AccountsContext:
     data_dir: Path | None = None
     # 계정 기능(번들·백업)이 앱 설정(공개 URL·테마 관리자)을 쓴다. 테스트 대역은 None일 수 있다.
     settings: Any = None
+
+    @property
+    def client_db_file(self) -> Path:
+        """``client.db`` next to ``claire.db`` (DATA_STORE_LAYOUT_DESIGN.md, RD27)."""
+        return client_db.client_db_path(self.db_file)
 
 
 def _host_of(value: Any) -> str:
@@ -80,6 +86,15 @@ def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsC
         data_dir=data_dir,
         settings=settings,
     )
+
+
+def prepare_client_db(claire_db_file: Path | str) -> None:
+    """Make ``client.db`` or bring its schema to the current version before the first request (RD27)."""
+    client_db.connect_client_db(client_db.client_db_path(claire_db_file)).close()
+
+
+def open_client_db(ctx: AccountsContext) -> sqlite3.Connection:
+    return client_db.connect_client_existing(ctx.client_db_file)
 
 
 def prepare_auth_db(data_dir: Path | str) -> int:

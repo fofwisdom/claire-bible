@@ -32,7 +32,7 @@ from ...feeds.fetch import FeedFetcher
 from ...store import feeds as feeds_store
 from ..principal import request_principal
 from ..security import read_json_body
-from .common import AccountsContext, json_error, not_found, open_db
+from .common import AccountsContext, json_error, not_found, open_client_db
 
 FEEDS_PATH = "/api/feeds"
 FEEDS_POLL_PATH = "/api/feeds/poll"
@@ -97,7 +97,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         """Run ``func(conn)`` with a database connection in a worker thread."""
 
         def _call() -> Any:
-            conn = open_db(ctx)
+            conn = open_client_db(ctx)
             try:
                 return func(conn)
             finally:
@@ -173,7 +173,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             if feed_id is None:
                 return json_error(400, "invalid_request", fields=["feed_id"])
         fetcher = FeedFetcher.from_settings(_settings(ctx))
-        result = await asyncio.to_thread(poller.poll_account, ctx.db_file, account_id, fetcher=fetcher, feed_id=feed_id)
+        result = await asyncio.to_thread(poller.poll_account, ctx.client_db_file, account_id, fetcher=fetcher, feed_id=feed_id)
         if not result["found"]:
             return json_error(404, "feed_not_found")
         result.pop("found")

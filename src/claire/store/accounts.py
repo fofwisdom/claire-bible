@@ -543,10 +543,10 @@ class AccountStore:
         federation_active = self.federation_state() == "on" and self.instance_mode() == "network"
         was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
         federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=federation_active and not skip_federated_delete, now=when)
-        # The feed subscriptions and feed items are client data of the account. Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5).
-        from . import feeds as feeds_store
+        # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
+        from . import client_db
 
-        feeds_store.delete_account_feed_data(self.conn, account_id)
+        client_db.purge_account_of_claire_db(self.conn, account_id)
 
         _gc_account_disk_artifacts(self.conn, account_id, data_dir=data_dir)
 
