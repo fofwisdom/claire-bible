@@ -594,7 +594,7 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD17 | Order of work and data ownership | Deferred work D1 to D4 (Section 1.2.1); ingested documents are never deleted by the client (Section 10 rule 5) | Locked 2026-11-13 |
 | RD18 | Live update of the client | Periodic polling first: about every 30 seconds while the tab is visible, and once when the tab becomes visible again. The timeline routes use cursors, so that Server-Sent Events can later send only a "new items" signal. | Locked 2026-11-13 |
 | RD19 | Role of DrFed | A debugging tool of the developer only: not in the repository, not in CI, not in the service. `FEDERATION.md` has a short note on its use. | Locked 2026-11-13 |
-| RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype` (subdomain), as a static page with mock data only. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
+| RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype`, as a static page with mock data only. The prototype is a tool for the maintainer: it has no setting. The host name is fixed in code: `prototype.` + the registrable domain of `CLAIRE_FQDN` (Public Suffix List), for example `prototype.netspheres.org` for `cb.netspheres.org`. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
 
 ---
 
