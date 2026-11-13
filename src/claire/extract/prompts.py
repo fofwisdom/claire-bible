@@ -177,7 +177,7 @@ _ADOC_NON_AUTHOR_LINE_RE = re.compile(
 )
 
 
-def sanitize_rendered_detail(text: str | None, format: str = "md") -> str:
+def sanitize_rendered_detail(text: str | None, format: str = "adoc") -> str:
     """상세 본문에서 중복 원문 링크, AsciiDoc 저자 라인 및 미디어 플랫폼 인용 오염을 정제한다."""
     if not text:
         return ""
@@ -586,6 +586,7 @@ def images_block_adoc(images: list[dict]) -> str:
     )
 
 
+# SEALED (RD23): not maintained; reference for the Markdown export (docs/design/MARKDOWN_RETIREMENT_DESIGN.md).
 def render_detail_prompt_md(
     body: str,
     images: list[dict],
@@ -723,15 +724,11 @@ def render_detail_prompt(
     *,
     merged: bool,
     scale: int = 1,
-    format: str = "md",
+    format: str = "adoc",
     focus: str | None = None,
 ) -> str:
-    """포맷(md 또는 adoc)에 맞춰 가독 렌더링 프롬프트를 라우팅."""
-    if (format or "md").strip().lower() in ("asciidoc", "adoc"):
-        return render_detail_prompt_adoc(
-            body, images, merged=merged, scale=scale, focus=focus
-        )
-    return render_detail_prompt_md(
+    """가독 렌더링 프롬프트. RD23: AsciiDoc 프롬프트만 쓴다. ``format``은 호출 호환을 위해 받지만 Markdown을 고르지 못한다."""
+    return render_detail_prompt_adoc(
         body, images, merged=merged, scale=scale, focus=focus
     )
 

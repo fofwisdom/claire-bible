@@ -12,6 +12,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from typing import Any
+from html import escape as _h
+import re as _re
+
+
+def _plain(html_text: str) -> str:
+    """Plain text of a Telegram HTML message, for the fallback when Telegram refuses the HTML (RD24: no Markdown)."""
+    import html as _html
+
+    return _html.unescape(_re.sub(r"<[^>]+>", "", html_text))
 
 from .config import get_settings
 from .store import db as dbm
@@ -945,24 +954,22 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         kind_label: str = "",
         focus: str | None = None,
     ):
-        safe_desc = target_desc.replace("`", "'")
-        safe_kind = kind_label.replace("`", "'")
+        # RD24: bot messages use Telegram HTML, not Markdown. Each value is escaped.
         prompt_lines = [
-            "🎯 *적재할 테마(지식베이스)를 선택하세요*",
+            "🎯 <b>적재할 테마(지식베이스)를 선택하세요</b>",
             "",
-            f"• 대상: `{safe_desc}`" + (f" (`{safe_kind}`)" if safe_kind else ""),
+            f"• 대상: <code>{_h(target_desc)}</code>" + (f" (<code>{_h(kind_label)}</code>)" if kind_label else ""),
         ]
         if focus:
-            safe_focus = focus.replace("`", "'")
-            prompt_lines.append(f"• 초점: `{safe_focus}`")
+            prompt_lines.append(f"• 초점: <code>{_h(focus)}</code>")
         prompt_lines.append("")
         prompt_lines.append("원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다.")
         prompt_text = "\n".join(prompt_lines)
         markup = _theme_selection_markup(token, themes)
         try:
-            return await msg.reply_text(prompt_text, reply_markup=markup, parse_mode="Markdown")
+            return await msg.reply_text(prompt_text, reply_markup=markup, parse_mode="HTML")
         except Exception as e:
-            log.warning("Markdown entity parsing failed in _prompt_theme_selection, falling back to plain text: %s", e)
+            log.warning("HTML entity parsing failed in _prompt_theme_selection, falling back to plain text: %s", e)
             plain_lines = [
                 "🎯 적재할 테마(지식베이스)를 선택하세요",
                 "",
@@ -1150,9 +1157,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         if not getattr(s, "multi_theme", False):
             await update.message.reply_text(
-                "ℹ️ *현재 싱글 테마 모드로 동작 중입니다 (기본 테마).*\n\n"
-                "다중 데이터베이스 테마 기능을 활성화하려면 서버 환경변수에 `CLAIRE_MULTI_THEME=1`을 설정해야 합니다.",
-                parse_mode="Markdown",
+                "ℹ️ <b>현재 싱글 테마 모드로 동작 중입니다 (기본 테마).</b>\n\n"
+                "다중 데이터베이스 테마 기능을 활성화하려면 서버 환경변수에 <code>CLAIRE_MULTI_THEME=1</code>을 설정해야 합니다.",
+                parse_mode="HTML",
             )
             return
         uid = user.id if user else 0
@@ -1166,13 +1173,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 target = theme_mgr.get_theme(arg, label_match="partial")
                 user_active_themes[uid] = target.id
                 msg_text = (
-                    f"✅ 기본 검색 테마가 {target.icon} *{target.label}* (#{target.id})로 설정되었습니다.\n\n"
+                    f"✅ 기본 검색 테마가 {_h(target.icon)} <b>{_h(target.label)}</b> (#{target.id})로 설정되었습니다.\n\n"
                     f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
                 )
                 try:
-                    await update.message.reply_text(msg_text, parse_mode="Markdown")
+                    await update.message.reply_text(msg_text, parse_mode="HTML")
                 except Exception:
-                    await update.message.reply_text(msg_text.replace("*", ""))
+                    await update.message.reply_text(_plain(msg_text))
                 return
             except KeyError:
                 await update.message.reply_text(f"❌ 테마를 찾을 수 없습니다: '{arg}'")
@@ -1186,7 +1193,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             current_theme = theme_mgr.get_theme(0)
         current_tid = current_theme.id
         lines = stale_lines + [
-            f"🎯 *현재 선택된 검색 테마*: {current_theme.icon} *{current_theme.label}* (#{current_theme.id})",
+            f"🎯 <b>현재 선택된 검색 테마</b>: {_h(current_theme.icon)} <b>{_h(current_theme.label)}</b> (#{current_theme.id})",
             "",
             "지식 관리자가 등록한 테마 목록 중 원하는 테마를 선택하세요:",
             "(자료 적재 시에는 적재 명령 시에 테마를 직접 선택합니다)",
@@ -1200,11 +1207,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await update.message.reply_text(
                 "\n".join(lines),
                 reply_markup=InlineKeyboardMarkup(kb),
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
         except Exception:
             await update.message.reply_text(
-                "\n".join(lines).replace("*", ""),
+                _plain("\n".join(lines)),
                 reply_markup=InlineKeyboardMarkup(kb),
             )
 
@@ -1952,13 +1959,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 user_active_themes[uid] = theme.id
                 await query.answer(f"테마: {theme.icon} {theme.label}")
                 msg_text = (
-                    f"✅ 기본 검색 테마가 {theme.icon} *{theme.label}* (#{theme.id})로 설정되었습니다.\n\n"
+                    f"✅ 기본 검색 테마가 {_h(theme.icon)} <b>{_h(theme.label)}</b> (#{theme.id})로 설정되었습니다.\n\n"
                     f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
                 )
                 try:
-                    await query.edit_message_text(msg_text, parse_mode="Markdown")
+                    await query.edit_message_text(msg_text, parse_mode="HTML")
                 except Exception:
-                    await query.edit_message_text(msg_text.replace("*", ""))
+                    await query.edit_message_text(_plain(msg_text))
             except Exception as e:
                 await query.answer(f"테마 변경 실패: {e}")
             return
@@ -2190,22 +2197,22 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if not tokens:
                 await msg.reply_text(
                     "🔑 등록된 활성 API/MCP 토큰이 없습니다.\n\n"
-                    "• 토큰 생성: `/token create <이름> [scope]`\n"
-                    "  예: `/token create ClaudeDesktop readonly`",
-                    parse_mode="Markdown",
+                    "• 토큰 생성: <code>/token create &lt;이름&gt; [scope]</code>\n"
+                    "  예: <code>/token create ClaudeDesktop readonly</code>",
+                    parse_mode="HTML",
                 )
                 return
 
-            lines = [f"🔑 *API & MCP 상시 이용 토큰 목록* ({len(tokens)}개)\n"]
+            lines = [f"🔑 <b>API &amp; MCP 상시 이용 토큰 목록</b> ({len(tokens)}개)\n"]
             for t in tokens:
                 raw_t = t["token"]
                 prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
                 suffix = raw_t[-4:] if len(raw_t) >= 8 else ""
-                masked = f"`{prefix}...{suffix}`"
-                lines.append(f"• *#{t['id']}* `{t['name']}` [{t['scope']}]\n  토큰: {masked} (만료: 무기한)")
-            lines.append("\n• 토큰 생성: `/token create <이름> [scope]`")
-            lines.append("• 토큰 폐기: `/token revoke <ID>`")
-            await msg.reply_text("\n".join(lines), parse_mode="Markdown")
+                masked = f"<code>{_h(prefix)}...{_h(suffix)}</code>"
+                lines.append(f"• <b>#{t['id']}</b> <code>{_h(t['name'])}</code> [{_h(t['scope'])}]\n  토큰: {masked} (만료: 무기한)")
+            lines.append("\n• 토큰 생성: <code>/token create &lt;이름&gt; [scope]</code>")
+            lines.append("• 토큰 폐기: <code>/token revoke &lt;ID&gt;</code>")
+            await msg.reply_text("\n".join(lines), parse_mode="HTML")
 
         elif action_type == "created":
             created = res[1]
@@ -2213,34 +2220,34 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
             mcp_url = f"{base_url}/mcp"
             text = (
-                f"🔑 *새 API & MCP 상시 이용 토큰 발급 완료*\n\n"
-                f"• ID: `#{created['id']}`\n"
-                f"• 이름: `{created['name']}`\n"
-                f"• 권한: `{created['scope']}`\n"
+                f"🔑 <b>새 API &amp; MCP 상시 이용 토큰 발급 완료</b>\n\n"
+                f"• ID: <code>#{created['id']}</code>\n"
+                f"• 이름: <code>{_h(created['name'])}</code>\n"
+                f"• 권한: <code>{_h(created['scope'])}</code>\n"
                 f"• 만료: 무기한 (상시 이용 가능)\n\n"
-                f"📋 *시크릿 토큰:*\n`{raw_token}`\n\n"
-                f"🌐 *MCP 엔드포인트:*\n`{mcp_url}`\n\n"
+                f"📋 <b>시크릿 토큰:</b>\n<code>{_h(raw_token)}</code>\n\n"
+                f"🌐 <b>MCP 엔드포인트:</b>\n<code>{_h(mcp_url)}</code>\n\n"
                 f"※ 이 토큰은 안전한 곳에 즉시 복사하세요."
             )
-            await msg.reply_text(text, parse_mode="Markdown")
+            await msg.reply_text(text, parse_mode="HTML")
 
         elif action_type == "revoked":
             revoked, target = res[1], res[2]
             if revoked:
-                await msg.reply_text(f"✅ 토큰 `{target}`이(가) 즉시 성공적으로 폐기되었습니다.", parse_mode="Markdown")
+                await msg.reply_text(f"✅ 토큰 <code>{_h(target)}</code>이(가) 즉시 성공적으로 폐기되었습니다.", parse_mode="HTML")
             else:
-                await msg.reply_text(f"❌ 토큰 `{target}`을(를) 찾을 수 없거나 이미 폐기되었습니다.", parse_mode="Markdown")
+                await msg.reply_text(f"❌ 토큰 <code>{_h(target)}</code>을(를) 찾을 수 없거나 이미 폐기되었습니다.", parse_mode="HTML")
 
         elif action_type == "error":
             await msg.reply_text(f"⚠️ {res[1]}")
 
         else:
             await msg.reply_text(
-                "🔑 *API & MCP 토큰 관리 명령어:*\n\n"
-                "• 목록 조회: `/token` 또는 `/token list`\n"
-                "• 토큰 생성: `/token create <이름> [owner|collab|readonly]`\n"
-                "• 토큰 폐기: `/token revoke <ID 또는 토큰값>`",
-                parse_mode="Markdown",
+                "🔑 <b>API &amp; MCP 토큰 관리 명령어:</b>\n\n"
+                "• 목록 조회: <code>/token</code> 또는 <code>/token list</code>\n"
+                "• 토큰 생성: <code>/token create &lt;이름&gt; [owner|collab|readonly]</code>\n"
+                "• 토큰 폐기: <code>/token revoke &lt;ID 또는 토큰값&gt;</code>",
+                parse_mode="HTML",
             )
 
 

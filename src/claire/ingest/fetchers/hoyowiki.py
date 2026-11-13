@@ -15,6 +15,7 @@ from typing import Any, Iterator
 import httpx
 from lxml import html as lh
 
+from .adoc_text import adoc_cell, adoc_link_text, adoc_table
 from ...config import get_settings
 from ...extract.table_budget import slice_document_text
 from ...ontology.base import Document
@@ -211,7 +212,7 @@ def resolve_embedded_entries(
                 links.append(u)
                 if name:
                     anchors[u] = name
-                return f"[{name}]({u}){amt_str}"
+                return f"link:{u}[{adoc_link_text(name)}]{amt_str}"
             return f"{name}{amt_str}" if name else ""
         except Exception:
             return m.group(0)
@@ -220,8 +221,8 @@ def resolve_embedded_entries(
     return transformed, links, anchors, images
 
 
-def clean_html_to_markdown(raw_html: str, base_game: str | None = None) -> tuple[str, list[dict[str, Any]], list[str]]:
-    """HTML을 정제된 마크다운 텍스트로 변환하고 이미지 및 링크를 추출한다."""
+def clean_html_to_adoc(raw_html: str, base_game: str | None = None) -> tuple[str, list[dict[str, Any]], list[str]]:
+    """HTML을 정제된 AsciiDoc 텍스트로 변환하고 이미지 및 링크를 추출한다(RD24: Markdown을 쓰지 않는다)."""
     if not raw_html or not raw_html.strip():
         return "", [], []
 
@@ -235,7 +236,7 @@ def clean_html_to_markdown(raw_html: str, base_game: str | None = None) -> tuple
         if u_match:
             img_url = u_match.group(1).strip()
             images.append({"url": img_url, "alt": "image", "src": img_url})
-            return f"\n\n![image]({img_url})\n\n"
+            return f"\n\nimage::{img_url}[image]\n\n"
         return ""
 
     text = re.sub(r"<custom-image[^>]*>(?:</custom-image>)?", _replace_custom_image, raw_html, flags=re.IGNORECASE)
@@ -262,7 +263,7 @@ def clean_html_to_markdown(raw_html: str, base_game: str | None = None) -> tuple
         parent = img.getparent()
         if parent is not None:
             prev = img.getprevious()
-            md_img = f" ![{alt}]({src}) "
+            md_img = f" image:{src}[{adoc_link_text(alt)}] "
             if prev is not None:
                 prev.tail = (prev.tail or "") + md_img + (img.tail or "")
             else:
@@ -276,21 +277,12 @@ def clean_html_to_markdown(raw_html: str, base_game: str | None = None) -> tuple
             cells = tr.xpath("./th | ./td")
             if not cells:
                 continue
-            row_vals = [" ".join(c.text_content().split()) for c in cells]
+            row_vals = [adoc_cell(c.text_content()) for c in cells]
             rows.append(row_vals)
 
-        if rows:
-            max_cols = max(len(r) for r in rows)
-            norm_rows = [r + [""] * (max_cols - len(r)) for r in rows]
-            header = norm_rows[0]
-            separator = ["---"] * max_cols
-            md_lines = [
-                "| " + " | ".join(header) + " |",
-                "| " + " | ".join(separator) + " |",
-            ]
-            for data_row in norm_rows[1:]:
-                md_lines.append("| " + " | ".join(data_row) + " |")
-            md_table = "\n\n" + "\n".join(md_lines) + "\n\n"
+        table = adoc_table(rows)
+        if table:
+            md_table = "\n\n" + table + "\n\n"
 
             parent = tbl.getparent()
             if parent is not None:
@@ -322,7 +314,7 @@ def clean_html_to_markdown(raw_html: str, base_game: str | None = None) -> tuple
     return clean_text, images, links
 
 
-def format_entry_to_markdown(
+def format_entry_to_adoc(
     page: dict[str, Any], game: str
 ) -> tuple[str, str, list[str], dict[str, str], list[dict[str, Any]]]:
     """HoYoWiki 엔트리 페이지 JSON을 완전한 마크다운 문서로 포맷팅한다.
@@ -346,14 +338,14 @@ def format_entry_to_markdown(
     if header_img_url and header_img_url.startswith(("http://", "https://")):
         all_images.append({"url": header_img_url, "alt": f"{name} 헤더", "src": header_img_url})
 
-    sections.append(f"# {title}\n")
+    sections.append(f"= {title}\n")
 
     # 기본 개요 설명
     desc_html = page.get("desc") or ""
     if desc_html:
-        desc_md, d_imgs, d_links = clean_html_to_markdown(desc_html, base_game=game)
+        desc_md, d_imgs, d_links = clean_html_to_adoc(desc_html, base_game=game)
         if desc_md:
-            sections.append(f"## 개요\n\n{desc_md}\n")
+            sections.append(f"== 개요\n\n{desc_md}\n")
         all_images.extend(d_imgs)
         all_links.extend(d_links)
 
@@ -368,9 +360,9 @@ def format_entry_to_markdown(
             key_text = f_key_info.get("text") or ""
             vals = f_data.get("values") or []
             if key_text and vals:
-                meta_items.append(f"- **{key_text}**: {', '.join(vals)}")
+                meta_items.append(f"* *{key_text}*: {', '.join(vals)}")
         if meta_items:
-            sections.append("## 분류 및 특성\n\n" + "\n".join(meta_items) + "\n")
+            sections.append("== 분류 및 특성\n\n" + "\n".join(meta_items) + "\n")
 
     # 모듈 순회
     modules = page.get("modules") or []
@@ -396,14 +388,14 @@ def format_entry_to_markdown(
                 b_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if b_list:
                     sec_title = mod_name or "기본 정보"
-                    b_lines = [f"## {sec_title}\n"]
+                    b_lines = [f"== {sec_title}\n"]
                     b_rows: list[str] = []
                     for it in b_list:
                         k = (it.get("key") or "").strip()
                         v_list = it.get("value") or []
-                        v_str = ", ".join(clean_html_to_markdown(str(v))[0] for v in v_list)
+                        v_str = ", ".join(clean_html_to_adoc(str(v))[0] for v in v_list)
                         if k and v_str:
-                            b_rows.append(f"- **{k}**: {v_str}")
+                            b_rows.append(f"* *{k}*: {v_str}")
                     if b_rows:
                         b_lines.append("\n".join(b_rows))
                         sections.append("\n".join(b_lines) + "\n")
@@ -413,7 +405,7 @@ def format_entry_to_markdown(
                 sec_title = mod_name or "스킬 및 특성"
                 t_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if t_list:
-                    t_lines = [f"## {sec_title}\n"]
+                    t_lines = [f"== {sec_title}\n"]
                     for it in t_list:
                         s_name = it.get("title") or it.get("name") or it.get("key") or ""
                         s_desc = it.get("desc") or ""
@@ -421,11 +413,11 @@ def format_entry_to_markdown(
                         if s_icon and s_icon.startswith(("http://", "https://")):
                             all_images.append({"url": s_icon, "alt": f"{s_name} 아이콘", "src": s_icon})
 
-                        d_clean, s_imgs, s_lnks = clean_html_to_markdown(s_desc, base_game=game)
+                        d_clean, s_imgs, s_lnks = clean_html_to_adoc(s_desc, base_game=game)
                         all_images.extend(s_imgs)
                         all_links.extend(s_lnks)
 
-                        t_lines.append(f"### {s_name}\n")
+                        t_lines.append(f"=== {s_name}\n")
                         if d_clean:
                             t_lines.append(f"{d_clean}\n")
 
@@ -445,12 +437,11 @@ def format_entry_to_markdown(
                             if lvl_row and other_rows:
                                 num_levels = len(lvl_row)
                                 table_head = ["속성"] + lvl_row
-                                sep = ["---"] * len(table_head)
-                                md_t = ["| " + " | ".join(table_head) + " |", "| " + " | ".join(sep) + " |"]
+                                t_rows = [[adoc_cell(v) for v in table_head]]
                                 for r_key, r_vals in other_rows:
                                     padded = r_vals + [""] * (num_levels - len(r_vals))
-                                    md_t.append("| " + " | ".join([r_key] + padded) + " |")
-                                t_lines.append("\n" + "\n".join(md_t) + "\n")
+                                    t_rows.append([adoc_cell(v) for v in [r_key] + padded])
+                                t_lines.append("\n" + adoc_table(t_rows) + "\n")
 
                     sections.append("\n".join(t_lines) + "\n")
 
@@ -459,15 +450,15 @@ def format_entry_to_markdown(
                 sec_title = mod_name or "돌파 특성"
                 c_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if c_list:
-                    c_lines = [f"## {sec_title}\n"]
+                    c_lines = [f"== {sec_title}\n"]
                     for it in c_list:
                         c_name = it.get("name") or it.get("title") or ""
                         c_desc = it.get("desc") or ""
                         c_icon = it.get("icon_url")
                         if c_icon and c_icon.startswith(("http://", "https://")):
                             all_images.append({"url": c_icon, "alt": f"{c_name} 아이콘", "src": c_icon})
-                        d_clean, _, _ = clean_html_to_markdown(c_desc, base_game=game)
-                        c_lines.append(f"### {c_name}\n\n{d_clean}\n")
+                        d_clean, _, _ = clean_html_to_adoc(c_desc, base_game=game)
+                        c_lines.append(f"=== {c_name}\n\n{d_clean}\n")
                     sections.append("\n".join(c_lines) + "\n")
 
             # 4. 돌파 / 승급 재료 (ascension)
@@ -475,7 +466,7 @@ def format_entry_to_markdown(
                 sec_title = mod_name or "돌파 및 승급 재료"
                 a_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if a_list:
-                    a_lines = [f"## {sec_title}\n"]
+                    a_lines = [f"== {sec_title}\n"]
                     for it in a_list:
                         level_label = it.get("key") or it.get("level") or "단계"
                         materials = it.get("materials") or []
@@ -489,7 +480,7 @@ def format_entry_to_markdown(
                             elif isinstance(m_item, str):
                                 mat_descs.append(m_item)
                         if mat_descs:
-                            a_lines.append(f"- **{level_label}**: {', '.join(mat_descs)}")
+                            a_lines.append(f"* *{level_label}*: {', '.join(mat_descs)}")
                     if len(a_lines) > 1:
                         sections.append("\n".join(a_lines) + "\n")
 
@@ -498,13 +489,13 @@ def format_entry_to_markdown(
                 sec_title = mod_name or "스토리 및 배경"
                 s_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if s_list:
-                    st_lines = [f"## {sec_title}\n"]
+                    st_lines = [f"== {sec_title}\n"]
                     for it in s_list:
                         st_title = it.get("title") or "스토리"
                         st_desc = it.get("desc") or it.get("text") or ""
-                        st_clean, _, _ = clean_html_to_markdown(st_desc, base_game=game)
+                        st_clean, _, _ = clean_html_to_adoc(st_desc, base_game=game)
                         if st_clean:
-                            st_lines.append(f"### {st_title}\n\n{st_clean}\n")
+                            st_lines.append(f"=== {st_title}\n\n{st_clean}\n")
                     if len(st_lines) > 1:
                         sections.append("\n".join(st_lines) + "\n")
 
@@ -512,13 +503,13 @@ def format_entry_to_markdown(
             elif cid == "voice":
                 v_list = parsed_data.get("list", []) if isinstance(parsed_data, dict) else []
                 if v_list:
-                    v_lines = [f"## {mod_name or '음성 대사'}\n"]
+                    v_lines = [f"== {mod_name or '음성 대사'}\n"]
                     for it in v_list[:15]:
                         v_title = it.get("title") or it.get("name") or "대사"
                         v_desc = it.get("desc") or it.get("text") or ""
-                        v_clean, _, _ = clean_html_to_markdown(v_desc, base_game=game)
+                        v_clean, _, _ = clean_html_to_adoc(v_desc, base_game=game)
                         if v_clean:
-                            v_lines.append(f"- **{v_title}**: {v_clean}")
+                            v_lines.append(f"* *{v_title}*: {v_clean}")
                     if len(v_lines) > 1:
                         sections.append("\n".join(v_lines) + "\n")
 
@@ -526,12 +517,12 @@ def format_entry_to_markdown(
             elif cid == "customize":
                 html_body = parsed_data.get("data") if isinstance(parsed_data, dict) else str(parsed_data)
                 if html_body and len(html_body.strip()) > 20:
-                    c_clean, c_imgs, c_links = clean_html_to_markdown(html_body, base_game=game)
+                    c_clean, c_imgs, c_links = clean_html_to_adoc(html_body, base_game=game)
                     all_images.extend(c_imgs)
                     all_links.extend(c_links)
                     if c_clean and len(c_clean.strip()) > 30:
                         sec_title = mod_name or "추천 및 상세 정보"
-                        sections.append(f"## {sec_title}\n\n{c_clean}\n")
+                        sections.append(f"== {sec_title}\n\n{c_clean}\n")
 
             # 8. 갤러리 일러스트 (gallery_character)
             elif cid == "gallery_character":
@@ -589,7 +580,7 @@ def fetch_hoyowiki(url: str, *, full_content: bool = False, lang: str | None = N
     except Exception as e:
         raise FetchError(f"Failed to fetch HoYoWiki entry {entry_id} for {game}: {e}") from e
 
-    title, text, links, anchors, images = format_entry_to_markdown(page, game)
+    title, text, links, anchors, images = format_entry_to_adoc(page, game)
 
     settings = fetch_settings(None, get_settings)
     budget = 0 if full_content else settings.raw_char_budget
@@ -641,7 +632,7 @@ def try_hoyowiki_adapter(url: str, **kwargs: Any) -> WebAdapterResult | None:
     except Exception:
         return None
 
-    title, text, links, anchors, images = format_entry_to_markdown(page, game)
+    title, text, links, anchors, images = format_entry_to_adoc(page, game)
     if not text or len(text) < 30:
         return None
 

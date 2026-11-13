@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from ...config import ProviderUnavailableError, get_settings
+from .adoc_text import adoc_cell, adoc_table
 from ...extract.table_budget import (
     slice_document_text,
     slice_text_with_table_exemption,
@@ -468,7 +469,7 @@ def _extract_html(
     images = _collect_images(tree, og_image)
 
     # 테이블 요소는 데이터 누락 및 왜곡을 방지하기 위해 마크다운 테이블로 사전 변환하여 보존
-    _format_html_tables_to_markdown(tree)
+    _format_html_tables_to_adoc(tree)
 
     body_nodes = tree.xpath("//body")
     root_node = body_nodes[0] if body_nodes else tree
@@ -483,8 +484,8 @@ def _extract_html(
     return (title[:200] if title else None), text, links, anchors, None, images
 
 
-def _format_html_tables_to_markdown(tree) -> None:
-    """HTML <table> 태그들을 마크다운 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존.
+def _format_html_tables_to_adoc(tree) -> None:
+    """HTML <table> 태그들을 AsciiDoc 테이블 텍스트로 변환하여 구조와 데이터를 온전히 보존(RD24: Markdown을 쓰지 않는다).
 
     테이블 내 미디어 제거 허용 정책에 따라, 표 셀 내부의 이미지·아이콘·동영상 등 미디어 태그는 제거하고 순수 데이터와 텍스트만 보존한다.
     """
@@ -511,33 +512,17 @@ def _format_html_tables_to_markdown(tree) -> None:
             cells = tr.xpath("./th | ./td")
             if not cells:
                 continue
-            row = [" ".join(c.text_content().split()).replace("|", "\\|") for c in cells]
+            row = [adoc_cell(c.text_content()) for c in cells]
             if any(row):
                 rows.append(row)
 
-        if not rows:
+        table = adoc_table(rows, caption_txt)
+        if not table:
             if tbl.getparent() is not None:
                 tbl.getparent().remove(tbl)
             continue
 
-        max_cols = max(len(r) for r in rows)
-        if max_cols == 0:
-            if tbl.getparent() is not None:
-                tbl.getparent().remove(tbl)
-            continue
-
-        norm_rows = [r + [""] * (max_cols - len(r)) for r in rows]
-        md_lines: list[str] = []
-        if caption_txt:
-            md_lines.append(f"**[Table: {caption_txt}]**")
-
-        header = norm_rows[0]
-        md_lines.append("| " + " | ".join(header) + " |")
-        md_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
-        for r in norm_rows[1:]:
-            md_lines.append("| " + " | ".join(r) + " |")
-
-        md_table_text = "\n\n" + "\n".join(md_lines) + "\n\n"
+        md_table_text = "\n\n" + table + "\n\n"
 
         parent = tbl.getparent()
         if parent is not None:

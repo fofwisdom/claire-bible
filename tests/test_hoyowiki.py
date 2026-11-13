@@ -12,9 +12,9 @@ from claire.ingest.fetchers.hoyowiki import (
     HoYoWikiClient,
     HoyowikiAdapter,
     HoyowikiFetcher,
-    clean_html_to_markdown,
+    clean_html_to_adoc,
     fetch_hoyowiki,
-    format_entry_to_markdown,
+    format_entry_to_adoc,
     parse_hoyowiki_url,
     resolve_embedded_entries,
     try_hoyowiki_adapter,
@@ -67,7 +67,7 @@ def test_fetcher_can_handle():
     assert not HoyowikiFetcher.can_handle("https://other.domain.com/entry/1")
 
 
-def test_clean_html_to_markdown():
+def test_clean_html_to_adoc():
     raw = """
     <h1>Title Header</h1>
     <p>Paragraph text with <span style="color:red">colored span</span> and a <br>line break.</p>
@@ -78,7 +78,7 @@ def test_clean_html_to_markdown():
     </table>
     <a href="https://example.com/link">Link text</a>
     """
-    md, imgs, links = clean_html_to_markdown(raw)
+    md, imgs, links = clean_html_to_adoc(raw)
     assert "Title Header" in md
     assert "Paragraph text with colored span" in md
     assert "| Header 1 | Header 2 |" in md
@@ -100,7 +100,7 @@ def test_resolve_embedded_entries():
     assert imgs[0]["url"] == "https://example.com/icon.png"
 
 
-def test_format_entry_to_markdown():
+def test_format_entry_to_adoc():
     page_data = {
         "id": "1",
         "name": "치치",
@@ -172,7 +172,7 @@ def test_format_entry_to_markdown():
         ],
     }
 
-    title, text, links, anchors, imgs = format_entry_to_markdown(page_data, "genshin")
+    title, text, links, anchors, imgs = format_entry_to_adoc(page_data, "genshin")
     assert "치치 - 원신 (Genshin Impact)" in title
     assert "## 개요" in text
     assert "약방 「불복려」의 약초꾼이자 제자." in text

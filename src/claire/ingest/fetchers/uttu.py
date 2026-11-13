@@ -11,6 +11,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from ...config import get_settings
+from .adoc_text import adoc_cell, adoc_table
 from ..registry import register_web_adapter
 from .base import BaseWebAdapter, WebAdapterResult, fetch_settings
 from .http import SafeHttpClient
@@ -215,7 +216,7 @@ def _format_chapter_content(
     headicon_map: dict[str, str] | None = None,
     prefix_map: dict[str, str] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Format the chapter content HTML to text/markdown and extract story images."""
+    """Format the chapter content HTML to AsciiDoc text and extract story images."""
     ch_soup = BeautifulSoup(raw_html, "html.parser")
 
     # Build local headicon mappings from provided maps and current chapter HTML
@@ -345,8 +346,8 @@ def _format_chapter_content(
     return formatted_text, images
 
 
-def _format_html_tables_to_markdown_soup(soup: BeautifulSoup) -> None:
-    """Format HTML tables in soup to markdown table syntax."""
+def _format_html_tables_to_adoc_soup(soup: BeautifulSoup) -> None:
+    """Format HTML tables in soup as AsciiDoc tables (RD24: Claire writes no Markdown)."""
     for tbl in soup.find_all("table"):
         # Remove media inside table
         for media in tbl.find_all(["img", "svg", "video", "audio", "iframe"]):
@@ -360,41 +361,25 @@ def _format_html_tables_to_markdown_soup(soup: BeautifulSoup) -> None:
             cells = tr.find_all(["th", "td"])
             if not cells:
                 continue
-            row = [" ".join(c.get_text().split()).replace("|", "\\|") for c in cells]
+            row = [adoc_cell(c.get_text()) for c in cells]
             if any(row):
                 rows.append(row)
 
-        if not rows:
+        table = adoc_table(rows, caption_txt)
+        if not table:
             tbl.decompose()
             continue
 
-        max_cols = max(len(r) for r in rows)
-        if max_cols == 0:
-            tbl.decompose()
-            continue
-
-        norm_rows = [r + [""] * (max_cols - len(r)) for r in rows]
-        md_lines: list[str] = []
-        if caption_txt:
-            md_lines.append(f"**[Table: {caption_txt}]**")
-
-        header = norm_rows[0]
-        md_lines.append("| " + " | ".join(header) + " |")
-        md_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
-        for r in norm_rows[1:]:
-            md_lines.append("| " + " | ".join(r) + " |")
-
-        md_table_text = "\n\n" + "\n".join(md_lines) + "\n\n"
-        tbl.replace_with(md_table_text)
+        tbl.replace_with("\n\n" + table + "\n\n")
 
 
 def _clean_rich_text(text: str) -> str:
-    """Clean Unity/RichText and HTML tags to markdown format while preserving text brackets like <UTTU>."""
+    """Clean Unity/RichText and HTML tags to AsciiDoc format (RD24) while preserving text brackets like <UTTU>."""
     if not text:
         return ""
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<b>(.*?)</b>", r"**\1**", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"<i>(.*?)</i>", r"*\1*", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<b>(.*?)</b>", r"*\1*", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<i>(.*?)</i>", r"_\1_", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"</?(?:size|color|align|nobr)[^>]*>", "", text, flags=re.IGNORECASE)
     lines = [line.strip() for line in text.splitlines()]
     collapsed: list[str] = []
@@ -466,7 +451,7 @@ def _resolve_trail_button(
 
 
 def _format_dialog_steps(dialog_steps: dict[str, Any]) -> str:
-    """Format structured dialog steps JSON into readable markdown lines."""
+    """Format structured dialog steps JSON into readable AsciiDoc lines (RD24)."""
     steps = dialog_steps.get("steps", [])
     lines: list[str] = []
     for step in steps:
@@ -476,7 +461,7 @@ def _format_dialog_steps(dialog_steps: dict[str, Any]) -> str:
             continue
         clean_text = _clean_rich_text(dialog)
         if speaker:
-            lines.append(f"**{speaker}**: {clean_text}")
+            lines.append(f"*{speaker}*: {clean_text}")
         else:
             lines.append(clean_text)
     return "\n\n".join(lines).strip()
@@ -578,7 +563,7 @@ class UttuAdapter(BaseWebAdapter):
                 for ch in chapters:
                     p_num = ch.get("textPartNumber") or ch.get("number")
                     p_title = ch.get("title") or ch.get("englishTitle") or ""
-                    heading = f"## {p_num}. {p_title}".strip() if p_num else f"## {p_title}".strip()
+                    heading = f"== {p_num}. {p_title}".strip() if p_num else f"== {p_title}".strip()
                     ch_text, ch_images = _format_chapter_content(
                         ch.get("content", ""),
                         base_url=url,
@@ -714,18 +699,18 @@ class UttuAdapter(BaseWebAdapter):
 
                     text_blocks: list[str] = []
                     if frag_desc:
-                        text_blocks.append(f"# {frag_title or trail_title}\n")
+                        text_blocks.append(f"= {frag_title or trail_title}\n")
                         if trail_title and trail_desc:
-                            text_blocks.append(f"> **[단서: {trail_title}]**\n> {trail_desc}\n")
+                            text_blocks.append(f"[quote, 단서: {trail_title}]\n____\n{trail_desc}\n____\n")
                         text_blocks.append(frag_desc)
                     elif dialog_text:
-                        text_blocks.append(f"# {trail_title}\n")
+                        text_blocks.append(f"= {trail_title}\n")
                         if trail_desc:
-                            text_blocks.append(f"> {trail_desc}\n")
-                        text_blocks.append("### [대화 기록]\n")
+                            text_blocks.append(f"[quote]\n____\n{trail_desc}\n____\n")
+                        text_blocks.append("=== 대화 기록\n")
                         text_blocks.append(dialog_text)
                     elif trail_title:
-                        text_blocks.append(f"# {trail_title}\n")
+                        text_blocks.append(f"= {trail_title}\n")
                         if trail_desc:
                             text_blocks.append(trail_desc)
 
@@ -770,7 +755,7 @@ class UttuAdapter(BaseWebAdapter):
                 if trigger:
                     accordion = trigger.find_parent(class_="accordion-item")
                     stage_title = trigger.get_text(separator=" ").strip()
-                    part_blocks: list[str] = [f"# {event_title} - {stage_title}\n"]
+                    part_blocks: list[str] = [f"= {event_title} - {stage_title}\n"]
                     if accordion:
                         p_tag = accordion.find("p")
                         if p_tag:
@@ -795,9 +780,9 @@ class UttuAdapter(BaseWebAdapter):
                                     if frag_info:
                                         ft = frag_info.get("title", [])
                                         ft_text = _clean_rich_text(ft[lang_idx] if lang_idx < len(ft) else (ft[0] if ft else ""))
-                                        part_blocks.append(f"- **{t_t}** ({ft_text}): {t_d}")
+                                        part_blocks.append(f"* *{t_t}* ({ft_text}): {t_d}")
                                     else:
-                                        part_blocks.append(f"- **{t_t}**: {t_d}")
+                                        part_blocks.append(f"* *{t_t}*: {t_d}")
                                 except Exception:
                                     pass
 
@@ -840,8 +825,8 @@ class UttuAdapter(BaseWebAdapter):
         for tag in soup.find_all(["script", "style", "noscript", "svg"]):
             tag.decompose()
 
-        # Format tables to markdown
-        _format_html_tables_to_markdown_soup(soup)
+        # Format tables to AsciiDoc
+        _format_html_tables_to_adoc_soup(soup)
 
         # Collect images
         images: list[dict[str, Any]] = []

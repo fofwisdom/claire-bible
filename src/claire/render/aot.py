@@ -1012,6 +1012,7 @@ def render_adoc_to_html(raw: str) -> str:
     return "\n".join(out)
 
 
+# SEALED (RD23): not maintained; reference for the Markdown export (docs/design/MARKDOWN_RETIREMENT_DESIGN.md). It stays active only to read old Markdown documents without compiled HTML.
 def render_md_to_html(raw: str) -> str:
     """Markdown 텍스트를 시맨틱 HTML 문자열로 AOT 변환."""
     if not raw or not raw.strip():
@@ -1073,7 +1074,7 @@ def render_md_to_html(raw: str) -> str:
     return "".join(blocks)
 
 
-def render_to_html(raw: str, format: str = "md") -> str:
+def render_to_html(raw: str, format: str = "adoc") -> str:
     """포맷(adoc 또는 md)에 따라 본문 텍스트를 시맨틱 HTML로 AOT 사전 변환."""
     if not raw or not raw.strip():
         return ""

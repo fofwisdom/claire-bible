@@ -138,8 +138,8 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 "1. Transcribe and translate all text, labels, questions, and answers into accurate and natural Korean (한국어) in chronological card order.\n"
                 "2. If the text in images is in English or another foreign language, translate it faithfully into Korean while keeping official terminology, character names, and lore concepts accurate without hallucination.\n"
                 "3. Preserve the exact dialogue, Q&A format, statistics, and lore terminology.\n"
-                "4. Format each card clearly using Markdown (e.g. '### Card N', '#### Q.', '**Answer**:').\n"
-                "5. Output only the structured transcript in clean Markdown."
+                "4. Format each card clearly in AsciiDoc (e.g. '=== Card N', '==== Q.', '*Answer*:'). Do not use Markdown.\n"
+                "5. Output only the structured transcript in clean AsciiDoc."
             )
         else:
             system_instruction = (
@@ -149,8 +149,8 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 f"Requirements:\n"
                 f"1. Transcribe all text, labels, questions, and answers in chronological card order into {target_lang}.\n"
                 "2. Preserve the exact dialogue, Q&A format, statistics, and lore terminology without hallucinating.\n"
-                "3. Format each card clearly using Markdown (e.g. '### Card N', '#### Q.', '**Answer**:').\n"
-                "4. Output only the structured transcript in clean Markdown."
+                "3. Format each card clearly in AsciiDoc (e.g. '=== Card N', '==== Q.', '*Answer*:'). Do not use Markdown.\n"
+                "4. Output only the structured transcript in clean AsciiDoc."
             )
         parts.append(system_instruction)
 

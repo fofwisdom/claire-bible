@@ -482,7 +482,7 @@ class GeminiProvider:
     def render_detail(
         self,
         doc: Document,
-        format: str = "md",
+        format: str = "adoc",
         focus: str | None = None,
         *,
         effort: str | None = None,
@@ -515,7 +515,7 @@ class GeminiProvider:
         *,
         merged: bool,
         scale: int,
-        format: str = "md",
+        format: str = "adoc",
         focus: str | None = None,
         effort: str | None = None,
     ) -> str:

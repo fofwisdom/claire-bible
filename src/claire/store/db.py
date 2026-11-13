@@ -3791,7 +3791,7 @@ def set_document_detail(
     conn: sqlite3.Connection,
     document_id: str,
     detail: str,
-    format: str = "md",
+    format: str = "adoc",
     html: str | None = None,
     theme_id: int | None = None,
 ) -> None:
@@ -4153,8 +4153,8 @@ def documents_needing_detail_format(
 
     1) detail 이 비어있거나 NULL인 문서 2) detail 은 있으나 detail_format 이 target_format 과 다른 문서 (이미 target_format 으로 일치하는 문서는 제외)
     """
-    fmt = (target_format or "md").strip().lower()
-    fmt = "adoc" if fmt in ("asciidoc", "adoc") else "md"
+    # RD23: the only target format is adoc.
+    fmt = "adoc"
     q = (
         "SELECT id FROM documents WHERE (detail IS NULL OR trim(detail)='' "
         "OR lower(coalesce(detail_format, 'md')) != ?)"
@@ -4231,8 +4231,8 @@ def get_format_status(
     theme_id: int | None = None,
 ) -> dict[str, Any]:
     """DB 내 문서들의 포맷 상태(총 문서, 포맷 일치, 포맷 불일치, detail 누락)를 상세 진단."""
-    target = (configured_format or "md").strip().lower()
-    target = "adoc" if target in ("asciidoc", "adoc") else "md"
+    # RD23: the only target format is adoc.
+    target = "adoc"
 
     where_base = ""
     params_base: list[Any] = []

@@ -393,7 +393,7 @@ class CodexProvider:
     def render_detail(
         self,
         doc: Document,
-        format: str = "md",
+        format: str = "adoc",
         focus: str | None = None,
         *,
         effort: str | None = None,

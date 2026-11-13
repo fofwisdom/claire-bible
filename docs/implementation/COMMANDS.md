@@ -259,13 +259,13 @@ v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이�
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
-* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format {md,adoc}] [--focus "초점 지침"]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--focus "초점 지침"]`
 * **주요 옵션**:
   * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용된다.
   * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어쓴다.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
-  * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
+  * `--format adoc`: 상세 detail 렌더링 포맷 지정.
   * `--source-type {web,text,youtube,video,discourse,xcom}`: 수집 소스 유형 강제 지정 (video: 비디오 스트림 및 음성 전사).
 
 #### `reingest <target>`
@@ -303,14 +303,14 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `reprocess` | `./cb-manuscript app reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | `uv run claire reprocess [...]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
 | `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
-| `format-migrate` | `./cb-manuscript app format-migrate [--format {md,adoc}] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
+| `format-migrate` | `./cb-manuscript app format-migrate [--format adoc] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `./cb-manuscript app format-status` | `uv run claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
 | `truncation-status` | `./cb-manuscript app truncation-status [<target>] [--json]` | `uv run claire truncation-status [...]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
 | `truncation-backfill` | `./cb-manuscript app truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | `uv run claire truncation-backfill [...]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
 | `stt-scan` | `./cb-manuscript app stt-scan [<target>] [--doc-id <ID>] [--json]` | `uv run claire stt-scan [...]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
 | `stt-backfill` | `./cb-manuscript app stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | `uv run claire stt-backfill [...]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
 | `artifact-migrate` | `./cb-manuscript app artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | `uv run claire artifact-migrate [...]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format {md,adoc}] [--limit N] [--force] [--focus <focus>]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
+| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format adoc] [--limit N] [--force] [--focus <focus>]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
 | `backfill-summary` | `./cb-manuscript app backfill-summary [--limit N]` | `uv run claire backfill-summary [...]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
@@ -355,7 +355,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--force`, `-f`: 기존 컴포넌트가 이미 유효하더라도 강제 재생성/덮어쓰기.
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
-  * `--format {md,adoc}`: 상세 detail 렌더링 포맷 지정.
+  * `--format adoc`: 상세 detail 렌더링 포맷 지정.
   * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정.
 
 #### `summary-regenerate`
@@ -371,7 +371,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ./cb-manuscript app format-migrate --apply -y
   ```
 * **옵션**:
-  * `--format {md,adoc}`: 목표 포맷 지정 (미지정 시 .env의 `CLAIRE_RENDER_FORMAT` 사용).
+  * `--format adoc`: 목표 포맷 지정 (미지정 시 .env의 `CLAIRE_RENDER_FORMAT` 사용).
   * `--apply`: 미변환 문서에 대해 LLM detail 렌더링을 실행하여 일괄 적용.
   * `--dry-run`: 대상 문서 통계만 보고 (기본값).
   * `--yes`, `-y`: 확인 프롬프트 생략.
@@ -416,7 +416,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **옵션**:
   * `--tables`, `--has-tables`: 원문/상세에 표(Markdown, AsciiDoc, HTML)가 포함된 문서만 선별하여 재생성.
   * `--force`, `-f`: 기존에 detail이 있더라도 강제로 재생성.
-  * `--format {md,adoc}`: 생성할 상세 포맷 지정.
+  * `--format adoc`: 생성할 상세 포맷 지정.
   * `--limit <N>`: 처리할 최대 문서 개수.
 
 #### `recompile-html`
@@ -487,7 +487,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--apply`: 실제 CC/미디어 재다운로드, 필요한 경우의 STT, 지식베이스 갱신을 실행 (미지정 시 기본 dry-run).
   * `--force`, `-f`: 기존 전사문이 있더라도 강제 덮어쓰기.
   * `--effort {low,medium,high}`: LLM 요약/상세 생성 추론 레벨 오버라이드.
-  * `--format {md,adoc}`: 가독 상세(detail) 렌더링 포맷.
+  * `--format adoc`: 가독 상세(detail) 렌더링 포맷.
   * `--json`: 결과를 JSON 포맷으로 출력.
 * **동작 특징**:
   * **CC 우선**: 선호 언어, 언어 태그 정확도, 수동/자동 구분, 전송 형식을 기준으로 후보를 정렬한다. 유효한 WebVTT를 확보하면 오디오 다운로드와 STT를 생략한다.[^video-caption-implementation]

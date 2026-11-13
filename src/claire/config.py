@@ -5,6 +5,7 @@ Gemini 키가 없으면 provider 는 자동으로 mock 으로 떨어진다(M0~M1
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from functools import lru_cache
@@ -738,12 +739,14 @@ class Settings(BaseSettings):
     @field_validator("render_format", mode="before")
     @classmethod
     def _parse_render_format(cls, value: object) -> str:
-        s = str(value or "md").strip().lower()
+        # RD23: the Markdown body format is closed. AsciiDoc is the only body format of ingestion. An old value md or markdown does not stop startup: it becomes adoc with a warning, because operators cannot change the server files themselves.
+        s = str(value or "adoc").strip().lower()
         if s in ("asciidoc", "adoc"):
             return "adoc"
         if s in ("markdown", "md"):
-            return "md"
-        raise ValueError("CLAIRE_RENDER_FORMAT must be 'md' or 'adoc'")
+            logging.getLogger(__name__).warning("CLAIRE_RENDER_FORMAT=%s is closed (RD23); ingestion uses adoc", s)
+            return "adoc"
+        raise ValueError("CLAIRE_RENDER_FORMAT must be 'adoc'")
 
     @field_validator("data_lifecycle", mode="before")
     @classmethod

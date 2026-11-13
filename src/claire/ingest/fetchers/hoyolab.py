@@ -159,12 +159,12 @@ def _extract_text_and_images_from_post(post_data: dict[str, Any]) -> tuple[str, 
     return full_text, images
 
 
-def format_post_to_markdown(
+def format_post_to_text(
     post_data: dict[str, Any],
     *,
     settings: Any = None,
 ) -> tuple[str, str, list[str], dict[str, str], list[dict[str, Any]], dict[str, Any]]:
-    """Format post into structured markdown, invoking VLM transcription when text is insufficient."""
+    """Format post into structured AsciiDoc text, invoking VLM transcription when text is insufficient."""
     s = fetch_settings(settings, get_settings)
     post_info = post_data.get("post") or {}
     user_info = post_data.get("user") or {}
@@ -175,7 +175,7 @@ def format_post_to_markdown(
     created_at_ts = post_info.get("created_at")
 
     topics = [t.get("name", "") for t in (post_data.get("topics") or []) if t.get("name")]
-    topic_header = f"**Topics**: {', '.join(topics)}\n\n" if topics else ""
+    topic_header = f"Topics: {', '.join(topics)}\n\n" if topics else ""
 
     base_text, images = _extract_text_and_images_from_post(post_data)
 
@@ -203,7 +203,7 @@ def format_post_to_markdown(
             vlm_images_count = v_res.images_processed
             vlm_language = v_res.language or target_vlm_lang
             transcribed_section = (
-                f"\n\n## Infographic & Image Transcription\n\n"
+                f"\n\n== Infographic & Image Transcription\n\n"
                 f"{v_res.text}\n"
             )
             base_text = (base_text + transcribed_section).strip()
@@ -211,23 +211,23 @@ def format_post_to_markdown(
             vlm_error = v_res.error
             logger.warning("VLM transcription returned error for HoYoLAB post %s: %s", post_id, v_res.error)
 
-    # Build final markdown
+    # Build the final text in AsciiDoc (RD24: Claire writes no Markdown).
     lines: list[str] = [
-        f"# {subject}",
+        f"= {subject}",
         "",
-        f"**Author**: {author}  ",
+        f"Author: {author}",
         topic_header.rstrip(),
-        f"**Source**: https://www.hoyolab.com/article/{post_id}",
+        f"Source: https://www.hoyolab.com/article/{post_id}",
         "",
-        "---",
+        "'''",
         "",
         base_text,
     ]
-    markdown_doc = "\n".join(l for l in lines if l is not None).strip()
+    text_doc = "\n".join(l for l in lines if l is not None).strip()
 
     links: list[str] = []
     anchors: dict[str, str] = {}
-    for match in re.finditer(r"https?://[^\s)\]\}<>\"']+", markdown_doc):
+    for match in re.finditer(r"https?://[^\s)\]\}<>\"']+", text_doc):
         found_url = match.group(0).rstrip(".,;)")
         if found_url not in links:
             links.append(found_url)
@@ -244,7 +244,7 @@ def format_post_to_markdown(
         "created_at": created_at_ts,
     }
 
-    return subject, markdown_doc, links[:50], anchors, images[:20], meta_extras
+    return subject, text_doc, links[:50], anchors, images[:20], meta_extras
 
 
 def fetch_hoyolab(
@@ -264,7 +264,7 @@ def fetch_hoyolab(
     target_lang = resolve_hoyolab_language(s)
     post_data = api_client.get_post(post_id, lang=target_lang)
 
-    title, text, links, anchors, images, meta_extras = format_post_to_markdown(post_data, settings=s)
+    title, text, links, anchors, images, meta_extras = format_post_to_text(post_data, settings=s)
 
     budget = 0 if full_content else s.raw_char_budget
     raw_text, is_truncated, orig_chars, raw_chars = slice_document_text(
@@ -318,7 +318,7 @@ def try_hoyolab_adapter(url: str, **kwargs: Any) -> WebAdapterResult | None:
         s = fetch_settings(kwargs.get("settings"), get_settings)
         client = kwargs.get("client") or HoYoLabClient()
         post_data = client.get_post(post_id)
-        title, text, links, anchors, images, meta_extras = format_post_to_markdown(post_data, settings=s)
+        title, text, links, anchors, images, meta_extras = format_post_to_text(post_data, settings=s)
         return WebAdapterResult(
             title=title,
             text=text,

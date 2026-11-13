@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import html as _html
+
 import nh3
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -35,7 +37,6 @@ from ..store import auth_db
 from .. import ids
 from ..store import db as dbm
 from ..store import federation as federation_store
-from ..render.aot import render_to_html
 from ..store.secrets import get_secret_service
 from .collections import parse_collection_query
 
@@ -311,6 +312,26 @@ def read_heartbeat(data_dir: Path | str) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return record if isinstance(record, dict) else None
+
+
+ARTICLE_SUMMARY_MAX_CHARS = 500
+
+
+def _published_object_content(summary: str | None, title: str, share_url: str | None) -> str:
+    """Content of the object of a published document (RD21, FEDERATION_REMOTE_READING_DESIGN.md Section 5.5): the summary as one paragraph and the link to the share page. The body of the document is never in the object.
+
+    A document without a summary gives its title. A summary longer than ``ARTICLE_SUMMARY_MAX_CHARS`` is cut at the end of a word and gets "…".
+    """
+    text = " ".join((summary or "").split()) or " ".join((title or "").split())
+    if len(text) > ARTICLE_SUMMARY_MAX_CHARS:
+        cut = text[:ARTICLE_SUMMARY_MAX_CHARS]
+        space = cut.rfind(" ")
+        text = (cut[:space] if space > ARTICLE_SUMMARY_MAX_CHARS // 2 else cut).rstrip() + "…"
+    parts = [f"<p>{_html.escape(text, quote=False)}</p>"] if text else []
+    if share_url:
+        link = _html.escape(share_url)
+        parts.append(f'<p><a href="{link}">{link}</a></p>')
+    return "".join(parts)
 
 
 def _json(model: BaseModel, status: int = 200) -> JSONResponse:
@@ -651,14 +672,15 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 "SELECT token FROM doc_shares WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1",
                 (obj.document_id, obj.theme_id, now()),
             ).fetchone()
-            html = document["detail_html"] or render_to_html(document["detail"] or "", document["detail_format"] or "md")
+            share_url = None if share is None else f"{origin}/p?s={share['token']}"
+            html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, theme_id=obj.theme_id), document["title"] or "", share_url)
             record = ObjectRecord(
                 public_id=str(obj.public_id),
                 actor_public_id=str(account.public_id),
                 type="Article",
                 name=document["title"] or "",
                 content=nh3.clean(html),
-                url=None if share is None else f"{origin}/p?s={share['token']}",
+                url=share_url,
                 published_at=obj.published_at,
                 updated_at=obj.updated_at,
             )

@@ -5204,8 +5204,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fetch and queue 1-hop related links found in content")
     pi.add_argument("--no-expand", action="store_true",
                     help="skip 1-hop candidate link detection")
-    pi.add_argument("--format", choices=["md", "adoc"], default=None,
-                    help="detail render format (md or adoc, default: configured CLAIRE_RENDER_FORMAT)")
+    pi.add_argument("--format", choices=["adoc"], default=None,
+                    help="detail render format (adoc only, RD23)")
     pi.add_argument("-f", "--focus", dest="focus", default=None,
                     help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
@@ -5226,8 +5226,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
     pri.add_argument("-f", "--focus", dest="focus", default=None,
                      help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
-    pri.add_argument("--format", choices=["md", "adoc"], default=None,
-                     help="detail render format (md or adoc, default: configured CLAIRE_RENDER_FORMAT)")
+    pri.add_argument("--format", choices=["adoc"], default=None,
+                     help="detail render format (adoc only, RD23)")
     pri.add_argument("--expand", action="store_true", help="fetch and queue 1-hop related links found in content")
     pri.add_argument("--no-expand", action="store_true", help="skip 1-hop candidate link detection")
     pri.add_argument("--untombstone", action="store_true",
@@ -5259,8 +5259,8 @@ def build_parser() -> argparse.ArgumentParser:
     pre.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                      help="re-extract only documents that contain Markdown, AsciiDoc, or HTML tables")
     pre.add_argument("--limit", type=int, default=0, help="maximum documents to re-extract (0 = all)")
-    pre.add_argument("--format", choices=["md", "adoc"], default=None,
-                     help="detail render format (md or adoc)")
+    pre.add_argument("--format", choices=["adoc"], default=None,
+                     help="detail render format (adoc only, RD23)")
     pre.set_defaults(func=cmd_reextract)
 
     pbd = sub.add_parser(
@@ -5272,8 +5272,8 @@ def build_parser() -> argparse.ArgumentParser:
     pbd.add_argument("--force", "-f", action="store_true", help="regenerate detail even if already present")
     pbd.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                      help="backfill/regenerate only documents containing tables")
-    pbd.add_argument("--format", choices=["md", "adoc"], default=None,
-                     help="detail render format (md or adoc)")
+    pbd.add_argument("--format", choices=["adoc"], default=None,
+                     help="detail render format (adoc only, RD23)")
     pbd.add_argument("--focus", dest="focus", default=None,
                      help="content focus guidance for detail rendering")
     pbd.set_defaults(func=cmd_backfill_detail)
@@ -5308,7 +5308,7 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--force", "-f", action="store_true", help="force overwrite even if target components are already up-to-date")
     prep.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
     prep.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
-    prep.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
+    prep.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
     prep.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     prep.add_argument("--json", action="store_true", help="output result in JSON format")
     prep.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
@@ -5346,7 +5346,7 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
     preg.add_argument("--yes", "-y", action="store_true", help="confirm regeneration operation without interactive prompt")
     preg.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
-    preg.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
+    preg.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
     preg.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
@@ -5384,7 +5384,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="check document render format distribution and migration status",
         description="Inspect document render format distribution (Markdown vs AsciiDoc) and report migration progress.",
     )
-    pfs.add_argument("--format", choices=["md", "adoc"], default=None,
+    pfs.add_argument("--format", choices=["adoc"], default=None,
                      help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
     pfs.add_argument("--json", action="store_true", help="output format distribution in JSON format")
     pfs.set_defaults(func=cmd_format_status)
@@ -5394,7 +5394,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="inspect and selectively migrate document render formats (default: dry-run, requires --apply)",
         description="Inspect and selectively migrate document detail formats between Markdown and AsciiDoc.",
     )
-    pfm.add_argument("--format", choices=["md", "adoc"], default=None,
+    pfm.add_argument("--format", choices=["adoc"], default=None,
                      help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
     pfm.add_argument("--apply", action="store_true", help="apply format migration (default: dry-run only)")
     pfm.add_argument("--dry-run", action="store_true", help="simulate format migration without database changes (default)")
@@ -5764,7 +5764,7 @@ def build_parser() -> argparse.ArgumentParser:
     pvr.add_argument("--apply", action="store_true", help="execute actual video reprocessing and database update (default: dry-run)")
     pvr.add_argument("--force", "-f", action="store_true", help="force overwrite even if transcript already exists")
     pvr.add_argument("--effort", default=None, help="LLM reasoning effort level (low, medium, high)")
-    pvr.add_argument("--format", choices=["md", "adoc"], default=None, help="detail render format (md or adoc)")
+    pvr.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
     pvr.add_argument("--json", action="store_true", help="output result in JSON format")
     pvr.set_defaults(func=cmd_video_reprocess)
 

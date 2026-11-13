@@ -2568,7 +2568,7 @@ def create_app(
         _documents_list = _resolve_query_func("documents_list", documents_list)
         include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
-        render_format = getattr(theme_settings, "render_format", "md")
+        render_format = getattr(theme_settings, "render_format", "adoc")
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
         params = request.query_params

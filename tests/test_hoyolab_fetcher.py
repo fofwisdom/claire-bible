@@ -11,7 +11,7 @@ from claire.config import Settings
 from claire.ingest.fetchers.base import FetchError, WebAdapterResult
 from claire.ingest.fetchers.hoyolab import (
     HoYoLabClient,
-    format_post_to_markdown,
+    format_post_to_text,
     parse_hoyolab_url,
     try_hoyolab_adapter,
 )
@@ -74,7 +74,7 @@ def test_hoyolab_client_io_error_handling():
 
 
 def test_format_post_triggers_vlm_when_text_minimal():
-    """Verify format_post_to_markdown calls VLM transcription when text < 300 chars."""
+    """Verify format_post_to_text calls VLM transcription when text < 300 chars."""
     mock_post_data = {
         "post": {
             "post_id": "46898605",
@@ -95,20 +95,20 @@ def test_format_post_triggers_vlm_when_text_minimal():
     }
 
     settings = Settings(enable_vlm_transcription=True, environment="development")
-    subject, markdown_doc, links, anchors, images, meta_extras = format_post_to_markdown(
+    subject, text_doc, links, anchors, images, meta_extras = format_post_to_text(
         mock_post_data, settings=settings
     )
 
     assert subject == "[동방의 흙모래] 가디언 정보"
     assert meta_extras["vlm_transcribed"] is True
     assert meta_extras["vlm_images_count"] == 2
-    assert "Infographic & Image Transcription" in markdown_doc
-    assert "Card 1" in markdown_doc
-    assert "Card 2" in markdown_doc
+    assert "Infographic & Image Transcription" in text_doc
+    assert "Card 1" in text_doc
+    assert "Card 2" in text_doc
 
 
 def test_format_post_skips_vlm_when_text_sufficient():
-    """Verify format_post_to_markdown does not invoke VLM when text already exceeds 300 chars."""
+    """Verify format_post_to_text does not invoke VLM when text already exceeds 300 chars."""
     long_content = "This is a detailed analysis of the guardian enemy. " * 15
     mock_post_data = {
         "post": {
@@ -123,7 +123,7 @@ def test_format_post_skips_vlm_when_text_sufficient():
 
     settings = Settings(enable_vlm_transcription=True)
     with patch("claire.ingest.fetchers.hoyolab.get_vision_provider") as mock_prov_fn:
-        _, markdown_doc, _, _, _, meta_extras = format_post_to_markdown(
+        _, text_doc, _, _, _, meta_extras = format_post_to_text(
             mock_post_data, settings=settings
         )
         assert meta_extras["vlm_transcribed"] is False

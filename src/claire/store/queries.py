@@ -272,7 +272,8 @@ def document_detail(
     )
     is_vlm = bool(
         meta_dict.get("vlm_transcribed", False)
-        or (raw_text and "## Infographic & Image Transcription" in raw_text)
+        # The HoYoLAB fetcher writes the section in AsciiDoc ("== "); documents from before RD24 have the Markdown form ("## ").
+        or (raw_text and ("== Infographic & Image Transcription" in raw_text or "## Infographic & Image Transcription" in raw_text))
     )
 
     stt_data = dbm.extract_stt_transcript(raw_text, meta_dict) if is_stt else None
@@ -531,7 +532,7 @@ def synthesis_context(
             if not any(s not in hidden_doc_ids for s in ent.sources):
                 continue
         names.append(ent.name)
-        parts = [f"## {ent.name} ({ent.type})"]
+        parts = [f"== {ent.name} ({ent.type})"]
         if ent.aliases:
             parts.append("별칭: " + ", ".join(ent.aliases))
         if ent.observations:

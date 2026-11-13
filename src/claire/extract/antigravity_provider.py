@@ -648,7 +648,7 @@ class AntigravityProvider:
     def render_detail(
         self,
         doc: Document,
-        format: str = "md",
+        format: str = "adoc",
         focus: str | None = None,
         *,
         effort: str | None = None,
@@ -760,7 +760,7 @@ class AntigravityProvider:
         *,
         merged: bool,
         scale: int,
-        format: str = "md",
+        format: str = "adoc",
         focus: str | None = None,
         effort: str | None = None,
         document_id: str | None = None,

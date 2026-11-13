@@ -9,6 +9,7 @@ import zipfile
 from typing import Any, BinaryIO
 
 from lxml import etree as ET
+from .adoc_text import adoc_cell, adoc_link_text, adoc_list_item, adoc_table
 
 logger = logging.getLogger("claire.ingest.odt")
 
@@ -97,7 +98,7 @@ def _extract_inline(elem: ET._Element, links: list[str], anchors: dict[str, str]
                         links.append(href)
                     if href not in anchors and sub:
                         anchors[href] = sub[:160]
-                parts.append(f"[{sub}]({href})")
+                parts.append(f"link:{href}[{adoc_link_text(sub)}]")
             else:
                 parts.append(sub)
         else:
@@ -110,7 +111,7 @@ def _extract_inline(elem: ET._Element, links: list[str], anchors: dict[str, str]
 def _format_table(
     table_elem: ET._Element, links: list[str], anchors: dict[str, str]
 ) -> str:
-    """<table:table> 요소를 Markdown 테이블 문자열로 변환."""
+    """<table:table> 요소를 AsciiDoc 테이블 문자열로 변환(RD24)."""
     rows: list[list[str]] = []
     max_cols = 0
 
@@ -127,7 +128,7 @@ def _format_table(
                 _extract_inline(p, links, anchors).strip()
                 for p in cell_elem.iter(f"{{{NS['text']}}}p")
             ]
-            cell_text = " ".join(p for p in cell_paras if p).replace("|", "\\|").replace("\n", " ")
+            cell_text = adoc_cell(" ".join(p for p in cell_paras if p))
             # trailing 빈 셀 반복 방지: 빈 셀이 5번 이상 반복되면 1개만 추가
             if not cell_text and repeat > 5:
                 repeat = 1
@@ -151,26 +152,15 @@ def _format_table(
         if len(r) < max_cols:
             r.extend([""] * (max_cols - len(r)))
 
-    header = rows[0]
-    sep = ["---"] * max_cols
-    body = rows[1:]
-
-    lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join(sep) + " |",
-    ]
-    for r in body:
-        lines.append("| " + " | ".join(r) + " |")
-
-    return "\n" + "\n".join(lines) + "\n"
+    table = adoc_table(rows)
+    return "\n" + table + "\n" if table else ""
 
 
 def _extract_list(
     list_elem: ET._Element, links: list[str], anchors: dict[str, str], depth: int = 0
 ) -> list[str]:
-    """<text:list> 요소를 들여쓰기가 적용된 Markdown 글머리 기호 리스트로 변환."""
+    """<text:list> 요소를 깊이별 AsciiDoc 글머리 기호(``*``, ``**``) 리스트로 변환(RD24)."""
     items: list[str] = []
-    indent = "  " * depth
 
     for child in list_elem:
         if child.tag == f"{{{NS['text']}}}list-item":
@@ -184,13 +174,10 @@ def _extract_list(
                     sub_items = _extract_list(sub, links, anchors, depth + 1)
                     item_parts.extend(sub_items)
             if item_parts:
-                first = item_parts[0]
-                items.append(f"{indent}- {first}")
+                items.append(adoc_list_item(item_parts[0], depth))
                 for extra in item_parts[1:]:
-                    if extra.startswith("  "):
-                        items.append(extra)
-                    else:
-                        items.append(f"{indent}  {extra}")
+                    # A nested item already has its marker. Another paragraph of the item joins with a list continuation (+). A line with leading spaces is a literal block in AsciiDoc, so no indent is used.
+                    items.extend([extra] if extra.startswith("*") else ["+", extra])
         elif child.tag == f"{{{NS['text']}}}list":
             items.extend(_extract_list(child, links, anchors, depth + 1))
 
@@ -278,7 +265,7 @@ def extract_odt_stream(
                 if heading_text:
                     if first_heading is None:
                         first_heading = heading_text
-                    doc_elements.append(f"{'#' * level} {heading_text}")
+                    doc_elements.append(f"{'=' * (level + 1)} {heading_text}")
             elif tag == f"{{{NS['text']}}}p":
                 p_text = _extract_inline(child, links, anchors).strip()
                 if p_text:

@@ -43,7 +43,7 @@ class MockVisionProvider(VisionTranscriptProvider):
             desc = item.get("desc", "") if isinstance(item, dict) else ""
             card_desc = f": {desc}" if desc else ""
             sections.append(
-                f"### Card {idx}{card_desc}\n\n"
+                f"=== Card {idx}{card_desc}\n\n"
                 f"- Image Source: `{url_str}`\n"
                 f"- Summary: Detailed infographic and Q&A content transcribed from card image {idx}.\n"
                 f"- Dialogue / Data: Trailblazer asks key technical and lore questions. The guardian answers with verified factual details.\n"

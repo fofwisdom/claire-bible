@@ -475,7 +475,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         alice = store.find_by_username("alice").id
         conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         for doc_id, title in (("doc-1", "First Post"), ("doc-2", "Second Post")):
-            # The compiled HTML is given: the production image has no Markdown library, so a body without compiled HTML gets the fallback parser of render.aot (no <strong>).
+            # The body has Markdown marks and a script; RD21 keeps both out of the object.
             conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', ?, 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
         for host in ("remote.example", "blocked.example"):

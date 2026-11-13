@@ -199,7 +199,7 @@ class Provider(Protocol):
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]: ...
 
     def render_detail(
-        self, doc: Document, format: str = "md", focus: str | None = None
+        self, doc: Document, format: str = "adoc", focus: str | None = None
     ) -> str: ...
 
     def compose_presentation(
@@ -369,7 +369,7 @@ class MockProvider:
         return f"[mock] {query} :: {context[:120]}"
 
     def render_detail(
-        self, doc: Document, format: str = "md", focus: str | None = None
+        self, doc: Document, format: str = "adoc", focus: str | None = None
     ) -> str:
         """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 

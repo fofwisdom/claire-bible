@@ -52,8 +52,9 @@ Deno.test("a published document of a real Claire arrives at a test inbox with a 
     assert.equal(create.body.cc, `${actorUrl}/followers`);
     const article = create.body.object as Record<string, string>;
     assert.deepEqual([article.id, article.type, article.attributedTo, article.name], [objectUrl, "Article", actorUrl, "First Post"]);
-    assert.ok(article.content.includes("<strong>world</strong>") && !article.content.includes("<script"), article.content);
+    // RD21: the object has the summary (the title here: no extraction) and the share link, never the body.
     assert.ok(article.url.startsWith(`${origin}/p?s=`), article.url);
+    assert.ok(article.content.startsWith("<p>First Post</p>") && article.content.includes(`href="${article.url}"`) && !article.content.includes("world") && !article.content.includes("<script"), article.content);
     assert.deepEqual(del.body.object, { id: goneUrl, type: "Tombstone" });
     assert.equal(del.body.id, `${goneUrl}#delete`);
 

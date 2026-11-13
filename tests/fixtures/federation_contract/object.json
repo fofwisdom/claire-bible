@@ -9,7 +9,7 @@
     "actor_public_id": "116412345678901234",
     "type": "Article",
     "name": "Published Title",
-    "content": "<p>Hello <strong>world</strong></p>",
+    "content": "<p>Published Title</p><p><a href=\"https://claire.example.com/p?s=sharetoken123456\" rel=\"noopener noreferrer\">https://claire.example.com/p?s=sharetoken123456</a></p>",
     "url": "https://claire.example.com/p?s=sharetoken123456",
     "published_at": 1800000310.0,
     "updated_at": 1800000320.0

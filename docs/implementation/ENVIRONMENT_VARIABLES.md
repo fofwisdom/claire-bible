@@ -209,7 +209,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
 | `CLAIRE_VAULT_PATH` | `""` | 상대/절대 디렉터리 경로 (레거시 잔여) | Obsidian Vault 동기화 기능이 영구 제거되어 기본값은 빈 문자열(`""`)이다. 과거 환경 호환성을 위해 필드만 유지된다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
-| `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`), `md` (`markdown`) | 문서 읽기 및 저장 기본 렌더링 포맷. ([DUAL_FORMAT_ADOC_DESIGN.md](../design/DUAL_FORMAT_ADOC_DESIGN.md) 참조) |
+| `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([MARKDOWN_RETIREMENT_DESIGN.md](../design/MARKDOWN_RETIREMENT_DESIGN.md) 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
 | `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
 | `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화된다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
