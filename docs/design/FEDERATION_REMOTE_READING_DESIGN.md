@@ -42,7 +42,7 @@ The owner decision (2026-11-13): the basic implementation comes first. Invitatio
 | :--- | :--- |
 | D1 Per-account moderation | Block and mute of a remote actor by the account, outbound reports (`Flag`). Until then: instance domain blocks only. |
 | D2 Outbound limits per account | Rate limits for notes, replies, favourites, boosts, and follows of one account, to protect the reputation of the instance. |
-| D3 Internationalization of the client | The client gets English and Korean texts like the rest of the application. The implementation comes first; strings stay in one place so that i18n is simple later. |
+| D3 Internationalization of the client | **No longer deferred (I18N_DESIGN.md ID5, 2026-11-13).** Each new screen, panel, and message of FP4 uses the i18n catalog keys from the start, with English and Korean texts in `static/locales/{en,ko}.json`. The `/syndication` page and the syndication console panels are localized as part of their rebuild in FP4 (not by IP2-2 or IP2-3). |
 | D4 Connected external accounts | RD12. |
 
 ### 1.3 Federation Client in `/syndication` (RD10)

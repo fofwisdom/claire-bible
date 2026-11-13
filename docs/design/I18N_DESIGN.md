@@ -1,7 +1,7 @@
 # Internationalization (i18n) Design for WebUI, Telegram Bot, and CLI
 
 - **Document Identifier**: `DESIGN-I18N-WEBUI-BOT-CLI-20261111`
-- **Status**: Draft (Owner decisions ID1–ID4 locked on 2026-11-11)
+- **Status**: Draft (Owner decisions ID1–ID4 locked on 2026-11-11; ID1 changed by ID5 and ID6 on 2026-11-13)
 - **Date**: 2026-11-11 · Base Commit `c1edbce0`
 - **Related Documents**:
   - [`PRINCIPLES.md`](../PRINCIPLES.md)
@@ -59,6 +59,8 @@ The frozen draft [`INTERNATIONALIZATION_AND_LOCALIZATION_DESIGN.md`](INTERNATION
 | ID2 | Supported locales and default | Support `ko` (Korean) and `en` (English) in v1. Use `en` as the final fallback locale (`DEFAULT_LOCALE = "en"`). | §3 |
 | ID3 | Locale persistence and priority | Resolve locale in order: Account setting (`accounts.locale` + `/settings/account` UI) → Cookie (`claire_locale`) → `Accept-Language` header → `CLAIRE_LANG` environment variable → `"en"`. | §3, §5 |
 | ID4 | Catalog format | Use a single set of JSON catalogs (`src/claire/static/locales/{en,ko}.json`) shared directly by Python backend and browser JavaScript without a build step. | §4 |
+| ID5 | Order of i18n and federation work (2026-11-13) | Mixed order, chosen for the lowest cost: (1) each new screen and each new message is written with catalog keys from the start, in both catalogs (no later retrofit); (2) the IP units that do not overlap the federation work (FP4) can run at any time; (3) screens that FP4 replaces are not localized: the `/syndication` page and the syndication console panels get their keys when FP4 rebuilds them. This replaces the earlier owner order "implementation first, i18n later" (FEDERATION_REMOTE_READING_DESIGN.md D3). | §10 |
+| ID6 | CLI language (2026-11-13) | The CLI is not localized. Its human output is English in ASD-STE100 (Simplified Technical English) for all users. No `--lang` option and no `resolve_cli_locale` wiring. The `--json` `AgentOutput` contract is unchanged. This changes ID1 for the CLI. | §8, §10 |
 
 ---
 
@@ -392,7 +394,14 @@ When the API server sends a push notification via Telegram (for example, login a
 
 ## 8. CLI Integration Architecture
 
-### 8.1 Global `--lang` / `-l` Option and Environment Resolution
+**ID6 (2026-11-13) replaces Section 8.1.** The CLI has one language: English in ASD-STE100. Section 8.1 is kept for reference only; `resolve_cli_locale` in `i18n/resolver.py` is not wired to the CLI. Rules for the CLI text:
+
+1. Each human output line, error message, help text, and prompt of `cli.py` and `ops/cb_manuscript.py` is English in ASD-STE100 (approved words, one instruction per sentence, active voice, sentences of 20 words or fewer for procedures).
+2. The CLI does not use the JSON catalogs.
+3. The `--json` `AgentOutput` contract (Section 8.2) does not change; machine-parsed keys and error codes stay as they are.
+4. Existing Korean CLI text changes to ASD-STE100 English in unit IP3-2. New CLI text is ASD-STE100 English from the start.
+
+### 8.1 Global `--lang` / `-l` Option and Environment Resolution (replaced by ID6)
 
 In `src/claire/cli.py`:
 - The root parser and subcommand parent parser accept `--lang` / `-l` (`choices=("en", "ko")`).
@@ -467,10 +476,10 @@ Each unit ends with passing tests and one commit, following the repository work-
 | **IP1-1** | `src/claire/i18n/` (`locales.py`, `context.py`, `catalog.py`, `resolver.py`), initial `src/claire/static/locales/{en,ko}.json`, `Settings.lang` (`CLAIRE_LANG`), env docs sync | Unit tests for resolver priority chains, RFC 9110 `Accept-Language` q-factors, placeholder interpolation, and catalog parity pass. `test_docs_consistency.py` passes. | none | S |
 | **IP1-2** | `claire.db` migration for `accounts.locale`, `AccountStore.update_locale`, `Principal.locale` binding in `security.py`, `GET/PATCH /api/me` locale contract, `POST /api/locale`, `I18nMiddleware` | Migration idempotence test passes. `PATCH /api/me` and `POST /api/locale` persist `en`/`ko`/`null`, set `claire_locale` cookie, and reject invalid values with 400 `invalid_locale`. | IP1-1 | M |
 | **IP2-1** | `src/claire/static/js/i18n.js`, inline catalog injection, `/settings/account` language selector UI (`console.py` + `console_account.js`), auth pages (`login.html`, `setup.html`) | User can switch language in `/settings/account` and on `/login`; `<html lang>` and `Content-Language` reflect `en` or `ko`. | IP1-2 | M |
-| **IP2-2** | Unified console localization (`console_shell.html`, `console.py`, `features.py`, `keys.py`, `admin.py`, `console_federation_panels.py`, `console_syndication_panels.py`, `manage_panels.js`, `console_*.js`) | All `/settings/*` and `/admin/*` screens render in `en` and `ko` without hardcoded Korean strings in `en` mode. | IP2-1 | L |
-| **IP2-3** | Graph workspace, reader, share, explore, and syndication UI localization (`index.html`, `share.html`, `explore_accounts.html`, `syndication.html`, `app.js`, `reader.js`, `graph/*.js`, `syndication_*.js`) | Main workspace `/`, `/share/*`, `/explore`, and `/syndication` render in `en` and `ko`. | IP2-1 | L |
+| **IP2-2** | Unified console localization (`console_shell.html`, `console.py`, `features.py`, `keys.py`, `admin.py`, `console_federation_panels.py`, `manage_panels.js`, `console_*.js` except `console_syndication.js`). ID5: the syndication panels (`console_syndication_panels.py`, `console_syndication.js`) get their keys in FP4. | All `/settings/*` and `/admin/*` screens render in `en` and `ko` without hardcoded Korean strings in `en` mode. | IP2-1 | L |
+| **IP2-3** | Graph workspace, reader, share, and explore UI localization (`index.html`, `share.html`, `explore_accounts.html`, `app.js`, `reader.js`, `graph/*.js`). ID5: `/syndication` (`syndication.html`, `syndication_*.js`) gets its keys when FP4-5 rebuilds it. | Main workspace `/`, `/share/*`, and `/explore` render in `en` and `ko`. | IP2-1 | L |
 | **IP3-1** | Telegram Bot and push notification localization (`telegram_bot.py`, `notify.py`) | Instance and member bots resolve locale from owner `accounts.locale` and Telegram `language_code`; replies and push prompts localize in `en` and `ko`. | IP1-2 | M |
-| **IP3-2** | CLI `--lang` / `-l` flag, `resolve_cli_locale` wiring, and human CLI output localization (`cli.py`), preserving `--json` `AgentOutput` contract | `claire --lang ko preflight` and `claire --lang en preflight` localize human output; invalid `--lang` exits with code 2; `test_agent_cli.py` passes unchanged. | IP1-1 | M |
+| **IP3-2** | ID6: CLI human output, errors, help, and prompts in ASD-STE100 English (`cli.py`, `ops/cb_manuscript.py`); no `--lang` option; `--json` `AgentOutput` contract unchanged | No Korean text in the human output, help, and errors of `claire` and `cb-manuscript`; `test_agent_cli.py` passes unchanged. | — | M |
 | **IP3-3** | End-to-end i18n test (`tests/test_e2e_i18n.py`), implementation docs (`ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `SCHEMA_VERSIONING.md`, `ENVIRONMENT_VARIABLES.md`, `openapi.yaml`), full `./scripts/ci.sh` gate | E2E test verifies default `en`, `Accept-Language: ko`, `/settings/account` persistence, and logout fallback. `./scripts/ci.sh` passes with 0 failures. | IP2-2, IP2-3, IP3-1, IP3-2 | M |
 
 ### 10.3 Testing Policy Alignment
