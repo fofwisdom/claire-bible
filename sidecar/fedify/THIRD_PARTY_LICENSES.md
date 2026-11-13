@@ -15,13 +15,14 @@ The source of the license is the field `license` in the `deno.json` file of the 
 
 | Package | Version | License |
 | :--- | :--- | :--- |
-| `@fedify/fedify` | 2.3.15 | MIT |
-| `@fedify/sqlite` | 2.3.15 | MIT |
+| `@fedify/fedify` | 2.4.5 | MIT |
+| `@fedify/sqlite` | 2.4.5 | MIT |
 | `@fedify/uri-template` | 2.4.5 | MIT |
 | `@fedify/vocab-runtime` | 2.4.5 | MIT |
 | `@fedify/vocab` | 2.4.5 | MIT |
 | `@fedify/webfinger` | 2.4.5 | MIT |
 | `@logtape/logtape` | 2.4.2 | MIT |
+| `@standard-schema/spec` | 1.1.0 | MIT |
 
 ## npm Packages
 
@@ -41,6 +42,7 @@ The source of the license is the field `license` in `package.json`. The license 
 | `byte-encodings` | 1.0.11 | MIT | LICENSE |
 | `bytestreamjs` | 2.0.1 | BSD-3-Clause | LICENSE |
 | `canonicalize` | 2.1.0 | Apache-2.0 | LICENSE |
+| `devalue` | 5.9.4 | MIT | LICENSE |
 | `es-toolkit` | 1.53.2 | MIT | LICENSE, NOTICE |
 | `json-canon` | 1.0.1 | Apache-2.0 | LICENSE |
 | `jsonld` | 9.0.0 | BSD-3-Clause | LICENSE |

@@ -621,7 +621,7 @@ Mounts of the `fedify` container (no other mount is permitted: `scripts/ci.sh` a
 
 ### 9.3 Image and Deno Permission Flags
 
-- Base image `denoland/deno:2.9.8`. The build caches the dependencies with the frozen lock file `deno.lock`. `deno.json` pins the Fedify minor version (`~2.3.0`).
+- Base image `denoland/deno:2.9.8`. The build caches the dependencies with the frozen lock file `deno.lock`. `deno.json` pins the Fedify minor version (`~2.4.5`).
 - The image keeps the license files of the npm dependencies in `/app/licenses/` and the file `/app/THIRD_PARTY_LICENSES.md`.
 - Command of the image:
 

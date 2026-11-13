@@ -1,22 +1,22 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@fedify/fedify@2.3": "2.3.15",
-    "jsr:@fedify/fedify@^2.3.15": "2.3.15",
-    "jsr:@fedify/sqlite@2.3": "2.3.15",
-    "jsr:@fedify/uri-template@^2.3.15": "2.4.5",
-    "jsr:@fedify/vocab-runtime@^2.3.15": "2.4.5",
+    "jsr:@fedify/fedify@^2.4.5": "2.4.5",
+    "jsr:@fedify/fedify@~2.4.5": "2.4.5",
+    "jsr:@fedify/sqlite@~2.4.5": "2.4.5",
+    "jsr:@fedify/uri-template@^2.4.5": "2.4.5",
     "jsr:@fedify/vocab-runtime@^2.4.5": "2.4.5",
-    "jsr:@fedify/vocab@^2.3.15": "2.4.5",
-    "jsr:@fedify/webfinger@^2.3.15": "2.4.5",
+    "jsr:@fedify/vocab@^2.4.5": "2.4.5",
     "jsr:@fedify/webfinger@^2.4.5": "2.4.5",
     "jsr:@logtape/logtape@^2.2.0": "2.4.2",
+    "jsr:@standard-schema/spec@^1.1.0": "1.1.0",
     "npm:@multiformats/base-x@^4.0.1": "4.0.1",
     "npm:@opentelemetry/api@~1.9.1": "1.9.1",
     "npm:@opentelemetry/sdk-metrics@2.7.1": "2.7.1_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/semantic-conventions@^1.40.0": "1.45.0",
     "npm:asn1js@^3.0.10": "3.1.0",
     "npm:byte-encodings@^1.0.11": "1.0.11",
+    "npm:devalue@^5.8.1": "5.9.4",
     "npm:es-toolkit@^1.46.1": "1.53.2",
     "npm:json-canon@^1.0.1": "1.0.1",
     "npm:jsonld@9": "9.0.0",
@@ -25,28 +25,30 @@
     "npm:undici@^7.30.1": "7.30.2"
   },
   "jsr": {
-    "@fedify/fedify@2.3.15": {
-      "integrity": "e2c6a7b84a3bd7586021f62b42befa71490ba2b9416d95377ae04c48f7e1a1e9",
+    "@fedify/fedify@2.4.5": {
+      "integrity": "f4242ed56c09b3b63f0452a83f134351e691c2c664de6b14b75086ee853876f9",
       "dependencies": [
-        "jsr:@fedify/fedify@^2.3.15",
+        "jsr:@fedify/fedify@^2.4.5",
         "jsr:@fedify/uri-template",
         "jsr:@fedify/vocab",
-        "jsr:@fedify/vocab-runtime@^2.3.15",
-        "jsr:@fedify/webfinger@^2.3.15",
+        "jsr:@fedify/vocab-runtime",
+        "jsr:@fedify/webfinger",
         "jsr:@logtape/logtape",
+        "jsr:@standard-schema/spec",
         "npm:@opentelemetry/api",
         "npm:@opentelemetry/sdk-metrics",
         "npm:@opentelemetry/semantic-conventions",
         "npm:byte-encodings",
+        "npm:devalue",
         "npm:es-toolkit",
         "npm:json-canon",
         "npm:structured-field-values"
       ]
     },
-    "@fedify/sqlite@2.3.15": {
-      "integrity": "4fead541ca557807313eccebad183028c52f1d209acb483bc60a245bdcce2d9e",
+    "@fedify/sqlite@2.4.5": {
+      "integrity": "1b3c57e0afe4ef0020f7859fd93283ecdd8af0407c5c9d5a0fe4713725f87b54",
       "dependencies": [
-        "jsr:@fedify/fedify@^2.3.15",
+        "jsr:@fedify/fedify@^2.4.5",
         "jsr:@logtape/logtape",
         "npm:es-toolkit"
       ]
@@ -57,8 +59,8 @@
     "@fedify/vocab@2.4.5": {
       "integrity": "cdf745d846d2075804ccfa08fdf34f5e390e1aa30afe82a67c47c90af224315f",
       "dependencies": [
-        "jsr:@fedify/vocab-runtime@^2.4.5",
-        "jsr:@fedify/webfinger@^2.4.5",
+        "jsr:@fedify/vocab-runtime",
+        "jsr:@fedify/webfinger",
         "jsr:@logtape/logtape",
         "npm:@opentelemetry/api",
         "npm:es-toolkit"
@@ -80,13 +82,16 @@
     "@fedify/webfinger@2.4.5": {
       "integrity": "dc673bae907c48d07924154b425a4204de22ee380499f904d6661fa90ba7438d",
       "dependencies": [
-        "jsr:@fedify/vocab-runtime@^2.4.5",
+        "jsr:@fedify/vocab-runtime",
         "jsr:@logtape/logtape",
         "npm:@opentelemetry/api"
       ]
     },
     "@logtape/logtape@2.4.2": {
       "integrity": "308d84fb97124e5558a24eb23b94a8909fc60f4b0032e9328905a4264d14886b"
+    },
+    "@standard-schema/spec@1.1.0": {
+      "integrity": "2ccd54513cd9c960bd155ab569b1a901bc99c6f9ad29559d3f38a28c91c1822d"
     }
   },
   "npm": {
@@ -149,6 +154,9 @@
     "canonicalize@2.1.0": {
       "integrity": "sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ==",
       "bin": true
+    },
+    "devalue@5.9.4": {
+      "integrity": "sha512-sPAT4pztbu6586/hrhOnMKS17IJrvg12mXiSPSS3W5qDeN2RGgvZ0diZCm31dBbnevfVmujNO3IM2wrS4Y2Rhg=="
     },
     "es-toolkit@1.53.2": {
       "integrity": "sha512-iUqZ+NlwH4jUgRmXZUxFBsV/9762TQEa1O4IXLFBmDEjVHScBytKuseX23I0+v9ShZ5MYxEx6WKNzm6IPnex8g=="
@@ -221,8 +229,8 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@fedify/fedify@2.3",
-      "jsr:@fedify/sqlite@2.3"
+      "jsr:@fedify/fedify@~2.4.5",
+      "jsr:@fedify/sqlite@~2.4.5"
     ]
   }
 }
