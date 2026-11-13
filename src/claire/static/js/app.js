@@ -401,12 +401,14 @@ function renderThemeOptions(selectedId){
 }
 
 async function loadThemeDocuments(){
+  // The document data starts again: the first list page (31 documents), the pinned documents, and the hidden documents.
+  const main = resetDocStore();
   try{
     // fetch('documents')
-    const r = await fetch(apiUrl('documents'));
-    if(!r.ok) throw new Error('documents fetch failed: HTTP ' + r.status);
-    const d = await r.json();
-    allDocs = (d && d.documents) || [];
+    const [d] = await Promise.all([fetchDocuments(docPagerParams(main)), loadDocSideLists()]);
+    if(main !== docMainPager) return;
+    applyDocPage(main, d);
+    rebuildAllDocs();
     renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
     if(d && d.format_status){
       window.currentFormatStatus = d.format_status;
@@ -426,8 +428,11 @@ async function loadThemeDocuments(){
       try{
         const sp = new URLSearchParams(window.location.search);
         const p = sp.get('doc');
-        if(p && allDocs.some(x => x.id === p)) docFromUrl = p;
+        // A deep link to a document that is not on the first page loads the pages up to that document.
+        if(p && await ensureDocLoaded(p)){ docFromUrl = p; docScrollToActive = true; }
       }catch(_){}
+      if(main !== docMainPager) return;
+      if(docFromUrl) renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
       const currentDoc = (typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc;
       const isReaderElementOpen = Boolean(document.getElementById('reader') && document.getElementById('reader').classList.contains('open'));
       const hasDocOpen = Boolean(currentDoc || isReaderElementOpen);
@@ -449,7 +454,8 @@ async function loadThemeDocuments(){
       }
     }
   }catch(e){
-    allDocs = [];
+    if(main !== docMainPager) return;
+    resetDocStore();
     const dl = document.getElementById('doclist');
     if(dl) dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'') + '<p class="hint" style="padding:10px">문서 로드 실패</p>';
   }
@@ -524,6 +530,7 @@ async function switchKnowledgeTheme(themeId){
 
   syncThemeSelectorUI();
   await enterHome({reason: 'theme'});
+  resetListWindows();   // The two lists of the new knowledge theme start from the first page.
 
   await Promise.all([
     reloadThemeData(true),
@@ -745,7 +752,7 @@ function showNodePop(id, x, y){
   nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'')+foot;
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
-  fetch(apiUrl('node?id='+encodeURIComponent(id))).then(r=>r.json()).then(d=>{
+  fetch(apiUrl('node?id='+encodeURIComponent(id)+'&docs=brief')).then(r=>r.json()).then(d=>{
     if(!canShowNodePop(id) || popReqId!==id || nodepop.style.display==='none' || !d || d.error) return;  // 이미 떠났거나 상세 열렸으면 무시
     const obs=(d.observations||[]).slice(0,3);   // 관찰 최대 3개(설명이 너무 적던 문제)
     const base=head + obs.map(o=>'<div class=po>'+esc((o||'').slice(0,200))+'</div>').join('');
@@ -760,9 +767,9 @@ function showNodePop(id, x, y){
     }
   }).catch(()=>{});
 }
-// 팝업 하단의 출처 문서 한 건 — 제목 + 글(요약 우선, 없으면 상세 앞부분) 일부.
+// 팝업 하단의 출처 문서 한 건 — 제목 + 요약 일부. (GET /node?docs=brief has no detail text.)
 function popSource(d){
-  const body=((d.summary||d.detail||'').replace(/\s+/g,' ').trim());
+  const body=((d.summary||'').replace(/\s+/g,' ').trim());
   return '<div class=psrc><div class=ptt>📄 '+esc(d.title||'(제목 없음)')+'</div>'+
     (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
@@ -1166,7 +1173,23 @@ function syncGraphDocNav(){
   const menu=document.getElementById('graphdocmenu');
   if(!menu.hidden) renderGraphDocPicker(document.getElementById('graphdocq').value);
 }
-function renderGraphDocPicker(filter=''){
+// The picker shows the documents that the client knows (the loaded list pages and the pinned documents). When the list has more pages, filter text also asks the server (title or summary), thus a document after the loaded pages can be found.
+let docPickTimer = null;
+function queryGraphDocPicker(q, filter){
+  const seq = ++docPickSeq, main = docMainPager;
+  clearTimeout(docPickTimer);
+  docPickTimer = setTimeout(async () => {
+    try{
+      const d = await fetchDocuments(new URLSearchParams({limit: String(LIST_PAGE), hidden: '0', q: q}));
+      if(seq !== docPickSeq || main !== docMainPager) return;
+      (d.documents || []).forEach(internDoc);
+      rebuildAllDocs();
+      const menu = document.getElementById('graphdocmenu'), input = document.getElementById('graphdocq');
+      if(menu && !menu.hidden && input && input.value === filter) renderGraphDocPicker(filter, true);
+    }catch(_){}
+  }, 250);
+}
+function renderGraphDocPicker(filter='', fromServer=false){
   const q=filter.trim().toLowerCase();
   const docs=graphSelectableDocs().filter(dc=>
     !q || ((dc.title||'')+' '+(dc.summary||'')).toLowerCase().includes(q));
@@ -1176,8 +1199,11 @@ function renderGraphDocPicker(filter=''){
       (dc.id===activeDoc?' aria-current="true"':'')+'>'+
       (dc.pinned===1?'⭐ ':'')+esc(dc.title||'(제목 없음)')+
       (dc.source_type?'<small>'+esc(dc.source_type)+'</small>':'')+'</button>').join('');
-  if(!docs.length) h+='<div id="graphdocempty">검색 결과가 없습니다.</div>';
+  const morePages = docMainPager.loaded && docMainPager.next != null;
+  if(!docs.length) h+='<div id="graphdocempty">'+((morePages && q && !fromServer) ? '찾는 중…' : '검색 결과가 없습니다.')+'</div>';
+  else if(morePages && !q) h+='<div id="graphdocmore" class="hint">더 오래된 자료는 제목으로 찾으세요.</div>';
   document.getElementById('graphdoclist').innerHTML=h;
+  if(morePages && q && !fromServer) queryGraphDocPicker(q, filter);
 }
 function openGraphDocPicker(pushHist=true){
   const menu=document.getElementById('graphdocmenu'), q=document.getElementById('graphdocq');
@@ -1845,20 +1871,102 @@ function clearNodeIsolation(){
 window.toggleNodeIsolation = toggleNodeIsolation;
 window.clearNodeIsolation = clearNodeIsolation;
 
+let nodeLoadSeq = 0;
 function loadNode(id, hidePop=true){
   const focusCamera = arguments.length > 2 ? arguments[2] : true;
   if(hidePop) hideNodePop();
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
+  openEntityRow(id);               // The entity list opens the row of this node before applyView(), thus applyView() does not render the list again. The row uses the response of the request below.
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   if(focusCamera) focusOnNode(id);
-  fetch(apiUrl('node?id='+encodeURIComponent(id))).then(r=>r.json()).then(renderPanel);
+  // Only the response of the last request is used. A late response for an earlier node must not replace the panel.
+  const seq = ++nodeLoadSeq;
+  fetch(apiUrl('node?id='+encodeURIComponent(id)+'&docs=brief')).then(r=>r.json()).then(d=>{
+    if(seq !== nodeLoadSeq) return;
+    renderPanel(d); setEntityRowDetail(id, d);
+  }).catch(()=>{
+    if(seq !== nodeLoadSeq) return;
+    currentNodeData = null;
+    panel.innerHTML='<p class=hint>노드 정보를 불러오지 못했습니다.</p>';
+    setEntityRowDetail(id, {error:true, failed:true});
+  });
 }
+// --- Source document rows of the node detail panel (unit LP-4) ---
+let srcWindowList = null, srcDocsAll = [];
+// The identifier of the summary region uses the index of the row in the rendered list. An identifier from the document identifier is not always unique after the removal of characters.
+function srcRowHtml(dc, prev, index){
+  const sid = 'srcsum-' + index;
+  const day = dc.fetched_at ? dayOf(dc.fetched_at) : '';
+  let h = '<div class="srcrow" role="listitem" data-src-id="' + esc(dc.id) + '"><div class="srchead">';
+  h += '<button type="button" class="srctitle" aria-expanded="false" aria-controls="' + sid + '"><span class="srccaret" aria-hidden="true">▸</span><span class="srcname">' + esc(dc.title) + '</span>';
+  h += '<span class="srcmeta">' + (day ? '<span class="srcdate">' + day + '</span>' : '') + (dc.source_type ? '<span class="srctype">' + esc(dc.source_type) + '</span>' : '') + '</span></button>';
+  // The default response of GET /node has detail, and docs=brief has has_detail.
+  if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="본문 보기" aria-label="본문 보기">📖</button>';
+  h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(dc.title) + ' 요약" hidden>';
+  h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">요약 없음</p>';
+  const links = [];
+  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target=_blank rel=noopener>↗ 원문 열기</a>');
+  if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener>📄 원본 열기</a>');
+  if(links.length) h += '<p class="src">' + links.join(' · ') + '</p>';
+  return h + '</div></div>';
+}
+// Writes the rows into #srclist, LIST_PAGE rows at a time. The scroll container of the panel (#drawerscroll) is the observer root. All rows are closed after each call.
+function mountSourceList(docs){
+  if(srcWindowList){ srcWindowList.invalidate(); srcWindowList = null; }
+  srcDocsAll = docs || [];
+  const box = document.getElementById('srclist'); if(!box) return;
+  srcWindowList = createWindowedList({container: box, root: document.getElementById('drawerscroll'), renderItem: srcRowHtml});
+  srcWindowList.render(srcDocsAll, 'src:');
+}
+function filterSourceList(v){
+  if(!srcWindowList) return;
+  const q = (v||'').trim().toLowerCase();
+  const items = q ? srcDocsAll.filter(dc => String(dc.title||'').toLowerCase().includes(q)) : srcDocsAll;
+  srcWindowList.render(items, 'src:' + q, {empty: '<p class="hint">제목이 맞는 문서 없음</p>'});
+}
+panel.addEventListener('input', e => { if(e.target && e.target.id === 'srcfilter') filterSourceList(e.target.value); });
+panel.addEventListener('click', e => {
+  const read = e.target.closest('.srcread');
+  if(read){ openReader(read.dataset.readDoc); setCenterView('reader'); return; }
+  const t = e.target.closest('.srctitle'); if(!t) return;
+  const body = document.getElementById(t.getAttribute('aria-controls')); if(!body) return;
+  const open = body.hidden;
+  body.hidden = !open;
+  t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const caret = t.querySelector('.srccaret'); if(caret) caret.textContent = open ? '▾' : '▸';
+});
+// The button of the detail panel: shows the entity list row of this node (관찰/주장 and 연결). It changes to the graph view, opens the list drawer on a small screen, opens the row, and scrolls to it.
+function showNodeInList(id){
+  if(activePane !== 'graph') revealWorkspace('graph');
+  else if(centerView !== 'graph') setCenterView('graph');
+  if((compactMQ.matches || mobileMQ.matches) && (drawerOpen || detailOpen)){
+    // The detail drawer covers the list. It closes without a history step back, and its history entry stays as the entry below the list drawer.
+    const st = window.history && window.history.state;
+    drawerOpen = false; detailOpen = false; detailReturnFocus = null;
+    syncWorkspaceLayout();
+    if(st && st.modal === 'drawer') replaceAppHistory({modal: null});
+  }
+  if(mobileMQ.matches && !docDrawerOpen) openDocDrawer();
+  if(currentNodeData && currentNodeData.id === id){
+    // The panel already has the response of GET /node. There is no new request, and a response for a different node that is not complete must not write the panel.
+    nodeLoadSeq++;
+    openEntityRow(id);
+    setEntityRowDetail(id, currentNodeData);
+  } else {
+    selectedNodeId = id;
+    loadNode(id);
+  }
+  const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true});
+}
+window.showNodeInList = showNodeInList;
 function renderPanel(d){
-  if(!d || d.error){ panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
+  if(!d || d.error){ currentNodeData = null; panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
   currentNodeData = d;
   const inSet = synthSet.has(d.id);
   // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
   let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
+  // The node header (name, type, action buttons) stays in view while the panel scrolls.
+  h+='<div class="nodehead">';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
   const isIsolated = (isolatedNodeId === d.id);
   const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'🔍 주변만 보기')+'</button>';
@@ -1875,7 +1983,10 @@ function renderPanel(d){
       h+='</div>';
     }
   }
-  h+='</div>';
+  h+='</div></div>';
+  // 관찰/주장 and 연결 are in the entity list row only. This button shows that row.
+  const obsCount = (d.observations||[]).length, nbCount = (d.neighbors||[]).length;
+  h+='<button type="button" class="sec node-listrow-btn" id="node-listrow-btn" onclick="showNodeInList('+jsArg(d.id)+')" title="목록에서 이 엔티티의 관찰/주장과 연결을 엽니다">관찰/주장 · 연결 보기 ('+(obsCount+nbCount)+')</button>';
   if(d.aliases && d.aliases.length){
     h+='<div class="node-aliases-section" id="node-aliases-section">';
     h+='<div class="node-aliases-header">';
@@ -1888,30 +1999,22 @@ function renderPanel(d){
     });
     h+='</div></div>';
   }
-  if(d.observations.length){ h+='<h3>관찰 · 주장</h3><ul>'+
-    d.observations.map(o=>'<li>'+esc(o)+'</li>').join('')+'</ul>'; }
-  if(d.documents.length){ h+='<h3>출처 문서 ('+d.documents.length+')</h3>';
-    // 설명(summary) → 📖 본문 보기(중앙 리더로 열기) → 원문 링크 순.
-    d.documents.forEach(dc=>{ h+='<div class=doc><b>'+esc(dc.title)+'</b>'+
-      (dc.summary?'<p>'+esc(dc.summary)+'</p>':'')+
-      ((dc.detail||dc.summary)?'<button class=readbtn data-read-doc="'+esc(dc.id)+
-        '" onclick="openReader('+jsArg(dc.id)+');setCenterView(\'reader\')">📖 본문 보기</button>':'')+
-      (isWebUrl(dc.url)?'<p class=src><a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a></p>':'')+
-      (canIngest() && dc.has_raw_file?'<p class=src><a href="'+apiUrl('document/raw?id='+encodeURIComponent(dc.id))+'" target=_blank rel=noopener>📄 원본 열기</a></p>':'')+
-      '</div>'; }); }
-  if(d.neighbors.length){ h+='<h3>연결 ('+d.neighbors.length+')</h3><ul>';
-    d.neighbors.forEach(n=>{ const ar=n.dir=='out'?'→':'←';
-      h+='<li><span class=rel>'+esc(n.rel)+'</span> '+ar+
-         ' <a href="#" onclick="loadNode('+jsArg(n.id)+');return false">'+esc(n.name)+
-         '</a> <small>'+esc(n.type)+'</small></li>'; }); h+='</ul>'; }
   // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
   // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
-  if(canWrite()) h+='<h3>🔬 더 알아보기</h3>'+
+  if(canWrite()) h+='<h3>더 알아보기</h3>'+
     '<div class=research><input id="rq" placeholder="더 알고 싶은 키워드/문장" '+
     'onkeydown="if(event.key===\'Enter\')doResearch()"/>'+
     '<button onclick="doResearch()">조사</button></div>'+
     '<p class=al>지금 보는 맥락에 맞춰 웹 조사 → 맥락 일치·품질 통과 시 그래프에 추가됩니다.</p>';
+  // Source documents: the newest is first. Each row shows the title only; a click on the title shows the summary.
+  const srcDocs = (d.documents||[]).slice().sort((x, y) => (y.fetched_at||0) - (x.fetched_at||0));
+  if(srcDocs.length){
+    h+='<h3>출처 문서 ('+srcDocs.length+')</h3>';
+    if(srcDocs.length > LIST_PAGE) h+='<input id="srcfilter" class="srcfilter" type="search" placeholder="제목으로 찾기" aria-label="출처 문서 제목 필터" autocomplete="off"/>';
+    h+='<div id="srclist" class="srclist" role="list"></div>';
+  }
   panel.innerHTML=h;
+  mountSourceList(srcDocs);
   if(typeof window.gtag === 'function' && d && d.id){
     try{
       window.gtag('event', 'select_content', {
@@ -3138,12 +3241,8 @@ function refreshGraph(){
       renderDocPanel(curReaderDocData);
     }
   });
-  // fetch('documents')
-  fetch(apiUrl('documents')).then(r=>r.json()).then(d=>{
-    allDocs=d.documents||[];
-    const docq = document.getElementById('docq');
-    renderDocs(docq ? docq.value : '');
-  });
+  // fetch('documents'): only the first page and the pinned and hidden lists. The pages that the user loaded stay.
+  refreshDocs();
 }
 
 // 전체 리로드 없이 새 글/엔티티/관계 반영 및 적재 상태 추적 폴링
@@ -3442,14 +3541,8 @@ function setDeg(v){
 // 자랄수록(현재 엔티티 500+·관계 500+, 매일 증가) 선형으로 느려졌다. update() 는 배열을
 // 통째로 넘기면 이벤트/리드로우가 1회로 묶인다 — 계산은 그대로 하되 실제 반영만 모아서
 // 한 번에 한다(문서 선택·검색·필터·degree 슬라이더 전부 이 함수를 타므로 공통 개선).
-function applyView(){
-  if(!allNodes) return;
-  let shown=0, emph=0;
-  const th=T();
-  const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
-  const pathActive = !!(pathNodes && pathNodes.size);
-  const hasFilter = activeDoc || highlightSet || pathActive;
-
+// The filter state that applyView() and the entity list share: the path mode and the isolation set.
+function nodeViewContext(){
   let isolatedSet = null;
   if(isolatedNodeId && net && typeof net.getConnectedNodes === 'function'){
     try{
@@ -3460,6 +3553,35 @@ function applyView(){
       isolatedSet = new Set([isolatedNodeId]);
     }
   }
+  return {pathActive: !!(pathNodes && pathNodes.size), isolatedSet: isolatedSet};
+}
+// True when the graph hides this node: it is not in the isolation set, or its degree is below the #degctl threshold.
+function isNodeHiddenByView(n, ctx){
+  if(ctx.isolatedSet) return !ctx.isolatedSet.has(n.id);
+  return n.degree < curMinDeg;
+}
+// True when the emphasis filters (path, selected document, search) include this node. The graph dims a node that does not match.
+function isNodeMatchedByView(n, ctx){
+  if(ctx.pathActive) return pathNodes.has(n.id);   // 경로 모드: 경로 노드만 강조(다른 필터보다 우선)
+  let match = true;
+  if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
+  if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
+  return match;
+}
+// One predicate for the graph and the entity list: the graph shows this node and no filter dims it.
+function isNodeListed(n, ctx){
+  if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return false;
+  ctx = ctx || nodeViewContext();
+  return !isNodeHiddenByView(n, ctx) && isNodeMatchedByView(n, ctx);
+}
+function applyView(){
+  if(!allNodes) return;
+  let shown=0, emph=0;
+  const th=T();
+  const netBg=(typeof getComputedStyle==='function'?getComputedStyle(document.documentElement).getPropertyValue('--net-bg').trim():'')||'#ffffff';
+  const viewCtx = nodeViewContext();
+  const pathActive = viewCtx.pathActive, isolatedSet = viewCtx.isolatedSet;
+  const hasFilter = activeDoc || highlightSet || pathActive;
 
   let selectedNeighbors = null;
   if(selectedNodeId && net && typeof net.getConnectedNodes === 'function'){
@@ -3475,14 +3597,8 @@ function applyView(){
   const nodeUpdates=[], matchedNodes=new Set();
   allNodes.forEach(n=>{
     if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;  // 검색 중앙 앵커는 안 건드림(숨김 유지)
-    if(isolatedSet && !isolatedSet.has(n.id)){ nodeUpdates.push({id:n.id, hidden:true}); return; }
-    if(n.degree < curMinDeg && (!isolatedSet || !isolatedSet.has(n.id))){ nodeUpdates.push({id:n.id, hidden:true}); return; }
-    let match = true;
-    if(pathActive){ match = pathNodes.has(n.id); }   // 경로 모드: 경로 노드만 강조(다른 필터보다 우선)
-    else {
-      if(activeDoc) match = match && (n.sources||[]).includes(activeDoc);
-      if(highlightSet) match = match && highlightSet.has(n.id);  // 검색(라벨/의미) 강조 집합
-    }
+    if(isNodeHiddenByView(n, viewCtx)){ nodeUpdates.push({id:n.id, hidden:true}); return; }
+    const match = isNodeMatchedByView(n, viewCtx);
     // 강조(문서 선택·검색·경로) 매치 노드는 흰 굵은 테두리 — dim 만으론 안 띄어서(피드백).
     // 노드별 color 가 group 색을 덮으므로 background/highlight 를 같이 명시해 유지한다.
     const lit = (hasFilter && match) || (selectedNodeId && n.id === selectedNodeId);
@@ -3601,12 +3717,14 @@ function applyView(){
         strokeColor:netBg}});
   });
   if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
-  document.getElementById('stat').innerHTML =
+  // The graph status is in span.graphstat: the document list hides it (it is not about the documents). A document status overwrites the span.
+  document.getElementById('stat').innerHTML = '<span class="graphstat">' +
     '표시 <b>'+shown+'</b>/'+allNodes.length
     + (isolatedSet ? ' · 🔍 격리 뷰 ('+isolatedSet.size+'개)' : '')
     + (curMinDeg>0 && !isolatedSet ? ' · 연결≥'+curMinDeg:'')
     + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
-    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':''));
+    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':'')) + '</span>';
+  renderEntityList();
 }
 
 // --- 2노드 경로 하이라이트(전용 모드): 🔗 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
@@ -3749,6 +3867,7 @@ function renderServerDocs(){
   const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
   const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
 
+  if(docWindowList) docWindowList.invalidate();
   const dl = document.getElementById('doclist');
   if(dl){
     let html = doclistToolbarHtml();
@@ -3855,6 +3974,10 @@ async function doDocServerSearch(q){
     });
   });
 
+  // A hit can name a document that is not in the loaded pages. One request gets these documents.
+  await loadDocsById([...docScoreMap.keys()]);
+  if(seq !== currentSearchSeq) return;
+
   const matchedDocs = [];
   const queryLower = q.toLowerCase();
   if(allDocs && allDocs.length){
@@ -3886,8 +4009,529 @@ async function doDocServerSearch(q){
   renderServerDocs();
 }
 
+// --- 목록 영역(aside#docs): 보기별 목록 전환 + 31건 단위 추가 렌더링 ---
+// Limits: docs/implementation/IMPLEMENTATION_STATUS.md, section 1.
+const LIST_PAGE = 31;
+// The entity list is ready (unit LP-3). The graph view shows it; all other views show the document list.
+const ENTITY_LIST_READY = true;
+
+// A list that renders LIST_PAGE items first and adds the next page when the sentinel at the end comes into view.
+// opts.root: the scroll container, when it is not the container of the rows (default: the container).
+// render(items, key, {head, empty}): the same key keeps the rendered count and the scroll position (background refresh); a new key starts from the first page.
+// opts.more() and opts.loadMore() (optional, unit LP-5): the items are pages from the server. more() gives {hasMore, error, total}. When all items are rendered and hasMore is true, the sentinel stays and loadMore() gets the next page; the caller then calls render() with the same key. When error is true, a retry control replaces the sentinel, thus a failed request does not repeat.
+function createWindowedList(opts){
+  const container = opts.container, pageSize = opts.pageSize || LIST_PAGE, renderItem = opts.renderItem, onChange = opts.onChange || function(){};
+  let items = [], count = 0, key = null, io = null;
+  const hasIO = (typeof IntersectionObserver !== 'undefined');
+  function body(from, to){ let h = ''; for(let i = from; i < to; i++) h += renderItem(items[i], i > 0 ? items[i-1] : null, i); return h; }
+  function moreState(){ return opts.more ? (opts.more() || {}) : {}; }
+  function total(){ const m = moreState(); return (typeof m.total === 'number') ? Math.max(m.total, items.length) : items.length; }
+  function tail(){
+    if(count < items.length) return '<div class="list-sentinel" aria-hidden="true"></div>';
+    const m = moreState();
+    if(m.error) return '<div class="list-more-error" role="status">다음 문서를 불러오지 못했습니다. <button type="button" class="sec list-retry">다시 시도</button></div>';
+    if(m.hasMore) return '<div class="list-sentinel" aria-hidden="true"></div>';
+    return items.length > pageSize ? '<div class="list-end">— 끝 (' + items.length + ') —</div>' : '';
+  }
+  function onSentinel(){
+    if(count < items.length) growTo(count + pageSize);
+    else if(opts.loadMore && moreState().hasMore) opts.loadMore();
+  }
+  if(opts.loadMore) container.addEventListener('click', e => { if(e.target.closest('.list-retry')) opts.loadMore(); });
+  function observe(){
+    if(io){ io.disconnect(); io = null; }
+    const s = container.querySelector('.list-sentinel');
+    if(!s || !hasIO) return;
+    // A new observer reports the current state at once. Thus the next page loads when the sentinel is still in view.
+    io = new IntersectionObserver(es => { if(es.some(e => e.isIntersecting)) onSentinel(); }, {root: opts.root || container, rootMargin: '300px'});
+    io.observe(s);
+  }
+  function growTo(n){
+    const target = Math.min(items.length, n);
+    const s = container.querySelector('.list-sentinel');
+    if(target <= count || !s) return;
+    const from = count; count = target;
+    s.insertAdjacentHTML('beforebegin', body(from, count));
+    if(count >= items.length) s.outerHTML = tail();
+    observe();
+    onChange(api);
+  }
+  const api = {
+    render(newItems, newKey, o){
+      o = o || {};
+      const keep = (key !== null && newKey === key);
+      // With opts.root, a different element scrolls (the container is a part of its content). Its scroll position stays.
+      const top = keep ? container.scrollTop : 0;
+      items = newItems || []; key = newKey;
+      count = hasIO ? Math.min(items.length, keep ? Math.max(count, pageSize) : pageSize) : items.length;
+      container.innerHTML = (o.head || '') + (items.length ? body(0, count) + tail() : (o.empty || ''));
+      if(!opts.root) container.scrollTop = top;
+      observe();
+      onChange(api);
+    },
+    // Grows the window to the page that contains the item at this index.
+    ensureVisible(index){ if(index >= count) growTo(Math.ceil((index + 1) / pageSize) * pageSize); },
+    // Other code wrote the container. The next render starts from the first page.
+    invalidate(){ if(io){ io.disconnect(); io = null; } key = null; items = []; count = 0; onChange(api); },
+    get count(){ return count; },
+    get total(){ return total(); },
+    get active(){ return key !== null; }
+  };
+  return api;
+}
+
+// --- Document list data: keyset pages from GET /documents (unit LP-5) ---
+// Contract: GET /documents in docs/implementation/API_HTTP_CONTRACT.md. Limits: docs/implementation/IMPLEMENTATION_STATUS.md, section 1.2.
+// docById has one object for each document that the client knows. A pager has the documents of the list pages for one filter text, in the order of the server. allDocs is all known documents in that order; the code that reads allDocs sees the loaded pages, the pinned documents, the hidden documents, and the documents that a search or a deep link added.
+const DOC_DEEP_LINK_LIMIT = 300, DOC_SEARCH_IDS_MAX = 100, DOC_FILTER_DELAY = 300;
+let docFilterTimer = null;
+const docById = new Map();
+let docMainPager = newDocPager(''), docFilterPager = null, docListPager = null, docListTotal = 0, docScrollToActive = false, docPickSeq = 0;
+// gen changes when the list of a pager starts again from a new first page. A page response for an earlier gen is ignored. pending is the promise of the load in flight.
+function newDocPager(q){ return {q: q, items: [], next: null, total: 0, loaded: false, loading: false, error: false, gen: 0, pending: null}; }
+function isLiveDocPager(p){ return p === docMainPager || p === docFilterPager; }
+function resetDocStore(){
+  docById.clear(); allDocs = [];
+  docMainPager = newDocPager(''); docFilterPager = null; docListPager = null; docListTotal = 0;
+  return docMainPager;
+}
+// The order of the server: fetched_at descending (no value is last), then id descending.
+function docCmp(a, b){
+  const fa = a.fetched_at, fb = b.fetched_at;
+  if(fa !== fb){ if(fa == null) return 1; if(fb == null) return -1; return fb - fa; }
+  return a.id < b.id ? 1 : (a.id > b.id ? -1 : 0);
+}
+function internDoc(d){
+  const cur = docById.get(d.id);
+  if(cur){ Object.assign(cur, d); return cur; }
+  docById.set(d.id, d);
+  return d;
+}
+function rebuildAllDocs(){ allDocs = [...docById.values()].sort(docCmp); }
+// The list has the documents that are not hidden and not pinned. The pinned and hidden documents come from two other requests.
+function docPagerParams(p){
+  const sp = new URLSearchParams({limit: String(LIST_PAGE), hidden: '0', pinned: '0'});
+  const kw = p.q.toLowerCase();
+  if(kw === 'is:missing-detail' || kw === 'missing:detail') sp.set('detail', 'missing');
+  else if(kw === 'is:mismatched' || kw === 'format:mismatch') sp.set('detail', 'mismatched');
+  else if(p.q) sp.set('q', p.q);
+  return sp;
+}
+async function fetchDocuments(sp){
+  const r = await fetch(apiUrl('documents?' + sp.toString()));
+  if(!r.ok) throw new Error('documents fetch failed: HTTP ' + r.status);
+  return r.json();
+}
+function applyDocPage(p, d){
+  const have = new Set(p.items.map(x => x.id));
+  ((d && d.documents) || []).forEach(x => { if(!have.has(x.id)) p.items.push(internDoc(x)); });
+  p.next = (d && d.next_before) || null;
+  p.total = (d && typeof d.total === 'number') ? d.total : p.items.length;
+  p.loaded = true; p.error = false;
+}
+// Loads the next page of a pager. A response for a pager that is not in use (the filter text or the knowledge theme changed) is ignored.
+// The response of an earlier gen is ignored: a background refresh started the list again while the request was in flight.
+function loadDocPage(p){
+  if(p.loading || (p.loaded && p.next == null)) return p.pending || Promise.resolve();
+  p.loading = true; p.error = false;
+  const gen = p.gen;
+  p.pending = (async () => {
+    try{
+      const sp = docPagerParams(p);
+      if(p.loaded && p.next) sp.set('before', p.next);
+      const d = await fetchDocuments(sp);
+      if(isLiveDocPager(p) && gen === p.gen) applyDocPage(p, d);
+    }catch(e){
+      if(gen === p.gen) p.error = true;
+    }
+    p.loading = false; p.pending = null;
+    if(isLiveDocPager(p)){ rebuildAllDocs(); renderDocs(); }
+  })();
+  return p.pending;
+}
+// The pinned documents and the hidden documents (the server gives no hidden document to an anonymous session). A maximum of 300 each.
+// seq: the docRefreshSeq of the refresh that calls this function. A response that comes after a newer refresh started does not change the data.
+async function loadDocSideLists(seq){
+  const main = docMainPager;
+  const res = await Promise.allSettled([fetchDocuments(new URLSearchParams({pinned: '1'})), fetchDocuments(new URLSearchParams({hidden: '1'}))]);
+  if(main !== docMainPager || (seq !== undefined && seq !== docRefreshSeq)) return;
+  ['pinned', 'hidden'].forEach((flag, i) => {
+    if(res[i].status !== 'fulfilled') return;
+    const fresh = new Set();
+    (res[i].value.documents || []).forEach(x => { fresh.add(x.id); internDoc(x); });
+    // A document that lost the flag on the server.
+    docById.forEach(x => { if(x[flag] === 1 && !fresh.has(x.id)) x[flag] = 0; });
+  });
+}
+// Background refresh: gets the first page again and merges it by id. The later pages that the user loaded stay as they are; a change in them shows after a reload.
+async function refreshDocPagerHead(p, seq){
+  const d = await fetchDocuments(docPagerParams(p));
+  if(!isLiveDocPager(p) || seq !== docRefreshSeq) return;
+  const fresh = (d.documents || []).map(internDoc), last = fresh[fresh.length - 1];
+  const freshIds = new Set(fresh.map(x => x.id)), had = new Set(p.items.map(x => x.id));
+  if(d.next_before && last && had.has(last.id)){
+    // The loaded documents continue after the new first page. A loaded document in the range of the first page that the server did not send is deleted, pinned, or hidden.
+    if(p === docMainPager) p.items.forEach(x => { if(!freshIds.has(x.id) && docCmp(x, last) <= 0 && x.pinned !== 1 && x.hidden !== 1) docById.delete(x.id); });
+    p.items = fresh.concat(p.items.filter(x => !freshIds.has(x.id) && docCmp(x, last) > 0));
+    if(p.items.length === fresh.length && !p.loading) p.next = d.next_before;
+  } else {
+    // The first page is the full list, or the loaded documents do not join the new first page (more than one page of new documents). The list starts again from this page. A page request in flight is for the old list: the new gen makes loadDocPage() ignore its response.
+    if(p === docMainPager){
+      const keep = new Set(docFilterPager ? docFilterPager.items.map(x => x.id) : []);
+      p.items.forEach(x => { if(!freshIds.has(x.id) && !keep.has(x.id) && x.pinned !== 1 && x.hidden !== 1) docById.delete(x.id); });
+    }
+    p.gen++;
+    p.items = fresh; p.next = d.next_before || null;
+  }
+  p.total = (typeof d.total === 'number') ? d.total : p.items.length;
+  p.error = false;
+}
+let docRefreshSeq = 0;
+async function refreshDocs(){
+  const main = docMainPager, seq = ++docRefreshSeq;
+  // The first page did not load (an error): the background refresh sends the request again.
+  if(!main.loaded){ if(main.error && !main.loading) loadDocPage(main); return; }
+  const jobs = [refreshDocPagerHead(main, seq), loadDocSideLists(seq)];
+  if(docFilterPager && docFilterPager.loaded) jobs.push(refreshDocPagerHead(docFilterPager, seq));
+  await Promise.allSettled(jobs);
+  if(main !== docMainPager || seq !== docRefreshSeq) return;
+  rebuildAllDocs();
+  const docq = document.getElementById('docq');
+  renderDocs(docq ? docq.value : '');
+}
+// Makes a document known to the client and, when it is in the list order after the loaded pages, loads the pages up to it (one request, a maximum of DOC_DEEP_LINK_LIMIT documents). False when the server does not give the document to this session.
+async function ensureDocLoaded(id){
+  const main = docMainPager;
+  if(main.items.some(x => x.id === id)) return true;
+  let doc = docById.get(id) || null;
+  if(!doc){
+    const d = await fetchDocuments(new URLSearchParams([['id', id]]));
+    if(main !== docMainPager) return false;
+    doc = (d.documents && d.documents[0]) ? internDoc(d.documents[0]) : null;
+  }
+  if(!doc) return false;
+  // A scroll load in flight uses the same cursor: wait for it, then hold the pager so that no scroll load starts during this request.
+  while(main.pending) await main.pending;
+  if(main !== docMainPager) return false;
+  if(main.items.some(x => x.id === id)){ rebuildAllDocs(); return true; }
+  if(doc.pinned !== 1 && doc.hidden !== 1 && main.loaded && main.next){
+    const sp = docPagerParams(main);
+    sp.set('limit', String(DOC_DEEP_LINK_LIMIT)); sp.set('before', main.next);
+    const gen = main.gen;
+    main.loading = true;
+    try{
+      const d = await fetchDocuments(sp);
+      if(main !== docMainPager) return false;
+      if(gen === main.gen) applyDocPage(main, d);
+    }catch(_){
+    }finally{ main.loading = false; }
+  }
+  rebuildAllDocs();
+  return true;
+}
+// Gets the documents with these identifiers that the client does not know (search results). A maximum of DOC_SEARCH_IDS_MAX identifiers in one request.
+async function loadDocsById(ids){
+  const main = docMainPager, missing = [...new Set(ids)].filter(id => id && !docById.has(id)).slice(0, DOC_SEARCH_IDS_MAX);
+  if(!missing.length) return;
+  try{
+    const d = await fetchDocuments(new URLSearchParams(missing.map(id => ['id', id])));
+    if(main !== docMainPager) return;
+    (d.documents || []).forEach(internDoc);
+    rebuildAllDocs();
+  }catch(_){}
+}
+// The pager of the list for this filter text. A new filter text makes a new pager; a response for the old pager is ignored.
+function docPagerFor(q){
+  if(!q) return docMainPager;
+  if(!docFilterPager || docFilterPager.q !== q) docFilterPager = newDocPager(q);
+  return docFilterPager;
+}
+// A pin or hide change in the client. A document that comes back to the list goes to its position when that position is in the loaded pages.
+function docListPlace(d){
+  const p = docMainPager;
+  if(!d || d.pinned === 1 || d.hidden === 1 || !p.loaded || p.items.includes(d)) return;
+  const lastItem = p.items[p.items.length - 1];
+  if(p.next != null && lastItem && docCmp(d, lastItem) > 0) return;
+  p.items.push(d); p.items.sort(docCmp); p.total += 1;
+}
+
+let docWindowList = null;
+function docWindow(){
+  if(docWindowList) return docWindowList;
+  const dl = document.getElementById('doclist');
+  if(!dl) return null;
+  docWindowList = createWindowedList({
+    container: dl,
+    renderItem: (dc, prev) => {
+      const day = dayOf(dc.fetched_at);
+      return ((!prev || dayOf(prev.fetched_at) !== day) ? '<div class=dday>' + day + '</div>' : '') + docItemHtml(dc);
+    },
+    more: () => { const p = docListPager; return p ? {hasMore: p.next != null, error: p.error, total: docListTotal} : {}; },
+    loadMore: () => { if(docListPager) loadDocPage(docListPager); },
+    onChange: updateListTitle
+  });
+  dl.addEventListener('scroll', syncListTopBtn, {passive: true});
+  return docWindowList;
+}
+function listMode(){ return (ENTITY_LIST_READY && centerView === 'graph') ? 'entities' : 'docs'; }
+function updateListTitle(){
+  const el = document.getElementById('listtitle'); if(!el) return;
+  const ent = listMode() === 'entities', w = ent ? entWindowList : docWindowList, name = ent ? '엔티티' : '문서';
+  // The row with the mark 필터 밖 is not a matching entity, thus the two numbers do not include it.
+  const extra = (ent && entOutId != null) ? 1 : 0;
+  el.innerHTML = (w && w.active && w.total) ? name + ' <b>' + (w.count - extra) + '</b> / ' + (w.total - extra) : name;
+}
+// Sets the visible list for the center view. setCenterView() calls this function.
+function syncListPane(){
+  const docsEl = document.getElementById('docs'); if(!docsEl) return;
+  const mode = listMode();
+  docsEl.dataset.list = mode;
+  docsEl.setAttribute('aria-label', mode === 'entities' ? '엔티티 목록' : '문서 목록');
+  if(mode === 'entities') renderEntityList();
+  else if(net && typeof net.setHoverNode === 'function') net.setHoverNode(null);
+  updateListTitle();
+  syncListTopBtn();
+}
+// The scroll container of the visible list.
+function listScroller(){ return document.getElementById(listMode() === 'entities' ? 'entlist' : 'doclist'); }
+function syncListTopBtn(){
+  const btn = document.getElementById('listtopbtn'), dl = listScroller();
+  if(!btn || !dl) return;
+  btn.hidden = !(dl.scrollTop > dl.clientHeight * 2);
+}
+function scrollListTop(){
+  const dl = listScroller(); if(!dl) return;
+  dl.scrollTo({top: 0, behavior: reducedMotionMQ.matches ? 'auto' : 'smooth'});
+  dl.focus && dl.focus({preventScroll: true});
+}
+window.syncListPane = syncListPane;
+
+// --- 엔티티 목록(그래프 보기): GET /graph 의 노드 데이터로 만들고, 그래프와 같은 필터를 쓴다 ---
+// Limits: docs/implementation/IMPLEMENTATION_STATUS.md, section 1.3.
+const ENT_OBS_PREVIEW = 5, ENT_REL_GROUP_OPEN_MAX = 10;
+let entWindowList = null, entSort = 'degree', entOpenId = null, entDetail = null, entObsAll = false, entLastSig = null, entMaxDeg = 1, entOutId = null, entScrollToId = null, entLastDetail = null, entChipsHtml = null;
+// The open or closed state that the user set for each 연결 group of the open row (relation type → boolean). It is empty after the open row changes.
+// The click handler of the list writes it at the time of the click on the summary (a key press on the summary also sends a click). The toggle event of a details element is not used: it comes in a later task, and a render before that task removes the element, thus the listener on the list never gets the event. The browser also sends a toggle event for each open details element that a render inserts.
+const entRelOpen = new Map();
+function entWindow(){
+  if(entWindowList) return entWindowList;
+  const el = document.getElementById('entlist');
+  if(!el) return null;
+  entWindowList = createWindowedList({container: el, renderItem: entItemHtml, onChange: updateListTitle});
+  el.addEventListener('scroll', syncListTopBtn, {passive: true});
+  el.addEventListener('click', onEntListClick);
+  el.addEventListener('keydown', onEntListKeydown);
+  // Only a mouse pointer sets the hover state. A tap on a touch screen must not leave the highlight on.
+  el.addEventListener('pointerover', e => { if(e.pointerType !== 'mouse') return; const it = e.target.closest('.entitem'); hoverEntityNode(it ? it.dataset.entId : null); });
+  el.addEventListener('pointerleave', e => { if(e.pointerType !== 'mouse') return; hoverEntityNode(null); });
+  return entWindowList;
+}
+// Pointer on a row: the graph engine shows its hover state for the node. The camera does not move.
+function hoverEntityNode(id){ if(net && typeof net.setHoverNode === 'function') net.setHoverNode(id); }
+function entCmp(a, b){
+  if(entSort !== 'name' && b.degree !== a.degree) return b.degree - a.degree;
+  return String(a.label).localeCompare(String(b.label));
+}
+function setEntitySort(mode){
+  entSort = (mode === 'name') ? 'name' : 'degree';
+  document.querySelectorAll('.entsort-btn').forEach(b => { const on = b.dataset.sort === entSort; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  renderEntityList();
+}
+function entItemHtml(n){
+  const open = (n.id === entOpenId), out = (n.id === entOutId), deg = n.degree || 0;
+  const c = TYPE_COLORS[n.group] || '#8b949e';
+  let h = '<div class="entitem' + (open ? ' open' : '') + ((open || n.id === selectedNodeId) ? ' active' : '') + '" role="listitem" data-ent-id="' + esc(n.id) + '">';
+  h += '<button type="button" class="entrow" aria-expanded="' + (open ? 'true' : 'false') + '"' + (open ? ' aria-controls="entbody"' : '') + '>';
+  h += '<span class="entline"><i class="entdot" style="background:' + c + '"></i><span class="entname">' + esc(n.label) + '</span>';
+  if(out) h += '<span class="entout" title="현재 필터에 없는 엔티티">필터 밖</span>';
+  h += '<small class="enttype">' + esc(n.group || '') + '</small><span class="entdeg" title="연결 ' + deg + '개">' + deg + '</span></span>';
+  h += '<span class="entbar" aria-hidden="true"><i style="width:' + Math.round(100 * deg / entMaxDeg) + '%"></i></span></button>';
+  if(open) h += '<div id="entbody" class="entbody" role="region" aria-label="' + esc(n.label) + ' 관찰/주장과 연결">' + entBodyHtml(n) + '</div>';
+  return h + '</div>';
+}
+function entBodyHtml(n){
+  const d = entDetail;
+  let h = '<button type="button" class="sec entgo" data-ent-act="go">⌖ 그래프에서 보기</button>';
+  if(!d) return h + '<p class="hint">로딩…</p>';
+  if(d.error) return h + '<p class="hint">' + (d.failed ? '불러오지 못했습니다. 다시 눌러 주세요.' : '노드를 찾을 수 없습니다.') + '</p>';
+  const obs = d.observations || [], nb = d.neighbors || [];
+  h += '<h4>관찰/주장</h4>';
+  if(!obs.length) h += '<p class="hint">관찰/주장 없음</p>';
+  else {
+    const shownObs = entObsAll ? obs : obs.slice(0, ENT_OBS_PREVIEW);
+    h += '<ul class="entobs">' + shownObs.map(o => '<li>' + esc(o) + '</li>').join('') + '</ul>';
+    if(obs.length > shownObs.length) h += '<button type="button" class="entmore" data-ent-act="more">더 보기 (' + (obs.length - shownObs.length) + ')</button>';
+  }
+  h += '<h4>연결 (' + nb.length + ')</h4>';
+  if(!nb.length) return h + '<p class="hint">연결 없음</p>';
+  // Groups by relation type. The group with the most items is first.
+  const groups = new Map();
+  nb.forEach(x => { if(!groups.has(x.rel)) groups.set(x.rel, []); groups.get(x.rel).push(x); });
+  [...groups.entries()].sort((a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]))).forEach(g => {
+    const relOpen = entRelOpen.has(String(g[0])) ? entRelOpen.get(String(g[0])) : g[1].length <= ENT_REL_GROUP_OPEN_MAX;
+    h += '<details class="entrel" data-rel="' + esc(g[0]) + '"' + (relOpen ? ' open' : '') + '><summary><span class="rel">' + esc(g[0]) + '</span> <span class="entrel-count">' + g[1].length + '</span></summary><ul>';
+    h += g[1].map(x => '<li>' + (x.dir == 'out' ? '→' : '←') + ' <a href="#" data-ent-go="' + esc(x.id) + '">' + esc(x.name) + '</a> <small>' + esc(x.type) + '</small></li>').join('') + '</ul></details>';
+  });
+  return h;
+}
+function entRowEl(id){
+  const el = document.getElementById('entlist'); if(!el || id == null) return null;
+  return [...el.querySelectorAll('.entitem')].find(x => x.dataset.entId === String(id)) || null;
+}
+// The filters that make the list shorter, as chips with one reset control.
+function renderEntityChips(ctx){
+  const box = document.getElementById('entchips'); if(!box) return;
+  const chips = [];
+  if(ctx.isolatedSet) chips.push('주변만 보기');
+  else if(curMinDeg > 0) chips.push('연결 ≥ ' + curMinDeg);
+  if(ctx.pathActive) chips.push('경로 ' + pathNodes.size + '노드');
+  else {
+    if(activeDoc){ const dc = allDocs.find(x => x.id === activeDoc); chips.push('문서: ' + ((dc && dc.title) || activeDoc)); }
+    if(highlightSet) chips.push('검색 ' + highlightSet.size + '개');
+  }
+  const html = chips.length ? chips.map(t => '<span class="entchip" title="' + esc(t) + '">' + esc(t) + '</span>').join('') + '<button type="button" class="entchip-reset" onclick="resetEntityFilters()" title="목록 필터 초기화" aria-label="목록 필터 초기화">✕ 초기화</button>' : '';
+  // The container is a live region. It is written only when its content changes.
+  if(html === entChipsHtml) return;
+  entChipsHtml = html;
+  box.hidden = !chips.length;
+  box.innerHTML = html;
+}
+// Removes the filters that the chips show. The selected node and the open row stay.
+function resetEntityFilters(){
+  const box = document.getElementById('entchips');
+  const hadFocus = !!(box && box.contains(document.activeElement));
+  // A search request or a search timer that is not complete must not set the filter again after the reset.
+  cancelServerSearch(); currentSearchSeq++; clearTimeout(searchDebounce);
+  const wasPath = pathMode, wasIsolated = !!isolatedNodeId;
+  if(wasPath) clearPath();
+  isolatedNodeId = null;
+  const q = document.getElementById('q'); if(q) q.value = '';
+  const qclear = document.getElementById('qclear'); if(qclear) qclear.style.display = 'none';
+  if(highlightSet){ highlightSet = null; unclusterEdges(); }
+  if(activeDoc){ activeDoc = null; renderDocs(); syncGraphDocNav(); }
+  setDeg(0);
+  restoreSelection();
+  // clearPath() empties the detail panel, and the isolation button shows the old state. The selected node stays, thus the panel shows it again.
+  if(wasPath || wasIsolated){
+    if(selectedNodeId != null && !(currentNodeData && currentNodeData.id === selectedNodeId)) loadNode(selectedNodeId, true, false);
+    else if(currentNodeData && (selectedNodeId != null || !wasPath)) renderPanel(currentNodeData);
+    else if(wasPath) panel.innerHTML = defaultHint();
+  }
+  // The reset button is removed with the chips. The focus goes to the sort control, not to the document body.
+  if(hadFocus && !(box && box.contains(document.activeElement))){ const b = document.querySelector('.entsort-btn.active'); if(b) b.focus({preventScroll: true}); }
+}
+// Renders the entity list. applyView() calls this function, thus each filter change comes here. A new filter or sort starts from the first page.
+function renderEntityList(){
+  if(listMode() !== 'entities' || !allNodes) return;
+  const w = entWindow(); if(!w) return;
+  const ctx = nodeViewContext();
+  if(entOpenId != null && !allNodes.get(entOpenId)){ entOpenId = null; entDetail = null; }
+  const items = [];
+  let maxDeg = 1;
+  allNodes.forEach(n => {
+    if(typeof n.id==='string' && n.id.indexOf('cl_')===0) return;
+    if(n.degree > maxDeg) maxDeg = n.degree;
+    if(isNodeListed(n, ctx)) items.push(n);
+  });
+  entMaxDeg = maxDeg;
+  items.sort(entCmp);
+  // The selected entity always has a row. When the filter excludes it, its row is first.
+  const pinId = (entOpenId != null) ? entOpenId : selectedNodeId;
+  const pinNode = (pinId != null) ? allNodes.get(pinId) : null;
+  entOutId = (pinNode && !isNodeListed(pinNode, ctx)) ? pinId : null;
+  if(entOutId != null) items.unshift(pinNode);
+  renderEntityChips(ctx);
+  const key = ['ent', entSort, curMinDeg, activeDoc || '', highlightSet ? [...highlightSet].join(',') : '', ctx.isolatedSet ? isolatedNodeId : '', ctx.pathActive ? [...pathNodes].join(',') : ''].join('|');
+  const sig = key + '#' + items.map(n => n.id + ':' + n.degree + ':' + n.label + ':' + n.group).join(';') + '#' + [entOutId, entOpenId, selectedNodeId, entObsAll].join('|');
+  const scrollId = entScrollToId; entScrollToId = null;
+  const el = document.getElementById('entlist');
+  if(sig !== entLastSig || entDetail !== entLastDetail){
+    entLastSig = sig; entLastDetail = entDetail;
+    // A render writes the rows again. Thus the keyboard focus goes back to the same row.
+    const focusItem = (document.activeElement && el.contains(document.activeElement)) ? document.activeElement.closest('.entitem') : null;
+    const focusId = focusItem ? focusItem.dataset.entId : null;
+    w.render(items, key, {empty: '<p class="hint" style="padding:10px">' + (allNodes.length ? '필터에 맞는 엔티티 없음' : '엔티티 없음') + '</p>'});
+    // The open row stays in the rendered window after a sort or a filter change. The list does not scroll to it.
+    if(entOpenId != null){ const oi = items.findIndex(n => n.id === entOpenId); if(oi >= 0) w.ensureVisible(oi); }
+    if(focusId != null && !el.contains(document.activeElement)){ const r = entRowEl(focusId); if(r) r.querySelector('.entrow').focus({preventScroll: true}); }
+    syncListTopBtn();
+  }
+  if(scrollId != null){
+    const i = items.findIndex(n => n.id === scrollId);
+    if(i >= 0){ w.ensureVisible(i); scrollEntRowIntoView(entRowEl(scrollId)); }
+  }
+}
+// Scrolls only the list container, not the page. A row that is higher than the container shows from its top.
+function scrollEntRowIntoView(r){
+  const el = document.getElementById('entlist'); if(!el || !r) return;
+  const rr = r.getBoundingClientRect(), er = el.getBoundingClientRect();
+  if(rr.top < er.top) el.scrollTop -= er.top - rr.top;
+  else if(rr.bottom > er.bottom) el.scrollTop += Math.min(rr.top - er.top, rr.bottom - er.bottom);
+}
+// loadNode() calls this function before its request: the row of the node opens (in the loading state) and the list scrolls to it.
+function openEntityRow(id){
+  if(entOpenId !== id){ entRelOpen.clear(); entObsAll = false; entDetail = null; }
+  else if(entDetail && entDetail.id !== id) entDetail = null;
+  entOpenId = id;
+  entScrollToId = id;
+  renderEntityList();
+}
+// loadNode() calls this function with the response of GET /node. An old response for a different row is ignored.
+function setEntityRowDetail(id, d){
+  if(entOpenId !== id) return;
+  entDetail = d || {error: true};
+  entScrollToId = id;
+  renderEntityList();
+}
+// A knowledge theme change: the two lists start from the first page and no entity row is open.
+function resetListWindows(){
+  if(docWindowList) docWindowList.invalidate();
+  if(entWindowList) entWindowList.invalidate();
+  entLastSig = null; entOpenId = null; entDetail = null; entObsAll = false; entRelOpen.clear();
+}
+function closeEntityRow(){
+  entOpenId = null; entDetail = null; entObsAll = false; entRelOpen.clear();
+  renderEntityList();
+}
+// A click on a row or on a neighbor: one GET /node request through loadNode(). The graph selects the node and the camera moves to it.
+function selectEntity(id){
+  selectedNodeId = id;
+  loadNode(id);
+}
+function onEntListClick(e){
+  const item = e.target.closest('.entitem'); if(!item) return;
+  const id = item.dataset.entId;
+  const go = e.target.closest('[data-ent-go]');
+  if(go){ e.preventDefault(); selectEntity(go.dataset.entGo); const nr = entRowEl(go.dataset.entGo); if(nr) nr.querySelector('.entrow').focus({preventScroll: true}); return; }
+  const sum = e.target.closest('details.entrel > summary');
+  if(sum){ const det = sum.parentElement; if(!e.defaultPrevented) entRelOpen.set(det.dataset.rel, !det.open); return; }
+  const act = e.target.closest('[data-ent-act]');
+  if(act && act.dataset.entAct === 'more'){ entObsAll = true; renderEntityList(); const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true}); return; }
+  if(act && act.dataset.entAct === 'go'){ closeDocDrawer(); focusOnNode(id); return; }
+  if(!e.target.closest('.entrow')) return;
+  // A row in the error state sends the request again. It does not close.
+  if(entOpenId === id && !(entDetail && entDetail.error)) closeEntityRow(); else selectEntity(id);
+}
+// ArrowUp and ArrowDown move the focus between rows. Escape closes the open row. Enter and Space are the default button keys.
+function onEntListKeydown(e){
+  const el = e.currentTarget;
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    const row = e.target.closest('.entrow'); if(!row) return;
+    const rows = [...el.querySelectorAll('.entrow')], next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)];
+    e.preventDefault();
+    if(next) next.focus();
+  } else if(e.key === 'Escape' && entOpenId != null){
+    const id = entOpenId;
+    e.preventDefault(); e.stopPropagation();
+    closeEntityRow();
+    const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true});
+  }
+}
+
 function renderDocs(filter){
-  const q = (filter !== undefined ? filter : (document.getElementById('docq') ? document.getElementById('docq').value : '')).trim().toLowerCase();
+  // rawQ goes to the server as the user typed it (SQLite LIKE folds the case of ASCII letters only). q is for the local match.
+  const rawQ = (filter !== undefined ? filter : (document.getElementById('docq') ? document.getElementById('docq').value : '')).trim();
+  const q = rawQ.toLowerCase();
   if(serverSearchResults && serverSearchResults.query === q){
     renderServerDocs();
     return;
@@ -3899,6 +4543,7 @@ function renderDocs(filter){
   if(docSearchActive && !q){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
+    if(docWindowList) docWindowList.invalidate();
     const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
     const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
     const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
@@ -3916,11 +4561,25 @@ function renderDocs(filter){
     }
     return (dc.title+' '+(dc.summary||'')).toLowerCase().includes(q);
   };
+  // The list rows are the server pages for this filter text. The first page of a new filter text is not loaded yet: the list keeps its rows until the response comes, then loadDocPage() calls this function again.
+  const pager = docPagerFor(rawQ);
+  if(!pager.loaded && !pager.error){
+    // The first page of a filter text is requested when the typing stops (DOC_FILTER_DELAY ms), thus one key press sends no request.
+    if(pager !== docMainPager){
+      clearTimeout(docFilterTimer);
+      docFilterTimer = setTimeout(() => { if(pager === docFilterPager) loadDocPage(pager); }, DOC_FILTER_DELAY);
+    }
+    syncGraphDocNav();
+    return;
+  }
   // 숨김(hidden)은 기본 목록·즐겨찾기 양쪽에서 제외(목록 전용 숨김, 그래프는 안 건드림).
-  const visible = allDocs.filter(dc=> dc.hidden!==1 && match(dc));
-  const pinned = visible.filter(dc=>dc.pinned===1);
-  const rest = visible.filter(dc=>dc.pinned!==1);
+  // The pinned and hidden documents are all in the client, thus the filter text selects them here.
+  const pinned = allDocs.filter(dc=> dc.hidden!==1 && dc.pinned===1 && match(dc));
+  const rest = pager.items.filter(dc=> dc.hidden!==1 && dc.pinned!==1);
   const hiddenDocs = allDocs.filter(dc=> dc.hidden===1 && match(dc));
+  // The total of the server counts the documents that were not pinned and not hidden at the time of the request. A document of the loaded pages that the client pinned or hid after that is not in the list.
+  docListPager = pager;
+  docListTotal = (pager.next == null) ? rest.length : Math.max(rest.length, pager.total - (pager.items.length - rest.length));
 
   const ph = document.getElementById('pinnedhead');
   if(ph){
@@ -3929,15 +4588,22 @@ function renderDocs(filter){
   }
   const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
 
-  const dl = document.getElementById('doclist');
-  if(dl){
-    dl.innerHTML = doclistToolbarHtml() + (rest.length
-      ? (()=>{ let html='', curDay=null;
-          rest.forEach(dc=>{ const day=dayOf(dc.fetched_at);
-            if(day!==curDay){ html+='<div class=dday>'+day+'</div>'; curDay=day; }
-            html+=docItemHtml(dc); });
-          return html; })()
-      : '<p class=hint style="padding:10px">문서 없음</p>');
+  const dw = docWindow();
+  if(dw){
+    // The same search text keeps the rendered count and the scroll position. A new search text starts from the first 31 documents.
+    dw.render(rest, 'docs:' + q, {head: doclistToolbarHtml(), empty: pager.error ? '<div class="list-more-error" role="status">문서를 불러오지 못했습니다. <button type="button" class="sec list-retry">다시 시도</button></div>' : '<p class=hint style="padding:10px">문서 없음</p>'});
+    const activeIndex = activeDoc ? rest.findIndex(dc => dc.id === activeDoc) : -1;
+    if(activeIndex >= 0) dw.ensureVisible(activeIndex);
+    // After a deep link, the list scrolls to the row of the open document one time, when the list is in view.
+    if(docScrollToActive && activeIndex >= 0){
+      const dl = document.getElementById('doclist'), row = dl.querySelector('.docitem.active');
+      if(row && dl.offsetParent !== null){
+        docScrollToActive = false;
+        const rr = row.getBoundingClientRect(), er = dl.getBoundingClientRect();
+        if(rr.top < er.top || rr.bottom > er.bottom) dl.scrollTop += rr.top - er.top - Math.max(0, (er.height - rr.height) / 2);
+      }
+    }
+    syncListTopBtn();
   }
 
   const sh=document.getElementById('showhidden');
@@ -3962,9 +4628,9 @@ function renderDocs(filter){
   const st = document.getElementById('stat');
   if(st){
     if(q){
-      st.textContent = visible.length + '개 발견';
+      st.textContent = (docListTotal + pinned.length) + '개 발견';
     } else {
-      st.innerHTML = (allDocs ? allDocs.length : 0) + '개 문서' +
+      st.innerHTML = (docListTotal + pinned.length + hiddenDocs.length) + '개 문서' +
         (allNodes && allNodes.length ? ' (' + allNodes.length + ' 엔티티)' : '');
     }
   }
@@ -3991,14 +4657,14 @@ function filterDocsByFormatMismatch(){
 // 즐겨찾기/숨기기 토글 — 낙관적 갱신(즉시 반영) 후 서버 반영, 실패하면 되돌림.
 async function togglePin(id, val){
   if(!canWrite()) return false;
-  const d=allDocs.find(x=>x.id===id); if(d) d.pinned = val?1:0;
+  const d=allDocs.find(x=>x.id===id); if(d){ d.pinned = val?1:0; docListPlace(d); }
   renderDocs(document.getElementById('docq').value);
   try{
     const r=await fetch(apiUrl('document/pin'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, pinned:val})});
     if(r.status===401||r.status===404) expireWriteAccess();
-    if(!r.ok && d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); }
-  }catch(e){ if(d){ d.pinned = val?0:1; renderDocs(document.getElementById('docq').value); } }
+    if(!r.ok && d){ d.pinned = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); }
+  }catch(e){ if(d){ d.pinned = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); } }
   return true;
 }
 async function toggleHide(id, val){
@@ -4010,14 +4676,14 @@ async function toggleHide(id, val){
       '목록 맨 아래 "🙈 숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
     return false;
   }
-  const d=allDocs.find(x=>x.id===id); if(d) d.hidden = val?1:0;
+  const d=allDocs.find(x=>x.id===id); if(d){ d.hidden = val?1:0; docListPlace(d); }
   renderDocs(document.getElementById('docq').value);
   try{
     const r=await fetch(apiUrl('document/hide'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, hidden:val})});
     if(r.status===401||r.status===404) expireWriteAccess();
-    if(!r.ok && d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); }
-  }catch(e){ if(d){ d.hidden = val?0:1; renderDocs(document.getElementById('docq').value); } }
+    if(!r.ok && d){ d.hidden = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); }
+  }catch(e){ if(d){ d.hidden = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); } }
   return true;
 }
 // 상세 패널의 숨기기 체크박스 — toggleHide 결과(컨펌 취소 여부)를 보고 체크박스 및 라벨 갱신.
@@ -4943,6 +5609,7 @@ window.addEventListener('popstate', e => {
   }
 });
 
+syncListPane();
 // 초기 베이스 히스토리 엔트리 등록
 replaceAppHistory({ pane: activePane || 'graph', modal: getActiveModalName() });
 

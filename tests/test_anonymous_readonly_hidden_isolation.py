@@ -167,6 +167,21 @@ def test_hidden_document_and_entity_isolation_for_anonymous(tmp_path: Path) -> N
         assert shared_node_detail.status_code == 200
         shared_docs = [d["id"] for d in shared_node_detail.json()["documents"]]
         assert shared_docs == ["doc-public"]
+        # The default response keeps the full source document fields (MCP and API clients).
+        assert set(shared_node_detail.json()["documents"][0]) == {"id", "title", "url", "summary", "detail", "detail_format", "detail_html", "fetched_at"}
+
+        # 1-4b. GET /node?docs=brief: the source documents have no detail text, and the hidden document stays excluded.
+        brief_res = client.get("/node", params={"id": "ent-shared", "docs": "brief"})
+        assert brief_res.status_code == 200
+        brief = brief_res.json()
+        assert [d["id"] for d in brief["documents"]] == ["doc-public"]
+        assert set(brief["documents"][0]) == {"id", "title", "url", "summary", "fetched_at", "has_detail", "source_type", "has_raw_file"}
+        assert brief["documents"][0]["has_detail"] is False
+        assert brief["documents"][0]["has_raw_file"] is False
+        assert brief["documents"][0]["source_type"] == "web"
+        full = shared_node_detail.json()
+        assert {k: v for k, v in brief.items() if k != "documents"} == {k: v for k, v in full.items() if k != "documents"}
+        assert client.get("/node", params={"id": "ent-secret", "docs": "brief"}).status_code == 404
 
         # 1-5. 검색
         search_secret = client.post("/search", json={"query": "ConfidentialCode", "limit": 10})
@@ -201,6 +216,8 @@ def test_hidden_document_and_entity_isolation_for_anonymous(tmp_path: Path) -> N
 
         owner_node = client.get("/node", params={"id": "ent-secret"}, headers=owner_headers)
         assert owner_node.status_code == 200
+        owner_brief = client.get("/node", params={"id": "ent-shared", "docs": "brief"}, headers=owner_headers)
+        assert sorted(d["id"] for d in owner_brief.json()["documents"]) == ["doc-public", "doc-secret"]
 
         owner_stats = client.get("/stats", headers=owner_headers)
         assert owner_stats.status_code == 200

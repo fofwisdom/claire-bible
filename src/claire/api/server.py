@@ -2580,22 +2580,70 @@ def create_app(
         return FileResponse(path)
 
     async def documents_list_route(request: Request) -> JSONResponse:
-        from ..store.queries import documents_list
+        from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
         include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        render_format = getattr(theme_settings, "render_format", "md")
+
+        # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
+        params = request.query_params
+
+        def _flag(name: str) -> bool | None:
+            raw = params.get(name)
+            if raw is None or raw == "":
+                return None
+            if raw not in ("0", "1"):
+                raise ValueError(f"{name} must be 0 or 1")
+            return raw == "1"
+
+        try:
+            # Fixed error texts: the text of a Python exception does not go to the client.
+            limit_error = f"limit must be an integer 1..{DOCUMENTS_MAX_LIMIT}"
+            try:
+                limit = int(params.get("limit") or DOCUMENTS_DEFAULT_LIMIT)
+            except ValueError:
+                raise ValueError(limit_error) from None
+            if not 1 <= limit <= DOCUMENTS_MAX_LIMIT:
+                raise ValueError(limit_error)
+            before = params.get("before") or None
+            if before:
+                try:
+                    dbm.decode_documents_cursor(before)
+                except ValueError:
+                    raise ValueError("before must be <fetched_at>:<id>") from None
+            filters: dict[str, Any] = {"pinned": _flag("pinned"), "hidden": _flag("hidden")}
+            text = (params.get("q") or "").strip()
+            if len(text) > 200:
+                raise ValueError("q must be 200 characters or less")
+            filters["text"] = text or None
+            detail = params.get("detail") or None
+            if detail is not None and detail not in ("missing", "mismatched"):
+                raise ValueError("detail must be missing or mismatched")
+            if detail:
+                filters["detail"] = detail
+                filters["detail_format"] = render_format
+            if "id" in params:
+                ids = [v for v in params.getlist("id") if v]
+                if len(ids) > DOCUMENTS_MAX_IDS:
+                    raise ValueError(f"id can be given {DOCUMENTS_MAX_IDS} times or less")
+                filters["ids"] = ids
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
 
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                format_status = dbm.check_format_mismatch(conn, getattr(theme_settings, "render_format", "md"), theme_id=theme.id)
-                docs = _documents_list(conn, limit=300, include_hidden=include_hidden, theme_id=theme.id)
+                format_status = dbm.check_format_mismatch(conn, render_format, theme_id=theme.id)
+                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, theme_id=theme.id, list_func=_documents_list, **filters)
                 return {
-                    "documents": docs,
+                    "documents": page["documents"],
                     "format_status": format_status,
                     "theme_id": theme.id,
                     "theme_label": theme.label,
+                    "next_before": page["next_before"],
+                    "total": page["total"],
                 }
             finally:
                 conn.close()
@@ -2612,11 +2660,13 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        # docs=brief: the source documents have no detail text (the WebUI sends it). The keyword is sent only in this mode, thus the default call does not change.
+        detail_kwargs: dict[str, Any] = {"docs_brief": True} if request.query_params.get("docs", "") == "brief" else {}
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                rep = _detail(conn, node_id, include_hidden=include_hidden, theme_id=theme.id)
+                rep = _detail(conn, node_id, include_hidden=include_hidden, theme_id=theme.id, **detail_kwargs)
                 if rep is not None:
                     rep["theme_id"] = theme.id
                     rep["theme_label"] = theme.label

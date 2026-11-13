@@ -123,13 +123,16 @@
 </div>
 <div id="drawerbackdrop" onclick="closeAllDrawers()" aria-hidden="true"></div>
 <div id="wrap">
-  <aside id="docs" class="workspace-pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
+  <aside id="docs" class="workspace-pane" role="tabpanel" aria-label="문서 목록" data-list="docs" tabindex="0">
     <div class="dhead">
       <div class="docsearch-stat-row">
+        <span id="listtitle" class="list-title">문서</span>
         <span id="stat" role="status" aria-live="polite">로딩…</span>
-        <button id="docclose" class="doc-drawer-close" type="button" onclick="closeDocDrawer(true)" title="본문 목록 닫기" aria-label="본문 목록 닫기">✕</button>
+        <button id="docclose" class="doc-drawer-close" type="button" onclick="closeDocDrawer(true)" title="목록 닫기" aria-label="목록 닫기">✕</button>
       </div>
     </div>
+    <div id="listbody">
+    <div id="doclistwrap">
     <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist">
@@ -139,10 +142,21 @@
           <option value="3">요약 표시</option>
         </select>
       </div>
-      <p class="hint" style="padding:10px">문서 로딩…</p>
+      <div class="docskel" role="status" aria-label="문서 로딩…"><div class="docskel-row"><i></i><i></i></div><div class="docskel-row"><i></i><i></i></div><div class="docskel-row"><i></i><i></i></div><div class="docskel-row"><i></i><i></i></div><div class="docskel-row"><i></i><i></i></div></div>
     </div>
     <div id="showhidden" style="display:none" onclick="toggleShowHidden()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleShowHidden();}"></div>
     <div id="hiddenlist" tabindex="0" role="region" aria-label="숨긴 게시물 목록"></div>
+    </div>
+    <div id="enttools">
+      <div class="entsort" role="group" aria-label="엔티티 정렬">
+        <button type="button" class="entsort-btn active" data-sort="degree" aria-pressed="true" onclick="setEntitySort('degree')">연결순</button>
+        <button type="button" class="entsort-btn" data-sort="name" aria-pressed="false" onclick="setEntitySort('name')">이름순</button>
+      </div>
+      <div id="entchips" role="status" aria-live="polite" hidden></div>
+    </div>
+    <div id="entlist" role="list" aria-label="엔티티 목록"></div>
+    <button id="listtopbtn" type="button" class="list-top-btn" onclick="scrollListTop()" title="맨 위로" aria-label="목록 맨 위로" hidden>↑ 맨 위로</button>
+    </div>
   </aside>
   <div id="centerwrap">
     <header id="centerhead" class="center-head-bar" role="navigation" aria-label="중앙 화면 전환">
@@ -156,8 +170,8 @@
         </div>
       </div>
       <div class="center-tab-group" id="centertab-group">
-        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="본문 목록 열기" aria-label="본문 목록">
-          <span class="btn-icon">📑</span> <span class="btn-label">본문 목록</span>
+        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="목록 열기" aria-label="목록">
+          <span class="btn-icon">📑</span> <span class="btn-label">목록</span>
         </button>
         <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
           <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">

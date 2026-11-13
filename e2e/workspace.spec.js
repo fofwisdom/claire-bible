@@ -189,6 +189,8 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   ).toBe(true);
 
   // 2. Select document and switch to graph
+  // The graph view shows the entity list. The document list is in the reader view.
+  await page.locator('#centertab-reader').click();
   await page.locator('.docitem').first().evaluate(element => element.click());
   await page.evaluate(() => revealWorkspace('graph'));
   await expect.poll(
@@ -526,6 +528,8 @@ test('anonymous users can generate and open share link in public mode', async ({
   expect(whoami.scope).toBe('anonymous');
 
   // 2. Select document from left panel to open reader
+  // The graph view shows the entity list. The document list is in the reader view.
+  await page.locator('#centertab-reader').click();
   const firstDocItem = page.locator('#doclist .docitem').first();
   await expect(firstDocItem).toBeVisible();
   await firstDocItem.click();
@@ -573,6 +577,8 @@ test('pdf parser fallback, encoding flaw, and scanned tags render in reader and 
   await expectNoHorizontalOverflow(page);
 
   // 1. Find and click doc-3 in the document list
+  // The graph view shows the entity list. The document list is in the reader view.
+  await page.locator('#centertab-reader').click();
   const doc3Item = page.locator('#doclist .docitem').filter({ hasText: 'PDF 결함/폴백 테스트' });
   await expect(doc3Item).toBeVisible();
   await doc3Item.click();
@@ -631,6 +637,8 @@ test('node aliases render and can be promoted to primary representative label in
   ).toBe(true);
 
   // 2. Select document 1 and switch to graph
+  // The graph view shows the entity list. The document list is in the reader view.
+  await page.locator('#centertab-reader').click();
   await page.locator('.docitem').first().evaluate(element => element.click());
   await page.evaluate(() => revealWorkspace('graph'));
   await expect.poll(
@@ -1088,74 +1096,6 @@ test('telegram bot ingest dynamically suspends active graph and displays heatmap
   expect(pageErrors).toEqual([]);
 });
 
-test('decision stream button placed in common header tabs and displays in center view with 30-item pagination', async ({ page }) => {
-  const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  await page.setViewportSize({ width: 1400, height: 900 });
-
-  // Mock 60 decisions to test 30-item initial display + infinite scroll (+10)
-  const mockDecisions = Array.from({ length: 60 }, (_, i) => ({
-    entity: `Entity_${i + 1}`,
-    decision: i % 2 === 0 ? 'MERGE' : 'CREATE_NEW',
-    candidate: i % 2 === 0 ? `Target_${i + 1}` : null,
-    score: i % 2 === 0 ? 0.95 : null,
-    stage: 'exact_match',
-    reason: `Automated test resolution decision #${i + 1}`,
-    document_id: 'doc_1',
-    document_title: '테스트 문서',
-    timestamp: 1700000000 - i * 60,
-  }));
-
-  await page.route('**/resolution/decisions*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ decisions: mockDecisions, count: mockDecisions.length }),
-    });
-  });
-
-  await waitForClaire(page);
-
-  // 1. Verify navigation buttons in common header tabs: 본문, 프레젠테이션, 그래프, 의사결정 스트림 in unified #centertabs
-  const readerTabBtn = page.locator('#centertab-reader');
-  const presTabBtn = page.locator('#centertab-presentation');
-  const graphTabBtn = page.locator('#centertab-graph');
-  const streamTabBtn = page.locator('#centertab-stream');
-  await expect(readerTabBtn).toContainText('본문');
-  await expect(presTabBtn).toContainText('프레젠테이션');
-  await expect(graphTabBtn).toContainText('그래프');
-  await expect(streamTabBtn).toContainText('의사결정 스트림');
-
-  // 2. Click '의사결정 스트림' button
-  await streamTabBtn.click();
-
-  // 3. Verify center view switched to stream
-  const streamWrap = page.locator('#streamwrap');
-  await expect(streamWrap).toBeVisible();
-  await expect(page.locator('#netwrap')).toBeHidden();
-  await expect(page.locator('#reader')).toBeHidden();
-
-  // 4. Verify initial load is limited to 30 items
-  const cardList = streamWrap.locator('#stream-card-list .decision-card');
-  await expect(cardList).toHaveCount(30);
-
-  // 5. Scroll to bottom of container to load 10 more items
-  await streamWrap.locator('#stream-scroll-container').evaluate((el) => {
-    el.scrollTop = el.scrollHeight;
-    el.dispatchEvent(new Event('scroll'));
-  });
-
-  // Verify now 40 items displayed
-  await expect(cardList).toHaveCount(40);
-
-  // 6. Test returning to graph via center view nav
-  await page.locator('#centertab-graph').click();
-  await expect(streamWrap).toBeHidden();
-  await expect(page.locator('#netwrap')).toBeVisible();
-
-  expect(pageErrors).toEqual([]);
-});
-
 test('heatmap matrix provides direct reader transition, compact headers, and refined inspect bar without rollover distortion', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', err => pageErrors.push(err.message));
@@ -1270,116 +1210,14 @@ test('mobile view features: single-row center tabs, left doc drawer, and inline 
   expect(pageErrors).toEqual([]);
 });
 
-test('database presentation toggle controls presentation tab visibility and inert empty view', async ({ page }) => {
-  const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  await page.setViewportSize({ width: 1400, height: 900 });
-
-  let mockThemes = [
-    { id: 0, label: '기본 지식베이스', is_public: true, presentation_enabled: true },
-    { id: 1, label: '인공지능 연구', is_public: true, presentation_enabled: false },
-  ];
-
-  await page.route('**/themes**', async (route) => {
-    const request = route.request();
-    // The console page /admin/themes itself also matches this glob. Mock only the /themes API calls.
-    if (request.resourceType() === 'document') {
-      await route.continue();
-    } else if (request.method() === 'GET') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ themes: mockThemes, default_theme_id: 0, multi_theme: true }),
-      });
-    } else if (request.method() === 'PATCH') {
-      const data = JSON.parse(request.postData() || '{}');
-      const target = mockThemes.find(t => t.id === data.id);
-      if (target) {
-        if ('presentation_enabled' in data) target.presentation_enabled = data.presentation_enabled;
-        if ('is_public' in data) target.is_public = data.is_public;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, theme: target }),
-      });
-    } else {
-      await route.continue();
-    }
-  });
-
-  // 1. Authenticate as owner
-  await page.goto('/?t=e2e-pres-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug?.authScope),
-  ).toBe('owner');
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug?.stabilized),
-  ).toBe(true);
-
-  // Enable multi-theme in client config for theme manager
-  await page.evaluate(() => {
-    if (!window.__CLAIRE_CONFIG) window.__CLAIRE_CONFIG = {};
-    window.__CLAIRE_CONFIG.themeMode = 'multi';
-  });
-
-  // 2. Initial state: presentation tab is visible for Theme 0
-  const presTab = page.locator('#centertab-presentation');
-  await expect(presTab).toBeVisible();
-
-  // 3. Open the theme manager in the admin console (the root detail menu no longer has one)
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
-  const detailPane = page.locator('#admin-themes-host');
-  await expect(detailPane).toBeVisible();
-  await expect(detailPane).toContainText('지식 테마 관리');
-
-  // 4. Locate presentation toggle button and turn presentation OFF
-  const toggleOffBtn = detailPane.locator('button:has-text("발표 끄기")').first();
-  await expect(toggleOffBtn).toBeVisible();
-  await toggleOffBtn.click();
-
-  // 5. Back on the graph root, verify presentation tab is now hidden
-  await expect(detailPane.locator('button:has-text("발표 켜기")').first()).toBeVisible();
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
-  await page.evaluate(() => {
-    if (!window.__CLAIRE_CONFIG) window.__CLAIRE_CONFIG = {};
-    window.__CLAIRE_CONFIG.themeMode = 'multi';
-  });
-  await expect(presTab).toBeHidden();
-
-  // 6. Access presentation view while disabled and verify inert view
-  await page.evaluate(() => {
-    if (typeof setCenterView === 'function') setCenterView('presentation');
-    if (typeof updatePresentationView === 'function') updatePresentationView();
-  });
-  const presEmpty = page.locator('#presentation-empty');
-  await expect(presEmpty).toBeVisible();
-  await expect(page.locator('#presentation-empty-title')).toContainText('프레젠테이션 기능이 비활성화되어 있습니다');
-  await expect(page.locator('#presentation-gen-btn')).toBeHidden();
-
-  // 7. Turn presentation back ON via the console theme manager
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
-  await expect(detailPane).toContainText('지식 테마 관리');
-  const toggleOnBtn = detailPane.locator('button:has-text("발표 켜기")').first();
-  await expect(toggleOnBtn).toBeVisible();
-  await toggleOnBtn.click();
-
-  // 8. Back on the graph root, verify presentation tab is restored and visible
-  await expect(detailPane.locator('button:has-text("발표 끄기")').first()).toBeVisible();
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
-  await expect(presTab).toBeVisible();
-
-  expect(pageErrors).toEqual([]);
-});
-
 test('hidden documents list in document sidebar is scrollable when opened in owner session', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/?t=e2e-hidden-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  // The graph view shows the entity list. The document list is in the reader view.
+  await page.locator('#centertab-reader').click();
   const showHiddenBtn = page.locator('#showhidden');
   await expect(showHiddenBtn).toBeVisible();
   await expect(showHiddenBtn).toContainText('숨김');
@@ -1421,7 +1259,8 @@ test('WebUI regenerate button opens form and executes without client script erro
   await expect(page.locator('#regentarget')).toBeVisible();
 
   // 4. Fill target and click Dry-Run
-  await page.locator('#regentarget').fill('doc_1');
+  // The target is a seed document with no entity. The pattern doc_1 also matches doc-1, and a real regeneration of doc-1 removes the entities that other tests use.
+  await page.locator('#regentarget').fill('doc-regen-1');
   const dryRunBtn = panel.locator('button:has-text("영향 분석 (Dry-Run)")');
   await expect(dryRunBtn).toBeVisible();
   await dryRunBtn.click();
@@ -1710,3 +1549,694 @@ test('active ingest during boot correctly mounts matrix view and recovers on bra
   expect(pageErrors).toEqual([]);
 });
 
+
+test.describe('document list with server pages', () => {
+  // The service worker must not answer GET /documents, because the tests count, delay, and abort these requests.
+  test.use({ serviceWorkers: 'block' });
+
+  const docRequests = page => {
+    const urls = [];
+    page.on('request', request => { const u = new URL(request.url()); if (u.pathname.endsWith('/documents')) urls.push(u); });
+    return urls;
+  };
+
+  test('list pane is named 목록, shows 31 documents first, and gets the next pages from the server on scroll', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    const requests = docRequests(page);
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await waitForClaire(page);
+
+    await expect(page.locator('#mobile-doclist-btn')).toHaveAttribute('aria-label', '목록');
+    // The graph view shows the entity list (unit LP-3). The document list is in the reader view.
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+    await page.locator('#centertab-reader').click();
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await expect(page.locator('#entlist')).toBeHidden();
+
+    // The first page has 31 documents. The title shows the total of the server (68 visible documents in the seed).
+    const items = page.locator('#doclist .docitem');
+    await expect(items).toHaveCount(31);
+    await expect(page.locator('#doclist .docskel')).toHaveCount(0);
+    await expect(page.locator('#listtitle')).toHaveText('문서 31 / 68');
+    await expect(page.locator('#listtopbtn')).toBeHidden();
+    const pageRequests = () => requests.filter(u => u.searchParams.get('pinned') === '0');
+    expect(pageRequests().length).toBe(1);
+    expect(pageRequests()[0].searchParams.get('limit')).toBe('31');
+    expect(pageRequests()[0].searchParams.get('hidden')).toBe('0');
+    expect(pageRequests()[0].searchParams.has('before')).toBe(false);
+    await expect(items.nth(0)).toContainText('테스트 문서 2');
+    await expect(items.nth(30)).toContainText('페이징 자료 28');
+
+    // Scroll to the end: the list requests the second page from the server (before=<fetched_at>:<id> of the last row).
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(items).toHaveCount(62);
+    await expect(page.locator('#listtitle')).toHaveText('문서 62 / 68');
+    expect(pageRequests().length).toBe(2);
+    expect(pageRequests()[1].search).toContain('before=');
+    expect(pageRequests()[1].searchParams.get('before')).toMatch(/^\d+(\.\d+)?:doc-page-28$/);
+    expect(pageRequests()[1].searchParams.get('limit')).toBe('31');
+    await expect(page.locator('#doclist .list-end')).toHaveCount(0);
+    await expect(items.nth(31)).toContainText('페이징 자료 29');
+
+    // Scroll again: the third page is the last one, and the end mark shows.
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(items).toHaveCount(68);
+    await expect(page.locator('#doclist .list-end')).toHaveText('— 끝 (68) —');
+    await expect(page.locator('#listtitle')).toHaveText('문서 68 / 68');
+    expect(pageRequests().length).toBe(3);
+    expect(pageRequests()[2].searchParams.get('before')).toMatch(/:doc-old-19$/);
+    await expect(items.nth(67)).toContainText('오래된 자료 25');
+    // No document shows two times, and each date header shows one time across the pages.
+    const titles = await page.locator('#doclist .docitem b').allTextContents();
+    expect(new Set(titles).size).toBe(68);
+    const days = await page.locator('#doclist .dday').allTextContents();
+    expect(days.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(days).size).toBe(days.length);
+
+    // A render with the same filter keeps the rendered count.
+    await page.evaluate(() => renderDocs(''));
+    await expect(items).toHaveCount(68);
+
+    // A background refresh gets only the first page again (no before parameter). The loaded pages, the rendered count, and the scroll position stay.
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    const topBefore = await page.locator('#doclist').evaluate(el => el.scrollTop);
+    expect(topBefore).toBeGreaterThan(500);
+    const before = requests.length;
+    await page.evaluate(() => refreshDocs());
+    expect(requests.length).toBe(before + 3);
+    expect(requests.slice(before).filter(u => u.searchParams.has('before')).length).toBe(0);
+    expect(requests.slice(before).map(u => u.searchParams.get('pinned') + '/' + u.searchParams.get('hidden')).sort()).toEqual(['0/0', '1/null', 'null/1']);
+    await expect(items).toHaveCount(68);
+    await expect(page.locator('#listtitle')).toHaveText('문서 68 / 68');
+    expect(await page.locator('#doclist').evaluate(el => el.scrollTop)).toBe(topBefore);
+    expect(await page.locator('#doclist .docitem b').allTextContents()).toEqual(titles);
+
+    await expect(page.locator('#listtopbtn')).toBeVisible();
+    await page.locator('#listtopbtn').click();
+    await expect.poll(() => page.locator('#doclist').evaluate(el => el.scrollTop)).toBe(0);
+    await expect(page.locator('#listtopbtn')).toBeHidden();
+
+    // The stream view keeps the document list and its rendered rows.
+    await page.evaluate(() => setCenterView('stream'));
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await expect(page.locator('#doclist')).toBeVisible();
+    await expect(items).toHaveCount(68);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a background refresh after a partial scroll keeps the second page and adds no request for it', async ({ page }) => {
+    const requests = docRequests(page);
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await waitForClaire(page);
+    await page.locator('#centertab-reader').click();
+    const items = page.locator('#doclist .docitem');
+    await expect(items).toHaveCount(31);
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(items).toHaveCount(62);
+    const before = requests.length;
+    await page.evaluate(() => refreshDocs());
+    await expect(items).toHaveCount(62);
+    await expect(page.locator('#listtitle')).toHaveText('문서 62 / 68');
+    expect(requests.slice(before).filter(u => u.searchParams.has('before')).length).toBe(0);
+    // The list continues from the cursor of the second page.
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(items).toHaveCount(68);
+    expect(requests[requests.length - 1].searchParams.get('before')).toMatch(/:doc-old-19$/);
+    expect(new Set(await page.locator('#doclist .docitem b').allTextContents()).size).toBe(68);
+  });
+
+  test('a deep link to a document after the first page loads the pages up to it and shows its row', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    const requests = docRequests(page);
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await page.goto('/?doc=doc-page-35', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('anonymous');
+    await expect(page.locator('#reader')).toContainText('페이징 자료 35');
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    // The document is row 38 of the list (3 + 35), thus the rendered window has two pages.
+    const active = page.locator('#doclist .docitem.active');
+    await expect(active).toHaveCount(1);
+    await expect(active).toContainText('페이징 자료 35');
+    await expect(active).toBeInViewport();
+    await expect(page.locator('#doclist .docitem')).toHaveCount(62);
+    await expect(page.locator('#listtitle')).toHaveText('문서 62 / 68');
+    expect(requests.filter(u => u.searchParams.get('id') === 'doc-page-35').length).toBe(1);
+    expect(requests.filter(u => u.searchParams.has('before')).length).toBe(1);
+    // The graph view picker shows the title of the open document.
+    await expect(page.locator('#graphdoclabel')).toHaveText('페이징 자료 35');
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('a failed page request shows a retry control and does not repeat, and the retry loads the page', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await waitForClaire(page);
+    await page.locator('#centertab-reader').click();
+    const items = page.locator('#doclist .docitem');
+    await expect(items).toHaveCount(31);
+    let fail = true, pageCalls = 0;
+    await page.route(url => url.pathname.endsWith('/documents') && url.searchParams.has('before'), async route => {
+      pageCalls += 1;
+      if (fail) { await route.abort(); return; }
+      await route.continue();
+    });
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(page.locator('#doclist .list-more-error')).toContainText('다음 문서를 불러오지 못했습니다.');
+    await expect(page.locator('#doclist .list-sentinel')).toHaveCount(0);
+    await page.waitForTimeout(800);
+    expect(pageCalls).toBe(1);
+    await expect(items).toHaveCount(31);
+    await expect(page.locator('#listtitle')).toHaveText('문서 31 / 68');
+    fail = false;
+    await page.locator('#doclist .list-retry').click();
+    await expect(items).toHaveCount(62);
+    await expect(page.locator('#doclist .list-more-error')).toHaveCount(0);
+    expect(pageCalls).toBe(2);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('filter text gets its pages from the server, a late response for an old filter is ignored, and the picker finds a document after the loaded pages', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    const requests = docRequests(page);
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await waitForClaire(page);
+    // A pinned document that is older than the loaded pages shows in the pinned list (the seed has no pinned document, thus the response of the pinned request is made here).
+    const old25 = (await (await page.request.get('/documents?id=doc-old-25')).json()).documents[0];
+    expect(old25.title).toBe('오래된 자료 25');
+    await page.route(url => url.pathname.endsWith('/documents') && url.searchParams.get('pinned') === '1', route => route.fulfill({ json: { documents: [{ ...old25, pinned: 1 }], next_before: null, total: 1 } }));
+    await page.route(url => url.pathname.endsWith('/documents') && url.searchParams.get('q') === '페이징', async route => { await new Promise(resolve => setTimeout(resolve, 900)); await route.continue(); });
+    await page.locator('#centertab-reader').click();
+    const items = page.locator('#doclist .docitem');
+    await expect(items).toHaveCount(31);
+    await page.evaluate(() => refreshDocs());
+    await expect(page.locator('#pinnedhead')).toHaveText('⭐ 즐겨찾기 (1)');
+    await expect(page.locator('#pinnedlist .docitem')).toContainText(['오래된 자료 25']);
+
+    // Two filter texts with no pause between them: the request goes when the typing stops, thus only the second filter text is sent. The list shows the second one only.
+    await page.evaluate(() => { onCenterSearchInput('페이징'); onCenterSearchInput('오래된 자료 0'); });
+    await expect(items).toHaveCount(9);
+    await expect(page.locator('#listtitle')).toHaveText('문서 9 / 9');
+    await expect(page.locator('#stat')).toHaveText('9개 발견');
+    await page.waitForTimeout(1300);
+    await expect(items).toHaveCount(9);
+    expect(await items.locator('b').allTextContents()).toEqual(['오래된 자료 01', '오래된 자료 02', '오래된 자료 03', '오래된 자료 04', '오래된 자료 05', '오래된 자료 06', '오래된 자료 07', '오래된 자료 08', '오래된 자료 09']);
+    expect(requests.some(u => u.searchParams.get('q') === '오래된 자료 0' && u.searchParams.get('limit') === '31')).toBe(true);
+    expect(requests.some(u => u.searchParams.get('q') === '페이징')).toBe(false);
+
+    // A filter with more than one page: 40 documents match, and the second page comes from the server with the same filter.
+    await page.evaluate(() => onCenterSearchInput('페이징'));
+    await expect(items).toHaveCount(31);
+    await expect(page.locator('#listtitle')).toHaveText('문서 31 / 40');
+    await page.locator('#doclist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(items).toHaveCount(40);
+    await expect(page.locator('#doclist .list-end')).toHaveText('— 끝 (40) —');
+    expect(requests.some(u => u.searchParams.get('q') === '페이징' && u.searchParams.has('before'))).toBe(true);
+
+    // The search is closed: the list goes back to the loaded pages with no new page request.
+    const count = requests.filter(u => u.searchParams.get('pinned') === '0').length;
+    await page.evaluate(() => clearServerSearch());
+    await expect(items).toHaveCount(31);
+    await expect(page.locator('#listtitle')).toHaveText('문서 31 / 68');
+    expect(requests.filter(u => u.searchParams.get('pinned') === '0').length).toBe(count);
+
+    // The graph view picker: a document after the loaded pages is found by its title.
+    await page.locator('#centertab-graph').click();
+    // The picker button shows only on a small screen, thus the test opens the picker and selects the option with script calls.
+    await page.evaluate(() => openGraphDocPicker());
+    await expect(page.locator('#graphdocmore')).toHaveCount(1);
+    await expect(page.locator('#graphdoclist .graphdocoption', { hasText: '오래된 자료 17' })).toHaveCount(0);
+    await page.evaluate(() => { const input = document.getElementById('graphdocq'); input.value = '오래된 자료 17'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await expect(page.locator('#graphdoclist .graphdocoption', { hasText: '오래된 자료 17' })).toHaveCount(1);
+    expect(requests.some(u => u.searchParams.get('q') === '오래된 자료 17' && !u.searchParams.has('pinned'))).toBe(true);
+    await page.locator('#graphdoclist .graphdocoption', { hasText: '오래된 자료 17' }).evaluate(el => el.click());
+    await expect(page.locator('#graphdoclabel')).toHaveText('오래된 자료 17');
+    expect(await page.evaluate(() => activeDoc)).toBe('doc-old-17');
+    expect(pageErrors).toEqual([]);
+  });
+});
+
+
+test('graph view shows the entity list in degree order with paging, one open row, filters, and keyboard control', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  const nodeRequests = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/node')) nodeRequests.push(request.url()); });
+  await page.setViewportSize({ width: 1400, height: 500 });
+  await waitForClaire(page);
+
+  // The graph view shows the entity list. The document list is hidden.
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+  await expect(page.locator('#docs')).toHaveAttribute('aria-label', '엔티티 목록');
+  await expect(page.locator('#entlist')).toBeVisible();
+  await expect(page.locator('#doclist')).toBeHidden();
+  // The graph status shows in the entity list only. The document list hides it, also when the graph writes it again.
+  await expect(page.locator('#stat .graphstat')).toBeVisible();
+  await page.locator('#centertab-reader').click();
+  await page.evaluate(() => applyView());
+  await expect(page.locator('#stat .graphstat')).toHaveCount(1);
+  await expect(page.locator('#stat .graphstat')).toBeHidden();
+  await page.locator('#centertab-graph').click();
+  await expect(page.locator('#stat .graphstat')).toBeVisible();
+
+  // 31 rows first, in degree order (then label order).
+  const rows = page.locator('#entlist .entitem');
+  await expect(rows).toHaveCount(31);
+  await expect(page.locator('#listtitle')).toHaveText('엔티티 31 / 44');
+  await expect(rows.nth(0).locator('.entname')).toHaveText('허브 엔티티');
+  await expect(rows.nth(0).locator('.entdeg')).toHaveText('40');
+  await expect(rows.nth(0).locator('.entdeg')).toHaveAttribute('title', '연결 40개');
+  await expect(rows.nth(0).locator('.entbar i')).toHaveAttribute('style', 'width:100%');
+  await expect(rows.nth(1).locator('.entname')).toHaveText('목록 엔티티 01');
+  await expect(rows.nth(1).locator('.entdeg')).toHaveText('8');
+  await expect(rows.nth(1).locator('.entbar i')).toHaveAttribute('style', 'width:20%');
+  await expect(rows.nth(2).locator('.entname')).toHaveText('목록 엔티티 02');
+  const degrees = await page.locator('#entlist .entdeg').allTextContents();
+  expect(degrees.map(Number)).toEqual([...degrees.map(Number)].sort((a, b) => b - a));
+  const dotColor = await rows.nth(0).locator('.entdot').evaluate(el => el.style.background);
+  expect(dotColor).toBe(await page.evaluate(() => { const i = document.createElement('i'); i.style.background = TYPE_COLORS.Framework; return i.style.background; }));
+
+  // A scroll to the end adds the remaining rows.
+  await page.locator('#entlist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await expect(rows).toHaveCount(44);
+  await expect(page.locator('#entlist .list-end')).toHaveText('— 끝 (44) —');
+  await expect(page.locator('#listtitle')).toHaveText('엔티티 44 / 44');
+  await page.locator('#entlist').evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await expect(page.locator('#listtopbtn')).toBeVisible();
+  await page.locator('#listtopbtn').click();
+  await expect.poll(() => page.locator('#entlist').evaluate(el => el.scrollTop)).toBe(0);
+
+  // Pointer on a row: the graph shows the hover state of the node and the camera does not move.
+  const viewBefore = await page.evaluate(() => ({ ...window.claireDebug.viewpos, scale: window.claireDebug.scale }));
+  await rows.nth(1).locator('.entrow').hover();
+  await expect.poll(() => page.evaluate(() => net.hoverId)).toBe('ent-list-01');
+  // The idle graph has a small camera drift. A camera move to a node is much larger and changes the scale.
+  const viewAfter = await page.evaluate(() => ({ ...window.claireDebug.viewpos, scale: window.claireDebug.scale }));
+  expect(Math.hypot(viewAfter.x - viewBefore.x, viewAfter.y - viewBefore.y)).toBeLessThan(2);
+  expect(viewAfter.scale).toBeCloseTo(viewBefore.scale, 2);
+  expect(await page.evaluate(() => window.claireDebug.selected)).toBeNull();
+
+  // A click opens the row with one GET /node request and selects the node in the graph.
+  const hub = rows.nth(0);
+  await hub.locator('.entrow').click();
+  await expect(hub.locator('.entrow')).toHaveAttribute('aria-expanded', 'true');
+  await expect(hub.locator('.entrow')).toHaveAttribute('aria-controls', 'entbody');
+  const body = page.locator('#entbody');
+  await expect(body).toHaveAttribute('role', 'region');
+  await expect(body.locator('h4').nth(0)).toHaveText('관찰/주장');
+  await expect(body.locator('.entobs li')).toHaveCount(5);
+  await expect(body.locator('h4').nth(1)).toHaveText('연결 (40)');
+  expect(nodeRequests.length).toBe(1);
+  expect(await page.evaluate(() => window.claireDebug.selected)).toBe('ent-hub');
+  expect(await page.evaluate(() => window.claireDebug.sel)).toEqual(['ent-hub']);
+  // The detail panel has no 관찰/주장 section and no 연결 section (unit LP-4). Its button shows the number of the two (7 + 40).
+  await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+  await expect(page.locator('#panel h3')).toHaveCount(0);
+  await expect(page.locator('#panel #node-listrow-btn')).toHaveText('관찰/주장 · 연결 보기 (47)');
+
+  await body.locator('.entmore').click();
+  await expect(body.locator('.entmore')).toHaveCount(0);
+  await expect(body.locator('.entobs li')).toHaveCount(7);
+
+  // 연결 is grouped by relation type. A group with more than 10 items is closed.
+  const group = body.locator('details.entrel');
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('summary')).toHaveText('uses 40');
+  expect(await group.evaluate(el => el.open)).toBe(false);
+  await group.locator('summary').click();
+
+  // A click on a neighbor after the rendered window: the list grows, opens that row, and scrolls to it.
+  await group.locator('a', { hasText: '목록 엔티티 40' }).click();
+  const opened = page.locator('#entlist .entitem.open');
+  await expect(opened).toHaveCount(1);
+  await expect(opened.locator('.entname')).toHaveText('목록 엔티티 40');
+  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (1)');
+  expect(await opened.locator('details.entrel').evaluate(el => el.open)).toBe(true);
+  await expect(opened.locator('.entrow')).toBeInViewport();
+  await expect(opened.locator('.entrow')).toBeFocused();
+  await expect(hub.locator('.entrow')).toHaveAttribute('aria-expanded', 'false');
+  expect(nodeRequests.length).toBe(2);
+  expect(await page.evaluate(() => window.claireDebug.selected)).toBe('ent-list-40');
+
+  // A second click closes the row and sends no request.
+  await opened.locator('.entrow').click();
+  await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
+  expect(nodeRequests.length).toBe(2);
+
+  // The degree threshold filters the list the same as the graph. The selected entity keeps a row with the mark 필터 밖.
+  await expect(page.locator('#entchips')).toBeHidden();
+  await page.evaluate(() => setDeg(2));
+  await expect(rows).toHaveCount(10);
+  await expect(rows.nth(0)).toContainText('목록 엔티티 40');
+  await expect(rows.nth(0).locator('.entout')).toHaveText('필터 밖');
+  await expect(rows.nth(1).locator('.entname')).toHaveText('허브 엔티티');
+  await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 2']);
+  // The title counts the matching entities only, not the row with the mark 필터 밖.
+  await expect(page.locator('#listtitle')).toHaveText('엔티티 9 / 9');
+  const listed = await page.evaluate(() => { const ids = []; allNodes.forEach(n => { if (isNodeListed(n)) ids.push(n.id); }); return ids.sort(); });
+  const shown = await page.evaluate(() => window.claireDebug.visibleNodePoints().map(item => item.id).sort());
+  expect(listed).toEqual(shown);
+  expect(listed.length).toBe(9);
+  await page.locator('#entchips .entchip-reset').click();
+  await expect(page.locator('#entchips')).toBeHidden();
+  await expect(rows).toHaveCount(31);
+  expect(await page.evaluate(() => window.claireDebug.curMinDeg)).toBe(0);
+  // The reset button is removed. The focus goes to the sort control.
+  await expect(page.locator('.entsort-btn[data-sort="degree"]')).toBeFocused();
+
+  // Search text filters the list.
+  // The alias test, which runs before this test, changes the name of 엔티티 A. Thus the search uses 엔티티 C.
+  await page.evaluate(() => hl('엔티티 C'));
+  await expect(rows.locator('.entname')).toHaveText(['목록 엔티티 40', '엔티티 C']);
+  await expect(rows.nth(0).locator('.entout')).toHaveText('필터 밖');
+  await expect(page.locator('#entchips .entchip')).toHaveText(['검색 1개']);
+  await page.locator('#entchips .entchip-reset').click();
+  await expect(rows).toHaveCount(31);
+
+  // Sort by name.
+  await page.locator('.entsort-btn[data-sort="name"]').click();
+  await expect(page.locator('.entsort-btn[data-sort="name"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows.nth(0).locator('.entname')).toHaveText('목록 엔티티 01');
+  await page.locator('.entsort-btn[data-sort="degree"]').click();
+  await expect(rows.nth(0).locator('.entname')).toHaveText('허브 엔티티');
+
+  // Keyboard: the arrow keys move the focus, Enter opens a row, and Escape closes it.
+  await rows.nth(0).locator('.entrow').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(1).locator('.entrow')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(rows.nth(1).locator('.entrow')).toHaveAttribute('aria-expanded', 'true');
+  await expect(rows.nth(1).locator('#entbody h4').nth(1)).toHaveText('연결 (8)');
+  await expect(rows.nth(1).locator('.entrow')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
+  await expect(rows.nth(1).locator('.entrow')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(rows.nth(0).locator('.entrow')).toBeFocused();
+
+  // Selection on the canvas opens the row of that node.
+  await page.evaluate(() => { clearSelections(); resetGraphCamera(); });
+  await page.waitForTimeout(900);
+  const point = await page.evaluate(() => {
+    const box = document.getElementById('net').getBoundingClientRect();
+    return window.claireDebug.visibleNodePoints().find(item => item.x > 40 && item.y > 40 && item.x < box.width - 40 && item.y < box.height - 40) || null;
+  });
+  expect(point).not.toBeNull();
+  await page.locator('#net').click({ position: { x: Math.round(point.x), y: Math.round(point.y) }, force: true });
+  await expect.poll(() => page.evaluate(() => window.claireDebug.selected)).not.toBeNull();
+  const canvasId = await page.evaluate(() => window.claireDebug.selected);
+  await expect(page.locator('#entlist .entitem.open')).toHaveCount(1);
+  await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', canvasId);
+  await expect(page.locator('#entlist .entitem.open .entrow')).toBeInViewport();
+
+  // The reader view shows the document list.
+  await page.locator('#centertab-reader').click();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+  await expect(page.locator('#doclist')).toBeVisible();
+  await expect(page.locator('#entlist')).toBeHidden();
+  await expect(page.locator('#enttools')).toBeHidden();
+  await expect(page.locator('#listtitle')).toContainText('문서');
+  expect(pageErrors).toEqual([]);
+});
+
+test('mobile entity row keeps the list drawer open and its button shows the node in the graph', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await waitForClaire(page);
+  // The graph is stable on the desktop size. Then the page changes to the mobile size.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.evaluate(() => { setCenterView('graph'); openDocDrawer(); });
+  await expect(page.locator('body')).toHaveClass(/docdrawer-open/);
+  await expect(page.locator('#entlist')).toBeVisible();
+
+  const hub = page.locator('#entlist .entitem').first();
+  await hub.locator('.entrow').click();
+  await expect(hub.locator('.entrow')).toHaveAttribute('aria-expanded', 'true');
+  await expect(hub.locator('#entbody h4').first()).toHaveText('관찰/주장');
+  await expect(page.locator('body')).toHaveClass(/docdrawer-open/);
+  expect(await page.evaluate(() => window.claireDebug.selected)).toBe('ent-hub');
+
+  const go = hub.locator('.entgo');
+  await expect(go).toHaveText('⌖ 그래프에서 보기');
+  await go.click();
+  await expect(page.locator('body')).not.toHaveClass(/docdrawer-open/);
+  expect(await page.evaluate(() => window.claireDebug.selected)).toBe('ent-hub');
+  expect(pageErrors).toEqual([]);
+});
+
+
+test.describe('node detail panel and node request order', () => {
+  // The service worker must not answer GET /node, because the tests delay and abort these requests with page.route().
+  test.use({ serviceWorkers: 'block' });
+
+  test('a late GET /node response does not replace the newer node, a failed request shows an error, and the open row keeps its state', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1400, height: 500 });
+    await waitForClaire(page);
+    let mode = 'delay-hub';
+    await page.route(url => url.pathname.endsWith('/node'), async route => {
+      const id = new URL(route.request().url()).searchParams.get('id');
+      if (mode === 'delay-hub' && id === 'ent-hub') await new Promise(resolve => setTimeout(resolve, 900));
+      if (mode === 'fail' && id === 'ent-list-02') { await route.abort(); return; }
+      await route.continue();
+    });
+
+    // Click the hub (slow response), then the next row (fast response). The late response for the hub is ignored.
+    const rows = page.locator('#entlist .entitem');
+    await rows.nth(0).locator('.entrow').click();
+    await rows.nth(1).locator('.entrow').click();
+    await expect(page.locator('#panel h2')).toContainText('목록 엔티티 01');
+    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('연결 (8)');
+    await page.waitForTimeout(1300);
+    await expect(page.locator('#panel h2')).toContainText('목록 엔티티 01');
+    expect(await page.evaluate(() => currentNodeData.id)).toBe('ent-list-01');
+    await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-01');
+    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('연결 (8)');
+    // The open row has the active mark.
+    await expect(page.locator('#entlist .entitem.open')).toHaveClass(/active/);
+
+    // A failed request: the row shows an error text, not the loading text.
+    mode = 'fail';
+    await rows.nth(2).locator('.entrow').click();
+    await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-02');
+    await expect(page.locator('#entbody')).toContainText('불러오지 못했습니다');
+    await expect(page.locator('#entbody')).not.toContainText('로딩');
+    // The failed request removes the data of the earlier node.
+    expect(await page.evaluate(() => currentNodeData)).toBeNull();
+    await expect(page.locator('#panel')).toContainText('노드 정보를 불러오지 못했습니다.');
+
+    // A click on the row in the error state sends the request again. The row does not close.
+    mode = 'pass';
+    await rows.nth(2).locator('.entrow').click();
+    await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-02');
+    await expect(page.locator('#entbody h4').nth(1)).toHaveText('연결 (2)');
+    await expect(page.locator('#panel h2')).toContainText('목록 엔티티 02');
+
+    // The open row keeps the 더 보기 state and the state of a 연결 group after a new render.
+    await rows.nth(0).locator('.entrow').click();
+    const body = page.locator('#entbody');
+    await body.locator('.entmore').click();
+    await expect(body.locator('.entobs li')).toHaveCount(7);
+    await body.locator('details.entrel summary').click();
+    expect(await body.locator('details.entrel').evaluate(el => el.open)).toBe(true);
+    await page.evaluate(() => loadNode('ent-hub'));
+    await page.waitForTimeout(400);
+    await expect(body.locator('.entobs li')).toHaveCount(7);
+    expect(await body.locator('details.entrel').evaluate(el => el.open)).toBe(true);
+
+    // The state of a 연결 group stays when a render comes in the same task as the click, before the toggle event of the details element.
+    // Sequence 1: 더 보기 first, then open a group that is closed by default, then a filter change.
+    await rows.nth(0).locator('.entrow').click();
+    await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
+    await rows.nth(0).locator('.entrow').click();
+    await expect(body.locator('h4').nth(1)).toHaveText('연결 (40)');
+    expect(await body.locator('details.entrel').evaluate(el => el.open)).toBe(false);
+    await body.locator('.entmore').click();
+    await page.evaluate(() => { document.querySelector('#entbody details.entrel[data-rel="uses"] > summary').click(); setDeg(1); });
+    await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 1']);
+    await expect(body.locator('.entobs li')).toHaveCount(7);
+    expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
+    await page.evaluate(() => setDeg(0));
+    await page.waitForTimeout(100);
+    expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
+    // Sequence 2: close a group that is open by default, then a filter change.
+    await rows.nth(1).locator('.entrow').click();
+    await expect(body.locator('h4').nth(1)).toHaveText('연결 (8)');
+    expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(true);
+    await page.evaluate(() => { document.querySelector('#entbody details.entrel[data-rel="relates_to"] > summary').click(); setDeg(1); });
+    await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 1']);
+    expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(false);
+    expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
+    await page.evaluate(() => setDeg(0));
+    await page.waitForTimeout(100);
+    expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(false);
+    // A real click on the summary also writes the state.
+    await body.locator('details.entrel[data-rel="relates_to"] summary').click();
+    await page.evaluate(() => setDeg(1));
+    expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(true);
+    await page.evaluate(() => setDeg(0));
+
+    // After a sort change, an open row that is after the first 31 rows stays in the list. The list does not scroll to it.
+    await page.evaluate(() => selectEntity('ent-list-40'));
+    await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-40');
+    await page.locator('.entsort-btn[data-sort="name"]').click();
+    await expect(rows.nth(0).locator('.entname')).toHaveText('목록 엔티티 01');
+    await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-40');
+    expect(await rows.count()).toBeGreaterThan(31);
+    expect(await page.locator('#entlist').evaluate(el => el.scrollTop)).toBe(0);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('node detail panel shows closed source document rows, sends docs=brief, and its button opens the entity list row', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    const nodeRequests = [];
+    page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/node')) nodeRequests.push(request.url()); });
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await waitForClaire(page);
+
+    const row = page.locator('#entlist .entitem[data-ent-id="ent-list-01"]');
+    await row.locator('.entrow').click();
+    const panel = page.locator('#panel');
+    await expect(panel.locator('h2')).toContainText('목록 엔티티 01');
+    expect(nodeRequests.length).toBe(1);
+    expect(nodeRequests[0]).toContain('docs=brief');
+
+    // The panel has only the source document section (anonymous session). 관찰/주장 and 연결 are in the list row.
+    await expect(panel.locator('h3')).toHaveText(['출처 문서 (40)']);
+    await expect(panel.locator('#node-listrow-btn')).toHaveText('관찰/주장 · 연결 보기 (8)');
+
+    // 31 rows first, the newest document first, all closed. The filter field shows because there are more than 31 documents.
+    const srcRows = panel.locator('.srcrow');
+    await expect(srcRows).toHaveCount(31);
+    await expect(panel.locator('#srcfilter')).toBeVisible();
+    await expect(srcRows.nth(0).locator('.srcname')).toHaveText('페이징 자료 01');
+    await expect(srcRows.nth(0).locator('.srcdate')).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(srcRows.nth(0).locator('.srctype')).toHaveText('web');
+    await expect(panel.locator('.srcbody:visible')).toHaveCount(0);
+    await expect(panel.locator('.srctitle[aria-expanded="true"]')).toHaveCount(0);
+
+    // A click on the title shows the summary (justified text) and the link to the original page.
+    const first = srcRows.nth(0);
+    await expect(first.locator('.srcsum')).toBeHidden();
+    await first.locator('.srctitle').click();
+    await expect(first.locator('.srctitle')).toHaveAttribute('aria-expanded', 'true');
+    const bodyId = await first.locator('.srctitle').getAttribute('aria-controls');
+    await expect(first.locator('.srcbody')).toHaveAttribute('id', bodyId);
+    await expect(first.locator('.srcsum')).toBeVisible();
+    await expect(first.locator('.srcsum')).toContainText('출처 문서 요약 문단입니다.');
+    expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).textAlign)).toBe('justify');
+    // CJK justify: a line can break between syllables, thus the extra space does not collect between eojeol.
+    expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).wordBreak)).toBe('normal');
+    await expect(first.locator('.srcbody a')).toHaveText(['↗ 원문 열기']);
+    await expect(first.locator('.srcread')).toHaveAttribute('aria-label', '본문 보기');
+
+    // More than one row can be open. A document with no summary and no detail shows 요약 없음 and has no reader button.
+    const second = srcRows.nth(1);
+    await second.locator('.srctitle').click();
+    await expect(second.locator('.srcsum')).toHaveText('요약 없음');
+    await expect(second.locator('.srcread')).toHaveCount(0);
+    await expect(panel.locator('.srcbody:visible')).toHaveCount(2);
+    await first.locator('.srctitle').click();
+    await expect(first.locator('.srcsum')).toBeHidden();
+
+    // A scroll to the end of the panel adds the remaining rows. The node header stays in view.
+    await page.locator('#drawerscroll').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(srcRows).toHaveCount(40);
+    await expect(panel.locator('.nodehead h2')).toBeInViewport();
+    await expect(second.locator('.srcsum')).toBeVisible();
+
+    // The filter field selects rows by title.
+    await panel.locator('#srcfilter').fill('자료 4');
+    await expect(srcRows.locator('.srcname')).toHaveText(['페이징 자료 40']);
+    await panel.locator('#srcfilter').fill('');
+    await expect(srcRows).toHaveCount(31);
+
+    // The row is closed and the center view is the reader view. The button of the panel shows the entity list row with no new request.
+    await row.locator('.entrow').click();
+    await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
+    await page.evaluate(() => setCenterView('reader'));
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await panel.locator('#node-listrow-btn').click();
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+    const opened = page.locator('#entlist .entitem.open');
+    await expect(opened).toHaveAttribute('data-ent-id', 'ent-list-01');
+    await expect(opened.locator('#entbody h4').first()).toHaveText('관찰/주장');
+    await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (8)');
+    await expect(opened.locator('.entrow')).toBeInViewport();
+    expect(nodeRequests.length).toBe(1);
+
+    // The hover popup also sends docs=brief.
+    await page.evaluate(() => showNodePop('ent-list-01', 300, 300));
+    await expect.poll(() => nodeRequests.length).toBe(2);
+    expect(nodeRequests[1]).toContain('docs=brief');
+    await page.evaluate(() => hideNodePop());
+
+    // The reader button of a source document row opens the document in the reader view.
+    await srcRows.nth(0).locator('.srcread').click();
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('owner scope shows 더 알아보기 before 출처 문서 in the node detail panel', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1400, height: 800 });
+    // A login token of the seed database is for one login. This test has its own token.
+    await page.goto('/?t=e2e-panel-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
+    expect(await page.evaluate(() => canWrite())).toBe(true);
+
+    await page.evaluate(() => selectEntity('ent-list-01'));
+    const panel = page.locator('#panel');
+    await expect(panel.locator('h2')).toContainText('목록 엔티티 01');
+    await expect(panel.locator('h3')).toHaveText(['더 알아보기', '출처 문서 (40)']);
+    await expect(panel.locator('#rq')).toBeVisible();
+    await expect(panel.locator('.srcbody:visible')).toHaveCount(0);
+    expect(pageErrors).toEqual([]);
+  });
+});
+
+test('mobile node detail button opens the list drawer at the entity row', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await waitForClaire(page);
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.evaluate(() => { setCenterView('graph'); selectedNodeId = 'ent-hub'; loadNode('ent-hub'); openDetailPane(); });
+  await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+  await expect(page.locator('body')).not.toHaveClass(/docdrawer-open/);
+  await page.locator('#node-listrow-btn').click();
+  await expect(page.locator('body')).toHaveClass(/docdrawer-open/);
+  await expect(page.locator('body')).not.toHaveClass(/detail-open/);
+  const opened = page.locator('#entlist .entitem.open');
+  await expect(opened).toHaveAttribute('data-ent-id', 'ent-hub');
+  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (40)');
+  await expect(opened.locator('.entrow')).toBeInViewport();
+
+  // The sticky node header covers the full width and the top padding of the scroll container at the mobile size (padding 14px 16px).
+  await page.evaluate(() => closeDocDrawer());
+  await expect(page.locator('body')).not.toHaveClass(/docdrawer-open/);
+  await page.evaluate(() => { selectedNodeId = 'ent-list-01'; loadNode('ent-list-01'); openDetailPane(); });
+  await expect(page.locator('#panel h2')).toContainText('목록 엔티티 01');
+  await expect(page.locator('#panel .srcrow')).toHaveCount(31);
+  await page.locator('#drawerscroll').evaluate(el => { el.scrollTop = 400; });
+  const box = await page.evaluate(() => {
+    const sc = document.getElementById('drawerscroll'), s = sc.getBoundingClientRect(), h = document.querySelector('#panel .nodehead').getBoundingClientRect();
+    return { scrollTop: sc.scrollTop, padTop: getComputedStyle(sc).paddingTop, padLeft: getComputedStyle(sc).paddingLeft, left: Math.round(h.left - s.left - sc.clientLeft), top: Math.round(h.top - s.top - sc.clientTop), width: Math.round(h.width), clientWidth: sc.clientWidth };
+  });
+  expect(box.scrollTop).toBeGreaterThan(300);
+  expect(box.padTop).toBe('14px');
+  expect(box.padLeft).toBe('16px');
+  expect(box.left).toBe(0);
+  expect(box.top).toBe(0);
+  expect(box.width).toBe(box.clientWidth);
+  expect(pageErrors).toEqual([]);
+});

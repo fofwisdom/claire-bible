@@ -36,6 +36,7 @@ docs/
 │   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1: 내부 연합 API, 탐색, 액터 키, 준비 검사, 배포)
 │   ├── GLOSSARY.md             # 지식 코어 데이터 모델 및 시스템 공통 표준 용어집
 │   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라) 구현 정본과 검증 절차
+│   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태: 알려진 제약, 보류 결정, 테스트 기준선 (보안 문제 제외)
 │   ├── ONEHOP_MERGE_DESIGN.md  # 1홉 확장 중복 완화 및 동일 주제 병합 구현 명세
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
@@ -65,6 +66,16 @@ docs/
    - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
    - 현재 동작은 `implementation/` 문서나 코드로 확인합니다.
    - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인한 설계입니다(2026-11-10). 지금 구현된 범위는 FP1(내부 연합 API와 탐색)이며, 현재 동작은 [`FEDERATION.md`](implementation/FEDERATION.md)에 있습니다. 팔로워(FP2)와 발행(FP3)은 구현하지 않았습니다. 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
+
+## 문서 방침
+
+목적: 에이전트가 변경 작업을 받으면 불필요한 분석 없이 바로 착수할 수 있게 한다. 이를 위해 "지금 어떻게 동작하는가"와 "알고 시작해야 할 한계"를 항상 정해진 자리에 둔다.
+
+1. **현재 동작은 `implementation/`에만 둔다.** 코드를 바꾸는 커밋이 같은 커밋에서 해당 정본 문서(계약, OpenAPI, 가이드, 용어집, 엔진 문서 등)를 고친다. 새 문서를 만들기 전에 기존 정본에 들어갈 자리가 있는지 먼저 찾는다.
+2. **치명적이지 않은 구현 상태는 [`IMPLEMENTATION_STATUS.md`](implementation/IMPLEMENTATION_STATUS.md)에 둔다.** 알려진 제약, 소유자가 보류한 결정, 이미 실패하는 테스트가 대상이다. 영역마다 코드 위치를 함께 적는다. 해결하면 같은 커밋에서 지운다.
+3. **보안 문제는 문서에 적지 않는다.** 소유자에게 직접 보고한다.
+4. **`design/`은 구현 전에 소유자가 설계를 요구할 때만 만든다.** 구현이 끝나면 현재 동작은 `implementation/`으로, 남은 한계는 `IMPLEMENTATION_STATUS.md`로 옮긴다. 결정 경위는 커밋 메시지에 남긴다. 구현을 마친 뒤 같은 내용으로 설계 문서를 따로 만들지 않는다.
+5. 근거 태그(`[코드]`, `[실측]`, `[결정]`, `[미검증]`)를 쓴다. 확인하지 않은 원인은 `[미검증]`으로 적는다.
 
 ## 문서 정합성 검사
 

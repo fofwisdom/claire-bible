@@ -67,10 +67,10 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 |
 | `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급. 토큰 교환은 계정에 귀속된 세션 토큰만 받는다([`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) §7) |
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
-| `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회 |
+| `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회. 정렬은 `fetched_at` 내림차순, 같으면 `id` 내림차순. 파라미터가 없으면 기존과 같이 최신 300건을 돌려주고, 응답에 `next_before`(다음 페이지 커서, 마지막 페이지면 `null`)와 `total`(커서를 뺀 필터 일치 건수)만 추가된다. 선택 파라미터: `limit`(1–300, 기본 300), `before=<fetched_at>:<id>`(이전 응답의 `next_before`), `pinned=0\|1`, `hidden=0\|1`, `q`(제목 또는 최신 추출 요약의 부분 일치, 200자 이하), `detail=missing\|mismatched`, `id`(반복 가능, 100개 이하). 잘못된 값은 `400`. `anonymous` 범위는 모든 페이지와 모든 필터에서 숨김 문서를 받지 않는다 |
 | `GET` | `/document` | `read` | 특정 문서 상세 및 본문 조회 |
 | `GET` | `/graph` | `read` | 전체 온톨로지 지식 그래프 데이터 (JSON) |
-| `GET` | `/node` | `read` | 특정 엔티티 노드 세부정보 및 연결선 |
+| `GET` | `/node` | `read` | 특정 엔티티 노드 세부정보 및 연결선. 선택 파라미터 `docs=brief`: 각 출처 문서를 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file` 만으로 줄인다(`detail`, `detail_format`, `detail_html` 제외). 파라미터가 없으면 기본 응답은 변하지 않는다 |
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
 | `GET` | `/support/bundle` | `public` | 유효 토큰 기반 진단 번들 zstd 아카이브 다운로드 |

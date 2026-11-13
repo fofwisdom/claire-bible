@@ -142,15 +142,24 @@ curl -s -X POST https://claire.example.com/search \
 ```
 
 #### `GET /documents` (Read)
-아카이브된 문서 타임라인 목록을 조회한다.
+아카이브된 문서 목록을 키셋(keyset) 페이지로 조회한다. 정렬은 `fetched_at` 내림차순, 같으면 `id` 내림차순이다. 파라미터가 없으면 최신 300건을 돌려준다.
 - **쿼리 파라미터**:
-  - `limit` (int, 선택, 기본 30, 최대 100): 조회 건수
-  - `since` (float/str, 선택): 특정 시각 이후 문서 필터링 (ISO8601 또는 epoch 초)
-  - `query` (str, 선택): 문서 제목/URL 부분 일치 검색
+  - `limit` (int, 선택, 기본 300, 1–300): 한 페이지 건수
+  - `before` (str, 선택): 이전 응답의 `next_before` 커서(`<fetched_at>:<id>`). 이 커서 뒤의 문서만 돌려준다
+  - `pinned`, `hidden` (`0`|`1`, 선택): 즐겨찾기·숨김 여부 필터
+  - `q` (str, 선택, 200자 이하): 제목 또는 최신 추출 요약의 부분 일치. 대소문자 무시는 ASCII 문자에만 적용된다
+  - `detail` (`missing`|`mismatched`, 선택): 상세 본문이 없거나 렌더링 포맷이 다른 문서
+  - `id` (str, 선택, 반복 가능, 100개 이하): 지정한 문서만 조회
   - `theme` (str/int, 선택): 대상 테마 ID 또는 라벨
+- **응답 필드**: `documents`, `format_status`, `theme_id`, `theme_label`, `next_before`(다음 페이지 커서, 마지막 페이지면 `null`), `total`(커서를 뺀 필터 일치 건수)
+- 잘못된 값은 `400`과 고정 오류 문구를 돌려준다. `anonymous` 범위는 어떤 페이지와 필터에서도 숨김 문서를 받지 않고, `total`에도 세지 않는다.
+- MCP 도구 `documents`의 인자(`limit`, `since`, `query`)는 이 HTTP 경로와 다르다.
 ```bash
 curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
-     "https://claire.example.com/documents?limit=10&query=OAuth"
+     "https://claire.example.com/documents?limit=31&q=OAuth"
+# 다음 페이지: 앞 응답의 next_before 값을 before로 보낸다
+curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+     "https://claire.example.com/documents?limit=31&q=OAuth&before=<next_before>"
 ```
 
 #### `GET /document` (Read)
@@ -170,7 +179,8 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 
 #### `GET /node` (Read)
 특정 엔티티 노드의 상세 속성, 관찰(observations), 연결된 1홉 관계 및 소스 문서 목록을 조회한다.
-- **쿼리 파라미터**: `id` (str, 필수), `full` (bool, 선택, 기본 false), `theme` (선택)
+- **쿼리 파라미터**: `id` (str, 필수), `full` (bool, 선택, 기본 false), `docs` (선택, `brief`), `theme` (선택)
+- `docs=brief`: 소스 문서마다 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file`만 돌려준다(`detail`, `detail_format`, `detail_html` 제외). WebUI 상세 패널의 `출처 문서` 목록이 쓴다. 기본 응답은 바뀌지 않는다.
 ```bash
 curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
      "https://claire.example.com/node?id=ent_oauth21_pkce"

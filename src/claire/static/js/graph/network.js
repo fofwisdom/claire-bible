@@ -831,19 +831,21 @@
       }
       return best;
     }
-    _setHover(i, p){
+    // Sets the hover state from code (for example, a pointer on a list row). It emits no event and does not move the camera.
+    setHoverNode(id){ this._setHover(id != null && this._index.has(id) ? this._index.get(id) : -1, null, true); }
+    _setHover(i, p, silent){
       if(i === this.hovered) return;
       const prevId = this.hoverId;
-      if(this.hovered >= 0) this.emit('blurNode', { node: prevId, pointer: p ? this._pointerPayload(p) : null });
+      if(this.hovered >= 0 && !silent) this.emit('blurNode', { node: prevId, pointer: p ? this._pointerPayload(p) : null });
       this.hovered = i;
       this.hoverId = i >= 0 ? this._ids[i] : null;
       if(i >= 0){
         const set = new Set([i]);
         for(const nb of this._neighbors.get(this.hoverId) || []){ const j = this._index.get(nb); if(j !== undefined) set.add(j); }
         this.focusSet = set;
-        this.emit('hoverNode', { node: this.hoverId, pointer: p ? this._pointerPayload(p) : null });
+        if(!silent) this.emit('hoverNode', { node: this.hoverId, pointer: p ? this._pointerPayload(p) : null });
       }
-      this.container.style.cursor = i >= 0 ? 'pointer' : '';
+      if(!silent) this.container.style.cursor = i >= 0 ? 'pointer' : '';
       this._wake();
     }
     _onDown(e){

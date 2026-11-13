@@ -692,6 +692,58 @@ paths:
           required: false
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of documents in the response. The order is `fetched_at` descending, then `id` descending.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 300
+            default: 300
+        - name: before
+          in: query
+          required: false
+          description: Keyset cursor `<fetched_at>:<id>`. Use the `next_before` value of the response before. The response has only the documents after this cursor in the list order.
+          schema:
+            type: string
+        - name: pinned
+          in: query
+          required: false
+          description: Only the documents with this pinned flag.
+          schema:
+            type: string
+            enum: ['0', '1']
+        - name: hidden
+          in: query
+          required: false
+          description: Only the documents with this hidden flag. The anonymous scope never gets hidden documents.
+          schema:
+            type: string
+            enum: ['0', '1']
+        - name: q
+          in: query
+          required: false
+          description: Only the documents whose title or latest extraction summary contains this text.
+          schema:
+            type: string
+            maxLength: 200
+        - name: detail
+          in: query
+          required: false
+          description: "`missing`: documents with no detail text. `mismatched`: documents with a detail text in a format that is not the configured render format."
+          schema:
+            type: string
+            enum: [missing, mismatched]
+        - name: id
+          in: query
+          required: false
+          description: Only the documents with these identifiers. The parameter can be given a maximum of 100 times.
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
       responses:
         '200':
           description: Document archive list with format status.
@@ -720,6 +772,22 @@ paths:
                   theme_id:
                     type: integer
                   theme_label:
+                    type: string
+                  next_before:
+                    type: string
+                    nullable: true
+                    description: Cursor for the `before` parameter of the next page. `null` when this page is the last one.
+                  total:
+                    type: integer
+                    description: Number of documents that match the filters, without the cursor.
+        '400':
+          description: A parameter value is not valid. The `error` field has a fixed text, for example `limit must be an integer 1..300` or `before must be <fetched_at>:<id>`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
                     type: string
 
   /document:
@@ -824,6 +892,13 @@ paths:
           required: true
           schema:
             type: string
+        - name: docs
+          in: query
+          required: false
+          description: With the value `brief`, each item of `documents` has only `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, and `has_raw_file`. Without this parameter, each item has `id`, `title`, `url`, `summary`, `detail`, `detail_format`, `detail_html`, and `fetched_at`.
+          schema:
+            type: string
+            enum: [brief]
       responses:
         '200':
           description: Entity details and adjacent edges.

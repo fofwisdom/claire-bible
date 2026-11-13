@@ -90,13 +90,63 @@ def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: 
     }
 
 
+def _safe_file_name(name_or_path: Any) -> str | None:
+    if not name_or_path:
+        return None
+    val = str(name_or_path).strip()
+    if not val:
+        return None
+    if val.startswith("file://"):
+        val = val[len("file://"):]
+    base = Path(val).name
+    return base if base else None
+
+
+def _document_raw_file(conn: sqlite3.Connection, document_id: str, meta: dict, theme_id: int | None = None) -> tuple[bool, str | None]:
+    """(has_raw_file, raw_file_name) of one document: an original file in raw_inbox, or a presentation PDF or an original requested file in the document meta. document_detail() and the docs_brief mode of node_detail() use this one function, thus the two results are always equal."""
+    raw_row = None
+    try:
+        sql = "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ?"
+        params: list[Any] = [document_id]
+        if theme_id is not None:
+            sql += " AND theme_id = ?"
+            params.append(theme_id)
+        sql += " AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1"
+        raw_row = conn.execute(sql, params).fetchone()
+    except sqlite3.Error:
+        # A database from before the raw_inbox table has no original file.
+        raw_row = None
+    if raw_row:
+        return True, _safe_file_name(raw_row["file_name"]) or _safe_file_name(raw_row["file_ref"])
+    pres_pdf = meta.get("presentation_pdf")
+    pres_art = pres_pdf.get("artifact_path") if isinstance(pres_pdf, dict) else None
+    if pres_art:
+        return True, _safe_file_name(pres_pdf.get("file_name")) or _safe_file_name(pres_art)
+    orig_file = meta.get("original_requested_file")
+    if orig_file:
+        return True, _safe_file_name(orig_file)
+    return False, None
+
+
+def _document_has_raw_file(conn: sqlite3.Connection, row: sqlite3.Row, theme_id: int | None = None) -> bool:
+    """True when GET /document/raw can supply a file for this document."""
+    try:
+        meta = json.loads(row["meta"]) if row["meta"] else {}
+    except (ValueError, TypeError):
+        meta = {}
+    return _document_raw_file(conn, row["id"], meta if isinstance(meta, dict) else {}, theme_id=theme_id)[0]
+
+
 def node_detail(
     conn: sqlite3.Connection,
     entity_id: str,
     include_hidden: bool = True,
     theme_id: int | None = None,
+    docs_brief: bool = False,
 ) -> dict | None:
     """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) + 타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None.
+
+    When docs_brief is true, each source document has only id, title, url, summary, fetched_at, has_detail, source_type, and has_raw_file (GET /node?docs=brief). The default result does not change.
     """
     ent = dbm.get_entity(conn, entity_id, theme_id=theme_id)
     if ent is None:
@@ -130,7 +180,18 @@ def node_detail(
         if not include_hidden and did in hidden_doc_ids:
             continue
         row = dbm.get_document_row(conn, did, theme_id=theme_id)
-        if row:
+        if row and docs_brief:
+            documents.append({
+                "id": did,
+                "title": row["title"] or "(제목 없음)",
+                "url": row["url"] if _is_web_url(row["url"]) else None,
+                "summary": dbm.latest_extraction_summary(conn, did, theme_id=theme_id) or "",
+                "fetched_at": row["fetched_at"],
+                "has_detail": bool(row["detail"]),
+                "source_type": row["source_type"],
+                "has_raw_file": _document_has_raw_file(conn, row, theme_id=theme_id),
+            })
+        elif row:
             documents.append({
                 "id": did,
                 "title": row["title"] or "(제목 없음)",
@@ -235,44 +296,7 @@ def document_detail(
             has_presentation = True
             presentation_status = "ready"
 
-    def _safe_file_name(name_or_path: Any) -> str | None:
-        if not name_or_path:
-            return None
-        val = str(name_or_path).strip()
-        if not val:
-            return None
-        if val.startswith("file://"):
-            val = val[len("file://"):]
-        base = Path(val).name
-        return base if base else None
-
-    raw_row = None
-    try:
-        raw_sql = "SELECT file_name, file_ref FROM raw_inbox WHERE document_id = ?"
-        raw_params: list[Any] = [document_id]
-        if theme_id is not None:
-            raw_sql += " AND theme_id = ?"
-            raw_params.append(theme_id)
-        raw_sql += " AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1"
-        raw_row = conn.execute(raw_sql, raw_params).fetchone()
-    except Exception:
-        raw_row = None
-
-    has_raw_file = False
-    raw_file_name = None
-    if raw_row:
-        has_raw_file = True
-        raw_file_name = _safe_file_name(raw_row["file_name"]) or _safe_file_name(raw_row["file_ref"])
-    else:
-        pres_pdf = meta_dict.get("presentation_pdf")
-        pres_art = pres_pdf.get("artifact_path") if isinstance(pres_pdf, dict) else None
-        orig_file = meta_dict.get("original_requested_file")
-        if pres_art:
-            has_raw_file = True
-            raw_file_name = _safe_file_name(pres_pdf.get("file_name") if isinstance(pres_pdf, dict) else None) or _safe_file_name(pres_art)
-        elif orig_file:
-            has_raw_file = True
-            raw_file_name = _safe_file_name(orig_file)
+    has_raw_file, raw_file_name = _document_raw_file(conn, document_id, meta_dict, theme_id=theme_id)
 
     if "original_requested_file" in meta_dict and meta_dict["original_requested_file"]:
         meta_dict["original_requested_file"] = _safe_file_name(meta_dict["original_requested_file"])
@@ -379,6 +403,42 @@ def dedup_clusters(conn: sqlite3.Connection, scan: dict, theme_id: int | None = 
     return {"documents": scan.get("documents", 0), "clusters": out_clusters}
 
 
+DOCUMENT_LIST_FILTERS = ("before", "pinned", "hidden", "ids", "text", "detail", "detail_format")
+DOCUMENTS_DEFAULT_LIMIT = 300
+DOCUMENTS_MAX_LIMIT = 300
+DOCUMENTS_MAX_IDS = 100
+
+
+def documents_page(
+    conn: sqlite3.Connection,
+    limit: int = DOCUMENTS_DEFAULT_LIMIT,
+    *,
+    before: str | None = None,
+    include_hidden: bool = False,
+    theme_id: int | None = None,
+    list_func: Any = None,
+    **filters: Any,
+) -> dict[str, Any]:
+    """One page of the document list for GET /documents: {"documents", "next_before", "total"}.
+
+    The order is fetched_at descending, then id descending. before is the cursor ``<fetched_at>:<id>`` of the last document of the page before (ValueError when it is not valid). next_before is the cursor for the next page, or None when this page is the last. total is the number of documents that match the filters, without the cursor. With no filter and the default limit, "documents" is the same list as documents_list(conn, limit=300, ...).
+    """
+    limit = max(1, min(int(limit), DOCUMENTS_MAX_LIMIT))
+    filters = {k: v for k, v in filters.items() if k in DOCUMENT_LIST_FILTERS and v is not None}
+    page_filters = dict(filters)
+    if before:
+        page_filters["before"] = dbm.decode_documents_cursor(before)
+    # One more row than the limit shows that a next page is available.
+    docs = (list_func or documents_list)(conn, limit=limit + 1, include_hidden=include_hidden, theme_id=theme_id, **page_filters)
+    has_more = len(docs) > limit
+    docs = docs[:limit]
+    return {
+        "documents": docs,
+        "next_before": dbm.encode_documents_cursor(docs[-1]["fetched_at"], docs[-1]["id"]) if (has_more and docs) else None,
+        "total": dbm.documents_count(conn, include_hidden=include_hidden, theme_id=theme_id, **filters),
+    }
+
+
 def documents_list(
     conn: sqlite3.Connection,
     limit: int = 100,
@@ -388,7 +448,11 @@ def documents_list(
     theme_id: int | None = None,
     **kwargs: Any,
 ) -> list[dict]:
-    """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각)."""
+    """좌측 문서 패널용 — 최신순 문서(제목·요약·출처타입·시각).
+
+    The keywords before, pinned, hidden, ids, text, detail, and detail_format go to dbm.documents_timeline() (GET /documents, unit LP-5).
+    """
+    filters = {k: kwargs[k] for k in DOCUMENT_LIST_FILTERS if kwargs.get(k) is not None}
     if "since" in kwargs:
         since = kwargs["since"]
     if "include_hidden" in kwargs:
@@ -423,6 +487,7 @@ def documents_list(
         query=query_filter,
         include_hidden=include_hidden,
         theme_id=theme_id,
+        **filters,
     ):
         doc_id = r["id"]
         has_pres = (doc_id in ready_presentations) or (Path("data/presentations") / f"{doc_id}.html").is_file()

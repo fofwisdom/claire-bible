@@ -170,6 +170,8 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (md/adoc) |
 | 컴파일 본문 | **사전 컴파일 상세** | Compiled HTML | `detail_html` | `documents.detail_html` |
 | 상세 패널 | **상세 뷰** | Detail View | `document_detail_route` | `GET /document?id=...` |
+| 좌측 목록 | **목록** | List Pane | `aside#docs[data-list]`, `syncListPane()` | 본문 뷰 = 문서 목록(`GET /documents` 페이지), 그래프 뷰 = 엔티티 목록(연결 수 순). 31개씩 무한 스크롤 |
+| 엔티티 관찰 | **관찰/주장** | Observations | `observations` | 그래프 뷰 엔티티 목록의 펼친 행에 보인다 |
 | 지식 실체 | **엔티티** | Entity | `Entity`, `ExtractedEntity` | `entities` 테이블 |
 | 그래프 정점 | **노드** | Node | `node`, `nodes` (dict) | GraphView cytoscape element |
 | 의미 연결 | **관계** | Relation | `Relation`, `ExtractedRelation` | `relations` 테이블 |

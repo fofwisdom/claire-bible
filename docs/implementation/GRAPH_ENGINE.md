@@ -252,7 +252,8 @@
 
 ## 9. 공개 API와 이벤트 (vis-network 호환) [코드]
 
-- **메서드**: `fit`, `focus`, `moveTo`, `getScale`, `getViewPosition`, `DOMtoCanvas`, `canvasToDOM`, `getPosition`, `getPositions`, `getConnectedNodes`, `getConnectedEdges`, `selectNodes`, `selectEdges`, `getSelectedNodes`, `getSelectedEdges`, `unselectAll`, `setOptions`, `stopSimulation`, `startSimulation`, `stabilize`, `setSize`, `redraw`, `destroy`, `rendererInfo`(getter).
+- **메서드**: `fit`, `focus`, `moveTo`, `getScale`, `getViewPosition`, `DOMtoCanvas`, `canvasToDOM`, `getPosition`, `getPositions`, `getConnectedNodes`, `getConnectedEdges`, `selectNodes`, `selectEdges`, `getSelectedNodes`, `getSelectedEdges`, `unselectAll`, `setOptions`, `stopSimulation`, `startSimulation`, `stabilize`, `setSize`, `redraw`, `destroy`, `rendererInfo`(getter), `setHoverNode(id)`.
+- **`setHoverNode(id)`** (vis-network에 없는 확장): 코드에서 호버 상태를 정한다. 현재 호버 그리기를 그대로 쓰고 이벤트는 내지 않는다. `null`이면 해제한다. 그래프 뷰의 엔티티 목록이 행 hover로 캔버스 노드를 강조할 때 쓴다(카메라 이동 없음).
 - **이벤트**: `click`, `selectNode`, `deselectNode`, `selectEdge`, `deselectEdge`, `hoverNode`, `blurNode`, `dragStart`, `dragEnd`, `hold`, `zoom`, `animationFinished`, `stabilized`.
 - **옵션**: `DEFAULT_OPTIONS`(`network.js`)에 `deepMerge`로 합쳐진다. 시뮬레이션 상수는 `options.simulation`으로 `SIM_DEFAULTS`를 덮어쓸 수 있다. 앱은 `nodes`, `edges`, `groups`, `physics`, `interaction`, `renderer.fitAvoid`를 넘긴다. 테마를 바꾸면 `setOptions`로 글자색, 엣지색, 그룹색을 다시 넣는다.
 
@@ -270,6 +271,7 @@
 | `clusterMatches` / `unclusterEdges` | 검색 결과를 숨은 고정 앵커 `cl_anchor`와 `cl_<n>` 엣지(길이 `CENTER_LEN = 55`)로 화면 중앙에 모은다. 해제하면 tether로 원래 별에 돌아간다. **`cl_` 접두어는 이 용도 전용이다.** |
 | `setupWheelZoom` | 휠 확대(엔진 휠 비활성) |
 | `hoverNode` / `blurNode` 핸들러 | 호버 강조(`applyHoverHighlight`)와 요약 팝업 타이머 |
+| `isNodeListed` (`isNodeHiddenByView` / `isNodeMatchedByView`) | `applyView`와 그래프 뷰 엔티티 목록이 같이 쓰는 표시 조건. 목록은 이 조건을 만족하는 노드만 연결 수 순(같으면 이름 순)으로 31개씩 보인다 |
 | `window.claireDebug` | 읽기 전용 디버그 핸들: `sel`, `highlight`, `selected`, `positions(ids)`, `visibleNodePoints()`, `graphRenderer` 등 |
 
 **[코드] 초기 연결 수 필터 기준이 경로마다 다르다.** 의도된 것인지는 [미검증]이며, 통일하려면 소유자에게 묻는다.

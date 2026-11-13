@@ -297,6 +297,7 @@ function setCenterView(mode){
   }
   centerView = nextView;
   document.body.dataset.centerView = centerView;
+  if(typeof syncListPane === 'function') syncListPane();
   updateCenterSearchMode(centerView);
   const mt = document.getElementById('menu-section-title');
   if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : (centerView==='presentation' ? '프레젠테이션' : '문서와 그래프')))); }

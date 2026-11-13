@@ -176,11 +176,12 @@ def test_graph_html_self_contained_markers():
     assert "opacity" in GRAPH_HTML and "dday" in GRAPH_HTML             # dim + 일자 그룹
     # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 노드 패널의 출처 문서 '본문 보기' 버튼이 openReader 호출
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 뷰
-    assert "📖 본문 보기" in GRAPH_HTML
+    # Unit LP-4: the source document row has an icon button with this label.
+    assert 'title="본문 보기" aria-label="본문 보기">📖</button>' in GRAPH_HTML
     assert "📖 크게 읽기" not in GRAPH_HTML  # 중복되거나 모호한 '크게 읽기' 라벨 제거
     assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
     assert "renderMarkdown" in GRAPH_HTML and "marked" in GRAPH_HTML and "DOMPurify" in GRAPH_HTML  # 마크다운 렌더+살균
-    assert "readbtn" in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # 읽기 버튼=nav 와 분리
+    assert 'class="srcread"' in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # The reader button of the node panel (.srcread) is separate from the row navigation.
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
     assert "relayout" in GRAPH_HTML and "orientationchange" in GRAPH_HTML  # 모바일 캔버스 리사이즈
@@ -1120,3 +1121,84 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
 
 
+
+
+def test_list_pane_rename_and_windowed_document_list():
+    """The list pane is named '목록', has one wrapper for the document lists and one container for the entity list, and pages the document list by 31."""
+    from claire.graphview import GRAPH_HTML
+
+    assert "본문 목록" not in GRAPH_HTML
+    assert '<span class="btn-label">목록</span>' in GRAPH_HTML
+    assert 'title="목록 닫기" aria-label="목록 닫기"' in GRAPH_HTML
+    wrap_pos = GRAPH_HTML.index('<div id="doclistwrap">')
+    ent_pos = GRAPH_HTML.index('<div id="entlist"')
+    assert wrap_pos < GRAPH_HTML.index('id="pinnedhead"') < GRAPH_HTML.index('<div id="doclist">') < GRAPH_HTML.index('id="hiddenlist"') < ent_pos
+    assert GRAPH_HTML.index('id="listtitle"') < GRAPH_HTML.index('id="stat"')
+    assert '#docs[data-list="entities"] #doclistwrap{display:none}' in GRAPH_HTML
+    assert '#docs:not([data-list="entities"]) #entlist{display:none}' in GRAPH_HTML
+    assert "const LIST_PAGE = 31;" in GRAPH_HTML
+    assert "function createWindowedList(" in GRAPH_HTML
+    assert "if(typeof syncListPane === 'function') syncListPane();" in GRAPH_HTML
+
+
+def test_entity_list_markup():
+    """The graph view has an entity list with a sort control and filter chips. The E2E test proves that the graph and the list use one predicate."""
+    from claire.graphview import GRAPH_HTML
+
+    assert '<div id="entlist" role="list" aria-label="엔티티 목록"></div>' in GRAPH_HTML
+    assert GRAPH_HTML.index('<div id="listbody">') < GRAPH_HTML.index('<div id="doclistwrap">') < GRAPH_HTML.index('<div id="enttools">') < GRAPH_HTML.index('<div id="entlist"') < GRAPH_HTML.index('id="listtopbtn"')
+    assert 'data-sort="degree" aria-pressed="true" onclick="setEntitySort(\'degree\')">연결순</button>' in GRAPH_HTML
+    assert 'data-sort="name" aria-pressed="false" onclick="setEntitySort(\'name\')">이름순</button>' in GRAPH_HTML
+    assert '<div id="entchips" role="status" aria-live="polite" hidden></div>' in GRAPH_HTML
+    assert '#docs:not([data-list="entities"]) #enttools{display:none}' in GRAPH_HTML
+    assert "<h4>관찰/주장</h4>" in GRAPH_HTML
+    assert "⌖ 그래프에서 보기" in GRAPH_HTML
+    assert "필터 밖" in GRAPH_HTML
+
+
+def test_node_detail_panel_markup_has_closed_source_rows_and_no_observation_section():
+    """The node detail panel has no 관찰 · 주장 section, the heading 더 알아보기 has no emoji, and the summary of a source document is justified text."""
+    from claire.graphview import GRAPH_HTML
+
+    assert "관찰 · 주장" not in GRAPH_HTML
+    assert "🔬 더 알아보기" not in GRAPH_HTML
+    assert "<h3>더 알아보기</h3>" in GRAPH_HTML
+    assert "관찰/주장 · 연결 보기 (" in GRAPH_HTML
+    assert "#panel .srcsum{margin:.35em 0 .2em;text-align:justify;text-align-last:start;text-justify:inter-character;word-break:normal;overflow-wrap:anywhere;line-height:1.6}" in GRAPH_HTML
+    assert "#panel .nodehead{position:sticky;top:calc(-1 * var(--drawer-pad-y));" in GRAPH_HTML
+    assert "요약 없음" in GRAPH_HTML
+
+
+def test_node_detail_docs_brief_omits_detail_text():
+    """node_detail(docs_brief=True) gives the short source document fields. The default result keeps the full fields."""
+    conn = _db()
+    dbm.insert_document(conn, Document(id="d1", url="https://x/1", title="MCP 소개", raw_text="...", source_type="web", content_hash="h"))
+    dbm.log_extraction(conn, document_id="d1", provider="mock", model="m", prompt_version="v", raw_response='{"summary":"MCP는 표준 프로토콜"}')
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", observations=["LLM 컨텍스트 표준"], sources=["d1"]))
+
+    full = node_detail(conn, "e1")
+    brief = node_detail(conn, "e1", docs_brief=True)
+    assert set(full["documents"][0]) == {"id", "title", "url", "summary", "detail", "detail_format", "detail_html", "fetched_at"}
+    assert set(brief["documents"][0]) == {"id", "title", "url", "summary", "fetched_at", "has_detail", "source_type", "has_raw_file"}
+    doc = brief["documents"][0]
+    assert doc["summary"] == "MCP는 표준 프로토콜" and doc["has_detail"] is False and doc["has_raw_file"] is False and doc["source_type"] == "web"
+    assert {k: v for k, v in brief.items() if k != "documents"} == {k: v for k, v in full.items() if k != "documents"}
+    dbm.set_document_detail(conn, "d1", "상세 본문")
+    assert node_detail(conn, "e1", docs_brief=True)["documents"][0]["has_detail"] is True
+
+
+def test_node_detail_docs_brief_has_raw_file_is_equal_to_document_detail():
+    """has_raw_file of node_detail(docs_brief=True) is equal to has_raw_file of document_detail() for the same document: an original file in raw_inbox, an original file in the document meta, and no original file."""
+    conn = _db()
+    dbm.insert_document(conn, Document(id="d-inbox", url="file:///srv/a.pdf", title="inbox", raw_text="...", source_type="file", content_hash="h1"))
+    dbm.insert_document(conn, Document(id="d-meta", url="https://x/2", title="meta", raw_text="...", source_type="web", content_hash="h2", meta={"original_requested_file": "/srv/b.pdf"}))
+    dbm.insert_document(conn, Document(id="d-none", url="https://x/3", title="none", raw_text="...", source_type="web", content_hash="h3"))
+    conn.execute("INSERT INTO raw_inbox(received_at, source, kind, payload, file_name, file_ref, document_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (1.0, "cli", "document", "", "a.pdf", "/srv/raw/1_a.pdf", "d-inbox", "done"))
+    dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d-inbox", "d-meta", "d-none"]))
+
+    brief = {d["id"]: d["has_raw_file"] for d in node_detail(conn, "e1", docs_brief=True)["documents"]}
+    assert brief == {"d-inbox": True, "d-meta": True, "d-none": False}
+    for doc_id, expected in brief.items():
+        assert store_queries.document_detail(conn, doc_id)["has_raw_file"] is expected
+    assert store_queries.document_detail(conn, "d-inbox")["raw_file_name"] == "a.pdf"
+    assert store_queries.document_detail(conn, "d-meta")["raw_file_name"] == "b.pdf"

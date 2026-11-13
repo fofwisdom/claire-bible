@@ -2030,13 +2030,45 @@ def find_document_by_canonical_url(
     return row["id"] if row else None
 
 
+DOCUMENTS_ORDER_SQL = "ORDER BY fetched_at DESC, id DESC"
+
+
+def encode_documents_cursor(fetched_at: float | None, document_id: str) -> str:
+    """The keyset cursor of a document row: ``<fetched_at>:<id>``. The fetched_at part is empty when the column is NULL. repr() gives the shortest text that reads back as the same float."""
+    return f"{'' if fetched_at is None else repr(float(fetched_at))}:{document_id}"
+
+
+def decode_documents_cursor(cursor: str) -> tuple[float | None, str]:
+    """Parse ``<fetched_at>:<id>``. The identifier can contain a colon, thus only the first colon is the separator. A cursor that is not valid raises ValueError."""
+    head, sep, document_id = (cursor or "").partition(":")
+    if not sep or not document_id:
+        raise ValueError("cursor must be <fetched_at>:<id>")
+    if head == "":
+        return None, document_id
+    value = float(head)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("cursor fetched_at must be a finite number")
+    return value, document_id
+
+
 def _documents_filter(
     since: float | None,
     query: str | None,
     include_hidden: bool = True,
     theme_id: int | None = None,
+    *,
+    before: tuple[float | None, str] | None = None,
+    pinned: bool | None = None,
+    hidden: bool | None = None,
+    ids: list[str] | None = None,
+    text: str | None = None,
+    detail: str | None = None,
+    detail_format: str | None = None,
 ) -> tuple[str, list]:
-    """documents_timeline/documents_count 공용 WHERE 절 빌더."""
+    """documents_timeline/documents_count 공용 WHERE 절 빌더.
+
+    The keyword filters are for GET /documents (unit LP-5). before: only the rows after this cursor in the order of DOCUMENTS_ORDER_SQL (a NULL fetched_at is last). pinned / hidden: only the rows with this flag value. ids: only these identifiers. text: the title or the summary of the latest extraction contains this text. detail: "missing" (no detail text) or "mismatched" (a detail text with a format that is not detail_format).
+    """
     where, params = [], []
     if theme_id is not None:
         where.append("theme_id = ?")
@@ -2050,6 +2082,33 @@ def _documents_filter(
         where.append("(title LIKE ? OR url LIKE ?)")
         like = f"%{query}%"
         params.extend([like, like])
+    if pinned is not None:
+        where.append("coalesce(pinned, 0) = ?")
+        params.append(1 if pinned else 0)
+    if hidden is not None:
+        where.append("coalesce(hidden, 0) = ?")
+        params.append(1 if hidden else 0)
+    if ids is not None:
+        where.append(f"id IN ({','.join('?' for _ in ids)})" if ids else "0")
+        params.extend(ids)
+    if text:
+        # The summary is in the JSON text of the latest extraction row. A row with JSON that is not valid has no summary.
+        where.append("(title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM extractions e WHERE e.id = (SELECT max(e2.id) FROM extractions e2 WHERE e2.document_id = documents.id AND e2.theme_id = documents.theme_id) AND CASE WHEN json_valid(e.raw_response) THEN json_extract(e.raw_response, '$.summary') END LIKE ? ESCAPE '\\'))")
+        like = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        params.extend([like, like])
+    if detail == "missing":
+        where.append("(detail IS NULL OR trim(detail) = '')")
+    elif detail == "mismatched":
+        where.append("(detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?)")
+        params.append((detail_format or "md").lower())
+    if before is not None:
+        before_ts, before_id = before
+        if before_ts is None:
+            where.append("(fetched_at IS NULL AND id < ?)")
+            params.append(before_id)
+        else:
+            where.append("(fetched_at < ? OR (fetched_at = ? AND id < ?) OR fetched_at IS NULL)")
+            params.extend([before_ts, before_ts, before_id])
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     return where_sql, params
 
@@ -2062,17 +2121,18 @@ def documents_timeline(
     query: str | None = None,
     include_hidden: bool = True,
     theme_id: int | None = None,
+    **filters: Any,
 ) -> list[sqlite3.Row]:
     """문서를 최신 적재순으로(좌측 문서 패널용). summary 는 호출측에서 붙인다.
 
-    since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수 있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로). include_hidden=False 면 hidden=0 인 공개 문서만 조회한다."""
-    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id)
+    since/query 는 MCP `documents` 툴이 "전체를 다 훑지 않고 좁혀서 찾을" 수 있게 추가된 선택적 필터(기본 None, 기존 웹 UI 호출은 동작 그대로). include_hidden=False 면 hidden=0 인 공개 문서만 조회한다. filters: the keyword filters of _documents_filter() (before, pinned, hidden, ids, text, detail, detail_format)."""
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id, **filters)
     params.append(limit)
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
         f"pinned, hidden, (detail IS NOT NULL AND trim(detail) != '') AS has_detail, "
         f"coalesce(detail_format, 'md') AS detail_format FROM documents {where_sql} "
-        f"ORDER BY fetched_at DESC, id DESC LIMIT ?",
+        f"{DOCUMENTS_ORDER_SQL} LIMIT ?",
         params,
     ).fetchall()
 
@@ -2084,9 +2144,10 @@ def documents_count(
     query: str | None = None,
     include_hidden: bool = True,
     theme_id: int | None = None,
+    **filters: Any,
 ) -> int:
     """documents_timeline과 동일한 필터의 총 개수(잘림 여부 판단용)."""
-    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id)
+    where_sql, params = _documents_filter(since, query, include_hidden=include_hidden, theme_id=theme_id, **filters)
     return conn.execute(
         f"SELECT COUNT(*) c FROM documents {where_sql}", params
     ).fetchone()["c"]

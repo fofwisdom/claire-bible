@@ -142,6 +142,66 @@
   #pinnedlist{max-height:32%;overflow-y:auto;flex-shrink:0;border-bottom:2px solid var(--border);
     background:rgba(227,179,65,.10)}
   #doclist{flex:1;min-height:120px;overflow-y:auto}
+  /* 목록 영역: 보기별 목록 전환(문서 | 엔티티), 31건 단위 추가 렌더링 */
+  #doclistwrap{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+  #entlist{flex:1;min-height:0;overflow-y:auto}
+  #docs[data-list="entities"] #doclistwrap{display:none}
+  #docs:not([data-list="entities"]) #entlist{display:none}
+  #docs:not([data-list="entities"]) #enttools{display:none}
+  #docs:not([data-list="entities"]) #stat .graphstat{display:none}
+  #listbody{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+  /* Entity list (graph view): sort control, filter chips, rows with a degree bar, and one open row. */
+  #enttools{flex-shrink:0;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--docs-bg);display:flex;flex-direction:column;gap:6px}
+  .entsort{display:flex;gap:4px}
+  .entsort-btn{flex:1;padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--sec-fg);cursor:pointer}
+  .entsort-btn.active{border-color:var(--accent2);color:var(--fg);font-weight:600}
+  #entchips{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  #entchips[hidden]{display:none}
+  .entchip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;font-size:11.5px;border:1px solid var(--border);border-radius:10px;background:var(--hover);color:var(--fg)}
+  .entchip-reset{margin-left:auto;padding:1px 6px;font-size:11.5px;border:0;background:none;color:var(--accent);cursor:pointer}
+  .entitem{border-bottom:1px solid var(--border)}
+  .entitem.active{border-left:3px solid var(--accent2)}
+  .entitem.open{background:var(--active)}
+  .entrow{display:block;width:100%;min-height:38px;margin:0;padding:8px 10px 6px;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+  .entrow:hover{background:var(--hover)}
+  .entrow:focus-visible{outline:2px solid var(--accent2);outline-offset:-2px}
+  .entline{display:flex;align-items:center;gap:6px}
+  .entdot{flex:0 0 9px;width:9px;height:9px;border-radius:50%}
+  .entname{flex:1;min-width:0;font-size:13.5px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .entitem.open .entname{white-space:normal;font-weight:600}
+  .enttype{flex-shrink:0;color:var(--muted);font-size:11px}
+  .entdeg{flex-shrink:0;min-width:20px;padding:0 5px;border-radius:8px;background:var(--hover);color:var(--muted);font-size:11px;text-align:center}
+  .entout{flex-shrink:0;padding:0 5px;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:10.5px}
+  .entbar{display:block;height:2px;margin:5px 0 0 15px;background:var(--border);border-radius:1px;overflow:hidden}
+  .entbar i{display:block;height:2px;min-width:2px;background:var(--accent2)}
+  .entbody{padding:2px 10px 10px 25px;font-size:12.5px;line-height:1.5}
+  .entbody h4{margin:.7em 0 .25em;font-size:12px;color:var(--accent2)}
+  .entbody ul{margin:.2em 0;padding-left:16px}
+  .entbody li{margin:.2em 0;overflow-wrap:anywhere}
+  .entbody .hint{margin:.2em 0;color:var(--muted)}
+  .entbody .rel{color:var(--rel);font-size:11.5px}
+  .entbody small{color:var(--muted)}
+  .entmore{padding:2px 8px;font-size:11.5px;border:1px solid var(--border);border-radius:10px;background:none;color:var(--accent);cursor:pointer}
+  .entrel summary{cursor:pointer;padding:2px 0}
+  .entrel-count{color:var(--muted);font-size:11px}
+  .entgo{display:none;margin:6px 0 2px;font-size:12px}
+  @media (max-width:720px){ .entgo{display:inline-block} }
+  .list-title{color:var(--fg);font-weight:600;white-space:nowrap;margin-right:8px}
+  .list-title b{color:var(--accent)}
+  .list-sentinel{height:1px}
+  .list-end{padding:10px;text-align:center;color:var(--muted);font-size:11.5px}
+  /* The bottom padding keeps the retry control above the floating 맨 위로 button. */
+  .list-more-error{padding:10px 10px 48px;text-align:center;color:var(--muted);font-size:12px}
+  .list-more-error .list-retry{margin-left:6px}
+  #graphdocmore{padding:8px 10px;font-size:12px}
+  .list-top-btn{position:absolute;right:12px;bottom:12px;z-index:3;padding:5px 10px;font-size:12px;border-radius:14px;border:1px solid var(--border);background:var(--card-bg);color:var(--fg);cursor:pointer;box-shadow:0 2px 8px var(--shadow)}
+  .list-top-btn:hover{border-color:var(--accent)}
+  .list-top-btn[hidden]{display:none}
+  .docskel-row{padding:10px;border-bottom:1px solid var(--border)}
+  .docskel-row i{display:block;height:10px;border-radius:4px;background:var(--border);animation:docskel 1.2s ease-in-out infinite alternate}
+  .docskel-row i+i{width:55%;margin-top:7px;height:8px}
+  @keyframes docskel{from{opacity:.45}to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.docskel-row i{animation:none}}
   .doclist-toolbar{position:sticky;top:0;z-index:2;padding:6px 10px;background:var(--docs-bg);border-bottom:1px solid var(--border)}
   .doclist-toolbar select#desclines{width:100%;font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--fg);cursor:pointer}
   .doclist-toolbar select#desclines:focus{outline:none;border-color:var(--accent2)}
@@ -190,7 +250,7 @@
     border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s ease}
   #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
   #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
-  #drawerscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;font-size:13px;line-height:1.5;display:flex;flex-direction:column}
+  #drawerscroll{--drawer-pad-y:12px;--drawer-pad-x:14px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:var(--drawer-pad-y) var(--drawer-pad-x);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
   #drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
   #drawermanager{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #repolink{margin-left:auto;flex-shrink:0}
@@ -258,6 +318,30 @@
   #panel .doc{margin:.5em 0;padding:6px 8px;background:var(--card-bg);border-radius:5px}
   #panel .doc p{margin:.3em 0 0;color:var(--fg)} #panel a{color:var(--accent);text-decoration:none}
   #panel .doc p.src{margin-top:.45em}
+  /* Node detail panel (unit LP-4): sticky node header, the button that shows the entity list row, and closed source document rows. */
+  /* The sticky position is measured from the content edge of #drawerscroll. A negative top and the same padding hide the rows that scroll through the top padding. The two variables are the padding of #drawerscroll, which is larger on a small screen. */
+  #panel .nodehead{position:sticky;top:calc(-1 * var(--drawer-pad-y));z-index:3;margin:0 calc(-1 * var(--drawer-pad-x));padding:var(--drawer-pad-y) var(--drawer-pad-x) 1px;background:var(--panel-bg);border-bottom:1px solid var(--border)}
+  #panel .nodehead .node-actions-bar{margin:6px 0 8px}
+  #panel .node-listrow-btn{display:block;width:100%;margin:10px 0 4px;text-align:left}
+  #panel .srcfilter{width:100%;box-sizing:border-box;margin:.2em 0 .4em;padding:4px 8px;font-size:12.5px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--fg)}
+  #panel .srcrow{border-bottom:1px solid var(--border)}
+  #panel .srchead{display:flex;align-items:flex-start;gap:4px}
+  #panel .srctitle{flex:1;min-width:0;display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:4px;row-gap:1px;margin:0;padding:7px 2px;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer;scroll-margin-top:120px}
+  #panel .srctitle:hover{background:var(--hover)}
+  #panel .srctitle:focus-visible,#panel .srcread:focus-visible{outline:2px solid var(--accent2);outline-offset:-2px}
+  #panel .srccaret{color:var(--muted)}
+  #panel .srcname{overflow-wrap:anywhere}
+  #panel .srctitle[aria-expanded="true"] .srcname{font-weight:600}
+  #panel .srcmeta{grid-column:2;display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
+  #panel .srctype{padding:0 6px;border:1px solid var(--border);border-radius:8px;background:var(--chip-bg)}
+  #panel .srcread{flex:none;min-width:32px;min-height:32px;margin:2px 0 0;padding:0;border:0;border-radius:4px;background:none;font-size:15px;cursor:pointer}
+  #panel .srcread:hover{background:var(--hover)}
+  #panel .srcbody{padding:0 4px 8px 20px}
+  #panel .srcbody[hidden]{display:none}
+  /* CJK justify: keep-all puts the extra space only between eojeol (wide gaps). word-break:normal lets a line break between syllables, thus the lines fill and the gaps stay small. */
+  #panel .srcsum{margin:.35em 0 .2em;text-align:justify;text-align-last:start;text-justify:inter-character;word-break:normal;overflow-wrap:anywhere;line-height:1.6}
+  #panel .srcsum.srcnone{color:var(--muted)}
+  #panel .srcbody p.src{margin:.45em 0 0;font-size:12px}
   #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   .docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
@@ -371,7 +455,7 @@
   /* 모바일 화면 (720px 이하 - 1단 보기):
      - 최상단: 브랜드 로고, 테마 선택, 권한 상태, 라이트/다크 전환 및 상세 메뉴(햄버거 버튼) 배치
      - 하단 바 및 단추 제거
-     - 기본 보기: 본문 목록
+     - 기본 보기: 목록
   */
   @media (max-width:720px){
     #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
@@ -463,7 +547,7 @@
       box-shadow:-8px 0 24px var(--shadow);
       transition:transform .2s ease,visibility 0s linear .2s}
     #detailclose{min-width:44px;min-height:44px}
-    #drawerscroll{padding:14px 16px max(16px,env(safe-area-inset-bottom))}
+    #drawerscroll{--drawer-pad-y:14px;--drawer-pad-x:16px;padding:var(--drawer-pad-y) var(--drawer-pad-x) max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
     #degctl{right:calc(max(12px,env(safe-area-inset-right)) + 52px);bottom:max(12px,env(safe-area-inset-bottom));
       width:46px;height:252px;border-radius:23px;padding:8px 4px}
