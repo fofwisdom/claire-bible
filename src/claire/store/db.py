@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -800,6 +800,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v18_federation_publishing(conn)
     _migrate_v19_account_locale(conn)
     _migrate_v20_syndication_cleanup(conn)
+    _migrate_v21_account_feeds(conn)
     backfill_embedding_models(conn)
 
 
@@ -1221,6 +1222,67 @@ def _migrate_v20_syndication_cleanup(conn: sqlite3.Connection) -> None:
     finally:
         if rebuild and foreign_keys_on:
             conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v21_account_feeds(conn: sqlite3.Connection) -> None:
+    """v21 (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F1): feed subscriptions and feed items of an account. Idempotent, adds tables only (A3).
+
+    The tables belong to the account (RD13). A feed item has no foreign key to ``documents``: an ingested document is a shared asset, and the deletion of feed data never deletes a document (design Section 10 rule 5).
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feed_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            url TEXT NOT NULL,
+            site_url TEXT,
+            title TEXT NOT NULL DEFAULT '',
+            folder TEXT NOT NULL DEFAULT '',
+            format TEXT CHECK (format IS NULL OR format IN ('rss', 'atom', 'json')),
+            etag TEXT,
+            last_modified TEXT,
+            websub_hub TEXT,
+            websub_topic TEXT,
+            last_polled_at REAL,
+            last_success_at REAL,
+            next_poll_at REAL,
+            last_status INTEGER,
+            last_error TEXT,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE (account_id, url)
+        )
+        """
+    )
+    # The scheduler reads the feeds that are due.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_subscriptions_next_poll ON feed_subscriptions(next_poll_at)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            feed_id INTEGER NOT NULL REFERENCES feed_subscriptions(id) ON DELETE CASCADE,
+            item_key TEXT NOT NULL,
+            url TEXT,
+            title TEXT NOT NULL DEFAULT '',
+            author TEXT,
+            summary TEXT,
+            content TEXT,
+            categories TEXT NOT NULL DEFAULT '[]',
+            published_at REAL,
+            modified_at REAL,
+            fetched_at REAL NOT NULL,
+            unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)),
+            starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
+            linked_theme_id INTEGER,
+            linked_doc_id TEXT,
+            UNIQUE (feed_id, item_key)
+        )
+        """
+    )
+    # The item list of an account reads the newest rows first.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_items_account ON feed_items(account_id, id)")
 
 
 def backfill_embedding_models(conn: sqlite3.Connection) -> int:

@@ -32,7 +32,9 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
        "/api/me/data-bundles", "/api/me/data-bundles/download",
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
-       "/api/federation/status", "/api/federation/followers", "/api/federation/publish", "/api/federation/retract"}
+       "/api/federation/status", "/api/federation/followers", "/api/federation/publish", "/api/federation/retract",
+       # Account feeds (FP4-F1, FP4-F2)
+       "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
