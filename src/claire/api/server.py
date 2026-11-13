@@ -4967,9 +4967,14 @@ def run_api() -> int:
         for host, port in listeners:
             sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
             sockets.append(sock)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            optional = (host, port) in optional_listeners
+            # SO_REUSEADDR lets two processes bind the same port; the second one then fails at listen(). The optional prototype listener listens at once, so that a port in use is found here and skipped.
+            if not optional:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 sock.bind((host, port))
+                if optional:
+                    sock.listen(128)
             except OSError as exc:
                 if (host, port) in optional_listeners:
                     print(f"prototype listener skipped {host}:{port}: {exc}", flush=True)

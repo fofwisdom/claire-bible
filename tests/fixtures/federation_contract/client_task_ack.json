@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/client-tasks/1/ack",
+    "body": {
+      "result": "handed_off",
+      "error_code": null,
+      "actor": {
+        "iri": "https://remote.example/users/carol",
+        "type": "Person",
+        "inbox": "https://remote.example/users/carol/inbox",
+        "shared_inbox": "https://remote.example/inbox",
+        "name": "Carol"
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "id": 1,
+    "status": "handed_off"
+  }
+}

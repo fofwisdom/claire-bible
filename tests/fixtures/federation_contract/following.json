@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/actors/116412345678901234/following"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "116412345678901234",
+    "total": 1
+  }
+}

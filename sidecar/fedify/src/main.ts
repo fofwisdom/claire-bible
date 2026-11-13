@@ -76,6 +76,8 @@ if (import.meta.main) {
     try {
       // A full batch can mean that more tasks are ready.
       while ((await sidecar.processOutboxTasks()) >= OUTBOX_TASK_BATCH);
+      // The client tasks (contract 1.3): follows, unfollows, and removed followers.
+      while ((await sidecar.processClientTasks()) >= OUTBOX_TASK_BATCH);
     } catch (error) {
       console.error(`outbox poll failed: ${(error as Error).name}: ${(error as Error).message}`);
     } finally {

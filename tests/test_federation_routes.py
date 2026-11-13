@@ -34,8 +34,9 @@ NOW = 1_800_000_400
 ALICE_PUBLIC_ID = 116412345678901234
 ALICE_IRI = f"https://claire.example.com/ap/actors/{ALICE_PUBLIC_ID}"
 BOB_IRI = "https://remote.example/users/bob"
-INBOX_EVENT_FIXTURES = ["inbox_event_follow", "inbox_event_undo_follow", "inbox_event_delete_actor", "inbox_event_update_actor", "inbox_event_blocked_domain", "inbox_event_not_an_actor", "inbox_event_ignored"]
+INBOX_EVENT_FIXTURES = ["inbox_event_follow", "inbox_event_accept_follow", "inbox_event_undo_follow", "inbox_event_delete_actor", "inbox_event_update_actor", "inbox_event_blocked_domain", "inbox_event_not_an_actor", "inbox_event_ignored"]
 FP2_FIXTURES = ["followers", "followers_next", "followers_not_found", "domain_blocks", *INBOX_EVENT_FIXTURES]
+FP4_FIXTURES = ["client_tasks", "client_task_ack", "following"]
 FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found", "actor_gone"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
@@ -167,6 +168,20 @@ def internal(tmp_path):
         conn.commit()
     finally:
         conn.close()
+    # client.db (RD27): the follows and the client tasks of the contract 1.3 fixtures.
+    from claire.store import client_db
+
+    client = client_db.connect_client_db(client_db.client_db_path(settings.db_file))
+    try:
+        for fid, request, actor_iri, state in ((1, "@carol@remote.example", None, "pending"), (3, "@dan@remote.example", "https://remote.example/users/dan", "accepted"), (4, "@frank@remote.example", "https://remote.example/users/frank", "pending")):
+            client.execute("INSERT INTO federation_following (id, account_id, request, actor_iri, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1800000359.0, 1800000359.0)", (fid, alice, request, actor_iri, state))
+        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (1, ?, 'follow', NULL, 1, 'pending', 1800000360.0)", (alice,))
+        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (2, ?, 'reject_follow', 'https://remote.example/users/erin', NULL, 'pending', 1800000361.0)", (alice,))
+        # private_bob is not an actor: its task waits.
+        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (3, ?, 'undo_follow', 'https://remote.example/users/x', NULL, 'pending', 1800000362.0)", (bob,))
+        client.commit()
+    finally:
+        client.close()
     auth = auth_db.connect_auth_db(auth_db.auth_db_path(tmp_path))
     try:
         # External identity canary values (design Section 8.2 item 1).
@@ -213,7 +228,7 @@ def test_federation_setting_default_and_values(tmp_path):
 # --- Each endpoint agrees with its fixture (module interface) ---
 
 
-@pytest.mark.parametrize("name", ["config", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys_not_found", "heartbeat_version_mismatch", *FP2_FIXTURES, *FP3_FIXTURES])
+@pytest.mark.parametrize("name", ["config", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys_not_found", "heartbeat_version_mismatch", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES])
 def test_endpoint_agrees_with_fixture(internal, name):
     internal.assert_fixture(name)
 
@@ -237,7 +252,7 @@ def test_keys_agree_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}

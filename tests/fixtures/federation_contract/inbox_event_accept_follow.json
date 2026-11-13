@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/inbox-events",
+    "body": {
+      "event_id": "https://remote.example/users/frank#accepts/1",
+      "type": "Accept",
+      "object_type": null,
+      "recipient_public_id": "116412345678901234",
+      "actor": {
+        "iri": "https://remote.example/users/frank",
+        "inbox": "https://remote.example/users/frank/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "object_iri": "https://claire.example.com/ap/actors/116412345678901234#follows/4",
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reply": null,
+    "reason": null
+  }
+}

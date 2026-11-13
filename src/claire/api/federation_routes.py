@@ -36,7 +36,9 @@ from ..store import actor_keys
 from ..store import auth_db
 from .. import ids
 from ..store import db as dbm
+from ..store import client_db
 from ..store import federation as federation_store
+from ..store import federation_client as client_store
 from ..store.secrets import get_secret_service
 from .collections import parse_collection_query
 
@@ -65,7 +67,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.2"
+CONTRACT_VERSION = "1.3"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -226,6 +228,46 @@ class OutboxAckResponse(_Sealed):
     status: Literal["pending", "handed_off", "rejected"]
 
 
+class ClientTaskItem(_Sealed):
+    """One task of the client outbox (contract 1.3, FEDERATION_REMOTE_READING_DESIGN.md Section 5.2, unit FP4-3).
+
+    ``follow``: ``target`` is the handle or IRI that the owner gave; the sidecar resolves it and sends ``Follow`` with the ID ``{actor}#follows/{following_id}``. ``undo_follow``: ``target`` is the actor IRI; the sidecar sends ``Undo`` of that ``Follow``. ``reject_follow``: ``target`` is the actor IRI of a removed follower; the sidecar sends ``Reject(Follow)``.
+    """
+
+    id: int
+    kind: Literal["follow", "undo_follow", "reject_follow"]
+    actor_public_id: str
+    target: str
+    following_id: str | None
+    created_at: float
+    lease_until: float
+
+
+class ClientTasksResponse(_Sealed):
+    tasks: list[ClientTaskItem]
+
+
+class ResolvedActor(_Sealed):
+    iri: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    type: Literal["Person", "Group", "Service", "Application", "Organization"]
+    inbox: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    shared_inbox: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    name: str | None = Field(max_length=512)
+
+
+class ClientAckRequest(_Sealed):
+    result: Literal["handed_off", "rejected"]
+    error_code: str | None = Field(pattern=r"^[a-z0-9_]{1,64}$")
+    # The actor of a ``follow`` task that the sidecar resolved. ``None`` for other kinds and for a rejected follow.
+    actor: ResolvedActor | None
+
+
+class FollowingResponse(_Sealed):
+    public_id: str
+    # Accepted follows only. The public collection shows the total only (RD9).
+    total: int
+
+
 class ObjectRecord(_Sealed):
     """The canonical form of one published object (design Section 9.1). The sidecar makes the ``Article`` from it."""
 
@@ -283,6 +325,17 @@ def _event_kind(event: InboxEventRequest) -> Literal["follow", "undo_follow", "d
     if event.type == "Update" and event.object_iri == event.actor.iri:
         return "update_actor"
     return None
+
+
+def _local_follow(origin: str, iri: str | None) -> tuple[str, int] | None:
+    """Return the actor public ID and the follow number of a follow ID of this instance (``{origin}/ap/actors/{public_id}#follows/{n}``), or ``None``. An ``Accept`` or a ``Reject`` refers to the follow by this ID (RT1)."""
+    if iri is None or "#follows/" not in iri:
+        return None
+    actor_part, _, number = iri.partition("#follows/")
+    public_id = _local_actor_public_id(origin, actor_part)
+    if public_id is None or not (number.isascii() and number.isdigit() and number[0] != "0" and len(number) <= 18):
+        return None
+    return public_id, int(number)
 
 
 def _local_actor_public_id(origin: str, iri: str | None) -> str | None:
@@ -511,6 +564,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         # Claire makes the final check of the domain blocks (design Section 11 item 1).
         if any(federation_store.blocking_domain(conn, host) is not None for host in hosts if host is not None):
             return rejected("blocked_domain")
+        if event.type in ("Accept", "Reject"):
+            return _follow_response(store, origin, event)
         kind = _event_kind(event)
         if kind is None:
             return InboxEventResponse(decision="ignored", reply=None, reason="unsupported_type")
@@ -538,6 +593,27 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if account is None:
             return rejected("not_an_actor")
         federation_store.remove_follower(conn, account.id, event.actor.iri)
+        return InboxEventResponse(decision="accepted", reply=None, reason=None)
+
+    def _follow_response(store: accounts_store.AccountStore, origin: str, event: InboxEventRequest) -> InboxEventResponse:
+        """``Accept`` or ``Reject`` of a follow of this instance (FP4-3). The follow is found by the ID in ``object_iri`` (RT1: the sidecar does not fetch the object). An answer to another activity is ignored."""
+        ignored = InboxEventResponse(decision="ignored", reply=None, reason="unsupported_type")
+        local = _local_follow(origin, event.object_iri)
+        if local is None:
+            return ignored
+        public_id, following_id = local
+        account = store.find_by_public_id(int(public_id))
+        if account is None:
+            return InboxEventResponse(decision="rejected", reply=None, reason="not_an_actor")
+        client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
+        try:
+            found = client_store.following_for_response(client, account.id, following_id, event.actor.iri)
+            if found is None:
+                return ignored
+            client_store.set_following_state(client, found.id, "accepted" if event.type == "Accept" else "rejected", now=now())
+            client.commit()
+        finally:
+            client.close()
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
     async def inbox_event(request: Request) -> Response:
@@ -646,6 +722,104 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         _log.info("outbox task %s (%s): %s%s", task.id, task.kind, task.status, "" if task.error_code is None else f" ({task.error_code})")
         return _json(OutboxAckResponse(id=task.id, status=task.status))
 
+    def _client() -> Any:
+        return client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
+
+    def client_tasks(request: Request) -> Response:
+        raw_limit = request.query_params.get("limit", str(OUTBOX_TASKS_DEFAULT))
+        if not (raw_limit.isascii() and raw_limit.isdigit() and 1 <= int(raw_limit) <= OUTBOX_TASKS_MAX):
+            return _error(400, "invalid_request")
+        store = _open_store()
+        try:
+            actor_ids = _actor_account_ids(store)
+            public_ids = {a: str(store.get(a).public_id) for a in actor_ids}
+        finally:
+            store.conn.close()
+        client = _client()
+        try:
+            # Only a task of an account that is an actor now is given (Section 5.1 rule 1). The task of a paused account waits.
+            leased = client_store.lease_client_tasks(client, account_ids=actor_ids, now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit))
+            items = []
+            for task in leased:
+                target = task.target_iri
+                if task.kind == "follow":
+                    following = client_store.get_following(client, task.account_id, task.ref_id) if task.ref_id is not None else None
+                    if following is None:
+                        # The owner removed the follow before the sidecar took the task.
+                        client_store.ack_client_task(client, task.id, result="rejected", error_code="following_removed", now=now())
+                        continue
+                    target = following.actor_iri or following.request
+                if not target:
+                    client_store.ack_client_task(client, task.id, result="rejected", error_code="no_target", now=now())
+                    continue
+                items.append(ClientTaskItem(id=task.id, kind=task.kind, actor_public_id=public_ids[task.account_id], target=target, following_id=None if task.ref_id is None else str(task.ref_id), created_at=task.created_at, lease_until=float(task.lease_until or 0.0)))
+            client.commit()
+        finally:
+            client.close()
+        return _json(ClientTasksResponse(tasks=items))
+
+    async def client_task_ack(request: Request) -> Response:
+        raw_id = request.path_params["task_id"]
+        try:
+            body = ClientAckRequest.model_validate_json(await request.body())
+        except ValidationError:
+            return _error(400, "invalid_request")
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            return _not_found()
+        origin = _runtime().public_origin
+
+        def _apply() -> Any:
+            conn = dbm.connect_existing(settings.db_file, readonly=True)
+            try:
+                blocked = body.actor is not None and any(
+                    (host := _remote_host(address, origin)) is None or federation_store.blocking_domain(conn, host) is not None
+                    for address in (body.actor.iri, body.actor.inbox, body.actor.shared_inbox) if address is not None
+                )
+            finally:
+                conn.close()
+            client = _client()
+            try:
+                task = client_store.get_client_task(client, int(raw_id))
+                if task is None:
+                    return None
+                result, code = body.result, body.error_code
+                if task.kind == "follow" and task.status == "pending" and task.ref_id is not None:
+                    if result == "handed_off" and body.actor is not None and not blocked:
+                        a = body.actor
+                        if not client_store.resolve_following(client, task.ref_id, actor_iri=a.iri, actor_type=a.type, inbox_iri=a.inbox, shared_inbox_iri=a.shared_inbox, display_name=a.name, now=now()):
+                            result, code = "rejected", "already_following"
+                    elif result == "handed_off":
+                        # Claire makes the final check of the domain blocks; a follow without a resolved actor is not valid.
+                        result, code = "rejected", "blocked_domain" if blocked else "no_actor"
+                    if result == "rejected":
+                        client_store.set_following_state(client, task.ref_id, "rejected", now=now())
+                task = client_store.ack_client_task(client, task.id, result=result, error_code=code, now=now())
+                client.commit()
+                return task
+            finally:
+                client.close()
+
+        task = await run_in_threadpool(_apply)
+        if task is None:
+            return _not_found()
+        _log.info("client task %s (%s): %s%s", task.id, task.kind, task.status, "" if task.error_code is None else f" ({task.error_code})")
+        return _json(OutboxAckResponse(id=task.id, status=task.status))
+
+    def following(request: Request) -> Response:
+        store = _open_store()
+        try:
+            account = _find_actor(store, public_id=request.path_params["public_id"])
+        finally:
+            store.conn.close()
+        if account is None:
+            return _not_found()
+        client = _client()
+        try:
+            total = client_store.count_accepted_following(client, account.id)
+        finally:
+            client.close()
+        return _json(FollowingResponse(public_id=str(account.public_id), total=total))
+
     def published_object(request: Request) -> Response:
         raw_id = request.path_params["object_public_id"]
         try:
@@ -729,6 +903,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/actors/{public_id}", actor, methods=["GET"]),
         Route("/actors/{public_id}/keys", keys, methods=["GET"]),
         Route("/actors/{public_id}/followers", followers, methods=["GET"]),
+        Route("/actors/{public_id}/following", following, methods=["GET"]),
+        Route("/client-tasks", client_tasks, methods=["GET"]),
+        Route("/client-tasks/{task_id}/ack", client_task_ack, methods=["POST"]),
         Route("/inbox-events", inbox_event, methods=["POST"]),
         Route("/domain-blocks", domain_blocks, methods=["GET"]),
         Route("/actors/{public_id}/outbox", actor_outbox, methods=["GET"]),

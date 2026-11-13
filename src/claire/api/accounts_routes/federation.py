@@ -61,6 +61,9 @@ FEDERATION_RETRACT_API_PATH = "/api/federation/retract"
 # FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the instance and the retention of an account.
 ADMIN_FEDERATION_READING_API_PATH = "/api/admin/federation/reading"
 FEDERATION_SETTINGS_API_PATH = "/api/federation/settings"
+# FP4-3 (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.1 and 5.3): follows of the own account.
+FEDERATION_FOLLOWING_API_PATH = "/api/federation/following"
+FOLLOWING_PAGE_MAX = 80
 READING_AUDIT_ACTION = "federation.reading.update"
 DOCUMENT_ID_MAX_LENGTH = 200
 AUDIT_ACTION = "federation.update"
@@ -322,6 +325,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
             finally:
                 conn.close()
             if made:
+                # Section 5.1 rule 4: the follows of the blocked domain become rejected, and each gets an undo_follow task.
+                client = open_client_db(ctx)
+                try:
+                    when = time.time()
+                    for f in federation_client_store.follows_on_domain(client, block.domain):
+                        federation_client_store.set_following_state(client, f.id, "rejected", now=when)
+                        federation_client_store.add_client_task(client, account_id=f.account_id, kind="undo_follow", target_iri=f.actor_iri, ref_id=f.id, now=when)
+                    client.commit()
+                finally:
+                    client.close()
+            if made:
                 auth_conn = open_auth_db(ctx)
                 try:
                     auth_db.record_admin_audit(auth_conn, actor_account_id=admin_id, action=AUDIT_DOMAIN_BLOCK_ADD, detail={"domain": block.domain})
@@ -456,9 +470,18 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # The key has the account of the caller. Thus the route cannot delete a follower of a different account.
                 removed = federation_store.remove_follower(conn, account_id, actor_iri)
                 conn.commit()
-                return removed, federation_store.count_followers(conn, account_id)
+                total = federation_store.count_followers(conn, account_id)
             finally:
                 conn.close()
+            if removed:
+                # FP4-3 (Section 5.2): the removed follower gets Reject(Follow), so that its server stops sending to this actor.
+                client = open_client_db(ctx)
+                try:
+                    federation_client_store.add_client_task(client, account_id=account_id, kind="reject_follow", target_iri=actor_iri, ref_id=None, now=time.time())
+                    client.commit()
+                finally:
+                    client.close()
+            return removed, total
 
         result = await asyncio.to_thread(_execute)
         if result is None:
@@ -467,6 +490,138 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if not removed:
             return json_error(404, "follower_not_found")
         return JSONResponse({"removed": True, "followers": {"total": total}}, headers=_NO_STORE)
+
+    # --- Follows of the own account (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.1 and 5.3, FP4-3) ---
+
+    def _following_view(f: Any) -> dict[str, Any]:
+        return {"id": str(f.id), "request": f.request, "actor_iri": f.actor_iri, "actor_type": f.actor_type, "display_name": f.display_name, "state": f.state, "created_at": f.created_at, "updated_at": f.updated_at}
+
+    def _request_host(raw: str) -> str | None:
+        """The host of a handle (``@name@host``, ``name@host``) or of an ``https`` IRI, or ``None`` when the value has neither form."""
+        text = raw.strip()
+        if text.startswith(("https://", "http://")):
+            return federation_store.iri_host(text)
+        parts = text.lstrip("@").split("@")
+        if len(parts) == 2 and parts[0] and parts[1]:
+            try:
+                return federation_store.normalize_domain(parts[1])
+            except ValueError:
+                return None
+        return None
+
+    async def federation_following_get(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        raw_max = request.query_params.get("max_id")
+        raw_limit = request.query_params.get("limit", "40")
+        if (raw_max is not None and not (raw_max.isascii() and raw_max.isdigit())) or not (raw_limit.isascii() and raw_limit.isdigit() and 1 <= int(raw_limit) <= FOLLOWING_PAGE_MAX):
+            return json_error(400, "invalid_request")
+        limit = int(raw_limit)
+
+        def _fetch() -> dict[str, Any] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                following_limit = int(federation_client_store.get_reading_settings(conn)["following_limit"])
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                rows = federation_client_store.list_following(client, account_id, limit=limit, max_id=None if raw_max is None else int(raw_max))
+                total = federation_client_store.count_following(client, account_id)
+            finally:
+                client.close()
+            return {"total": total, "limit": following_limit, "items": [_following_view(f) for f in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit else None}
+
+        data = await asyncio.to_thread(_fetch)
+        return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
+
+    async def federation_following_post(request: Request) -> Response:
+        # Same-origin rule for a cookie request: ``AuthenticationMiddleware``.
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        body = await read_json_body(request)
+        target = body.get("target")
+        if set(body) != {"target"} or not isinstance(target, str) or not target.strip() or len(target) > ACTOR_IRI_MAX_LENGTH:
+            return json_error(400, "invalid_request", fields=["target"])
+        host = _request_host(target)
+        if host is None:
+            return json_error(400, "invalid_target", detail="Give a handle (@name@host) or an actor IRI")
+
+        def _execute() -> tuple[int, dict[str, Any]] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                store = accounts_store.AccountStore(conn)
+                account = store.get(account_id)
+                # Section 5.1 rule 1 (RD4): only an account that is an actor can follow.
+                if actor_state(account, federation=store.federation_state()) != "active":
+                    return 409, {"error": "not_actor"}
+                if federation_store.blocking_domain(conn, host) is not None:
+                    return 400, {"error": "blocked_domain"}
+                following_limit = int(federation_client_store.get_reading_settings(conn)["following_limit"])
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                if federation_client_store.count_following(client, account_id) >= following_limit:
+                    return 409, {"error": "following_limit", "limit": following_limit}
+                when = time.time()
+                following, created = federation_client_store.add_following(client, account_id=account_id, request=target, now=when)
+                if created:
+                    # The follow and its task are in one transaction (DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 2).
+                    federation_client_store.add_client_task(client, account_id=account_id, kind="follow", target_iri=None, ref_id=following.id, now=when)
+                client.commit()
+                return (202 if created else 200), {"following": _following_view(following), "created": created}
+            except ValueError:
+                return 400, {"error": "invalid_target"}
+            finally:
+                client.close()
+
+        result = await asyncio.to_thread(_execute)
+        if result is None:
+            return not_found()
+        status_code, data = result
+        return JSONResponse(data, status_code=status_code, headers=_NO_STORE)
+
+    async def federation_following_delete(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        raw_id = request.path_params["following_id"]
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            return json_error(404, "following_not_found")
+
+        def _execute() -> bool | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                removed = federation_client_store.remove_following(client, account_id, int(raw_id))
+                if removed is None:
+                    return False
+                # Section 5.1 rule 6: Undo(Follow) when the remote server got the Follow. The received items stay.
+                if removed.actor_iri is not None and removed.state != "rejected":
+                    federation_client_store.add_client_task(client, account_id=account_id, kind="undo_follow", target_iri=removed.actor_iri, ref_id=removed.id, now=time.time())
+                client.commit()
+                return True
+            finally:
+                client.close()
+
+        result = await asyncio.to_thread(_execute)
+        if result is None:
+            return not_found()
+        if not result:
+            return json_error(404, "following_not_found")
+        return JSONResponse({"removed": True}, headers=_NO_STORE)
 
     # --- Publishing routes (design Sections 9.1 to 9.3, unit FP3-1) ---
 
@@ -589,6 +744,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_get, methods=["GET"]),
         Route(ADMIN_FEDERATION_READING_API_PATH, admin_reading_put, methods=["PUT"]),
+        Route(FEDERATION_FOLLOWING_API_PATH, federation_following_get, methods=["GET"]),
+        Route(FEDERATION_FOLLOWING_API_PATH, federation_following_post, methods=["POST"]),
+        Route(FEDERATION_FOLLOWING_API_PATH + "/{following_id}", federation_following_delete, methods=["DELETE"]),
         Route(FEDERATION_SETTINGS_API_PATH, federation_settings_get, methods=["GET"]),
         Route(FEDERATION_SETTINGS_API_PATH, federation_settings_put, methods=["PUT"]),
         Route(ADMIN_DOMAIN_BLOCKS_API_PATH, domain_blocks_get, methods=["GET"]),

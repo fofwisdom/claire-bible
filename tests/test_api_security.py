@@ -408,11 +408,14 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/api/federation/status",
                 "/api/federation/followers",
                 "/api/federation/settings",
+                "/api/federation/following",
             )
             for method in ("GET", "HEAD")
         ),
         ("DELETE", "/api/federation/followers"),
         ("PUT", "/api/federation/settings"),
+        ("POST", "/api/federation/following"),
+        ("DELETE", "/api/federation/following/{following_id}"),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         *(
@@ -526,6 +529,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/api/federation/status") for m in ("GET", "HEAD")),
         *((m, "/api/federation/followers") for m in ("GET", "HEAD", "DELETE")),
         *((m, "/api/federation/settings") for m in ("GET", "HEAD", "PUT")),
+        *((m, "/api/federation/following") for m in ("GET", "HEAD", "POST")),
+        ("DELETE", "/api/federation/following/{following_id}"),
         ("POST", "/api/federation/publish"),
         ("POST", "/api/federation/retract"),
     }

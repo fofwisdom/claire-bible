@@ -69,8 +69,10 @@ Deno.test("a handle resolves to an actor document with the canonical origin", as
   assert.ok(assertion.some((m) => m.controller === ALICE_URL && String(m.publicKeyMultibase).startsWith("z6Mk")), "Ed25519 multikey");
   assert.equal(doc.followers, `${ALICE_URL}/followers`);
   assert.equal(doc.outbox, `${ALICE_URL}/outbox`);
-  // Collections that v1 does not have and fields that the account does not have are not in the document.
-  for (const field of ["following", "summary", "icon"]) assert.ok(!(field in doc), field);
+  // The following collection (contract 1.3, unit FP4-3) shows its total only.
+  assert.equal(doc.following, `${ALICE_URL}/following`);
+  // Fields that the account does not have are not in the document.
+  for (const field of ["summary", "icon"]) assert.ok(!(field in doc), field);
   assert.ok(!bodies.join("").includes("127.0.0.1"), "the request host is not in an answer");
 });
 
@@ -149,7 +151,7 @@ Deno.test("paths of Claire are 404 without a call to Claire, and paths that v1 d
     assert.equal((await sidecar.handle(new Request(`${LISTEN}${path}`))).status, 404, path);
   }
   assert.deepEqual(fake.calls, []);
-  for (const path of [`/ap/actors/${ALICE}/following`, "/ap/objects/1", "/ap/objects/x", "/ap/objects/1/replies"]) {
+  for (const path of ["/ap/objects/1", "/ap/objects/x", "/ap/objects/1/replies"]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { headers: { accept: AS2 } }));
     assert.equal(response.status, 404, path);
   }

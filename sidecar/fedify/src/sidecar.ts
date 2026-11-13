@@ -16,10 +16,11 @@
 // - An actor task becomes Update(Person) or Delete(Person) (unit FP3-4). A purged actor gets 410 with a Tombstone.
 // - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
 // - A delivery does not go to a follower on a blocked domain.
+// - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
-import { Accept, Activity, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask } from "./internal_api.ts";
+import { Accept, Activity, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
+import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor } from "./internal_api.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -273,6 +274,7 @@ export class Sidecar {
       inbox: ctx.getInboxUri(identifier),
       outbox: ctx.getOutboxUri(identifier),
       followers: ctx.getFollowersUri(identifier),
+      following: ctx.getFollowingUri(identifier),
       endpoints: new Endpoints({ sharedInbox: ctx.getInboxUri() }),
       publicKey: keys[0]?.cryptographicKey,
       assertionMethods: keys.map((k) => k.multikey),
@@ -361,6 +363,68 @@ export class Sidecar {
     // The ordering key keeps the Create, the Update, and the Delete of one object in sequence for each remote server.
     if (recipients.length > 0) await ctx.sendActivity({ identifier: task.actor_public_id }, recipients, activity, { preferSharedInbox: true, orderingKey: objectUri.href });
     await this.#api.ackOutboxTask(task.id, "handed_off");
+    return "handed_off";
+  }
+
+  // Takes the ready client tasks from Claire (contract 1.3) and gives each one to Fedify. Returns the number of tasks that Claire gave.
+  async processClientTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const tasks = await this.#api.clientTasks(limit);
+    if (tasks.length === 0) return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    for (const task of tasks) {
+      try {
+        this.outboxCounters[await this.#handOffClient(ctx, task)] += 1;
+      } catch (error) {
+        this.outboxCounters.failed += 1;
+        console.error(`client task ${task.id} (${task.kind}) failed: ${(error as Error).name}: ${(error as Error).message}`);
+      }
+    }
+    return tasks.length;
+  }
+
+  async #handOffClient(ctx: Context<void>, task: ClientTask): Promise<"handed_off" | "rejected"> {
+    const reject = async (code: string): Promise<"rejected"> => {
+      console.warn(`client task ${task.id} (${task.kind}) rejected: ${code}`);
+      await this.#api.ackClientTask(task.id, "rejected", code);
+      return "rejected";
+    };
+    const sender = { identifier: task.actor_public_id };
+    const actorUri = ctx.getActorUri(task.actor_public_id);
+    // The remote actor: a handle goes through WebFinger, an IRI is fetched. The fetch is signed with the key of the actor (servers with authorized fetch).
+    let remote: unknown = null;
+    try {
+      remote = await ctx.lookupObject(task.target, { documentLoader: await ctx.getDocumentLoader(sender) });
+    } catch {
+      remote = null;
+    }
+    if (!isActor(remote) || remote.id === null || remote.inboxId === null) return await reject("actor_not_found");
+    if (task.kind === "follow") {
+      if (task.following_id === null) return await reject("no_following_id");
+      const hosts = [remote.id, remote.inboxId, remote.endpoints?.sharedInbox ?? null].filter((url) => url !== null).map((url) => url.hostname);
+      for (const host of hosts) if (await this.isBlocked(host)) return await reject("blocked_domain");
+      const typeId = getTypeId(remote);
+      const type = typeId.hash.slice(1) || typeId.href.split("#").pop() || "";
+      if (!["Person", "Group", "Service", "Application", "Organization"].includes(type)) return await reject("unsupported_actor_type");
+      const follow = new Follow({ id: new URL(`#follows/${task.following_id}`, actorUri), actor: actorUri, object: remote.id });
+      await ctx.sendActivity(sender, remote, follow);
+      const name = remote.name?.toString() ?? null;
+      const resolved: ResolvedActor = { iri: remote.id.href, type: type as ResolvedActor["type"], inbox: remote.inboxId.href, shared_inbox: remote.endpoints?.sharedInbox?.href ?? null, name: name === null ? null : name.slice(0, 512) };
+      await this.#api.ackClientTask(task.id, "handed_off", null, resolved);
+      return "handed_off";
+    }
+    let activity: Activity;
+    if (task.kind === "undo_follow") {
+      // The ID of the Follow is the one that the follow task sent. A follow without a number (none today) gets an ID from the task.
+      const followId = new URL(task.following_id === null ? `#client-tasks/${task.id}/follow` : `#follows/${task.following_id}`, actorUri);
+      activity = new Undo({ id: new URL(`${followId.hash}/undo`, actorUri), actor: actorUri, object: new Follow({ id: followId, actor: actorUri, object: remote.id }) });
+    } else {
+      // reject_follow: the owner removed the follower. The Follow of the remote actor is described by its actor and object.
+      activity = new Reject({ id: new URL(`#rejects/client-tasks/${task.id}`, actorUri), actor: actorUri, object: new Follow({ actor: remote.id, object: actorUri }) });
+    }
+    await ctx.sendActivity(sender, remote, activity);
+    await this.#api.ackClientTask(task.id, "handed_off");
     return "handed_off";
   }
 
@@ -512,6 +576,17 @@ export class Sidecar {
       .setCounter(async (_ctx, identifier) => {
         if (!PUBLIC_ID.test(identifier)) return null;
         return (await this.#api.followers(identifier, { limit: 1 }))?.total ?? null;
+      });
+
+    federation
+      // The following collection shows the total only (design Section 5.1 rule 7, RD9).
+      .setFollowingDispatcher("/ap/actors/{identifier}/following", async (_ctx, identifier) => {
+        if (!PUBLIC_ID.test(identifier)) return null;
+        return (await this.#api.following(identifier)) === null ? null : { items: [] };
+      })
+      .setCounter(async (_ctx, identifier) => {
+        if (!PUBLIC_ID.test(identifier)) return null;
+        return (await this.#api.following(identifier))?.total ?? null;
       });
 
     federation.setObjectDispatcher(Article, "/ap/objects/{id}", async (ctx, values) => {

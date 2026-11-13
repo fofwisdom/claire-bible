@@ -32,7 +32,16 @@ __all__ = [
     "get_following",
     "get_reading_settings",
     "list_following",
+    "CONTRACT_CLIENT_KINDS",
+    "ClientTask",
+    "ack_client_task",
     "add_client_task",
+    "count_accepted_following",
+    "follows_on_domain",
+    "following_for_response",
+    "get_client_task",
+    "lease_client_tasks",
+    "resolve_following",
     "remove_following",
     "set_account_retention",
     "set_following_state",
@@ -246,3 +255,104 @@ def add_client_task(conn: sqlite3.Connection, *, account_id: int, kind: str, tar
         raise ValueError(f"unknown client task kind: {kind!r}")
     cur = conn.execute("INSERT INTO federation_client_outbox (account_id, kind, target_iri, ref_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)", (account_id, kind, target_iri, ref_id, now))
     return int(cur.lastrowid)
+
+
+# --- Client outbox: lease and acknowledgement (FP4-3) ----------------------
+
+# The kinds that the internal API contract 1.3 gives to the sidecar. Other kinds wait as pending until a later unit adds them.
+CONTRACT_CLIENT_KINDS: tuple[str, ...] = ("follow", "undo_follow", "reject_follow")
+_CLIENT_TASK_COLUMNS = "id, account_id, kind, target_iri, ref_id, status, lease_until, error_code, created_at, handed_off_at"
+
+
+@dataclass(frozen=True, slots=True)
+class ClientTask:
+    id: int
+    account_id: int
+    kind: str
+    target_iri: str | None
+    ref_id: int | None
+    status: str
+    lease_until: float | None
+    error_code: str | None
+    created_at: float
+    handed_off_at: float | None
+
+
+def _client_task(row: sqlite3.Row | tuple) -> ClientTask:
+    v = tuple(row)
+    return ClientTask(int(v[0]), int(v[1]), str(v[2]), v[3], None if v[4] is None else int(v[4]), str(v[5]), None if v[6] is None else float(v[6]), v[7], float(v[8]), None if v[9] is None else float(v[9]))
+
+
+def get_client_task(conn: sqlite3.Connection, task_id: int) -> ClientTask | None:
+    row = conn.execute(f"SELECT {_CLIENT_TASK_COLUMNS} FROM federation_client_outbox WHERE id=?", (task_id,)).fetchone()
+    return None if row is None else _client_task(row)
+
+
+def lease_client_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int) -> list[ClientTask]:
+    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` (the accounts that are actors now) and return them. Only the kinds of the contract (``CONTRACT_CLIENT_KINDS``). The caller commits."""
+    if limit < 1 or lease_seconds <= 0:
+        raise ValueError("limit and lease_seconds must be more than 0")
+    if not account_ids:
+        return []
+    marks = ",".join("?" for _ in account_ids)
+    kinds = ",".join("?" for _ in CONTRACT_CLIENT_KINDS)
+    rows = conn.execute(
+        f"SELECT id FROM federation_client_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND account_id IN ({marks}) AND kind IN ({kinds}) ORDER BY id LIMIT ?",
+        (now, *account_ids, *CONTRACT_CLIENT_KINDS, limit),
+    ).fetchall()
+    leased = []
+    for row in rows:
+        if conn.execute("UPDATE federation_client_outbox SET lease_until=? WHERE id=? AND status='pending' AND (lease_until IS NULL OR lease_until <= ?)", (now + lease_seconds, int(row[0]), now)).rowcount:
+            task = get_client_task(conn, int(row[0]))
+            assert task is not None
+            leased.append(task)
+    return leased
+
+
+def ack_client_task(conn: sqlite3.Connection, task_id: int, *, result: Literal["handed_off", "rejected"], error_code: str | None, now: float) -> ClientTask | None:
+    """Record the result of the handoff. A second acknowledgement keeps the first result. The caller commits."""
+    task = get_client_task(conn, task_id)
+    if task is None or task.status != "pending":
+        return task
+    conn.execute("UPDATE federation_client_outbox SET status=?, error_code=?, handed_off_at=?, lease_until=NULL WHERE id=?", (result, error_code, now, task_id))
+    return get_client_task(conn, task_id)
+
+
+# --- Follows: resolution and state (FP4-3) ---------------------------------
+
+
+def resolve_following(conn: sqlite3.Connection, following_id: int, *, actor_iri: str, actor_type: str | None, inbox_iri: str, shared_inbox_iri: str | None, display_name: str | None, now: float) -> bool:
+    """Record the actor that the sidecar resolved for a follow. Return ``False`` when the account already follows that actor in another row: then the caller rejects this row (the key is ``(account_id, actor_iri)``)."""
+    row = conn.execute("SELECT account_id FROM federation_following WHERE id=?", (following_id,)).fetchone()
+    if row is None:
+        return False
+    if conn.execute("SELECT 1 FROM federation_following WHERE account_id=? AND actor_iri=? AND id!=?", (int(row[0]), actor_iri, following_id)).fetchone() is not None:
+        return False
+    conn.execute(
+        "UPDATE federation_following SET actor_iri=?, actor_type=?, inbox_iri=?, shared_inbox_iri=?, display_name=?, updated_at=? WHERE id=?",
+        (actor_iri, actor_type, inbox_iri, shared_inbox_iri, display_name, now, following_id),
+    )
+    return True
+
+
+def following_for_response(conn: sqlite3.Connection, account_id: int, following_id: int, actor_iri: str) -> Following | None:
+    """The follow that an ``Accept`` or a ``Reject`` refers to: the account, the number, and the remote actor must agree."""
+    found = get_following(conn, account_id, following_id)
+    return found if found is not None and found.actor_iri == actor_iri else None
+
+
+def count_accepted_following(conn: sqlite3.Connection, account_id: int) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM federation_following WHERE account_id=? AND state='accepted'", (account_id,)).fetchone()[0])
+
+
+def follows_on_domain(conn: sqlite3.Connection, domain: str) -> list[Following]:
+    """The follows whose actor is on ``domain`` or on a subdomain of it (Section 5.1 rule 4)."""
+    from urllib.parse import urlsplit
+
+    found = []
+    for row in conn.execute(f"SELECT {_FOLLOWING_COLUMNS} FROM federation_following WHERE actor_iri IS NOT NULL AND state!='rejected'").fetchall():
+        f = _following(row)
+        host = (urlsplit(f.actor_iri or "").hostname or "").lower()
+        if host == domain or host.endswith("." + domain):
+            found.append(f)
+    return found

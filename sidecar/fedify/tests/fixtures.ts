@@ -39,6 +39,8 @@ export interface FakeClaire {
   events: Record<string, unknown>[];
   // The acknowledgements of outbox tasks, in sequence: "task ID result error code".
   acks: string[];
+  // The acknowledgements of client tasks (contract 1.3), in sequence: the body of each request with its task ID.
+  clientAcks: { id: number; result: string; error_code: string | null; actor: unknown }[];
 }
 
 // A transport that answers from the fixtures. It refuses a request with a bad signature, the same as Claire.
@@ -53,6 +55,7 @@ export function fakeClaire(): FakeClaire {
     decision: null,
     events: [],
     acks: [],
+    clientAcks: [],
     transport: async (request) => {
       const url = new URL(request.url);
       const target = url.pathname + url.search;
@@ -72,6 +75,8 @@ export function fakeClaire(): FakeClaire {
         const sent = JSON.parse(text) as { result: string; error_code: string | null };
         fake.acks.push(`${ack[1]} ${sent.result} ${sent.error_code}`);
       }
+      const clientAck = /\/client-tasks\/([0-9]+)\/ack$/.exec(target);
+      if (request.method === "POST" && clientAck !== null) fake.clientAcks.push({ id: Number(clientAck[1]), ...JSON.parse(text) });
       const override = fake.overrides.get(`${request.method} ${target}`);
       if (override !== undefined) return Response.json(override.response, { status: override.status });
       const match = fixtures.find((f) => f.request.method === request.method && f.request.path === target && (f.request.body === undefined || JSON.stringify(f.request.body) === text));

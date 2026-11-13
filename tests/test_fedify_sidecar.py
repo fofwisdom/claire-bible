@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from claire.api.federation_internal import federation_socket_path, service_key_path
+from claire.api import federation_routes
 from claire.api.federation_routes import read_heartbeat
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
@@ -249,7 +250,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
         while (record := read_heartbeat(data_dir)) is None:
             assert time.monotonic() < deadline, "no heartbeat"
             time.sleep(0.2)
-        assert record["contract_version"] == "1.2" and record["queue_depth"] == 0
+        assert record["contract_version"] == federation_routes.CONTRACT_VERSION and record["queue_depth"] == 0
         # The sidecar database is a secret store (design Section 7 item 5).
         assert (sidecar_db.stat().st_mode & 0o777) == 0o600
 

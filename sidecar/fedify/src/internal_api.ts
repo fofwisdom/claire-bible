@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.2";
+export const CONTRACT_VERSION = "1.3";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -112,6 +112,27 @@ export interface OutboxTask {
   object_public_id: string | null;
   created_at: number;
   lease_until: number;
+}
+
+// One task of the client outbox (contract 1.3, unit FP4-3). follow: target is the handle or IRI that the owner gave, following_id is the number of the follow.
+// undo_follow: target is the actor IRI. reject_follow: target is the actor IRI of a removed follower.
+export interface ClientTask {
+  id: number;
+  kind: "follow" | "undo_follow" | "reject_follow";
+  actor_public_id: string;
+  target: string;
+  following_id: string | null;
+  created_at: number;
+  lease_until: number;
+}
+
+// The actor of a follow task that the sidecar resolved.
+export interface ResolvedActor {
+  iri: string;
+  type: "Person" | "Group" | "Service" | "Application" | "Organization";
+  inbox: string;
+  shared_inbox: string | null;
+  name: string | null;
 }
 
 // The canonical form of one published object. content is HTML that Claire sanitized.
@@ -239,6 +260,10 @@ const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejec
 const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num });
 const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
+const clientTasksShape = sealed({
+  tasks: list(sealed({ id: int, kind: oneOf("follow", "undo_follow", "reject_follow"), actor_public_id: str, target: str, following_id: nullable(str), created_at: num, lease_until: num })),
+});
+const followingShape = sealed({ public_id: str, total: int });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -378,6 +403,29 @@ export class InternalApi {
     if (value === null) return null;
     ackShape(value, "ack");
     return (value as { status: "pending" | "handed_off" | "rejected" }).status;
+  }
+
+  // Takes the oldest ready tasks of the client outbox (contract 1.3).
+  async clientTasks(limit?: number): Promise<ClientTask[]> {
+    const value = await this.#call("GET", `/client-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    clientTasksShape(value, "client_tasks");
+    return (value as { tasks: ClientTask[] }).tasks;
+  }
+
+  // Records the result of a client task. actor is the resolved actor of a follow task that was handed off.
+  async ackClientTask(id: number, result: "handed_off" | "rejected", errorCode: string | null = null, actor: ResolvedActor | null = null): Promise<"pending" | "handed_off" | "rejected" | null> {
+    const value = await this.#call("POST", `/client-tasks/${id}/ack`, { result, error_code: errorCode, actor });
+    if (value === null) return null;
+    ackShape(value, "ack");
+    return (value as { status: "pending" | "handed_off" | "rejected" }).status;
+  }
+
+  // The number of accepted follows of an actor, or null when the account is not an actor.
+  async following(publicId: string): Promise<{ public_id: string; total: number } | null> {
+    const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/following`);
+    if (value !== null) followingShape(value, "following");
+    return value as { public_id: string; total: number } | null;
   }
 
   async object(publicId: string): Promise<ObjectResult> {
