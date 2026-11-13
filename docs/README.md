@@ -26,7 +26,7 @@ docs/
 │   ├── SYNDICATION_ENDPOINT_DESIGN.md
 │   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (2026-11-10, FP1–FP3 구현 내용은 implementation/FEDERATION.md)
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 연합 클라이언트·원격 읽기·피드 설계 초안 (2026-11-13, RD12 보류), 시각 프로토타입은 design/prototypes/
-│   ├── MARKDOWN_BODY_RETIREMENT_DESIGN.md  # Markdown 본문 적재 중단, 내보내기만 유지 (RD22, 2026-11-13 초안)
+│   ├── MARKDOWN_RETIREMENT_DESIGN.md  # Markdown 폐쇄: 설정 봉인, AsciiDoc 내보내기에서만 Markdown 사용 (RD22–RD24, 2026-11-13 초안)
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
 │   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본

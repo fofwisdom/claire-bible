@@ -1,7 +1,7 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD22 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD24 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
 - **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
 - **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
@@ -627,7 +627,9 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD19 | Role of DrFed | A debugging tool of the developer only: not in the repository, not in CI, not in the service. `FEDERATION.md` has a short note on its use. | Locked 2026-11-13 |
 | RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype`, as a static page with mock data only. The prototype is a tool for the maintainer: it has no setting. The host name is fixed in code: `prototype.` + the registrable domain of `CLAIRE_FQDN` (Public Suffix List), for example `prototype.netspheres.org` for `cb.netspheres.org`. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
 | RD21 | Content of a published document | The `Article` of a published document has the summary and the share link only, not the body (Section 5.5). | Locked 2026-11-13 |
-| RD22 | Markdown bodies | Ingestion stops making Markdown bodies; AsciiDoc is the only body format. Markdown stays as an export format. Old Markdown documents stay readable without an operator action. Design: [`MARKDOWN_BODY_RETIREMENT_DESIGN.md`](MARKDOWN_BODY_RETIREMENT_DESIGN.md). | Locked 2026-11-13 |
+| RD22 | Markdown bodies | Ingestion stops making Markdown bodies; AsciiDoc is the only body format. Old Markdown documents stay readable without an operator action. Design: [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md). | Locked 2026-11-13 |
+| RD23 | Markdown setting | `CLAIRE_RENDER_FORMAT=md` and its code paths are sealed and closed, not maintained, and kept only as a reference for the Markdown export ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 3). | Locked 2026-11-13 |
+| RD24 | Markdown in Claire | Markdown is used only for the export of an ingested AsciiDoc document ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 4). | Locked 2026-11-13 |
 
 ---
 
@@ -664,7 +666,7 @@ Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-P1 | Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
 
-The Markdown units MD-1 to MD-3 (RD22) are in [`MARKDOWN_BODY_RETIREMENT_DESIGN.md`](MARKDOWN_BODY_RETIREMENT_DESIGN.md) Section 5.
+The Markdown units MD-1 to MD-5 (RD22 to RD24) are in [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 7.
 
 Order (owner, 2026-11-13): the feed units start first (version 21), parallel to FP4-0. FP4-2 follows as version 22.
 
