@@ -3514,6 +3514,58 @@ def cmd_federation(args) -> int:
     return 0
 
 
+def cmd_feeds(args) -> int:
+    """Poll account feeds now (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F1).
+
+    Without ``--force`` the command polls the feeds that are due, as the scheduler of the ``api`` process does. ``--force`` polls the selected feeds also when they are not due or are in backoff. ``--account`` and ``--feed`` select the feeds.
+    """
+    import json
+    import sqlite3
+    import time
+
+    from .feeds import poller
+    from .feeds.fetch import FeedFetcher
+    from .store import db as dbm
+    from .store import feeds as feeds_store
+
+    s = get_settings()
+    now = time.time()
+    fetcher = FeedFetcher.from_settings(s)
+    try:
+        if args.force or args.feed is not None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                if args.feed is not None:
+                    row = conn.execute("SELECT account_id FROM feed_subscriptions WHERE id=?", (args.feed,)).fetchone()
+                    feeds = [] if row is None or (args.account is not None and int(row[0]) != args.account) else feeds_store.account_feeds_for_poll(conn, int(row[0]), limit=1, feed_id=args.feed)
+                    if not feeds:
+                        print(f"feeds poll: feed {args.feed} not found", file=sys.stderr)
+                        return 1
+                    if not args.force:
+                        feeds = [f for f in feeds if f["next_poll_at"] is None or float(f["next_poll_at"]) <= now]
+                elif args.account is not None:
+                    feeds = feeds_store.account_feeds_for_poll(conn, args.account, limit=args.limit)
+                else:
+                    feeds = [dict(r) for r in conn.execute("SELECT * FROM feed_subscriptions ORDER BY COALESCE(last_polled_at, 0), id LIMIT ?", (args.limit,)).fetchall()]
+            finally:
+                conn.close()
+            outcomes = poller.poll_feeds(s.db_file, feeds, fetcher=fetcher, now=now)
+        else:
+            outcomes = poller.poll_due(s.db_file, fetcher=fetcher, now=now, limit=args.limit, account_id=args.account)
+    except sqlite3.Error as e:
+        print(f"feeds poll: database error: {e}", file=sys.stderr)
+        return 1
+    result = {"polled": len(outcomes), "added": sum(o.added for o in outcomes), "errors": sum(1 for o in outcomes if o.result == "error"), "outcomes": [o.to_dict() for o in outcomes]}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        for o in outcomes:
+            detail = f"+{o.added} new, {o.updated} changed" if o.result == "updated" else (o.error or "")
+            print(f"feed {o.feed_id}: {o.result} {detail}".rstrip())
+        print(f"feeds poll: {result['polled']} feed(s), {result['added']} new item(s), {result['errors']} error(s)")
+    return 0
+
+
 def cmd_auth(args) -> int:
     """웹 UI 접속을 위한 1회용 인증 매직 링크 및 세션 토큰 발급."""
     import json
@@ -5463,6 +5515,24 @@ def build_parser() -> argparse.ArgumentParser:
     pfed_requeue.add_argument("--apply", action="store_true", help="change the tasks. Without this option the command only counts them")
     pfed_requeue.add_argument("--json", action="store_true", help="output the result in JSON format")
     pfed_requeue.set_defaults(func=cmd_federation)
+
+    pfeeds = sub.add_parser(
+        "feeds",
+        help="account feeds: poll RSS, Atom, and JSON Feed subscriptions now",
+        description="Account feed commands. The api process also polls the due feeds on a schedule.",
+    )
+    pfeeds_sub = pfeeds.add_subparsers(dest="feeds_action", required=True)
+    pfeeds_poll = pfeeds_sub.add_parser(
+        "poll",
+        help="poll the due feeds now (or all selected feeds with --force)",
+        description="Poll account feeds with conditional GET. Without --force only the feeds that are due are polled, as the scheduler does. A failure (429, 5xx, a network error, or a body that is not a feed) sets a backoff.",
+    )
+    pfeeds_poll.add_argument("--account", type=int, default=None, help="only the feeds of this account ID")
+    pfeeds_poll.add_argument("--feed", type=int, default=None, help="only this feed ID")
+    pfeeds_poll.add_argument("--force", action="store_true", help="also poll feeds that are not due or are in backoff")
+    pfeeds_poll.add_argument("--limit", type=int, default=100, help="maximum number of feeds (default: 100)")
+    pfeeds_poll.add_argument("--json", action="store_true", help="output the result in JSON format")
+    pfeeds_poll.set_defaults(func=cmd_feeds)
 
     ptok = sub.add_parser(
         "token",

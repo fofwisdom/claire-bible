@@ -175,7 +175,7 @@ def test_v19_database_with_empty_tables_upgrades_and_keeps_dispatch_rows(tmp_pat
 
         dbm.init_db(conn)
 
-        assert dbm.SCHEMA_VERSION == 20 and dbm.require_current_schema(conn) == 20
+        assert dbm.SCHEMA_VERSION == 21 and dbm.require_current_schema(conn) == 21
         names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master")}
         assert not set(DROPPED_TABLES) & names
         assert not set(DROPPED_INDEXES) & names
@@ -238,7 +238,7 @@ def test_v19_database_with_a_row_in_a_dropped_table_keeps_it_under_a_retired_nam
         dbm.init_db(conn)
         dbm.init_db(conn)
 
-        assert dbm.stored_schema_version(conn) == 20
+        assert dbm.stored_schema_version(conn) == 21
         retired = f"{table}_retired_v20"
         assert retired in dbm.V20_RETIRED_SYNDICATION_TABLES
         assert [tuple(r) for r in conn.execute(f"SELECT * FROM {retired}").fetchall()] == [tuple(r) for r in before]

@@ -21,8 +21,9 @@
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
 | 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
 | 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
-| 20 | 현재 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
-| 21 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 20 | 직전 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
+| 21 | 현재 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
+| 22 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -124,7 +125,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: P5 구현 (2026-11-13). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §4.3. 결정: 운영 서버는 하나이고 그 서버에서 신디케이션 기능을 쓴 적이 없다(소유자, 2026-11-13).
 
-- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 20`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 20보다 크면 변경 없이 거부한다.
+- **[코드] 버전 상수**: v20 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 20이었다(현재 값은 아래 "v21" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 제거 객체**(`_migrate_v20_syndication_cleanup`, 멱등):
   - 테이블 `syndication_items`, `syndication_targets`, `syndication_accounts`와 인덱스 `idx_synd_items_theme_collected`, `idx_synd_items_theme_canon`, `idx_synd_items_theme_doc`. 새 DB의 `SCHEMA`에도 없다.
   - 저장소 함수 `create_syndication_account`, `get_syndication_account`, `list_syndication_accounts`, `save_syndication_account_token`, `load_syndication_account_token`. 테마 삭제(`store/theme.py`)와 계정 퍼지(`store/accounts.py`)의 정리 목록에서도 `syndication_items`를 뺐다.
@@ -132,6 +133,21 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 안전 규칙**: 서버 운영자는 DB를 직접 관리하지 않는다고 본다. 그래서 마이그레이션은 시작을 멈추지 않고 행도 지우지 않는다. 제거할 세 테이블 중 행이 있는 테이블은 지우지 않고 `<이름>_retired_v20`으로 이름만 바꾸어 남기며, 경고 로그에 테이블 이름과 행 수를 적는다(`_retire_v20_filled_tables`). 테마 삭제와 계정 퍼지는 이 테이블의 행도 `theme_id`로 지운다(`V20_RETIRED_SYNDICATION_TABLES`). 빈 테이블은 지운다.
 - **[코드] 설계와 다른 점**: 설계는 version 20을 FP4-2 전체(이 정리와 `federation_following` 등)에 적었다. 코드에서는 이 정리만 version 20이다.
 - **[테스트]** `tests/test_schema_v20.py`.
+
+## v21 (계정 피드, 원격 읽기 FP4-F1)
+
+확인 기준: FP4-F1 구현 (2026-11-13). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §1.3 규칙 7, §14 피드 단위 표(RD13, RD15). 동작은 [FEDERATION.md](FEDERATION.md) §15에 있다.
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 21`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 21보다 크면 변경 없이 거부한다.
+- **[코드] 추가 객체**(`_migrate_v21_account_feeds`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
+  - 테이블 `feed_subscriptions`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, url TEXT NOT NULL, site_url TEXT, title TEXT NOT NULL DEFAULT '', folder TEXT NOT NULL DEFAULT '', format TEXT CHECK (format IS NULL OR format IN ('rss', 'atom', 'json')), etag TEXT, last_modified TEXT, websub_hub TEXT, websub_topic TEXT, last_polled_at REAL, last_success_at REAL, next_poll_at REAL, last_status INTEGER, last_error TEXT, failure_count INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (account_id, url))`. `folder`는 한 단계이고 빈 문자열은 폴더 없음이다. `format`은 첫 성공 폴링 전에는 NULL이다.
+  - 인덱스 `idx_feed_subscriptions_next_poll`(`next_poll_at`): 스케줄러가 폴링할 피드를 찾는다.
+  - 테이블 `feed_items`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, feed_id INTEGER NOT NULL REFERENCES feed_subscriptions(id) ON DELETE CASCADE, item_key TEXT NOT NULL, url TEXT, title TEXT NOT NULL DEFAULT '', author TEXT, summary TEXT, content TEXT, categories TEXT NOT NULL DEFAULT '[]', published_at REAL, modified_at REAL, fetched_at REAL NOT NULL, unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)), starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)), linked_theme_id INTEGER, linked_doc_id TEXT, UNIQUE (feed_id, item_key))`. `categories`는 원문 태그의 JSON 배열이다. `linked_theme_id`·`linked_doc_id`에는 외래 키가 없다. 적재된 문서는 공유 자산이고 피드 자료를 지워도 문서는 지우지 않는다(설계 §10 규칙 5).
+  - 인덱스 `idx_feed_items_account`(`account_id, id`): 항목 목록의 커서 페이지.
+- **[코드] 데이터 이관**: 없다.
+- **[코드] 저장소 함수**: `src/claire/store/feeds.py`. 모든 함수가 호출자 계정을 질의에 넣는다. 계정 퍼지(`AccountStore.purge`)는 `delete_account_feed_data`로 그 계정의 두 테이블 행을 지운다. 계정 행은 퍼지 뒤에도 남으므로 `ON DELETE CASCADE`에 기대지 않는다.
+- **[코드] 설계와 다른 점**: 설계 §7.1은 FP4의 테이블을 version 22에 적었다. 피드 단위가 먼저 시작해서(소유자, 2026-11-13) 피드 테이블은 version 21이다. 설계에는 열 목록이 없었다.
+- **[테스트]** `tests/test_schema_v21.py`.
 
 ### 별도 저장소: `data/auth/auth.db`
 

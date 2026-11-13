@@ -24,6 +24,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
 | Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
+| Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -761,3 +762,66 @@ deno task check
 ### 14.1 Debugging with DrFed
 
 DrFed is an ActivityPub debugging platform of the Fedify team. It shows objects and activities and helps to find where a delivery fails. It is a tool of the developer only: it is not in the repository, not in CI, and not part of the service (owner decision RD19, 2026-11-13). Run it separately (it needs Node.js 26 or newer) and point it at a development instance. Do not point it at the production server.
+
+## 15. Account Feeds (Units FP4-F1 and FP4-F2)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 1.3 rule 7 (RD13, RD15). Feeds are first collection of the account. They need no actor and no federation switch, and they work in single mode (the single account) and in network mode (each account). Collection is not ingestion: an item never enters a theme without an action of the owner.
+
+### 15.1 Code
+
+| Part | Module |
+| :--- | :--- |
+| Tables `feed_subscriptions` and `feed_items` (`claire.db` version 21) | `store/db.py` (`_migrate_v21_account_feeds`), [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) "v21" |
+| Store functions (each query has the account of the caller) | `store/feeds.py` |
+| Parsers: RSS 2.0 (also RSS 1.0), Atom 1.0, JSON Feed 1.0 and 1.1 | `feeds/parse.py` (`lxml` without entities, DTD, or network) |
+| Fetch with conditional `GET` and the private address check | `feeds/fetch.py` |
+| Poller, backoff, scheduler | `feeds/poller.py` |
+| OPML import and export | `feeds/opml.py` |
+| Routes | `api/accounts_routes/feeds.py` |
+
+### 15.2 Poll Rules
+
+1. A poll sends `If-None-Match` and `If-Modified-Since` with the stored `ETag` and `Last-Modified`. `304` stores nothing. `200` replaces the stored values.
+2. Each hop (the first request and each redirect, at most 5) gets the private address check of the other fetchers (`check_ip_safety` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST`). Cloud metadata and link-local addresses are always refused. The body limit is 5 MiB, the timeout 20 seconds.
+3. Success: next poll in 1 hour, failure count 0. Failure (`429`, `5xx`, other HTTP status, network error, blocked address, body that is not a feed): failure count + 1, next poll in `1 hour × 2^failures`, at most 24 hours, and not before `Retry-After` (at most 7 days).
+4. An item has a stable key in its feed: the GUID or `id` of the feed, else the item URL, else a SHA-256 hash of title, time, and summary. A known key is not stored again; its changed fields are updated, and its read and star state stays. At most 500 items are read from one body.
+5. HTML of an item is stored as it is. A client must render it on the `usercontent` origin only (K10, unit FP4-F3). `<category>` values (Atom `term`, JSON Feed `tags`) stay raw tags in `categories`.
+6. WebSub: the poll stores the hub (`websub_hub`) and the topic (`websub_topic`, the `self` link). This unit does not subscribe to the hub; the poll schedule applies to all feeds.
+7. The `api` process polls the due feeds (at most 100 for each cycle, 4 in parallel) every 5 minutes, the first time 2 minutes after the start. The command `claire feeds poll` does the same on demand ([`COMMANDS.md`](COMMANDS.md)).
+8. Each account has at most 1000 feeds.
+
+### 15.3 Routes
+
+All routes are `_any("owner")` in both modes: the owner of the account only, other principals get 404. A cookie request that changes state must come from the same origin (`AuthenticationMiddleware`). The contract is in [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) §7 and `openapi.yaml`.
+
+| Method | Path | Function |
+| :--- | :--- | :--- |
+| `GET` | `/api/feeds` | Feeds with folder, cache and poll state, item and unread counts; the folder list |
+| `POST` | `/api/feeds` | Subscribe (`url`, optional `title`, `folder`). A known URL is not added again (200, `created: false`) |
+| `DELETE` | `/api/feeds` | Unsubscribe (`feed_id`). The items are deleted; a linked document stays |
+| `POST` | `/api/feeds/poll` | Poll now: all feeds (at most 50, oldest poll first) or one feed (`feed_id`). A feed in backoff is not fetched (`backoff`) |
+| `GET` | `/api/feeds/opml` | OPML 2.0 export |
+| `POST` | `/api/feeds/opml` | OPML import (`opml`: the document as text, at most 1 MiB) |
+| `GET` | `/api/feeds/items` | Items, newest first; filters `feed_id`, `folder`, `unread`, `starred`; cursor `before_id`; `content=1` adds the HTML body |
+| `PATCH` | `/api/feeds/items` | `item_ids` with `unread` and or `starred`, or `feed_id` with `unread` (mark all) |
+
+### 15.4 OPML
+
+Import: each `outline` with `xmlUrl` (any case) is a feed; `title`, else `text`, is its title. An outline without `xmlUrl` that contains a feed is a category; nested category names are joined with ` › ` into one folder level. An outline that contains no feed (for example `tt-rss-prefs`, `tt-rss-labels`, `tt-rss-filters` of a Tiny Tiny RSS export) is skipped as one entry. A URL that the account has, or that comes again in the file, is a duplicate. A URL that is not `http` or `https`, or a feed above the limit, is failed. The report has `counts` (`added`, `skipped`, `duplicate`, `failed`) and the lists (at most 500 entries each). The import does not poll.
+
+Export: OPML 2.0. A feed with a folder is in a category outline of that name; other feeds are at the top level. An import of the export adds nothing.
+
+### 15.5 Data Deletion
+
+The account purge (`AccountStore.purge`) deletes the feed subscriptions and feed items of the account with `store.feeds.delete_account_feed_data`. A future deletion of the client data of an account uses the same function. No feed action deletes a document (design Section 10 rule 5): `linked_theme_id` and `linked_doc_id` have no foreign key.
+
+### 15.6 Known Limits
+
+- No feed view, no subscribe dialog with feed discovery (`<link rel="alternate">`), no ingest of one item, and no merge with the timeline by URL: unit FP4-F3.
+- No WebSub subscription, no auto-ingest rule, no retention run for feed items.
+- No route to rename a feed or to move it to a different folder.
+- A permanent redirect does not change the stored feed URL.
+
+### 15.7 Tests
+
+`tests/test_e2e_account_feeds.py` (single mode: subscribe, poll, read, mark, poll with `304`, Tiny Tiny RSS style OPML import, export, unsubscribe; network mode: account isolation and purge), `tests/test_feeds_fetch.py`, `tests/test_feeds_parse.py`, `tests/test_feeds_opml.py`, `tests/test_schema_v21.py`. All servers are local.

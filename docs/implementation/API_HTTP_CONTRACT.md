@@ -130,3 +130,18 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 - **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
 - **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 싱글 모드에서는 이 경로들과 `GET /whoami`가 `@username`을 내지 않는다(S9).
 - **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.
+
+## 7. 계정 피드 경로 (FP4-F1, FP4-F2)
+
+확인 기준: FP4-F1·FP4-F2 구현 (2026-11-13). 동작의 정본은 [FEDERATION.md](FEDERATION.md) §15다. 모든 경로는 `owner`(`_any`, 접두를 무시하고 자격증명 계정을 씀)이고 싱글 모드와 네트워크 모드 모두에서 열린다(RD15). owner가 아니면 404다. 쿠키 채널의 상태 변경 요청은 같은 origin이어야 하고, 아니면 403이다. 응답은 `Cache-Control: no-store`다. 다른 계정의 `feed_id`·항목 ID는 없는 ID와 같게 다룬다.
+
+| Method | Path | 성공 | 그 밖의 응답 |
+|---|---|---|---|
+| `GET` | `/api/feeds` | 200 `{"feeds": [...], "folders": [...], "limit": 1000}`. 피드 키: `id`, `url`, `site_url`, `title`, `folder`, `format`, `websub_hub`, `last_polled_at`, `last_success_at`, `next_poll_at`, `last_status`, `last_error`, `failure_count`, `created_at`, `items`, `unread` | 404 |
+| `POST` | `/api/feeds` | 본문 `{"url", "title"?, "folder"?}`. 201 `{"feed", "created": true}`, 이미 있는 URL은 200 `{"feed", "created": false}` | 400 `invalid_request`, 400 `invalid_url`(`http`·`https`가 아님), 409 `feed_limit` |
+| `DELETE` | `/api/feeds` | 본문 `{"feed_id"}`. 200 `{"removed": true, "feed_id", "items": n}`. 연결된 문서는 지우지 않는다 | 400 `invalid_request`, 404 `feed_not_found` |
+| `POST` | `/api/feeds/poll` | 본문 `{}` 또는 `{"feed_id"}`. 200 `{"polled", "not_polled", "outcomes": [{"feed_id", "result", "http_status", "added", "updated", "error", "next_poll_at"}]}`. `result`는 `updated`·`not_modified`·`error`·`backoff`. 한 번에 50개까지 | 400 `invalid_request`, 404 `feed_not_found` |
+| `GET` | `/api/feeds/opml` | 200 `text/x-opml` OPML 2.0 첨부 파일 | 404 |
+| `POST` | `/api/feeds/opml` | 본문 `{"opml": "<문서>"}`. 200 `{"counts": {"added", "skipped", "duplicate", "failed"}, "added", "skipped", "duplicate", "failed"}` | 400 `invalid_request`, 400 `invalid_opml`(`reason`: `invalid_xml`, `not_opml`, `too_large`, `too_many_outlines`), 413 본문 1MB 초과 |
+| `GET` | `/api/feeds/items` | 200 `{"items": [...], "next_before_id"}`. 쿼리: `feed_id`, `folder`, `unread`·`starred`(`0`·`1`), `before_id`, `limit`(1–200, 기본 50), `content=1`(HTML 본문 포함). 최신 행부터 | 400 `invalid_request` |
+| `PATCH` | `/api/feeds/items` | 본문 `{"item_ids": [...], "unread"?, "starred"?}`(1–500개) 또는 `{"feed_id", "unread"}`. 200 `{"changed": n}` | 400 `invalid_request`, 404 `feed_not_found` |

@@ -424,6 +424,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD")
         ),
         ("PUT", "/api/me/backups/policy"),
+        # Account feeds (FP4-F1, FP4-F2)
+        *((method, "/api/feeds") for method in ("GET", "HEAD", "POST", "DELETE")),
+        ("POST", "/api/feeds/poll"),
+        *((method, "/api/feeds/opml") for method in ("GET", "HEAD", "POST")),
+        *((method, "/api/feeds/items") for method in ("GET", "HEAD", "PATCH")),
     }
     # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
     admin_methods = {

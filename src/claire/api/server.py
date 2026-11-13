@@ -4628,15 +4628,19 @@ def create_app(
         await asyncio.to_thread(purge_expired_bundles, s.data_dir)
         await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
         backup_task = asyncio.create_task(_account_backup_scheduler())
+        from ..feeds.poller import run_scheduler as _feed_poll_scheduler
+
+        feed_task = asyncio.create_task(_feed_poll_scheduler(s))
         try:
             async with mcp_app.router.lifespan_context(mcp_app):
                 yield
         finally:
-            backup_task.cancel()
-            try:
-                await backup_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+            for task in (backup_task, feed_task):
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
     async def _account_backup_scheduler() -> None:
         """계정 자동 백업(``account_backup.run_due_backups``)을 주기적으로 실행한다. 첫 실행은 기동 1분 뒤다."""

@@ -273,7 +273,7 @@ def test_v15_database_with_newer_code_is_rejected_by_require_current_schema(
     _make_v15_database(path, monkeypatch)
     conn = dbm.connect_existing(path, readonly=True)
     try:
-        with pytest.raises(RuntimeError, match="actual=15, expected=20"):
+        with pytest.raises(RuntimeError, match="actual=15, expected=21"):
             dbm.require_current_schema(conn)
     finally:
         conn.close()

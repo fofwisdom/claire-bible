@@ -520,6 +520,18 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # Unit FP3-1: a publish or a retract causes an outbound activity. A ``readonly`` credential cannot call these routes (design Section 8.3 item 4).
     ("POST", "/api/federation/publish"): _any("collaborator", modes=NETWORK_ONLY),
     ("POST", "/api/federation/retract"): _any("collaborator", modes=NETWORK_ONLY),
+    # Account feeds (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, units FP4-F1 and FP4-F2): the owner of the account, in both modes (RD15).
+    ("GET", "/api/feeds"): _any("owner"),
+    ("HEAD", "/api/feeds"): _any("owner"),
+    ("POST", "/api/feeds"): _any("owner"),
+    ("DELETE", "/api/feeds"): _any("owner"),
+    ("POST", "/api/feeds/poll"): _any("owner"),
+    ("GET", "/api/feeds/opml"): _any("owner"),
+    ("HEAD", "/api/feeds/opml"): _any("owner"),
+    ("POST", "/api/feeds/opml"): _any("owner"),
+    ("GET", "/api/feeds/items"): _any("owner"),
+    ("HEAD", "/api/feeds/items"): _any("owner"),
+    ("PATCH", "/api/feeds/items"): _any("owner"),
     ("GET", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
     ("HEAD", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
     ("POST", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
