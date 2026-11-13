@@ -324,6 +324,7 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
 | `CLAIRE_USERCONTENT_FQDN` | `""` | 호스트명 (운영 예: `usercontent.example.com`, 개발 예: `127.0.0.1:8767`) | 계정이 만든 HTML을 그리는 usercontent 역할 호스트. 쿠키를 읽지도 쓰지도 않는다. 개발에서는 app과 같은 IPv4의 다른 포트다. 네트워크 모드 운영 환경에서는 필수다. P2에서는 모든 경로가 404다. |
 | `CLAIRE_MEDIA_FQDN` | `""` | 호스트명 (운영 예: `media.example.com`, 개발 예: `127.0.0.1:8768`) | 캐시 미디어를 내보내는 media 역할 호스트(선택). 쿠키를 읽지도 쓰지도 않는다. P2에서는 모든 경로가 404다. |
+| `CLAIRE_PROTOTYPE_FQDN` | `""` | 호스트명 (운영 예: `prototype.claire.example.com`, 개발 예: `127.0.0.1:8769`) | 정적 시각 프로토타입을 주는 prototype 역할 호스트(선택, RD20). `/`만 목업 데이터 페이지를 주고 그 밖은 404다. 쿠키를 읽지도 쓰지도 않고 API와 서버 데이터가 없다. 검증 규칙은 다른 역할 호스트와 같다. 개발에서는 `CB_PROTOTYPE_PORT`와 함께 app과 같은 IPv4의 다른 포트다. 비면 역할이 없고 그 호스트 요청은 421이다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |
 | `CLAIRE_SECRET_KEY` | `""` | 64자리 16진수 또는 32바이트 키 | 자격 비밀, 계정 API 키 및 초대 코드 암호화에 사용하는 AES-256-GCM 마스터 키. 64자리 16진수 문자열 또는 32바이트 이상 키를 사용한다. 미지정 시 `data/auth/master.key`(권한 `0600`)를 자동 생성하여 사용한다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |

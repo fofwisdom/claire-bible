@@ -55,8 +55,6 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         # Gate G8: Unauthenticated access is forbidden or not found
         res_unauthed = client.get("/syndication")
         assert res_unauthed.status_code in {401, 404}
-        res_proto_unauthed = client.get("/prototype/syndication")
-        assert res_proto_unauthed.status_code in {401, 404}
         res_prefs_unauthed = client.get("/syndication/preferences")
         assert res_prefs_unauthed.status_code in {401, 404}
 
@@ -80,7 +78,7 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert "수집 원문" in res_public.text
         assert "적재 본문" in res_public.text
         assert "생성된 엔티티" in res_public.text
-        assert 'href="/prototype/syndication"' in res_public.text
+        assert "/prototype/syndication" not in res_public.text
 
         # Live /syndication does not ship fake seeds or simulated federation prototypes.
         assert "CLAIRE_SYND_SEEDS" not in res_public.text
@@ -112,56 +110,13 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert res_prefs_head.headers["location"] == "/settings/reader"
 
 
-def test_prototype_syndication_route_preserves_full_prototype(syndication_env) -> None:
+def test_old_prototype_route_is_removed(syndication_env) -> None:
+    """RD20: the prototype left the app path. ``/prototype/syndication`` is 404 like any path not in ROUTE_POLICY."""
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
         headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        res_proto = client.get("/prototype/syndication", headers=headers)
-        assert res_proto.status_code == 200
-        assert "Claire Bible — Syndication Prototype" in res_proto.text
-        assert 'href="/syndication"' in res_proto.text
-        assert "수집 원문" in res_proto.text
-        assert "적재 본문" in res_proto.text
-        assert "부스트 / 인용 발행" in res_proto.text
-        assert 'data-app-tab="client"' in res_proto.text
-        assert 'id="app-tablist"' in res_proto.text
-        assert 'id="panel-client"' in res_proto.text
-        assert 'id="panel-kb"' in res_proto.text
-        assert "연합 클라이언트" in res_proto.text
-        assert "CLAIRE_SYND_CLIENT_FACTORY" in res_proto.text
-        assert "/api/v1/statuses" in res_proto.text
-        assert "com.atproto.repo.createRecord" in res_proto.text
-        assert 'id="modal-connect"' in res_proto.text
-        assert "CLAIRE_SYND_AP_FEATURES" in res_proto.text
-        assert "accountSupports" in res_proto.text
-        assert "checkMastodonBaseline" not in res_proto.text
-        assert 'missingFeatures: ["trends", "quote", "translate", "notifRequests", "scheduled"]' in res_proto.text
-        for endpoint in (
-            "/api/v2/notifications",
-            "/api/v1/notifications/requests",
-            "/api/v1/polls/",
-            "/api/v1/trends/",
-            "/api/v2/search",
-            "/api/v1/reports",
-            "/api/v2/filters",
-            "/api/v1/scheduled_statuses",
-            "/api/v1/conversations",
-            "quote_approval_policy",
-            "scheduled_at",
-            "spoiler_text",
-        ):
-            assert endpoint in res_proto.text, endpoint
-        assert 'id="pop-post-actions"' in res_proto.text
-        assert 'id="modal-report"' in res_proto.text
-        assert "CLAIRE_SYND_PEERS_FACTORY" in res_proto.text
-        assert "window.CLAIRE_SYND_PEERS = {" in res_proto.text
-        assert 'id="tree-peers"' in res_proto.text
-        assert 'id="modal-reshare"' in res_proto.text
-        assert 'data-peer-view="current"' in res_proto.text
-        assert "GET /api/peers/publications" in res_proto.text
-        for mode in ("boost", "quote", "link", "import_publish"):
-            assert f"{mode}: {{ icon:" in res_proto.text, mode
-        assert res_proto.text.index("CLAIRE_SYND_PEERS_FACTORY = function") < res_proto.text.index("window.CLAIRE_SYND_PEERS_FACTORY({")
-        assert client.head("/prototype/syndication", headers=headers).status_code == 200
+        for method in ("GET", "HEAD"):
+            assert client.request(method, "/prototype/syndication", headers=headers).status_code == 404, method
+            assert client.request(method, "/prototype/syndication").status_code in {401, 404}, method
 
 
 # D4 / design §2.2: legacy ?tab= → /settings/* (or /admin/* for the admin).
@@ -245,18 +200,10 @@ def test_legacy_preferences_requires_owner(syndication_env, token) -> None:
             assert "location" not in res.headers
 
 
-def test_prototype_syndication_sealed_and_isolated(syndication_env) -> None:
-    """Verify /prototype/syndication is sealed as an authenticated, isolated reference prototype."""
+def test_live_syndication_ships_no_prototype_seeds(syndication_env) -> None:
+    """The live /syndication page has no mock seeds or simulated federation factories."""
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        res_anon = client.get("/prototype/syndication")
-        assert res_anon.status_code in {401, 403, 404}
-
         owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        res_proto = client.get("/prototype/syndication", headers=owner_headers)
-        assert res_proto.status_code == 200
-        assert "Claire Bible — Syndication Prototype" in res_proto.text
-        assert 'href="/syndication"' in res_proto.text
-
         res_live = client.get("/syndication", headers=owner_headers)
         assert res_live.status_code == 200
         assert "CLAIRE_SYND_SEEDS" not in res_live.text

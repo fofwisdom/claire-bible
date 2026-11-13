@@ -393,7 +393,7 @@
 
 ## 11. Syndication 병합 기반 (P6)
 
-- **[코드] 루트 고유 기능 경로 및 프로토타입 분리 (G8, N5)**: `/syndication`(현재 구현된 실데이터 기반 리더·지식베이스 적재 워크스페이스)과 `/prototype/syndication`(시각적 연합/피어 시뮬레이션 프로토타입)은 모두 루트 전용 `_system("read")` 라우트이며, `/syndication/preferences`는 `_system("owner")`의 호환 302다(§5.10). 비인증 요청은 차단되며 Gate G8이 충족된다. 유저네임 하단 경로(`/@{username}/syndication`, `/@{username}/prototype/syndication`)나 테마 접두 경로(`/themes/{number}/syndication`)는 404 Not Found를 반환하며(N5), `@username`은 루트 프로필/워크스페이스(`/@{username}/`) 및 기능 내 타 유저 호출 용도로만 사용한다.
+- **[코드] 루트 고유 기능 경로 및 프로토타입 분리 (G8, N5)**: `/syndication`(현재 구현된 실데이터 기반 리더·지식베이스 적재 워크스페이스)은 루트 전용 `_system("read")` 라우트이며, 옛 `/prototype/syndication`은 지웠다(RD20, 404; 정적 프로토타입은 `prototype` 역할 호스트, [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). `/syndication/preferences`는 `_system("owner")`의 호환 302다(§5.10). 비인증 요청은 차단되며 Gate G8이 충족된다. 유저네임 하단 경로(`/@{username}/syndication`)나 테마 접두 경로(`/themes/{number}/syndication`)는 404 Not Found를 반환하며(N5), `@username`은 루트 프로필/워크스페이스(`/@{username}/`) 및 기능 내 타 유저 호출 용도로만 사용한다.
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 테이블 제거**: 쓰이지 않던 `syndication_accounts`(토큰 암호화 함수 포함), `syndication_targets`, `syndication_items`는 `claire.db` v20에서 제거했다([SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) "v20" 절).
 - **[코드] 계정 격리**: 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.

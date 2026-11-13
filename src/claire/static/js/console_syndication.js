@@ -151,7 +151,7 @@
     if (persist()) showToast(msg || "선택한 테마의 환경설정이 저장되었습니다");
   }
 
-  /* ── Seed data (prototype, same identifiers as syndication_data.js) ─────────────── */
+  /* ── Seed data (local mock identifiers) ─────────────── */
 
   var MASTODON_SCOPES = ["read", "write:statuses", "write:media", "write:favourites", "write:bookmarks", "write:follows", "write:lists", "write:mutes", "write:blocks", "write:filters", "write:reports", "write:notifications", "write:conversations", "write:accounts"];
   var SEED_THEMES = [

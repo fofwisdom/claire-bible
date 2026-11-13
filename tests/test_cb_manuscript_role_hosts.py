@@ -185,9 +185,10 @@ def test_compose_environment_drops_host_role_host_values(tmp_path, monkeypatch):
     runtime = _load_dev(tmp_path)
     monkeypatch.setenv("CLAIRE_USERCONTENT_FQDN", "evil.example")
     monkeypatch.setenv("CLAIRE_MEDIA_FQDN", "evil.example")
+    monkeypatch.setenv("CLAIRE_PROTOTYPE_FQDN", "evil.example")
     monkeypatch.setenv("CLAIRE_SITE_DOMAIN", "example")
     env = runtime.compose_environment()
-    for key in ("CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_SITE_DOMAIN"):
+    for key in ("CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_PROTOTYPE_FQDN", "CLAIRE_SITE_DOMAIN"):
         assert key not in env
 
 
@@ -341,10 +342,10 @@ def test_repository_templates_validate(tmp_path):
             encoding="utf-8",
         )
     layout = cb.Layout(tmp_path)
-    for key in ("CLAIRE_SITE_DOMAIN", "CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN"):
+    for key in ("CLAIRE_SITE_DOMAIN", "CLAIRE_USERCONTENT_FQDN", "CLAIRE_MEDIA_FQDN", "CLAIRE_PROTOTYPE_FQDN"):
         assert key in cb.read_dotenv(layout.env)
         assert key in cb.read_dotenv(layout.dev_env)
-    for key in ("CB_USERCONTENT_PORT", "CB_MEDIA_PORT"):
+    for key in ("CB_USERCONTENT_PORT", "CB_MEDIA_PORT", "CB_PROTOTYPE_PORT"):
         assert key in cb.read_dotenv(layout.dev_env)
     assert cb.load_runtime(layout).environment == cb.PRODUCTION
     assert cb.load_runtime(layout, legacy_dev=True).environment == cb.DEVELOPMENT
@@ -353,9 +354,10 @@ def test_repository_templates_validate(tmp_path):
 def test_compose_files_publish_role_ports_only_in_development():
     prod = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     dev = (REPO_ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8")
-    assert "CB_USERCONTENT_PORT" not in prod and "CB_MEDIA_PORT" not in prod
+    assert "CB_USERCONTENT_PORT" not in prod and "CB_MEDIA_PORT" not in prod and "CB_PROTOTYPE_PORT" not in prod
     assert "${CB_USERCONTENT_PORT:-${CB_API_PORT" in dev
     assert "${CB_MEDIA_PORT:-${CB_API_PORT" in dev
+    assert "${CB_PROTOTYPE_PORT:-${CB_API_PORT" in dev
     # Stale dev images must not outlive pyproject/uv.lock changes.
     assert "pull_policy: build" in dev
 

@@ -646,6 +646,8 @@ class Settings(BaseSettings):
     site_domain: str = Field(default="", alias="CLAIRE_SITE_DOMAIN")
     usercontent_fqdn: str = Field(default="", alias="CLAIRE_USERCONTENT_FQDN")
     media_fqdn: str = Field(default="", alias="CLAIRE_MEDIA_FQDN")
+    # Static prototype host (RD20). Same format and checks as the role hosts above. Empty: no role, and the host is refused as unknown.
+    prototype_fqdn: str = Field(default="", alias="CLAIRE_PROTOTYPE_FQDN")
     # Cloudflare 공식 공인 IP 대역(https://www.cloudflare.com/ko-kr/ips/)만 접속 허용 (사설 IP는 영향 없음)
     cloudflare_ips_only: bool = Field(
         default=False, alias="CLAIRE_CLOUDFLARE_IPS_ONLY"

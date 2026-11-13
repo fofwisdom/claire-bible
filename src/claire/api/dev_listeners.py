@@ -5,7 +5,7 @@
 컨테이너 포트로 연결한다.
 
 uv로 로컬에서 ``claire serve-api``를 띄우면 그 연결이 없다. 그래서 ``development``이고
-``CLAIRE_USERCONTENT_FQDN``·``CLAIRE_MEDIA_FQDN``이 ``IPv4:포트``이며 그 IPv4가
+``CLAIRE_USERCONTENT_FQDN``·``CLAIRE_MEDIA_FQDN``·``CLAIRE_PROTOTYPE_FQDN``이 ``IPv4:포트``이며 그 IPv4가
 ``CLAIRE_INJECT_HOST``와 문자 그대로 같을 때만 그 포트도 같은 프로세스에서 연다. 요청이
 어느 포트로 들어오든 ``HostRouter``가 ``Host`` 헤더로 역할을 고른다.
 
@@ -22,7 +22,7 @@ __all__ = ["Listener", "dev_listeners"]
 
 Listener = tuple[str, int]
 
-_ROLE_HOST_FIELDS = ("usercontent_fqdn", "media_fqdn")
+_ROLE_HOST_FIELDS = ("usercontent_fqdn", "media_fqdn", "prototype_fqdn")
 
 
 def dev_listeners(settings: Any) -> tuple[Listener, ...]:

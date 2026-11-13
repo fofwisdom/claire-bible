@@ -47,6 +47,7 @@ DEFAULT_FEDIFY_PORT = 8790
 ROLE_HOST_SETTINGS = (
     ("usercontent", "CLAIRE_USERCONTENT_FQDN", "CB_USERCONTENT_PORT"),
     ("media", "CLAIRE_MEDIA_FQDN", "CB_MEDIA_PORT"),
+    ("prototype", "CLAIRE_PROTOTYPE_FQDN", "CB_PROTOTYPE_PORT"),
 )
 DEVELOPMENT = "development"
 PRODUCTION = "production"
@@ -4001,8 +4002,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Checks:\n"
             "  - Environment files (.env / .env.dev) existence and syntax\n"
             "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_FQDN/CLAIRE_PUBLIC_URL consistency\n"
-            "  - Role hosts CLAIRE_USERCONTENT_FQDN / CLAIRE_MEDIA_FQDN:\n"
-            "      development: CB_API_BIND:CB_USERCONTENT_PORT / CB_API_BIND:CB_MEDIA_PORT,\n"
+            "  - Role hosts CLAIRE_USERCONTENT_FQDN / CLAIRE_MEDIA_FQDN / CLAIRE_PROTOTYPE_FQDN:\n"
+            "      development: CB_API_BIND:CB_USERCONTENT_PORT / CB_API_BIND:CB_MEDIA_PORT /\n"
+            "                   CB_API_BIND:CB_PROTOTYPE_PORT,\n"
             "                   every port distinct from CB_API_PORT and each other\n"
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"

@@ -234,7 +234,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
     app = server.create_app(settings=settings)
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        # 1. Network mode: /syndication and /prototype/syndication are root-mounted _system routes.
+        # 1. Network mode: /syndication is a root-mounted _system route. The old /prototype/syndication route is removed (RD20).
         # Prefixed paths under /@{username}/... or /themes/{n}/... fail closed with 404 (rule N5).
         alice_headers = {"Authorization": f"Bearer {alice_token}"}
         res_root = client.get("/syndication", headers=alice_headers)
@@ -242,9 +242,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         assert "Alice Theme" in res_root.text
         assert "Bob Theme" not in res_root.text
 
-        res_proto = client.get("/prototype/syndication", headers=alice_headers)
-        assert res_proto.status_code == 200
-        assert "Claire Bible — Syndication Prototype" in res_proto.text
+        assert client.get("/prototype/syndication", headers=alice_headers).status_code == 404
 
         for bad_path in (
             "/@alice/syndication",
@@ -255,7 +253,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         ):
             assert client.get(bad_path, headers=alice_headers, follow_redirects=False).status_code == 404, bad_path
 
-        # Unauthenticated access to root syndication and prototype is rejected
+        # Unauthenticated access to root syndication and the removed prototype path is rejected
         assert client.get("/syndication").status_code in (401, 404)
         assert client.get("/prototype/syndication").status_code in (401, 404)
 

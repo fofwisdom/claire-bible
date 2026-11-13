@@ -32,6 +32,7 @@ services:
     ports:
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_USERCONTENT_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
       - "${CB_API_BIND:?CB_API_BIND is required}:${CB_MEDIA_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
+      - "${CB_API_BIND:?CB_API_BIND is required}:${CB_PROTOTYPE_PORT:-${CB_API_PORT:?CB_API_PORT is required}}:${CB_API_PORT:?CB_API_PORT is required}"
 
   refresh:
     <<: *claire-dev-service

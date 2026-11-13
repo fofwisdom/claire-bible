@@ -370,8 +370,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/"): _root("read"),
     ("GET", "/syndication"): _system("read"),
     ("HEAD", "/syndication"): _system("read"),
-    ("GET", "/prototype/syndication"): _system("read"),
-    ("HEAD", "/prototype/syndication"): _system("read"),
     ("GET", "/syndication/preferences"): _system("owner"),
     ("HEAD", "/syndication/preferences"): _system("owner"),
     ("POST", "/api/syndication/dispatch"): _system("collaborator"),
@@ -2229,6 +2227,15 @@ class _PublicDirectoryNamespaceResolver(NamespaceResolverMiddleware):
         return _Outcome(ResolvedNamespace(mode, None, None, None, "", False))
 
 
+def _prototype_app(roles: HostRoles) -> ASGIApp | None:
+    """The static prototype sub-application (RD20), or None when ``CLAIRE_PROTOTYPE_FQDN`` is empty."""
+    if roles.prototype is None:
+        return None
+    from .prototype_host import create_prototype_app
+
+    return create_prototype_app()
+
+
 def wrap_web_app(
     app: ASGIApp,
     settings: Any,
@@ -2301,6 +2308,7 @@ def wrap_web_app(
         legacy=legacy_hosts if legacy_hosts is not None else EmptyLegacyHostDirectory(),
         usercontent=usercontent_app,
         media=media_app,
+        prototype=_prototype_app(roles),
     )
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)

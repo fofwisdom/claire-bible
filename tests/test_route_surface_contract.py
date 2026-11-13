@@ -58,7 +58,7 @@ SYSTEM = {
     "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/settings/mcp", "/settings/webmcp",
-    "/syndication", "/prototype/syndication", "/syndication/preferences",
+    "/syndication", "/syndication/preferences",
     "/api/syndication/dispatch", "/syndication/dispatch",
     "/api/syndication/dispatches", "/syndication/dispatches",
 }

@@ -520,7 +520,7 @@ The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src
 - The button sends `POST /api/federation/publish` with the theme number and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
 - The button is disabled for a document of a private theme.
 - The dialog has no control for a retract. `POST /api/federation/retract` is an API call.
-- The page `/prototype/syndication` is a sealed prototype and has no native target.
+- The route `/prototype/syndication` is removed (RD20) and gives 404. The static prototype is on the `prototype` host role (`CLAIRE_PROTOTYPE_FQDN`, [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). It has mock data only and sends nothing to a server.
 
 ## 8. Account Effects
 

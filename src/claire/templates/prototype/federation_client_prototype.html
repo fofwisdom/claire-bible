@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Claire Bible — 연합 클라이언트 · 적재 관리 시각 프로토타입 (FP4, RD10–RD12)</title>
+<meta name="robots" content="noindex, nofollow"/>
+<style>
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--bar-bg:#f6f8fa;--border:#d0d7de;--panel-bg:#f6f8fa;--accent:#0969da;--accent2:#1a7f37;--chip-bg:#eaeef2;--hover:#eef1f4;--active:#ddf4ff;--card-bg:#ffffff;--mark-bg:#fff8c5;--mark-fg:#633c01;--btn-bg:#1f883d;--btn-fg:#fff;--rel:#9a6700;--shadow:rgba(31,35,40,.28);--warn:#bf3989;--client:#8250df;--kb:#1a7f37;--pub:#bc4c00}
+[data-theme=dark]{--bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;--bar-bg:#161b22;--border:#2a2f37;--panel-bg:#10151c;--accent:#58a6ff;--accent2:#7ee787;--chip-bg:#1f2937;--hover:#161b22;--active:#1f2937;--card-bg:#161b22;--mark-bg:#4d3800;--mark-fg:#ffdf5d;--btn-bg:#238636;--rel:#d29922;--shadow:rgba(1,4,9,.6);--warn:#ff7b72;--client:#d2a8ff;--kb:#7ee787;--pub:#ffa657}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.45 system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif}
+button,select,input,textarea{font:inherit;color:inherit}
+.btn{background:var(--bar-bg);border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--btn-bg);color:var(--btn-fg);border-color:transparent}
+.btn.on{background:var(--active);border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chip{display:inline-block;background:var(--chip-bg);border-radius:10px;padding:0 7px;font-size:11px;color:var(--muted);white-space:nowrap}
+.chip.client{color:var(--client)}.chip.kb{color:var(--kb)}.chip.pub{color:var(--pub)}.chip.warn{color:var(--warn)}
+.prop{display:inline-block;font-size:10px;font-weight:700;border:1px dashed var(--pub);color:var(--pub);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:middle}
+.muted{color:var(--muted)}
+.badge{display:inline-block;min-width:17px;text-align:center;background:var(--accent);color:#fff;border-radius:9px;font-size:10px;padding:0 5px;font-weight:700}
+.badge.warn{background:var(--warn)}
+/* layout */
+#app{display:grid;grid-template-rows:auto auto 1fr;height:100vh}
+header.top{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bar-bg)}
+header.top .grow{flex:1}
+.logo{font-weight:700;display:flex;gap:6px;align-items:center}
+.logo i{width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#00ffaa,#0969da);display:inline-block}
+#workspace{display:grid;min-height:0;grid-template-columns:auto 1fr}
+#rail{display:none;flex-direction:column;gap:6px;padding:8px 6px;border-right:1px solid var(--border);background:var(--panel-bg);width:64px;align-items:center}
+[data-nav=rail] #rail{display:flex}
+.rail-btn{position:relative;width:48px;padding:6px 0;border-radius:10px;border:1px solid transparent;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10px;color:var(--muted)}
+.rail-btn b{font-size:20px;line-height:1}
+.rail-btn:hover{background:var(--hover)}
+.rail-btn.on{background:var(--active);border-color:var(--accent);color:var(--fg)}
+.rail-btn .badge{position:absolute;top:0;right:0}
+.rail-sep{width:32px;border-top:1px solid var(--border);margin:4px 0}
+#pipeline{display:none;align-items:stretch;gap:0;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg)}
+[data-nav=pipeline] #pipeline{display:flex}
+.stage{flex:1;display:flex;align-items:center;gap:10px;padding:6px 12px;border:1px solid var(--border);background:var(--card-bg);cursor:pointer;text-align:left;min-width:0}
+.stage:first-child{border-radius:8px 0 0 8px}.stage:last-child{border-radius:0 8px 8px 0}
+.stage+.stage{border-left:none}
+.stage b{font-size:18px}
+.stage .t{font-weight:700}.stage .s{font-size:11px;color:var(--muted)}
+.stage.on{background:var(--active);box-shadow:inset 0 -3px 0 var(--accent)}
+.arrow{align-self:center;color:var(--muted);padding:0 4px;display:none}
+#views{display:grid;min-height:0;height:100%;grid-template-columns:1fr}
+[data-nav=dual] #views{grid-template-columns:1fr 6px 1fr}
+.view{display:none;min-height:0;height:100%;grid-template-columns:220px minmax(260px,1fr) minmax(300px,1.15fr);border-right:1px solid var(--border)}
+.view.show{display:grid}
+[data-nav=dual] .view{display:grid;grid-template-columns:180px minmax(220px,1fr) minmax(240px,1fr)}
+[data-nav=dual] .view.collapsed{grid-template-columns:0 0 1fr}
+#gutter{display:none;background:var(--border);cursor:col-resize}
+[data-nav=dual] #gutter{display:block}
+.pane{overflow:auto;min-height:0;border-right:1px solid var(--border)}
+.pane:last-child{border-right:none}
+.side{background:var(--panel-bg);padding:8px 6px}
+.vhead{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bar-bg);position:sticky;top:0;z-index:1}
+.vhead .ttl{font-weight:700}
+.vtitle{grid-column:1/-1;display:none;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);font-weight:700}
+[data-nav=dual] .vtitle{display:flex}
+[data-nav=dual] .view{grid-template-rows:auto 1fr}
+.vtitle.client{color:var(--client)}.vtitle.kb{color:var(--kb)}
+.grp{font-size:11px;font-weight:700;color:var(--muted);margin:10px 6px 4px;display:flex;align-items:center;gap:4px}
+.acct{margin:2px 0 6px;border-radius:8px}
+.acct-h{display:flex;align-items:center;gap:6px;padding:4px 6px;font-weight:600}
+.acct-h small{font-weight:400}
+.node{display:flex;align-items:center;gap:6px;padding:3px 8px 3px 18px;border-radius:6px;cursor:pointer}
+.node:hover{background:var(--hover)}
+.node.on{background:var(--active)}
+.node .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item{padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;display:grid;grid-template-columns:30px 1fr;gap:8px}
+.item:hover{background:var(--hover)}
+.item.on{background:var(--active)}
+.item.unread .who{font-weight:700}
+.av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--chip-bg)}
+.meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.who{color:var(--fg)}
+.excerpt{margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.acts{display:flex;gap:2px;margin-top:4px;flex-wrap:wrap}
+.act{background:none;border:1px solid transparent;border-radius:6px;padding:1px 6px;cursor:pointer;color:var(--muted);font-size:12px}
+.act:hover{background:var(--chip-bg);color:var(--fg)}
+.act.on{color:var(--accent);font-weight:700}
+.act.kb{color:var(--kb)}
+.detail{padding:12px 14px}
+.post-body{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--card-bg);margin:8px 0}
+.sandbox-note{font-size:11px;color:var(--muted);border-left:3px solid var(--border);padding-left:6px;margin:4px 0}
+.quote{border:1px solid var(--border);border-left:3px solid var(--client);border-radius:6px;padding:6px 8px;margin-top:6px;font-size:12px;background:var(--panel-bg)}
+.thread{border-left:2px solid var(--border);margin-left:8px;padding-left:10px}
+.thread .tp{padding:6px 0;border-bottom:1px dashed var(--border)}
+.thread .tp.mine{background:linear-gradient(90deg,var(--active),transparent)}
+.compose{border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--card-bg);margin-top:10px}
+.compose textarea{width:100%;min-height:70px;border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:6px;resize:vertical}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.row .grow{flex:1}
+select.sel{background:var(--bar-bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px}
+.box{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:8px 0;background:var(--card-bg)}
+.box h4{margin:0 0 6px;font-size:12px}
+.target{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px dashed var(--border)}
+.target:first-of-type{border-top:none}
+.rx{display:flex;gap:10px;font-size:12px;margin-top:4px}
+.empty{padding:30px 16px;color:var(--muted);text-align:center}
+.drop-ok{outline:2px dashed var(--kb);outline-offset:-4px}
+.drop-pub{outline:2px dashed var(--pub);outline-offset:-4px}
+/* flow tray */
+#tray{position:fixed;right:12px;bottom:12px;width:320px;max-height:42vh;overflow:auto;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px var(--shadow);display:none;z-index:20}
+#tray.show{display:block}
+#tray .vhead{border-radius:10px 10px 0 0}
+.flow{padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px;display:grid;grid-template-columns:20px 1fr;gap:6px}
+/* proto controls */
+#proto{position:fixed;left:12px;bottom:12px;background:var(--card-bg);border:1px dashed var(--pub);border-radius:10px;padding:8px 10px;z-index:30;box-shadow:0 6px 18px var(--shadow);max-width:430px}
+#proto.min .body{display:none}
+#proto .lbl{cursor:pointer;font-size:11px;color:var(--pub);font-weight:700}
+#proto .row{margin-top:4px}
+#proto details summary{cursor:pointer;font-size:11px;color:var(--muted)}
+#proto p{margin:4px 0;font-size:11px;color:var(--muted)}
+.feedrow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:4px 0}
+.stat-ok{color:var(--kb)}.stat-err{color:var(--warn)}
+.item.rss .av{border-radius:6px;background:var(--mark-bg)}
+#toast{position:fixed;top:54px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+#toast.show{opacity:.95}
+dialog{border:1px solid var(--border);border-radius:10px;background:var(--card-bg);color:var(--fg);box-shadow:0 12px 32px var(--shadow);padding:14px;width:min(480px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog h3{margin:0 0 8px;font-size:15px}
+.opt{display:flex;gap:8px;align-items:flex-start;padding:6px;border-radius:6px;cursor:pointer}
+.opt:hover{background:var(--hover)}
+kbd{border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 4px;font-size:10px;background:var(--bar-bg)}
+#palette input{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)}
+#palette .pi{padding:5px 8px;border-radius:6px;cursor:pointer}
+#palette .pi:hover,#palette .pi.on{background:var(--active)}
+</style>
+</head>
+<body data-nav="pipeline" data-rd12="A" data-mode="network">
+<div id="app">
+  <header class="top">
+    <span class="logo"><i></i>Claire</span>
+    <span class="chip">/syndication</span>
+    <span id="nav-inline" style="display:flex;gap:4px"></span>
+    <span class="grow"></span>
+    <label class="muted" for="theme-sel">테마</label>
+    <select id="theme-sel" class="sel"></select>
+    <button class="btn" id="btn-palette" title="명령 팔레트 (Ctrl+K)">⌘K 이동·명령</button>
+    <button class="btn" id="btn-tray" title="수집 → 적재 → 게시 흐름 기록">⇄ 흐름 <span class="badge" id="tray-count">0</span></button>
+    <button class="btn" id="btn-dark" title="라이트/다크">🌙</button>
+  </header>
+  <nav id="pipeline" aria-label="수집 · 적재 · 게시 단계"></nav>
+  <div id="workspace">
+    <nav id="rail" aria-label="작업 공간"></nav>
+    <div id="views">
+      <section class="view" id="v-client" data-view="client"></section>
+      <div id="gutter"></div>
+      <section class="view" id="v-kb" data-view="kb"></section>
+    </div>
+  </div>
+</div>
+
+<aside id="tray"><div class="vhead"><span class="ttl">⇄ 흐름 기록</span><span class="grow" style="flex:1"></span><button class="btn" onclick="tray.classList.remove('show')">닫기</button></div><div id="tray-list"></div></aside>
+<div id="toast"></div>
+
+<div id="proto">
+  <div class="lbl" onclick="this.parentElement.classList.toggle('min')" title="접기/펼치기">🧪 시각 프로토타입 조절 — 목업 데이터, 네트워크 호출 없음 ▾</div>
+  <div class="body"><div class="row"><span class="muted" style="width:72px">전환 방식</span>
+    <button class="btn" data-nav-opt="rail">N1 레일 (기각)</button>
+    <button class="btn" data-nav-opt="pipeline">N2 단계 파이프라인 ✔ 결정</button>
+    <button class="btn" data-nav-opt="dual">N3 나란히 (기각)</button>
+  </div>
+  <div class="row"><span class="muted" style="width:72px">모드</span>
+    <button class="btn" data-mode-opt="network">network (연합 + 피드)</button>
+    <button class="btn" data-mode-opt="single">single (피드만, RD15)</button>
+  </div>
+  <div class="row"><span class="muted" style="width:72px">RD12 보류</span>
+    <button class="btn" data-rd12-opt="A">A 네이티브 액터만</button>
+    <button class="btn" data-rd12-opt="B">B + 외부 연결 계정</button>
+  </div>
+  <details><summary>각 안의 설명</summary>
+    <p><b>N1</b> 왼쪽 레일에 두 작업공간(🌐 연합 클라이언트, 📚 적재 관리)과 흐름. 미읽음·대기 수가 레일 배지로 보입니다. 키 <kbd>g</kbd> <kbd>c</kbd> / <kbd>g</kbd> <kbd>k</kbd>.</p>
+    <p><b>N2</b> 상단이 설계 §1.3의 세 단계(수집 → 적재 → 게시)입니다. 단계를 누르면 해당 보기로 갑니다. "게시" 단계는 적재 관리 보기의 미게시·게시됨 필터입니다.</p>
+    <p><b>N3</b> 두 보기를 나란히 둡니다. 게시물을 오른쪽으로 끌면 적재, 문서를 왼쪽으로 끌면 게시 대화상자가 열립니다. 한쪽 머리를 눌러 접을 수 있습니다.</p>
+    <p><b>📰 피드</b> RSS · Atom · JSON Feed 구독은 계정의 1차 수집입니다 (제안). 상호작용 대상이 없으므로 공유는 링크 글이 됩니다. 같은 출처가 ActivityPub을 제공하면 팔로우로 전환을 권합니다. 팔로우 중인 액터의 RSS는 같은 URL로 합칩니다. 기본 목표는 TT-RSS 구독 목록을 OPML로 옮겨 오는 것입니다 (⇅ OPML). 피드는 single 모드에서도 동작합니다. 자동 적재 규칙은 후속 제안입니다.</p>
+    <p>모든 안에 공통: <kbd>Ctrl</kbd>+<kbd>K</kbd> 명령 팔레트, ⇄ 흐름 기록, 게시물과 문서 사이의 교차 링크.</p>
+    <p><b>RD12 A</b>: 계정 트리에 네이티브 액터 하나. <b>B</b>: 연결한 Mastodon·Bluesky 계정이 같은 트리에 들어오고, 통합 홈은 같은 게시물을 한 번만 보입니다. 글쓰기에서 보낼 계정을 고릅니다.</p>
+  </details></div>
+</div>
+
+<dialog id="dlg-ingest"><h3>📚 지식베이스로 적재</h3><div id="ingest-body"></div><div class="row"><span class="grow"></span><button class="btn" onclick="dlgIngest.close()">취소</button><button class="btn pri" id="ingest-go">적재 시작</button></div></dialog>
+<dialog id="dlg-publish"><h3>📣 문서 게시</h3><div id="publish-body"></div><div class="row"><span class="grow"></span><button class="btn" onclick="dlgPublish.close()">취소</button><button class="btn pri" id="publish-go">게시</button></div></dialog>
+<dialog id="dlg-feed"><h3>📰 피드 구독 <span class="prop">제안</span></h3><div id="feed-body"></div><div class="row"><span class="grow"></span><button class="btn" onclick="dlgFeed.close()">취소</button><button class="btn pri" id="feed-go">구독</button></div></dialog>
+<dialog id="dlg-opml"><h3>⇅ OPML 가져오기 · 내보내기</h3><div id="opml-body"></div><div class="row"><button class="btn" onclick="toast('OPML 내보내기: 피드 '+feeds.length+'개 · 폴더 포함')">⬇ 내보내기</button><span class="grow"></span><button class="btn" onclick="dlgOpml.close()">닫기</button><button class="btn pri" id="opml-go">가져오기</button></div></dialog>
+<dialog id="palette"><input id="pal-in" placeholder="이동 또는 명령… (예: 멘션, 미게시, 새 글)"/><div id="pal-list" style="margin-top:6px"></div></dialog>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const body=document.body, tray=$("#tray"), dlgIngest=$("#dlg-ingest"), dlgPublish=$("#dlg-publish"), dlgFeed=$("#dlg-feed"), dlgOpml=$("#dlg-opml"), palette=$("#palette");
+
+/* ---------- 목업 데이터 ---------- */
+const themes=[{id:1,name:"연구 노트",priv:false},{id:2,name:"공개 아카이브",priv:false},{id:3,name:"개인 메모",priv:true}];
+const native={id:"native",kind:"native",icon:"🆔",handle:"@fow@claire.example",label:"네이티브 액터",sub:"Claire 계정 · Fedify"};
+const connected=[
+  {id:"masto",kind:"masto",icon:"🐘",handle:"@fow@mastodon.social",label:"연결 계정",sub:"Mastodon 4.5 · OAuth"},
+  {id:"bsky",kind:"bsky",icon:"🦋",handle:"fow.bsky.social",label:"연결 계정",sub:"AT Protocol · 앱 비밀번호"}];
+let posts=[
+  {id:"p1",acct:["native","masto"],av:"🧑‍🔬",who:"Alice",h:"@alice@scholar.social",t:"3분",text:"그래프 기반 지식베이스에서 엔티티 해석을 평가하는 새 벤치마크를 공개했습니다. 데이터셋과 평가 스크립트를 함께 올립니다.",tags:["#KnowledgeGraph","#NLP"],unread:true,url:"https://scholar.social/@alice/1"},
+  {id:"p2",acct:["native"],av:"🦀",who:"Rust 포럼",h:"@rust@forum.example",ann:"Rust 포럼 그룹",av2:"🧑‍💻",who2:"bob",t:"12분",text:"[스레드] async 런타임 선택 기준 정리 — tokio, smol, glommio 비교와 실제 운영 경험을 모읍니다.",tags:["#rust"],unread:true,thread:true,url:"https://forum.example/t/42"},
+  {id:"p3",acct:["native"],av:"👩‍🏫",who:"Dana",h:"@dana@hci.town",t:"40분",text:"@fow@claire.example 지난번 공개하신 「Fedify 사이드카 설계」 글에서 키 보관 방식이 인상적이었습니다. 질문이 하나 있어요.",mention:true,replyToMine:"d2",unread:true,url:"https://hci.town/@dana/7"},
+  {id:"p4",acct:["masto"],av:"🧑‍🎨",who:"Eun",h:"@eun@mastodon.social",t:"1시간",text:"오늘 읽은 글: 연합 소셜 웹에서 인용 게시물 동의 모델(FEP-044f)이 어떻게 작동하는지.",tags:["#fediverse"],unread:false,url:"https://mastodon.social/@eun/3"},
+  {id:"p5",acct:["bsky"],av:"🧑‍🚀",who:"Kai",h:"kai.bsky.social",t:"2시간",text:"Bluesky 커스텀 피드로 논문 소식만 모아 보는 법.",unread:false,url:"https://bsky.app/profile/kai.bsky.social/post/1"},
+  {id:"p6",acct:["native","masto"],av:"🧑‍🔬",who:"Alice",h:"@alice@scholar.social",t:"5시간",text:"벤치마크 결과 일부: 교차 유형 엔티티 해석에서 정밀도가 크게 다릅니다.",unread:false,url:"https://scholar.social/@alice/0"}];
+const threadOf={p2:[{who:"bob",h:"@bob@forum.example",text:"tokio가 기본값이지만 io_uring이 필요하면 glommio를 봅니다."},{who:"carol",h:"@carol@lemmy.example",text:"smol은 작은 바이너리에 좋습니다."}],p3:[]};
+let notifs=[
+  {id:"n1",kind:"quote_req",who:"Eun",h:"@eun@mastodon.social",doc:"d2",text:"「Fedify 사이드카 설계」를 인용하려고 합니다",state:"pending"},
+  {id:"n2",kind:"like",who:"Alice",h:"@alice@scholar.social",doc:"d2",text:"「Fedify 사이드카 설계」를 즐겨찾기했습니다"},
+  {id:"n0",kind:"dm_notice",who:"비공개 메시지 2건",h:"최근: @frank@social.example",doc:null,text:"팔로워 전용·DM은 받지 않습니다. 보낸 사람에게 자동 안내를 보냈습니다 (24시간에 한 번)."},
+  {id:"n3",kind:"boost",who:"Rust 포럼",h:"@rust@forum.example",doc:"d1",text:"「async 런타임 노트」를 부스트했습니다"}];
+let myNotes=[{id:"m1",text:"Claire에서 연합 클라이언트를 시험 중입니다.",t:"어제",quotePolicy:"public",rx:{like:2,boost:1,reply:0,quote:0}}];
+let docs=[
+  {id:"d1",theme:1,title:"async 런타임 노트",src:"수동 적재",ents:["tokio","io_uring"],pub:{native:true},rx:{like:4,boost:1,reply:1,quote:0},quotePolicy:"public"},
+  {id:"d2",theme:1,title:"Fedify 사이드카 설계",src:"URL 적재",ents:["Fedify","ActivityPub"],pub:{native:true,masto:true},rx:{like:7,boost:3,reply:2,quote:1},quotePolicy:"manual"},
+  {id:"d3",theme:1,title:"엔티티 해석 평가 메모",src:"PDF 적재",ents:["Entity resolution"],pub:{},rx:null,quotePolicy:"manual"},
+  {id:"d4",theme:2,title:"공개 아카이브 소개",src:"수동 적재",ents:[],pub:{native:true},rx:{like:1,boost:0,reply:0,quote:0},quotePolicy:"public"},
+  {id:"d6",theme:1,title:"사내 Claire 운영 회고",src:"RSS 항목 URL 적재",fromFeed:"사내 기술 노트",feedId:"f4",rssId:"r5",auto:true,ents:["Claire"],pub:{},rx:null,quotePolicy:"manual"},
+  {id:"d5",theme:3,title:"개인 일정 메모",src:"수동 적재",ents:[],pub:{},rx:null,quotePolicy:"nobody"}];
+/* RSS · Atom · JSON Feed — 계정의 1차 수집 (제안) */
+let feeds=[
+  {id:"f1",folder:"연구",title:"arXiv cs.CL",url:"https://rss.arxiv.org/rss/cs.CL",fmt:"RSS 2.0",interval:"1시간",push:false,status:"304 변경 없음 · ETag",last:"7분 전",autoIngest:null},
+  {id:"f2",folder:"연구",title:"Fedify 블로그",url:"https://fedify.dev/feed.xml",fmt:"Atom 1.0",interval:"WebSub 푸시",push:true,status:"200 · 새 항목 1",last:"2분 전",autoIngest:null,apActor:"@fedify@hollo.social"},
+  {id:"f3",folder:"뉴스",title:"Alice의 Mastodon RSS",url:"https://scholar.social/@alice.rss",fmt:"RSS 2.0",interval:"30분",push:false,status:"200",last:"20분 전",autoIngest:null,dupOfActor:"@alice@scholar.social"},
+  {id:"f4",folder:"뉴스",title:"사내 기술 노트",url:"https://notes.example.org/feed.json",fmt:"JSON Feed 1.1",interval:"6시간",push:false,status:"503 · 재시도 백오프 2/5",last:"3시간 전",autoIngest:1,err:true}];
+let rssItems=[
+  {id:"r1",feed:"f1",title:"Cross-type Entity Resolution with Vision-Language Models",text:"We propose a benchmark for resolving entities across text, tables, and figures…",cats:["cs.CL","cs.CV"],t:"15분",unread:true,url:"https://arxiv.org/abs/2611.01234"},
+  {id:"r2",feed:"f2",title:"Fedify 2.4: FEP-044f 인용 게시물 지원",text:"QuoteRequest와 QuoteAuthorization을 다루는 API를 추가했습니다…",cats:["release"],t:"2분",unread:true,url:"https://fedify.dev/blog/2-4"},
+  {id:"r3",feed:"f3",title:"(제목 없음)",text:"그래프 기반 지식베이스에서 엔티티 해석을 평가하는 새 벤치마크를 공개했습니다…",cats:[],t:"3분",unread:true,url:"https://scholar.social/@alice/1",dupPost:"p1"},
+  {id:"r4",feed:"f1",title:"Retrieval-Augmented Knowledge Graph Construction",text:"A survey of retrieval-augmented pipelines for building knowledge graphs…",cats:["cs.CL"],t:"1시간",unread:false,url:"https://arxiv.org/abs/2611.00999"},
+  {id:"r5",feed:"f4",title:"사내 Claire 운영 회고",text:"지난 분기 적재 파이프라인 운영에서 배운 점…",cats:["운영"],t:"어제",unread:false,url:"https://notes.example.org/claire-retro",autoIngested:1}];
+let flows=[];
+const S={feed:null,homeFeeds:false,selType:"post",rssSel:"r1",view:"client",theme:1,stream:"home",acctSel:"all",postSel:"p1",docFilter:"all",docSel:"d2",compose:null,collapsed:null};
+
+/* ---------- 도우미 ---------- */
+const single=()=>body.dataset.mode==="single";
+const accounts=()=>single()?[]:body.dataset.rd12==="B"?[native,...connected]:[native];
+const acctById=id=>[native,...connected].find(a=>a.id===id);
+const themeName=id=>themes.find(t=>t.id===id).name;
+const qpLabel={public:"누구나 · 자동 승인",followers:"팔로워만 · 자동 승인",manual:"직접 승인",nobody:"인용 안 받음"};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove("show"),1800)}
+function flow(icon,text){flows.unshift({icon,text,at:new Date().toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})});renderTray()}
+function visiblePosts(){
+  const ids=accounts().map(a=>a.id);
+  let list=posts.filter(p=>p.acct.some(a=>ids.includes(a)));
+  if(S.acctSel!=="all") list=list.filter(p=>p.acct.includes(S.acctSel));
+  if(S.stream==="mentions") list=list.filter(p=>p.mention);
+  if(S.stream==="starred") list=list.filter(p=>p.star);
+  if(S.stream==="groups") list=list.filter(p=>p.ann);
+  if(S.stream==="ingested") list=list.filter(p=>p.ingested);
+  return list}
+const rssVisible=()=>rssItems.filter(r=>!(r.dupPost&&S.stream!=='rssfeed')&&(S.stream==='rssfeed'?r.feed===S.feed:true));
+const counts=()=>({rssUnread:rssItems.filter(r=>r.unread&&!r.dupPost).length,unread:visiblePosts().filter(p=>p.unread).length+0,mentions:posts.filter(p=>p.mention&&p.unread).length,quoteReq:notifs.filter(n=>n.kind==="quote_req"&&n.state==="pending").length,unpub:docs.filter(d=>d.theme===S.theme&&!Object.keys(d.pub).length&&!themes.find(t=>t.id===d.theme).priv).length,ingestWait:posts.filter(p=>p.ingesting).length});
+
+/* ---------- 내비게이션 ---------- */
+function setView(v){S.view=v;render()}
+function renderNav(){
+  const c=counts();
+  $("#rail").innerHTML=`
+    <button class="rail-btn ${S.view==="client"?"on":""}" onclick="setView('client')" title="연합 클라이언트 (g c)"><b>🌐</b>클라이언트${c.unread+c.quoteReq+c.rssUnread?`<span class="badge ${c.quoteReq?"warn":""}">${c.unread+c.quoteReq+c.rssUnread}</span>`:""}</button>
+    <button class="rail-btn ${S.view==="kb"?"on":""}" onclick="setView('kb')" title="적재 관리 (g k)"><b>📚</b>적재 관리${c.unpub?`<span class="badge">${c.unpub}</span>`:""}</button>
+    <div class="rail-sep"></div>
+    <button class="rail-btn" onclick="tray.classList.toggle('show')" title="흐름 기록"><b>⇄</b>흐름</button>
+    <span style="flex:1"></span>
+    <button class="rail-btn" title="설정 콘솔 /settings/federation"><b>⚙️</b>설정</button>`;
+  const kbStage=S.view==="kb"&&S.docFilter!=="unpub"&&S.docFilter!=="pub";
+  const pubStage=S.view==="kb"&&(S.docFilter==="unpub"||S.docFilter==="pub");
+  $("#pipeline").innerHTML=`
+    <button class="stage ${S.view==="client"?"on":""}" onclick="S.view='client';render()"><b>🌐</b><span><div class="t">1 · 수집 <span class="chip client">연합 클라이언트 · 계정</span></div><div class="s">${single()?`📰 피드 미읽음 ${c.rssUnread} · single 모드`:`미읽음 ${c.unread} · 멘션 ${c.mentions} · 인용 요청 ${c.quoteReq} · 📰 피드 ${c.rssUnread}`}</div></span></button>
+    <button class="stage ${kbStage?"on":""}" onclick="S.view='kb';S.docFilter='all';render()"><b>📚</b><span><div class="t">2 · 적재 <span class="chip kb">지식베이스 · ${esc(themeName(S.theme))}</span></div><div class="s">문서 ${docs.filter(d=>d.theme===S.theme).length} · 연합·피드에서 온 문서 ${docs.filter(d=>d.theme===S.theme&&(d.fromPost||d.fromFeed)).length} · 적재 중 ${c.ingestWait}</div></span></button>
+    <button class="stage ${pubStage?"on":""}" onclick="S.view='kb';S.docFilter='unpub';render()"><b>📣</b><span><div class="t">3 · 게시 <span class="chip pub">연합 클라이언트가 송신</span></div><div class="s">${single()?"single 모드 · 연합 게시 없음 · ":""}미게시 ${c.unpub} · 반응 ${docs.filter(d=>d.theme===S.theme&&d.rx).reduce((a,d)=>a+d.rx.like+d.rx.boost+d.rx.reply+d.rx.quote,0)}</div></span></button>`;
+  $("#nav-inline").innerHTML="";
+  $$("[data-nav-opt]").forEach(b=>b.classList.toggle("on",b.dataset.navOpt===body.dataset.nav));
+  $$("[data-rd12-opt]").forEach(b=>b.classList.toggle("on",b.dataset.rd12Opt===body.dataset.rd12));
+  $$("[data-mode-opt]").forEach(b=>b.classList.toggle("on",b.dataset.modeOpt===body.dataset.mode));
+  $("#v-client").classList.toggle("show",S.view==="client");
+  $("#v-kb").classList.toggle("show",S.view==="kb");
+  $("#v-client").classList.toggle("collapsed",S.collapsed==="client");
+  $("#v-kb").classList.toggle("collapsed",S.collapsed==="kb");
+  $("#theme-sel").innerHTML=themes.map(t=>`<option value="${t.id}" ${t.id===S.theme?"selected":""}>${t.priv?"🔒 ":""}${esc(t.name)}</option>`).join("");
+  $("#tray-count").textContent=flows.length;
+}
+
+/* ---------- 연합 클라이언트 보기 ---------- */
+function streamNode(key,icon,label,badge,warn){return `<div class="node ${S.stream===key&&S.acctSel===(S._acctCtx||"all")?"on":""}" onclick="S.stream='${key}';S.acctSel='${S._acctCtx||"all"}';S.compose=null;render()"><span>${icon}</span><span class="grow">${label}</span>${badge?`<span class="badge ${warn?"warn":""}">${badge}</span>`:""}</div>`}
+function renderClient(){
+  const c=counts(), accs=accounts();
+  let side=single()?`<div class="box" style="font-size:11px"><b>single 모드</b><br/><span class="muted">연합(액터·팔로우·답글)은 network 모드에서만 동작합니다. 피드 수집과 적재는 그대로 됩니다 (RD15).</span></div>`:`<div class="grp">계정 ${body.dataset.rd12==="B"?'<span class="prop">RD12 B · 보류</span>':""}</div>`;
+  if(accs.length>1){S._acctCtx="all";side+=`<div class="acct"><div class="acct-h">🧭 통합 <small class="muted">모든 계정</small></div>${streamNode("home","🏠","통합 홈",c.unread)}${streamNode("mentions","＠","멘션 · 답글",c.mentions)}</div>`}
+  for(const a of accs){
+    S._acctCtx=accs.length>1?a.id:"all";
+    side+=`<div class="acct"><div class="acct-h">${a.icon} <span>${esc(a.handle)}</span></div><div class="muted" style="padding:0 8px 2px 24px;font-size:11px">${a.label} · ${a.sub}</div>`;
+    side+=streamNode("home","🏠","홈",accs.length>1?posts.filter(p=>p.acct.includes(a.id)&&p.unread).length:c.unread);
+    side+=streamNode("mentions","＠","멘션 · 답글",accs.length>1?posts.filter(p=>p.acct.includes(a.id)&&p.mention&&p.unread).length:c.mentions);
+    if(a.kind==="native"){side+=streamNode("notifs","🔔","알림 · 인용 요청",c.quoteReq,true)+streamNode("groups","👥","그룹 (FEP-1b12)")+streamNode("mine","✍️","내 글")+streamNode("follows","➕","팔로우 관리")}
+    if(a.kind==="masto"){side+=streamNode("local","🏘️","로컬 · 연합 타임라인")}
+    if(a.kind==="bsky"){side+=streamNode("feeds","🧵","커스텀 피드")}
+    side+=`</div>`}
+  S._acctCtx=null;
+  side+=`<div class="grp" title="RSS 2.0 · Atom 1.0 · JSON Feed">📰 피드 <span class="prop">RD13</span><span style="flex:1"></span><button class="act" title="피드 구독" onclick="openFeedAdd()">＋</button><button class="act" title="OPML 가져오기·내보내기 (TT-RSS 이전)" onclick="openOpml()">⇅ OPML</button></div>`;
+  side+=`<div class="node ${S.stream==="rss"?"on":""}" onclick="pickFeed(null)">📰 <span class="grow">모든 피드</span>${c.rssUnread?`<span class="badge">${c.rssUnread}</span>`:""}</div>`;
+  for(const fo of [...new Set(feeds.map(f=>f.folder))]){side+=`<div class="muted" style="padding:2px 8px 0 18px;font-size:11px">📁 ${esc(fo)}</div>`;for(const f of feeds.filter(f=>f.folder===fo)){const n=rssItems.filter(r=>r.feed===f.id&&r.unread&&!r.dupPost).length;side+=`<div class="node ${S.stream==="rssfeed"&&S.feed===f.id?"on":""}" style="padding-left:28px" onclick="pickFeed('${f.id}')"><span>${f.err?"⚠️":f.push?"⚡":"📰"}</span><span class="grow" title="${esc(f.url)}">${esc(f.title)}</span>${f.autoIngest?'<span class="chip kb" title="자동 적재 규칙">📚</span>':""}${n?`<span class="badge">${n}</span>`:""}</div>`}}
+  side+=`<div class="grp">보관</div>`+`<div class="node ${S.stream==="starred"?"on":""}" onclick="S.stream='starred';S.acctSel='all';render()">⭐ <span class="grow">별표 (보존 기간 제외)</span></div><div class="node ${S.stream==="ingested"?"on":""}" onclick="S.stream='ingested';S.acctSel='all';render()">📚 <span class="grow">적재한 게시물</span></div>`;
+  side+=`<div class="box" style="font-size:11px"><b>수집 ≠ 적재</b><br/><span class="muted">타임라인과 피드는 계정의 1차 수집입니다. 테마에는 <b>📚 적재</b>로만 들어갑니다 (설계 §1.3).</span></div>`;
+
+  let listHead=`<div class="vhead"><span class="ttl">${{home:"홈",mentions:"멘션 · 답글",notifs:"알림 · 인용 요청",groups:"그룹",mine:"내 글",follows:"팔로우 관리",starred:"별표",ingested:"적재한 게시물",local:"로컬 · 연합",feeds:"커스텀 피드",rss:"모든 피드",rssfeed:(feeds.find(f=>f.id===S.feed)||{}).title}[S.stream]}</span>${S.acctSel!=="all"?`<span class="chip">${esc(acctById(S.acctSel).handle)}</span>`:""}<span style="flex:1"></span>${S.stream==="home"?`<button class="btn ${S.homeFeeds?"on":""}" onclick="S.homeFeeds=!S.homeFeeds;render()" title="홈에 피드 항목 섞어 보기">📰 피드 포함</button>`:""}${S.stream==="rss"||S.stream==="rssfeed"?`<button class="btn" onclick="pollNow()">↻ 지금 가져오기</button><button class="btn" onclick="openFeedAdd()">＋ 구독</button>`:(single()?"":`<button class="btn pri" onclick="openCompose({})">✍️ 새 글</button>`)}</div>`;
+  let list="";
+  if(S.stream==="notifs") list=notifs.map(renderNotif).join("")||`<div class="empty">알림 없음</div>`;
+  else if(S.stream==="mine") list=myNotes.map(n=>`<div class="item"><div class="av">🆔</div><div><div class="meta"><span class="who">나</span><span>${n.t}${n.edited?" · 수정됨":""}</span><span class="chip">${qpLabel[n.quotePolicy]}</span>${n.lang?`<span class="chip">${n.lang}</span>`:""}</div>${n.cw?`<div class="quote" style="border-left-color:var(--warn)">⚠️ ${esc(n.cw)}</div>`:""}<div>${esc(n.text)}</div>${n.tags&&n.tags.length?`<div class="meta">${n.tags.map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div>`:""}${n.quoteOf?`<div class="quote">❝ ${esc(n.quoteOf)}</div>`:""}<div class="rx muted">♥ ${n.rx.like} 🔁 ${n.rx.boost} 💬 ${n.rx.reply} ❝ ${n.rx.quote}</div><div class="acts"><button class="act" onclick="event.stopPropagation();openCompose({edit:'${n.id}'})">✏️ 수정</button><button class="act">🗑 삭제 (Delete → 410)</button><button class="act kb" onclick="event.stopPropagation();openIngest('note:${n.id}')">📚 적재</button></div></div></div>`).join("");
+  else if(S.stream==="follows") list=`<div class="detail"><div class="row"><input class="sel grow" placeholder="@name@host 또는 액터 IRI" style="padding:4px 8px"/><button class="btn pri">팔로우</button></div><p class="muted">팔로우 1000개 한도 (관리자 설정)</p>${["@alice@scholar.social · Person · 수락됨","@rust@forum.example · Group · 수락됨","@dana@hci.town · Person · 대기 (수동 승인 서버)"].map(x=>`<div class="target"><span>👤</span><span>${x}</span><button class="btn">언팔로우</button></div>`).join("")}</div>`;
+  else if(["local","feeds"].includes(S.stream)) list=`<div class="empty">연결 계정의 서버 타임라인 (프록시 읽기, 저장 안 함)<br/><span class="prop">RD12 B</span></div>`;
+  else if(S.stream==="rss"||S.stream==="rssfeed"){const f=S.stream==="rssfeed"?feeds.find(x=>x.id===S.feed):null;list=(f?renderFeedBox(f):"")+(rssVisible().map(renderRssItem).join("")||`<div class="empty">항목 없음</div>`)}
+  else {const vp=visiblePosts();let parts=vp.map(renderPostItem);if(S.stream==="home"&&S.homeFeeds){const rs=rssItems.filter(r=>!r.dupPost).map(renderRssItem);const m=[];for(let i=0;i<Math.max(parts.length,rs.length);i++){if(parts[i])m.push(parts[i]);if(rs[i])m.push(rs[i])}parts=m}list=parts.join("")||`<div class="empty">게시물 없음</div>`}
+
+  $("#v-client").innerHTML=`<div class="vtitle client" onclick="S.collapsed=S.collapsed==='client'?null:'client';render()" style="cursor:pointer">🌐 연합 클라이언트 <span class="muted" style="font-weight:400">— 수집 · 소통 · 게시</span><span style="flex:1"></span><span class="muted">${S.collapsed==="client"?"▸ 펼치기":"◂ 접기"}</span></div><div class="pane side">${side}</div><div class="pane" id="client-list" ondragover="dragOverClient(event)" ondragleave="this.classList.remove('drop-pub')" ondrop="dropOnClient(event)">${listHead}${list}</div><div class="pane">${renderClientDetail()}</div>`;
+}
+function viaBadges(p){if(body.dataset.rd12!=="B")return"";return p.acct.map(a=>`<span class="chip" title="${esc(acctById(a).handle)} 경유">${acctById(a).icon}</span>`).join("")+(p.acct.length>1?`<span class="chip" title="같은 객체 IRI를 한 번만 표시">중복 1건 합침</span>`:"")}
+function renderPostItem(p){
+  return `<div class="item ${p.unread?"unread":""} ${S.selType==="post"&&S.postSel===p.id&&!S.compose?"on":""}" draggable="true" ondragstart="dragPost(event,'${p.id}')" onclick="selPost('${p.id}')">
+    <div class="av">${p.av}</div><div>
+    ${p.ann?`<div class="meta">🔁 ${esc(p.ann)} 이(가) 부스트</div>`:""}
+    <div class="meta"><span class="who">${esc(p.ann?p.who2:p.who)}</span><span>${esc(p.ann?"@bob@forum.example":p.h)}</span><span>· ${p.t}</span>${p.mention?'<span class="chip warn">＠ 나를 언급</span>':""}${p.ingested?`<span class="chip kb">📚 ${esc(themeName(p.ingested))}</span>`:""}${p.ingesting?'<span class="chip kb">⏳ 적재 중</span>':""}${viaBadges(p)}${rssItems.some(r=>r.dupPost===p.id)?'<span class="chip" title="같은 URL의 RSS 항목을 합침">📰 RSS 중복 합침</span>':""}</div>
+    <div class="excerpt">${esc(p.text)}</div>
+    <div class="acts" onclick="event.stopPropagation()">
+      <button class="act" onclick="openCompose({reply:'${p.id}'})">💬 답글</button>
+      <button class="act ${p.boosted?"on":""}" onclick="tog('${p.id}','boosted','🔁 부스트','Announce')">🔁</button>
+      <button class="act" onclick="openCompose({quote:'${p.id}'})" title="인용 (FEP-044f QuoteRequest)">❝ 인용</button>
+      <button class="act ${p.fav?"on":""}" onclick="tog('${p.id}','fav','♥ 즐겨찾기','Like')">♥</button>
+      <button class="act ${p.star?"on":""}" onclick="tog('${p.id}','star','⭐ 별표',null)">⭐</button>
+      <button class="act kb" onclick="openIngest('${p.id}')" ${p.ingested?"disabled":""}>📚 적재</button>
+    </div></div></div>`}
+function renderNotif(n){
+  if(n.kind==="dm_notice")return `<div class="item"><div class="av">🔒</div><div><div class="meta"><span class="who">${esc(n.who)}</span><span>${esc(n.h)}</span><span class="chip">자동 안내함</span></div><div class="muted">${esc(n.text)}</div><div class="muted" style="font-size:11px">내용은 저장하지 않습니다 (RD16).</div></div></div>`;
+  const d=docs.find(x=>x.id===n.doc), icon={quote_req:"❝",like:"♥",boost:"🔁"}[n.kind];
+  return `<div class="item"><div class="av">${icon}</div><div><div class="meta"><span class="who">${esc(n.who)}</span><span>${esc(n.h)}</span></div><div>${esc(n.text)}</div>
+   ${n.kind==="quote_req"?(n.state==="pending"?`<div class="row"><span class="chip">이 문서: ${qpLabel[d.quotePolicy]}</span><button class="btn pri" onclick="quoteDecide('${n.id}',true)">승인 (QuoteAuthorization)</button><button class="btn" onclick="quoteDecide('${n.id}',false)">거절 (Reject)</button></div>`:`<span class="chip ${n.state==="ok"?"kb":"warn"}">${n.state==="ok"?"승인함 · 인증 객체 발행":"거절함"}</span>`):""}
+   <div class="acts"><button class="act" onclick="S.view='kb';S.docSel='${n.doc}';S.docFilter='pub';render()">📚 적재 관리에서 문서 보기 →</button></div></div></div>`}
+function renderClientDetail(){
+  if(S.compose) return renderCompose();
+  if(S.selType==="rss"){const r=rssItems.find(x=>x.id===S.rssSel);if(r&&["rss","rssfeed","home"].includes(S.stream))return renderRssDetail(r)}
+  const p=posts.find(x=>x.id===S.postSel);
+  if(!p||["notifs","mine","follows"].includes(S.stream)) return `<div class="empty">게시물을 고르세요</div>`;
+  const th=threadOf[p.id]||[];
+  let replyCtx="";
+  if(p.replyToMine){const d=docs.find(x=>x.id===p.replyToMine);replyCtx=`<div class="quote" style="border-left-color:var(--pub)">↩ 내가 게시한 문서 「${esc(d.title)}」에 대한 답글 · <a href="#" onclick="S.view='kb';S.docSel='${d.id}';render();return false">적재 관리에서 열기</a></div>`}
+  return `<div class="detail">
+    <div class="meta"><span class="av" style="display:inline-flex;width:24px;height:24px">${p.av}</span><span class="who">${esc(p.ann?p.who2:p.who)}</span><span>${esc(p.h)}</span><span>· ${p.t}</span>${viaBadges(p)}</div>
+    ${replyCtx}
+    <div class="post-body">${esc(p.text)}${p.tags?`<div class="meta" style="margin-top:6px">${p.tags.map(t=>`<span class="chip">${esc(t)}</span>`).join("")} <span class="muted">외부 태그 — 적재 전에는 엔티티 아님</span></div>`:""}</div>
+    <div class="sandbox-note">본문은 usercontent 오리진의 샌드박스 iframe에서 렌더 (K10) · 미디어는 media 호스트 프록시</div>
+    <div class="row"><button class="btn" onclick="openCompose({reply:'${p.id}'})">💬 답글</button><button class="btn" onclick="openCompose({quote:'${p.id}'})">❝ 인용</button><button class="btn ${p.boosted?"on":""}" onclick="tog('${p.id}','boosted','🔁 부스트','Announce')">🔁 부스트</button><button class="btn ${p.fav?"on":""}" onclick="tog('${p.id}','fav','♥ 즐겨찾기','Like')">♥</button><span class="grow"></span><button class="btn pri" style="background:var(--kb)" onclick="openIngest('${p.id}')" ${p.ingested?"disabled":""}>📚 적재…</button></div>
+    ${p.ingested?`<div class="box">📚 「${esc(themeName(p.ingested))}」 테마에 적재됨 · <a href="#" onclick="S.view='kb';S.docSel='${p.docId}';render();return false">문서 열기 →</a><div class="muted" style="font-size:11px">게시물은 타임라인에 남고, 보존 기간 삭제에서 제외됩니다.</div></div>`:""}
+    ${th.length||p.thread?`<h4 style="margin:12px 0 4px">스레드 <span class="muted" style="font-weight:400">context 수집 (FEP-7888)</span></h4><div class="thread">${th.map(r=>`<div class="tp ${r.mine?"mine":""}"><div class="meta"><span class="who">${esc(r.who)}</span><span>${esc(r.h)}</span></div>${esc(r.text)}${r.quote?`<div class="quote">❝ ${esc(r.quote)}</div>`:""}</div>`).join("")}</div>`:""}
+  </div>`}
+function renderCompose(){
+  const c=S.compose, tgt=c.reply||c.quote?posts.find(x=>x.id===(c.reply||c.quote)):null, doc=c.doc?docs.find(d=>d.id===c.doc):null;
+  const accs=accounts();
+  const from=accs.map(a=>`<label class="chip" style="cursor:pointer"><input type="checkbox" ${a.id==="native"?"checked":""} ${tgt&&!tgt.acct.includes(a.id)?"disabled":""}/> ${a.icon} ${esc(a.handle)}</label>`).join(" ");
+  return `<div class="detail"><div class="vhead" style="position:static;border:none;padding:0 0 6px;background:none"><span class="ttl">${c.edit?"✏️ 내 글 수정":c.reply?"💬 답글":c.quote?"❝ 인용 게시물":doc?"📣 문서 링크 공유":c.share?"🔗 피드 항목 링크 공유":"✍️ 새 글"}</span><span style="flex:1"></span><button class="btn" onclick="S.compose=null;render()">닫기</button></div>
+   ${tgt&&c.reply?`<div class="quote">↩ ${esc(tgt.h)}: ${esc(tgt.text.slice(0,80))}…</div>`:""}
+   <div class="compose">
+     <textarea id="compose-text" placeholder="공개 글 · 일반 텍스트 (Claire가 HTML로 바꾸고 정리)">${c.edit?esc(myNotes.find(n=>n.id===c.edit).text):c.reply&&tgt?esc(tgt.h)+" ":""}</textarea>
+     ${tgt&&c.quote?`<div class="quote">❝ <b>${esc(tgt.who)}</b> ${esc(tgt.h)}<br/>${esc(tgt.text)}<div class="muted" style="font-size:11px;margin-top:4px">원작자 서버에 QuoteRequest를 보냅니다. 승인 전에는 인용이 "승인 대기"로 표시됩니다 (FEP-044f).</div></div>`:""}
+     ${doc?`<div class="quote" style="border-left-color:var(--pub)">📚 ${esc(doc.title)} — 공개 페이지 링크</div>`:""}${c.share?(r=>`<div class="quote" style="border-left-color:var(--rel)">🔗 ${esc(r.title)}<br/><span class="muted">${esc(r.url)} · 링크 미리보기 카드</span></div>`)(rssItems.find(x=>x.id===c.share)):""}
+     <div class="row"><span class="muted">보낼 계정</span>${from}${body.dataset.rd12==="B"&&tgt?'<span class="muted" style="font-size:11px">원 게시물을 받은 계정만 답글·인용 가능</span>':""}</div>
+     <div class="row"><label class="chip" style="cursor:pointer"><input type="checkbox" id="cw-on" onchange="$('#cw-text').style.display=this.checked?'':'none'" ${c.edit&&myNotes.find(n=>n.id===c.edit).cw?"checked":""}/> ⚠️ 내용 경고</label><input id="cw-text" class="sel grow" style="padding:3px 6px;${c.edit&&myNotes.find(n=>n.id===c.edit).cw?"":"display:none"}" placeholder="경고 문구 (summary)" value="${c.edit?esc(myNotes.find(n=>n.id===c.edit).cw||""):""}"/><span class="muted">언어</span><select class="sel" id="compose-lang"><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option><option value="und">지정 안 함</option></select></div>
+     <div class="row muted" style="font-size:11px">#태그는 Hashtag 태그와 링크로 보냅니다 · @이름@서버는 멘션이 됩니다</div>
+     <div class="row"><span class="muted">공개 범위</span><span class="chip">🌐 공개만 (v1)</span><span class="muted">내 글 인용 허용</span><select class="sel" id="compose-qp"><option value="public">누구나 · 자동</option><option value="followers">팔로워만 · 자동</option><option value="manual">직접 승인</option><option value="nobody">인용 안 받음</option></select><span class="grow"></span><span class="muted" id="cc">0 / 5000</span><button class="btn pri" onclick="sendCompose()">보내기</button></div>
+   </div>
+   <p class="muted" style="font-size:11px">미디어 첨부·투표·DM은 이번 범위가 아닙니다 (RD11). 보낸 글은 ✍️ 내 글에 남고, 필요하면 📚 적재할 수 있습니다 (자동 적재 안 함).</p></div>`}
+
+/* ---------- RSS 렌더 ---------- */
+const themeSelect=(v,on)=>`<select class="sel" onchange="${on}">${[`<option value="">끔 — 수동 적재만</option>`,...themes.map(t=>`<option value="${t.id}" ${v===t.id?"selected":""}>📚 ${t.priv?"🔒 ":""}${esc(t.name)}</option>`)].join("")}</select>`;
+function renderFeedBox(f){return `<div class="box" style="margin:8px 10px"><div class="feedrow"><span>${f.push?"⚡":"📰"}</span><span><b>${esc(f.title)}</b> <span class="chip">${f.fmt}</span><br/><span class="muted" style="font-size:11px">${esc(f.url)}</span></span><button class="btn" onclick="unsubFeed('${f.id}')">구독 해지</button></div>
+  <div class="row" style="font-size:12px"><span class="${f.err?"stat-err":"stat-ok"}">● ${esc(f.status)}</span><span class="muted">마지막 ${f.last} · 주기 ${f.interval}</span></div>
+  ${f.apActor&&!single()?`<div class="quote">🌐 이 출처는 ActivityPub 액터 <b>${esc(f.apActor)}</b>도 제공합니다. 팔로우하면 답글·인용·즐겨찾기가 가능합니다. <button class="btn" onclick="followInstead('${f.id}')">팔로우로 전환</button></div>`:""}
+  ${f.dupOfActor?`<div class="quote" style="border-left-color:var(--rel)">↔ 이미 팔로우 중인 <b>${esc(f.dupOfActor)}</b>의 RSS입니다. 같은 URL 항목은 타임라인 게시물과 합쳐 한 번만 보입니다. <button class="btn" onclick="unsubFeed('${f.id}')">RSS 구독 해지</button></div>`:""}
+  <div class="row"><span class="muted">자동 적재 규칙</span>${themeSelect(f.autoIngest,`setAutoIngest('${f.id}',this.value)`)}<span class="prop">후속 제안 · 기본 범위 아님</span></div>
+  <div class="muted" style="font-size:11px">자동 적재는 소유자가 정한 상시 규칙입니다. 끄면 항목은 수집만 되고 테마에 들어가지 않습니다.</div></div>`}
+function renderRssItem(r){const f=feeds.find(x=>x.id===r.feed);
+  return `<div class="item rss ${r.unread?"unread":""} ${S.selType==="rss"&&S.rssSel===r.id&&!S.compose?"on":""}" draggable="true" ondragstart="dragPost(event,'rss:${r.id}')" onclick="selRss('${r.id}')"><div class="av">📰</div><div>
+   <div class="meta"><span class="who">${esc(f.title)}</span><span>· ${r.t}</span><span class="chip">${f.fmt}</span>${r.ingested||r.autoIngested?`<span class="chip kb">📚 ${esc(themeName(r.ingested||r.autoIngested))}${r.autoIngested?" · 자동":""}</span>`:""}${r.ingesting?'<span class="chip kb">⏳ 적재 중</span>':""}${r.dupPost&&S.stream==="rssfeed"?'<span class="chip">↔ 타임라인과 합침</span>':""}</div>
+   <div style="font-weight:${r.unread?700:500}">${esc(r.title)}</div><div class="excerpt muted">${esc(r.text)}</div>
+   <div class="acts" onclick="event.stopPropagation()">${single()?"":`<button class="act" onclick="openCompose({share:'${r.id}'})" title="RSS는 상호작용 대상이 없어 링크를 넣은 새 글로 공유">🔗 링크 공유</button>`}<button class="act ${r.star?"on":""}" onclick="rssTog('${r.id}','star')">⭐</button><button class="act" onclick="rssTog('${r.id}','unread')">${r.unread?"✓ 읽음":"○ 안 읽음"}</button><button class="act kb" onclick="openIngest('rss:${r.id}')" ${r.ingested||r.autoIngested?"disabled":""}>📚 적재</button></div></div></div>`}
+function renderRssDetail(r){const f=feeds.find(x=>x.id===r.feed);
+  return `<div class="detail"><div class="meta"><span class="chip">${f.fmt}</span><span class="who">${esc(f.title)}</span><span>· ${r.t}</span></div><h3 style="margin:6px 0">${esc(r.title)}</h3>
+   <div class="post-body">${esc(r.text)}${r.cats.length?`<div class="meta" style="margin-top:6px">${r.cats.map(c=>`<span class="chip">#${esc(c)}</span>`).join("")} <span class="muted">&lt;category&gt; — 적재 전에는 엔티티 아님</span></div>`:""}</div>
+   <div class="sandbox-note">피드 HTML은 nh3로 정리해 usercontent 오리진에서 렌더 · 원문 열기: ${esc(r.url)}</div>
+   <div class="row">${single()?"":`<button class="btn" onclick="openCompose({share:'${r.id}'})">🔗 링크 공유 글</button>`}<button class="btn ${r.star?"on":""}" onclick="rssTog('${r.id}','star')">⭐ 별표</button><span class="grow"></span><button class="btn pri" style="background:var(--kb)" onclick="openIngest('rss:${r.id}')" ${r.ingested||r.autoIngested?"disabled":""}>📚 적재…</button></div>
+   ${r.ingested||r.autoIngested?`<div class="box">📚 「${esc(themeName(r.ingested||r.autoIngested))}」에 ${r.autoIngested?"자동 적재 규칙으로 ":""}적재됨${r.docId?` · <a href="#" onclick="S.view='kb';S.docSel='${r.docId}';render();return false">문서 열기 →</a>`:""}</div>`:""}
+   <div class="box" style="font-size:12px"><b>RSS와 연합의 차이</b><br/><span class="muted">RSS는 읽기 전용 출처입니다. 답글·부스트·즐겨찾기 대상이 없으므로 "공유"는 링크를 넣은 내 새 글이 됩니다.${f.apActor?` 이 출처는 ActivityPub도 제공하니 팔로우로 전환하면 양방향 소통이 됩니다.`:""}</span></div></div>`}
+
+/* ---------- 적재 관리 보기 ---------- */
+function renderKB(){
+  const th=themes.find(t=>t.id===S.theme);
+  const all=docs.filter(d=>d.theme===S.theme);
+  const f={all:all,fed:all.filter(d=>d.fromPost||d.fromFeed),unpub:all.filter(d=>!Object.keys(d.pub).length),pub:all.filter(d=>Object.keys(d.pub).length)}[S.docFilter];
+  const node=(k,icon,l,n)=>`<div class="node ${S.docFilter===k?"on":""}" onclick="S.docFilter='${k}';render()">${icon}<span class="grow">${l}</span><span class="muted">${n}</span></div>`;
+  const side=`<div class="grp">${th.priv?"🔒":"📚"} ${esc(th.name)}</div>${node("all","📄","전체 문서",all.length)}${node("fed","🌐","연합·피드에서 적재",all.filter(d=>d.fromPost||d.fromFeed).length)}<div class="grp">게시 (연합 클라이언트가 송신)</div>${node("unpub","📝","미게시",all.filter(d=>!Object.keys(d.pub).length).length)}${node("pub","📣","게시됨 · 반응",all.filter(d=>Object.keys(d.pub).length).length)}
+   <div class="grp">적재 관리</div><div class="node">⏳ <span class="grow">적재 작업 · 검토</span><span class="muted">${counts().ingestWait}</span></div><div class="node">🧩 <span class="grow">엔티티 · 그래프</span></div><div class="node">🗑 <span class="grow">퍼지 · 보존</span></div>
+   ${th.priv?`<div class="box" style="font-size:11px">🔒 비공개 테마 문서는 게시할 수 없습니다.</div>`:""}`;
+  if(f.length&&!f.some(d=>d.id===S.docSel))S.docSel=f[0].id;
+  const head=`<div class="vhead"><span class="ttl">${{all:"전체 문서",fed:"연합·피드에서 적재",unpub:"미게시",pub:"게시됨 · 반응"}[S.docFilter]}</span><span style="flex:1"></span><button class="btn">+ 문서 적재</button></div>`;
+  const list=f.map(d=>`<div class="item ${S.docSel===d.id?"on":""}" draggable="true" ondragstart="dragDoc(event,'${d.id}')" onclick="S.docSel='${d.id}';render()"><div class="av">📄</div><div><div class="meta"><span class="who" style="font-weight:600">${esc(d.title)}</span></div><div class="meta"><span>${esc(d.src)}</span>${d.fromPost?`<span class="chip client">🌐 ${esc(d.fromPost)}</span>`:""}${d.fromFeed?`<span class="chip client">📰 ${esc(d.fromFeed)}${d.auto?" · 자동":""}</span>`:""}${d.ingesting?'<span class="chip kb">⏳ 적재 중</span>':""}${Object.keys(d.pub).map(k=>`<span class="chip pub">${acctById(k).icon} 게시됨</span>`).join("")}${d.rx?`<span class="chip">♥${d.rx.like} 🔁${d.rx.boost} 💬${d.rx.reply} ❝${d.rx.quote}</span>`:""}</div>${d.ents.length?`<div class="meta">${d.ents.map(e=>`<span class="chip">[[${esc(e)}]]</span>`).join("")}</div>`:""}</div></div>`).join("")||`<div class="empty">문서 없음</div>`;
+  $("#v-kb").innerHTML=`<div class="vtitle kb" onclick="S.collapsed=S.collapsed==='kb'?null:'kb';render()" style="cursor:pointer">📚 적재 관리 <span class="muted" style="font-weight:400">— 테마 지식베이스</span><span style="flex:1"></span><span class="muted">${S.collapsed==="kb"?"▸ 펼치기":"◂ 접기"}</span></div><div class="pane side">${side}</div><div class="pane" id="kb-list" ondragover="dragOverKB(event)" ondragleave="this.classList.remove('drop-ok')" ondrop="dropOnKB(event)">${head}${list}</div><div class="pane">${renderDocDetail()}</div>`;
+}
+function renderDocDetail(){
+  const d=docs.find(x=>x.id===S.docSel&&x.theme===S.theme);
+  if(!d) return `<div class="empty">문서를 고르세요</div>`;
+  const priv=themes.find(t=>t.id===d.theme).priv;
+  const pubRow=a=>`<div class="target"><span>${a.icon}</span><span><b>${esc(a.handle)}</b><br/><span class="muted" style="font-size:11px">${a.kind==="native"?"Article · 팔로워에게 전달 · 원격 삭제는 요청일 뿐 보장 아님":a.kind==="masto"?"링크 공유 글 (연결 계정 API)":"링크 카드 글 (AT Protocol)"}</span></span>${d.pub[a.id]?`<span class="chip pub">게시됨</span>`:`<span class="chip">미게시</span>`}</div>`;
+  return `<div class="detail"><h3 style="margin:0 0 4px">${esc(d.title)}</h3><div class="meta"><span>${esc(d.src)}</span>${d.fromPost?`<a href="#" onclick="S.view='client';S.stream='ingested';S.acctSel='all';S.postSel='${d.postId}';render();return false" class="chip client">🌐 원 게시물 ${esc(d.fromPost)} →</a>`:""}${d.fromFeed?`<a href="#" onclick="S.view='client';S.stream='rssfeed';S.feed='${d.feedId}';S.selType='rss';S.rssSel='${d.rssId}';render();return false" class="chip client">📰 원 피드 항목 ${esc(d.fromFeed)} →</a>`:""}</div>
+    <div class="post-body">문서 본문 · 요약 · 엔티티는 기존 적재 파이프라인 결과입니다.${d.ents.length?`<div class="meta" style="margin-top:6px">${d.ents.map(e=>`<span class="chip">[[${esc(e)}]]</span>`).join("")}</div>`:""}</div>
+    <div class="box"><h4>📣 게시 — 연합 클라이언트의 대외 활동</h4>${single()?'<div class="muted" style="font-size:12px">single 모드: 연합 게시 대상이 없습니다.</div>':accounts().map(pubRow).join("")}
+      <div class="row"><span class="muted">인용 허용</span><select class="sel" onchange="setQP('${d.id}',this.value)">${Object.entries(qpLabel).map(([k,v])=>`<option value="${k}" ${d.quotePolicy===k?"selected":""}>${v}</option>`).join("")}</select><span class="muted" style="font-size:11px">canQuote (FEP-044f)</span><span class="grow"></span><button class="btn pri" style="background:var(--pub)" ${priv||single()?"disabled":""} title="${single()?"single 모드에는 연합 게시가 없습니다":""}" onclick="openPublish('${d.id}')">📣 게시…</button></div>
+      ${Object.keys(d.pub).length?`<div class="row"><button class="btn">철회 (Delete · 410)</button><button class="btn" onclick="S.view='client';S.compose={doc:'${d.id}'};render()">✍️ 이 문서로 새 글</button></div>`:""}
+    </div>
+    ${d.rx?`<div class="box"><h4>💬 반응 — 연합 클라이언트가 받음</h4><div class="rx"><span>♥ ${d.rx.like}</span><span>🔁 ${d.rx.boost}</span><span>💬 ${d.rx.reply}</span><span>❝ ${d.rx.quote}</span></div><div class="row"><button class="btn" onclick="S.view='client';S.stream='mentions';S.acctSel='all';S.postSel='p3';render()">답글 보기 →</button><button class="btn" onclick="S.view='client';S.stream='notifs';S.acctSel='all';render()">인용 요청 보기 →</button></div></div>`:""}
+  </div>`}
+
+/* ---------- 동작 ---------- */
+function selPost(id){S.selType="post";S.postSel=id;S.compose=null;const p=posts.find(x=>x.id===id);p.unread=false;render()}
+function tog(id,k,label,activity){const p=posts.find(x=>x.id===id);p[k]=!p[k];if(activity){flow(k==="fav"?"♥":"🔁",`${p[k]?"":"취소 · "}${activity}${p[k]?"":"(Undo)"} → ${p.h}`);toast(`${label} ${p[k]?"보냄":"취소"} · outbox 작업 ${p[k]?activity.toLowerCase():"undo_"+activity.toLowerCase()}`)}render()}
+function openCompose(o){S.compose=o;S.view="client";render();setTimeout(()=>{const t=$("#compose-text");if(o.edit){const n=myNotes.find(x=>x.id===o.edit);if(n.lang)$("#compose-lang").value=n.lang;$("#compose-qp").value=n.quotePolicy}if(t){t.focus();t.oninput=()=>$("#cc").textContent=t.value.length+" / 5000"}},0)}
+function sendCompose(){
+  const c=S.compose, text=($("#compose-text").value||"").trim()||"(빈 글)", qp=$("#compose-qp").value, cw=$("#cw-on").checked?($("#cw-text").value||"내용 경고"):"", lang=$("#compose-lang").value, tags=(text.match(/#[\p{L}\p{N}_]+/gu)||[]);
+  if(c.edit){const n=myNotes.find(x=>x.id===c.edit);Object.assign(n,{text,cw,lang,tags,quotePolicy:qp,edited:true});flow("✏️",`Update(Note) · ${cw?"CW · ":""}${lang}${tags.length?" · "+tags.join(" "):""}`);toast("수정 보냄");S.compose=null;S.stream="mine";render();return}
+  if(c.reply){const p=posts.find(x=>x.id===c.reply);(threadOf[p.id]=threadOf[p.id]||[]).push({who:"나",h:native.handle,text,mine:true});p.thread=true;flow("💬",`Create(Note) inReplyTo ${p.h}`);toast("답글 보냄 · 스레드에 표시")}
+  else if(c.quote){const p=posts.find(x=>x.id===c.quote);myNotes.unshift({id:"m"+Date.now(),text,t:"방금",quotePolicy:qp,quoteOf:`${p.who}: ${p.text.slice(0,60)}… (승인 대기)`,rx:{like:0,boost:0,reply:0,quote:0}});flow("❝",`QuoteRequest → ${p.h} · 승인되면 Create(Note) quote`);toast("인용 요청 보냄 · 승인 대기");setTimeout(()=>{myNotes[0].quoteOf=myNotes[0].quoteOf.replace("(승인 대기)","(승인됨)");flow("✅",`${p.h} 가 QuoteAuthorization 발행`);render()},2200)}
+  else if(c.share){const r=rssItems.find(x=>x.id===c.share);myNotes.unshift({id:"m"+Date.now(),text:text+" 🔗 "+r.url,t:"방금",quotePolicy:qp,rx:{like:0,boost:0,reply:0,quote:0}});flow("🔗",`Create(Note) · 피드 항목 링크 ${r.url}`);toast("링크 공유 글 보냄")}
+  else {myNotes.unshift({id:"m"+Date.now(),text,cw,lang,tags,t:"방금",quotePolicy:qp,rx:{like:0,boost:0,reply:0,quote:0}});flow("✍️",`Create(Note) · 공개 · ${lang}${cw?" · CW":""}${tags.length?" · "+tags.join(" "):""}`);toast("새 글 보냄")}
+  S.compose=null;S.stream=c.reply?S.stream:"mine";S.selType="post";render()}
+function quoteDecide(id,ok){const n=notifs.find(x=>x.id===id);n.state=ok?"ok":"no";if(ok){const d=docs.find(x=>x.id===n.doc);d.rx.quote++}flow(ok?"✅":"⛔",ok?`QuoteAuthorization → ${n.h}`:`Reject(QuoteRequest) → ${n.h}`);render()}
+function setQP(id,v){docs.find(d=>d.id===id).quotePolicy=v;flow("⚙️",`인용 허용 → ${qpLabel[v]} · Update(Article)`);render()}
+let ingestTarget=null;
+function openIngest(id){ingestTarget=id;const p=id.startsWith("note:")?{text:myNotes.find(n=>"note:"+n.id===id).text,h:native.handle}:id.startsWith("rss:")?(r=>({text:r.title+" — "+r.text,h:"📰 "+feeds.find(f=>f.id===r.feed).title}))(rssItems.find(x=>"rss:"+x.id===id)):posts.find(x=>x.id===id);
+  $("#ingest-body").innerHTML=`<div class="quote">${esc(p.h)} — ${esc(p.text.slice(0,90))}…</div><div class="grp">적재할 테마</div>${themes.map(t=>`<label class="opt"><input type="radio" name="ith" value="${t.id}" ${t.id===S.theme?"checked":""}/> <span>${t.priv?"🔒 ":""}${esc(t.name)}<br/><span class="muted" style="font-size:11px">${t.priv?"비공개 테마 · 게시 불가":"공개 가능 테마"}</span></span></label>`).join("")}<p class="muted" style="font-size:11px">게시물 URL로 기존 URL 적재를 시작합니다 (POST /api/federation/timeline/{id}/ingest). 외부 #태그는 적재 후에 엔티티가 됩니다. 게시물은 타임라인에 남습니다.</p>`;
+  dlgIngest.showModal()}
+$("#ingest-go").onclick=()=>{const tid=+document.querySelector("input[name=ith]:checked").value;dlgIngest.close();doIngest(ingestTarget,tid)};
+function doIngest(id,tid){
+  if(id.startsWith("note:")){toast("내 글 적재 시작");flow("📚",`내 글 → 「${themeName(tid)}」 적재`);return}
+  if(id.startsWith("rss:")){ingestRss(rssItems.find(x=>"rss:"+x.id===id),tid,false);return}
+  const p=posts.find(x=>x.id===id);p.ingesting=true;flow("📚",`${p.h} 게시물 → 「${themeName(tid)}」 적재 시작`);toast("적재 시작 · 적재 관리에서 진행 확인");render();
+  setTimeout(()=>{p.ingesting=false;p.ingested=tid;p.star=true;const did="d"+Date.now();p.docId=did;docs.push({id:did,theme:tid,title:p.text.slice(0,28)+"…",src:"연합 게시물 URL 적재",fromPost:p.h,postId:p.id,ents:(p.tags||[]).map(t=>t.slice(1)),pub:{},rx:null,quotePolicy:"public"});flow("✅",`적재 완료 · 엔티티 ${(p.tags||[]).length}개 생성`);render()},1600)}
+function pickFeed(fid){S.stream=fid?"rssfeed":"rss";S.feed=fid;S.acctSel="all";S.compose=null;const l=rssVisible();if(l.length){S.selType="rss";S.rssSel=l[0].id}render()}
+function selRss(id){S.selType="rss";S.rssSel=id;S.compose=null;rssItems.find(x=>x.id===id).unread=false;render()}
+function rssTog(id,k){const r=rssItems.find(x=>x.id===id);r[k]=!r[k];render()}
+function ingestRss(r,tid,auto){const f=feeds.find(x=>x.id===r.feed);r.ingesting=true;flow("📚",`${auto?"자동 적재 규칙 · ":""}📰 ${f.title} 항목 → 「${themeName(tid)}」 적재 시작`);if(!auto)toast("적재 시작");render();
+  setTimeout(()=>{r.ingesting=false;r[auto?"autoIngested":"ingested"]=tid;const did="d"+Date.now()+r.id;r.docId=did;docs.push({id:did,theme:tid,title:r.title.slice(0,30),src:"RSS 항목 URL 적재",fromFeed:f.title,feedId:f.id,rssId:r.id,auto,ents:r.cats,pub:{},rx:null,quotePolicy:"manual"});flow("✅",`적재 완료 · <category> ${r.cats.length}개 → 엔티티`);render()},1500)}
+function setAutoIngest(fid,v){const f=feeds.find(x=>x.id===fid);f.autoIngest=v?+v:null;flow("⚙️",`📰 ${f.title} 자동 적재 → ${v?"「"+themeName(+v)+"」":"끔"}`);render()}
+function unsubFeed(fid){const f=feeds.find(x=>x.id===fid);feeds=feeds.filter(x=>x.id!==fid);rssItems=rssItems.filter(r=>r.feed!==fid||r.star||r.ingested||r.autoIngested);flow("🗑",`📰 ${f.title} 구독 해지 · 별표·적재 항목은 남김`);S.stream="rss";render()}
+function followInstead(fid){const f=feeds.find(x=>x.id===fid);flow("➕",`Follow → ${f.apActor} (피드는 유지, 같은 URL은 합침)`);toast(`${f.apActor} 팔로우 요청`);f.apActor=null;render()}
+let pollN=0;
+function pollNow(){const fs=S.stream==="rssfeed"?feeds.filter(f=>f.id===S.feed):feeds.filter(f=>!f.err);pollN++;
+  fs.forEach(f=>flow("↻",`조건부 GET ${f.url} · If-None-Match`));
+  const f=fs.find(x=>x.autoIngest)||fs[0];if(!f)return;
+  const r={id:"rn"+pollN,feed:f.id,title:`새 항목 ${pollN} — ${f.title}`,text:"폴링으로 받은 새 항목입니다.",cats:["new"],t:"방금",unread:true,url:f.url.replace(/\/[^/]*$/,"/item-"+pollN)};rssItems.unshift(r);flow("📰",`200 · 새 항목 1 (${f.title})`);
+  if(f.autoIngest)ingestRss(r,f.autoIngest,true);else render()}
+function openFeedAdd(){$("#feed-body").innerHTML=`<div class="row"><input id="feed-url" class="sel grow" style="padding:4px 8px" value="https://blog.example.org" placeholder="사이트 또는 피드 URL"/><button class="btn" onclick="discover()">찾기</button></div><div id="feed-found"></div>`;dlgFeed.showModal();discover()}
+function discover(){$("#feed-found").innerHTML=`<div class="grp">찾은 피드 (&lt;link rel=alternate&gt;)</div>
+  <label class="opt"><input type="radio" name="ff" value="atom" checked/> <span>Atom 1.0 — /feed.atom<br/><span class="muted" style="font-size:11px">WebSub 허브 있음 → 푸시 수신</span></span></label>
+  <label class="opt"><input type="radio" name="ff" value="rss"/> <span>RSS 2.0 — /rss.xml</span></label>
+  <div class="quote">🌐 이 사이트는 ActivityPub 액터 <b>@blog@blog.example.org</b>도 제공합니다 (fediverse:creator · WebFinger).<label class="opt"><input type="checkbox" id="ff-follow"/> <span>피드 대신 팔로우 — 답글·인용 가능</span></label></div>
+  <div class="row"><span class="muted">폴더</span><select class="sel"><option>연구</option><option>뉴스</option><option>+ 새 폴더</option></select><span class="muted">주기</span><select class="sel"><option>자동 (WebSub · 없으면 1시간)</option><option>15분</option><option>6시간</option></select></div>
+  <div class="row"><span class="muted">자동 적재</span>${themeSelect(null,"")}<span class="prop">후속 제안</span></div>
+  <p class="muted" style="font-size:11px">구독은 계정의 수집입니다. 조건부 GET (ETag · Last-Modified), 429·5xx 백오프, 사설 주소 거부. 피드 HTML은 저장 전에 정리합니다.</p>`}
+$("#feed-go").onclick=()=>{const fol=$("#ff-follow")&&$("#ff-follow").checked;dlgFeed.close();if(fol){flow("➕","Follow → @blog@blog.example.org");toast("팔로우 요청");return}
+  const id="f"+Date.now();feeds.push({id,folder:"연구",title:"Example 블로그",url:"https://blog.example.org/feed.atom",fmt:"Atom 1.0",interval:"WebSub 푸시",push:true,status:"200 · 첫 수집",last:"방금",autoIngest:null,apActor:"@blog@blog.example.org"});
+  rssItems.unshift({id:"rb"+Date.now(),feed:id,title:"Example 블로그 첫 글",text:"구독 직후 받은 항목입니다.",cats:["blog"],t:"방금",unread:true,url:"https://blog.example.org/1"});flow("📰","피드 구독 · Example 블로그 (WebSub)");S.stream="rssfeed";S.feed=id;render()};
+
+const opmlSample=[{folder:"Tech",feeds:[["LWN.net","https://lwn.net/headlines/rss"],["Fedify 블로그","https://fedify.dev/feed.xml"]]},{folder:"Research › NLP",feeds:[["arXiv cs.CL","https://rss.arxiv.org/rss/cs.CL"],["ACL Anthology","https://aclanthology.org/feed.xml"]]},{folder:"(폴더 없음)",feeds:[["Hacker News","https://news.ycombinator.com/rss"]]}];
+function openOpml(){const known=new Set(feeds.map(f=>f.url));let add=0,dup=0;
+  const rows=opmlSample.map(g=>`<div class="muted" style="margin-top:6px">📁 ${esc(g.folder)}</div>`+g.feeds.map(([t,u])=>{const d=known.has(u);d?dup++:add++;return `<div class="feedrow" style="padding-left:14px"><span>${d?"↺":"＋"}</span><span>${esc(t)}<br/><span class="muted" style="font-size:11px">${esc(u)}</span></span><span class="chip ${d?"":"kb"}">${d?"이미 구독":"추가"}</span></div>`}).join("")).join("");
+  $("#opml-body").innerHTML=`<div class="row"><span class="chip">📄 tt-rss_export.opml</span><span class="muted" style="font-size:11px">Tiny Tiny RSS의 "OPML 내보내기" 파일</span></div><div class="box" style="max-height:38vh;overflow:auto">${rows}<div class="muted" style="margin-top:8px;font-size:11px">⏭ 피드가 아닌 outline 2개 건너뜀 (리더 앱의 설정·필터)</div></div><div class="row"><span class="chip kb">추가 ${add}</span><span class="chip">중복 ${dup}</span><span class="chip">건너뜀 2</span><span class="chip">실패 0</span></div><p class="muted" style="font-size:11px">중첩 카테고리는 한 단계 폴더로 이름을 이어 붙입니다 (Research › NLP). 같은 URL은 다시 추가하지 않습니다. single 모드에서도 동작합니다.</p>`;
+  dlgOpml.showModal()}
+$("#opml-go").onclick=()=>{const known=new Set(feeds.map(f=>f.url));let n=0;opmlSample.forEach(g=>g.feeds.forEach(([t,u])=>{if(!known.has(u)){n++;feeds.push({id:"fo"+n+Date.now(),folder:g.folder==="(폴더 없음)"?"기타":g.folder,title:t,url:u,fmt:"RSS 2.0",interval:"1시간",push:false,status:"대기 · 첫 수집 전",last:"-",autoIngest:null})}}));dlgOpml.close();const total=opmlSample.reduce((a,g)=>a+g.feeds.length,0);flow("⇅",`OPML 가져오기 · 추가 ${n} · 중복 ${total-n} · 건너뜀 2`);toast(`피드 ${n}개 추가`);render()};
+
+let pubTarget=null;
+function openPublish(id){pubTarget=id;const d=docs.find(x=>x.id===id);
+  $("#publish-body").innerHTML=`<div class="quote" style="border-left-color:var(--pub)">📄 ${esc(d.title)} · 「${esc(themeName(d.theme))}」</div><div class="grp">보낼 곳 — 연합 클라이언트 계정</div>${accounts().map(a=>`<label class="opt"><input type="checkbox" name="pt" value="${a.id}" ${a.id==="native"&&!d.pub.native?"checked":""} ${d.pub[a.id]?"disabled":""}/> <span>${a.icon} ${esc(a.handle)} ${d.pub[a.id]?'<span class="chip pub">이미 게시</span>':""}<br/><span class="muted" style="font-size:11px">${a.kind==="native"?"Article로 팔로워에게 · 해시태그 없음 (FD8)":"링크 공유 글 · 연결 계정 API"}</span></span></label>`).join("")}<div class="row"><span class="muted">인용 허용</span><span class="chip">${qpLabel[d.quotePolicy]}</span></div>`;
+  dlgPublish.showModal()}
+$("#publish-go").onclick=()=>{const d=docs.find(x=>x.id===pubTarget);const sel=$$("input[name=pt]:checked").map(i=>i.value);dlgPublish.close();if(!sel.length)return;sel.forEach(a=>d.pub[a]=true);d.rx=d.rx||{like:0,boost:0,reply:0,quote:0};flow("📣",`「${d.title}」 게시 → ${sel.map(a=>acctById(a).handle).join(", ")}`);toast("게시 요청 · outbox create");render();
+  setTimeout(()=>{d.rx.like+=2;d.rx.boost+=1;notifs.unshift({id:"n"+Date.now(),kind:"like",who:"Alice",h:"@alice@scholar.social",doc:d.id,text:`「${d.title}」를 즐겨찾기했습니다`});flow("♥",`「${d.title}」 반응 도착 (클라이언트 알림)`);render()},2500)};
+/* 끌어놓기 (N3) */
+function dragPost(e,id){e.dataTransfer.setData("text/post",id)}
+function dragDoc(e,id){e.dataTransfer.setData("text/doc",id)}
+function dragOverKB(e){if(e.dataTransfer.types.includes("text/post")){e.preventDefault();e.currentTarget.classList.add("drop-ok")}}
+function dropOnKB(e){e.currentTarget.classList.remove("drop-ok");const id=e.dataTransfer.getData("text/post");if(id)openIngest(id)}
+function dragOverClient(e){if(e.dataTransfer.types.includes("text/doc")){e.preventDefault();e.currentTarget.classList.add("drop-pub")}}
+function dropOnClient(e){e.currentTarget.classList.remove("drop-pub");const id=e.dataTransfer.getData("text/doc");if(id){if(themes.find(t=>t.id===docs.find(d=>d.id===id).theme).priv){toast("비공개 테마 문서는 게시할 수 없습니다");return}openPublish(id)}}
+/* 흐름 · 팔레트 */
+function renderTray(){$("#tray-list").innerHTML=flows.map(f=>`<div class="flow"><span>${f.icon}</span><span>${esc(f.text)}<br/><span class="muted" style="font-size:11px">${f.at}</span></span></div>`).join("")||`<div class="empty">아직 흐름이 없습니다. 게시물을 📚 적재하거나 문서를 📣 게시해 보세요.</div>`;$("#tray-count").textContent=flows.length}
+const cmds=[["🌐 연합 클라이언트 · 홈",()=>{S.view="client";S.stream="home";S.acctSel="all"}],["＠ 멘션 · 답글",()=>{S.view="client";S.stream="mentions";S.acctSel="all"}],["🔔 알림 · 인용 요청",()=>{S.view="client";S.stream="notifs";S.acctSel="all"}],["✍️ 새 글",()=>openCompose({})],["📚 적재 관리 · 전체 문서",()=>{S.view="kb";S.docFilter="all"}],["📝 미게시 문서",()=>{S.view="kb";S.docFilter="unpub"}],["📣 게시됨 · 반응",()=>{S.view="kb";S.docFilter="pub"}],["🌐 연합에서 적재한 문서",()=>{S.view="kb";S.docFilter="fed"}],["⇄ 흐름 기록",()=>tray.classList.add("show")],["📰 모든 피드",()=>{S.view="client";pickFeed(null)}],["＋ 피드 구독",()=>openFeedAdd()],["⇅ OPML 가져오기 (TT-RSS)",()=>openOpml()],["↻ 피드 지금 가져오기",()=>{S.view="client";S.stream="rss";pollNow()}]];
+let palIdx=0;
+function renderPal(){const q=$("#pal-in").value.trim();const l=cmds.filter(c=>!q||c[0].includes(q));palIdx=Math.min(palIdx,Math.max(0,l.length-1));$("#pal-list").innerHTML=l.map((c,i)=>`<div class="pi ${i===palIdx?"on":""}" data-i="${cmds.indexOf(c)}">${c[0]}</div>`).join("");$$("#pal-list .pi").forEach(el=>el.onclick=()=>runCmd(+el.dataset.i));return l}
+function runCmd(i){palette.close();cmds[i][1]();render()}
+$("#pal-in").oninput=()=>{palIdx=0;renderPal()};
+$("#pal-in").onkeydown=e=>{const l=renderPal();if(e.key==="ArrowDown"){palIdx++;renderPal();e.preventDefault()}if(e.key==="ArrowUp"){palIdx=Math.max(0,palIdx-1);renderPal();e.preventDefault()}if(e.key==="Enter"&&l[palIdx])runCmd(cmds.indexOf(l[palIdx]))};
+function openPal(){$("#pal-in").value="";palIdx=0;renderPal();palette.showModal();$("#pal-in").focus()}
+let gKey=false;
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openPal();return}
+  if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)||document.querySelector("dialog[open]"))return;
+  if(e.key==="g"){gKey=true;setTimeout(()=>gKey=false,800);return}
+  if(gKey&&e.key==="c"){setView("client")} if(gKey&&e.key==="k"){setView("kb")}
+  if(S.view==="client"&&(e.key==="j"||e.key==="k")&&!gKey&&(S.stream==="rss"||S.stream==="rssfeed")){const l=rssVisible();const i=l.findIndex(r=>r.id===S.rssSel);const n=l[Math.max(0,Math.min(l.length-1,i+(e.key==="j"?1:-1)))];if(n)selRss(n.id);gKey=false;return}
+  if(S.view==="client"&&(e.key==="j"||e.key==="k")&&!gKey){const vp=visiblePosts();const i=vp.findIndex(p=>p.id===S.postSel);const n=vp[Math.max(0,Math.min(vp.length-1,i+(e.key==="j"?1:-1)))];if(n)selPost(n.id)}
+  if(S.view==="client"&&e.key==="i"){if(S.selType==="rss")openIngest("rss:"+S.rssSel);else if(S.postSel)openIngest(S.postSel)}
+  gKey=false});
+/* ---------- 조절 ---------- */
+$$("[data-nav-opt]").forEach(b=>b.onclick=()=>{body.dataset.nav=b.dataset.navOpt;S.collapsed=null;render()});
+$$("[data-mode-opt]").forEach(b=>b.onclick=()=>{body.dataset.mode=b.dataset.modeOpt;if(body.dataset.mode==="single"){S.stream="rss";S.selType="rss";S.view="client";S.compose=null}else{S.stream="home";S.selType="post"}render()});
+$$("[data-rd12-opt]").forEach(b=>b.onclick=()=>{body.dataset.rd12=b.dataset.rd12Opt;S.acctSel="all";render()});
+$("#btn-dark").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"light":"dark"};
+$("#btn-tray").onclick=()=>tray.classList.toggle("show");
+$("#btn-palette").onclick=openPal;
+$("#theme-sel").onchange=e=>{S.theme=+e.target.value;S.docSel=(docs.find(d=>d.theme===S.theme)||{}).id;render()};
+function render(){renderNav();renderClient();renderKB();renderTray()}
+const qs=new URLSearchParams(location.search);if(qs.get("nav"))body.dataset.nav=qs.get("nav");if(qs.get("rd12"))body.dataset.rd12=qs.get("rd12");if(qs.get("view"))S.view=qs.get("view");
+render();
+</script>
+</body></html>
