@@ -1,7 +1,7 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD26 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD29 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
 - **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
 - **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
@@ -338,7 +338,9 @@ Two-way communication needs the answers of remote users who are not followed.
 
 ## 7. Data Model
 
-### 7.1 `claire.db` Version 22
+### 7.1 Client Tables (`client.db`, RD27)
+
+**Changed by RD27 (2026-11-13, [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md)):** the client tables below are in the new file `client.db` with its own version, not in `claire.db` version 22. `REFERENCES accounts(id)` below is a reference by value (no foreign key across files). The client outbox (`federation_client_outbox`: the kinds `follow` to `quote_revoke` of Section 5.2, with `target_iri`) is in `client.db`, so that a client action and its task are in one transaction. The publish outbox (`federation_outbox`) stays in `claire.db` with its kinds of version 18; RT3 (a rebuild of `federation_outbox`) is no longer necessary. `federation_objects.quote_policy` (FP4-9Q) stays a `claire.db` change.
 
 FK10 applies: each table comes in the work unit that first reads it.
 
@@ -650,6 +652,9 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD24 | Markdown in Claire | Markdown is used only for the export of an ingested AsciiDoc document ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 4). | Locked 2026-11-13 |
 | RD25 | Markdown removal | No conversion: the update deletes the remaining Markdown bodies once and all Markdown code. Markdown export comes from the context menu of an item in `/syndication` ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) RD25, Section 5). | Locked 2026-11-13 |
 | RD26 | Media storage backends | Local storage is the default. S3-compatible object storage is supported with Garage as the reference implementation (Section 9.1.1). | Locked 2026-11-13 |
+| RD27 | Database files | Database files by the kind of data, each with its own version: `claire.db` (shared assets), `client.db` (communication data of accounts), `auth.db`, `fedify.db` ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md)). Section 7.1 uses it. | Locked 2026-11-13 |
+| RD28 | Knowledge data of accounts | One knowledge database now, with triggers for one file for each account ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) Section 4). | Locked 2026-11-13 |
+| RD29 | Service of themes of accounts | Collaborator ingest only after an invitation; one admin ingest limit; a public theme is visible outside only through its account actor ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) Section 5). | Locked 2026-11-13 |
 
 ---
 
@@ -661,7 +666,7 @@ The work unit rules of the parent design §14.4 apply.
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-0 | **RT1 to RT9 done 2026-11-13; RT10 is part of FP4-1.** Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
 | FP4-1 | Storage backends (Section 9.1.1): local default, object storage settings (`/admin/storage`, routes, encrypted secret, test), read fallback to local storage, migration command (Section 9.2, 9.3), RT10 | The test route reports success with a local Garage server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
-| FP4-2 | `claire.db` version 22: `federation_following`, `federation_account_settings`, outbox kinds and `target_iri` (RT3), store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
+| FP4-2 | With DS-1 (RD27): `client.db` version 1 with the feed tables (moved from `claire.db`, which becomes version 22), `federation_following`, `federation_account_settings`, `federation_client_outbox` with the kinds of Section 5.2 and `target_iri`, store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
 | FP4-3 | Follow lifecycle: routes (Section 5.3 first three), tasks `follow`, `undo_follow`, `reject_follow`, sidecar resolution and delivery, `Accept` and `Reject` events, `following` collection, domain block effect | A follow of a test actor becomes `accepted` after its `Accept`. A follower removal sends `Reject(Follow)`. | FP4-2 | L |
 | FP4-4 | `federation_timeline_items`, inbound `Create`, `Update`, `Delete`, `Announce`, `Undo(Announce)`, addressing and block rules, fan-out, replies with the timeline rule and the parent chain (Section 6.5 rules 1 to 3), contract 1.3 fixtures | A public `Create` from a followed actor makes one item for each following account. A followers-only object makes none. A group `Announce` makes one item with the announcer. A reply to an actor that is not followed has `in_timeline` = 0. | FP4-3 | L |
 | FP4-5 | Timeline routes, federation client view in `/syndication` (list and thread), the context menu (right click) of an item with "Markdown export" for a knowledge base document (`GET /document/export`, MD-3), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |
