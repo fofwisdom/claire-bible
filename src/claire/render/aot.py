@@ -1012,74 +1012,8 @@ def render_adoc_to_html(raw: str) -> str:
     return "\n".join(out)
 
 
-# SEALED (RD23): not maintained; reference for the Markdown export (docs/design/MARKDOWN_RETIREMENT_DESIGN.md). It stays active only to read old Markdown documents without compiled HTML.
-def render_md_to_html(raw: str) -> str:
-    """Markdown 텍스트를 시맨틱 HTML 문자열로 AOT 변환."""
-    if not raw or not raw.strip():
-        return ""
-
-    # 형광 하이라이트: ==텍스트== -> <mark>텍스트</mark>
-    text = re.sub(r"==([^=\n]+?)==", r"<mark>\1</mark>", raw)
-
-    try:
-        import markdown
-
-        html_out = markdown.markdown(
-            text,
-            extensions=["fenced_code", "tables", "nl2br"],
-        )
-        return html_out
-    except ImportError:
-        pass
-
-    try:
-        import markdown_it
-
-        md = markdown_it.MarkdownIt("commonmark", {"breaks": True, "html": True})
-        return md.render(text)
-    except ImportError:
-        pass
-
-    # 폴백: 최소 변환 (라이브러리 부재 시 경량 파서)
-    blocks: list[str] = []
-    for p in raw.split("\n\n"):
-        block = p.strip()
-        if not block:
-            continue
-        lines = [line.rstrip() for line in block.splitlines() if line.strip()]
-        while lines:
-            first_line = lines[0].strip()
-            if first_line.startswith("### "):
-                blocks.append(f"<h3>{html.escape(first_line[4:].strip())}</h3>")
-                lines.pop(0)
-            elif first_line.startswith("## "):
-                blocks.append(f"<h2>{html.escape(first_line[3:].strip())}</h2>")
-                lines.pop(0)
-            elif first_line.startswith("# "):
-                blocks.append(f"<h1>{html.escape(first_line[2:].strip())}</h1>")
-                lines.pop(0)
-            else:
-                break
-        if not lines:
-            continue
-        rest = "\n".join(lines).strip()
-        if rest.startswith("> "):
-            esc_q = html.escape(rest[2:].strip())
-            esc_q = re.sub(r"==([^=\n]+?)==", r"<mark>\1</mark>", esc_q)
-            blocks.append(f"<blockquote><p>{esc_q}</p></blockquote>")
-        else:
-            esc = html.escape(rest)
-            esc = re.sub(r"==([^=\n]+?)==", r"<mark>\1</mark>", esc)
-            blocks.append(f"<p>{esc}</p>")
-    return "".join(blocks)
-
-
 def render_to_html(raw: str, format: str = "adoc") -> str:
-    """포맷(adoc 또는 md)에 따라 본문 텍스트를 시맨틱 HTML로 AOT 사전 변환."""
+    """본문 텍스트를 시맨틱 HTML로 AOT 사전 변환. 본문 형식은 AsciiDoc 하나다(RD25: Markdown 본문과 그 렌더러는 파기됨). ``format``은 호출 호환을 위해 받는다."""
     if not raw or not raw.strip():
         return ""
-
-    fmt = (format or "md").strip().lower()
-    if fmt in ("asciidoc", "adoc"):
-        return render_adoc_to_html(raw)
-    return render_md_to_html(raw)
+    return render_adoc_to_html(raw)

@@ -13,7 +13,6 @@ from claire.config import Settings, get_settings
 from claire.extract.prompts import (
     render_detail_prompt,
     render_detail_prompt_adoc,
-    render_detail_prompt_md,
 )
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import ensure_document_detail, ingest
@@ -27,15 +26,6 @@ def test_prompts_with_focus():
     body = "Sample Content"
     images = []
     focus = "시스템 아키텍처 및 내부 컴포넌트 구조 중심"
-
-    # 1. Markdown prompt without focus
-    md_no_focus = render_detail_prompt_md(body, images, merged=False)
-    assert "중점 작성 초점" not in md_no_focus
-
-    # 2. Markdown prompt with focus
-    md_with_focus = render_detail_prompt_md(body, images, merged=False, focus=focus)
-    assert "중점 작성 초점" in md_with_focus
-    assert focus in md_with_focus
 
     # 3. AsciiDoc prompt without focus
     adoc_no_focus = render_detail_prompt_adoc(body, images, merged=False)
@@ -62,7 +52,7 @@ def test_mock_provider_focus():
 
     # No focus
     detail_plain = provider.render_detail(doc, format="md")
-    assert "[mock-detail] **Test Tool**" in detail_plain
+    assert "[mock-detail-adoc] *Test Tool*" in detail_plain
     assert "[focus:" not in detail_plain
 
     # With focus

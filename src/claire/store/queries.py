@@ -505,7 +505,7 @@ def documents_list(
             "summary": dbm.latest_extraction_summary(conn, doc_id, theme_id=theme_id) or "",
             "has_presentation": bool(has_pres),
             "has_detail": bool(r["has_detail"]) if "has_detail" in r.keys() else False,
-            "detail_format": r["detail_format"] if "detail_format" in r.keys() else "md",
+            "detail_format": r["detail_format"] if "detail_format" in r.keys() else "adoc",
         })
     return out
 

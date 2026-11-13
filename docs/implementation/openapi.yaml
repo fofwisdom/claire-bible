@@ -790,6 +790,41 @@ paths:
                   error:
                     type: string
 
+  /document/export:
+    get:
+      summary: Export one document as a Markdown file
+      description: The AsciiDoc body becomes Markdown with a YAML front matter header (title, source, date, summary, claire_document_id). Read-only. Markdown is the only export format (RD24).
+      operationId: exportDocument
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document ID.
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [markdown]
+            default: markdown
+      responses:
+        '200':
+          description: Markdown file as an attachment.
+          content:
+            text/markdown:
+              schema:
+                type: string
+        '400':
+          description: The id is missing or the format is not markdown.
+        '404':
+          description: The document does not exist or is not visible.
   /document:
     get:
       summary: Retrieve document detail and raw content

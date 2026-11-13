@@ -1,7 +1,7 @@
 # Retirement of Markdown in Claire
 
 - **Document Identifier**: `DESIGN-MARKDOWN-RETIREMENT-20261113`
-- **Status**: Draft. Owner decisions RD22, RD23, and RD24 are locked (2026-11-13). The open items of Section 7 need owner decisions before the units that name them.
+- **Status**: Draft. Owner decisions RD22 to RD25 and MX1 to MX4 are locked (2026-11-13). MD-1, MD-3 (backend), MD-4, and MD-5 are done; MD-2 is replaced by RD25 (Section 7).
 - **Date**: 2026-11-13
 - **Revises**: [`DUAL_FORMAT_ADOC_DESIGN.md`](DUAL_FORMAT_ADOC_DESIGN.md) (frozen history document: Markdown and AsciiDoc as two body formats of ingestion).
 - **Related Documents**:
@@ -21,6 +21,7 @@ The owner decisions (2026-11-13) **[decision]**:
 | RD22 | Ingestion stops making Markdown bodies. AsciiDoc is the only body format that ingestion writes. |
 | RD23 | The Markdown setting (`CLAIRE_RENDER_FORMAT=md` and the code paths behind it) is **sealed and closed**. It is not maintained. The sealed code stays only as a reference for the future Markdown export. |
 | RD24 | In all of Claire, Markdown is used at one place only: the **export** of an ingested AsciiDoc document. No other function writes, asks for, or sends Markdown. |
+| RD25 | No conversion of Markdown bodies. The project has one participant and all bodies are AsciiDoc. The update **deletes** at once: the Markdown bodies that remain (one time, at the first start of the version) and all Markdown code (the sealed code of RD23 is removed, not kept as a reference). RD25 replaces Section 3 rules 3 to 5 and unit MD-2. |
 
 Scope of RD24: the functions of the product (code in `src/`, `ops/`, `sidecar/`, prompts, and messages to users). The documentation files of the repository (`*.md`) are not product functions and are not part of RD24.
 
@@ -43,7 +44,9 @@ Scope of RD24: the functions of the product (code in `src/`, `ops/`, `sidecar/`,
 
 ---
 
-## 3. Seal of the Markdown Setting (RD23)
+## 3. Seal of the Markdown Setting (RD23, changed by RD25)
+
+RD25 changes this section: the sealed code and the read path of old Markdown bodies are deleted; rules 1, 2, and 6 stay. Section 3.1 has the RD25 rules.
 
 1. **Closed.** `render_format` has the value `adoc` only. A server with `CLAIRE_RENDER_FORMAT=md` (or `markdown`) starts, uses `adoc`, and writes one warning in the log. Operators cannot manage the server files or the database themselves; a value that worked before must not stop startup.
 2. **Commands.** `--format` of `format-migrate`, `backfill-detail`, and the other commands accepts `adoc` only.
@@ -53,6 +56,13 @@ Scope of RD24: the functions of the product (code in `src/`, `ops/`, `sidecar/`,
 6. **Column default.** New rows get `detail_format` = `adoc` from the code that writes them. The column default `'md'` and the reading rule "empty means `md`" stay, because old rows without a value are Markdown. No schema change is necessary.
 
 ---
+
+### 3.1 Deletion (RD25)
+
+1. **Bodies.** At the first start of the version, `claire.db` deletes `detail` and `detail_html` of each document with `detail_format` `md` or `markdown`, and sets `detail_format` = `adoc`. The document, its raw text, its extraction, and its graph stay. The key `markdown_bodies_purged` in `meta` makes the step run one time only. The existing path for missing bodies (`claire backfill-detail`) writes an AsciiDoc body again. The owner decided this deletion (2026-11-13); it is not an operator task.
+2. **Code.** `render_md_to_html`, `render_detail_prompt_md`, the Markdown branch of the mock provider, the Markdown branches of `set_document_detail`, the client function `renderMarkdown`, and the `marked` script are deleted. `render_to_html` and the client `renderContent` render AsciiDoc only. Text that the client AsciiDoc renderer cannot handle is shown as escaped plain text.
+3. **Defaults.** The column default of `documents.detail_format` is `adoc` for a new database, and an empty value reads as `adoc`.
+4. **Setting.** `CLAIRE_RENDER_FORMAT=md` still does not stop startup (Section 3 rule 2).
 
 ## 4. Markdown Outside the Body (RD24)
 
@@ -64,16 +74,19 @@ Each use of Section 2 changes as follows:
 | Vision transcripts | The prompts ask for AsciiDoc (or plain text with the structure of the cards). |
 | Telegram messages | `parse_mode="HTML"` with escaped text. Telegram Markdown escape rules are not used. |
 | Graph view labels | No change: the label cleanup removes marks of old documents; it writes no Markdown. |
-| Markdown source files (`.md`, `.markdown`) | Open item MX4 (Section 7). |
+| Markdown source files (`.md`, `.markdown`) | No change (MX4): ingestion must read them, so the text file fetcher keeps them as a source. Claire does not interpret the Markdown of a source. |
 | Export | The only producer of Markdown (Section 5). |
 
 ---
 
 ## 5. Markdown Export
 
-1. The export makes a Markdown file from an ingested AsciiDoc document. An old Markdown document goes out as it is.
+1. The export makes a Markdown file from an ingested AsciiDoc document (MX1: one document).
 2. The export is a read-only function: it writes nothing in the database.
-3. The sealed Markdown code of Section 3 is a reference for the export (for example the handling of `==highlight==` marks). The export does not call sealed code; it has its own code.
+3. **Place in the user interface (owner, 2026-11-13).** The federation client in `/syndication` offers the export in the context menu (right click) of each item of the knowledge base view. Neither the design of `/syndication` nor the code has a context menu yet; the menu is part of FP4-5 (the client view). Until then only the backend exists.
+4. **Backend.** `GET /document/export?id=...&format=markdown` (access `read`, the rule of `GET /document`). The answer is `text/markdown; charset=utf-8` with `Content-Disposition: attachment`. `markdown` is the only format; another value gives 400.
+5. **Conversion (MX2).** `render/markdown_export.py` converts the AsciiDoc subset of the body prompt without a dependency: section titles, strong, emphasis, highlight (to strong), links, images, lists, tables (GFM), source, literal, quote, admonition, and sidebar blocks, thematic breaks, anchors, and cross references. A construct that it does not know goes out as text.
+6. **File (MX3).** A YAML front matter header (`title`, `source`, `date`, `summary`, `claire_document_id`), the title as a level 1 heading, then the body.
 
 ---
 
@@ -87,17 +100,21 @@ A published document sends its summary and its share link, not its body ([`FEDER
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| MD-1 | Seal and close the setting (Section 3 rules 1 to 3 and 6) | A server with `CLAIRE_RENDER_FORMAT=md` starts and ingests an AsciiDoc body. An old Markdown document shows its compiled HTML. | — | S |
-| MD-2 | Console count of Markdown bodies per theme, and the rewrite start (Section 3 rule 5) | A theme with one Markdown body shows the count 1; after the rewrite it shows 0. | MD-1 | S |
-| MD-4 | Raw text of the fetchers and `table_budget.py` in AsciiDoc (Section 4) | A web page with a table gives an AsciiDoc table in the raw text, and the table budget counts it. | MD-1 | M |
-| MD-5 | Vision prompts and Telegram messages without Markdown (Section 4) | A bot message with `_` and `*` in a title arrives as text. | — | S |
-| MD-3 | Markdown export (Section 5) with the decisions MX1 to MX3 | An end-to-end test exports one AsciiDoc document and one old Markdown document as Markdown files. | MD-1, MX1 to MX3 | M |
+| MD-1 | Seal and close the setting (Section 3 rules 1 to 3 and 6). Done 2026-11-13. | A server with `CLAIRE_RENDER_FORMAT=md` starts and ingests an AsciiDoc body. An old Markdown document shows its compiled HTML. | — | S |
+| MD-2 | Replaced by RD25: one-time deletion of Markdown bodies and deletion of all Markdown code (Section 3.1). Done 2026-11-13. | The first start deletes a Markdown body once and keeps an AsciiDoc body (`tests/test_e2e_markdown_export.py`). | MD-1 | S |
+| MD-4 | Raw text of the fetchers and `table_budget.py` in AsciiDoc (Section 4). Done 2026-11-13. | A web page with a table gives an AsciiDoc table in the raw text, and the table budget counts it. | MD-1 | M |
+| MD-5 | Vision prompts and Telegram messages without Markdown (Section 4). Done 2026-11-13. | A bot message with `_` and `*` in a title arrives as text. | — | S |
+| MD-3 | Markdown export (Section 5). Backend done 2026-11-13; the context menu item comes with FP4-5. | An end-to-end test exports an AsciiDoc document as a Markdown file (`tests/test_e2e_markdown_export.py`). | MD-1, MX1 to MX3 | M |
 
 Documentation: `ENVIRONMENT_VARIABLES.md` (`CLAIRE_RENDER_FORMAT`), `COMMANDS.md` (`--format`), `API_HTTP_CONTRACT.md` and `openapi.yaml` (export route of MD-3).
 
 ---
 
-## 8. Open Items
+## 8. Decided Items (owner, 2026-11-13)
+
+All items are decided: MX1 (a), one document from the context menu of `/syndication`; MX2 (b); MX3 with the front matter; MX4 (a), the `.md` source stays because ingestion must read it. The table keeps the options for reference.
+
+### 8.1 Options
 
 | ID | Item | Options | Proposal | Needed before |
 | :--- | :--- | :--- | :--- | :--- |

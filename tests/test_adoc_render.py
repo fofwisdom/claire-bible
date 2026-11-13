@@ -16,7 +16,7 @@ from claire.extract.provider import MockProvider
 from claire.graphview import GRAPH_HTML, document_detail, shared_html
 from claire.ingest.pipeline import ensure_document_detail
 from claire.ontology.base import Document
-from claire.render import render_adoc_to_html, render_md_to_html
+from claire.render import render_adoc_to_html
 from claire.store import db as dbm
 
 
@@ -113,19 +113,6 @@ def test_prompts_strict_adoc_purity():
     assert "---" in prompt  # '---'는 절대 사용 금지 명시 포함
 
 
-def test_aot_render_md():
-    """render_md_to_html 이 마크다운과 ==형광== 문법을 올바른 HTML 로 AOT 변환하는지 검증."""
-    sample = """## 마크다운 제목
-일반 텍스트 및 ==형광 텍스트== 입니다.
-
-> 인용 블록
-"""
-    html_out = render_md_to_html(sample)
-    assert "<h2" in html_out and "마크다운 제목" in html_out
-    assert "<mark>형광 텍스트</mark>" in html_out
-    assert "<blockquote>" in html_out
-
-
 def test_db_detail_format_storage_and_migration():
     """DB documents 테이블에 detail_format 및 detail_html 컬럼이 정상 저장/조회되고 마이그레이션되는지 검증."""
     conn = sqlite3.connect(":memory:")
@@ -139,8 +126,8 @@ def test_db_detail_format_storage_and_migration():
         (doc_id, "테스트 문서", "https://example.com/1", "원문 텍스트", 1000.0),
     )
 
-    # 기본 detail_format 조회 -> 'md'
-    assert dbm.get_document_detail_format(conn, doc_id) == "md"
+    # 기본 detail_format 조회 -> 'adoc' (RD25: 본문 형식은 AsciiDoc 하나)
+    assert dbm.get_document_detail_format(conn, doc_id) == "adoc"
     assert dbm.get_document_detail_html(conn, doc_id) is None
 
     # adoc 포맷으로 detail 저장 (html 인자 없이 자동 AOT 렌더링)
@@ -153,14 +140,10 @@ def test_db_detail_format_storage_and_migration():
     assert '<div class="quoteblock">' in adoc_html
     assert "인용 본문" in adoc_html
 
-    # md 포맷으로 갱신
-    md_detail = "==형광== 본문"
-    dbm.set_document_detail(conn, doc_id, md_detail, format="md")
-    assert dbm.get_document_detail(conn, doc_id) == md_detail
-    assert dbm.get_document_detail_format(conn, doc_id) == "md"
-    md_html = dbm.get_document_detail_html(conn, doc_id)
-    assert md_html is not None
-    assert "<mark>형광</mark>" in md_html
+    # md 를 요청해도 AsciiDoc 으로 저장된다(RD25)
+    dbm.set_document_detail(conn, doc_id, "#형광# 본문", format="md")
+    assert dbm.get_document_detail_format(conn, doc_id) == "adoc"
+    assert "<mark>형광</mark>" in (dbm.get_document_detail_html(conn, doc_id) or "")
 
     conn.close()
 
@@ -191,9 +174,8 @@ def test_mock_provider_dual_format():
         meta={"images": [{"url": "https://example.com/arch.png", "alt": "구조도", "caption": "아키텍처"}]},
     )
 
-    md_out = prov.render_detail(doc, format="md")
-    assert "[mock-detail]" in md_out
-    assert "![구조도]" in md_out
+    # RD25: a request for md also gives the AsciiDoc stub.
+    assert prov.render_detail(doc, format="md") == prov.render_detail(doc, format="adoc")
 
     adoc_out = prov.render_detail(doc, format="adoc")
     assert "[mock-detail-adoc]" in adoc_out

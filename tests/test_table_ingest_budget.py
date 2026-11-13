@@ -6,7 +6,6 @@ from claire.extract.prompts import (
     doc_to_prompt,
     extract_system_prompt,
     render_detail_prompt_adoc,
-    render_detail_prompt_md,
 )
 from claire.extract.table_budget import (
     extract_tables_from_text,
@@ -161,13 +160,6 @@ def test_prompt_rules_contain_table_preservation_rules():
     assert "PROMPT_VERSION" in globals() or PROMPT_VERSION == "extract-v7"
     assert "TABLES & DATA MATRICES" in sys_prompt
     assert "MUST NOT omit or ignore the data inside tables" in sys_prompt
-
-    # 2. 가독 렌더 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
-    md_prompt = render_detail_prompt_md("Sample Body", [], merged=False)
-    assert "테이블 보존" in md_prompt
-    assert "임의로 생략하거나 문장으로 축약하지 말고" in md_prompt
-    assert "테이블 내에 들어있는 미디어" in md_prompt
-    assert "제거·생략을 허용한다" in md_prompt
 
     # 3. AsciiDoc 가독 렌더링 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
     adoc_prompt = render_detail_prompt_adoc("Sample Body", [], merged=False)

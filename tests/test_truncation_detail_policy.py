@@ -7,22 +7,7 @@ import pytest
 from claire.extract.prompts import (
     render_detail_prompt,
     render_detail_prompt_adoc,
-    render_detail_prompt_md,
 )
-
-
-def test_render_detail_prompt_md_truncation_policy():
-    """render_detail_prompt_md 에 절단되어 내용이 유실된 섹션의 상세 작성 배제 규칙이 포함되어 있는지 검증."""
-    body = "샘플 원문 본문 내용"
-    images = []
-
-    prompt = render_detail_prompt_md(body, images, merged=False)
-
-    # 정책 핵심 문구 검증
-    assert "절단 섹션 상세 작성 배제(적재 정책)" in prompt
-    assert "원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다" in prompt
-    assert "온전하게 보존된 섹션까지만 상세를 작성" in prompt
-    assert "완전히 제외(생략)" in prompt
 
 
 def test_render_detail_prompt_adoc_truncation_policy():

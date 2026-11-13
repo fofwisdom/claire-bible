@@ -2662,6 +2662,45 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         return JSONResponse(report)
 
+    async def document_export_route(request: Request) -> Response:
+        """Export of one document as a file (RD24, MD-3). ``format=markdown`` is the only format: the AsciiDoc body becomes Markdown with a YAML front matter header. Read-only. The access rule is the rule of ``GET /document``. The federation client offers it in the context menu of an item (MARKDOWN_RETIREMENT_DESIGN.md Section 5)."""
+        from urllib.parse import quote as _quote
+
+        from ..render.markdown_export import document_markdown
+        from ..store.queries import document_detail
+
+        document_id = request.query_params.get("id", "").strip()
+        if not document_id:
+            return JSONResponse({"error": "id required"}, status_code=400)
+        fmt = request.query_params.get("format", "markdown").strip().lower()
+        if fmt not in ("markdown", "md"):
+            return JSONResponse({"error": "unsupported_format", "formats": ["markdown"]}, status_code=400)
+        include_hidden = request_auth_scope(request) != "anonymous"
+        theme, theme_settings, _ = _get_theme_ctx(request)
+
+        def _load() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
+            try:
+                return document_detail(conn, document_id, include_hidden=include_hidden, theme_id=theme.id)
+            finally:
+                conn.close()
+
+        report = await asyncio.to_thread(_load)
+        if report is None:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        body = document_markdown(report)
+        ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "-", f"claire-{document_id}").strip("-") + ".md"
+        title_name = _quote((str(report.get("title") or document_id).strip() or document_id)[:120] + ".md", safe="")
+        return Response(
+            body,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{title_name}",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def document_detail_route(request: Request) -> JSONResponse:
         from ..store.queries import document_detail
 
@@ -4728,6 +4767,7 @@ def create_app(
         Route("/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
         Route("/p/images/{filename:path}", presentation_image_route, methods=["GET", "HEAD"]),
         Route("/document", document_detail_route, methods=["GET"]),
+        Route("/document/export", document_export_route, methods=["GET"]),
         Route("/document/raw", document_raw_route, methods=["GET", "HEAD"]),
         Route("/document/seen", document_seen_route, methods=["POST"]),
         Route("/document/pin", document_pin_route, methods=["POST"]),

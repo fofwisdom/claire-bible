@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS documents (
     meta TEXT,
     minhash TEXT,
     detail TEXT,
-    detail_format TEXT DEFAULT 'md',
+    detail_format TEXT DEFAULT 'adoc',
     detail_html TEXT,
     seen INTEGER DEFAULT 1,
     watch_enabled INTEGER,
@@ -538,8 +538,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 클릭해 바로 열리는 링크가 필요하다는 요구; 기존 CLAIRE_READONLY_TOKEN 은 헤더 전용이라
     # URL 링크로 못 씀). 기존 행은 DEFAULT 'owner' 로 자동 채워져 기존 /web 세션 동작 그대로.
     _ensure_column(conn, "auth_sessions", "scope", "TEXT DEFAULT 'owner'")
-    # v10: 문서 detail 가독 렌더링 포맷 (md: 마크다운, adoc: AsciiDoc). 기본값 'md'.
-    _ensure_column(conn, "documents", "detail_format", "TEXT DEFAULT 'md'")
+    # v10: 문서 detail 가독 렌더링 포맷. RD25부터 새 DB의 기본값은 'adoc'이다(본문 형식은 AsciiDoc 하나).
+    _ensure_column(conn, "documents", "detail_format", "TEXT DEFAULT 'adoc'")
     # v11: 문서 AOT 사전 컴파일된 HTML (Antora 스타일 사전 렌더링).
     _ensure_column(conn, "documents", "detail_html", "TEXT")
     # v11: 소각 툼스톤 테이블 (오염 문서 재유입 영구 차단).
@@ -801,6 +801,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v19_account_locale(conn)
     _migrate_v20_syndication_cleanup(conn)
     _migrate_v21_account_feeds(conn)
+    _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
 
@@ -1222,6 +1223,27 @@ def _migrate_v20_syndication_cleanup(conn: sqlite3.Connection) -> None:
     finally:
         if rebuild and foreign_keys_on:
             conn.execute("PRAGMA foreign_keys = ON")
+
+
+MARKDOWN_BODIES_PURGED_KEY = "markdown_bodies_purged"
+
+
+def _purge_markdown_bodies(conn: sqlite3.Connection) -> None:
+    """RD25 (docs/design/MARKDOWN_RETIREMENT_DESIGN.md): delete the Markdown bodies once, at the first start of this version. No conversion: the owner decided that all bodies are AsciiDoc.
+
+    A Markdown body (``detail_format`` is ``md`` or ``markdown``) loses ``detail`` and ``detail_html`` and gets ``detail_format`` = ``adoc``. The document, its raw text, its extraction, and its graph stay. The existing path for missing bodies (``claire backfill-detail``) writes an AsciiDoc body again. The key ``markdown_bodies_purged`` in ``meta`` makes the step run one time only.
+    """
+    done = conn.execute("SELECT value FROM meta WHERE key=?", (MARKDOWN_BODIES_PURGED_KEY,)).fetchone()
+    if done is not None:
+        return
+    if "detail_format" in _column_names(conn, "documents"):
+        cur = conn.execute(
+            "UPDATE documents SET detail=NULL, detail_html=NULL, detail_format='adoc' "
+            "WHERE lower(trim(coalesce(detail_format, ''))) IN ('md', 'markdown') AND detail IS NOT NULL AND trim(detail) != ''"
+        )
+        if cur.rowcount:
+            logging.getLogger(__name__).warning("RD25: deleted %d Markdown bodies; backfill-detail writes them again in AsciiDoc", cur.rowcount)
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (MARKDOWN_BODIES_PURGED_KEY, str(int(time.time()))))
 
 
 def _migrate_v21_account_feeds(conn: sqlite3.Connection) -> None:
@@ -2056,8 +2078,8 @@ def _documents_filter(
     if detail == "missing":
         where.append("(detail IS NULL OR trim(detail) = '')")
     elif detail == "mismatched":
-        where.append("(detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?)")
-        params.append((detail_format or "md").lower())
+        where.append("(detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) != ?)")
+        params.append((detail_format or "adoc").lower())
     if before is not None:
         before_ts, before_id = before
         if before_ts is None:
@@ -2088,7 +2110,7 @@ def documents_timeline(
     return conn.execute(
         f"SELECT id, title, url, source_type, fetched_at, seen, watch_enabled, "
         f"pinned, hidden, (detail IS NOT NULL AND trim(detail) != '') AS has_detail, "
-        f"coalesce(detail_format, 'md') AS detail_format FROM documents {where_sql} "
+        f"coalesce(detail_format, 'adoc') AS detail_format FROM documents {where_sql} "
         f"{DOCUMENTS_ORDER_SQL} LIMIT ?",
         params,
     ).fetchall()
@@ -3798,11 +3820,8 @@ def set_document_detail(
     """문서의 가독 렌더(detail), 포맷(detail_format), 사전 컴파일 HTML(detail_html)을 저장."""
     from ..extract.prompts import remove_leading_original_link
 
-    fmt = (format or "md").strip().lower()
-    if fmt in ("asciidoc", "adoc"):
-        fmt = "adoc"
-    else:
-        fmt = "md"
+    # RD25: AsciiDoc is the only body format. ``format`` is accepted for call compatibility.
+    fmt = "adoc"
 
     detail = remove_leading_original_link(detail)
     if html is None and detail:
@@ -4058,14 +4077,14 @@ def get_document_detail(conn: sqlite3.Connection, document_id: str, theme_id: in
 
 
 def get_document_detail_format(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str:
-    """문서의 detail_format('md' 또는 'adoc'). 없으면 'md'."""
+    """문서의 detail_format. 값이 없으면 'adoc'(RD25: 본문 형식은 AsciiDoc 하나다)."""
     query = "SELECT detail_format FROM documents WHERE id=?"
     params: list[Any] = [document_id]
     if theme_id is not None:
         query += " AND theme_id=?"
         params.append(theme_id)
     row = conn.execute(query, tuple(params)).fetchone()
-    return (row["detail_format"] if row and row["detail_format"] else "md")
+    return (row["detail_format"] if row and row["detail_format"] else "adoc")
 
 
 def get_document_detail_html(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
@@ -4083,7 +4102,7 @@ def get_document_detail_html(conn: sqlite3.Connection, document_id: str, theme_i
     if row["detail"] and row["detail"].strip():
         from ..render import render_to_html
 
-        fmt = row["detail_format"] or "md"
+        fmt = row["detail_format"] or "adoc"
         rendered = render_to_html(row["detail"], format=fmt)
         if rendered:
             try:
@@ -4116,7 +4135,7 @@ def recompile_all_detail_html(conn: sqlite3.Connection, doc_id: str | None = Non
     rows = conn.execute(query, tuple(params)).fetchall()
     count = 0
     for r in rows:
-        fmt = r["detail_format"] or "md"
+        fmt = r["detail_format"] or "adoc"
         detail = remove_leading_original_link(r["detail"])
         html_out = render_to_html(detail, format=fmt)
         upd = "UPDATE documents SET detail=?, detail_html=? WHERE id=?"
@@ -4157,7 +4176,7 @@ def documents_needing_detail_format(
     fmt = "adoc"
     q = (
         "SELECT id FROM documents WHERE (detail IS NULL OR trim(detail)='' "
-        "OR lower(coalesce(detail_format, 'md')) != ?)"
+        "OR lower(coalesce(detail_format, 'adoc')) != ?)"
     )
     params: list[Any] = [fmt]
     if theme_id is not None:
@@ -4243,7 +4262,7 @@ def get_format_status(
     row_total_docs = conn.execute(f"SELECT COUNT(*) as c FROM documents {where_base}", tuple(params_base)).fetchone()
     total_docs = row_total_docs["c"] if row_total_docs else 0
 
-    q_match = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) = ?"
+    q_match = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) = ?"
     p_match: list[Any] = [target]
     if theme_id is not None:
         q_match += " AND theme_id=?"
@@ -4251,7 +4270,7 @@ def get_format_status(
     row_matching = conn.execute(q_match, tuple(p_match)).fetchone()
     matching_docs = row_matching["c"] if row_matching else 0
 
-    q_mismatch = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?"
+    q_mismatch = "SELECT COUNT(*) as c FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) != ?"
     p_mismatch: list[Any] = [target]
     if theme_id is not None:
         q_mismatch += " AND theme_id=?"
@@ -4284,7 +4303,7 @@ def get_format_status(
 
     mismatched_docs_sample: list[dict[str, Any]] = []
     if mismatched_docs > 0 and sample_limit > 0:
-        q_samp = "SELECT id, title, url, coalesce(detail_format, 'md') AS detail_format, source_type, fetched_at FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'md')) != ?"
+        q_samp = "SELECT id, title, url, coalesce(detail_format, 'adoc') AS detail_format, source_type, fetched_at FROM documents WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(coalesce(detail_format, 'adoc')) != ?"
         p_samp = [target]
         if theme_id is not None:
             q_samp += " AND theme_id=?"

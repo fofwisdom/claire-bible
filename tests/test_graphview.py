@@ -180,7 +180,8 @@ def test_graph_html_self_contained_markers():
     assert 'title="본문 보기" aria-label="본문 보기">📖</button>' in GRAPH_HTML
     assert "📖 크게 읽기" not in GRAPH_HTML  # 중복되거나 모호한 '크게 읽기' 라벨 제거
     assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
-    assert "renderMarkdown" in GRAPH_HTML and "marked" in GRAPH_HTML and "DOMPurify" in GRAPH_HTML  # 마크다운 렌더+살균
+    # RD25: no Markdown renderer and no marked library; the body renders as AsciiDoc with DOMPurify.
+    assert "renderMarkdown" not in GRAPH_HTML and "marked.min.js" not in GRAPH_HTML and "DOMPurify" in GRAPH_HTML
     assert 'class="srcread"' in GRAPH_HTML and "stopPropagation" in GRAPH_HTML   # The reader button of the node panel (.srcread) is separate from the row navigation.
     assert "<mark>" in GRAPH_HTML                                       # ==형광== 강조 렌더
     assert "data-theme" in GRAPH_HTML and "toggleTheme" in GRAPH_HTML and "claireTheme" in GRAPH_HTML  # 라이트 기본+다크 토글
@@ -344,12 +345,8 @@ def test_favorite_and_hide_ui_markers():
 
 
 
-def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
+def test_browser_dependencies_are_pinned_with_sri():
     expected = (
-        (
-            "https://unpkg.com/marked@4.3.0/marked.min.js",
-            "sha384-QsSpx6a0USazT7nK7w8qXDgpSAPhFsb2XtpoLFQ5+X2yFN6hvCKnwEzN8M5FWaJb",
-        ),
         (
             "https://unpkg.com/dompurify@3.1.6/dist/purify.min.js",
             "sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a",
@@ -377,8 +374,8 @@ def test_browser_dependencies_are_pinned_with_sri_and_markdown_fails_closed():
     # 그래프 렌더러는 외부 CDN 없이 static/js/graph/ 엔진을 번들에 인라인한다.
     assert "unpkg.com/vis-network" not in GRAPH_HTML
     for page in (GRAPH_HTML, shared):
-        assert "if(!parser||!purifier" in page
-        assert "const fallback=()=>esc(raw).replace" in page
+        assert "marked.min.js" not in page
+        assert "function renderPlainText(src)" in page
         assert "return window.DOMPurify?" not in page
 
 

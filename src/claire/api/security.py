@@ -390,6 +390,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/documents"): _namespaced("read"),
     ("GET", "/document"): _namespaced("read"),
     ("HEAD", "/document"): _namespaced("read"),
+    ("GET", "/document/export"): _namespaced("read"),
+    ("HEAD", "/document/export"): _namespaced("read"),
     ("GET", "/document/raw"): _namespaced("collaborator"),
     ("HEAD", "/document/raw"): _namespaced("collaborator"),
     ("GET", "/document/presentation"): _namespaced("read"),

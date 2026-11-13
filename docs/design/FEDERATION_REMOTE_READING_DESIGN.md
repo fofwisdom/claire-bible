@@ -1,7 +1,7 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD24 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD26 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
 - **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
 - **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
@@ -494,10 +494,27 @@ The reading settings of Section 10 go to `instance_settings` (key `federation_re
 5. Response headers: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-site`, `Cache-Control: private`.
 6. Eviction: a command removes cache entries with `last_access_at` older than `media_evict_days` (Section 10, RD7). A deleted item removes its entries when no other item refers to the URL.
 
+### 9.1.1 Storage Backends (RD26)
+
+The owner decision (2026-11-13): local storage is the default and needs no setting. S3-compatible object storage is supported, and the reference implementation for support is **Garage** (the open-source S3-compatible store of Deuxfleurs).
+
+1. **Local (default).** `LocalMediaStore` under `data/media`, and the legacy files under `data/images` (RT4). A new server, and a server without object storage settings, uses local storage. Local storage is part of the existing backup of the data directory.
+2. **S3-compatible (optional).** `S3MediaStore`. "Supported" means: the tests and the documentation use Garage; another S3-compatible server works when it gives the operations of rule 4, but it is not tested.
+3. **One store at a time.** The `api` process uses one store for new writes. Reads look in the active store; with object storage active, a key that is not there is read from local storage (until the migration of Section 9.3 is complete), so that no media goes missing during the migration.
+4. **Required S3 operations.** `PutObject`, `GetObject` with `Range`, `HeadObject`, and `DeleteObject`, with AWS Signature Version 4 and the header `x-amz-content-sha256`. Claire does not use object ACLs, bucket policies, versioning, object lock, server-side encryption headers, or multipart uploads (the size limits of Section 10 keep each file small). Claire does not create the bucket: the operator creates the bucket and the key on the storage server.
+5. **Garage profile (defaults of the console form).**
+    - Addressing: path style (`{endpoint}/{bucket}/{key}`), which `S3MediaStore` uses now **[code]**. Virtual-host style is not used, because Garage needs a root domain setting for it **[unverified]**.
+    - Region: the form default is `garage`, the default `s3_region` of Garage **[unverified]**. The value must be the region of the server, because SigV4 signs it. The code default `us-east-1` stays for other servers.
+    - Endpoint: the S3 API port of Garage (default `3900`) **[unverified]**; the console accepts `http` only for a private address in development, else `https`.
+    - Public URL base: empty by default. Media goes through the `media` host of Claire (Section 9.1 rule 5 headers apply). A public base (for example a Garage website endpoint) is optional and is used only for media of public themes.
+6. **Keys.** The S3 object keys are the media keys of Section 9.1 (`remote/{url_hash}`) and the legacy keys `images/{doc_id}_{i}{ext}`. Each key uses only `[A-Za-z0-9/_.-]` (RT5), so that no key needs percent encoding.
+7. **Failure.** When the object store is not available, the `media` host answers 503 for a key that is not in local storage and logs the error. The `api` process starts also when the store is not available; the console shows the state of the last test.
+8. **Backup.** The backup of the data directory does not copy the bucket. The console and `OPERATIONS.md` say that the bucket needs the backup of the storage server.
+
 ### 9.2 Object Storage Settings for the Admin
 
 1. New console section `/admin/storage` and routes `GET`, `PUT /api/admin/storage`, `POST /api/admin/storage/test`.
-2. Fields: endpoint, bucket, region, access key, secret key, optional public URL base. The test writes, reads, and deletes one probe object.
+2. Fields: mode (`local`, the default, or `s3`), endpoint, bucket, region, access key, secret key, optional public URL base. The form has the Garage profile of Section 9.1.1 rule 5 as defaults. The test writes, reads (with a byte range), heads, and deletes one probe object, and reports the first operation that fails. A change from `s3` back to `local` is possible; the media in the bucket stay there and the console says so.
 3. Precedence: the environment variables `CLAIRE_MEDIA_S3_*` win over the admin settings. The console shows that the environment sets the store and refuses a change (RD9).
 4. A change of the settings takes effect at the next start of the `api` process. The console says so.
 
@@ -570,6 +587,7 @@ Rules:
 | RT7 | Number space and object path for notes: `federation_notes` and `federation_objects` share `public_id` (one counter) so that `/ap/objects/{id}` and the outbox collection stay one path. Alternative: one table with nullable `theme_id` and `document_id` (needs a table rebuild, A3). |
 | RT8 | Fedify sends `Create(Note)` with `inReplyTo`, `Mention` tags, and `audience`, and `Like` and `Announce` of a remote object; a Mastodon-compatible test server shows the reply in the thread. |
 | RT9 | Fedify 2.4.5 vocabulary for FEP-044f: the sidecar sends `QuoteRequest`, receives `Accept` with `QuoteAuthorization`, serves an authorization with an inbox listener and an object dispatcher, and puts `canQuote` in the interaction policy of `Note` and `Article`. A Mastodon-compatible test server shows an approved quote. |
+| RT10 | Garage as the reference S3 server (RD26): a local Garage server in a test (binary or container; the test is skipped when it is not installed, like the Deno tests) accepts the four operations of Section 9.1.1 rule 4 from `S3MediaStore` with path-style addressing and the region `garage`. Confirm the Garage defaults that Section 9.1.1 rule 5 marks **[unverified]** (region name, S3 port, virtual-host requirement). Fix the RT5 defect (the signed path and the sent path differ for keys that need percent encoding). |
 | RT6 | `@fedify/backfill` reads a FEP-f228 `context` collection and the `replies` collections with a limit, and the parent chain with `inReplyTo`, in the Fedify version of the sidecar. |
 
 ---
@@ -630,6 +648,8 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD22 | Markdown bodies | Ingestion stops making Markdown bodies; AsciiDoc is the only body format. Old Markdown documents stay readable without an operator action. Design: [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md). | Locked 2026-11-13 |
 | RD23 | Markdown setting | `CLAIRE_RENDER_FORMAT=md` and its code paths are sealed and closed, not maintained, and kept only as a reference for the Markdown export ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 3). | Locked 2026-11-13 |
 | RD24 | Markdown in Claire | Markdown is used only for the export of an ingested AsciiDoc document ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 4). | Locked 2026-11-13 |
+| RD25 | Markdown removal | No conversion: the update deletes the remaining Markdown bodies once and all Markdown code. Markdown export comes from the context menu of an item in `/syndication` ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) RD25, Section 5). | Locked 2026-11-13 |
+| RD26 | Media storage backends | Local storage is the default. S3-compatible object storage is supported with Garage as the reference implementation (Section 9.1.1). | Locked 2026-11-13 |
 
 ---
 
@@ -639,12 +659,12 @@ The work unit rules of the parent design §14.4 apply.
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| FP4-0 | Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
-| FP4-1 | Object storage settings (`/admin/storage`, routes, encrypted secret, test), migration command (Section 9.2, 9.3) | The test route reports success with a local S3-compatible server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
+| FP4-0 | **RT1 to RT9 done 2026-11-13; RT10 is part of FP4-1.** Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
+| FP4-1 | Storage backends (Section 9.1.1): local default, object storage settings (`/admin/storage`, routes, encrypted secret, test), read fallback to local storage, migration command (Section 9.2, 9.3), RT10 | The test route reports success with a local Garage server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
 | FP4-2 | `claire.db` version 22: `federation_following`, `federation_account_settings`, outbox kinds and `target_iri` (RT3), store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
 | FP4-3 | Follow lifecycle: routes (Section 5.3 first three), tasks `follow`, `undo_follow`, `reject_follow`, sidecar resolution and delivery, `Accept` and `Reject` events, `following` collection, domain block effect | A follow of a test actor becomes `accepted` after its `Accept`. A follower removal sends `Reject(Follow)`. | FP4-2 | L |
 | FP4-4 | `federation_timeline_items`, inbound `Create`, `Update`, `Delete`, `Announce`, `Undo(Announce)`, addressing and block rules, fan-out, replies with the timeline rule and the parent chain (Section 6.5 rules 1 to 3), contract 1.3 fixtures | A public `Create` from a followed actor makes one item for each following account. A followers-only object makes none. A group `Announce` makes one item with the announcer. A reply to an actor that is not followed has `in_timeline` = 0. | FP4-3 | L |
-| FP4-5 | Timeline routes, federation client view in `/syndication` (list and thread), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |
+| FP4-5 | Timeline routes, federation client view in `/syndication` (list and thread), the context menu (right click) of an item with "Markdown export" for a knowledge base document (`GET /document/export`, MD-3), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |
 | FP4-6 | Thread fetch: task `fetch_context`, sidecar fetch with `@fedify/backfill`, internal endpoint `context-objects` (Section 6.5 rules 4 to 6) | A thread fetch stores the replies within `context_max_items`. A second request within `context_refetch_minutes` makes no task. | FP4-5 | M |
 | FP4-7 | `federation_media_cache`, media proxy route, fetch rules, eviction | An image arrives through the proxy. A private address and an SVG are refused. A file above the admin limit is `too_large`. | FP4-1, FP4-5 | M |
 | FP4-8 | Inbound interactions with the account: mentions and replies of actors that are not followed, `Like` and `Announce` of own objects, `federation_object_reactions`, mention rate limit (Section 6.6), automatic notice for non-public messages with `federation_auto_replies` (Section 6.2 rule 4) | A public reply of an actor that is not followed to a published document makes one item with `mention` = 1. A `Like` and its `Undo` leave the counter at 0. | FP4-4 | M |
@@ -656,15 +676,15 @@ Feed units (RD13, RD15). They need no actor and no federation unit, and they wor
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| FP4-F1 | Account feed tables (`claire.db` version 21), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | — (first unit, 2026-11-13) | M |
-| FP4-F2 | OPML import (feeds, folders, skip list, report) and OPML export | A Tiny Tiny RSS style OPML file with categories gives the same folders and feeds; a second import adds nothing. | FP4-F1 | S |
+| FP4-F1 | **Done 2026-11-13.** Account feed tables (`claire.db` version 21), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | — (first unit, 2026-11-13) | M |
+| FP4-F2 | **Done 2026-11-13.** OPML import (feeds, folders, skip list, report) and OPML export | A Tiny Tiny RSS style OPML file with categories gives the same folders and feeds; a second import adds nothing. | FP4-F1 | S |
 | FP4-F3 | Feed view in the client (tree, list, reader, link share, star, ingest of one item), item merge by URL with the timeline | An end-to-end test subscribes to a local feed, reads an item, and ingests it into a theme. | FP4-F1, FP4-5 (network mode parts only) | M |
 
 Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| FP4-P1 | Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
+| FP4-P1 | **Done 2026-11-13 except rule 5 of Section 5.5** (the `update` task on a change of the summary or the share link). Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
 
 The Markdown units MD-1 to MD-5 (RD22 to RD24) are in [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 7.
 

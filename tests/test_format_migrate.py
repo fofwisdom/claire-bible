@@ -45,7 +45,7 @@ def test_format_migrate_json_output(temp_db: Path, capsys: pytest.CaptureFixture
     dbm.insert_document(conn, doc1)
     dbm.insert_document(conn, doc2)
     dbm.set_document_detail(conn, "doc1", "= Title", format="adoc")
-    dbm.set_document_detail(conn, "doc2", "# Title", format="md")
+    conn.execute("UPDATE documents SET detail='# Title', detail_format='md' WHERE id=?", ("doc2",)); conn.commit()  # a row with another format; set_document_detail writes adoc only (RD25)
     conn.close()
 
     args = SimpleNamespace(format=None, apply=False, dry_run=False, yes=False, json=True)
@@ -78,7 +78,7 @@ def test_format_migrate_apply_non_tty_requires_yes(temp_db: Path, capsys: pytest
     conn = dbm.connect(temp_db)
     doc1 = Document(id="doc1", title="Doc 1", raw_text="text", source_type="text")
     dbm.insert_document(conn, doc1)
-    dbm.set_document_detail(conn, "doc1", "# Title", format="md")
+    conn.execute("UPDATE documents SET detail='# Title', detail_format='md' WHERE id=?", ("doc1",)); conn.commit()  # a row with another format; set_document_detail writes adoc only (RD25)
     conn.close()
 
     args = SimpleNamespace(format=None, apply=True, dry_run=False, yes=False, json=False)
@@ -93,7 +93,7 @@ def test_format_migrate_apply_interactive_abort(temp_db: Path, capsys: pytest.Ca
     conn = dbm.connect(temp_db)
     doc1 = Document(id="doc1", title="Doc 1", raw_text="text", source_type="text")
     dbm.insert_document(conn, doc1)
-    dbm.set_document_detail(conn, "doc1", "# Title", format="md")
+    conn.execute("UPDATE documents SET detail='# Title', detail_format='md' WHERE id=?", ("doc1",)); conn.commit()  # a row with another format; set_document_detail writes adoc only (RD25)
     conn.close()
 
     args = SimpleNamespace(format=None, apply=True, dry_run=False, yes=False, json=False)
@@ -108,7 +108,7 @@ def test_format_migrate_apply_with_yes(temp_db: Path, capsys: pytest.CaptureFixt
     conn = dbm.connect(temp_db)
     doc1 = Document(id="doc1", title="Doc 1", raw_text="Sample text", source_type="text")
     dbm.insert_document(conn, doc1)
-    dbm.set_document_detail(conn, "doc1", "# Title", format="md")
+    conn.execute("UPDATE documents SET detail='# Title', detail_format='md' WHERE id=?", ("doc1",)); conn.commit()  # a row with another format; set_document_detail writes adoc only (RD25)
     conn.close()
 
     args = SimpleNamespace(format="adoc", apply=True, dry_run=False, yes=True, json=False)

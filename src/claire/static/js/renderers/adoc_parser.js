@@ -18,18 +18,10 @@ const DOMPURIFY_OPTS = {
   ADD_ATTR: ['target', 'aria-hidden', 'data-math', 'style', 'xmlns', 'display', 'class'],
   ADD_TAGS: ['mark', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'msubsup', 'mfrac', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'annotation', 'span']
 };
-function renderMarkdown(src){
+// RD25: Markdown bodies and the Markdown renderer are removed. Text that the AsciiDoc renderer cannot handle is shown as escaped plain text.
+function renderPlainText(src){
   if(!src) return '';
-  const raw=String(src);
-  const fallback=()=>esc(raw).replace(/\\r?\\n/g,'<br>');
-  const parser=window.marked, purifier=window.DOMPurify;
-  if(!parser||!purifier||typeof purifier.sanitize!=='function'||
-     (typeof parser.parse!=='function'&&typeof parser!=='function')) return fallback();
-  try{
-    const s=raw.replace(/==([^=]+?)==/g,'<mark>$1</mark>');
-    const html=typeof parser.parse==='function'?parser.parse(s):parser(s);
-    return purifier.sanitize(html, DOMPURIFY_OPTS);
-  }catch(e){ return fallback(); }
+  return esc(String(src)).replace(/\r?\n/g,'<br>');
 }
 
 function splitTableCells(line){
@@ -761,7 +753,7 @@ function renderAsciidoc(src){
     }
     return html;
   }catch(_){
-    return renderMarkdown(raw);
+    return renderPlainText(raw);
   }
 }
 
@@ -817,7 +809,6 @@ function isAsciidoc(src, format){
   if(format){
     const fmt=String(format).toLowerCase().trim();
     if(fmt==='adoc'||fmt==='asciidoc') return true;
-    if(fmt==='md'||fmt==='markdown') return false;
   }
   if(!src) return false;
   const s=String(src);
@@ -826,16 +817,14 @@ function isAsciidoc(src, format){
 
 function renderContent(src, format){
   if(!src) return '';
-  if(isAsciidoc(src, format)){
-    return renderAsciidoc(src);
-  }
-  return renderMarkdown(src);
+  // RD25: AsciiDoc is the only body format. ``format`` is kept for the callers.
+  return renderAsciidoc(src);
 }
 
 // --- Global Export & Namespace ---
 const ClaireAdocParser = {
   esc,
-  renderMarkdown,
+  renderPlainText,
   splitTableCells,
   parseColsAttr,
   parseCellSpec,
@@ -854,7 +843,7 @@ const ClaireAdocParser = {
 if (typeof window !== 'undefined') {
   window.ClaireAdocParser = ClaireAdocParser;
   window.esc = esc;
-  window.renderMarkdown = renderMarkdown;
+  window.renderPlainText = renderPlainText;
   window.splitTableCells = splitTableCells;
   window.parseColsAttr = parseColsAttr;
   window.parseCellSpec = parseCellSpec;
