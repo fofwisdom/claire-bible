@@ -108,29 +108,9 @@ def _build_standalone_syndication_html() -> str:
     return html
 
 
-def _build_standalone_prototype_syndication_html() -> str:
-    """Combine static CSS/JS assets and templates/prototype_syndication.html to build standalone PROTOTYPE_SYNDICATION_HTML."""
-    theme_css = (_STATIC_DIR / "css" / "theme.css").read_text(encoding="utf-8")
-    synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
-    synd_data_js = (_STATIC_DIR / "js" / "syndication_data.js").read_text(encoding="utf-8")
-    synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
-    synd_peers_js = (_STATIC_DIR / "js" / "syndication_peers.js").read_text(encoding="utf-8")
-    synd_app_js = (_STATIC_DIR / "js" / "syndication_app.js").read_text(encoding="utf-8")
-    prototype_tmpl = (_TEMPLATES_DIR / "prototype_syndication.html").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
-    html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", prototype_tmpl)
-    html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
-    html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
-    # Order matters: seed data, then the client-tab and peer-publication factories, then the shell controller that instantiates them.
-    js_bundle = f"<script>\n{synd_data_js}\n{synd_client_js}\n{synd_peers_js}\n{synd_app_js}\n</script>"
-    html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
-    return html
-
-
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 SYNDICATION_HTML: str = _build_standalone_syndication_html()
-PROTOTYPE_SYNDICATION_HTML: str = _build_standalone_prototype_syndication_html()
 
 
 def render_ga_tag(
@@ -853,33 +833,9 @@ def render_syndication_html(
     )
 
 
-def render_prototype_syndication_html(
-    settings: Any = None,
-    *,
-    include_private: bool = True,
-    collaborator: bool = False,
-    theme: Any | None = None,
-    host: str | None = None,
-    auth_scope: str = "owner",
-    request: Any | None = None,
-) -> str:
-    """Return rendered Prototype Syndication UI HTML (/prototype/syndication)."""
-    return _render_syndication_bundle(
-        PROTOTYPE_SYNDICATION_HTML,
-        settings,
-        include_private=include_private,
-        collaborator=collaborator,
-        theme=theme,
-        host=host,
-        auth_scope=auth_scope,
-        request=request,
-    )
-
-
 __all__ = [
     "FAVICON_TAGS_HTML",
     "GRAPH_HTML",
-    "PROTOTYPE_SYNDICATION_HTML",
     "SYNDICATION_HTML",
     "_SHARED_HTML",
     "dedup_clusters",
@@ -893,7 +849,6 @@ __all__ = [
     "render_ga_tag",
     "render_graph_html",
     "render_open_graph_tags",
-    "render_prototype_syndication_html",
     "render_syndication_html",
     "resolve_preview_image",
     "sanitize_preview_text",

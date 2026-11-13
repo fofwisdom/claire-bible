@@ -68,19 +68,11 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert "수집 원문" in r_pub.text
         assert "적재 본문" in r_pub.text
         assert "생성된 엔티티" in r_pub.text
-        assert 'href="/prototype/syndication"' in r_pub.text
+        assert "/prototype/syndication" not in r_pub.text
         assert "CLAIRE_SYND_SEEDS" not in r_pub.text
 
-        r_proto = client.get("/prototype/syndication")
-        assert r_proto.status_code == 200
-        assert "Claire Bible — Syndication Prototype" in r_proto.text
-        assert 'data-app-tab="client"' in r_proto.text
-        assert 'id="tab-client"' in r_proto.text
-        assert 'id="tab-kb"' in r_proto.text
-        assert "부스트 / 인용 발행" in r_proto.text
-        assert "수집 태그" in r_proto.text
-        assert "생성된 엔티티" in r_proto.text
-        assert 'href="/syndication"' in r_proto.text
+        # RD20: the prototype moved to its own host role; the app path is gone.
+        assert client.get("/prototype/syndication").status_code == 404
 
         # Entry links go straight to the root-mounted /settings/* console (P4).
         assert 'data-settings-path="/settings/reader"' in r_pub.text
@@ -101,7 +93,6 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         r_robots = client.get("/robots.txt")
         assert r_robots.status_code == 200
         assert "Disallow: /syndication" in r_robots.text
-        assert "Disallow: /prototype" in r_robots.text
 
         r_docs = client.get("/documents")
         assert r_docs.status_code == 200

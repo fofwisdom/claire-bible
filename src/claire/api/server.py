@@ -1939,22 +1939,6 @@ def create_app(
             )
         )
 
-    async def prototype_syndication_ui_route(request: Request) -> HTMLResponse:
-        from ..graphview import render_prototype_syndication_html
-
-        scope, include_private, is_collaborator, theme = _resolve_syndication_ui_context(request)
-        return HTMLResponse(
-            render_prototype_syndication_html(
-                s,
-                include_private=include_private,
-                collaborator=is_collaborator,
-                theme=theme,
-                host=request.headers.get("host"),
-                auth_scope=scope,
-                request=request,
-            )
-        )
-
     async def syndication_preferences_ui_route(request: Request) -> Response:
         """D4 호환 302: 옛 ``/syndication/preferences?tab=``를 ``/settings/*``(또는 관리자의 ``/admin/*``)로 보낸다 (설계 §2.2).
 
@@ -2330,7 +2314,6 @@ def create_app(
             "Disallow: /providers",
             "Disallow: /themes",
             "Disallow: /syndication",
-            "Disallow: /prototype",
         ]
 
         if getattr(s, "block_ai_crawlers", True):
@@ -4733,7 +4716,6 @@ def create_app(
         Route("/explore/accounts", explore_accounts_route, methods=["GET", "HEAD"]),
         Route("/", graph_ui, methods=["GET"]),
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
-        Route("/prototype/syndication", prototype_syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),
         Route("/api/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
         Route("/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
@@ -4899,7 +4881,7 @@ def run_api() -> int:
 
     from .dev_listeners import dev_listeners
 
-    listeners = dev_listeners(s)
+    listeners = dev_listeners(s, prototype=runtime.host_roles.prototype if runtime.host_roles is not None else None)
     listen = ", ".join(f"{host}:{port}" for host, port in listeners)
     print(
         "Claire ASGI 웹 서비스 시작: "

@@ -9,6 +9,9 @@ uv로 로컬에서 ``claire serve-api``를 띄우면 그 연결이 없다. 그�
 ``CLAIRE_INJECT_HOST``와 문자 그대로 같을 때만 그 포트도 같은 프로세스에서 연다. 요청이
 어느 포트로 들어오든 ``HostRouter``가 ``Host`` 헤더로 역할을 고른다.
 
+prototype 역할(RD20)은 설정이 없다. 호출자가 ``HostRoles.prototype``(개발에서는 app IPv4와 고정 포트
+``DEV_PROTOTYPE_PORT``)을 ``prototype``으로 넘기면 같은 규칙으로 그 포트도 연다.
+
 역할 호스트 값의 형식 검증은 ``HostRoles.from_settings``가 기동 때 한다. 여기서는 조건에 맞지
 않는 값을 추가 리스너로 삼지 않을 뿐이다.
 """
@@ -25,15 +28,18 @@ Listener = tuple[str, int]
 _ROLE_HOST_FIELDS = ("usercontent_fqdn", "media_fqdn")
 
 
-def dev_listeners(settings: Any) -> tuple[Listener, ...]:
-    """설정에서 listen할 ``(host, port)`` 목록을 계산한다. 첫 항목은 항상 app 리스너다."""
+def dev_listeners(settings: Any, *, prototype: str | None = None) -> tuple[Listener, ...]:
+    """설정에서 listen할 ``(host, port)`` 목록을 계산한다. 첫 항목은 항상 app 리스너다. ``prototype``은 계산된 prototype 역할 authority다."""
     host = str(getattr(settings, "inject_host", ""))
     port = int(getattr(settings, "inject_port"))
     listeners: list[Listener] = [(host, port)]
     if str(getattr(settings, "environment", "") or "") != "development":
         return tuple(listeners)
-    for field in _ROLE_HOST_FIELDS:
-        role_port = _same_ipv4_port(str(getattr(settings, field, "") or ""), host)
+    authorities = [str(getattr(settings, field, "") or "") for field in _ROLE_HOST_FIELDS]
+    if prototype:
+        authorities.append(prototype)
+    for authority in authorities:
+        role_port = _same_ipv4_port(authority, host)
         if role_port is not None and (host, role_port) not in listeners:
             listeners.append((host, role_port))
     return tuple(listeners)

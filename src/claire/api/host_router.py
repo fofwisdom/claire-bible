@@ -5,6 +5,7 @@
 - ``app``: 기존 보안 래퍼(``PrefixParser`` → CORS → BodyLimit → ErrorBoundary → Authentication → NamespaceResolver → 라우터)
 - ``usercontent``: usercontent 하위 앱(P3 L3-h). static/deck 프로필 렌더링과 정적 자산을 서빙하며 쿠키를 읽지도 쓰지도 않는다(§5.2)
 - ``media``: 미디어 하위 앱. 쿠키를 읽지도 쓰지도 않는다(P7)
+- ``prototype``: 정적 시각 프로토타입 하위 앱(RD20). 목업 데이터만 담은 페이지 하나를 ``/``에서 서빙하고, 쿠키를 읽지도 쓰지도 않는다
 - ``legacy``: ``legacy_hosts``에 있는 옛 테마 FQDN. 일몰 전 ``GET``·``HEAD``는 정본 테마 경로로 308, 그 밖의 메서드는 421, 일몰 뒤 410(또는 정책상 421)
 - 그 밖: 421
 
@@ -23,6 +24,7 @@ from urllib.parse import quote
 from starlette.responses import PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .prototype_host import prototype_authority
 from .security import (
     _parse_authority,
     _parse_dns_name,
@@ -42,7 +44,7 @@ __all__ = [
     "not_found_app",
 ]
 
-HostRole = Literal["app", "usercontent", "media", "legacy"]
+HostRole = Literal["app", "usercontent", "media", "prototype", "legacy"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,8 @@ class HostRoles:
     media: str | None
     # 운영 환경의 등록 도메인(``CLAIRE_SITE_DOMAIN``). PSL로 추정하지 않는다(C1).
     site_domain: str | None
+    # 정적 프로토타입 호스트(RD20). 설정이 아니라 app 호스트에서 계산한다(``prototype_host.prototype_authority``). None이면 역할이 없다.
+    prototype: str | None = None
 
     @classmethod
     def from_settings(cls, settings: Any, *, environment: str, app_authority: str) -> HostRoles:
@@ -112,8 +116,17 @@ class HostRoles:
             if usercontent is not None and media is not None and usercontent == media:
                 raise ValueError("role hosts must differ: usercontent and media are the same authority")
 
-        roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain)
+        # The prototype host (RD20) is not a setting: it is computed from the app host. It is not in the CLAIRE_SITE_DOMAIN checks above. When it is the same as another role host, the environment has no prototype host.
+        prototype = prototype_authority(app, environment)
+        if prototype is not None:
+            other_hosts = {value if environment == "development" else value.split(":", 1)[0] for _, value in present}
+            if (prototype if environment == "development" else prototype.split(":", 1)[0]) in other_hosts:
+                prototype = None
+
+        roles = cls(scheme=scheme, app=app, usercontent=usercontent, media=media, site_domain=site_domain, prototype=prototype)
         role_origins = {roles.origin(name) for name, _ in present[1:]}
+        if prototype is not None:
+            role_origins.add(roles.origin("prototype"))
         for raw_origin in _split_origins(getattr(settings, "cors_allowed_origins", "") or ""):
             try:
                 _, _, normalized = _parse_url(raw_origin, environment=environment, origin_only=True)
@@ -124,18 +137,20 @@ class HostRoles:
         return roles
 
     def role_of(self, authority: str) -> HostRole | None:
-        """app·usercontent·media 중 하나, 아니면 None(레거시 여부는 ``LegacyHostDirectory``가 본다)."""
+        """app·usercontent·media·prototype 중 하나, 아니면 None(레거시 여부는 ``LegacyHostDirectory``가 본다)."""
         if authority == self.app:
             return "app"
         if self.usercontent is not None and authority == self.usercontent:
             return "usercontent"
         if self.media is not None and authority == self.media:
             return "media"
+        if self.prototype is not None and authority == self.prototype:
+            return "prototype"
         return None
 
-    def origin(self, role: Literal["app", "usercontent", "media"]) -> str | None:
+    def origin(self, role: Literal["app", "usercontent", "media", "prototype"]) -> str | None:
         """``{scheme}://{authority}``. 설정되지 않은 역할이면 None. CSP·링크가 쓴다."""
-        authority = {"app": self.app, "usercontent": self.usercontent, "media": self.media}.get(role)
+        authority = {"app": self.app, "usercontent": self.usercontent, "media": self.media, "prototype": self.prototype}.get(role)
         return None if authority is None else f"{self.scheme}://{authority}"
 
 
@@ -239,6 +254,7 @@ class HostRouter:
         legacy: LegacyHostDirectory,
         usercontent: ASGIApp | None = None,
         media: ASGIApp | None = None,
+        prototype: ASGIApp | None = None,
         now: Callable[[], float] | None = None,
     ) -> None:
         self.app = app
@@ -246,6 +262,7 @@ class HostRouter:
         self.legacy = legacy
         self.usercontent = usercontent
         self.media = media
+        self.prototype = prototype
         self.now = now
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -267,8 +284,8 @@ class HostRouter:
         if role == "app":
             await self.app(scope, receive, send)
             return
-        if role in ("usercontent", "media"):
-            sub = self.usercontent if role == "usercontent" else self.media
+        if role in ("usercontent", "media", "prototype"):
+            sub = {"usercontent": self.usercontent, "media": self.media, "prototype": self.prototype}[role]
             if sub is None:
                 await _plain(421, "Misdirected Request")(scope, receive, send)
                 return
@@ -320,7 +337,7 @@ def _plain(status: int, text: str) -> Response:
 
 
 def _without_cookies(scope: Scope) -> Scope:
-    """하위 앱(usercontent·media)은 ``Cookie``를 인증에 절대 쓰지 않는다(§5.2). 헤더째 지운다."""
+    """하위 앱(usercontent·media·prototype)은 ``Cookie``를 인증에 절대 쓰지 않는다(§5.2). 헤더째 지운다."""
     headers = [(name, value) for name, value in scope.get("headers", []) if name.lower() != b"cookie"]
     return {**scope, "headers": headers}
 
