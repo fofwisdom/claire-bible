@@ -22,7 +22,7 @@ NS = {
     "meta": "urn:oasis:names:tc:opendocument:xmlns:meta:1.0",
 }
 
-_URL_RE = re.compile(r"https?://[^\s)\]\}<>\"']+")
+_URL_RE = re.compile(r"https?://[^\s)\[\]\}<>\"']+")  # "[" ends a URL: an AsciiDoc link macro follows the URL with "[text]".
 ODT_MIMETYPE = "application/vnd.oasis.opendocument.text"
 
 _SAFE_XML_PARSER = ET.XMLParser(

@@ -570,7 +570,7 @@ def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp_path: Path):
-    """파일명이나 초점에 언더스코어가 있어도 Markdown 파싱 오류 없이 테마 선택 프롬프트를 전송하고,
+    """파일명이나 초점에 언더스코어가 있어도 HTML 테마 선택 프롬프트를 전송하고(RD24: Markdown 없음),
     Telegram BadRequest 발생 시 플레인텍스트로 안전하게 폴백하는지 검증."""
     from telegram.error import BadRequest
 
@@ -585,12 +585,12 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
 
     # 핸들러 스코프의 내부 함수를 찾기 위해 on_document 핸들러를 경유
     mock_msg = AsyncMock()
-    # 첫 번째 호출(Markdown parse_mode)에서 Telegram BadRequest 에러 발생 시뮬레이션
+    # 첫 번째 호출(HTML parse_mode)에서 Telegram BadRequest 에러 발생 시뮬레이션
     call_count = 0
     async def fake_reply_text(text, **kwargs):
         nonlocal call_count
         call_count += 1
-        if kwargs.get("parse_mode") == "Markdown":
+        if kwargs.get("parse_mode") == "HTML":
             raise BadRequest("Can't parse entities: can't find end of the entity starting at byte offset 173")
         return MagicMock()
 

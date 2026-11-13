@@ -359,21 +359,21 @@ def run_resolution_benchmark(
 
 
 def format_benchmark_report(metrics: BenchmarkMetrics) -> str:
-    """벤치마크 메트릭을 가독성 높은 Markdown 보고서로 포맷팅."""
+    """벤치마크 메트릭을 가독성 높은 AsciiDoc 보고서로 포맷팅(RD24: Markdown을 쓰지 않는다)."""
     fpr_status = "PASS (0.00%)" if metrics.false_positive_rate == 0.0 else f"CRITICAL FAIL ({metrics.false_positive_rate * 100:.2f}%)"
     lines = [
-        f"### 해소 벤치마크 실측 보고서: {metrics.engine_name}",
-        f"- **총 평가 케이스**: {metrics.total_cases}건",
-        f"- **거짓 병합률 (FPR)**: **{fpr_status}** (오병합 {metrics.false_positives}건)",
-        f"- **정밀도 (Precision)**: {metrics.precision * 100:.2f}%",
-        f"- **재현율 (Recall)**: {metrics.recall * 100:.2f}%",
-        f"- **F1-Score**: {metrics.f1_score:.4f}",
-        f"- **평균 지연시간**: {metrics.avg_latency_ms:.2f} ms",
-        f"- **P95 지연시간**: {metrics.p95_latency_ms:.2f} ms",
-        f"- **혼동 행렬**: TP={metrics.true_positives}, TN={metrics.true_negatives}, FP={metrics.false_positives}, FN={metrics.false_negatives}",
+        f"=== 해소 벤치마크 실측 보고서: {metrics.engine_name}",
+        f"* *총 평가 케이스*: {metrics.total_cases}건",
+        f"* *거짓 병합률 (FPR)*: *{fpr_status}* (오병합 {metrics.false_positives}건)",
+        f"* *정밀도 (Precision)*: {metrics.precision * 100:.2f}%",
+        f"* *재현율 (Recall)*: {metrics.recall * 100:.2f}%",
+        f"* *F1-Score*: {metrics.f1_score:.4f}",
+        f"* *평균 지연시간*: {metrics.avg_latency_ms:.2f} ms",
+        f"* *P95 지연시간*: {metrics.p95_latency_ms:.2f} ms",
+        f"* *혼동 행렬*: TP={metrics.true_positives}, TN={metrics.true_negatives}, FP={metrics.false_positives}, FN={metrics.false_negatives}",
     ]
     if metrics.failed_cases:
-        lines.append("\n#### 불일치/실패 케이스 분석:")
+        lines.append("\n==== 불일치/실패 케이스 분석:")
         for fc in metrics.failed_cases:
-            lines.append(f"  - [{fc.get('case_id')}] {fc.get('reason', fc.get('error'))}: {fc.get('new')} vs {fc.get('cand')}")
+            lines.append(f"** [{fc.get('case_id')}] {fc.get('reason', fc.get('error'))}: {fc.get('new')} vs {fc.get('cand')}")
     return "\n".join(lines)

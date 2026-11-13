@@ -164,6 +164,7 @@ APP_ONE_OFF_COMMANDS = {
     "api-key",
     "instance",
     "federation",
+    "feeds",
 }
 APP_GUARDED_COMMANDS = {
     "migrate": "Schema lifecycle command owned by install/update",

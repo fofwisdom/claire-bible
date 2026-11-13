@@ -224,10 +224,10 @@ def _format_chapter_content(
     local_prefix_map = dict(prefix_map) if prefix_map else {}
     _scan_headicon_maps_from_soup(ch_soup, local_headicon_map, local_prefix_map)
 
-    # 1. Format <div class="location-label"> to \n### [장소: {location}]\n
+    # 1. Format <div class="location-label"> to \n=== 장소: {location}\n
     for loc in ch_soup.find_all("div", class_="location-label"):
         loc_text = loc.get_text().strip()
-        loc.replace_with(f"\n### [장소: {loc_text}]\n")
+        loc.replace_with(f"\n=== 장소: {loc_text}\n")
 
     # 2. Remove UI audio/video cue elements like .music-cue and .video-cue
     for cue in ch_soup.find_all(class_=lambda c: c and any(cls_name in c.split() for cls_name in ("music-cue", "video-cue"))):
@@ -764,7 +764,7 @@ class UttuAdapter(BaseWebAdapter):
                                 part_blocks.append(f"> {p_txt}\n")
                         t_links = accordion.find_all(class_=lambda c: c and "trail-link" in c)
                         if t_links:
-                            part_blocks.append("### [단서 목록]\n")
+                            part_blocks.append("=== 단서 목록\n")
                             for t_btn in t_links:
                                 try:
                                     la_raw = t_btn.get(f"data-la-{target_lang}")

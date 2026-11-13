@@ -4881,7 +4881,10 @@ def run_api() -> int:
 
     from .dev_listeners import dev_listeners
 
-    listeners = dev_listeners(s, prototype=runtime.host_roles.prototype if runtime.host_roles is not None else None)
+    prototype_authority_value = runtime.host_roles.prototype if runtime.host_roles is not None else None
+    listeners = dev_listeners(s, prototype=prototype_authority_value)
+    # The prototype listener (RD20) is a tool of the maintainer on a fixed port. When another process has that port (a second development server, parallel tests), the server starts without it.
+    optional_listeners = set(listeners[1:]) - set(dev_listeners(s))
     listen = ", ".join(f"{host}:{port}" for host, port in listeners)
     print(
         "Claire ASGI 웹 서비스 시작: "
@@ -4926,13 +4929,20 @@ def run_api() -> int:
             try:
                 sock.bind((host, port))
             except OSError as exc:
+                if (host, port) in optional_listeners:
+                    print(f"prototype listener skipped {host}:{port}: {exc}", flush=True)
+                    sockets.remove(sock)
+                    sock.close()
+                    continue
                 print(f"listen 실패 {host}:{port}: {exc}")
                 return 1
             sock.set_inheritable(True)
         config = uvicorn.Config(app, host=s.inject_host, port=s.inject_port, **uvicorn_options)
         server = uvicorn.Server(config)
-        for host, port in listeners:
-            logging.getLogger("uvicorn.error").info("Uvicorn running on http://%s:%d", host, port)
+        for sock in sockets:
+            if sock.family in (socket.AF_INET, socket.AF_INET6):
+                bound_host, bound_port = sock.getsockname()[:2]
+                logging.getLogger("uvicorn.error").info("Uvicorn running on http://%s:%d", bound_host, bound_port)
         if internal_sock is not None:
             logging.getLogger("uvicorn.error").info("Internal federation listener on unix:%s", internal_path)
         try:

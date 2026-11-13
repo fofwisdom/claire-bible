@@ -81,8 +81,8 @@ def test_clean_html_to_adoc():
     md, imgs, links = clean_html_to_adoc(raw)
     assert "Title Header" in md
     assert "Paragraph text with colored span" in md
-    assert "| Header 1 | Header 2 |" in md
-    assert "| Cell 1 | Cell 2 |" in md
+    assert "| Header 1 | Header 2\n" in md
+    assert "| Cell 1 | Cell 2\n" in md
     assert len(imgs) >= 1
     assert imgs[0]["url"] == "https://example.com/img.png"
     assert "https://example.com/link" in links
@@ -93,7 +93,7 @@ def test_resolve_embedded_entries():
         '- **특제 요리**: $[{"ep_id":1887,"icon":"https://example.com/icon.png","amount":2,"name":"마법 스파게티"}]$'
     )
     res, links, anchors, imgs = resolve_embedded_entries(sample_text, "genshin")
-    assert "[마법 스파게티](https://wiki.hoyolab.com/pc/genshin/entry/1887) x2" in res
+    assert "link:https://wiki.hoyolab.com/pc/genshin/entry/1887[마법 스파게티] x2" in res
     assert "https://wiki.hoyolab.com/pc/genshin/entry/1887" in links
     assert anchors["https://wiki.hoyolab.com/pc/genshin/entry/1887"] == "마법 스파게티"
     assert len(imgs) == 1
@@ -174,19 +174,19 @@ def test_format_entry_to_adoc():
 
     title, text, links, anchors, imgs = format_entry_to_adoc(page_data, "genshin")
     assert "치치 - 원신 (Genshin Impact)" in title
-    assert "## 개요" in text
+    assert "== 개요" in text
     assert "약방 「불복려」의 약초꾼이자 제자." in text
-    assert "## 분류 및 특성" in text
-    assert "- **원소 속성**: 얼음 원소" in text
-    assert "- **희귀도**: ★5" in text
-    assert "## 속성" in text
-    assert "- **이름**: 치치" in text
-    assert "- **생일**: 3월 3일" in text
-    assert "## 특성" in text
-    assert "### 운래 검법" in text
-    assert "| 속성 | Lv.1 | Lv.2 |" in text
-    assert "| 1단 피해 | 37.8% | 40.9% |" in text
-    assert "## 스토리" in text
+    assert "== 분류 및 특성" in text
+    assert "* *원소 속성*: 얼음 원소" in text
+    assert "* *희귀도*: ★5" in text
+    assert "== 속성" in text
+    assert "* *이름*: 치치" in text
+    assert "* *생일*: 3월 3일" in text
+    assert "== 특성" in text
+    assert "=== 운래 검법" in text
+    assert "| 속성 | Lv.1 | Lv.2\n" in text
+    assert "| 1단 피해 | 37.8% | 40.9%\n" in text
+    assert "== 스토리" in text
     assert "불복려의 약초꾼 치치 이야기." in text
     assert any(im["url"] == "https://example.com/qiqi.png" for im in imgs)
     assert any(im["url"] == "https://example.com/talent1.png" for im in imgs)

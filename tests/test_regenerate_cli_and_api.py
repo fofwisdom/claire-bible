@@ -48,7 +48,7 @@ def test_cli_regenerate_parser_options():
         "-y",
         "--effort", "high",
         "--focus", "Security focus",
-        "--format", "md",
+        "--format", "adoc",
         "--json",
     ])
     assert args_alias.target == "doc_123"
@@ -57,7 +57,7 @@ def test_cli_regenerate_parser_options():
     assert args_alias.yes is True
     assert args_alias.effort == "high"
     assert args_alias.focus == "Security focus"
-    assert args_alias.format == "md"
+    assert args_alias.format == "adoc"
     assert args_alias.json is True
 
 

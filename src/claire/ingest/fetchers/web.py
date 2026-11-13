@@ -1,6 +1,6 @@
 """일반 웹 fetcher — 명시적 fallback 체인.
 
-  1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요) 2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보 3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적) 4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요. 정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용. 5) cdp       : Scrapling DynamicFetcher로 시스템 Chromium을 제어해 실제 렌더링. JS로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 정적 경로가 빈 셸만 받아오므로 진짜 브라우저 실행이 필요. Python 패키지와 브라우저 바이너리를 분리하여 이미지에는 시스템 Chromium만 설치한다.
+  1) static   : httpx + lxml 정적 추출 (가장 싸고 빠름, 브라우저 불필요) 2) law      : 국가법령정보센터(law.go.kr) iframe/AJAX 2중 구조 역추적 및 조문 정적 확보 3) discourse : 본문 빈약 + Discourse 토픽이면 `.json` API 로 본문 확보 (싸고 결정적) 4) scrapling : Scrapling Fetcher (curl-cffi + browserforge 스텔스 헤더). 브라우저 불필요. 정적 UA 를 403 으로 막는 봇차단(예: openai.com) 우회용. 5) cdp       : Scrapling StealthyFetcher로 시스템 Chromium을 제어해 실제 렌더링. JS로만 그려지는 SPA(해시 라우팅 등)는 static/scrapling 정적 경로가 빈 셸만 받아오므로 진짜 브라우저 실행이 필요. Python 패키지와 브라우저 바이너리를 분리하여 이미지에는 시스템 Chromium만 설치한다.
 
 체인을 다 돌고도 본문이 MIN_CONTENT 미만이면 FetchError 로 *실패 처리* — 제목만 적재되는 빈약 스크랩을 막고 raw_inbox 에 error 로 남겨 replay-failed 로 재적재. 임계 300 은 측정 기준: 정상 페이지 최소 ~1300자, 실패 페이지 73~111자 → 깔끔히 분리.
 """
@@ -679,7 +679,8 @@ def render_html_cdp(
     일반 웹 fallback과 사이트별 구조 탐색이 같은 브라우저 경계를 공유하도록 HTML 획득만 담당한다. ``click_tab_label``이 있으면 렌더링된 ``role=tab`` 요소 중 텍스트가 정확히 일치하는 탭을 선택한 뒤 최종 DOM을 반환한다. 브라우저 미설치·렌더링 실패는 빈 문자열로 반환하며, 호출자가 성공/실패 정책을 결정한다.
     """
     try:
-        from scrapling.fetchers import DynamicFetcher
+        # scrapling 0.5 removed DynamicFetcher; StealthyFetcher is its browser fetcher and takes the same options.
+        from scrapling.fetchers import StealthyFetcher
 
         interaction_failed = False
 
@@ -732,7 +733,7 @@ def render_html_cdp(
         executable = _system_chromium_executable()
         if executable:
             kwargs["executable_path"] = executable
-        response = DynamicFetcher.fetch(url, **kwargs)
+        response = StealthyFetcher.fetch(url, **kwargs)
         if interaction_failed:
             return ""
         return response.body.decode("utf-8", errors="replace")

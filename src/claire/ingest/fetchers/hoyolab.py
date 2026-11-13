@@ -227,7 +227,8 @@ def format_post_to_text(
 
     links: list[str] = []
     anchors: dict[str, str] = {}
-    for match in re.finditer(r"https?://[^\s)\]\}<>\"']+", text_doc):
+    # "[" ends a URL: an AsciiDoc link or image macro follows the URL with "[text]".
+    for match in re.finditer(r"https?://[^\s)\[\]\}<>\"']+", text_doc):
         found_url = match.group(0).rstrip(".,;)")
         if found_url not in links:
             links.append(found_url)

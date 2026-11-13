@@ -104,7 +104,7 @@ def test_e2e_uttu_story_ingestion(tmp_path: Path):
             assert doc.meta.get("page_type") == "story"
 
             # Check extracted markdown structure
-            assert "### [장소: 야외 실험장 제3구역]" in doc.raw_text
+            assert "=== 장소: 야외 실험장 제3구역" in doc.raw_text
             assert "[전투 등장: 실험체 A — 외골격 폭주 개체]" in doc.raw_text
             assert "외골격 야외 실험" in doc.raw_text
             assert "카카니아: 자, 심호흡하고..." in doc.raw_text
@@ -225,8 +225,8 @@ def test_e2e_uttu_event_trail_ingestion(tmp_path: Path):
             assert doc.meta.get("fragment_id") == 3110112
 
             # Check markdown body content
-            assert "# <UTTU> 편집부 수신" in doc.raw_text
-            assert "[단서: ‘바람’의 메아리]" in doc.raw_text
+            assert "= <UTTU> 편집부 수신" in doc.raw_text
+            assert "[quote, 단서: ‘바람’의 메아리]" in doc.raw_text
             assert "무수히 많은 실이 ‘바람’에 따라 흔들린다." in doc.raw_text
             assert "친애하는 동료들에게:" in doc.raw_text
             assert "<UTTU> 편집자 베리티" in doc.raw_text

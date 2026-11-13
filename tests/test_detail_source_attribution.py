@@ -151,11 +151,6 @@ def test_render_detail_prompt_explicitly_forbids_author_lines():
     assert "문서 레벨 서지 정보 및 저자 라인 표기 절대 금지" in prompt_adoc
     assert "단순 비디오 채널/호스팅 플랫폼/업로더 계정명은 출처로 인용하지 않는다" in prompt_adoc
 
-    prompt_md = render_detail_prompt(
-        "CONTENT:\n본문", [], merged=False, format="md"
-    )
-    assert "문서 레벨 서지 정보 및 부제 행 표기 절대 금지" in prompt_md
-
 
 def test_sanitize_rendered_detail_strips_adoc_bare_author_and_quotes():
     """AsciiDoc 제목 아래의 비인가 저자/부제 행 및 플랫폼 인용 블록 소각 검증."""

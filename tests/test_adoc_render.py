@@ -21,12 +21,12 @@ from claire.store import db as dbm
 
 
 def test_config_render_format_validation():
-    """Settings 의 render_format 필드가 기본값 adoc 이며 md 와 adoc 만 허용하고 소문자로 정규화하는지 검증."""
+    """Settings 의 render_format 필드가 기본값 adoc 이며 adoc 만 쓰는지 검증. Markdown 값은 폐쇄되어(RD23) 기동을 막지 않고 adoc 이 된다."""
     s_default = Settings()
     assert s_default.render_format == "adoc"
 
-    s_md = Settings(render_format="md")
-    assert s_md.render_format == "md"
+    assert Settings(render_format="md").render_format == "adoc"
+    assert Settings(render_format="markdown").render_format == "adoc"
 
     s_adoc = Settings(render_format="ADOC")
     assert s_adoc.render_format == "adoc"
@@ -165,14 +165,12 @@ def test_db_detail_format_storage_and_migration():
     conn.close()
 
 
-def test_prompts_dual_format():
-    """render_detail_prompt 가 포맷(md vs adoc)에 따라 올바른 규칙 프롬프트를 생성하는지 검증."""
+def test_prompts_adoc_only():
+    """render_detail_prompt 는 AsciiDoc 프롬프트만 만든다. format="md" 도 Markdown 프롬프트를 고르지 못한다(RD23)."""
     body = "샘플 본문 내용"
     images = [{"url": "https://example.com/img.png", "alt": "다이어그램", "caption": "설명"}]
 
-    prompt_md = render_detail_prompt(body, images, merged=False, format="md")
-    assert "마크다운" in prompt_md
-    assert "![설명](url)" in prompt_md or "그림" in prompt_md
+    assert render_detail_prompt(body, images, merged=False, format="md") == render_detail_prompt(body, images, merged=False, format="adoc")
 
     prompt_adoc = render_detail_prompt(body, images, merged=False, format="adoc")
     assert "AsciiDoc" in prompt_adoc
@@ -232,14 +230,11 @@ def test_pipeline_ensure_document_detail_format():
     # 2. force=False 일 때 이미 존재하므로 False
     assert ensure_document_detail(conn, prov, doc, force=False, format="adoc") is False
 
-    # 3. md 포맷으로 force 갱신
+    # 3. md 를 요청해도 적재는 AsciiDoc 만 쓴다(RD23)
     ok = ensure_document_detail(conn, prov, doc, force=True, format="md")
     assert ok is True
-    assert dbm.get_document_detail_format(conn, doc.id) == "md"
-    assert "[mock-detail]" in dbm.get_document_detail(conn, doc.id)
-    md_html = dbm.get_document_detail_html(conn, doc.id)
-    assert md_html is not None
-    assert "mock-detail" in md_html
+    assert dbm.get_document_detail_format(conn, doc.id) == "adoc"
+    assert "[mock-detail-adoc]" in dbm.get_document_detail(conn, doc.id)
 
     conn.close()
 
@@ -308,11 +303,6 @@ def test_check_format_mismatch():
         ("d2", "문서2", "https://example.com/2", "텍스트2", 1000.0, "본문2", "md"),
     )
 
-    # 설정이 'md' 이면 일치
-    res_md = dbm.check_format_mismatch(conn, "md")
-    assert res_md["needs_migration"] is False
-    assert res_md["mismatched"] == 0
-
     # 설정이 'adoc' 이면 불일치 감지
     res_adoc = dbm.check_format_mismatch(conn, "adoc")
     assert res_adoc["needs_migration"] is True
@@ -366,10 +356,8 @@ def test_documents_needing_detail_format():
     assert set(needed_adoc) == {"d1", "d3", "d4"}
     assert "d2" not in needed_adoc
 
-    # target='md' -> d4(빈값), d3(누락), d2(adoc) 총 3건. d1은 제외
-    needed_md = dbm.documents_needing_detail_format(conn, "md")
-    assert set(needed_md) == {"d2", "d3", "d4"}
-    assert "d1" not in needed_md
+    # 목표 포맷은 adoc 하나뿐이다(RD23): md 를 넘겨도 adoc 기준이다
+    assert set(dbm.documents_needing_detail_format(conn, "md")) == {"d1", "d3", "d4"}
 
     conn.close()
 

@@ -127,11 +127,11 @@ def test_extract_odt_bytes_structure():
     title, text, links, anchors, err, imgs = extract_odt_bytes(odt_data)
     assert err is None
     assert title == "Knowledge Architecture"
-    assert "# Main Section" in text
-    assert "## Sub Section" in text
+    assert "== Main Section" in text
+    assert "=== Sub Section" in text
     assert "First paragraph text." in text
-    assert "| Header A | Header B |" in text
-    assert "| Val 1 | Val 2 |" in text
+    assert "| Header A | Header B\n" in text
+    assert "| Val 1 | Val 2\n" in text
     assert links == ["https://example.com/paper"]
     assert anchors.get("https://example.com/paper") == "link anchor"
 
@@ -157,7 +157,7 @@ def test_fetch_file_odt(tmp_path: Path):
     assert doc.title == "Sample ODT Report"
     assert doc.author is None
     assert doc.published_at is None
-    assert "| Header A | Header B |" in doc.raw_text
+    assert "| Header A | Header B\n" in doc.raw_text
     assert doc.meta["odt_parser_used"] == "odt"
     assert doc.meta["raw_truncated"] is False
     assert "biblio" not in doc.meta

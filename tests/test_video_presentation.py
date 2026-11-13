@@ -205,7 +205,7 @@ def test_shared_renderer_clicks_exact_role_tab(monkeypatch):
             assert (role, name, exact) == ("tab", "Presentation", True)
             return FakeLocator()
 
-    class FakeDynamicFetcher:
+    class FakeStealthyFetcher:
         @classmethod
         def fetch(cls, url, **kwargs):
             assert url == VIDEO_URL
@@ -215,7 +215,7 @@ def test_shared_renderer_clicks_exact_role_tab(monkeypatch):
                 body=_rendered_html(with_presentation=True).encode("utf-8")
             )
 
-    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    monkeypatch.setattr("scrapling.fetchers.StealthyFetcher", FakeStealthyFetcher)
     rendered = render_html_cdp(
         VIDEO_URL,
         wait_seconds=0,
@@ -243,7 +243,7 @@ def test_shared_renderer_keeps_ready_dom_when_tab_is_absent(monkeypatch):
             assert (role, name, exact) == ("tab", "Presentation", True)
             return MissingLocator()
 
-    class FakeDynamicFetcher:
+    class FakeStealthyFetcher:
         @classmethod
         def fetch(cls, _url, **kwargs):
             kwargs["page_action"](FakePage())
@@ -251,7 +251,7 @@ def test_shared_renderer_keeps_ready_dom_when_tab_is_absent(monkeypatch):
                 body=_rendered_html(with_presentation=False).encode("utf-8")
             )
 
-    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    monkeypatch.setattr("scrapling.fetchers.StealthyFetcher", FakeStealthyFetcher)
     rendered = render_html_cdp(VIDEO_URL, click_tab_label="Presentation")
     assert rendered_session_is_ready(rendered, "6403820644112") is True
 
@@ -285,7 +285,7 @@ def test_shared_renderer_waits_for_delayed_tab_mount(monkeypatch):
             assert (role, name, exact) == ("tab", "Presentation", True)
             return DelayedLocator()
 
-    class FakeDynamicFetcher:
+    class FakeStealthyFetcher:
         @classmethod
         def fetch(cls, _url, **kwargs):
             kwargs["page_action"](FakePage())
@@ -293,7 +293,7 @@ def test_shared_renderer_waits_for_delayed_tab_mount(monkeypatch):
                 body=_rendered_html(with_presentation=True).encode("utf-8")
             )
 
-    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    monkeypatch.setattr("scrapling.fetchers.StealthyFetcher", FakeStealthyFetcher)
     rendered = render_html_cdp(VIDEO_URL, click_tab_label="Presentation")
     assert waited == [4000]
     assert clicked == ["Presentation"]
@@ -323,7 +323,7 @@ def test_shared_renderer_handles_timeout_when_tab_never_mounts(monkeypatch):
             assert (role, name, exact) == ("tab", "Presentation", True)
             return NeverMountingLocator()
 
-    class FakeDynamicFetcher:
+    class FakeStealthyFetcher:
         @classmethod
         def fetch(cls, _url, **kwargs):
             kwargs["page_action"](FakePage())
@@ -331,7 +331,7 @@ def test_shared_renderer_handles_timeout_when_tab_never_mounts(monkeypatch):
                 body=_rendered_html(with_presentation=False).encode("utf-8")
             )
 
-    monkeypatch.setattr("scrapling.fetchers.DynamicFetcher", FakeDynamicFetcher)
+    monkeypatch.setattr("scrapling.fetchers.StealthyFetcher", FakeStealthyFetcher)
     rendered = render_html_cdp(VIDEO_URL, click_tab_label="Presentation")
     assert waited == [4000]
     assert rendered_session_is_ready(rendered, "6403820644112") is True
@@ -353,7 +353,7 @@ def test_shared_renderer_rejects_failed_visible_tab_interaction(monkeypatch):
             assert (name, exact) == ("Presentation", True)
             return BrokenLocator()
 
-    class SwallowingDynamicFetcher:
+    class SwallowingStealthyFetcher:
         @classmethod
         def fetch(cls, _url, **kwargs):
             try:
@@ -365,7 +365,7 @@ def test_shared_renderer_rejects_failed_visible_tab_interaction(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "scrapling.fetchers.DynamicFetcher", SwallowingDynamicFetcher
+        "scrapling.fetchers.StealthyFetcher", SwallowingStealthyFetcher
     )
     assert render_html_cdp(VIDEO_URL, click_tab_label="Presentation") == ""
 

@@ -66,7 +66,7 @@ def test_format_chapter_content():
     text, images = _format_chapter_content(raw_html, base_url="https://uttu.merui.net/story/101/")
 
     # 1. Location formatting
-    assert "### [장소: 라플라스 박물관]" in text
+    assert "=== 장소: 라플라스 박물관" in text
 
     # 2. Cues removed
     assert "Cheerful Music" not in text
@@ -137,7 +137,7 @@ def test_try_fetch_story_single_part():
         assert res is not None
         assert isinstance(res, WebAdapterResult)
         assert res.title == "곱셈축 위의 하루 - 2. 플라톤의 입체 | Reverse: 1999"
-        assert "### [장소: 장소 2]" in res.text
+        assert "=== 장소: 장소 2" in res.text
         assert "B: 대사 2" in res.text
         assert "장소 1" not in res.text
         assert res.parser_info["adapter"] == "uttu"
@@ -187,9 +187,9 @@ def test_try_fetch_story_full():
 
         assert res is not None
         assert res.title == "곱셈축 위의 하루 | Reverse: 1999"
-        assert "## 1. 결석" in res.text
+        assert "== 1. 결석" in res.text
         assert "첫 대사" in res.text
-        assert "## 2. 플라톤의 입체" in res.text
+        assert "== 2. 플라톤의 입체" in res.text
         assert "둘째 대사" in res.text
         assert res.parser_info["part"] is None
 
@@ -241,8 +241,8 @@ def test_try_fetch_database_page_multilingual_and_modals():
         assert "日本語のエネミー情報" not in res.text
 
         # Table formatted to markdown
-        assert "| 이름 | 체력 | 공격력 |" in res.text
-        assert "| 제이미 | 600 | 139 |" in res.text
+        assert "| 이름 | 체력 | 공격력\n" in res.text
+        assert "| 제이미 | 600 | 139\n" in res.text
 
         # Links extracted
         assert "https://uttu.merui.net/enemies/tommy" in res.links
@@ -404,8 +404,8 @@ def test_try_fetch_event_trail_detail_fragment():
         assert res.parser_info["fragment_id"] == 3110112
 
         # Check content
-        assert "# <UTTU> 편집부 수신" in res.text
-        assert "[단서: ‘바람’의 메아리]" in res.text
+        assert "= <UTTU> 편집부 수신" in res.text
+        assert "[quote, 단서: ‘바람’의 메아리]" in res.text
         assert "무수히 많은 실이 ‘바람’에 따라 흔들린다." in res.text
         assert "친애하는 동료들에게:" in res.text
         assert "<UTTU> 편집자 베리티" in res.text
@@ -469,9 +469,9 @@ def test_try_fetch_event_trail_dialog_steps():
         assert res is not None
         assert res.title == "한밤의 기적소리 - 잔향은 과거에서 온다. | Reverse: 1999"
         assert res.parser_info["page_type"] == "event_trail"
-        assert "### [대화 기록]" in res.text
-        assert "**이글리카**: 그래서, 어디서 왔지?" in res.text
-        assert "**피로스**: 유격대의 새 대원에 대한 기본 정보를 파악하려는 거야?" in res.text
+        assert "=== 대화 기록" in res.text
+        assert "*이글리카*: 그래서, 어디서 왔지?" in res.text
+        assert "*피로스*: 유격대의 새 대원에 대한 기본 정보를 파악하려는 거야?" in res.text
         assert "대화 종료" not in res.text
 
 
@@ -526,5 +526,5 @@ def test_try_fetch_event_part_only():
         assert res.title == "한밤의 기적소리 - TMW-21 / 태양 아래 대지 | Reverse: 1999"
         assert res.parser_info["page_type"] == "event_part"
         assert "모두, 안녕히. 즐거운 여정 되시길." in res.text
-        assert "### [단서 목록]" in res.text
-        assert "- **‘바람’의 메아리** (<UTTU> 편집부 수신): 무수히 많은 실이 ‘바람’에 따라 흔들린다." in res.text
+        assert "=== 단서 목록" in res.text
+        assert "* *‘바람’의 메아리* (<UTTU> 편집부 수신): 무수히 많은 실이 ‘바람’에 따라 흔들린다." in res.text

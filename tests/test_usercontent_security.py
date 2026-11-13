@@ -15,6 +15,8 @@ Requirements tested:
 
 from __future__ import annotations
 
+import asyncio
+
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,9 +96,16 @@ async def _call_asgi(
         for k, v in headers:
             raw_headers.append((k.lower().encode("ascii"), v.encode("latin-1")))
     messages: list[dict[str, Any]] = []
+    request_sent = False
 
     async def receive() -> dict[str, Any]:
-        return {"type": "http.request", "body": b"", "more_body": False}
+        # The body comes once. After it, a real server gives no message until the client disconnects; Starlette 1.10 file responses wait for that message while they stream.
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
+        return {"type": "http.disconnect"}
 
     async def send(message: dict[str, Any]) -> None:
         messages.append(message)

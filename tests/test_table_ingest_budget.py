@@ -121,7 +121,7 @@ def test_doc_to_prompt_table_budget_exemption():
     assert "| Val1 | Val2 |" in prompt
 
 
-def test_extract_html_table_to_markdown():
+def test_extract_html_table_to_adoc():
     html = """
     <html>
       <head><title>Benchmark Results</title></head>
@@ -149,10 +149,9 @@ def test_extract_html_table_to_markdown():
     assert "Performance Comparison" in text
 
     # 마크다운 테이블 형태로 구조화되어 텍스트에 보존되었는지 검증
-    assert "| Model | Throughput (tok/s) | TTFT (ms) |" in text
-    assert "| --- | --- | --- |" in text
-    assert "| Model Alpha | 150.4 | 45 |" in text
-    assert "| Model Beta | 110.2 | 60 |" in text
+    assert "|===" in text and "| Model | Throughput (tok/s) | TTFT (ms)\n" in text
+    assert "| Model Alpha | 150.4 | 45\n" in text
+    assert "| Model Beta | 110.2 | 60\n" in text
     assert "Conclusion of the test." in text
 
 
@@ -230,9 +229,9 @@ def test_extract_html_table_with_media_removal():
     assert err is None
 
     # 1. 마크다운 테이블 구조 및 텍스트/수치가 온전히 추출되었는지 검증
-    assert "| Feature | Status | Performance |" in text
-    assert "| Core Engine | Operational | 1200 req/s |" in text
-    assert "| Legacy Bridge | Deprecated | 0 req/s |" in text
+    assert "| Feature | Status | Performance\n" in text
+    assert "| Core Engine | Operational | 1200 req/s\n" in text
+    assert "| Legacy Bridge | Deprecated | 0 req/s\n" in text
 
     # 2. 테이블 내부 이미지는 후보 이미지 목록(images)에서 제외되고, 본문 figure 다이어그램만 수집되었는지 검증
     img_urls = [im["url"] for im in images]

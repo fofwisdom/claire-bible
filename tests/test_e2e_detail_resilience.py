@@ -252,7 +252,7 @@ def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):
     # 복구 시점의 정상 렌더 제공자
     class RestoredProvider(MockProvider):
         def render_detail(self, doc: Document, format: str = "md", focus: str | None = None, **kwargs) -> str:
-            return "## 복구된 Kimodo 기술 상세\n\n정상적으로 재생성된 가독 본문입니다."
+            return "== 복구된 Kimodo 기술 상세\n\n정상적으로 재생성된 가독 본문입니다."
 
     service = IngestService(settings=settings, provider=RestoredProvider())
 
@@ -261,7 +261,8 @@ def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):
     assert res.get("count", 0) > 0
     assert res.get("error") is None
     target_info = res["targets"][0]
-    assert target_info.get("detail_format") == "md"
+    # The setting still says md, but the Markdown body format is closed (RD23): the new body is AsciiDoc.
+    assert target_info.get("detail_format") == "adoc"
     assert target_info.get("error") is None
 
     # DB에 본문이 정상 저장되었는지 검증
