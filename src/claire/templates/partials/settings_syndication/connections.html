@@ -36,7 +36,7 @@
     <details class="pref-disclosure" open>
       <summary>🛡️ 연결 계정 보안 원칙</summary>
       <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6">
-        <div>• <b>토큰 서버 보관</b>: 접근 토큰은 테마 DB(<code>syndication_accounts</code>)에 암호화 저장되며 브라우저로 전달하지 않습니다. CSP <code>default-src 'self'</code> 아래에서 모든 원격 호출은 Claire 서버 프록시를 거칩니다.</div>
+        <div>• <b>토큰 서버 보관</b>: 연결 계정 기능은 아직 구현되지 않았습니다. 구현하면 접근 토큰은 서버에만 암호화해 저장하고 브라우저로 전달하지 않습니다. CSP <code>default-src 'self'</code> 아래에서 모든 원격 호출은 Claire 서버 프록시를 거칩니다.</div>
         <div>• <b>최소 scope</b>: ActivityPub 은 <code>read</code> + 필요한 <code>write:*</code> 세부 scope 만, AT 는 OAuth(PAR + DPoP) 우선 · 앱 비밀번호는 호환 모드입니다. 비공개 테마는 <code>read</code> 전용으로만 연결합니다.</div>
         <div>• <b>폐기</b>: 연결 해제 시 <code>POST /oauth/revoke</code>(Mastodon) 또는 AT OAuth 토큰 폐기 · <code>com.atproto.server.deleteSession</code> 을 호출합니다.</div>
         <div>• <b>서버 예절</b>: 응답의 레이트 리밋 헤더를 준수하고 <code>429</code>/<code>5xx</code> 에는 지수 백오프로 재시도하며, 사용자가 입력한 서버 주소도 SSRF 가드를 통과해야 합니다.</div>

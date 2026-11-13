@@ -17,11 +17,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .secrets import SecretDecryptionError, SecretService, get_secret_service
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -394,91 +393,11 @@ CREATE TABLE IF NOT EXISTS purged_tombstones (
 CREATE INDEX IF NOT EXISTS idx_tombstones_canon ON purged_tombstones(canonical_url);
 CREATE INDEX IF NOT EXISTS idx_tombstones_hash ON purged_tombstones(content_hash);
 
--- [신디케이션 연합/연계 계정 및 발행 파이프라인]
-CREATE TABLE IF NOT EXISTS syndication_accounts (
-    id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-    protocol TEXT NOT NULL,
-    server_url TEXT NOT NULL,
-    software TEXT,
-    server_version TEXT,
-    missing_features_json TEXT DEFAULT '[]',
-    handle TEXT NOT NULL,
-    remote_account_id TEXT,
-    auth_kind TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    token_enc BLOB,
-    token_nonce BLOB,
-    token_key_version INTEGER DEFAULT 1,
-    client_registration_json TEXT,
-    publish_enabled INTEGER DEFAULT 0,
-    max_chars INTEGER,
-    streaming_url TEXT,
-    health_status TEXT DEFAULT 'ok',
-    consecutive_failures INTEGER DEFAULT 0,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(theme_id, protocol, server_url, remote_account_id)
-);
-
-CREATE TABLE IF NOT EXISTS syndication_targets (
-    id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-    protocol TEXT NOT NULL,
-    account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
-    source_kind TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
-    title TEXT NOT NULL,
-    folder TEXT DEFAULT '',
-    poll_interval_sec INTEGER DEFAULT 900,
-    auto_ingest_threshold INTEGER,
-    default_focus TEXT DEFAULT '',
-    etag TEXT,
-    last_modified TEXT,
-    cursor TEXT,
-    health_status TEXT DEFAULT 'ok',
-    consecutive_failures INTEGER DEFAULT 0,
-    last_polled_at REAL,
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    UNIQUE(theme_id, protocol, account_id, source_kind, source_ref)
-);
-
-CREATE TABLE IF NOT EXISTS syndication_items (
-    id TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-    target_id TEXT REFERENCES syndication_targets(id) ON DELETE SET NULL,
-    via_account_id TEXT REFERENCES syndication_accounts(id) ON DELETE SET NULL,
-    protocol TEXT NOT NULL,
-    external_id TEXT NOT NULL,
-    remote_status_id TEXT,
-    at_cid TEXT,
-    canonical_url TEXT,
-    title TEXT,
-    author TEXT,
-    raw_content TEXT,
-    source_tags_json TEXT DEFAULT '[]',
-    content_hash TEXT,
-    published_at TEXT,
-    collected_at REAL NOT NULL,
-    unread INTEGER DEFAULT 1,
-    starred INTEGER DEFAULT 0,
-    affinity_score REAL DEFAULT 0.0,
-    ingest_state TEXT DEFAULT 'unlinked',
-    linked_doc_id TEXT,
-    outbound_state TEXT DEFAULT 'none',
-    UNIQUE(theme_id, protocol, external_id)
-);
-CREATE INDEX IF NOT EXISTS idx_synd_items_theme_collected ON syndication_items(theme_id, collected_at DESC);
-CREATE INDEX IF NOT EXISTS idx_synd_items_theme_canon ON syndication_items(theme_id, canonical_url);
-CREATE INDEX IF NOT EXISTS idx_synd_items_theme_doc ON syndication_items(theme_id, linked_doc_id);
-
+-- [신디케이션 발행 기록] 테마 간 문서 발행(/syndication/dispatch). v20에서 syndication_accounts·targets·items를 제거했다.
 CREATE TABLE IF NOT EXISTS syndication_dispatches (
     id TEXT PRIMARY KEY,
     theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
     target_theme_id INTEGER DEFAULT 0,
-    item_id TEXT REFERENCES syndication_items(id) ON DELETE SET NULL,
-    account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
     target_url TEXT,
     mode TEXT NOT NULL DEFAULT 'post',
@@ -718,7 +637,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             (_pres_purge_key, "1"),
         )
-    # v14: users, themes, theme_members, and syndication infrastructure
+    # v14: users, themes, and theme_members
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -770,114 +689,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS syndication_accounts (
-            id TEXT PRIMARY KEY,
-            theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-            protocol TEXT NOT NULL,
-            server_url TEXT NOT NULL,
-            software TEXT,
-            server_version TEXT,
-            missing_features_json TEXT DEFAULT '[]',
-            handle TEXT NOT NULL,
-            remote_account_id TEXT,
-            auth_kind TEXT NOT NULL,
-            scopes TEXT NOT NULL,
-            token_enc BLOB,
-            token_nonce BLOB,
-            token_key_version INTEGER DEFAULT 1,
-            client_registration_json TEXT,
-            publish_enabled INTEGER DEFAULT 0,
-            max_chars INTEGER,
-            streaming_url TEXT,
-            health_status TEXT DEFAULT 'ok',
-            consecutive_failures INTEGER DEFAULT 0,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            UNIQUE(theme_id, protocol, server_url, remote_account_id)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS syndication_targets (
-            id TEXT PRIMARY KEY,
-            theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-            protocol TEXT NOT NULL,
-            account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
-            source_kind TEXT NOT NULL,
-            source_ref TEXT NOT NULL,
-            title TEXT NOT NULL,
-            folder TEXT DEFAULT '',
-            poll_interval_sec INTEGER DEFAULT 900,
-            auto_ingest_threshold INTEGER,
-            default_focus TEXT DEFAULT '',
-            etag TEXT,
-            last_modified TEXT,
-            cursor TEXT,
-            health_status TEXT DEFAULT 'ok',
-            consecutive_failures INTEGER DEFAULT 0,
-            last_polled_at REAL,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            UNIQUE(theme_id, protocol, account_id, source_kind, source_ref)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS syndication_items (
-            id TEXT PRIMARY KEY,
-            theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-            target_id TEXT REFERENCES syndication_targets(id) ON DELETE SET NULL,
-            via_account_id TEXT REFERENCES syndication_accounts(id) ON DELETE SET NULL,
-            protocol TEXT NOT NULL,
-            external_id TEXT NOT NULL,
-            remote_status_id TEXT,
-            at_cid TEXT,
-            canonical_url TEXT,
-            title TEXT,
-            author TEXT,
-            raw_content TEXT,
-            source_tags_json TEXT DEFAULT '[]',
-            content_hash TEXT,
-            published_at TEXT,
-            collected_at REAL NOT NULL,
-            unread INTEGER DEFAULT 1,
-            starred INTEGER DEFAULT 0,
-            affinity_score REAL DEFAULT 0.0,
-            ingest_state TEXT DEFAULT 'unlinked',
-            linked_doc_id TEXT,
-            outbound_state TEXT DEFAULT 'none',
-            UNIQUE(theme_id, protocol, external_id)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS syndication_dispatches (
-            id TEXT PRIMARY KEY,
-            theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
-            target_theme_id INTEGER DEFAULT 0,
-            item_id TEXT REFERENCES syndication_items(id) ON DELETE SET NULL,
-            account_id TEXT REFERENCES syndication_accounts(id) ON DELETE CASCADE,
-            document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
-            target_url TEXT,
-            mode TEXT NOT NULL DEFAULT 'post',
-            status TEXT NOT NULL DEFAULT 'pending',
-            remote_ref TEXT,
-            payload TEXT,
-            error TEXT,
-            dispatched_by_user_id INTEGER,
-            dispatched_by_account_id INTEGER REFERENCES accounts(id),
-            applied_focus TEXT,
-            dispatched_at REAL,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        )
-        """
-    )
+    # v14: ``syndication_dispatches`` comes from ``SCHEMA``. Version 20 removed the other ``syndication_*`` tables.
 
     # v14: Add theme_id column to all knowledge, queue, and cache tables
     _theme_partitioned_tables = (
@@ -895,9 +707,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "document_presentations",
         "doc_shares",
         "purged_tombstones",
-        "syndication_accounts",
-        "syndication_targets",
-        "syndication_items",
         "syndication_dispatches",
     )
     for tbl in _theme_partitioned_tables:
@@ -907,8 +716,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "syndication_dispatches", "dispatched_by_user_id", "INTEGER")
     _ensure_column(conn, "syndication_dispatches", "dispatched_by_account_id", "INTEGER")
     _ensure_column(conn, "syndication_dispatches", "applied_focus", "TEXT")
-    _ensure_column(conn, "syndication_accounts", "token_nonce", "BLOB")
-    _ensure_column(conn, "syndication_accounts", "token_key_version", "INTEGER DEFAULT 1")
 
     # v14: Insert default theme #0 into themes if empty
     conn.execute(
@@ -944,9 +751,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tombstones_theme_hash ON purged_tombstones(theme_id, content_hash)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tombstones_theme_id ON purged_tombstones(id, theme_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_items_theme_collected ON syndication_items(theme_id, collected_at DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_items_theme_canon ON syndication_items(theme_id, canonical_url)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_items_theme_doc ON syndication_items(theme_id, linked_doc_id)")
 
     # documents.meta -> focus 자동 마이그레이션 및 레거시 키 영구 소각
     _legacy_key = "dir" + "ective"
@@ -995,6 +799,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v17_federation(conn)
     _migrate_v18_federation_publishing(conn)
     _migrate_v19_account_locale(conn)
+    _migrate_v20_syndication_cleanup(conn)
     backfill_embedding_models(conn)
 
 
@@ -1324,6 +1129,100 @@ def _migrate_v18_federation_publishing(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_outbox_ready ON federation_outbox(status, id)")
 
 
+# v20 (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3, P5): the theme-scoped ``syndication_*`` tables without product use. Drop order: a child table before its parent.
+_V20_DROPPED_SYNDICATION_TABLES = ("syndication_items", "syndication_targets", "syndication_accounts")
+_V20_DROPPED_SYNDICATION_INDEXES = ("idx_synd_items_theme_collected", "idx_synd_items_theme_canon", "idx_synd_items_theme_doc")
+# The columns of ``syndication_dispatches`` from version 20. The rebuild copies these columns. It removes ``item_id`` and ``account_id``.
+_SYNDICATION_DISPATCH_COLUMNS = (
+    "id", "theme_id", "target_theme_id", "document_id", "target_url", "mode", "status", "remote_ref", "payload", "error",
+    "dispatched_by_user_id", "dispatched_by_account_id", "applied_focus", "dispatched_at", "created_at", "updated_at",
+)
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+
+
+V20_RETIRED_SYNDICATION_TABLES = tuple(f"{t}_retired_v20" for t in _V20_DROPPED_SYNDICATION_TABLES)
+
+
+def _retire_v20_filled_tables(conn: sqlite3.Connection) -> list[str]:
+    """Rename each table that v20 drops and that has rows to ``<name>_retired_v20``. Returns the renamed tables.
+
+    An operator of the server does not manage the database directly. Thus the migration never stops the start and never deletes rows: a filled table is kept under a new name, and theme deletion and account purge delete its rows by ``theme_id`` (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3).
+    """
+    retired = []
+    for table in _V20_DROPPED_SYNDICATION_TABLES:
+        if not _table_exists(conn, table):
+            continue
+        count = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        if count and not _table_exists(conn, f"{table}_retired_v20"):
+            conn.execute(f"ALTER TABLE {table} RENAME TO {table}_retired_v20")
+            retired.append(f"{table} ({count} rows)")
+    return retired
+
+
+def _migrate_v20_syndication_cleanup(conn: sqlite3.Connection) -> None:
+    """v20 (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3, P5): drop ``syndication_items``, ``syndication_targets``, and ``syndication_accounts``, and rebuild ``syndication_dispatches`` without ``item_id`` and ``account_id``. Idempotent.
+
+    The rebuild copies all dispatch rows with the same IDs and values (A3), also rows of a theme that was deleted without purge. Thus the foreign key check is off during the rebuild (SQLite procedure for a table change). A dropped table that has rows is not dropped: ``_retire_v20_filled_tables`` keeps it under a new name.
+    """
+    rebuild = bool({"item_id", "account_id"} & _column_names(conn, "syndication_dispatches"))
+    foreign_keys_on = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    if rebuild and foreign_keys_on:
+        # The PRAGMA has no effect in a transaction. The earlier steps are idempotent, thus their commit here is safe.
+        if conn.in_transaction:
+            conn.commit()
+        conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("SAVEPOINT v20_syndication_cleanup")
+        try:
+            if rebuild:
+                conn.execute("DROP TABLE IF EXISTS syndication_dispatches_v20")
+                conn.execute(
+                    """
+                    CREATE TABLE syndication_dispatches_v20 (
+                        id TEXT PRIMARY KEY,
+                        theme_id INTEGER NOT NULL DEFAULT 0 REFERENCES themes(id) ON DELETE CASCADE,
+                        target_theme_id INTEGER DEFAULT 0,
+                        document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+                        target_url TEXT,
+                        mode TEXT NOT NULL DEFAULT 'post',
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        remote_ref TEXT,
+                        payload TEXT,
+                        error TEXT,
+                        dispatched_by_user_id INTEGER,
+                        dispatched_by_account_id INTEGER REFERENCES accounts(id),
+                        applied_focus TEXT,
+                        dispatched_at REAL,
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                columns = ", ".join(_SYNDICATION_DISPATCH_COLUMNS)
+                conn.execute(f"INSERT INTO syndication_dispatches_v20 ({columns}) SELECT {columns} FROM syndication_dispatches")
+                conn.execute("DROP TABLE syndication_dispatches")
+                conn.execute("ALTER TABLE syndication_dispatches_v20 RENAME TO syndication_dispatches")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_synd_dispatches_theme ON syndication_dispatches(theme_id, status)")
+            retired = _retire_v20_filled_tables(conn)
+            for index in _V20_DROPPED_SYNDICATION_INDEXES:
+                conn.execute(f"DROP INDEX IF EXISTS {index}")
+            for table in _V20_DROPPED_SYNDICATION_TABLES:
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
+        except Exception:
+            conn.execute("ROLLBACK TO SAVEPOINT v20_syndication_cleanup")
+            conn.execute("RELEASE SAVEPOINT v20_syndication_cleanup")
+            raise
+        conn.execute("RELEASE SAVEPOINT v20_syndication_cleanup")
+        if retired:
+            logger.warning("schema v20: kept filled syndication tables under a retired name: %s", ", ".join(retired))
+    finally:
+        if rebuild and foreign_keys_on:
+            conn.execute("PRAGMA foreign_keys = ON")
+
+
 def backfill_embedding_models(conn: sqlite3.Connection) -> int:
     """모델 미기록 임베딩(``'claire'``·NULL·빈 값)을 테마 고정 모델로 다시 적는다(§10.4). 멱등, 스키마 버전 그대로.
 
@@ -1575,7 +1474,6 @@ def init_db(conn: sqlite3.Connection) -> None:
         existing_version = stored_schema_version(conn)
         existing_lineage = stored_schema_lineage(conn)
     _validate_migration_source(existing_version, existing_lineage)
-
     conn.executescript(SCHEMA)
     _migrate(conn)
     conn.execute(
@@ -1688,9 +1586,6 @@ def migrate_multi_db_to_single_db(
             "document_presentations",
             "doc_shares",
             "purged_tombstones",
-            "syndication_accounts",
-            "syndication_targets",
-            "syndication_items",
             "syndication_dispatches",
         )
 
@@ -6399,8 +6294,6 @@ def create_syndication_dispatch(
     theme_id: int = 0,
     target_theme_id: int | None = None,
     document_id: str | None = None,
-    item_id: str | None = None,
-    account_id: str | None = None,
     target_url: str | None = None,
     mode: str = "cross_theme",
     status: str = "pending",
@@ -6421,16 +6314,14 @@ def create_syndication_dispatch(
         disp_at = now
     conn.execute(
         """INSERT INTO syndication_dispatches
-        (id, theme_id, target_theme_id, item_id, account_id, document_id,
+        (id, theme_id, target_theme_id, document_id,
          target_url, mode, status, remote_ref, payload, error,
          dispatched_by_user_id, dispatched_by_account_id, applied_focus, dispatched_at, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             did,
             theme_id,
             target_theme_id if target_theme_id is not None else 0,
-            item_id,
-            account_id,
             document_id,
             target_url,
             mode,
@@ -6546,166 +6437,5 @@ def list_syndication_dispatches(
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
-    rows = conn.execute(query, tuple(params)).fetchall()
-    return [dict(row) for row in rows]
-
-
-# --- syndication accounts & token encryption ---
-
-
-def save_syndication_account_token(
-    conn: sqlite3.Connection,
-    account_row_id: str,
-    theme_id: int,
-    token_data: str | bytes,
-    secret_service: SecretService | None = None,
-) -> None:
-    """Encrypt and store syndication account token with AAD bound to theme and account."""
-    sec = secret_service or get_secret_service()
-    aad = f"{theme_id}|{account_row_id}"
-    encrypted = sec.encrypt(token_data, aad=aad)
-    now = time.time()
-    cur = conn.execute(
-        """UPDATE syndication_accounts
-        SET token_enc = ?, token_nonce = ?, token_key_version = ?, updated_at = ?
-        WHERE id = ? AND theme_id = ?""",
-        (
-            encrypted.ciphertext,
-            encrypted.nonce,
-            encrypted.key_version,
-            now,
-            account_row_id,
-            theme_id,
-        ),
-    )
-    if cur.rowcount == 0:
-        raise ValueError(f"Syndication account not found for theme: {account_row_id}")
-    conn.commit()
-
-
-def load_syndication_account_token(
-    conn: sqlite3.Connection,
-    account_row_id: str,
-    theme_id: int,
-    secret_service: SecretService | None = None,
-) -> str:
-    """Retrieve and decrypt syndication account token verifying AAD binding."""
-    row = conn.execute(
-        "SELECT id, theme_id, token_enc, token_nonce, token_key_version FROM syndication_accounts WHERE id = ? AND theme_id = ?",
-        (account_row_id, theme_id),
-    ).fetchone()
-    if row is None:
-        raise ValueError(f"Syndication account not found for theme: {account_row_id}")
-    if row["token_enc"] is None or row["token_nonce"] is None:
-        raise ValueError(f"No token stored for syndication account: {account_row_id}")
-    sec = secret_service or get_secret_service()
-    key_ver = row["token_key_version"] if row["token_key_version"] is not None else 1
-    aad = f"{theme_id}|{account_row_id}"
-    decrypted = sec.decrypt(row["token_enc"], row["token_nonce"], aad=aad, key_version=key_ver)
-    return decrypted.decode("utf-8")
-
-
-def create_syndication_account(
-    conn: sqlite3.Connection,
-    *,
-    theme_id: int,
-    account_id: str | None = None,
-    protocol: str,
-    server_url: str,
-    handle: str,
-    auth_kind: str,
-    scopes: str,
-    token_str: str | None = None,
-    remote_account_id: str | None = None,
-    software: str | None = None,
-    server_version: str | None = None,
-    missing_features_json: str = "[]",
-    client_registration_json: str | None = None,
-    publish_enabled: int = 0,
-    max_chars: int | None = None,
-    streaming_url: str | None = None,
-    health_status: str = "ok",
-    secret_service: SecretService | None = None,
-) -> str:
-    """Create a syndication account record with optional encrypted token."""
-    aid = account_id or f"synd_acc_{secrets.token_hex(12)}"
-    now = time.time()
-    token_enc: bytes | None = None
-    token_nonce: bytes | None = None
-    token_key_version: int = 1
-    if token_str is not None:
-        sec = secret_service or get_secret_service()
-        encrypted = sec.encrypt(token_str, aad=f"{theme_id}|{aid}")
-        token_enc = encrypted.ciphertext
-        token_nonce = encrypted.nonce
-        token_key_version = encrypted.key_version
-
-    conn.execute(
-        """INSERT INTO syndication_accounts
-        (id, theme_id, protocol, server_url, software, server_version,
-         missing_features_json, handle, remote_account_id, auth_kind, scopes,
-         token_enc, token_nonce, token_key_version, client_registration_json,
-         publish_enabled, max_chars, streaming_url, health_status, consecutive_failures,
-         created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            aid,
-            theme_id,
-            protocol,
-            server_url,
-            software,
-            server_version,
-            missing_features_json,
-            handle,
-            remote_account_id,
-            auth_kind,
-            scopes,
-            token_enc,
-            token_nonce,
-            token_key_version,
-            client_registration_json,
-            publish_enabled,
-            max_chars,
-            streaming_url,
-            health_status,
-            0,
-            now,
-            now,
-        ),
-    )
-    conn.commit()
-    return aid
-
-
-def get_syndication_account(
-    conn: sqlite3.Connection,
-    account_id: str,
-    *,
-    theme_id: int | None = None,
-) -> dict[str, Any] | None:
-    """Retrieve a syndication account by ID with optional theme isolation."""
-    query = "SELECT * FROM syndication_accounts WHERE id = ?"
-    params: list[Any] = [account_id]
-    if theme_id is not None:
-        query += " AND theme_id = ?"
-        params.append(theme_id)
-    row = conn.execute(query, tuple(params)).fetchone()
-    if row is None:
-        return None
-    return dict(row)
-
-
-def list_syndication_accounts(
-    conn: sqlite3.Connection,
-    *,
-    theme_id: int | None = None,
-) -> list[dict[str, Any]]:
-    """List syndication accounts matching given theme criteria."""
-    query = "SELECT * FROM syndication_accounts"
-    params: list[Any] = []
-    if theme_id is not None:
-        query += " WHERE theme_id = ?"
-        params.append(theme_id)
-    query += " ORDER BY created_at DESC, id DESC"
     rows = conn.execute(query, tuple(params)).fetchall()
     return [dict(row) for row in rows]

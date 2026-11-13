@@ -217,7 +217,8 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
             for tbl in (
                 "documents", "document_snapshots", "document_presentations", "raw_inbox",
                 "extractions", "proposals", "jobs", "refresh_queue", "expand_queue",
-                "doc_shares", "purged_tombstones", "syndication_dispatches", "syndication_items",
+                "doc_shares", "purged_tombstones", "syndication_dispatches",
+                *dbm.V20_RETIRED_SYNDICATION_TABLES,
             ):
                 try:
                     conn.execute(f"DELETE FROM {tbl} WHERE theme_id=?", (tid,))

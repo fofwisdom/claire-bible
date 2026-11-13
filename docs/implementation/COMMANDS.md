@@ -671,7 +671,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 기본 초점, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
 * **삭제되는 것** (`ThemeManager.reset_theme`):
   1. `reset_graph(conn, theme_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
-  2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`, `syndication_items` 행을 삭제한다.
+  2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.
 * **확인**: `--apply` 시 대화형 터미널에서는 `[y/N]` 확인을 받는다. 비대화형 환경에서 `--yes`가 없으면 종료 코드 2로 거부한다.
 * **`--json`** (`--apply`와 함께): 삭제한 문서·엔티티·관계 수를 JSON으로 출력.
 

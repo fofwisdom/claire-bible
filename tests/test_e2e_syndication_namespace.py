@@ -6,7 +6,6 @@ Covers:
   * Authenticated GET /syndication returns 200, authScope='owner', and safe HTML.
   * GET /syndication/preferences is a 302 compatibility redirect (D4): reader → /settings/reader; for the admin, ?tab=idp → /admin/idp and ?tab=userdb → /admin/accounts.
   * GET /me is a 302 to /settings/account.
-  * Connected account token AES-256-GCM encryption with AAD f"{theme_id}|{account_id}" and cross-theme tampering prevention.
   * Dispatch records dispatched_by_account_id=1.
 - Network mode:
   * Member legacy /@{username}/syndication/preferences?tab= redirects to root-mounted /settings/* (?tab=idp|userdb → /settings/account), never with /@{username} in Location.
@@ -32,7 +31,7 @@ from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.secrets import SecretDecryptionError, reset_secret_service
+from claire.store.secrets import reset_secret_service
 from claire.store.theme import ThemeManager
 from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
 
@@ -177,41 +176,9 @@ def test_e2e_syndication_single_mode(p6_env):
         # Single mode: no @username anywhere in redirect targets (S9).
         assert "@" not in res_prefs.headers["location"] + res_me.headers["location"]
 
-        # 4. Connected account token encryption and AAD verification
+        # 4. Readiness gate G8 in single mode
         conn = dbm.connect(settings.db_file)
         try:
-            account_id = dbm.create_syndication_account(
-                conn,
-                theme_id=0,
-                protocol="activitypub",
-                server_url="https://mastodon.social",
-                handle="@admin@mastodon.social",
-                auth_kind="oauth",
-                scopes="read write follow",
-                token_str="secret-oauth-token-12345",
-            )
-            # Decryption with matching theme succeeds
-            decrypted = dbm.load_syndication_account_token(conn, account_id, theme_id=0)
-            assert decrypted == "secret-oauth-token-12345"
-
-            # Create a second valid theme to test cross-theme row tampering
-            conn.execute(
-                "INSERT INTO themes (id, seq, label, description, is_default, is_public, created_at, updated_at) "
-                "VALUES (2, 2, 'Other Theme', 'Test', 0, 1, 0, 0)"
-            )
-            conn.commit()
-
-            # Tampering row's theme_id in DB triggers SecretDecryptionError on decrypt
-            conn.execute("UPDATE syndication_accounts SET theme_id = 2 WHERE id = ?", (account_id,))
-            conn.commit()
-            with pytest.raises(SecretDecryptionError):
-                dbm.load_syndication_account_token(conn, account_id, theme_id=2)
-
-            # Restore theme_id for subsequent checks
-            conn.execute("UPDATE syndication_accounts SET theme_id = 0 WHERE id = ?", (account_id,))
-            conn.commit()
-
-            # In single mode, check G8 in readiness
             report = readiness.check_readiness(conn, settings)
             item_g8 = next(i for i in report.items if i.id == "G8")
             assert item_g8.passed is True

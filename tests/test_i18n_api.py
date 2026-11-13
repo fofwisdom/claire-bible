@@ -129,7 +129,7 @@ def test_v18_database_migrates_to_v19_and_the_migration_is_idempotent(tmp_path: 
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
-            assert dbm.SCHEMA_VERSION == 19 and dbm.stored_schema_version(conn) == 19
+            assert dbm.SCHEMA_VERSION == 20 and dbm.stored_schema_version(conn) == 20
             dbm.require_current_schema(conn)
             assert "locale" in dbm._column_names(conn, "accounts")
             # An account that was there before the migration has automatic negotiation.

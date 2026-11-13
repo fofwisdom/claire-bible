@@ -50,12 +50,11 @@ def test_schema_v14_contains_required_tables_and_columns() -> None:
         "users",
         "themes",
         "theme_members",
-        "syndication_accounts",
-        "syndication_targets",
-        "syndication_items",
         "syndication_dispatches",
     }
     assert required_tables <= table_names
+    # Version 20 removed these v14 tables (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3).
+    assert not {"syndication_accounts", "syndication_targets", "syndication_items"} & table_names
 
     partitioned_tables = (
         "documents",

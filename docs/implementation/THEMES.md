@@ -51,7 +51,7 @@
 
 **[코드] 기본 테마(`theme.is_default=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_default = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있고, 기본 초점은 빈 문자열로 고정된다(`ThemeInfo.from_dict`).
 
-**[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_items`, `syndication_dispatches`. `(theme_id, …)` 복합 인덱스는 `init_db`가 만든다.
+**[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`. `(theme_id, …)` 복합 인덱스는 `init_db`가 만든다.
 
 **[코드] 레거시 DB 병합.** 멀티 테마 모드에서 `ThemeManager(create_registry=True)`가 `reload()`할 때 동작은 다음과 같다.
 - `data/themes/*/claire.db`가 있으면 `migrate_multi_db_to_single_db`를 부른다.

@@ -1069,7 +1069,7 @@ class ThemeManager:
                     "doc_shares",
                     "purged_tombstones",
                     "syndication_dispatches",
-                    "syndication_items",
+                    *dbm.V20_RETIRED_SYNDICATION_TABLES,
                 ):
                     try:
                         conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))
@@ -1155,7 +1155,7 @@ class ThemeManager:
                 "doc_shares",
                 "purged_tombstones",
                 "syndication_dispatches",
-                "syndication_items",
+                *dbm.V20_RETIRED_SYNDICATION_TABLES,
             ):
                 try:
                     conn.execute(f"DELETE FROM {tbl} WHERE theme_id = ?", (tid,))

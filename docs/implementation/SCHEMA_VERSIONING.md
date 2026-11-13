@@ -20,8 +20,9 @@
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
 | 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
-| 19 | 현재 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
-| 20 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
+| 20 | 현재 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
+| 21 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -38,7 +39,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
    - `themes`: 테마 메타데이터, 도메인 FQDN, 공개/협업자 권한 설정.
    - `theme_members`: 테마별 사용자 멤버십 및 권한.
 3. **신디케이션(Syndication) 인프라**:
-   - `syndication_accounts`, `syndication_targets`, `syndication_items`, `syndication_dispatches`.
+   - `syndication_accounts`, `syndication_targets`, `syndication_items`, `syndication_dispatches`. v20에서 `syndication_dispatches`만 남았다(아래 "v20" 절).
    - 테마 간 교차 적재 및 외부 프로토콜(ActivityPub, AT Protocol 등) 송수신 큐 지원.
 4. **옵시디언 볼트(Obsidian Vault) 서브시스템 영구 제거**:
    - 로컬 파일시스템 볼트 마크다운 동기화 로직 전면 삭제.
@@ -112,12 +113,25 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: IP1-2 구현 (2026-11-12). 설계: [I18N_DESIGN.md](../design/I18N_DESIGN.md) §5.1.
 
-- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 19`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 19보다 크면 변경 없이 거부한다.
+- **[코드] 버전 상수**: v19 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 19였다(현재 값은 아래 "v20" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v19_account_locale`, `_ensure_column`으로 멱등. NULL 허용 열 하나만 더한다, A3):
   - 열 `accounts.locale`: `TEXT CHECK (locale IS NULL OR locale IN ('en', 'ko'))`. NULL은 자동 협상(쿠키 → `Accept-Language` → `CLAIRE_LANG` → `en`)이다. 기존 계정과 새 계정의 기본값은 NULL이다.
 - **[코드] 데이터 이관**: 없다.
 - **[코드] 저장소 함수**: `src/claire/store/accounts.py`의 `AccountStore.update_locale`. `None`과 `""`는 NULL을 쓰고, `en`·`ko`가 아닌 값은 쓰기 전에 `ValueError("invalid_locale")`를 낸다.
 - **[테스트]** `tests/test_i18n_api.py`.
+
+## v20 (`syndication_*` 정리, 원격 읽기 P5)
+
+확인 기준: P5 구현 (2026-11-13). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §4.3. 결정: 운영 서버는 하나이고 그 서버에서 신디케이션 기능을 쓴 적이 없다(소유자, 2026-11-13).
+
+- **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 20`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 20보다 크면 변경 없이 거부한다.
+- **[코드] 제거 객체**(`_migrate_v20_syndication_cleanup`, 멱등):
+  - 테이블 `syndication_items`, `syndication_targets`, `syndication_accounts`와 인덱스 `idx_synd_items_theme_collected`, `idx_synd_items_theme_canon`, `idx_synd_items_theme_doc`. 새 DB의 `SCHEMA`에도 없다.
+  - 저장소 함수 `create_syndication_account`, `get_syndication_account`, `list_syndication_accounts`, `save_syndication_account_token`, `load_syndication_account_token`. 테마 삭제(`store/theme.py`)와 계정 퍼지(`store/accounts.py`)의 정리 목록에서도 `syndication_items`를 뺐다.
+- **[코드] 재구성**: `syndication_dispatches`에서 `item_id`·`account_id` 열을 뺀다. 새 테이블을 만들고 모든 행을 같은 ID와 값으로 복사한 뒤 바꿔 넣는다(A3). 인덱스 `idx_synd_dispatches_theme`는 다시 만든다. 퍼지 없이 삭제된 테마의 행도 복사하도록 재구성 동안만 외래 키 검사를 끈다. `POST /syndication/dispatch`와 `GET /syndication/dispatches`의 동작은 같다. 목록 응답의 행에는 늘 NULL이던 `item_id`·`account_id` 키가 더 없다.
+- **[코드] 안전 규칙**: 서버 운영자는 DB를 직접 관리하지 않는다고 본다. 그래서 마이그레이션은 시작을 멈추지 않고 행도 지우지 않는다. 제거할 세 테이블 중 행이 있는 테이블은 지우지 않고 `<이름>_retired_v20`으로 이름만 바꾸어 남기며, 경고 로그에 테이블 이름과 행 수를 적는다(`_retire_v20_filled_tables`). 테마 삭제와 계정 퍼지는 이 테이블의 행도 `theme_id`로 지운다(`V20_RETIRED_SYNDICATION_TABLES`). 빈 테이블은 지운다.
+- **[코드] 설계와 다른 점**: 설계는 version 20을 FP4-2 전체(이 정리와 `federation_following` 등)에 적었다. 코드에서는 이 정리만 version 20이다.
+- **[테스트]** `tests/test_schema_v20.py`.
 
 ### 별도 저장소: `data/auth/auth.db`
 

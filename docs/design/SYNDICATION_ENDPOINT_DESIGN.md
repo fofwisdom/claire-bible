@@ -361,6 +361,8 @@ The reader has a `원 작성자가 발행을 철회하면?` link that simulates 
 ## 4. Phase 2 Specification: Backend Persistence, Collectors, and Server Adapters
 
 ### 4.1 Per-Theme SQLite Schema Extensions (`claire.db`)
+> **Note (2026-11-13):** `claire.db` version 20 removed the tables `syndication_accounts`, `syndication_targets`, and `syndication_items`, and removed the columns `item_id` and `account_id` from `syndication_dispatches`. [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) Section 4.3 replaces this part of the section.
+
 All tables live inside each theme's `claire.db` (additive migrations per [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)). The withdrawn `syndication_actors` and `syndication_followers` tables are replaced by `syndication_accounts`.
 
 ```sql
