@@ -1,7 +1,7 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD19 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD20 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
 - **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
 - **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
@@ -143,7 +143,7 @@ Facts at the base commit:
 | `syndication_items` | **[code]** No writer. Theme deletion and account purge list it for cleanup. | Theme |
 | `syndication_dispatches` | **[code]** Written and read by the live `/syndication` (`POST /syndication/dispatch`, `GET /syndication/dispatches`) for the dispatch of a document to another theme. Columns `item_id` and `account_id` refer to `syndication_items` and `syndication_accounts`. | Theme |
 
-Changes (`claire.db` version 20, a unit before FP4-2):
+Changes (done as `claire.db` version 20 on 2026-11-13; see [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)):
 
 1. Drop `syndication_targets`, `syndication_items`, and `syndication_accounts`, with their indexes, store functions, and tests. Remove them from the cleanup lists of theme deletion and account purge.
 2. Rebuild `syndication_dispatches` without `item_id` and `account_id` (A3: copy all rows with the same IDs). The cross-theme dispatch keeps its behavior.
@@ -320,7 +320,7 @@ Two-way communication needs the answers of remote users who are not followed.
 
 ## 7. Data Model
 
-### 7.1 `claire.db` Version 21
+### 7.1 `claire.db` Version 22
 
 FK10 applies: each table comes in the work unit that first reads it.
 
@@ -594,6 +594,7 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD17 | Order of work and data ownership | Deferred work D1 to D4 (Section 1.2.1); ingested documents are never deleted by the client (Section 10 rule 5) | Locked 2026-11-13 |
 | RD18 | Live update of the client | Periodic polling first: about every 30 seconds while the tab is visible, and once when the tab becomes visible again. The timeline routes use cursors, so that Server-Sent Events can later send only a "new items" signal. | Locked 2026-11-13 |
 | RD19 | Role of DrFed | A debugging tool of the developer only: not in the repository, not in CI, not in the service. `FEDERATION.md` has a short note on its use. | Locked 2026-11-13 |
+| RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype` (subdomain), as a static page with mock data only. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
 
 ---
 
@@ -605,7 +606,7 @@ The work unit rules of the parent design §14.4 apply.
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-0 | Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
 | FP4-1 | Object storage settings (`/admin/storage`, routes, encrypted secret, test), migration command (Section 9.2, 9.3) | The test route reports success with a local S3-compatible server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
-| FP4-2 | `claire.db` version 21: `federation_following`, `federation_account_settings`, outbox kinds and `target_iri` (RT3), store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
+| FP4-2 | `claire.db` version 22: `federation_following`, `federation_account_settings`, outbox kinds and `target_iri` (RT3), store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
 | FP4-3 | Follow lifecycle: routes (Section 5.3 first three), tasks `follow`, `undo_follow`, `reject_follow`, sidecar resolution and delivery, `Accept` and `Reject` events, `following` collection, domain block effect | A follow of a test actor becomes `accepted` after its `Accept`. A follower removal sends `Reject(Follow)`. | FP4-2 | L |
 | FP4-4 | `federation_timeline_items`, inbound `Create`, `Update`, `Delete`, `Announce`, `Undo(Announce)`, addressing and block rules, fan-out, replies with the timeline rule and the parent chain (Section 6.5 rules 1 to 3), contract 1.3 fixtures | A public `Create` from a followed actor makes one item for each following account. A followers-only object makes none. A group `Announce` makes one item with the announcer. A reply to an actor that is not followed has `in_timeline` = 0. | FP4-3 | L |
 | FP4-5 | Timeline routes, federation client view in `/syndication` (list and thread), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |
@@ -620,9 +621,11 @@ Feed units (RD13, RD15). They need no actor and no federation unit, and they wor
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| FP4-F1 | Account feed tables (`claire.db`, the version after FP4-2), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | FP4-2 | M |
+| FP4-F1 | Account feed tables (`claire.db` version 21), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | — (first unit, 2026-11-13) | M |
 | FP4-F2 | OPML import (feeds, folders, skip list, report) and OPML export | A Tiny Tiny RSS style OPML file with categories gives the same folders and feeds; a second import adds nothing. | FP4-F1 | S |
 | FP4-F3 | Feed view in the client (tree, list, reader, link share, star, ingest of one item), item merge by URL with the timeline | An end-to-end test subscribes to a local feed, reads an item, and ingests it into a theme. | FP4-F1, FP4-5 (network mode parts only) | M |
+
+Order (owner, 2026-11-13): the feed units start first (version 21), parallel to FP4-0. FP4-2 follows as version 22.
 
 Units that can be done in any order after their "After" units: FP4-1 and FP4-2; FP4-6, FP4-7, and FP4-8.
 
@@ -631,7 +634,7 @@ Units that can be done in any order after their "After" units: FP4-1 and FP4-2; 
 | Unit | Documents |
 | :--- | :--- |
 | FP4-1 | `OPERATIONS.md`, `ENVIRONMENT_VARIABLES.md`, `COMMANDS.md` |
-| FP4-2 to FP4-9 | `FEDERATION.md`, `SCHEMA_VERSIONING.md` (`claire.db` v21), `API_HTTP_CONTRACT.md`, `openapi.yaml`, `EXTERNAL_ACCESS.md` (media proxy) |
+| FP4-2 to FP4-9 | `FEDERATION.md`, `SCHEMA_VERSIONING.md` (`claire.db` v22), `API_HTTP_CONTRACT.md`, `openapi.yaml`, `EXTERNAL_ACCESS.md` (media proxy) |
 | FP4-10 | `FEDERATION.md` (known limits, differences from this design), `IMPLEMENTATION_STATUS.md` |
 
 ### 14.2 Tests
