@@ -12,6 +12,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Temporary files of the tests go to a directory on disk, not to /tmp. On many hosts /tmp is a small tmpfs in RAM, and the test runs fill it (pytest keeps the directories of earlier runs). When /tmp is full, SQLite fails and the failures look like code errors. Each run gets a new directory, and the run deletes it at exit.
+ci_tmp_root="${XDG_CACHE_HOME:-$HOME/.cache}/claire-bible-ci"
+mkdir -p "$ci_tmp_root"
+ci_tmp="$(mktemp -d "$ci_tmp_root/run.XXXXXX")"
+trap 'rm -rf "${ci_tmp:?}"' EXIT
+export TMPDIR="$ci_tmp"
+
 echo "[ci] 1/4 진입점 구문 검사"
 bash -n cb-manuscript deploy.sh scripts/ci.sh
 python3 -m py_compile ops/cb_manuscript.py
