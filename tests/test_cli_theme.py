@@ -57,41 +57,41 @@ def test_cli_theme_single_mode(tmp_path, monkeypatch, capsys):
     ret = cli.main(["theme", "list"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "싱글 테마 모드" in captured
-    assert "기본 지식베이스" in captured
+    assert "single-theme mode" in captured
+    assert "Default knowledge base" in captured
     assert "CLAIRE_MULTI_THEME=1" in captured
 
     # 2. define 명령 -> 차단 및 에러 메시지
     ret = cli.main(["theme", "define", "--label", "금지된 테마"])
     assert ret == 1
     err = capsys.readouterr().err
-    assert "멀티 테마 모드가 비활성화되어 있습니다" in err
+    assert "Multi-theme mode is off" in err
 
     # 3. update 명령 -> 차단 및 에러 메시지
     ret = cli.main(["theme", "update", "0", "--label", "수정 시도"])
     assert ret == 1
     err = capsys.readouterr().err
-    assert "멀티 테마 모드가 비활성화되어 있습니다" in err
+    assert "Multi-theme mode is off" in err
 
     # 4. delete 명령 -> 차단 및 에러 메시지
     ret = cli.main(["theme", "delete", "1"])
     assert ret == 1
     err = capsys.readouterr().err
-    assert "멀티 테마 모드가 비활성화되어 있습니다" in err
+    assert "Multi-theme mode is off" in err
 
     # 5. stats --theme=1 -> 경고 후 기본 테마 진행
     ret = cli.main(["stats", "-t", "1"])
     assert ret == 0
     err = capsys.readouterr().err
-    assert "--theme=1 옵션이 무시되고 기본 테마가 사용됩니다" in err
+    assert "Claire ignores --theme=1 and uses the default theme" in err
 
 
 def test_cli_theme_list(cli_theme_env, capsys):
     ret = cli.main(["theme", "list"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "Claire Bible 테마 목록" in captured
-    assert "기본 지식베이스" in captured
+    assert "Claire Bible themes" in captured
+    assert "기본 지식베이스" in captured  # the label of the default theme is stored data
 
 
 def test_cli_theme_define_update_delete(cli_theme_env, capsys):
@@ -101,7 +101,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     ret = cli.main(["theme", "define", "--label", "개발 및 시스템", "--desc", "소프트웨어 아키텍처", "--icon", "💻"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "새 테마 #1 정의 완료" in captured
+    assert "Theme #1 is made" in captured
     assert "개발 및 시스템" in captured
 
     # 2. 테마 목록 JSON 출력 확인
@@ -119,7 +119,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     ret = cli.main(["theme", "update", "1", "--label", "엔지니어링 & AI", "--icon", "🚀"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "메타데이터 수정 완료" in captured
+    assert "is changed" in captured
 
     # 4. stats with -t
     ret = cli.main(["stats", "-t", "1"])
@@ -139,7 +139,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     ret = cli.main(["theme", "delete", "1", "--purge", "--apply", "--yes"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "삭제 완료" in captured
+    assert "is deleted" in captured
 
     # 7. 목록에서 제거되었는지 확인
     tm.reload()
@@ -154,13 +154,13 @@ def test_cli_theme_visibility_flags(cli_theme_env, capsys):
     ret = cli.main(["theme", "define", "--label", "비공개 보안", "--private", "--desc", "내부 전용"])
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "비공개 (Private 🔒)" in captured
+    assert "Private 🔒" in captured
 
     # 2. 목록 확인 (테이블 및 JSON)
     ret = cli.main(["theme", "list"])
     assert ret == 0
     table_out = capsys.readouterr().out
-    assert "비공개 🔒" in table_out
+    assert "private 🔒" in table_out
 
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
@@ -172,7 +172,7 @@ def test_cli_theme_visibility_flags(cli_theme_env, capsys):
     ret = cli.main(["theme", "update", "1", "--public"])
     assert ret == 0
     captured_update = capsys.readouterr().out
-    assert "공개 (Public)" in captured_update
+    assert "Public" in captured_update
 
     ret = cli.main(["theme", "list", "--json"])
     assert ret == 0
@@ -203,7 +203,7 @@ def test_cli_theme_update_full_options(cli_theme_env, capsys):
     assert "전면 개편" in captured
     assert "업데이트된 상세 설명" in captured
     assert "🚀" in captured
-    assert "비공개 (Private 🔒)" in captured
+    assert "Private 🔒" in captured
 
     # 3. 테마 이름(레이블)으로 찾아 수정
     ret = cli.main([
@@ -214,7 +214,7 @@ def test_cli_theme_update_full_options(cli_theme_env, capsys):
     assert ret == 0
     captured_by_name = capsys.readouterr().out
     assert "이름 기반으로 바꾼 설명" in captured_by_name
-    assert "공개 (Public)" in captured_by_name
+    assert "Public" in captured_by_name
 
 
 def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
@@ -225,7 +225,7 @@ def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
     ret = cli.main(["theme", "delete", "0", "-y"])
     assert ret == 1
     err = capsys.readouterr().err
-    assert "기본" in err and "삭제할 수 없습니다" in err
+    assert "cannot delete the default theme" in err
 
     # 2. 추가 테마 생성
     ret = cli.main(["theme", "define", "--label", "삭제용 테마"])
@@ -236,7 +236,7 @@ def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
     ret = cli.main(["theme", "delete", "삭제용 테마", "--purge", "--apply", "-y"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "삭제 완료" in out
+    assert "is deleted" in out
     assert "삭제용 테마" in out
 
 
@@ -252,13 +252,13 @@ def test_cli_theme_default_focus(cli_theme_env, capsys):
     ])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "기본 초점   : 쿠버네티스 및 분산 시스템 아키텍처 중심" in out
+    assert "Default focus: 쿠버네티스 및 분산 시스템 아키텍처 중심" in out
 
     # 2. theme list 출력 시 기본 초점 표시 확인
     ret = cli.main(["theme", "list"])
     assert ret == 0
     list_out = capsys.readouterr().out
-    assert "기본 초점: 쿠버네티스 및 분산 시스템 아키텍처 중심" in list_out
+    assert "Default focus: 쿠버네티스 및 분산 시스템 아키텍처 중심" in list_out
 
     # 3. theme update로 기본 초점 수정
     ret = cli.main([
@@ -267,7 +267,7 @@ def test_cli_theme_default_focus(cli_theme_env, capsys):
     ])
     assert ret == 0
     update_out = capsys.readouterr().out
-    assert "기본 초점  : 클라우드 비용 최적화 및 FinOps 관점" in update_out
+    assert "Default focus: 클라우드 비용 최적화 및 FinOps 관점" in update_out
 
     # 4. theme list --json 출력 확인
     ret = cli.main(["theme", "list", "--json"])
@@ -383,7 +383,7 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
     ret = cli.main(["doc-title", "-t", "1", "doc_theme_test", "Updated Theme Title"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "제목 갱신 완료" in out
+    assert "Title updated" in out
     conn1 = dbm.connect(t1_settings.db_file)
     updated_doc = dbm.get_document(conn1, "doc_theme_test")
     conn1.close()
@@ -393,14 +393,14 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
     ret = cli.main(["purge", "-t", "1", "doc_theme_test"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "소각 대상 분석 보고서" in out
+    assert "Report of the purge targets" in out
     assert "Updated Theme Title" in out
 
     # 3. recanonicalize with -t 1 (dry-run)
     ret = cli.main(["recanonicalize", "-t", "1"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "dry-run" in out or "문서" in out
+    assert "dry-run" in out or "Documents" in out
 
     # 4. dedup-merge with -t 1 (dry-run)
     ret = cli.main(["dedup-merge", "-t", "1"])
@@ -448,14 +448,14 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     # 1. 존재하지 않는 테마 리셋 시도 -> 오류 (exit code 1)
     ret = cli.main(["theme", "reset", "999", "--yes"])
     assert ret == 1
-    assert "대상 테마를 찾을 수 없습니다" in capsys.readouterr().err
+    assert "The theme is not found" in capsys.readouterr().err
 
     # 2. --apply 없으면 -y가 있어도 dry-run: 소각 예정 건수만 보고하고 데이터는 그대로
     ret = cli.main(["theme", "reset", "1", "-y"])
     assert ret == 0
     out = capsys.readouterr().out
     assert "Dry-Run" in out
-    assert "소각될 문서 수      : 1 건" in out
+    assert "Documents to purge     : 1" in out
     conn = dbm.connect(t1_settings.db_file)
     assert dbm.get_document(conn, "doc_reset_cli") is not None
     conn.close()
@@ -471,24 +471,24 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     ret = cli.main(["theme", "reset", "1", "--apply"])
     assert ret == 2
     err = capsys.readouterr().err
-    assert "--yes (-y) 옵션을 함께 명시" in err
+    assert "add the option --yes (-y)" in err
 
     # 4. 대화형 환경에서 취소 (n 입력) -> 취소 메시지 및 exit code 0
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: "n")
     ret = cli.main(["theme", "reset", "1", "--apply"])
     assert ret == 0
-    assert "작업이 취소되었습니다" in capsys.readouterr().out
+    assert "The operation is cancelled" in capsys.readouterr().out
 
     # 5. --apply --yes로 리셋 실행 -> 성공 출력 및 테마 ID/URI 보존 확인
     ret = cli.main(["theme", "reset", "1", "--apply", "--yes"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "데이터 완전 초기화 완료" in out
+    assert "is reset" in out
     assert "?theme=1" in out
-    assert "소각된 문서 수   : 1 건" in out
-    assert "소각된 엔티티 수 : 1 건" in out
-    assert "소각된 관계 수   : 1 건" in out
+    assert "Documents purged  : 1" in out
+    assert "Entities purged   : 1" in out
+    assert "Relations purged  : 1" in out
 
     # 데이터가 비워졌는지 DB 검증
     conn = dbm.connect(t1_settings.db_file)
@@ -524,4 +524,4 @@ def test_cli_unknown_theme_fails_instead_of_default(cli_theme_env, capsys):
     """존재하지 않는 --theme 는 기본 테마로 대신 진행하지 않고 실패한다 (PRINCIPLES C1)."""
     ret = cli.main(["stats", "--theme", "없는테마"])
     assert ret == 2
-    assert "찾을 수 없습니다" in capsys.readouterr().err
+    assert "not found" in capsys.readouterr().err

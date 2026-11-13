@@ -34,8 +34,8 @@ def test_format_migrate_empty_db_dry_run(temp_db: Path, capsys: pytest.CaptureFi
     code = cmd_format_migrate(args)
     assert code == 0
     out = capsys.readouterr().out
-    assert "포맷 마이그레이션 진단 현황" in out
-    assert "전체 문서 수             : 0 건" in out
+    assert "Format migration status" in out
+    assert "Documents                : 0" in out
 
 
 def test_format_migrate_json_output(temp_db: Path, capsys: pytest.CaptureFixture[str]):
@@ -71,7 +71,7 @@ def test_format_migrate_apply_no_targets(temp_db: Path, capsys: pytest.CaptureFi
     code = cmd_format_migrate(args)
     assert code == 0
     out = capsys.readouterr().out
-    assert "마이그레이션이 필요하지 않습니다" in out
+    assert "No migration is necessary" in out
 
 
 def test_format_migrate_apply_non_tty_requires_yes(temp_db: Path, capsys: pytest.CaptureFixture[str]):
@@ -101,7 +101,7 @@ def test_format_migrate_apply_interactive_abort(temp_db: Path, capsys: pytest.Ca
         code = cmd_format_migrate(args)
         assert code == 0
         out = capsys.readouterr().out
-        assert "취소되었습니다" in out
+        assert "cancelled" in out
 
 
 def test_format_migrate_apply_with_yes(temp_db: Path, capsys: pytest.CaptureFixture[str]):
@@ -115,7 +115,7 @@ def test_format_migrate_apply_with_yes(temp_db: Path, capsys: pytest.CaptureFixt
     code = cmd_format_migrate(args)
     assert code == 0
     out = capsys.readouterr().out
-    assert "포맷 마이그레이션 완료" in out
+    assert "Format migration done" in out
 
     conn = dbm.connect(temp_db)
     fmt = dbm.get_document_detail_format(conn, "doc1")

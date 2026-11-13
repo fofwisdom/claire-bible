@@ -225,7 +225,7 @@ def test_providers_cli(capsys):
     rc = args.func(args)
     assert rc == 0
     captured = capsys.readouterr().out
-    assert "연결/감지 성공" in captured
+    assert "Connection or detection succeeded" in captured
 
     # 3. migrate
     args = parser.parse_args(["providers", "migrate"])

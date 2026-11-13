@@ -179,4 +179,4 @@ def test_queue_list_accepts_positional_queue_name(tmp_path, monkeypatch, capsys)
 
 def test_queue_list_requires_queue_name(capsys):
     assert cli.main(["queue", "list"]) == 2
-    assert "조회할 큐를 지정" in capsys.readouterr().err
+    assert "Give the queue to show" in capsys.readouterr().err

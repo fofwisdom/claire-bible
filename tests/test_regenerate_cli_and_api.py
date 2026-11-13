@@ -128,7 +128,7 @@ def test_cli_regenerate_dry_run_and_apply(tmp_path: Path, monkeypatch, capsys):
     rc_apply = cli.main(["regen", doc_id, "--detail", "--apply", "--yes"])
     assert rc_apply == 0
     out_apply = capsys.readouterr().out
-    assert "재생성 완료" in out_apply or "완료" in out_apply
+    assert "Regeneration of the document components is complete" in out_apply
 
 
 def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):

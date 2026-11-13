@@ -598,8 +598,8 @@ def test_support_bundle_cli(tmp_path: Path, monkeypatch, capsys):
     ret = args.func(args)
     assert ret == 0
     out = capsys.readouterr().out
-    assert "Support Bundle 생성 완료" in out
-    assert "zstd 압축" in out
+    assert "Support bundle is ready" in out
+    assert "(zstd)" in out
 
     # 2. 번들 목록 조회 CLI
     args_list = parser.parse_args(["support-bundle", "--list"])
@@ -620,7 +620,7 @@ def test_support_bundle_cli(tmp_path: Path, monkeypatch, capsys):
     ret = args_purge.func(args_purge)
     assert ret == 0
     out_purge = capsys.readouterr().out
-    assert "파기 완료" in out_purge
+    assert "are deleted" in out_purge
 
 
 def test_support_bundle_mcp_artifacts(tmp_path: Path):

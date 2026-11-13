@@ -124,14 +124,14 @@ def test_cli_watch_and_doc_title_smart_targets(tmp_path, monkeypatch, capsys):
     rc = cmd_doc_title(args_title)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "제목 갱신 완료: doc-sha-11111111 → 'New Architecture 2027'" in cap.out
+    assert "Title updated: doc-sha-11111111 → 'New Architecture 2027'" in cap.out
 
     # 2. URL로 watch 설정
     args_watch = parser.parse_args(["watch", "news.example.com/releases/v2", "--on", "--interval-days", "7"])
     rc = cmd_watch(args_watch)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "watch 설정: [doc-sha-2222]" in cap.out
+    assert "watch set: [doc-sha-2222]" in cap.out
     assert "enabled=True" in cap.out
 
     # DB 반영 확인

@@ -429,11 +429,11 @@ def test_doc_title_cli_updates_title_and_recomputes_minhash(
 
     # 1) Non-existing document
     assert cli.main(["doc-title", "doc-non-existent", "New Title"]) == 1
-    assert "문서 없음: doc-non-existent" in capsys.readouterr().out
+    assert "Document not found: doc-non-existent" in capsys.readouterr().out
 
     # 2) Existing document update
     assert cli.main(["doc-title", "doc-test-1", "New Updated Title"]) == 0
-    assert "제목 갱신 완료: doc-test-1 → 'New Updated Title'" in capsys.readouterr().out
+    assert "Title updated: doc-test-1 → 'New Updated Title'" in capsys.readouterr().out
 
     conn = dbm.connect(s.db_file)
     try:

@@ -228,12 +228,12 @@ def test_cli_telemetry_commands(tmp_path, capsys):
         rc = cmd_telemetry(args_stats)
         assert rc == 0
         captured = capsys.readouterr().out
-        assert "프로바이더 텔레메트리 집계 통계" in captured
-        assert "총 호출 횟수" in captured
+        assert "Provider telemetry statistics" in captured
+        assert "Calls          :" in captured
 
         # 4. Prune command
         args_prune = SimpleNamespace(limit=10, failed=False, doc=None, provider=None, stats=False, json=False, prune=30)
         rc = cmd_telemetry(args_prune)
         assert rc == 0
         captured = capsys.readouterr().out
-        assert "삭제 완료" in captured
+        assert "are deleted" in captured

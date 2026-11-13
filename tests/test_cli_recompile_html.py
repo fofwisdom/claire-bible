@@ -170,4 +170,4 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
     captured_all = capsys.readouterr()
     assert "General" in captured_all.out
     assert "R1999" in captured_all.out
-    assert "전체 테마 AOT HTML 재컴파일 완료" in captured_all.out
+    assert "AOT HTML compile of all themes done" in captured_all.out

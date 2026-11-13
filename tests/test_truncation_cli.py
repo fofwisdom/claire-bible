@@ -164,9 +164,9 @@ def test_cli_truncation_status(test_env, capsys):
     ret = cli.main(["truncation-status"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "원문 절단(슬라이싱) 및 메타데이터 현황" in out
-    assert "전체 검사 문서 수             : 4 건" in out
-    assert "메타데이터 누락 절단 문서   : 2 건" in out
+    assert "Source truncation and metadata status" in out
+    assert "Documents examined            : 4" in out
+    assert "Truncated, not recorded     : 2" in out
     assert "doc_unmarked_hash" in out
 
     # 2. JSON format
@@ -195,15 +195,15 @@ def test_cli_truncation_backfill(test_env, capsys):
     ret_dry = cli.main(["truncation-backfill"])
     assert ret_dry == 0
     out_dry = capsys.readouterr().out
-    assert "기본 Dry-Run 모드로 실행되어" in out_dry
+    assert "This was a Dry-Run" in out_dry
     assert "doc_unmarked_hash" in out_dry
 
     # 2. Apply with --yes
     ret_apply = cli.main(["truncation-backfill", "--apply", "--yes", "--mark-refresh"])
     assert ret_apply == 0
     out_apply = capsys.readouterr().out
-    assert "소급 갱신 완료: 총 2건 메타데이터 업데이트 완료" in out_apply
-    assert "재수집 큐 등록 2건" in out_apply
+    assert "Backfill done: metadata of 2 documents updated" in out_apply
+    assert "2 queued for a new collection" in out_apply
 
     # 3. Verify status after backfill
     ret_check = cli.main(["truncation-status", "--json"])

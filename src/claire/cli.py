@@ -101,7 +101,7 @@ def cmd_preflight(_args) -> int:
             print(f"gemini embed      : OK (model={s.gemini_embed_model}, dim={len(v)})")
         except Exception as e:  # noqa: BLE001
             print(f"gemini embed      : FAIL ({type(e).__name__}: {str(e)[:120]})")
-            print("  -> 의미 기반 엔티티 해소가 비활성화됩니다. 임베딩 모델명을 확인하세요.")
+            print("  -> Semantic entity resolution is off. Examine the name of the embedding model.")
     else:
         print(f"provider          : {s.effective_provider} (no embed probe)")
 
@@ -122,7 +122,7 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
     if theme_ref is not None:
         if not getattr(s, "multi_theme", False):
             print(
-                f"[경고] 멀티 테마 모드가 비활성화되어 있어 --theme={theme_ref} 옵션이 무시되고 기본 테마가 사용됩니다 (CLAIRE_MULTI_THEME=1 필요).",
+                f"[warning] Multi-theme mode is off. Claire ignores --theme={theme_ref} and uses the default theme (set CLAIRE_MULTI_THEME=1).",
                 file=sys.stderr,
             )
             return s, None
@@ -133,7 +133,7 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
             theme = tm.get_theme(theme_ref, label_match="partial")
         except Exception as exc:
             # 기본 테마로 대신 진행하면 다른 테마에 적재·수정하게 된다(PRINCIPLES C1).
-            raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
+            raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
         return tm.get_settings_for_theme(theme.id, s), theme
 
     if getattr(s, "multi_theme", False):
@@ -159,23 +159,23 @@ def cmd_doctor(args) -> int:
     """지식그래프 및 DB 무결성 진단 및 자동 수복."""
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 점검 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme to examine: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
         do_heal = getattr(args, "heal", False) or getattr(args, "apply", False)
         if do_heal:
-            print("claire doctor: [Auto-Heal] 지식그래프 무결성 수복 시작...", flush=True)
+            print("claire doctor: [Auto-Heal] Repair of the knowledge graph starts...", flush=True)
             healed = dbm.heal_graph(conn, progress_callback=lambda msg: print(f"  {msg}", flush=True))
             print("=" * 50)
-            print(f"• 고아 관계 삭제             : {healed['dangling_relations_removed']} 건")
-            print(f"• 엔티티 출처 참조 정제       : {healed['stale_entity_sources_cleaned']} 건")
-            print(f"• 관계 출처 참조 정제         : {healed['stale_relation_sources_cleaned']} 건")
-            print(f"• 고아/유령 엔티티 정리       : {healed['ghost_entities_pruned']} 건")
-            print(f"• 고아 임베딩 삭제           : {healed['orphan_embeddings_removed']} 건")
-            print(f"• FTS 전문 색인 재구축        : {healed['fts_reindexed']} 건")
+            print(f"• Dangling relations removed      : {healed['dangling_relations_removed']}")
+            print(f"• Entity source references cleaned: {healed['stale_entity_sources_cleaned']}")
+            print(f"• Relation source references cleaned: {healed['stale_relation_sources_cleaned']}")
+            print(f"• Orphan or ghost entities removed: {healed['ghost_entities_pruned']}")
+            print(f"• Orphan embeddings removed       : {healed['orphan_embeddings_removed']}")
+            print(f"• FTS index rebuilt               : {healed['fts_reindexed']}")
             print("=" * 50)
-            print("doctor: 수복 완료 (Graph is fully healed!)")
+            print("doctor: Repair is complete (Graph is fully healed!)")
             return 0
 
         report = dbm.diagnose_graph(conn)
@@ -185,7 +185,7 @@ def cmd_doctor(args) -> int:
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0 if report["is_healthy"] else 1
 
-        print("claire doctor: 지식그래프 및 DB 무결성 진단 보고서")
+        print("claire doctor: Integrity report of the knowledge graph and the database")
         if s.provider.strip().lower() in ("codex", "codex-cli"):
             from .extract.codex_provider import probe_codex_cli
 
@@ -206,54 +206,54 @@ def cmd_doctor(args) -> int:
             print(f"Codex embedding={embedding}")
         from .presentation import find_asciidoctor_executable
         asc_exec = find_asciidoctor_executable()
-        asc_desc = " · ".join(asc_exec) if asc_exec else "미설치 (asciidoctor-revealjs 필요)"
-        print(f"• 프레젠테이션 컴파일러       : {asc_desc}")
+        asc_desc = " · ".join(asc_exec) if asc_exec else "not installed (asciidoctor-revealjs is necessary)"
+        print(f"• Presentation compiler      : {asc_desc}")
         print("=" * 50)
-        print(f"• 전체 문서 수               : {report['total_documents']} 건")
-        print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
-        print(f"• 전체 관계 수               : {report['total_relations']} 건")
+        print(f"• Documents                  : {report['total_documents']}")
+        print(f"• Entities                   : {report['total_entities']}")
+        print(f"• Relations                  : {report['total_relations']}")
         print("-" * 50)
         print(
-            f"• 고아 관계 (Dangling)       : {report['dangling_relations_count']} 건"
+            f"• Dangling relations         : {report['dangling_relations_count']}"
             + (" [!]" if report["dangling_relations_count"] else " [✓]")
         )
         print(
-            f"• 엔티티 유효하지 않은 출처 : {report['stale_entity_sources_count']} 건"
+            f"• Entity sources not valid   : {report['stale_entity_sources_count']}"
             + (" [!]" if report["stale_entity_sources_count"] else " [✓]")
         )
         print(
-            f"• 관계 유효하지 않은 출처   : {report['stale_relation_sources_count']} 건"
+            f"• Relation sources not valid : {report['stale_relation_sources_count']}"
             + (" [!]" if report["stale_relation_sources_count"] else " [✓]")
         )
         print(
-            f"• 고아/유령 엔티티           : {report['ghost_entities_count']} 건"
+            f"• Orphan or ghost entities   : {report['ghost_entities_count']}"
             + (" [!]" if report["ghost_entities_count"] else " [✓]")
         )
         print(
-            f"• 고아 임베딩                : {report['orphan_embeddings_count']} 건"
+            f"• Orphan embeddings          : {report['orphan_embeddings_count']}"
             + (" [!]" if report["orphan_embeddings_count"] else " [✓]")
         )
-        print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
-        print(f"• FTS 색인 불일치 여부       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+        print(f"• Entities without embedding : {report['missing_embeddings_count']}")
+        print(f"• FTS index                  : {'[!] not in sync' if report['fts_desync'] else '[✓] in sync'}")
         if report.get("purged_tombstones_count"):
-            print(f"• 등록된 소각 툼스톤         : {report['purged_tombstones_count']} 건")
+            print(f"• Purge tombstones           : {report['purged_tombstones_count']}")
         if report.get("tombstone_violations_count"):
             print(
-                f"• 툼스톤 위반 (부활 문서)    : {report['tombstone_violations_count']} 건 [!] (claire purge 로 재소각 필요)"
+                f"• Tombstone violations (documents that came back): {report['tombstone_violations_count']} [!] (run claire purge again)"
             )
         if report["corrupted_summaries_count"]:
             print(
-                f"• ADOC 문법 잔존 요약       : {report['corrupted_summaries_count']} 건 [!] (claire regenerate 로 재생성 가능)"
+                f"• Summaries with AsciiDoc marks: {report['corrupted_summaries_count']} [!] (claire regenerate can make them again)"
             )
         print("=" * 50)
 
         if report["is_healthy"]:
-            print("doctor: OK (지식그래프 및 DB 무결성이 완벽합니다)")
+            print("doctor: OK (the knowledge graph and the database have no integrity problem)")
             return 0
         else:
-            print("[!] 그래프 무결성 문제가 발견되었습니다.")
-            print("    자동 수복을 실행하려면 다음 명령을 실행하십시오:")
-            print("    claire doctor --heal (또는 claire doctor --apply)")
+            print("[!] Claire found integrity problems in the graph.")
+            print("    To repair them automatically, run this command:")
+            print("    claire doctor --heal (or claire doctor --apply)")
             return 0
     finally:
         conn.close()
@@ -265,15 +265,15 @@ def cmd_purge(args) -> int:
         return cmd_untombstone(args)
     s, theme = get_effective_settings(args)
     if not s.is_purge_allowed:
-        print("claire purge: [오류] 데이터 소각이 정책에 의해 차단되었습니다.", file=sys.stderr)
-        print("현재 환경의 데이터 수명주기(CLAIRE_DATA_LIFECYCLE)가 'append-only' 모드로 설정되어 있습니다.", file=sys.stderr)
-        print("오염 데이터 소각을 활성화하려면 .env 파일에 다음 설정을 적용하십시오:", file=sys.stderr)
+        print("claire purge: [error] The policy blocks the purge of data.", file=sys.stderr)
+        print("The data lifecycle of this environment (CLAIRE_DATA_LIFECYCLE) is 'append-only'.", file=sys.stderr)
+        print("To permit the purge of polluted data, set this value in the .env file:", file=sys.stderr)
         print("  CLAIRE_DATA_LIFECYCLE=purgeable", file=sys.stderr)
-        print("  (또는 CLAIRE_ALLOW_PURGE=1)", file=sys.stderr)
+        print("  (or CLAIRE_ALLOW_PURGE=1)", file=sys.stderr)
         return 1
 
     if theme and not getattr(args, "json", False):
-        print(f"[{theme.icon} 소각 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme to purge: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -297,17 +297,17 @@ def cmd_purge(args) -> int:
         target_ids = [t["id"] for t in matched_targets]
 
         if not target_ids:
-            query_hint = target or doc_id or url or canonical_url or pattern or "(입력 없음)"
-            print(f"claire purge: 입력값 '{query_hint}'에 일치하는 소각 대상 문서를 찾을 수 없습니다.", file=sys.stderr)
+            query_hint = target or doc_id or url or canonical_url or pattern or "(no input)"
+            print(f"claire purge: No document to purge agrees with the input '{query_hint}'.", file=sys.stderr)
             recent_docs = conn.execute(
                 "SELECT id, title, url, canonical_url FROM documents ORDER BY fetched_at DESC LIMIT 5"
             ).fetchall()
             if recent_docs:
-                print("\n[참고] 최근 수집된 문서 목록:", file=sys.stderr)
+                print("\n[note] Documents that Claire collected recently:", file=sys.stderr)
                 for rd in recent_docs:
                     u = rd["url"] or rd["canonical_url"] or "no-url"
-                    print(f"  • [{rd['id'][:12]}] {rd['title'] or '(제목 없음)'} ({u})", file=sys.stderr)
-            print("\n전체 문서를 검색하려면 `claire search <검색어>` 또는 `claire status`를 확인하십시오.", file=sys.stderr)
+                    print(f"  • [{rd['id'][:12]}] {rd['title'] or '(no title)'} ({u})", file=sys.stderr)
+            print("\nTo find a document, use `claire search <query>` or `claire status`.", file=sys.stderr)
             return 0
 
         apply = getattr(args, "apply", False)
@@ -328,27 +328,27 @@ def cmd_purge(args) -> int:
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return 0
 
-            print("claire purge: [Dry-Run] 소각 대상 분석 보고서 (실제 삭제 안 됨)")
+            print("claire purge: [Dry-Run] Report of the purge targets (nothing is deleted)")
             print("=" * 60)
             if has_share_token:
-                print(" [⚠️  주의] 공유 링크(?s=token)로 식별된 문서가 포함되어 있습니다.")
-                print("      이 작업은 단순 공유 취소가 아니라 원본 문서, 지식그래프 노드, 디스크 파일 전체를 영구 소각합니다.")
+                print(" [⚠️  caution] The list has a document that a share link (?s=token) identifies.")
+                print("      This operation does not only cancel the share. It purges the document, its graph nodes, and all its disk files permanently.")
                 print("-" * 60)
-            print(f"• 소각 대상 문서 수         : {report['purged_count']} 건")
-            print(f"• 툼스톤 등록 여부          : {'미등록 (--no-tombstone, 재수집 허용)' if no_tombstone else '등록 (재수집 영구 차단)'}")
-            print(f"• 삭제 대상 디스크 파일     : {report['disk_files_count']} 개")
+            print(f"• Documents to purge        : {report['purged_count']}")
+            print(f"• Tombstones                : {'not recorded (--no-tombstone, a new ingest is permitted)' if no_tombstone else 'recorded (a new ingest is blocked permanently)'}")
+            print(f"• Disk files to delete      : {report['disk_files_count']}")
             print("-" * 60)
-            print("대상 문서 목록:")
+            print("Documents:")
             for d in report["target_documents"]:
                 m_info = next((t for t in matched_targets if t["id"] == d["id"]), {})
-                by_str = f" [식별: {m_info.get('matched_by', 'direct')}]" if m_info else ""
-                print(f"  - [{d['id']}] {d.get('title') or '(제목 없음)'}{by_str}")
+                by_str = f" [matched by: {m_info.get('matched_by', 'direct')}]" if m_info else ""
+                print(f"  - [{d['id']}] {d.get('title') or '(no title)'}{by_str}")
                 if d.get("url"):
-                    print(f"      원본 URL: {d['url']}")
+                    print(f"      Source URL: {d['url']}")
                 if d.get("canonical_url") and d.get("canonical_url") != d.get("url"):
-                    print(f"      표준 URL: {d['canonical_url']}")
+                    print(f"      Canonical URL: {d['canonical_url']}")
             print("=" * 60)
-            print("[안내] 실제 소각 및 DB 물리 압축(VACUUM)을 실행하려면 --apply 옵션을 추가하십시오:")
+            print("[note] To purge the documents and compact the database (VACUUM), add the option --apply:")
             extra_flags = " --no-tombstone" if no_tombstone else ""
             print(f"  claire purge --apply{extra_flags} " + " ".join(f"'{did}'" for did in target_ids))
             return 0
@@ -357,21 +357,21 @@ def cmd_purge(args) -> int:
         if not confirmed:
             if sys.stdin.isatty():
                 try:
-                    answer = input(f"\n정말 위 {len(target_ids)}건의 문서를 영구 소각하시겠습니까? [y/N]: ").strip().lower()
+                    answer = input(f"\nPurge the {len(target_ids)} documents above permanently? [y/N]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
-                    print("\n소각 작업이 취소되었습니다.")
+                    print("\nThe purge is cancelled.")
                     return 0
                 if answer not in ("y", "yes"):
-                    print("소각 작업이 취소되었습니다.")
+                    print("The purge is cancelled.")
                     return 0
             else:
                 extra_flags = " --no-tombstone" if no_tombstone else ""
-                print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+                print("\nIn a non-interactive environment, add the option --yes (-y):")
                 print(f"  claire purge --apply --yes{extra_flags} " + " ".join(f"'{did}'" for did in target_ids))
                 return 2
 
         # 실행
-        print("claire purge: [소각 시작] 원자적 연쇄 소각 및 지식그래프 정화 중...", flush=True)
+        print("claire purge: [purge starts] Atomic cascade purge and cleanup of the knowledge graph...", flush=True)
         report = dbm.purge_document_cascade(
             conn,
             data_dir=s.data_dir,
@@ -388,22 +388,22 @@ def cmd_purge(args) -> int:
             return 0
 
         print("=" * 60)
-        print(f"• 소각된 문서 수 (DB)       : {report['deleted_documents']} 건")
+        print(f"• Documents purged (DB)     : {report['deleted_documents']}")
         if no_tombstone:
-            print(f"• 등록된 툼스톤 (재유입방지): 0 건 (--no-tombstone 적용, 재수집 가능)")
+            print(f"• Tombstones recorded       : 0 (--no-tombstone, a new ingest is permitted)")
         else:
-            print(f"• 등록된 툼스톤 (재유입방지): {report['purged_count']} 건")
-        print(f"• 삭제된 L1 인박스 레코드   : {report.get('deleted_raw_inbox', 0)} 건")
-        print(f"• 삭제된 L2 디스크 파일     : {report['disk_files_unlinked']} 개")
+            print(f"• Tombstones recorded       : {report['purged_count']}")
+        print(f"• L1 inbox records deleted  : {report.get('deleted_raw_inbox', 0)}")
+        print(f"• L2 disk files deleted     : {report['disk_files_unlinked']}")
         gh = report.get("graph_healed", {})
-        print(f"• 정제된 엔티티 출처        : {gh.get('stale_entity_sources_cleaned', 0)} 건")
-        print(f"• 소각된 고아 엔티티        : {gh.get('ghost_entities_pruned', 0)} 건")
-        print(f"• 소각된 고아 관계          : {gh.get('dangling_relations_removed', 0)} 건")
-        print(f"• 소각된 고아 임베딩        : {gh.get('orphan_embeddings_removed', 0)} 건")
-        print(f"• FTS 재구축                : {gh.get('fts_reindexed', 0)} 건")
-        print(f"• DB VACUUM (용량 회수)     : {'완료' if report.get('vacuum_executed') else '스킵/실패'}")
+        print(f"• Entity sources cleaned    : {gh.get('stale_entity_sources_cleaned', 0)}")
+        print(f"• Orphan entities purged    : {gh.get('ghost_entities_pruned', 0)}")
+        print(f"• Dangling relations purged : {gh.get('dangling_relations_removed', 0)}")
+        print(f"• Orphan embeddings purged  : {gh.get('orphan_embeddings_removed', 0)}")
+        print(f"• FTS rebuilt               : {gh.get('fts_reindexed', 0)}")
+        print(f"• DB VACUUM (space recovered): {'done' if report.get('vacuum_executed') else 'skipped or failed'}")
         print("=" * 60)
-        print("[✓] 오염 데이터가 시스템 전체에서 완전히 소각되었습니다.")
+        print("[✓] Claire purged the polluted data from all of the system.")
         return 0
     finally:
         conn.close()
@@ -423,7 +423,7 @@ def cmd_untombstone(args) -> int:
             try:
                 t = tm.get_theme(theme_ref, label_match="partial")
             except KeyError as exc:
-                raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
+                raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
             target_themes.append((tm.get_settings_for_theme(t.id, s), t))
         else:
             target_themes.append((s, None))
@@ -481,22 +481,22 @@ def cmd_untombstone(args) -> int:
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0 if total_removed > 0 else 1
 
-    print("claire untombstone: 툼스톤 해제 보고서")
+    print("claire untombstone: Report of the tombstone removal")
     print("=" * 60)
     if total_removed == 0:
-        query_hint = target or doc_id or url or canonical_url or pattern or "(입력 없음)"
-        print(f"[!] 일치하는 툼스톤을 찾을 수 없습니다: '{query_hint}'", file=sys.stderr)
+        query_hint = target or doc_id or url or canonical_url or pattern or "(no input)"
+        print(f"[!] No tombstone agrees with: '{query_hint}'", file=sys.stderr)
         return 1
 
-    print(f"• 해제(삭제)된 툼스톤 수   : {total_removed} 건")
+    print(f"• Tombstones removed       : {total_removed}")
     for t in all_removed:
         u = t.get("url") or t.get("canonical_url") or "no-url"
         theme_str = f" [{t['theme_label']}]" if "theme_label" in t else ""
-        print(f"  - [{t['id']}]{theme_str} {u} (사유: {t.get('reason', 'unknown')})")
+        print(f"  - [{t['id']}]{theme_str} {u} (reason: {t.get('reason', 'unknown')})")
     if total_reset_inbox > 0:
-        print(f"• 인박스(raw_inbox) 복원  : {total_reset_inbox} 건 (상태 -> pending 재수집 대기)")
+        print(f"• Inbox (raw_inbox) reset  : {total_reset_inbox} (status -> pending, waits for a new collection)")
     print("=" * 60)
-    print("[✓] 툼스톤이 성공적으로 해제되었습니다. 이제 문서를 정상적으로 재적재할 수 있습니다.")
+    print("[✓] The tombstones are removed. You can ingest the documents again.")
     return 0
 
 
@@ -515,20 +515,20 @@ def cmd_audit(args) -> int:
         # 1. 지식그래프 무결성 검사 및 자동 수복
         if check in ("graph", "integrity"):
             if do_heal:
-                print("claire audit: [Auto-Heal] 지식그래프 무결성 수복 시작...", flush=True)
+                print("claire audit: [Auto-Heal] Repair of the knowledge graph starts...", flush=True)
                 healed = dbm.heal_graph(conn, progress_callback=lambda msg: print(f"  {msg}", flush=True))
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "healed", "details": healed}, ensure_ascii=False, indent=2))
                     return 0
                 print("=" * 50)
-                print(f"• 고아 관계 삭제             : {healed['dangling_relations_removed']} 건")
-                print(f"• 엔티티 출처 참조 정제       : {healed['stale_entity_sources_cleaned']} 건")
-                print(f"• 관계 출처 참조 정제         : {healed['stale_relation_sources_cleaned']} 건")
-                print(f"• 고아/유령 엔티티 정리       : {healed['ghost_entities_pruned']} 건")
-                print(f"• 고아 임베딩 삭제           : {healed['orphan_embeddings_removed']} 건")
-                print(f"• FTS 전문 색인 재구축        : {healed['fts_reindexed']} 건")
+                print(f"• Dangling relations removed      : {healed['dangling_relations_removed']}")
+                print(f"• Entity source references cleaned: {healed['stale_entity_sources_cleaned']}")
+                print(f"• Relation source references cleaned: {healed['stale_relation_sources_cleaned']}")
+                print(f"• Orphan or ghost entities removed: {healed['ghost_entities_pruned']}")
+                print(f"• Orphan embeddings removed       : {healed['orphan_embeddings_removed']}")
+                print(f"• FTS index rebuilt               : {healed['fts_reindexed']}")
                 print("=" * 50)
-                print("audit: 수복 완료 (Graph is fully healed!)")
+                print("audit: Repair is complete (Graph is fully healed!)")
                 return 0
 
             report = dbm.diagnose_graph(conn)
@@ -536,22 +536,22 @@ def cmd_audit(args) -> int:
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return 0 if report["is_healthy"] else 1
 
-            print("claire audit: 지식그래프 무결성 진단 보고서")
+            print("claire audit: Integrity report of the knowledge graph")
             print("=" * 50)
-            print(f"• 전체 문서 수               : {report['total_documents']} 건")
-            print(f"• 전체 엔티티 수             : {report['total_entities']} 건")
-            print(f"• 전체 관계 수               : {report['total_relations']} 건")
+            print(f"• Documents                  : {report['total_documents']}")
+            print(f"• Entities                   : {report['total_entities']}")
+            print(f"• Relations                  : {report['total_relations']}")
             print("-" * 50)
-            print(f"• 고아 관계 (Dangling)       : {report['dangling_relations_count']} 건")
-            print(f"• 고아 엔티티 (Orphan)       : {report['orphan_entities_count']} 건")
-            print(f"• 임베딩 누락 엔티티         : {report['missing_embeddings_count']} 건")
-            print(f"• FTS 색인 불일치 여부       : {'[!] 불일치' if report['fts_desync'] else '[✓] 동기화됨'}")
+            print(f"• Dangling relations         : {report['dangling_relations_count']}")
+            print(f"• Orphan entities            : {report['orphan_entities_count']}")
+            print(f"• Entities without embedding : {report['missing_embeddings_count']}")
+            print(f"• FTS index                  : {'[!] not in sync' if report['fts_desync'] else '[✓] in sync'}")
             print("=" * 50)
             if report["is_healthy"]:
-                print("audit: OK (지식그래프 무결성이 완벽합니다)")
+                print("audit: OK (the knowledge graph has no integrity problem)")
                 return 0
             else:
-                print("[!] 그래프 무결성 문제가 발견되었습니다. --heal 옵션으로 수복할 수 있습니다.")
+                print("[!] Claire found integrity problems in the graph. The option --heal repairs them.")
                 return 1
 
         # 2. 오염 잔재 및 툼스톤 감사
@@ -561,26 +561,26 @@ def cmd_audit(args) -> int:
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return 0 if report["clean"] else 1
 
-            print("claire audit: 오염 잔재 및 툼스톤 전수 감사 보고서")
+            print("claire audit: Audit of pollution residue and tombstones")
             print("=" * 60)
             if pattern:
-                print(f"• 검사 패턴/키워드          : '{pattern}'")
-                print(f"• 잔존 문서 수              : {report['matching_documents_count']} 건" + (" [!]" if report["matching_documents_count"] else " [✓] 0건"))
-                print(f"• 잔존 L1 인박스            : {report['matching_inbox_count']} 건" + (" [!]" if report["matching_inbox_count"] else " [✓] 0건"))
-                print(f"• 잔존 L2 디스크 아티팩트   : {report['matching_disk_artifacts_count']} 개" + (" [!]" if report["matching_disk_artifacts_count"] else " [✓] 0개"))
-                print(f"• 엔티티 sources 잔존 참조  : {report['matching_entity_sources_count']} 건" + (" [!]" if report["matching_entity_sources_count"] else " [✓] 0건"))
-                print(f"• 관계 sources 잔존 참조    : {report['matching_relation_sources_count']} 건" + (" [!]" if report["matching_relation_sources_count"] else " [✓] 0건"))
+                print(f"• Pattern or keyword        : '{pattern}'")
+                print(f"• Documents that remain     : {report['matching_documents_count']}" + (" [!]" if report["matching_documents_count"] else " [✓] 0"))
+                print(f"• L1 inbox records that remain: {report['matching_inbox_count']}" + (" [!]" if report["matching_inbox_count"] else " [✓] 0"))
+                print(f"• L2 disk artifacts that remain: {report['matching_disk_artifacts_count']}" + (" [!]" if report["matching_disk_artifacts_count"] else " [✓] 0"))
+                print(f"• Entity source references  : {report['matching_entity_sources_count']}" + (" [!]" if report["matching_entity_sources_count"] else " [✓] 0"))
+                print(f"• Relation source references: {report['matching_relation_sources_count']}" + (" [!]" if report["matching_relation_sources_count"] else " [✓] 0"))
                 print("-" * 60)
-            print(f"• 등록된 툼스톤 수          : {report['purged_tombstones_count']} 건")
-            print(f"• 툼스톤 위반 (부활된 문서) : {report['tombstone_violations_count']} 건" + (" [!]" if report["tombstone_violations_count"] else " [✓] 0건"))
+            print(f"• Tombstones                : {report['purged_tombstones_count']}")
+            print(f"• Tombstone violations      : {report['tombstone_violations_count']}" + (" [!]" if report["tombstone_violations_count"] else " [✓] 0"))
             reclaim_kb = report["reclaimable_bytes"] / 1024
-            print(f"• DB Freelist (미회수 공간) : {report['freelist_pages']} pages ({reclaim_kb:.1f} KB)")
+            print(f"• DB freelist (free space)  : {report['freelist_pages']} pages ({reclaim_kb:.1f} KB)")
             print("=" * 60)
             if report["clean"]:
-                print("[✓] 클린: 오염 데이터의 잔재가 발견되지 않았습니다.")
+                print("[✓] Clean: Claire found no residue of polluted data.")
                 return 0
             else:
-                print("[!] 경고: 오염 잔재 또는 툼스톤 위반 항목이 검출되었습니다.")
+                print("[!] Warning: Claire found pollution residue or tombstone violations.")
                 return 1
 
         # 3. 종합 전체 감사 (ALL)
@@ -600,12 +600,12 @@ def cmd_audit(args) -> int:
                 print(json.dumps(combined, ensure_ascii=False, indent=2))
                 return 0 if is_clean else 1
 
-            print("claire audit: [전체] 지식그래프 및 시스템 무결성 종합 감사")
+            print("claire audit: [all] Full audit of the knowledge graph and the system")
             print("=" * 60)
-            print(f"• 지식그래프 무결성  : {'[✓] 정상' if graph_rep['is_healthy'] else '[!] 결함 감지 (--check graph --heal 로 수복 가능)'}")
-            print(f"• 오염 잔재 및 툼스톤: {'[✓] 클린' if resid_rep['clean'] else '[!] 오염 잔재 발견'}")
-            print(f"• 등록된 툼스톤 수   : {resid_rep['purged_tombstones_count']} 건")
-            print(f"• 총 문서/엔티티 수  : {graph_rep['total_documents']}건 / {graph_rep['total_entities']}건")
+            print(f"• Knowledge graph integrity: {'[✓] correct' if graph_rep['is_healthy'] else '[!] defects found (--check graph --heal repairs them)'}")
+            print(f"• Pollution and tombstones: {'[✓] clean' if resid_rep['clean'] else '[!] pollution residue found'}")
+            print(f"• Tombstones              : {resid_rep['purged_tombstones_count']}")
+            print(f"• Documents / entities    : {graph_rep['total_documents']} / {graph_rep['total_entities']}")
             print("=" * 60)
             return 0 if is_clean else 1
 
@@ -635,26 +635,26 @@ def cmd_artifact_migrate(args) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result["errors"] > 0 else 0
 
-    mode_str = "APPLY (실제 변환)" if apply else "DRY-RUN (시뮬레이션)"
+    mode_str = "APPLY (real conversion)" if apply else "DRY-RUN (simulation)"
     print(f"=== Artifact Compression Migration ({mode_str}) ===")
-    print(f"  총 아티팩트 대상: {result['total']}건")
-    print(f"  변환 완료/예정:   {result['migrated']}건")
-    print(f"  이미 zstd 변환됨: {result['already_zst']}건")
-    print(f"  변환 오류:        {result['errors']}건")
+    print(f"  Artifacts in scope:   {result['total']}")
+    print(f"  Converted or to convert: {result['migrated']}")
+    print(f"  Already zstd:         {result['already_zst']}")
+    print(f"  Conversion errors:    {result['errors']}")
     if result["bytes_before"] > 0:
         kb_before = result["bytes_before"] / 1024
         kb_after = result["bytes_after"] / 1024
-        print(f"  용량 변화:        {kb_before:.1f} KB -> {kb_after:.1f} KB")
-        print(f"  절감율:           {result['savings_pct']}%")
+        print(f"  Size change:          {kb_before:.1f} KB -> {kb_after:.1f} KB")
+        print(f"  Savings:              {result['savings_pct']}%")
 
     if result["errors"] > 0:
-        print(f"\n[오류 내역 ({result['errors']}건)]")
+        print(f"\n[errors ({result['errors']})]")
         for err in result.get("error_details", [])[:10]:
             print(f"  - doc_id={err.get('doc_id')}: {err.get('error')}")
         return 1
 
     if not apply and result["migrated"] > 0:
-        print("\n실제 변환을 적용하려면 --apply 옵션을 추가하여 다시 실행하십시오.")
+        print("\nTo apply the conversion, run the command again with the option --apply.")
 
     return 0
 
@@ -672,8 +672,8 @@ def cmd_theme(args) -> int:
     if action in ("define", "update", "delete"):
         if not getattr(s, "multi_theme", False):
             print(
-                "[오류] 멀티 테마 모드가 비활성화되어 있습니다.\n"
-                "새 테마를 정의하거나 수정/삭제하려면 환경변수 CLAIRE_MULTI_THEME=1 설정이 필요합니다.",
+                "[error] Multi-theme mode is off.\n"
+                "To make, change, or delete a theme, set the environment variable CLAIRE_MULTI_THEME=1.",
                 file=sys.stderr,
             )
             return 1
@@ -694,8 +694,8 @@ def cmd_theme(args) -> int:
             out = [{
                 "id": 0,
                 "seq": 0,
-                "label": "기본 지식베이스",
-                "description": "일반 수집 자료 및 기본 지식",
+                "label": "Default knowledge base",
+                "description": "General collected material and basic knowledge",
                 "icon": "📚",
                 "db_path": str(s.db_path),
                 "is_default": True,
@@ -705,15 +705,15 @@ def cmd_theme(args) -> int:
                 print(json.dumps({"themes": out, "multi_theme": False}, ensure_ascii=False, indent=2))
                 return 0
 
-            print("Claire Bible 테마 목록 (싱글 테마 모드 / CLAIRE_MULTI_THEME=0)")
+            print("Claire Bible themes (single-theme mode / CLAIRE_MULTI_THEME=0)")
             print("=" * 68)
-            print(f"{'ID':<4} {'아이콘':<4} {'레이블':<22} {'문서/엔티티/관계':<18} {'기본여부'}")
+            print(f"{'ID':<4} {'Icon':<4} {'Label':<22} {'Docs/Entities/Rels':<18} {'Default'}")
             print("-" * 68)
             st = f"{stats['documents']} / {stats['entities']} / {stats['relations']}"
-            print(f"{0:<4} {'📚':<4} {'기본 지식베이스':<22} {st:<18} {'★ 기본'}")
+            print(f"{0:<4} {'📚':<4} {'Default knowledge base':<22} {st:<18} {'★ default'}")
             print(f"     ㄴ DB  : {s.db_path}")
             print("=" * 68)
-            print("  ※ 멀티 테마를 활성화하려면 환경변수 CLAIRE_MULTI_THEME=1을 설정하십시오.")
+            print("  ※ To use multi-theme mode, set the environment variable CLAIRE_MULTI_THEME=1.")
             return 0
         tm.reload()
         themes = tm.list_themes()
@@ -739,23 +739,23 @@ def cmd_theme(args) -> int:
             print(json.dumps({"themes": out}, ensure_ascii=False, indent=2))
             return 0
 
-        print(f"Claire Bible 테마 목록 (총 {len(out)}개)")
+        print(f"Claire Bible themes ({len(out)} in total)")
         print("=" * 82)
-        print(f"{'ID':<4} {'아이콘':<4} {'레이블':<18} {'문서/엔티티/관계':<16} {'공개여부':<8} {'협력자':<8} {'발표':<6} {'기본여부'}")
+        print(f"{'ID':<4} {'Icon':<4} {'Label':<18} {'Docs/Entities/Rels':<16} {'Public':<8} {'Collab':<8} {'Slides':<6} {'Default'}")
         print("-" * 82)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
-            is_def = "★ 기본" if d["is_default"] else ""
-            pub_st = "공개" if d.get("is_public", True) else "비공개 🔒"
-            collab_st = "공개" if d.get("is_collaborator_accessible", True) else "차단"
+            is_def = "★ default" if d["is_default"] else ""
+            pub_st = "public" if d.get("is_public", True) else "private 🔒"
+            collab_st = "open" if d.get("is_collaborator_accessible", True) else "blocked"
             if d["is_default"]:
                 collab_st = "-"
             pres_st = "ON 📊" if d.get("presentation_enabled", False) else "OFF"
             print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
             if d.get("description"):
-                print(f"     ㄴ 설명: {d['description']}")
+                print(f"     - Description: {d['description']}")
             if d.get("default_focus"):
-                print(f"     ㄴ 기본 초점: {d['default_focus']}")
+                print(f"     - Default focus: {d['default_focus']}")
             print(f"     ㄴ DB  : {d['db_path']}")
         print("=" * 82)
         return 0
@@ -763,7 +763,7 @@ def cmd_theme(args) -> int:
     elif action == "define":
         label = str(getattr(args, "label", "") or "").strip()
         if not label:
-            print("[오류] --label 옵션으로 테마 이름을 지정해야 합니다.", file=sys.stderr)
+            print("[error] Give the theme name with the option --label.", file=sys.stderr)
             return 1
         desc = str(getattr(args, "desc", "") or getattr(args, "description", "") or "").strip()
         icon = str(getattr(args, "icon", "") or "📁").strip()
@@ -788,24 +788,24 @@ def cmd_theme(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
             else:
-                print(f"[성공] 새 테마 #{theme.id} 정의 완료!")
+                print(f"[done] Theme #{theme.id} is made.")
                 print(f"  • ID         : {theme.id}")
-                print(f"  • 레이블      : {theme.icon} {theme.label}")
-                print(f"  • 공개 여부   : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
-                print(f"  • 협력자 공개 : {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
-                print(f"  • 프레젠테이션 : {'활성 (ON 📊)' if theme.presentation_enabled else '비활성 (OFF 🚫)'}")
-                print(f"  • 기본 초점   : {theme.default_focus or '(없음)'}")
-                print(f"  • 설명        : {theme.description or '(없음)'}")
-                print(f"  • SQLite 경로 : {theme.db_path}")
+                print(f"  • Label        : {theme.icon} {theme.label}")
+                print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
+                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
+                print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
+                print(f"  • Default focus: {theme.default_focus or '(none)'}")
+                print(f"  • Description  : {theme.description or '(none)'}")
+                print(f"  • SQLite path  : {theme.db_path}")
             return 0
         except Exception as exc:
-            print(f"[오류] 테마 정의 실패: {exc}", file=sys.stderr)
+            print(f"[error] Claire cannot make the theme: {exc}", file=sys.stderr)
             return 1
 
     elif action == "update":
         theme_id = getattr(args, "id", None)
         if theme_id is None:
-            print("[오류] 수정할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            print("[error] Give the ID of the theme to change.", file=sys.stderr)
             return 1
         label = getattr(args, "label", None)
         desc = getattr(args, "desc", None) or getattr(args, "description", None)
@@ -828,37 +828,37 @@ def cmd_theme(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
             else:
-                print(f"[성공] 테마 #{theme.id} 메타데이터 수정 완료!")
-                print(f"  • 레이블     : {theme.icon} {theme.label}")
-                print(f"  • 공개 여부  : {'공개 (Public)' if theme.is_public else '비공개 (Private 🔒)'}")
-                print(f"  • 협력자 공개: {'공개 (Collaborator Allowed)' if theme.is_collaborator_accessible else '차단 (Collaborator Blocked)'}")
-                print(f"  • 프레젠테이션: {'활성 (ON 📊)' if theme.presentation_enabled else '비활성 (OFF 🚫)'}")
-                print(f"  • 기본 초점  : {theme.default_focus or '(없음)'}")
-                print(f"  • 설명       : {theme.description or '(없음)'}")
-                print(f"  (물리 디렉터리 경로는 변경되지 않고 유지됩니다: {theme.db_path})")
+                print(f"[done] The metadata of theme #{theme.id} is changed.")
+                print(f"  • Label        : {theme.icon} {theme.label}")
+                print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
+                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
+                print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
+                print(f"  • Default focus: {theme.default_focus or '(none)'}")
+                print(f"  • Description  : {theme.description or '(none)'}")
+                print(f"  (The directory path does not change: {theme.db_path})")
             return 0
         except Exception as exc:
-            print(f"[오류] 테마 수정 실패: {exc}", file=sys.stderr)
+            print(f"[error] Claire cannot change the theme: {exc}", file=sys.stderr)
             return 1
 
     elif action in ("delete", "reset"):
         theme_id = getattr(args, "id", None)
         if theme_id is None:
-            verb = "삭제" if action == "delete" else "리셋"
-            print(f"[오류] {verb}할 테마의 ID를 지정해야 합니다.", file=sys.stderr)
+            verb = "delete" if action == "delete" else "reset"
+            print(f"[error] Give the ID of the theme to {verb}.", file=sys.stderr)
             return 1
         try:
             target_theme = tm.get_theme(theme_id, label_match="partial")
         except Exception as exc:
-            print(f"[오류] 대상 테마를 찾을 수 없습니다: {exc}", file=sys.stderr)
+            print(f"[error] The theme is not found: {exc}", file=sys.stderr)
             return 1
 
         if action == "delete":
             if target_theme.is_default or target_theme.id == 0:
-                print(f"[오류] 기본 테마(ID {target_theme.id})는 삭제할 수 없습니다.", file=sys.stderr)
+                print(f"[error] You cannot delete the default theme (ID {target_theme.id}).", file=sys.stderr)
                 return 1
             if not getattr(tm.settings, "multi_theme", False):
-                print("[오류] 멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)", file=sys.stderr)
+                print("[error] Multi-theme mode is off (set CLAIRE_MULTI_THEME=1)", file=sys.stderr)
                 return 1
 
         purge = action == "delete" and getattr(args, "purge", False)
@@ -876,41 +876,41 @@ def cmd_theme(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "plan": plan}, ensure_ascii=False, indent=2))
             else:
-                verb = "삭제" if action == "delete" else "리셋"
-                print(f"[Dry-Run] 테마 #{target_theme.id} [{target_theme.label}] {verb} 계획 (변경 없음)")
+                verb = "delete" if action == "delete" else "reset"
+                print(f"[Dry-Run] Plan to {verb} theme #{target_theme.id} [{target_theme.label}] (no change)")
                 if action == "delete":
-                    print("  • 레지스트리에서 제거 : 예")
-                    print(f"  • 데이터 영구 소각    : {'예' if purge else '아니오 (--purge 미지정)'}")
+                    print("  • Remove from the registry: yes")
+                    print(f"  • Purge the data permanently: {'yes' if purge else 'no (--purge is not given)'}")
                 else:
-                    print(f"  • 테마 ID / URI 보존  : #{target_theme.id} (?theme={target_theme.id})")
+                    print(f"  • Theme ID / URI kept    : #{target_theme.id} (?theme={target_theme.id})")
                 if counts is not None:
-                    print(f"  • 소각될 문서 수      : {counts['documents']} 건")
-                    print(f"  • 소각될 엔티티 수    : {counts['entities']} 건")
-                    print(f"  • 소각될 관계 수      : {counts['relations']} 건")
-                print(f"실제로 실행하려면 --apply 를 붙이십시오: claire theme {action} {theme_id} --apply")
+                    print(f"  • Documents to purge     : {counts['documents']}")
+                    print(f"  • Entities to purge      : {counts['entities']}")
+                    print(f"  • Relations to purge     : {counts['relations']}")
+                print(f"To do it, add --apply: claire theme {action} {theme_id} --apply")
             return 0
 
         if removes_data and not getattr(args, "yes", False):
             if not sys.stdin.isatty():
                 print(
-                    f"\n[오류] 비대화형 환경에서는 --yes (-y) 옵션을 함께 명시하여 실행하십시오:\n  claire theme {action} {theme_id} --apply --yes",
+                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire theme {action} {theme_id} --apply --yes",
                     file=sys.stderr,
                 )
                 return 2
             try:
                 if action == "delete":
-                    prompt = f"[경고] 테마 #{target_theme.id} [{target_theme.label}]를 삭제하고 데이터를 영구 소각하시겠습니까? (y/N): "
+                    prompt = f"[warning] Delete theme #{target_theme.id} [{target_theme.label}] and purge its data permanently? (y/N): "
                 else:
                     prompt = (
-                        f"[경고] 테마 #{target_theme.id} [{target_theme.label}]의 모든 문서, 지식 노드, 관계 데이터를 완전히 초기화하시겠습니까?\n"
-                        f"      테마 ID 및 고유 호출 URI(?theme={target_theme.id})는 영구 보존됩니다. (y/N): "
+                        f"[warning] Reset all documents, knowledge nodes, and relations of theme #{target_theme.id} [{target_theme.label}]?\n"
+                        f"      The theme ID and its URI (?theme={target_theme.id}) stay. (y/N): "
                     )
                 confirm = input(prompt)
                 if confirm.strip().lower() not in ("y", "yes"):
-                    print("작업이 취소되었습니다.")
+                    print("The operation is cancelled.")
                     return 0
             except (EOFError, KeyboardInterrupt):
-                print("\n작업이 취소되었습니다.")
+                print("\nThe operation is cancelled.")
                 return 0
 
         if action == "delete":
@@ -919,10 +919,10 @@ def cmd_theme(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
                 else:
-                    print(f"[성공] 테마 #{theme.id} [{theme.label}] 삭제 완료! (데이터 소각: {'예' if purge else '아니오'})")
+                    print(f"[done] Theme #{theme.id} [{theme.label}] is deleted. (data purged: {'yes' if purge else 'no'})")
                 return 0
             except Exception as exc:
-                print(f"[오류] 테마 삭제 실패: {exc}", file=sys.stderr)
+                print(f"[error] Claire cannot delete the theme: {exc}", file=sys.stderr)
                 return 1
 
         try:
@@ -930,26 +930,26 @@ def cmd_theme(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
             else:
-                print(f"[성공] 테마 #{stats['theme_id']} [{stats['theme_label']}] 데이터 완전 초기화 완료!")
-                print(f"  • 테마 ID / URI   : #{stats['theme_id']} (?theme={stats['theme_id']}) (보존됨)")
-                print(f"  • 소각된 문서 수   : {stats['deleted_documents']} 건")
-                print(f"  • 소각된 엔티티 수 : {stats['deleted_entities']} 건")
-                print(f"  • 소각된 관계 수   : {stats['deleted_relations']} 건")
-                print("  (모든 지식 그래프 및 문서가 100% 클린 리셋되었습니다. 새로운 적재를 시작할 수 있습니다.)")
+                print(f"[done] All data of theme #{stats['theme_id']} [{stats['theme_label']}] is reset.")
+                print(f"  • Theme ID / URI    : #{stats['theme_id']} (?theme={stats['theme_id']}) (kept)")
+                print(f"  • Documents purged  : {stats['deleted_documents']}")
+                print(f"  • Entities purged   : {stats['deleted_entities']}")
+                print(f"  • Relations purged  : {stats['deleted_relations']}")
+                print("  (The knowledge graph and the documents are fully reset. You can start a new ingest.)")
             return 0
         except Exception as exc:
-            print(f"[오류] 테마 리셋 실패: {exc}", file=sys.stderr)
+            print(f"[error] Claire cannot reset the theme: {exc}", file=sys.stderr)
             return 1
 
     else:
-        print(f"[오류] 알 수 없는 동작: {action}", file=sys.stderr)
+        print(f"[error] Unknown action: {action}", file=sys.stderr)
         return 1
 
 
 def cmd_stats(args) -> int:
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     c = dbm.counts(conn)
@@ -978,7 +978,7 @@ def cmd_queue(args) -> int:
     limit = getattr(args, "limit", 20) or 20
 
     if action == "list" and queue_name is None:
-        print("claire queue list: 조회할 큐를 지정하십시오 (inbox | refresh | expand).", file=sys.stderr)
+        print("claire queue list: Give the queue to show (inbox | refresh | expand).", file=sys.stderr)
         return 2
 
     if getattr(args, "json", False):
@@ -1027,13 +1027,13 @@ def cmd_replay_failed(args) -> int:
     include_permanent = bool(getattr(args, "include_failed", False))
     results = svc.replay_failed(limit=args.limit, include_permanent=include_permanent)
     if not results:
-        print("재적재할 실패 항목 없음.")
+        print("No failed item to ingest again.")
         return 0
     ok = sum(1 for _, r in results if r.error is None and not r.duplicate)
     for inbox_id, r in results:
         status = "OK" if r.error is None else f"ERR:{r.error[:50]}"
         print(f"  inbox#{inbox_id}: {status}")
-    print(f"재적재 {len(results)}건 중 성공 {ok}")
+    print(f"Ingested again: {ok} of {len(results)} succeeded")
     return 0
 
 
@@ -1049,12 +1049,12 @@ def cmd_recover_run(args) -> int:
     conn.close()
 
     if due_count == 0:
-        print("재적재 대상(도래분) 없음.")
+        print("No item is due for a new ingest.")
         return 0
 
     svc = IngestService(s)
     try:
-        with track_batch_progress("수신 실패 자동 복구", due_count) as reporter:
+        with track_batch_progress("Automatic recovery of failed collections", due_count) as reporter:
             results = svc.recover_failed(
                 max_attempts=args.max_attempts, base_delay=args.base_delay, limit=args.limit,
                 reporter=reporter)
@@ -1066,11 +1066,11 @@ def cmd_recover_run(args) -> int:
         if r["status"] in ("done", "duplicate"):
             print(f"  ✅ inbox#{r['inbox_id']}: {r['status']}")
         elif r["status"] == "failed":
-            print(f"  ⛔ inbox#{r['inbox_id']}: 영구실패 {str(r.get('error',''))[:50]}")
+            print(f"  ⛔ inbox#{r['inbox_id']}: permanent failure {str(r.get('error',''))[:50]}")
         else:
-            print(f"  ↻ inbox#{r['inbox_id']}: 재시도예약 {str(r.get('error',''))[:50]}")
+            print(f"  ↻ inbox#{r['inbox_id']}: retry scheduled {str(r.get('error',''))[:50]}")
     ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
-    print(f"처리 {len(results)}건 중 복구 {ok}")
+    print(f"Recovered {ok} of {len(results)}")
     return 0
 
 
@@ -1079,15 +1079,15 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
     from .notify import notify_owner
 
     s = get_settings()
-    lines = [f"⛔ claire 자동복구 영구실패 {len(failed_items)}건 (재시도 상한 도달)"]
+    lines = [f"⛔ claire automatic recovery: {len(failed_items)} permanent failures (retry limit reached)"]
     for r in failed_items[:5]:
         theme = f"theme#{r['_theme_id']} " if "_theme_id" in r else ""
         lines.append(f"• {theme}inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
     if len(failed_items) > 5:
-        lines.append(f"… 외 {len(failed_items) - 5}건")
-    lines.append("텔레그램 `/failed` 로 목록 확인 후 `/retry <번호>` 로 재시도하세요.")
+        lines.append(f"… and {len(failed_items) - 5} more")
+    lines.append("Use `/failed` in Telegram to see the list, then `/retry <number>` to try again.")
     sent = notify_owner(s.telegram_bot_token, s.notify_chat_id, "\n".join(lines))
-    print(f"[recover] 영구실패 알림 {'전송' if sent else '미전송(미설정/실패)'}",
+    print(f"[recover] Permanent failure notice {'sent' if sent else 'not sent (not configured or failed)'}",
           flush=True)
 
 
@@ -1312,8 +1312,8 @@ def cmd_recover_loop(args) -> int:
 
     s = get_settings()
     state = _ThemeLoopState()
-    print(f"claire recover-loop 시작 (interval={args.interval}s, batch={args.batch}, "
-          f"max_attempts={args.max_attempts}). Ctrl+C 종료.", flush=True)
+    print(f"claire recover-loop starts (interval={args.interval}s, batch={args.batch}, "
+          f"max_attempts={args.max_attempts}). Ctrl+C stops it.", flush=True)
     while True:
         try:
             cycle = _run_recover_cycle(s, args, state, IngestService)
@@ -1321,21 +1321,21 @@ def cmd_recover_loop(args) -> int:
             if results:
                 ok = sum(1 for r in results if r["status"] in ("done", "duplicate"))
                 failed_items = [r for r in results if r["status"] == "failed"]
-                print(f"[recover] {len(results)}건 시도, 복구 {ok}, 영구실패 "
+                print(f"[recover] {len(results)} tried, {ok} recovered, permanent failures "
                       f"{len(failed_items)}", flush=True)
                 # 영구실패(=재시도 상한 도달)는 사람이 봐야 하는 신호 → 소유자 DM 경보.
                 if failed_items:
                     _alert_permanent_failures(failed_items)
             else:
-                print("[recover] 재적재 대상 없음, 대기", flush=True)
+                print("[recover] Nothing to ingest again; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[recover] theme#{error['theme_id']} [{error['theme_label']}] 오류: "
+                    f"[recover] theme#{error['theme_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[recover] 오류: {_loop_error_text(e)}", flush=True)
+            print(f"[recover] Error: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -1347,7 +1347,7 @@ def cmd_refresh_mark(args) -> int:
     n = svc.mark_thin_for_refresh(
         max_len=args.max_len, host=args.host, reason=args.reason,
         include_partial=args.include_partial)
-    print(f"갱신 대상 {n}건 등록 (max_len<{args.max_len}"
+    print(f"Queued {n} documents to refresh (max_len<{args.max_len}"
           + (f", host={args.host}" if args.host else "")
           + (", +partial" if args.include_partial else "")
           + f", reason={args.reason})")
@@ -1366,12 +1366,12 @@ def cmd_refresh_run(args) -> int:
     conn.close()
 
     if not rows:
-        print("갱신 대기 항목 없음.")
+        print("No item waits for a refresh.")
         return 0
 
     svc = IngestService(s)
     try:
-        with track_batch_progress("문서 갱신 큐 처리", len(rows)) as reporter:
+        with track_batch_progress("Document refresh queue", len(rows)) as reporter:
             results = svc.run_refresh_queue(limit=args.limit, reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
@@ -1379,14 +1379,14 @@ def cmd_refresh_run(args) -> int:
 
     for r in results:
         if r["status"] == "done":
-            print(f"  ✅ {r['document_id']}: {r['old_len']}→{r['new_len']}자 "
-                  f"(신규 {r.get('entities_created',0)}·연결 {r.get('entities_linked',0)})")
+            print(f"  ✅ {r['document_id']}: {r['old_len']}→{r['new_len']} chars "
+                  f"(new {r.get('entities_created',0)} · linked {r.get('entities_linked',0)})")
         elif r["status"] == "nochange":
-            print(f"  = {r['document_id']}: 변화 없음({r['new_len']}자)")
+            print(f"  = {r['document_id']}: no change ({r['new_len']} chars)")
         else:
             print(f"  ❌ {r['document_id']}: {r.get('error','')[:60]}")
     done = sum(1 for r in results if r["status"] == "done")
-    print(f"처리 {len(results)}건 중 갱신 {done}")
+    print(f"Refreshed {done} of {len(results)}")
     return 0
 
 
@@ -1398,28 +1398,28 @@ def cmd_refresh_loop(args) -> int:
 
     s = get_settings()
     state = _ThemeLoopState()
-    print(f"claire refresh-loop 시작 (interval={args.interval}s, batch={args.batch}). Ctrl+C 종료.", flush=True)
+    print(f"claire refresh-loop starts (interval={args.interval}s, batch={args.batch}). Ctrl+C stops it.", flush=True)
     while True:
         try:
             cycle = _run_refresh_cycle(s, args, state, IngestService)
             due = cycle["enqueued"]
             if due:
-                print(f"[refresh] watch 재크롤 {due}건 큐 등록", flush=True)
+                print(f"[refresh] Queued {due} watched pages for a new crawl", flush=True)
             results = cycle["results"]
             if results:
                 done = sum(1 for r in results if r["status"] == "done")
-                print(f"[refresh] {len(results)}건 처리, 갱신 {done}", flush=True)
+                print(f"[refresh] {len(results)} processed, {done} refreshed", flush=True)
             else:
                 # 큐가 비어도 살아있음을 알리는 heartbeat(로그 가시성 확보).
-                print("[refresh] 큐 비어있음, 대기", flush=True)
+                print("[refresh] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
                     f"[refresh] theme#{error['theme_id']} [{error['theme_label']}] "
-                    f"{error['stage']} 오류: {error['error']}",
+                    f"{error['stage']} error: {error['error']}",
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[refresh] 오류: {_loop_error_text(e)}", flush=True)
+            print(f"[refresh] Error: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -1432,18 +1432,18 @@ def _notify_expansion(results: list[dict]) -> None:
         return
     s = get_settings()
     total = sum(r["stored"] for r in stored)
-    lines = [f"🔗 1홉 자동확장: {total}개 링크를 따라가 지식에 추가했습니다."]
+    lines = [f"🔗 One-hop expansion: Claire followed {total} links and added them to the knowledge base."]
     for r in stored[:5]:
         theme_id = r.get("_theme_id")
         theme_label = str(r.get("_theme_label") or "").strip()
         if theme_id is not None:
             label = f" [{theme_label}]" if theme_label else ""
-            lines.append(f"theme#{theme_id}{label}: {r['stored']}건 적재")
+            lines.append(f"theme#{theme_id}{label}: {r['stored']} ingested")
         for f in r.get("followed", []):
             if f.get("stored"):
                 lines.append(f"• {f.get('title') or f.get('url')}")
     sent = notify_owner(s.telegram_bot_token, s.notify_chat_id, "\n".join(lines[:12]))
-    print(f"[expand] 적재 알림 {'전송' if sent else '미전송(미설정/실패)'}", flush=True)
+    print(f"[expand] Ingest notice {'sent' if sent else 'not sent (not configured or failed)'}", flush=True)
 
 
 def cmd_expand_run(args) -> int:
@@ -1458,12 +1458,12 @@ def cmd_expand_run(args) -> int:
     conn.close()
 
     if not rows:
-        print("확장 대기 항목 없음.")
+        print("No item waits for expansion.")
         return 0
 
     svc = IngestService(s)
     try:
-        with track_batch_progress("1홉 자동확장 큐 처리", len(rows)) as reporter:
+        with track_batch_progress("One-hop expansion queue", len(rows)) as reporter:
             results = svc.run_expand_queue(limit=args.limit, reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
@@ -1473,9 +1473,9 @@ def cmd_expand_run(args) -> int:
         if r.get("error"):
             print(f"  ❌ {r.get('document_id', '?')}: {str(r['error'])[:60]}")
         else:
-            print(f"  🔗 {r.get('document_id', '?')}: 후보 {r.get('candidates', 0)}·선별 {r.get('selected', 0)}"
-                  f"·적재 {r.get('stored', 0)}·스킵 {r.get('skipped', 0)}")
-    print(f"처리 {len(results)}건, 적재 {sum(r.get('stored',0) for r in results)}")
+            print(f"  🔗 {r.get('document_id', '?')}: candidates {r.get('candidates', 0)} · selected {r.get('selected', 0)}"
+                  f" · ingested {r.get('stored', 0)} · skipped {r.get('skipped', 0)}")
+    print(f"{len(results)} processed, {sum(r.get('stored',0) for r in results)} ingested")
     return 0
 
 
@@ -1552,26 +1552,26 @@ def cmd_expand_loop(args) -> int:
 
     s = get_settings()
     state = _ThemeLoopState()
-    print(f"claire expand-loop 시작 (interval={args.interval}s, batch={args.batch}). "
-          "Ctrl+C 종료.", flush=True)
+    print(f"claire expand-loop starts (interval={args.interval}s, batch={args.batch}). "
+          "Ctrl+C stops it.", flush=True)
     while True:
         try:
             cycle = _run_expand_cycle(s, args, state, IngestService)
             results = cycle["results"]
             if results:
                 stored = sum(r.get("stored", 0) for r in results)
-                print(f"[expand] {len(results)}건 처리, 적재 {stored}", flush=True)
+                print(f"[expand] {len(results)} processed, {stored} ingested", flush=True)
                 _notify_expansion(results)
             else:
-                print("[expand] 큐 비어있음, 대기", flush=True)
+                print("[expand] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[expand] theme#{error['theme_id']} [{error['theme_label']}] 오류: "
+                    f"[expand] theme#{error['theme_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
-            print(f"[expand] 오류: {_loop_error_text(e)}", flush=True)
+            print(f"[expand] Error: {_loop_error_text(e)}", flush=True)
         time.sleep(max(60, args.interval))
 
 
@@ -1582,7 +1582,7 @@ def cmd_ingest(args) -> int:
 
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 적재 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme for the ingest: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     provider = get_provider(s)
@@ -1592,7 +1592,7 @@ def cmd_ingest(args) -> int:
     if not focus and theme and not theme.is_default and getattr(theme, "default_focus", None):
         focus = theme.default_focus.strip() or None
         if focus:
-            print(f"  [기본 초점 적용: {focus}]")
+            print(f"  [Default focus applied: {focus}]")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -1608,7 +1608,7 @@ def cmd_ingest(args) -> int:
 
     # 1홉 확장 후보: CLI 에서는 --expand 플래그로 즉시 재귀 적재(상한 내).
     if report.candidates and args.expand:
-        print(f"\n[expand] {len(report.candidates)}개 후보 적재 중…")
+        print(f"\n[expand] Ingesting {len(report.candidates)} candidates…")
         for url in report.candidates:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          data_dir=s.data_dir, source="cli-expand",
@@ -1616,7 +1616,7 @@ def cmd_ingest(args) -> int:
                          focus=focus, effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
-        print("\n[expand] 후보 URL (적재하려면 --expand):")
+        print("\n[expand] Candidate URLs (use --expand to ingest them):")
         for url in report.candidates:
             print(f"  - {url}")
 
@@ -1632,14 +1632,14 @@ def cmd_reingest(args) -> int:
 
     s, theme = get_effective_settings(args)
     if theme and not getattr(args, "json", False):
-        print(f"[{theme.icon} 재적재 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme for the new ingest: #{theme.id} - {theme.label}]")
 
     target = getattr(args, "target", None)
     doc_id = getattr(args, "doc_id", None)
     url = getattr(args, "url", None)
     query_target = target or doc_id or url
     if not query_target:
-        print("claire reingest: [오류] 재적재할 대상(문서 ID, URL, 또는 텍스트)을 지정하십시오.", file=sys.stderr)
+        print("claire reingest: [error] Give the target to ingest again (document ID, URL, or text).", file=sys.stderr)
         return 2
 
     conn = dbm.connect(s.db_file)
@@ -1659,7 +1659,7 @@ def cmd_reingest(args) -> int:
     if untombstone:
         removed_tombstones = dbm.remove_tombstones(conn, target=query_target, doc_id=doc_id, url=url)
         if removed_tombstones and not is_json:
-            print(f"[untombstone] 툼스톤 {removed_tombstones}건 해제 완료 (재적재 허용됨)")
+            print(f"[untombstone] {removed_tombstones} tombstones removed (a new ingest is permitted)")
 
     # 2. 스마트 타깃 리졸버로 기존 문서 검색
     matched_targets = dbm.resolve_document_targets(
@@ -1672,8 +1672,8 @@ def cmd_reingest(args) -> int:
     # 만약 기존 문서가 없고, target이 툼스톤에 걸려있는지 검사
     if not matched_targets and not untombstone:
         if dbm.is_tombstoned(conn, url=url or target):
-            print("claire reingest: [오류] 대상 URL이 이전에 소각(Purge)되어 툼스톤으로 등록되어 있습니다.", file=sys.stderr)
-            print("재적재를 허용하려면 --untombstone 플래그를 추가하십시오:", file=sys.stderr)
+            print("claire reingest: [error] Claire purged the target URL before. A tombstone blocks it.", file=sys.stderr)
+            print("To permit a new ingest, add the flag --untombstone:", file=sys.stderr)
             print(f"  claire reingest '{query_target}' --untombstone --apply", file=sys.stderr)
             conn.close()
             return 1
@@ -1698,22 +1698,22 @@ def cmd_reingest(args) -> int:
                 conn.close()
                 return 0
 
-            print("claire reingest: [Dry-Run] 재적재 대상 분석 보고서 (실제 변경 안 됨)")
+            print("claire reingest: [Dry-Run] Report of the targets (nothing changes)")
             print("=" * 60)
-            print(f"• 일치하는 문서 수          : {len(matched_targets)} 건")
-            print(f"• 수집 분량                : {'전문 무절단 (full-content)' if full_content else '일반 (standard)'}")
+            print(f"• Matching documents       : {len(matched_targets)}")
+            print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
-                print(f"• 사고 수준 (effort)       : {effort}")
+                print(f"• Effort                   : {effort}")
             if focus:
-                print(f"• 지정 초점 (focus)        : {focus}")
+                print(f"• Focus                    : {focus}")
             print("-" * 60)
-            print("대상 문서 목록:")
+            print("Documents:")
             for m in matched_targets:
                 u = m.get("url") or m.get("canonical_url") or "no-url"
-                print(f"  - [{m['id']}] {m.get('title') or '(제목 없음)'} ({u})")
-                print("      수행 예정: 원문 재수집(refetch) → 엔티티/관계 재추출 → 벡터 임베딩 → 상세/요약 갱신")
+                print(f"  - [{m['id']}] {m.get('title') or '(no title)'} ({u})")
+                print("      Planned: refetch the source → extract entities and relations again → embed vectors → update the detail and the summary")
             print("=" * 60)
-            print("[안내] 실제 재적재를 실행하려면 --apply 옵션을 추가하십시오:")
+            print("[note] To ingest again, add the option --apply:")
             extra = " --full-content" if full_content else ""
             if effort:
                 extra += f" --effort {effort}"
@@ -1739,16 +1739,16 @@ def cmd_reingest(args) -> int:
                 conn.close()
                 return 0
 
-            print("claire reingest: [Dry-Run] 신규 적재 대상 분석 (기존 DB 문서 없음)")
+            print("claire reingest: [Dry-Run] Analysis of a new ingest (no document in the database)")
             print("=" * 60)
-            print(f"• 대상 페이로드            : {query_target}")
-            print(f"• 수집 분량                : {'전문 무절단 (full-content)' if full_content else '일반 (standard)'}")
+            print(f"• Target payload           : {query_target}")
+            print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
-                print(f"• 사고 수준 (effort)       : {effort}")
+                print(f"• Effort                   : {effort}")
             if focus:
-                print(f"• 지정 초점 (focus)        : {focus}")
+                print(f"• Focus                    : {focus}")
             print("=" * 60)
-            print("[안내] 실제 적재를 실행하려면 --apply 옵션을 추가하십시오:")
+            print("[note] To ingest, add the option --apply:")
             print(f"  claire reingest '{query_target}' --apply")
             conn.close()
             return 0
@@ -1757,13 +1757,13 @@ def cmd_reingest(args) -> int:
     confirmed = getattr(args, "yes", False)
     if not confirmed and sys.stdin.isatty() and len(matched_targets) > 1:
         try:
-            ans = input(f"\n정말 위 {len(matched_targets)}건의 문서를 재적재하시겠습니까? [y/N]: ").strip().lower()
+            ans = input(f"\nIngest the {len(matched_targets)} documents above again? [y/N]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\n재적재 작업이 취소되었습니다.")
+            print("\nThe new ingest is cancelled.")
             conn.close()
             return 0
         if ans not in ("y", "yes"):
-            print("재적재 작업이 취소되었습니다.")
+            print("The new ingest is cancelled.")
             conn.close()
             return 0
 
@@ -1777,7 +1777,7 @@ def cmd_reingest(args) -> int:
                 print(f"[{stage}]", flush=True)
 
     if matched_targets:
-        print("claire reingest: [재적재 시작] 원문 재수집 및 지식그래프 재구축 중...", flush=True)
+        print("claire reingest: [new ingest starts] Refetch of the sources and rebuild of the knowledge graph...", flush=True)
         res = svc.regenerate_components(
             target=target,
             doc_id=doc_id,
@@ -1796,18 +1796,18 @@ def cmd_reingest(args) -> int:
             return 0
 
         print("=" * 60)
-        print(f"• 재적재 완료 문서 수       : {res.get('count', len(matched_targets))} 건")
+        print(f"• Documents ingested again : {res.get('count', len(matched_targets))}")
         for t in res.get("targets", []):
-            print(f"  - [{t['document_id']}] {t.get('title') or '(제목 없음)'}")
+            print(f"  - [{t['document_id']}] {t.get('title') or '(no title)'}")
             if t.get("refetched") or t.get("refetched_full"):
-                print(f"      원문 재수집 완료: {t.get('new_len', 0):,}자")
+                print(f"      Source refetched: {t.get('new_len', 0):,} chars")
             if t.get("entities_created") is not None:
-                print(f"      지식 노드 신규: {t.get('entities_created', 0)} · 기존 연결: {t.get('entities_linked', 0)} · 관계: {t.get('relations_added', 0)}")
+                print(f"      New knowledge nodes: {t.get('entities_created', 0)} · linked: {t.get('entities_linked', 0)} · relations: {t.get('relations_added', 0)}")
             if t.get("error"):
-                print(f"      [오류]: {t['error']}")
+                print(f"      [error]: {t['error']}")
         return 0
     else:
-        print("claire reingest: [신규 적재 시작] 자료 수집 및 지식그래프 구축 중...", flush=True)
+        print("claire reingest: [ingest starts] Collection and build of the knowledge graph...", flush=True)
         from .extract.provider import get_provider
         from .ingest.pipeline import ingest
         from .store.vectors import make_vector_store
@@ -1859,11 +1859,11 @@ def cmd_reextract(args) -> int:
     conn.close()
 
     if total_docs == 0:
-        print("재추출 대상 문서 없음.")
+        print("No document to extract again.")
         return 0
 
     try:
-        with track_batch_progress(f"문서 재추출 ({svc.provider.name})", total_docs) as reporter:
+        with track_batch_progress(f"Extraction again ({svc.provider.name})", total_docs) as reporter:
             out = svc.reextract_all(
                 rebuild=not args.no_rebuild,
                 limit=args.limit,
@@ -1875,9 +1875,9 @@ def cmd_reextract(args) -> int:
     except KeyboardInterrupt:
         return 130
 
-    print(f"재추출 완료: 문서 {out['docs']} · 성공 {out['ok']} · 실패 {out['failed']}")
+    print(f"Extraction done: documents {out['docs']} · succeeded {out['ok']} · failed {out['failed']}")
     for e in out["errors"][:20]:
-        print(f"  - 실패 {e['document_id']}: {e['error']}")
+        print(f"  - failed {e['document_id']}: {e['error']}")
     return 0 if out["failed"] == 0 else 1
 
 
@@ -1903,12 +1903,12 @@ def cmd_backfill_detail(args) -> int:
 
     total_docs = len(target_ids)
     if total_docs == 0:
-        print("detail 백필 대상 문서 없음.")
+        print("No document needs a detail backfill.")
         return 0
 
     focus = getattr(args, "focus", None)
     try:
-        with track_batch_progress(f"detail 백필 ({svc.provider.name})", total_docs) as reporter:
+        with track_batch_progress(f"Detail backfill ({svc.provider.name})", total_docs) as reporter:
             out = svc.backfill_details(
                 limit=args.limit,
                 force=args.force,
@@ -1921,7 +1921,7 @@ def cmd_backfill_detail(args) -> int:
     except KeyboardInterrupt:
         return 130
 
-    print(f"백필 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
+    print(f"Backfill done: targets {out['docs']} · made {out['ok']} · skipped {out['skipped']}")
     return 0
 
 
@@ -1937,18 +1937,18 @@ def cmd_backfill_summary(args) -> int:
     conn.close()
 
     if total_docs == 0:
-        print("요약 백필 대상 문서 없음.")
+        print("No document needs a summary backfill.")
         return 0
 
     svc = IngestService(s)
     try:
-        with track_batch_progress("요약(summary) 백필", total_docs) as reporter:
+        with track_batch_progress("Summary backfill", total_docs) as reporter:
             out = svc.backfill_summaries(limit=args.limit, reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
         return 130
 
-    print(f"요약 백필 완료: 전체 {out['docs']} · 신규/갱신 {out['filled']} · 기존 유지 {out['already_had']}")
+    print(f"Summary backfill done: all {out['docs']} · new or updated {out['filled']} · kept {out['already_had']}")
     return 0
 
 
@@ -1962,7 +1962,7 @@ def cmd_regenerate(args) -> int:
     s, theme = get_effective_settings(args)
     svc = IngestService(s)
     if theme and not getattr(args, "json", False):
-        print(f"[{theme.icon} 재생성 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme to regenerate: #{theme.id} - {theme.label}]")
 
     target = getattr(args, "target", None)
     token = getattr(args, "token", None)
@@ -2033,29 +2033,29 @@ def cmd_regenerate(args) -> int:
             print(f"[!] {res['error']}")
             return 0
 
-        print("claire: [Dry-Run] 문서 컴포넌트 재생성 진단")
+        print("claire: [Dry-Run] Diagnosis of the document components to regenerate")
         print("=" * 60)
-        print(f"• 탐지/선택된 대상 문서 수 : {res['count']}건")
+        print(f"• Documents found or selected: {res['count']}")
         for idx, t in enumerate(res["targets"], 1):
             print(f"[{idx}] {t['title']} ({t['document_id']})")
             if t.get("canonical_url"):
                 print(f"    URL: {t['canonical_url']}")
             if t.get("is_error_page"):
-                print("    [!] 원문이 SSL/보안 오류 화면으로 감지됨 (--refetch 또는 --refetch-full 함께 사용 권장)")
+                print("    [!] The source looks like an SSL or security error page (use --refetch or --refetch-full)")
             if t.get("summary_corrupted"):
-                print("    [!] 요약 내 ADOC/마크업 문법 잔존 감지")
+                print("    [!] The summary has AsciiDoc or other markup")
             if t.get("summary_preface"):
-                print("    [!] 요약이 서문/소개문 메타 서술 형식으로 감지됨")
+                print("    [!] The summary looks like a preface or an introduction")
             if t.get("total_tables"):
-                print(f"    [📊] 표 {t['total_tables']}개 감지 (원문: {t.get('raw_tables_count',0)}개, 상세: {t.get('detail_tables_count',0)}개)")
+                print(f"    [📊] {t['total_tables']} tables found (source: {t.get('raw_tables_count',0)}, detail: {t.get('detail_tables_count',0)})")
                 if t.get("table_preview"):
                     first_line = t["table_preview"].splitlines()[0]
-                    print(f"         표 미리보기: {first_line}")
+                    print(f"         Table preview: {first_line}")
             summ_preview = (t['current_summary'][:150] + '...') if len(t['current_summary']) > 150 else t['current_summary']
-            print(f"    현재 요약: {summ_preview}")
-            print(f"    적용 예정 작업: {', '.join(t['actions'])}")
+            print(f"    Current summary: {summ_preview}")
+            print(f"    Planned actions: {', '.join(t['actions'])}")
         print("=" * 60)
-        print("실제 재생성 및 DB 덮어쓰기를 실행하려면 --apply 플래그를 추가하십시오:")
+        print("To regenerate and write to the database, add the flag --apply:")
         tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "[target]")
         comp_hint = "--detail" if detail else ("--summary" if summary else ("--graph" if graph else "--all"))
         print(f"  claire regenerate {tgt_hint} {comp_hint} --apply")
@@ -2086,7 +2086,7 @@ def cmd_regenerate(args) -> int:
 
     total_targets = diag.get("count", 0)
     try:
-        with track_batch_progress("문서 컴포넌트 재생성", total_targets) as reporter:
+        with track_batch_progress("Regeneration of document components", total_targets) as reporter:
             res = svc.regenerate_components(
                 target=target,
                 token=token,
@@ -2114,30 +2114,30 @@ def cmd_regenerate(args) -> int:
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
-    print("claire: 문서 컴포넌트 재생성 완료")
+    print("claire: Regeneration of the document components is complete")
     print("=" * 60)
-    print(f"• 갱신된 문서 수 : {res['count']}건")
-    print(f"• 사용 Provider  : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
+    print(f"• Documents updated: {res['count']}")
+    print(f"• Provider         : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
     for idx, t in enumerate(res["targets"], 1):
         print(f"[{idx}] {t['title']} ({t['document_id']})")
         if t.get("refetched_full"):
-            print(f"    원문 재수집 (전체 길이): 완료 ({t.get('new_len', 0)}자)")
+            print(f"    Source refetched (full length): done ({t.get('new_len', 0)} chars)")
         elif t.get("refetched"):
-            print(f"    원문 재수집 (길이 제한 적용): 완료 ({t.get('new_len', 0)}자)")
+            print(f"    Source refetched (with length limit): done ({t.get('new_len', 0)} chars)")
         elif t.get("refetch_error"):
-            print(f"    [!] 원문 재수집 실패: {t.get('refetch_error')}")
+            print(f"    [!] Source refetch failed: {t.get('refetch_error')}")
         if t.get("total_tables"):
-            print(f"    표 보존/추출 : 총 {t['total_tables']}개 표 반영")
+            print(f"    Tables kept or extracted: {t['total_tables']} tables")
         if t.get("entities_created") or t.get("entities_linked"):
             created = t.get("entities_created", 0)
             linked = t.get("entities_linked", 0)
             names = (t.get("new_entity_names") or []) + (t.get("linked_entity_names") or [])
             preview = ", ".join(names[:6]) + ("..." if len(names) > 6 else "")
-            print(f"    노드 추출  : 신규 {created}건 · 연결 {linked}건 ({preview})")
+            print(f"    Node extraction: new {created} · linked {linked} ({preview})")
         if t.get("relations_added"):
-            print(f"    관계 적재  : {t.get('relations_added')}건")
+            print(f"    Relations stored: {t.get('relations_added')}")
         if t.get("new_summary"):
-            print(f"    새 요약: {t['new_summary']}")
+            print(f"    New summary: {t['new_summary']}")
     print("=" * 60)
     return 0
 
@@ -2191,12 +2191,12 @@ def cmd_format_status(args) -> int:
             print(json.dumps(status, ensure_ascii=False, indent=2))
         else:
             fmt_label = status["target_format"].upper()
-            print(f"목표 포맷        : {fmt_label}")
-            print(f"전체 문서 수    : {status['total_docs']}건")
-            print(f"  - 목표 포맷 일치: {status['matching_docs']}건")
-            print(f"  - 포맷 불일치  : {status['mismatched_docs']}건")
-            print(f"  - detail 누락 : {status['missing_detail_docs']}건")
-            print(f"마이그레이션 대상: {status['target_docs']}건 (needs_migration={status['needs_migration']})")
+            print(f"Target format    : {fmt_label}")
+            print(f"Documents        : {status['total_docs']}")
+            print(f"  - In the target format: {status['matching_docs']}")
+            print(f"  - In another format   : {status['mismatched_docs']}")
+            print(f"  - Without detail      : {status['missing_detail_docs']}")
+            print(f"Migration targets: {status['target_docs']} (needs_migration={status['needs_migration']})")
         return 0
     finally:
         conn.close()
@@ -2225,42 +2225,42 @@ def cmd_format_migrate(args) -> int:
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return 0
 
-    print("claire: [포맷 마이그레이션 진단 현황]")
+    print("claire: [Format migration status]")
     print("=" * 60)
-    print(f"• 설정된 목표 포맷 (.env)  : {fmt_label} (CLAIRE_RENDER_FORMAT={status['target_format']})")
-    print(f"• 전체 문서 수             : {status['total_docs']} 건")
-    print(f"  - 목표 포맷 일치         : {status['matching_docs']} 건 ({fmt_label})")
-    print(f"  - 포맷 불일치 (변환 대상) : {status['mismatched_docs']} 건 ({other_label})")
-    print(f"  - 상세(detail) 누락     : {status['missing_detail_docs']} 건")
-    print(f"• 총 마이그레이션 대상     : {status['target_docs']} 건")
+    print(f"• Target format (.env)     : {fmt_label} (CLAIRE_RENDER_FORMAT={status['target_format']})")
+    print(f"• Documents                : {status['total_docs']}")
+    print(f"  - In the target format   : {status['matching_docs']} ({fmt_label})")
+    print(f"  - In another format      : {status['mismatched_docs']} ({other_label})")
+    print(f"  - Without detail         : {status['missing_detail_docs']}")
+    print(f"• Migration targets        : {status['target_docs']}")
     print("=" * 60)
 
     apply = getattr(args, "apply", False)
     dry_run = getattr(args, "dry_run", False)
 
     if not apply or dry_run:
-        print("\n[안내] 기본 Dry-Run 모드로 실행되어 실제 변경을 적용하지 않았습니다.")
-        print("실제 마이그레이션을 적용하려면 --apply 옵션을 사용하십시오:")
+        print("\n[note] This was a Dry-Run. Nothing is changed.")
+        print("To apply the migration, use the option --apply:")
         print(f"  claire format-migrate --apply --format {status['target_format']}")
         return 0
 
     if status["target_docs"] == 0:
-        print(f"\n[✓] 모든 문서가 이미 목표 포맷({fmt_label})입니다. 마이그레이션이 필요하지 않습니다.")
+        print(f"\n[✓] All documents are in the target format ({fmt_label}). No migration is necessary.")
         return 0
 
     confirmed = getattr(args, "yes", False)
     if not confirmed:
         if sys.stdin.isatty():
             try:
-                answer = input(f"\n위 계획대로 포맷 마이그레이션을 진행하시겠습니까? [y/N]: ").strip().lower()
+                answer = input(f"\nDo the format migration of the plan above? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print("\n마이그레이션 작업이 취소되었습니다.")
+                print("\nThe migration is cancelled.")
                 return 0
             if answer not in ("y", "yes"):
-                print("마이그레이션 작업이 취소되었습니다.")
+                print("The migration is cancelled.")
                 return 0
         else:
-            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print("\nIn a non-interactive environment, add the option --yes (-y):")
             print(f"  claire format-migrate --apply --yes --format {status['target_format']}")
             return 2
 
@@ -2268,13 +2268,13 @@ def cmd_format_migrate(args) -> int:
     from .progress import track_batch_progress
 
     try:
-        with track_batch_progress(f"포맷 마이그레이션 ({fmt_label})", status["target_docs"]) as reporter:
+        with track_batch_progress(f"Format migration ({fmt_label})", status["target_docs"]) as reporter:
             out = svc.backfill_details(limit=0, force=False, format=status["target_format"], reporter=reporter)
             reporter.print_summary()
     except KeyboardInterrupt:
         return 130
 
-    print(f"[✓] 포맷 마이그레이션 완료: 대상 {out['docs']} · 생성 {out['ok']} · 건너뜀 {out['skipped']}")
+    print(f"[✓] Format migration done: targets {out['docs']} · made {out['ok']} · skipped {out['skipped']}")
     return 0
 
 
@@ -2294,7 +2294,7 @@ def cmd_truncation_status(args) -> int:
             try:
                 doc_info = dbm.resolve_single_document_target(conn, raw_target)
                 if not doc_info:
-                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    print(f"Document not found: {raw_target}", file=sys.stderr)
                     return 1
                 target_doc_id = doc_info["id"]
             except ValueError as e:
@@ -2309,25 +2309,25 @@ def cmd_truncation_status(args) -> int:
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
-    print("claire: [원문 절단(슬라이싱) 및 메타데이터 현황]")
+    print("claire: [Source truncation and metadata status]")
     print("=" * 65)
-    print(f"• 전체 검사 문서 수             : {res['total_documents']} 건")
-    print(f"  - 원문 보존 온전 문서         : {res['intact_count']} 건")
-    print(f"  - 기기록한 절단 문서          : {res['recorded_truncated_count']} 건 (raw_truncated=True)")
-    print(f"  - 메타데이터 누락 절단 문서   : {res['unmarked_truncated_count']} 건 (소급 대상)")
+    print(f"• Documents examined            : {res['total_documents']}")
+    print(f"  - Complete sources            : {res['intact_count']}")
+    print(f"  - Truncated, recorded         : {res['recorded_truncated_count']} (raw_truncated=True)")
+    print(f"  - Truncated, not recorded     : {res['unmarked_truncated_count']} (to backfill)")
     print("=" * 65)
 
     if res["unmarked_truncated_count"] > 0:
-        print("\n[!] 메타데이터를 누락한 절단 의심 문서 목록:")
+        print("\n[!] Documents that are possibly truncated and have no metadata:")
         for item in res["unmarked_items"]:
             reasons_str = ", ".join(item["reasons"])
             print(f"  • [{item['id']}] '{item['title']}' ({item['source_type']})")
-            print(f"    - 길이: 적재 {item['raw_len']}자 (산문 {item['prose_len']}자, 표 {item['table_count']}개)")
-            print(f"    - 판정 사유: {reasons_str}")
-        print("\n[안내] 위 문서들에 메타데이터를 소급 적용하려면 다음 명령을 실행하십시오:")
+            print(f"    - Length: stored {item['raw_len']} chars (prose {item['prose_len']} chars, {item['table_count']} tables)")
+            print(f"    - Reasons: {reasons_str}")
+        print("\n[note] To add the metadata to these documents, run this command:")
         print("  claire truncation-backfill --apply")
     else:
-        print("\n[✓] 메타데이터를 누락한 절단 문서가 없습니다. 모든 상태가 온전합니다.")
+        print("\n[✓] No truncated document is without metadata. All documents are correct.")
 
     return 0
 
@@ -2348,7 +2348,7 @@ def cmd_truncation_backfill(args) -> int:
             try:
                 doc_info = dbm.resolve_single_document_target(conn, raw_target)
                 if not doc_info:
-                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    print(f"Document not found: {raw_target}", file=sys.stderr)
                     return 1
                 target_doc_id = doc_info["id"]
             except ValueError as e:
@@ -2369,30 +2369,30 @@ def cmd_truncation_backfill(args) -> int:
         return 0
 
     if not is_json:
-        print("claire: [원문 절단 메타데이터 소급 갱신(Backfill)]")
+        print("claire: [Backfill of the truncation metadata]")
         print("=" * 65)
-        print(f"• 전체 문서 수               : {scan['total_documents']} 건")
-        print(f"• 소급 적용 대상 문서 수     : {target_count} 건")
-        print(f"• 옵션                       : force={force}, mark_refresh={mark_refresh}")
+        print(f"• Documents                  : {scan['total_documents']}")
+        print(f"• Documents to update        : {target_count}")
+        print(f"• Options                    : force={force}, mark_refresh={mark_refresh}")
         print("=" * 65)
 
     if target_count == 0:
         if is_json:
             print(json.dumps({"scanned_total": scan["total_documents"], "updated_count": 0, "refreshed_count": 0, "items": []}, ensure_ascii=False, indent=2))
         else:
-            print("\n[✓] 소급 적용이 필요한 문서가 없습니다.")
+            print("\n[✓] No document needs the backfill.")
         return 0
 
     apply = getattr(args, "apply", False)
     dry_run = getattr(args, "dry_run", False)
 
     if not apply or dry_run:
-        print(f"\n[안내] 기본 Dry-Run 모드로 실행되어 {target_count}건의 대상만 확인했습니다.")
+        print(f"\n[note] This was a Dry-Run. Claire only examined {target_count} targets.")
         for it in scan["unmarked_items"][:10]:
-            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}, {it['raw_len']}자)")
+            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}, {it['raw_len']} chars)")
         if target_count > 10:
-            print(f"  ... 외 {target_count - 10}건")
-        print("\n실제 메타데이터를 소급 적용하려면 --apply 옵션을 사용하십시오:")
+            print(f"  ... and {target_count - 10} more")
+        print("\nTo add the metadata, use the option --apply:")
         cmd_hint = "claire truncation-backfill --apply"
         if mark_refresh:
             cmd_hint += " --mark-refresh"
@@ -2407,15 +2407,15 @@ def cmd_truncation_backfill(args) -> int:
     if not confirmed:
         if sys.stdin.isatty():
             try:
-                answer = input(f"\n위 {target_count}건의 문서에 메타데이터를 소급 적용하시겠습니까? [y/N]: ").strip().lower()
+                answer = input(f"\nAdd the metadata to the {target_count} documents above? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print("\n소급 작업이 취소되었습니다.")
+                print("\nThe backfill is cancelled.")
                 return 0
             if answer not in ("y", "yes"):
-                print("소급 작업이 취소되었습니다.")
+                print("The backfill is cancelled.")
                 return 0
         else:
-            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print("\nIn a non-interactive environment, add the option --yes (-y):")
             print(f"  claire truncation-backfill --apply --yes")
             return 2
 
@@ -2432,8 +2432,8 @@ def cmd_truncation_backfill(args) -> int:
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"\n[✓] 소급 갱신 완료: 총 {res['updated_count']}건 메타데이터 업데이트 완료" +
-          (f" (재수집 큐 등록 {res['refreshed_count']}건)" if mark_refresh else ""))
+    print(f"\n[✓] Backfill done: metadata of {res['updated_count']} documents updated" +
+          (f" ({res['refreshed_count']} queued for a new collection)" if mark_refresh else ""))
     return 0
 
 
@@ -2453,7 +2453,7 @@ def cmd_stt_scan(args) -> int:
             try:
                 doc_info = dbm.resolve_single_document_target(conn, raw_target)
                 if not doc_info:
-                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    print(f"Document not found: {raw_target}", file=sys.stderr)
                     return 1
                 target_doc_id = doc_info["id"]
             except ValueError as e:
@@ -2469,29 +2469,29 @@ def cmd_stt_scan(args) -> int:
         print(json.dumps(scan, ensure_ascii=False, indent=2))
         return 0
 
-    print("claire: [음성 인식(STT) 적용 문서 및 절단/본문 진단 스캔]")
+    print("claire: [Scan of speech recognition (STT) documents for truncation and body]")
     print("=" * 68)
-    print(f"• 전체 문서 수                     : {scan['total_documents']:,} 건")
-    print(f"• STT 감지 문서 수                 : {scan['stt_detected_count']:,} 건 (기존 메타 기록: {scan['recorded_stt_count']:,}건)")
-    print(f"  - 온전 적재 STT 문서             : {scan['stt_intact_count']:,} 건")
-    print(f"  - 일부 절단 STT 문서             : {scan['stt_truncated_count']:,} 건")
-    print(f"  - ⚠️ 절단 상태로 본문 작성된 문서 : {scan['stt_truncated_with_detail_count']:,} 건")
+    print(f"• Documents                        : {scan['total_documents']:,}")
+    print(f"• STT documents found              : {scan['stt_detected_count']:,} (recorded before: {scan['recorded_stt_count']:,})")
+    print(f"  - Complete STT documents         : {scan['stt_intact_count']:,}")
+    print(f"  - Partly truncated STT documents : {scan['stt_truncated_count']:,}")
+    print(f"  - ⚠️ Body written from a truncated source: {scan['stt_truncated_with_detail_count']:,}")
     print("=" * 68)
 
     if scan["stt_truncated_count"] == 0:
-        print("\n[✓] 절단된 STT 문서가 없습니다. 모든 STT 문서가 온전하게 적재되었습니다.")
+        print("\n[✓] No STT document is truncated. All STT documents are complete.")
         return 0
 
-    print(f"\n[⚠️ STT 일부 절단 문서 목록 ({scan['stt_truncated_count']}건)]:")
+    print(f"\n[⚠️ Partly truncated STT documents ({scan['stt_truncated_count']})]:")
     for it in scan["stt_truncated_items"][:20]:
         reasons = ", ".join(it.get("stt_trunc_reasons", []))
-        detail_mark = " [본문작성완료 ⚠️]" if it.get("has_detail") else " [본문미작성]"
+        detail_mark = " [body written ⚠️]" if it.get("has_detail") else " [no body]"
         print(f"  • [{it['id']}] '{it['title']}'{detail_mark}")
-        print(f"    - 절단 사유: {reasons}")
-        print(f"    - 복구 안내: claire video-reprocess --doc-id {it['id']} --apply --full-content")
+        print(f"    - Reason: {reasons}")
+        print(f"    - To recover: claire video-reprocess --doc-id {it['id']} --apply --full-content")
 
     if scan["stt_truncated_count"] > 20:
-        print(f"  ... 외 {scan['stt_truncated_count'] - 20}건")
+        print(f"  ... and {scan['stt_truncated_count'] - 20} more")
 
     return 0
 
@@ -2512,7 +2512,7 @@ def cmd_stt_backfill(args) -> int:
             try:
                 doc_info = dbm.resolve_single_document_target(conn, raw_target)
                 if not doc_info:
-                    print(f"문서 없음: {raw_target}", file=sys.stderr)
+                    print(f"Document not found: {raw_target}", file=sys.stderr)
                     return 1
                 target_doc_id = doc_info["id"]
             except ValueError as e:
@@ -2533,33 +2533,33 @@ def cmd_stt_backfill(args) -> int:
         return 0
 
     if not is_json:
-        print("claire: [STT 적용 문서 메타데이터 소급 갱신(Backfill)]")
+        print("claire: [Backfill of the STT metadata]")
         print("=" * 65)
-        print(f"• 전체 문서 수               : {scan['total_documents']} 건")
-        print(f"• STT 감지 문서 수           : {scan['stt_detected_count']} 건 (기존 기록: {scan['recorded_stt_count']}건)")
-        print(f"• STT 절단 문서 수           : {scan['stt_truncated_count']} 건 (본문 작성됨: {scan['stt_truncated_with_detail_count']}건)")
-        print(f"• 소급 적용 대상 문서 수     : {target_count} 건")
-        print(f"• 옵션                       : force={force}")
+        print(f"• Documents                  : {scan['total_documents']}")
+        print(f"• STT documents found        : {scan['stt_detected_count']} (recorded before: {scan['recorded_stt_count']})")
+        print(f"• Truncated STT documents    : {scan['stt_truncated_count']} (with body: {scan['stt_truncated_with_detail_count']})")
+        print(f"• Documents to update        : {target_count}")
+        print(f"• Options                    : force={force}")
         print("=" * 65)
 
     if target_count == 0:
         if is_json:
             print(json.dumps({"scanned_total": scan["total_documents"], "updated_count": 0, "items": []}, ensure_ascii=False, indent=2))
         else:
-            print("\n[✓] 소급 적용이 필요한 STT 문서가 없습니다.")
+            print("\n[✓] No STT document needs the backfill.")
         return 0
 
     apply = getattr(args, "apply", False)
     dry_run = getattr(args, "dry_run", False)
 
     if not apply or dry_run:
-        print(f"\n[안내] 기본 Dry-Run 모드로 실행되어 {target_count}건의 대상만 확인했습니다.")
+        print(f"\n[note] This was a Dry-Run. Claire only examined {target_count} targets.")
         for it in target_items[:10]:
             reasons_str = ", ".join(it["reasons"])
-            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}) → 근거: {reasons_str}")
+            print(f"  - [{it['id']}] '{it['title']}' ({it['source_type']}) → reason: {reasons_str}")
         if target_count > 10:
-            print(f"  ... 외 {target_count - 10}건")
-        print("\n실제 메타데이터를 소급 적용하려면 --apply 옵션을 사용하십시오:")
+            print(f"  ... and {target_count - 10} more")
+        print("\nTo add the metadata, use the option --apply:")
         cmd_hint = "claire stt-backfill --apply"
         if force:
             cmd_hint += " --force"
@@ -2582,11 +2582,11 @@ def cmd_stt_backfill(args) -> int:
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"\n[✓] STT 메타데이터 소급 적용 완료: 총 {res['updated_count']}건 갱신됨")
+    print(f"\n[✓] STT metadata backfill done: {res['updated_count']} documents updated")
     for it in res["items"][:10]:
-        print(f"  - [{it['id']}] '{it['title']}' (STT 플래그 부여 완료)")
+        print(f"  - [{it['id']}] '{it['title']}' (STT flag set)")
     if len(res["items"]) > 10:
-        print(f"  ... 외 {len(res['items']) - 10}건")
+        print(f"  ... and {len(res['items']) - 10} more")
     return 0
 
 
@@ -2619,12 +2619,12 @@ def cmd_recompile_html(args) -> int:
                     doc_id = doc["id"]
 
             count = dbm.recompile_all_detail_html(conn, doc_id=doc_id)
-            theme_label = f" (테마: #{theme.id} - {theme.label})" if theme else ""
+            theme_label = f" (theme: #{theme.id} - {theme.label})" if theme else ""
             if count > 0:
-                print(f"AOT HTML 단건 재컴파일 완료: {doc_id}{theme_label}")
+                print(f"AOT HTML compile of one document done: {doc_id}{theme_label}")
                 return 0
             else:
-                print(f"대상 문서를 찾을 수 없거나 detail이 비어있습니다: {target}", file=sys.stderr)
+                print(f"The document is not found or its detail is empty: {target}", file=sys.stderr)
                 return 1
         finally:
             conn.close()
@@ -2633,12 +2633,12 @@ def cmd_recompile_html(args) -> int:
     if theme_arg is not None:
         s_eff, theme = get_effective_settings(args)
         if theme:
-            print(f"[{theme.icon} 점검 대상 테마: #{theme.id} - {theme.label}]")
+            print(f"[{theme.icon} Theme to examine: #{theme.id} - {theme.label}]")
         conn = dbm.connect(s_eff.db_file)
         dbm.init_db(conn)
         try:
             count = dbm.recompile_all_detail_html(conn)
-            print(f"AOT HTML 재컴파일 완료: 총 {count}건 문서 갱신")
+            print(f"AOT HTML compile done: {count} documents updated")
             return 0
         finally:
             conn.close()
@@ -2661,20 +2661,20 @@ def cmd_recompile_html(args) -> int:
                 dbm.init_db(conn)
                 c = dbm.recompile_all_detail_html(conn)
                 total_count += c
-                print(f"[{theme.icon} 테마 #{theme.id} - {theme.label}] AOT HTML 재컴파일 완료: {c}건 갱신")
+                print(f"[{theme.icon} Theme #{theme.id} - {theme.label}] AOT HTML compile done: {c} updated")
             except Exception as exc:
-                print(f"[{theme.label}] 재컴파일 실패: {exc}", file=sys.stderr)
+                print(f"[{theme.label}] Compile failed: {exc}", file=sys.stderr)
             finally:
                 if conn is not None:
                     conn.close()
-        print(f"전체 테마 AOT HTML 재컴파일 완료: 총 {total_count}건 문서 갱신")
+        print(f"AOT HTML compile of all themes done: {total_count} documents updated")
         return 0
 
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
         count = dbm.recompile_all_detail_html(conn)
-        print(f"AOT HTML 재컴파일 완료: 총 {count}건 문서 갱신")
+        print(f"AOT HTML compile done: {count} documents updated")
         return 0
     finally:
         conn.close()
@@ -2696,13 +2696,13 @@ def cmd_presentation(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"status": "ok", "executable": exe}, ensure_ascii=False))
             else:
-                print(f"✅ Asciidoctor reveal.js 컴파일러 준비 완료: {' '.join(exe)}")
+                print(f"✅ Asciidoctor reveal.js compiler is ready: {' '.join(exe)}")
             return 0
         else:
             if getattr(args, "json", False):
                 print(json.dumps({"status": "error", "error": "Compiler not found"}, ensure_ascii=False))
             else:
-                print("❌ Asciidoctor reveal.js 컴파일러 미설치 (gem install asciidoctor asciidoctor-revealjs 필요)")
+                print("❌ Asciidoctor reveal.js compiler is not installed (run gem install asciidoctor asciidoctor-revealjs)")
             return 1
 
     conn = dbm.connect(s.db_file)
@@ -2719,8 +2719,8 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
                 else:
-                    print("[!] 프레젠테이션을 저작할 대상 문서(ID, URL 또는 제목)를 지정해야 합니다.", file=sys.stderr)
-                    print("사용법: claire presentation compose <target> [--focus <focus>] [--slide-budget <n>]", file=sys.stderr)
+                    print("[!] Give the document for the presentation (ID, URL, or title).", file=sys.stderr)
+                    print("Usage: claire presentation compose <target> [--focus <focus>] [--slide-budget <n>]", file=sys.stderr)
                 return 2
 
             doc_info = dbm.resolve_single_document_target(conn, target)
@@ -2728,7 +2728,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                    print(f"[!] The target is not found: {target}", file=sys.stderr)
                 return 3
 
             doc_id = doc_info["id"]
@@ -2739,7 +2739,7 @@ def cmd_presentation(args) -> int:
             no_compile = getattr(args, "no_compile", False)
 
             if not getattr(args, "json", False):
-                print(f"프레젠테이션 저작 시작: {doc_id} ('{doc_info.get('title', '')[:30]}')...")
+                print(f"Presentation authoring starts: {doc_id} ('{doc_info.get('title', '')[:30]}')...")
 
             try:
                 res = asyncio.run(svc.compose_presentation(
@@ -2775,23 +2775,23 @@ def cmd_presentation(args) -> int:
                     print(json.dumps(data, ensure_ascii=False, indent=2))
                     return 0
 
-                print("claire presentation: 프레젠테이션 저작 완료")
+                print("claire presentation: The presentation is complete")
                 print("=" * 60)
-                print(f"• 문서 제목 : {data['title']}")
-                print(f"• 문서 ID   : {doc_id}")
-                print(f"• 장표 수   : {data['slide_count']}장")
-                print(f"• 저작 엔진 : {data.get('authoring_provider')} ({data.get('compose_duration_ms')}ms)")
+                print(f"• Title    : {data['title']}")
+                print(f"• Document : {doc_id}")
+                print(f"• Slides   : {data['slide_count']}")
+                print(f"• Authoring engine: {data.get('authoring_provider')} ({data.get('compose_duration_ms')}ms)")
                 print(f"• AsciiDoc  : {data['adoc_file']}")
                 if not no_compile:
-                    print(f"• 파일 경로 : {data['file_path']}")
-                    print(f"• 뷰어 URL  : {presentation_url}")
+                    print(f"• File path: {data['file_path']}")
+                    print(f"• Viewer URL: {presentation_url}")
                 print("=" * 60)
                 return 0
             except Exception as e:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": str(e), "document_id": doc_id}, ensure_ascii=False))
                 else:
-                    print(f"❌ 프레젠테이션 저작 실패: {e}", file=sys.stderr)
+                    print(f"❌ Presentation authoring failed: {e}", file=sys.stderr)
                 return 1
 
         elif action == "compile":
@@ -2801,7 +2801,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
                 else:
-                    print("[!] 컴파일할 대상 문서(ID, URL 또는 제목)를 지정해야 합니다.", file=sys.stderr)
+                    print("[!] Give the document to compile (ID, URL, or title).", file=sys.stderr)
                 return 2
 
             doc_info = dbm.resolve_single_document_target(conn, target)
@@ -2809,7 +2809,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                    print(f"[!] The target is not found: {target}", file=sys.stderr)
                 return 3
 
             doc_id = doc_info["id"]
@@ -2838,15 +2838,15 @@ def cmd_presentation(args) -> int:
                     print(json.dumps(data, ensure_ascii=False, indent=2))
                     return 0
 
-                print(f"[{doc_id}] 프레젠테이션 컴파일 완료 ({data['compile_duration_ms']}ms, {data['slide_count']}장)")
-                print(f"  • 파일: {data['file_path']}")
+                print(f"[{doc_id}] Presentation compile done ({data['compile_duration_ms']}ms, {data['slide_count']} slides)")
+                print(f"  • File: {data['file_path']}")
                 print(f"  • URL : {presentation_url}")
                 return 0
             except Exception as e:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": str(e), "document_id": doc_id}, ensure_ascii=False))
                 else:
-                    print(f"❌ 프레젠테이션 컴파일 실패: {e}", file=sys.stderr)
+                    print(f"❌ Presentation compile failed: {e}", file=sys.stderr)
                 return 1
 
         elif action in ("show-adoc", "view-adoc"):
@@ -2856,7 +2856,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
                 else:
-                    print("[!] 조회할 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+                    print("[!] Give the document to show (ID or URL).", file=sys.stderr)
                 return 2
 
             doc_info = dbm.resolve_single_document_target(conn, target)
@@ -2864,7 +2864,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                    print(f"[!] The target is not found: {target}", file=sys.stderr)
                 return 3
 
             doc_id = doc_info["id"]
@@ -2878,7 +2878,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "not_authored", "document_id": doc_id}, ensure_ascii=False))
                 else:
-                    print(f"[{doc_id}] 저작된 프레젠테이션 AsciiDoc이 없습니다. (claire presentation compose 로 저작 필요)")
+                    print(f"[{doc_id}] The document has no presentation AsciiDoc. (make it with claire presentation compose)")
                 return 0
 
             if getattr(args, "json", False):
@@ -2902,7 +2902,7 @@ def cmd_presentation(args) -> int:
                     q += f" LIMIT {int(limit)}"
                 docs = conn.execute(q).fetchall()
                 if not getattr(args, "json", False):
-                    print(f"프레젠테이션 일괄 생성 대상: 총 {len(docs)}건")
+                    print(f"Presentations to make: {len(docs)}")
                 results = []
                 success = 0
                 failed = 0
@@ -2929,7 +2929,7 @@ def cmd_presentation(args) -> int:
                             "error": str(e),
                         })
                         if not getattr(args, "json", False):
-                            print(f"  [오류] ❌ {r['id']}: {e}")
+                            print(f"  [error] ❌ {r['id']}: {e}")
 
                 if getattr(args, "json", False):
                     print(json.dumps({
@@ -2940,7 +2940,7 @@ def cmd_presentation(args) -> int:
                         "items": results,
                     }, ensure_ascii=False, indent=2))
                 else:
-                    print(f"일괄 생성 종료: 성공 {success}건, 실패 {failed}건")
+                    print(f"Batch done: {success} succeeded, {failed} failed")
                 return 0 if failed == 0 else 1
 
             target = getattr(args, "target", "") or getattr(args, "doc_id_flag", "") or getattr(args, "doc_id", "")
@@ -2949,8 +2949,8 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
                 else:
-                    print("[!] 프레젠테이션을 생성할 대상 문서(ID, URL 또는 제목)를 지정해야 합니다.", file=sys.stderr)
-                    print("사용법: claire presentation generate <target> [--theme <theme>] [--force]", file=sys.stderr)
+                    print("[!] Give the document for the presentation (ID, URL, or title).", file=sys.stderr)
+                    print("Usage: claire presentation generate <target> [--theme <theme>] [--force]", file=sys.stderr)
                 return 2
 
             doc_info = dbm.resolve_single_document_target(conn, target)
@@ -2958,7 +2958,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                    print(f"[!] The target is not found: {target}", file=sys.stderr)
                 return 3
 
             doc_id = doc_info["id"]
@@ -2967,11 +2967,11 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Document has no detail content to generate presentation: {doc_id}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 문서에 프레젠테이션을 생성할 본문(detail)이 없습니다: {doc_id}", file=sys.stderr)
+                    print(f"[!] The document has no body (detail) for a presentation: {doc_id}", file=sys.stderr)
                 return 4
 
             if not getattr(args, "json", False):
-                print(f"프레젠테이션 생성 시작: {doc_id} ('{doc_info.get('title', '')[:30]}')...")
+                print(f"Presentation generation starts: {doc_id} ('{doc_info.get('title', '')[:30]}')...")
 
             try:
                 res = asyncio.run(svc.get_or_create_presentation(
@@ -2996,23 +2996,23 @@ def cmd_presentation(args) -> int:
                     print(json.dumps(data, ensure_ascii=False, indent=2))
                     return 0
 
-                print("claire presentation: 프레젠테이션 생성 완료")
+                print("claire presentation: The presentation is complete")
                 print("=" * 60)
-                print(f"• 문서 제목 : {data['title']}")
-                print(f"• 문서 ID   : {doc_id}")
-                print(f"• 장표 수   : {data['slide_count']}장")
-                print(f"• 테마/전환 : {theme_val} / {trans_val}")
+                print(f"• Title    : {data['title']}")
+                print(f"• Document : {doc_id}")
+                print(f"• Slides   : {data['slide_count']}")
+                print(f"• Theme / transition: {theme_val} / {trans_val}")
                 if data.get("authoring_provider"):
-                    print(f"• 저작 엔진 : {data['authoring_provider']} ({data.get('compose_duration_ms')}ms)")
-                print(f"• 파일 경로 : {data['file_path']}")
-                print(f"• 뷰어 URL  : {presentation_url}")
+                    print(f"• Authoring engine: {data['authoring_provider']} ({data.get('compose_duration_ms')}ms)")
+                print(f"• File path: {data['file_path']}")
+                print(f"• Viewer URL: {presentation_url}")
                 print("=" * 60)
                 return 0
             except Exception as e:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": str(e), "document_id": doc_id}, ensure_ascii=False))
                 else:
-                    print(f"❌ 프레젠테이션 생성 실패: {e}", file=sys.stderr)
+                    print(f"❌ Presentation generation failed: {e}", file=sys.stderr)
                 return 1
 
         elif action == "status":
@@ -3022,7 +3022,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": "Target document ID, URL, or title query is required"}, ensure_ascii=False))
                 else:
-                    print("[!] 프레젠테이션 상태를 조회할 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+                    print("[!] Give the document whose presentation status to show (ID or URL).", file=sys.stderr)
                 return 2
 
             doc_info = dbm.resolve_single_document_target(conn, target)
@@ -3030,7 +3030,7 @@ def cmd_presentation(args) -> int:
                 if getattr(args, "json", False):
                     print(json.dumps({"status": "error", "error": f"Target document not found: {target}"}, ensure_ascii=False))
                 else:
-                    print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                    print(f"[!] The target is not found: {target}", file=sys.stderr)
                 return 3
 
             doc_id = doc_info["id"]
@@ -3043,7 +3043,7 @@ def cmd_presentation(args) -> int:
                         "title": doc_info.get("title", ""),
                     }, ensure_ascii=False, indent=2))
                 else:
-                    print(f"[{doc_id}] 프레젠테이션 상태: 미생성 (not_created)")
+                    print(f"[{doc_id}] Presentation status: not made (not_created)")
                 return 0
 
             base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
@@ -3054,16 +3054,16 @@ def cmd_presentation(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps(meta, ensure_ascii=False, indent=2))
             else:
-                print(f"[{doc_id}] 프레젠테이션 정보:")
-                print(f"  • 상태: {meta.get('status')}")
-                print(f"  • 문서 제목: {meta.get('title')}")
-                print(f"  • 장표 수: {meta.get('slide_count')}장")
+                print(f"[{doc_id}] Presentation:")
+                print(f"  • Status: {meta.get('status')}")
+                print(f"  • Title: {meta.get('title')}")
+                print(f"  • Slides: {meta.get('slide_count')}")
                 if meta.get("authoring_provider"):
-                    print(f"  • 저작 엔진: {meta.get('authoring_provider')} ({meta.get('compose_duration_ms')}ms)")
-                print(f"  • 테마/전환: {meta.get('theme')} / {meta.get('transition')}")
-                print(f"  • 파일 경로: {meta.get('file_path')} ({meta.get('file_size')} bytes)")
-                print(f"  • 컴파일 소요: {meta.get('compile_duration_ms')}ms")
-                print(f"  • 뷰어 URL: {meta.get('presentation_url')}")
+                    print(f"  • Authoring engine: {meta.get('authoring_provider')} ({meta.get('compose_duration_ms')}ms)")
+                print(f"  • Theme / transition: {meta.get('theme')} / {meta.get('transition')}")
+                print(f"  • File path: {meta.get('file_path')} ({meta.get('file_size')} bytes)")
+                print(f"  • Compile time: {meta.get('compile_duration_ms')}ms")
+                print(f"  • Viewer URL: {meta.get('presentation_url')}")
             return 0
 
         elif action == "recompile":
@@ -3116,7 +3116,7 @@ def cmd_video_reprocess(args) -> int:
             if t_url:
                 c = get_cached_video_file(s.data_dir, t_url, max_age_sec=s.video_cache_ttl_sec)
                 if c:
-                    print(f"[캐시] 문서 [{t['id']}]의 사흘(3일) 보존 비디오 캐시 감지: {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, 재다운로드 없이 사용)")
+                    print(f"[cache] Document [{t['id']}] has a video cache (kept 3 days): {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, used without a new download)")
 
         def _on_reprocess_progress(stage: str, detail: str = "") -> None:
             if detail:
@@ -3140,13 +3140,13 @@ def cmd_video_reprocess(args) -> int:
             return 0
 
         if not do_apply:
-            print("[안내] 기본 Dry-Run 모드로 실행되었습니다.")
-            print(f"대상 문서 수: {res.get('count', 0)}건")
+            print("[note] This was a Dry-Run.")
+            print(f"Documents: {res.get('count', 0)}")
             if res.get("targets"):
                 for t in res["targets"]:
                     did = t.get("document_id") or t.get("id", "")
                     print(f"  - [{did}] {t.get('title', '')} ({t.get('url', '')})")
-            print("실제 자막 재수집 및 적재를 실행하려면 --apply 또는 --force 옵션을 추가하십시오:")
+            print("To collect the captions and ingest again, add the option --apply or --force:")
             tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "")
             print(f"  claire video-reprocess {tgt_hint} --apply")
             return 0
@@ -3165,23 +3165,23 @@ def cmd_video_reprocess(args) -> int:
                     if not has_ts:
                         has_errors = True
                         if stt_err:
-                            print(f"[!] 비디오 STT 음성 전사 실패: {stt_err}", file=sys.stderr)
+                            print(f"[!] Video STT transcription failed: {stt_err}", file=sys.stderr)
                         else:
-                            print(f"[!] 비디오 자막(CC/STT)이 추출되지 못했습니다.", file=sys.stderr)
+                            print(f"[!] Claire could not extract video captions (CC/STT).", file=sys.stderr)
                 if t.get("refetch_error"):
                     has_errors = True
-                    print(f"[!] 원문 재수집 오류: {t['refetch_error']}", file=sys.stderr)
+                    print(f"[!] Source refetch error: {t['refetch_error']}", file=sys.stderr)
                 if t.get("error"):
                     has_errors = True
-                    print(f"[!] 지식 그래프 생성 오류: {t['error']}", file=sys.stderr)
+                    print(f"[!] Knowledge graph error: {t['error']}", file=sys.stderr)
         finally:
             conn.close()
 
         if has_errors:
-            print(f"[!] 비디오 문서 재처리 실패: 자막이나 지식이 갱신되지 못했습니다.", file=sys.stderr)
+            print(f"[!] Video document processing failed: the captions or the knowledge did not change.", file=sys.stderr)
             return 1
 
-        print(f"[✓] 기존 비디오 문서 자막 재수집 및 지식 갱신 완료: {res.get('count', 0)}건 처리됨")
+        print(f"[✓] Captions collected again and knowledge updated for {res.get('count', 0)} video documents")
         return 0
     else:
         url = target or (args.target if hasattr(args, "target") else None)
@@ -3191,23 +3191,23 @@ def cmd_video_reprocess(args) -> int:
 
             c = get_cached_video_file(s.data_dir, url, max_age_sec=s.video_cache_ttl_sec)
             if c:
-                print(f"[캐시] 대상 URL의 사흘(3일) 보존 비디오 캐시 감지: {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, 재다운로드 없이 사용)")
+                print(f"[cache] The target URL has a video cache (kept 3 days): {c.name} ({c.stat().st_size / (1024*1024):.1f}MB, used without a new download)")
 
             if not do_apply:
-                print(f"[안내] 신규 비디오 적재 대상 (Dry-Run): {url}")
-                print("실제 자막 수집 및 적재를 실행하려면 --apply 옵션을 추가하십시오:")
+                print(f"[note] New video to ingest (Dry-Run): {url}")
+                print("To collect the captions and ingest, add the option --apply:")
                 print(f"  claire video-reprocess {url} --apply")
                 return 0
 
-            print(f"[→] 신규 비디오 자막 수집(CC 우선, 필요 시 STT) 시작: {url}")
+            print(f"[→] Caption collection of a new video starts (CC first, STT if necessary): {url}")
             report = svc.ingest(url, full_content=True, format=fmt, effort=effort)
             if report.error:
-                print(f"[!] 비디오 수집 실패: {report.error}", file=sys.stderr)
+                print(f"[!] Video collection failed: {report.error}", file=sys.stderr)
                 return 1
-            print(f"[✓] 비디오 수집 및 지식 적재 완료: [{report.document_id}] '{report.title}'")
+            print(f"[✓] Video collected and ingested: [{report.document_id}] '{report.title}'")
             return 0
         else:
-            print(f"[!] 대상을 찾을 수 없습니다: target={target}, doc_id={doc_id}", file=sys.stderr)
+            print(f"[!] The target is not found: target={target}, doc_id={doc_id}", file=sys.stderr)
             return 1
 
 
@@ -3221,7 +3221,7 @@ def cmd_backfill_images(args) -> int:
     s = get_settings()
     svc = IngestService(s)
     n = svc.mark_all_for_image_backfill(limit=args.limit)
-    print(f"이미지 백필 등록: {n}건 (refresh 큐). refresh-loop 가 천천히 재fetch 처리합니다.")
+    print(f"Image backfill queued: {n} (refresh queue). refresh-loop fetches them again slowly.")
     return 0
 
 
@@ -3240,17 +3240,17 @@ def cmd_watch(args) -> int:
             "FROM documents WHERE watch_enabled=1 ORDER BY COALESCE(last_watched_at,0)"
         ).fetchall()
         if not rows:
-            print("watch 문서 없음")
+            print("No watched document")
         for r in rows:
-            iv = f"{(r['watch_interval'] or 0) / 86400:.1f}일" if r["watch_interval"] else "기본주기"
-            print(f"  {r['id']}  주기={iv}  {r['title'] or ''}  [{r['watch_reason'] or ''}]")
+            iv = f"{(r['watch_interval'] or 0) / 86400:.1f} days" if r["watch_interval"] else "default interval"
+            print(f"  {r['id']}  interval={iv}  {r['title'] or ''}  [{r['watch_reason'] or ''}]")
         return 0
     raw_target = getattr(args, "document_id", None) or getattr(args, "target", None)
     if not raw_target:
-        print("대상 문서 ID 또는 URL이 필요합니다 (또는 --list)", file=sys.stderr)
+        print("Give a document ID or URL (or --list)", file=sys.stderr)
         return 1
     if args.on and args.off:
-        print("--on 과 --off 는 동시에 쓸 수 없습니다", file=sys.stderr)
+        print("You cannot use --on and --off together", file=sys.stderr)
         return 1
 
     try:
@@ -3260,7 +3260,7 @@ def cmd_watch(args) -> int:
         return 1
 
     if not doc_info:
-        print(f"문서 없음: {raw_target}")
+        print(f"Document not found: {raw_target}")
         return 1
 
     document_id = doc_info["id"]
@@ -3269,7 +3269,7 @@ def cmd_watch(args) -> int:
     if enabled is None and interval is None:
         r = dbm.get_document_row(conn, document_id)
         if r is None:
-            print(f"문서 없음: {raw_target}")
+            print(f"Document not found: {raw_target}")
             return 1
         print(f"watch_enabled={r['watch_enabled']} interval={r['watch_interval']} "
               f"last_watched_at={r['last_watched_at']} reason={r['watch_reason']} "
@@ -3277,7 +3277,7 @@ def cmd_watch(args) -> int:
         return 0
     dbm.set_document_watch(conn, document_id, enabled=enabled,
                            interval=interval, reason="manual")
-    print(f"watch 설정: [{document_id[:12]}] '{doc_info.get('title') or ''}' enabled={enabled} interval_days={args.interval_days}")
+    print(f"watch set: [{document_id[:12]}] '{doc_info.get('title') or ''}' enabled={enabled} interval_days={args.interval_days}")
     return 0
 
 
@@ -3285,7 +3285,7 @@ def cmd_doc_title(args) -> int:
     """문서 제목 갱신 및 MinHash 서명 재계산."""
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     conn = dbm.connect_existing(s.db_file)
     try:
         raw_target = getattr(args, "document_id", None) or getattr(args, "target", None)
@@ -3296,15 +3296,15 @@ def cmd_doc_title(args) -> int:
             return 1
 
         if not doc_info:
-            print(f"문서 없음: {raw_target}")
+            print(f"Document not found: {raw_target}")
             return 1
 
         document_id = doc_info["id"]
         ok = dbm.set_document_title(conn, document_id, args.title)
         if not ok:
-            print(f"제목 갱신 실패: {document_id}")
+            print(f"Title update failed: {document_id}")
             return 1
-        print(f"제목 갱신 완료: {document_id} → '{args.title}'")
+        print(f"Title updated: {document_id} → '{args.title}'")
         return 0
     finally:
         conn.close()
@@ -3321,7 +3321,7 @@ def cmd_doc(args) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"error": "Target document ID or URL is required"}, ensure_ascii=False))
         else:
-            print("[!] 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+            print("[!] Give the document (ID or URL).", file=sys.stderr)
         return 2
 
     try:
@@ -3330,7 +3330,7 @@ def cmd_doc(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"error": f"Document not found: {target}"}, ensure_ascii=False))
             else:
-                print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                print(f"[!] The target is not found: {target}", file=sys.stderr)
             return 3
 
         doc_id = doc_info["id"]
@@ -3371,12 +3371,12 @@ def cmd_doc(args) -> int:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
 
-        print(f"claire doc: 문서 상태 갱신 완료 ({doc_id})")
+        print(f"claire doc: Document state updated ({doc_id})")
         print("=" * 60)
-        print(f"• 제목  : {data['title']}")
-        print(f"• 고정 (Pinned) : {'[✓] 고정됨' if data['pinned'] else '해제됨'}")
-        print(f"• 숨김 (Hidden) : {'[!] 숨김 처리됨' if data['hidden'] else '공개됨'}")
-        print(f"• 읽음 (Seen)   : {'[✓] 확인완료' if data['seen'] else '미확인'}")
+        print(f"• Title          : {data['title']}")
+        print(f"• Pinned         : {'[✓] pinned' if data['pinned'] else 'not pinned'}")
+        print(f"• Hidden         : {'[!] hidden' if data['hidden'] else 'visible'}")
+        print(f"• Seen           : {'[✓] seen' if data['seen'] else 'not seen'}")
         print("=" * 60)
         return 0
     finally:
@@ -3394,7 +3394,7 @@ def cmd_share(args) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"error": "Target document ID or URL is required"}, ensure_ascii=False))
         else:
-            print("[!] 공유할 대상 문서(ID 또는 URL)를 지정해야 합니다.", file=sys.stderr)
+            print("[!] Give the document to share (ID or URL).", file=sys.stderr)
         return 2
 
     try:
@@ -3403,7 +3403,7 @@ def cmd_share(args) -> int:
             if getattr(args, "json", False):
                 print(json.dumps({"error": f"Document not found: {target}"}, ensure_ascii=False))
             else:
-                print(f"[!] 대상을 찾을 수 없습니다: {target}", file=sys.stderr)
+                print(f"[!] The target is not found: {target}", file=sys.stderr)
             return 3
 
         doc_id = doc_info["id"]
@@ -3421,12 +3421,12 @@ def cmd_share(args) -> int:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
 
-        print("claire share: 문서 외부 공유 링크 발급 완료")
+        print("claire share: The share link of the document is ready")
         print("=" * 60)
-        print(f"• 문서 제목 : {data['title']}")
-        print(f"• 문서 ID   : {doc_id}")
-        print(f"• 공유 토큰 : {token}")
-        print(f"• 공유 URL  : {share_url}")
+        print(f"• Title       : {data['title']}")
+        print(f"• Document    : {doc_id}")
+        print(f"• Share token : {token}")
+        print(f"• Share URL   : {share_url}")
         print("=" * 60)
         return 0
     finally:
@@ -3594,14 +3594,14 @@ def cmd_auth(args) -> int:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
 
-        print("claire auth: 웹 UI 인증 매직 링크 발급")
+        print("claire auth: Magic link for the web interface")
         print("=" * 60)
-        print(f"• 발급 권한 (Scope) : {scope}")
+        print(f"• Scope              : {scope}")
         if theme:
-            print(f"• 접속 대상 테마    : #{theme.id} - {theme.label}")
-        print(f"• 1회용 로그인 URL  : {magic_url}")
+            print(f"• Theme              : #{theme.id} - {theme.label}")
+        print(f"• One-time login URL : {magic_url}")
         print("-" * 60)
-        print("※ 첫 접속 후 세션 쿠키가 연장되며 링크는 즉시 만료됩니다.")
+        print("※ The first visit extends the session cookie, and the link expires at once.")
         return 0
     finally:
         conn.close()
@@ -3626,12 +3626,12 @@ def cmd_token(args) -> int:
             return 0
 
         if not tokens:
-            print("등록된 API/MCP 토큰이 없습니다. 'claire token create <이름>' 명령으로 생성하세요.")
+            print("No API/MCP token. Make one with 'claire token create <name>'.")
             return 0
 
-        print(f"🔑 Claire Bible API 및 MCP 상시 이용 토큰 목록 ({len(tokens)}개)")
+        print(f"🔑 Claire Bible API and MCP tokens ({len(tokens)})")
         print("=" * 88)
-        header = f"{'ID':<4} {'이름 (Name)':<22} {'권한 (Scope)':<12} {'상태':<8} {'만료 (Expires)':<18} {'토큰 식별자'}"
+        header = f"{'ID':<4} {'Name':<22} {'Scope':<12} {'Status':<8} {'Expires':<18} {'Token prefix'}"
         print(header)
         print("-" * 88)
         for t in tokens:
@@ -3642,17 +3642,17 @@ def cmd_token(args) -> int:
             now = time.time()
             is_expired = t.get("expires_at") is not None and t["expires_at"] < now
             if is_revoked:
-                status = "폐기됨"
+                status = "revoked"
             elif is_expired:
-                status = "만료됨"
+                status = "expired"
             else:
-                status = "활성"
+                status = "active"
 
             if t.get("expires_at"):
                 dt = datetime.fromtimestamp(t["expires_at"], tz=timezone.utc)
                 exp_str = dt.strftime("%Y-%m-%d %H:%M")
             else:
-                exp_str = "무기한 (상시)"
+                exp_str = "never"
 
             raw_t = t["token"]
             prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
@@ -3660,21 +3660,21 @@ def cmd_token(args) -> int:
             masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
             print(f"{tid:<4} {name:<22} {scope:<12} {status:<8} {exp_str:<18} {masked}")
         print("=" * 88)
-        print("※ 새 토큰 생성: claire token create <이름> [--scope owner|collab|readonly] [--expires-in DAYS]")
-        print("※ 토큰 즉시 폐기: claire token revoke <ID 또는 토큰값>")
+        print("※ New token: claire token create <name> [--scope owner|collab|readonly] [--expires-in DAYS]")
+        print("※ Revoke a token: claire token revoke <ID or token>")
         return 0
 
     elif action in ("create", "new", "add"):
         name = str(getattr(args, "name", "") or "").strip()
         if not name:
-            print("오류: 토큰 이름(name)을 지정해야 합니다. 예: claire token create 'Claude Desktop'")
+            print("Error: Give the token name. Example: claire token create 'Claude Desktop'")
             return 1
 
         scope = str(getattr(args, "scope", "readonly") or "readonly").strip().lower()
         if scope == "collab":
             scope = "collaborator"
         if scope not in ("owner", "collaborator", "readonly"):
-            print(f"오류: 유효하지 않은 scope '{scope}'입니다. (owner, collaborator, readonly 중 선택)")
+            print(f"Error: The scope '{scope}' is not valid. (use owner, collaborator, or readonly)")
             return 1
 
         expires_in = getattr(args, "expires_in", None)
@@ -3707,29 +3707,29 @@ def cmd_token(args) -> int:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
 
-        print("🔑 API 및 MCP 상시 이용 토큰 발급 완료")
+        print("🔑 API and MCP token is ready")
         print("=" * 70)
-        print(f"• 토큰 ID        : #{created['id']}")
-        print(f"• 이름 (Name)    : {created['name']}")
-        print(f"• 권한 (Scope)   : {created['scope']}")
-        exp_text = f"{created['expires_at']} (약 {expires_in_days}일 후)" if created.get("expires_at") else "무기한 (상시 이용 가능)"
-        print(f"• 만료 기한      : {exp_text}")
-        print(f"• 시크릿 토큰    : {raw_token}")
+        print(f"• Token ID       : #{created['id']}")
+        print(f"• Name           : {created['name']}")
+        print(f"• Scope          : {created['scope']}")
+        exp_text = f"{created['expires_at']} (in about {expires_in_days} days)" if created.get("expires_at") else "never"
+        print(f"• Expires        : {exp_text}")
+        print(f"• Secret token   : {raw_token}")
         print("-" * 70)
-        print("📋 Claude Desktop / Cursor MCP 연동 설정 안내:")
-        print(f"   엔드포인트 URL : {mcp_url}")
-        print(f'   헤더 설정     : "Authorization": "Bearer {raw_token}"')
+        print("📋 MCP setup for Claude Desktop / Cursor:")
+        print(f"   Endpoint URL   : {mcp_url}")
+        print(f'   Header         : "Authorization": "Bearer {raw_token}"')
         print("-" * 70)
-        print("📋 curl API 테스트 예시:")
+        print("📋 curl API test example:")
         print(f'   curl -H "Authorization: Bearer {raw_token}" {base_url}/documents')
         print("=" * 70)
-        print("※ 이 토큰은 다시 전체 문자열로 표시되지 않으므로 안전한 곳에 즉시 복사하세요.")
+        print("※ Claire does not show the full token again. Copy it to a safe place now.")
         return 0
 
     elif action in ("revoke", "delete", "rm"):
         target = str(getattr(args, "target", "") or "").strip()
         if not target:
-            print("오류: 폐기할 토큰 ID 또는 토큰 문자열을 지정하세요. 예: claire token revoke 1")
+            print("Error: Give the ID or the value of the token to revoke. Example: claire token revoke 1")
             return 1
 
         revoked = store.revoke_api_token(target)
@@ -3738,14 +3738,14 @@ def cmd_token(args) -> int:
             return 0 if revoked else 1
 
         if revoked:
-            print(f"✅ 토큰 '{target}'이(가) 즉시 성공적으로 폐기되었습니다.")
+            print(f"✅ Token '{target}' is revoked.")
             return 0
         else:
-            print(f"❌ 토큰 '{target}'을(를) 찾을 수 없거나 이미 폐기된 상태입니다.")
+            print(f"❌ Token '{target}' is not found or is already revoked.")
             return 1
 
     else:
-        print(f"알 수 없는 액션: {action}. (list, create, revoke 지원)")
+        print(f"Unknown action: {action}. (use list, create, or revoke)")
         return 1
 
 
@@ -3759,14 +3759,14 @@ def cmd_dedup_scan(args) -> int:
     s = get_settings()
     svc = IngestService(s)
     out = svc.dedup_scan(threshold=args.threshold, min_len=args.min_len)
-    print(f"검사 문서 {out['documents']} · 근사중복 클러스터 {len(out['clusters'])}개 "
-          f"(임계 {args.threshold}, 최소길이 {args.min_len})")
+    print(f"Documents examined {out['documents']} · near-duplicate clusters {len(out['clusters'])} "
+          f"(threshold {args.threshold}, minimum length {args.min_len})")
     for i, c in enumerate(out["clusters"], 1):
-        print(f"\n[{i}] 유사도 {c['score']} · {len(c['ids'])}개 문서")
+        print(f"\n[{i}] similarity {c['score']} · {len(c['ids'])} documents")
         for did, url, title in zip(c["ids"], c["urls"], c["titles"]):
-            print(f"    {did}  {url or '(url 없음)'}  | {title}")
+            print(f"    {did}  {url or '(no url)'}  | {title}")
     if not out["clusters"]:
-        print("근사중복 없음.")
+        print("No near duplicates.")
     return 0
 
 
@@ -3779,12 +3779,12 @@ def cmd_recanonicalize(args) -> int:
 
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     svc = IngestService(s)
     apply = getattr(args, "apply", False) and not getattr(args, "dry_run", False)
     out = svc.recanonicalize_documents(apply=apply)
-    mode = "재계산 적용" if apply else "변경 예정(dry-run, --apply 로 실행)"
-    print(f"{mode}: 문서 {out['docs']} · 변경 {out['changed']}")
+    mode = "recalculated" if apply else "planned changes (dry-run; use --apply to run)"
+    print(f"{mode}: documents {out['docs']} · changed {out['changed']}")
     for sm in out["samples"]:
         print(f"    {sm['id']}  {sm['from']}  →  {sm['to']}")
     return 0
@@ -3799,7 +3799,7 @@ def cmd_dedup_merge(args) -> int:
 
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     svc = IngestService(s)
     apply = getattr(args, "apply", False)
     confirmed = getattr(args, "yes", False)
@@ -3807,33 +3807,33 @@ def cmd_dedup_merge(args) -> int:
     if apply and not confirmed:
         if sys.stdin.isatty():
             try:
-                answer = input("\n중복 문서를 영구 병합 및 삭제하시겠습니까? [y/N]: ").strip().lower()
+                answer = input("\nMerge and delete the duplicate documents permanently? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print("\n병합 작업이 취소되었습니다.")
+                print("\nThe merge is cancelled.")
                 return 0
             if answer not in ("y", "yes"):
-                print("병합 작업이 취소되었습니다.")
+                print("The merge is cancelled.")
                 return 0
         else:
-            print("\n비대화형 환경에서는 --yes (-y) 옵션을 명시하여 실행하십시오:")
+            print("\nIn a non-interactive environment, add the option --yes (-y):")
             print("  claire dedup-merge --apply --yes")
             return 2
 
     out = svc.dedup_merge(threshold=args.threshold, min_len=args.min_len, apply=apply)
-    mode = "병합 실행" if out["applied"] else "계획(dry-run, --apply 로 실행)"
-    print(f"{mode}: 클러스터 {out['merged']}개")
+    mode = "merged" if out["applied"] else "plan (dry-run; use --apply to run)"
+    print(f"{mode}: {out['merged']} clusters")
     for i, c in enumerate(out["clusters"], 1):
-        print(f"\n[{i}] 유사도 {c['score']}")
-        print(f"    유지 keeper {c['keeper']}  {c['keeper_url']}")
+        print(f"\n[{i}] similarity {c['score']}")
+        print(f"    keeper {c['keeper']}  {c['keeper_url']}")
         for d, u in zip(c["losers"], c["loser_urls"]):
-            print(f"    삭제 loser  {d}  {u}")
+            print(f"    delete loser  {d}  {u}")
         if "result" in c:
             r = c["result"]
-            print(f"    → 재배치 엔티티{r.get('entities_repointed',0)}·"
-                  f"관계{r.get('relations_repointed',0)}·inbox{r.get('inbox',0)} · "
-                  f"삭제 {r.get('deleted',0)}")
+            print(f"    → moved entities {r.get('entities_repointed',0)} · "
+                  f"relations {r.get('relations_repointed',0)} · inbox {r.get('inbox',0)} · "
+                  f"deleted {r.get('deleted',0)}")
     if not out["clusters"]:
-        print("병합할 근사중복 없음.")
+        print("No near duplicate to merge.")
     return 0
 
 
@@ -3844,7 +3844,7 @@ def cmd_search(args) -> int:
 
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 검색 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme to search: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     provider = get_provider(s)
@@ -3879,7 +3879,7 @@ def cmd_telemetry(args) -> int:
 
     if getattr(args, "prune", None) is not None:
         deleted = prune_old_telemetry(data_dir, retention_days=args.prune)
-        print(f"claire telemetry: {args.prune}일 경과 텔레메트리 {deleted}건 삭제 완료.")
+        print(f"claire telemetry: {deleted} telemetry records older than {args.prune} days are deleted.")
         return 0
 
     if getattr(args, "stats", False):
@@ -3888,20 +3888,20 @@ def cmd_telemetry(args) -> int:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
             return 0
         print("=" * 65)
-        print("claire: [프로바이더 텔레메트리 집계 통계]")
+        print("claire: [Provider telemetry statistics]")
         print("=" * 65)
-        print(f"• 총 호출 횟수   : {stats['total_calls']}회")
-        print(f"• 성공 횟수     : {stats['success_calls']}회 (성공률: {stats['success_rate']*100:.1f}%)")
-        print(f"• 실패/결손 횟수 : {stats['failed_calls']}회")
-        print("\n[상태별 분포]")
+        print(f"• Calls          : {stats['total_calls']}")
+        print(f"• Successful     : {stats['success_calls']} (success rate: {stats['success_rate']*100:.1f}%)")
+        print(f"• Failed or empty: {stats['failed_calls']}")
+        print("\n[By status]")
         for k, v in stats.get("by_status", {}).items():
-            print(f"  - {k:<15}: {v:>4}회")
-        print("\n[Google 차단/진단 사유별 분포]")
+            print(f"  - {k:<15}: {v:>4}")
+        print("\n[By Google block or diagnosis reason]")
         for k, v in stats.get("by_block_reason", {}).items():
-            print(f"  - {k:<15}: {v:>4}회")
-        print("\n[요약 품질 판정 분포]")
+            print(f"  - {k:<15}: {v:>4}")
+        print("\n[By summary quality result]")
         for k, v in stats.get("by_verdict", {}).items():
-            print(f"  - {k:<15}: {v:>4}회")
+            print(f"  - {k:<15}: {v:>4}")
         print("=" * 65)
         return 0
 
@@ -3918,11 +3918,11 @@ def cmd_telemetry(args) -> int:
         return 0
 
     if not records:
-        print("조회된 텔레메트리 기록이 없습니다.")
+        print("No telemetry record.")
         return 0
 
     print("=" * 110)
-    print(f"{'시간':<19} | {'프로바이더':<11} | {'호출종류':<16} | {'상태':<10} | {'차단/진단사유':<15} | {'품질판정':<12} | {'지연(ms)':<8}")
+    print(f"{'Time':<19} | {'Provider':<11} | {'Call kind':<16} | {'Status':<10} | {'Block reason':<15} | {'Quality':<12} | {'Delay(ms)':<8}")
     print("-" * 110)
     for r in records:
         ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["timestamp"]))
@@ -3957,7 +3957,7 @@ def cmd_support_bundle(args) -> int:
 
     if getattr(args, "purge", False):
         purged = purge_expired_bundles(data_dir)
-        print(f"claire support-bundle: 만료(6시간 초과) 번들 {purged}건 파기 완료.")
+        print(f"claire support-bundle: {purged} expired bundles (older than 6 hours) are deleted.")
         return 0
 
     if getattr(args, "list", False):
@@ -3966,18 +3966,18 @@ def cmd_support_bundle(args) -> int:
             print(json.dumps(bundles, ensure_ascii=False, indent=2))
             return 0
         if not bundles:
-            print("현재 활성화된 유효 Support Bundle이 없습니다.")
+            print("No support bundle is active now.")
             return 0
         print("=" * 95)
-        print(f"{'Bundle ID':<26} | {'생성시각':<19} | {'만료시각':<19} | {'크기(KB)':<9} | {'기간'}")
+        print(f"{'Bundle ID':<26} | {'Created':<19} | {'Expires':<19} | {'Size(KB)':<9} | {'Period'}")
         print("-" * 95)
         for b in bundles:
             created_str = datetime.datetime.fromtimestamp(b["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
             expires_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M:%S")
             size_kb = f"{b['size_bytes'] / 1024:.1f}"
-            days = f"{b['days_covered']}일"
+            days = f"{b['days_covered']} days"
             print(f"{b['bundle_id']:<26} | {created_str:<19} | {expires_str:<19} | {size_kb:>9} | {days}")
-            print(f"  ↳ 토큰: {b['token']}")
+            print(f"  ↳ Token: {b['token']}")
         print("=" * 95)
         return 0
 
@@ -3988,7 +3988,7 @@ def cmd_support_bundle(args) -> int:
     try:
         validate_bundle_days(days, max_ret)
     except ValueError as exc:
-        print(f"오류: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
 
     try:
@@ -3999,7 +3999,7 @@ def cmd_support_bundle(args) -> int:
             request_context={"channel": "cli"},
         )
     except Exception as exc:
-        print(f"Support Bundle 생성 실패: {exc}", file=sys.stderr)
+        print(f"Support bundle could not be made: {exc}", file=sys.stderr)
         return 1
 
     if getattr(args, "json", False):
@@ -4007,18 +4007,18 @@ def cmd_support_bundle(args) -> int:
         return 0
 
     print("=" * 70)
-    print("claire: [Support Bundle 생성 완료]")
+    print("claire: [Support bundle is ready]")
     print("=" * 70)
-    print(f"• 번들 ID      : {info.bundle_id}")
-    print(f"• 압축 파일 경로 : {info.filepath}")
-    print(f"• 파일 크기     : {info.size_bytes / 1024:.1f} KB (zstd 압축)")
-    print(f"• 수집 대상 기간 : 최근 {info.days_covered}일")
+    print(f"• Bundle ID       : {info.bundle_id}")
+    print(f"• Archive path    : {info.filepath}")
+    print(f"• File size       : {info.size_bytes / 1024:.1f} KB (zstd)")
+    print(f"• Period          : last {info.days_covered} days")
     if info.target_doc_id:
-        print(f"• 추적 대상 문서 : {info.target_doc_id} (기준: {info.target_matched_by})")
+        print(f"• Target document : {info.target_doc_id} (matched by: {info.target_matched_by})")
     elif info.target_resolution_status:
-        print(f"• 타깃 해석 상태 : {info.target_resolution_status}")
-    print(f"• 유효 만료 시각 : 6시간 후 자동 파기 ({info.to_dict()['expires_at']})")
-    print(f"• 다운로드 링크  : {info.download_url}")
+        print(f"• Target status   : {info.target_resolution_status}")
+    print(f"• Expires         : deleted automatically after 6 hours ({info.to_dict()['expires_at']})")
+    print(f"• Download link   : {info.download_url}")
     print("=" * 70)
     return 0
 
@@ -4158,11 +4158,11 @@ def cmd_hoyowiki(args) -> int:
     if getattr(args, "list_menus", False):
         games = ["genshin", "hsr", "zzz", "honkai3rd"] if game == "all" else [game]
         for g in games:
-            print(f"\n[{_GAME_NAMES.get(g, g)} 메뉴 목록]")
+            print(f"\n[{_GAME_NAMES.get(g, g)} menus]")
             try:
                 menus = client.get_menus(g, lang=lang)
             except Exception as e:
-                print(f"  메뉴 조회 실패: {e}", file=sys.stderr)
+                print(f"  Menu request failed: {e}", file=sys.stderr)
                 continue
 
             def _print_menu(m_list, indent="  "):
@@ -4170,7 +4170,7 @@ def cmd_hoyowiki(args) -> int:
                     m_id = m.get("id")
                     m_name = m.get("name")
                     has_page = m.get("has_page")
-                    page_flag = " (페이지 있음)" if has_page else ""
+                    page_flag = " (has a page)" if has_page else ""
                     print(f"{indent}- [{m_id}] {m_name}{page_flag}")
                     sub = m.get("sub_menus")
                     if sub:
@@ -4182,15 +4182,15 @@ def cmd_hoyowiki(args) -> int:
     # 2. 키워드 검색
     if getattr(args, "search", None):
         kw = args.search.strip()
-        print(f"[{_GAME_NAMES.get(game, game)}] '{kw}' 검색 결과:")
+        print(f"[{_GAME_NAMES.get(game, game)}] Search results for '{kw}':")
         try:
             results = client.search(kw, game=game, lang=lang)
         except Exception as e:
-            print(f"검색 실패: {e}", file=sys.stderr)
+            print(f"Search failed: {e}", file=sys.stderr)
             return 1
 
         if not results:
-            print("  검색 결과가 없습니다.")
+            print("  No search result.")
             return 0
 
         for it in results:
@@ -4210,11 +4210,11 @@ def cmd_hoyowiki(args) -> int:
         target_url = f"https://wiki.hoyolab.com/pc/{game}/entry/{args.entry_id.strip()}"
 
     if target_url:
-        print(f"HoYoWiki 단건 수집: {target_url}")
+        print(f"HoYoWiki collection of one page: {target_url}")
         try:
             doc = fetch_hoyowiki(target_url, full_content=True, lang=lang)
         except Exception as e:
-            print(f"수집 실패: {e}", file=sys.stderr)
+            print(f"Collection failed: {e}", file=sys.stderr)
             return 1
 
         if getattr(args, "output_dir", None):
@@ -4224,7 +4224,7 @@ def cmd_hoyowiki(args) -> int:
             clean_title = re.sub(r'[\\/*?:"<>|]', "_", doc.title or "entry")
             out_file = out_dir / f"{ep_id}_{clean_title}.md"
             out_file.write_text(doc.raw_text, encoding="utf-8")
-            print(f"저장 완료: {out_file}")
+            print(f"Saved: {out_file}")
 
         if getattr(args, "ingest", False):
             from .extract.provider import get_provider
@@ -4249,9 +4249,9 @@ def cmd_hoyowiki(args) -> int:
             import json as json_mod
             print(json_mod.dumps(doc.model_dump(), ensure_ascii=False, indent=2))
         else:
-            print(f"\n제목: {doc.title}")
+            print(f"\nTitle: {doc.title}")
             print(f"URL: {doc.canonical_url}")
-            print(f"본문 길이: {len(doc.raw_text)} chars")
+            print(f"Body length: {len(doc.raw_text)} chars")
             print("-" * 40)
             print(doc.raw_text[:1000] + ("\n…" if len(doc.raw_text) > 1000 else ""))
         return 0
@@ -4260,7 +4260,7 @@ def cmd_hoyowiki(args) -> int:
     menu_filter = getattr(args, "menu", None)
     limit = getattr(args, "limit", None)
     delay = getattr(args, "delay", 0.5)
-    print(f"HoYoWiki 배치 크롤링 시작 (game={game}, menu={menu_filter or '전체'}, limit={limit or '무제한'}, delay={delay}s)")
+    print(f"HoYoWiki batch crawl starts (game={game}, menu={menu_filter or 'all'}, limit={limit or 'no limit'}, delay={delay}s)")
 
     out_dir = Path(args.output_dir) if getattr(args, "output_dir", None) else None
     if out_dir:
@@ -4287,7 +4287,7 @@ def cmd_hoyowiki(args) -> int:
     try:
         for doc in crawl_hoyowiki(game=game, menu_filter=menu_filter, limit=limit, delay=delay, lang=lang):
             count += 1
-            print(f"[{count}] {doc.title} ({doc.canonical_url}) - {len(doc.raw_text)}자")
+            print(f"[{count}] {doc.title} ({doc.canonical_url}) - {len(doc.raw_text)} chars")
             if out_dir:
                 safe_name = re.sub(r'[\\/*?:"<>|]', "_", doc.title or "entry")
                 ep_id = doc.meta.get("entry_page_id") or count
@@ -4302,18 +4302,18 @@ def cmd_hoyowiki(args) -> int:
                         full_content=True,
                     )
                     if rep.error:
-                        print(f"    -> 적재 실패: {rep.error}")
+                        print(f"    -> Ingest failed: {rep.error}")
                         errors += 1
                     else:
                         print(f"    -> {rep.telegram_summary().splitlines()[0]}")
                 except Exception as ex:
-                    print(f"    -> 적재 예외: {ex}", file=sys.stderr)
+                    print(f"    -> Ingest exception: {ex}", file=sys.stderr)
                     errors += 1
     finally:
         if conn:
             conn.close()
 
-    print(f"\n크롤링 완료: 총 {count}건 수집 (적재 실패: {errors}건)")
+    print(f"\nCrawl done: {count} collected (ingest failures: {errors})")
     return 0 if errors == 0 else 1
 
 
@@ -4336,7 +4336,7 @@ def cmd_reembed(args) -> int:
 
     ents = dbm.all_entities(conn, theme_id=tid)
     if not ents:
-        print("재임베딩할 엔티티가 없습니다.")
+        print("No entity to embed again.")
         conn.close()
         return 0
 
@@ -4349,14 +4349,14 @@ def cmd_reembed(args) -> int:
     ident = resolve_embed_identity(provider, s)
     model_name = ident.model
     if not model_name:
-        print("임베딩 모델을 알 수 없어 재임베딩하지 않습니다.")
+        print("The embedding model is not known. Claire does not embed again.")
         conn.close()
         return 1
     old_pin = read_embed_pin(conn, tid)
 
     print(
-        f"테마 {tid}: 총 {len(ents)}개 엔티티 재임베딩 시작 (provider={provider_name}, model={model_name}, "
-        f"고정={old_pin.model if old_pin else '없음'}, dry_run={dry_run})"
+        f"Theme {tid}: embedding of {len(ents)} entities starts (provider={provider_name}, model={model_name}, "
+        f"pinned={old_pin.model if old_pin else 'none'}, dry_run={dry_run})"
     )
 
     success = 0
@@ -4373,22 +4373,22 @@ def cmd_reembed(args) -> int:
                 items.append((ent.id, vec))
             success += 1
             if i % 10 == 0 or i == len(ents):
-                print(f"  [{i}/{len(ents)}] {ent.name} ({ent.type}) 완료")
+                print(f"  [{i}/{len(ents)}] {ent.name} ({ent.type}) done")
         except Exception as e:
             failed += 1
-            print(f"  [{i}/{len(ents)}] {ent.name} 실패: {e}")
+            print(f"  [{i}/{len(ents)}] {ent.name} failed: {e}")
 
     if not dry_run:
         if items:
             vstore.replace_theme_embeddings(
                 tid, embed_provider=ident.provider or None, model=model_name, items=items
             )
-            print(f"테마 {tid} 임베딩 고정: {model_name} (다른 모델 벡터 삭제)")
+            print(f"Theme {tid} embedding pinned: {model_name} (vectors of other models deleted)")
         else:
-            print("새 벡터가 없어 고정과 기존 벡터를 그대로 둡니다.")
+            print("No new vector. The pin and the old vectors stay.")
 
     conn.close()
-    print(f"\n재임베딩 완료: 총 {len(ents)}개 중 성공 {success}개, 실패 {failed}개")
+    print(f"\nEmbedding done: {success} of {len(ents)} succeeded, {failed} failed")
     return 0 if failed == 0 else 1
 
 
@@ -4410,7 +4410,7 @@ def cmd_link_relations(args) -> int:
 
     ents = dbm.all_entities(conn)
     if not ents:
-        print("분석할 엔티티가 없습니다.")
+        print("No entity to analyze.")
         conn.close()
         return 0
 
@@ -4423,7 +4423,7 @@ def cmd_link_relations(args) -> int:
     provider_name = getattr(provider, "name", "?")
 
     print(
-        f"지식 그래프 관계 자동 수립 분석 시작 (총 {len(ents)}개 노드, provider={provider_name}, "
+        f"Analysis of automatic relations in the knowledge graph starts ({len(ents)} nodes, provider={provider_name}, "
         f"score=[{min_score:.2f}, {max_score:.2f}), limit={limit}, dry_run={dry_run})"
     )
 
@@ -4451,7 +4451,7 @@ def cmd_link_relations(args) -> int:
                 candidates.append((ent, cand_ent, score))
 
     if not candidates:
-        print("연결 후보가 될 만한 미연결 엔티티 쌍이 발견되지 않았습니다.")
+        print("Claire found no pair of unlinked entities to link.")
         conn.close()
         return 0
 
@@ -4459,7 +4459,7 @@ def cmd_link_relations(args) -> int:
     if limit > 0:
         candidates = candidates[:limit]
 
-    print(f"\n총 {len(candidates)}개 후보 쌍을 관계 판정기로 평가합니다...")
+    print(f"\nThe relation judge examines {len(candidates)} candidate pairs...")
 
     created_count = 0
     rejected_count = 0
@@ -4481,7 +4481,7 @@ def cmd_link_relations(args) -> int:
         try:
             judgement = provider.judge_relationship(rc)
         except Exception as e:
-            print(f"  [{i}/{len(candidates)}] {ent_a.name} ↔ {ent_b.name} 판정 오류: {e}")
+            print(f"  [{i}/{len(candidates)}] {ent_a.name} ↔ {ent_b.name} judge error: {e}")
             continue
 
         if judgement and judgement.has_relation and judgement.relation_type:
@@ -4512,17 +4512,17 @@ def cmd_link_relations(args) -> int:
             created_count += 1
             action_badge = "[DRY-RUN] " if dry_run else ""
             print(
-                f"  [{i}/{len(candidates)}] {action_badge}✅ 관계 수립: {s_name} -> {t_name} "
-                f"({rtype}, conf={judgement.confidence:.2f}) — 사유: {judgement.reason}"
+                f"  [{i}/{len(candidates)}] {action_badge}✅ Relation made: {s_name} -> {t_name} "
+                f"({rtype}, conf={judgement.confidence:.2f}) — reason: {judgement.reason}"
             )
         else:
             rejected_count += 1
-            reason_text = judgement.reason if judgement else "관계 없음"
-            print(f"  [{i}/{len(candidates)}] ❌ 관계 기각: {ent_a.name} ↔ {ent_b.name} — 사유: {reason_text}")
+            reason_text = judgement.reason if judgement else "no relation"
+            print(f"  [{i}/{len(candidates)}] ❌ Relation refused: {ent_a.name} ↔ {ent_b.name} — reason: {reason_text}")
 
     conn.close()
-    dry_prefix = "(드라이런) " if dry_run else ""
-    print(f"\n{dry_prefix}관계 수립 완료: 총 {len(candidates)}쌍 중 성립 {created_count}개, 기각 {rejected_count}개")
+    dry_prefix = "(dry run) " if dry_run else ""
+    print(f"\n{dry_prefix}Relations done: {created_count} made, {rejected_count} refused, of {len(candidates)} pairs")
     return 0
 
 
@@ -4530,7 +4530,7 @@ def cmd_entity_select_label(args) -> int:
     """엔티티의 기존 별칭 중 하나를 선택하여 대표 레이블로 전환."""
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
 
@@ -4540,7 +4540,7 @@ def cmd_entity_select_label(args) -> int:
     as_json = getattr(args, "json", False)
 
     if not target or not to_alias:
-        print("대상 엔티티와 선택할 별칭(--to)을 모두 지정해야 합니다.", file=sys.stderr)
+        print("Give the entity and the alias to select (--to).", file=sys.stderr)
         conn.close()
         return 2
 
@@ -4551,11 +4551,11 @@ def cmd_entity_select_label(args) -> int:
             if len(cands) == 1:
                 ent = cands[0]
             elif len(cands) > 1:
-                print(f"오류: '{target}' 식별자가 여러 엔티티에 일치합니다 ({len(cands)}개).", file=sys.stderr)
+                print(f"Error: The identifier '{target}' agrees with more than one entity ({len(cands)}).", file=sys.stderr)
                 conn.close()
                 return 1
             else:
-                print(f"오류: 엔티티를 찾을 수 없습니다: '{target}'", file=sys.stderr)
+                print(f"Error: The entity is not found: '{target}'", file=sys.stderr)
                 conn.close()
                 return 1
 
@@ -4564,8 +4564,8 @@ def cmd_entity_select_label(args) -> int:
         norm_to = normalize_name(to_alias)
         matched_alias = next((a for a in ent.aliases if normalize_name(a) == norm_to), None)
         if matched_alias is None:
-            print(f"오류: '{to_alias}'은(는) 엔티티 '{ent.name}'의 기존 별칭 목록에 존재하지 않습니다.", file=sys.stderr)
-            print(f"  현재 별칭 목록: {ent.aliases}", file=sys.stderr)
+            print(f"Error: '{to_alias}' is not an alias of the entity '{ent.name}'.", file=sys.stderr)
+            print(f"  Aliases now: {ent.aliases}", file=sys.stderr)
             conn.close()
             return 1
 
@@ -4594,14 +4594,14 @@ def cmd_entity_select_label(args) -> int:
         if as_json:
             print(json.dumps(result_info, ensure_ascii=False, indent=2))
         else:
-            mode = "[적용 완료]" if apply else "[미리보기 (dry-run, --apply로 적용)]"
-            print(f"{mode} 엔티티 대표 레이블 전환:")
+            mode = "[applied]" if apply else "[preview (dry-run; use --apply to apply)]"
+            print(f"{mode} Change of the main label of the entity:")
             print(f"  ID: {ent.id}")
-            print(f"  대표 레이블: '{old_name}' -> '{matched_alias}'")
-            print(f"  별칭 목록: {ent.aliases} -> {result_info['aliases_after']}")
+            print(f"  Main label: '{old_name}' -> '{matched_alias}'")
+            print(f"  Aliases: {ent.aliases} -> {result_info['aliases_after']}")
         return 0
     except Exception as exc:
-        print(f"오류 발생: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
     finally:
         conn.close()
@@ -4611,7 +4611,7 @@ def cmd_entity_batch_labels(args) -> int:
     """대량 매핑 규칙 파일(JSON/YAML)을 기반으로 대표 레이블 일괄 전환."""
     rules_file = Path(getattr(args, "rules", "") or "")
     if not rules_file.exists() or not rules_file.is_file():
-        print(f"오류: 매핑 규칙 파일을 찾을 수 없습니다: {rules_file}", file=sys.stderr)
+        print(f"Error: The mapping rule file is not found: {rules_file}", file=sys.stderr)
         return 2
 
     content = rules_file.read_text(encoding="utf-8").strip()
@@ -4630,12 +4630,12 @@ def cmd_entity_batch_labels(args) -> int:
                 if t and a:
                     mappings[str(t)] = str(a)
     except Exception as exc:
-        print(f"오류: 규칙 파일 파싱 실패: {exc}", file=sys.stderr)
+        print(f"Error: Claire cannot parse the rule file: {exc}", file=sys.stderr)
         return 2
 
     s, theme = get_effective_settings(args)
     if theme:
-        print(f"[{theme.icon} 대상 테마: #{theme.id} - {theme.label}]")
+        print(f"[{theme.icon} Theme: #{theme.id} - {theme.label}]")
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
 
@@ -4647,8 +4647,8 @@ def cmd_entity_batch_labels(args) -> int:
         if as_json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
         else:
-            mode = "[적용 완료]" if apply else "[미리보기 (dry-run, --apply로 적용)]"
-            print(f"{mode} 대량 대표 레이블 전환: 총 {res['total']}개 중 계획/적용 {res['planned']}개, 실패 {res['failed']}개")
+            mode = "[applied]" if apply else "[preview (dry-run; use --apply to apply)]"
+            print(f"{mode} Bulk change of main labels: {res['planned']} planned or applied, {res['failed']} failed, of {res['total']}")
             for item in res["results"]:
                 print(f"  ✓ [{item['id']}] '{item['old_name']}' -> '{item['new_name']}'")
             for err in res["errors"]:
@@ -4668,19 +4668,19 @@ def cmd_providers(args) -> int:
     if action == "migrate":
         migrated = pm.migrate_from_env_if_needed(force=True)
         if migrated:
-            print(f"✅ 프로바이더 설정이 {pm.registry_path} 파일로 마이그레이션되었으며, env 파일의 변수가 주석처리되었습니다.")
+            print(f"✅ The provider settings moved to {pm.registry_path}. The variables in the env file are now comments.")
         else:
-            print(f"ℹ️ 이미 마이그레이션 완료되었습니다 ({pm.registry_path}).")
+            print(f"ℹ️ The migration is already complete ({pm.registry_path}).")
         return 0
 
     if action == "test":
         target = getattr(args, "target_provider", None) or s.provider
         res = pm.test_connection(target)
         if res.get("ok"):
-            print(f"✅ [{target}] 연결/감지 성공: {res.get('message', '')}")
+            print(f"✅ [{target}] Connection or detection succeeded: {res.get('message', '')}")
             return 0
         else:
-            print(f"❌ [{target}] 연결/감지 실패: {res.get('error', 'unknown error')}", file=sys.stderr)
+            print(f"❌ [{target}] Connection or detection failed: {res.get('error', 'unknown error')}", file=sys.stderr)
             return 1
 
     # list
@@ -4690,7 +4690,7 @@ def cmd_providers(args) -> int:
     print(f"  active provider : {cfg.get('active_provider')}")
     print(f"  effective prov  : {s.effective_provider}")
     print(f"  effective stt   : {s.effective_stt_provider}")
-    print("\n[등록된 프로바이더 설정]")
+    print("\n[Registered provider settings]")
     for name, p_data in cfg.get("providers", {}).items():
         print(f"  • {name}:")
         for k, v in p_data.items():
@@ -4763,7 +4763,7 @@ def cmd_import_graph(args: Any) -> int:
                 theme = tm.get_theme(theme_ref, label_match="partial")
                 target_db = Path(theme.db_path)
             except Exception as exc:
-                raise ValueError(f"테마 '{theme_ref}'를 찾을 수 없습니다: {exc}") from exc
+                raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
 
     try:
         result = import_graph_bundle(target_db_path=target_db, bundle_path=bundle_path)
@@ -5932,7 +5932,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return wrapped_func(args)
     except KeyboardInterrupt:
-        print("\n[!] 사용자에 의해 작업이 중단되었습니다.", file=sys.stderr)
+        print("\n[!] The user stopped the operation.", file=sys.stderr)
         return 130
 
 

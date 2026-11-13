@@ -71,7 +71,7 @@ def test_purge_blocked_in_append_only_mode(tmp_path, monkeypatch, capsys):
     assert rc == 1
 
     captured = capsys.readouterr()
-    assert "데이터 소각이 정책에 의해 차단되었습니다" in captured.err
+    assert "The policy blocks the purge of data" in captured.err
     assert "CLAIRE_DATA_LIFECYCLE" in captured.err
 
 
@@ -300,8 +300,8 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     rc = cmd_purge(args_notfound)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "일치하는 소각 대상 문서를 찾을 수 없습니다" in cap.err
-    assert "최근 수집된 문서 목록" in cap.err
+    assert "No document to purge agrees with the input" in cap.err
+    assert "Documents that Claire collected recently" in cap.err
 
     # 2. 공유 URL로 Dry-Run 검증 (경고 문구 출력)
     share_url = f"https://myclaire.local/p?s={share_token}"
@@ -310,7 +310,7 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     assert rc == 0
     cap = capsys.readouterr()
     assert "[Dry-Run]" in cap.out
-    assert "공유 링크(?s=token)로 식별된 문서가 포함되어 있습니다" in cap.out
+    assert "a document that a share link (?s=token) identifies" in cap.out
     assert "Spam Polluted Article" in cap.out
 
     # 3. 프로토콜 없는 도메인/경로로 --apply -y 소각 검증
@@ -319,8 +319,8 @@ def test_purge_cli_smart_targets(tmp_path, monkeypatch, capsys):
     rc = cmd_purge(args_purge)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "소각된 문서 수 (DB)" in cap.out
-    assert "등록된 툼스톤" in cap.out
+    assert "Documents purged (DB)" in cap.out
+    assert "Tombstones recorded" in cap.out
 
     # DB에 소각 및 툼스톤 확인
     conn2 = dbm.connect(db_file)
@@ -434,7 +434,7 @@ def test_cli_purge_no_tombstone(tmp_path, monkeypatch, capsys):
     assert rc == 0
     cap = capsys.readouterr()
     assert "[Dry-Run]" in cap.out
-    assert "미등록 (--no-tombstone, 재수집 허용)" in cap.out
+    assert "not recorded (--no-tombstone, a new ingest is permitted)" in cap.out
     assert "--no-tombstone" in cap.out
 
     # 2. --no-tombstone --apply --yes 실제 소각 검증
@@ -442,8 +442,8 @@ def test_cli_purge_no_tombstone(tmp_path, monkeypatch, capsys):
     rc = cmd_purge(args_apply)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "소각된 문서 수 (DB)" in cap.out
-    assert "등록된 툼스톤 (재유입방지): 0 건 (--no-tombstone 적용, 재수집 가능)" in cap.out
+    assert "Documents purged (DB)" in cap.out
+    assert "Tombstones recorded       : 0 (--no-tombstone, a new ingest is permitted)" in cap.out
 
     # 3. 툼스톤 미등록 검증
     conn2 = dbm.connect(db_file)

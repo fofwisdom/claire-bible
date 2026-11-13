@@ -318,7 +318,7 @@ def test_config_preflight_rejects_pypdf_parser(tmp_path):
     runtime = cb.load_runtime(cb.Layout(tmp_path))
 
     with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원"):
+        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=pypdf is not supported"):
             cb.config_preflight(runtime)
     run.assert_not_called()
 
@@ -330,7 +330,7 @@ def test_config_preflight_rejects_docling_parser(tmp_path):
     runtime = cb.load_runtime(cb.Layout(tmp_path))
 
     with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=docling 설정은 지원되지 않습니다"):
+        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=docling is not supported"):
             cb.config_preflight(runtime)
     run.assert_not_called()
 
@@ -1520,7 +1520,7 @@ def test_preflight_rejects_codex_in_every_docker_profile_before_subprocess(
 
     run.assert_not_called()
     error = capsys.readouterr().err
-    assert "Codex provider는 네이티브 전용" in error
+    assert "The Codex provider is native-only" in error
     assert "uv run claire ..." in error
 
 
@@ -1531,7 +1531,7 @@ def test_config_preflight_rejects_codex_before_compose_validation(tmp_path):
     runtime = cb.load_runtime(cb.Layout(tmp_path))
 
     with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="Codex provider는 네이티브 전용"):
+        with pytest.raises(cb.ManuscriptError, match="The Codex provider is native-only"):
             cb.config_preflight(runtime)
 
     run.assert_not_called()

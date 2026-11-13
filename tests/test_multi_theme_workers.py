@@ -188,5 +188,5 @@ def test_expansion_notification_groups_links_by_theme(monkeypatch):
     )
 
     assert len(sent) == 1
-    assert "theme#0 [기본]: 1건 적재\n• 기본 링크" in sent[0]
-    assert "theme#2 [연구]: 1건 적재\n• 연구 링크" in sent[0]
+    assert "theme#0 [기본]: 1 ingested\n• 기본 링크" in sent[0]
+    assert "theme#2 [연구]: 1 ingested\n• 연구 링크" in sent[0]

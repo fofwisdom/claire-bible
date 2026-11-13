@@ -140,7 +140,7 @@ def test_cli_reingest_dry_run_and_apply(tmp_path: Path, monkeypatch, capsys):
         rc_apply = cli.cmd_reingest(args_apply)
         assert rc_apply == 0
         cap_apply = capsys.readouterr()
-        assert "재적재 완료 문서 수" in cap_apply.out
+        assert "Documents ingested again" in cap_apply.out
 
     conn = dbm.connect(db_file)
     refetched = dbm.get_document(conn, doc_id)

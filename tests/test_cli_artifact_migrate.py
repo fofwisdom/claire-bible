@@ -53,9 +53,9 @@ def test_cmd_artifact_migrate_dry_run_and_apply(tmp_path: Path, monkeypatch, cap
         rc_dry = cmd_artifact_migrate(args_dry)
         assert rc_dry == 0
         captured_dry = capsys.readouterr()
-        assert "DRY-RUN (시뮬레이션)" in captured_dry.out
-        assert "총 아티팩트 대상: 3건" in captured_dry.out
-        assert "변환 완료/예정:   3건" in captured_dry.out
+        assert "DRY-RUN (simulation)" in captured_dry.out
+        assert "Artifacts in scope:   3" in captured_dry.out
+        assert "Converted or to convert: 3" in captured_dry.out
         # 파일 상태 불변
         assert len(list(art_dir.glob("*.txt.gz"))) == 3
         assert len(list(art_dir.glob("*.txt.zst"))) == 0
@@ -76,8 +76,8 @@ def test_cmd_artifact_migrate_dry_run_and_apply(tmp_path: Path, monkeypatch, cap
         rc_apply = cmd_artifact_migrate(args_apply)
         assert rc_apply == 0
         captured_apply = capsys.readouterr()
-        assert "APPLY (실제 변환)" in captured_apply.out
-        assert "변환 완료/예정:   3건" in captured_apply.out
+        assert "APPLY (real conversion)" in captured_apply.out
+        assert "Converted or to convert: 3" in captured_apply.out
         # gz는 삭제되고 zst가 생성됨
         assert len(list(art_dir.glob("*.txt.gz"))) == 0
         assert len(list(art_dir.glob("*.txt.zst"))) == 3

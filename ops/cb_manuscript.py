@@ -1160,9 +1160,8 @@ def _reject_native_only_provider(runtime: Runtime) -> None:
         raw_provider = _get_provider_from_providers_json(runtime)
     if raw_provider in CODEX_PROVIDER_ALIASES:
         raise ManuscriptError(
-            "Codex provider는 네이티브 전용(native-only)이며 cb-manuscript "
-            "Docker profile에서 실행할 수 없습니다. 대신 `uv run claire ...`로 "
-            "Claire를 네이티브 실행하십시오."
+            "The Codex provider is native-only. It cannot run in the cb-manuscript "
+            "Docker profile. Run Claire natively with `uv run claire ...`."
         )
 
 
@@ -1180,13 +1179,13 @@ def _check_pdf_parser(runtime: Runtime) -> None:
                 pass
     if raw_parser == "pypdf":
         raise ManuscriptError(
-            "CLAIRE_PDF_PARSER=pypdf 설정은 한글 CMap 미지원 및 텍스트 인코딩 결함 위험으로 인해 지원되지 않습니다.\n"
-            ".env 파일의 CLAIRE_PDF_PARSER를 'default'로 변경하십시오."
+            "CLAIRE_PDF_PARSER=pypdf is not supported: it has no Korean CMap support and can damage the text encoding.\n"
+            "Set CLAIRE_PDF_PARSER to 'default' in the .env file."
         )
     if raw_parser == "docling":
         raise ManuscriptError(
-            "CLAIRE_PDF_PARSER=docling 설정은 지원되지 않습니다 (Docling 의존성이 완전히 제거되었습니다).\n"
-            ".env 파일의 CLAIRE_PDF_PARSER를 'default'로 변경하십시오."
+            "CLAIRE_PDF_PARSER=docling is not supported (the Docling dependency is removed).\n"
+            "Set CLAIRE_PDF_PARSER to 'default' in the .env file."
         )
 
 

@@ -289,7 +289,7 @@ def test_cli_cmd_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     res = cmd_token(SimpleNamespace(token_action="list", all=False, json=False))
     assert res == 0
     out = capsys.readouterr().out
-    assert "등록된 API/MCP 토큰이 없습니다" in out
+    assert "No API/MCP token" in out
 
     # 2. Create token via CLI
     res = cmd_token(SimpleNamespace(
@@ -301,7 +301,7 @@ def test_cli_cmd_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     ))
     assert res == 0
     out = capsys.readouterr().out
-    assert "발급 완료" in out
+    assert "token is ready" in out
     assert "CLI Test Agent" in out
     assert "cb_" in out
 
@@ -315,4 +315,4 @@ def test_cli_cmd_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: 
     res = cmd_token(SimpleNamespace(token_action="revoke", target="1", json=False))
     assert res == 0
     out = capsys.readouterr().out
-    assert "폐기되었습니다" in out
+    assert "is revoked" in out

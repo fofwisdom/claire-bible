@@ -133,7 +133,7 @@ def test_purge_option_standardization(tmp_path, monkeypatch, capsys):
     rc = cli.cmd_purge(args_apply_y)
     assert rc == 0
     cap = capsys.readouterr()
-    assert "소각된 문서 수 (DB)" in cap.out
+    assert "Documents purged (DB)" in cap.out
 
     conn3 = dbm.connect(db_file)
     assert dbm.get_document_row(conn3, doc_id) is None

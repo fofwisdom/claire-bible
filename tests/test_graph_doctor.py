@@ -132,7 +132,7 @@ def test_cli_doctor_command_json_and_heal(temp_db: Path, capsys: pytest.CaptureF
     rc_heal = cmd_doctor(SimpleNamespace(heal=True, apply=False, repair=False, json=False))
     assert rc_heal == 0
     out_heal = capsys.readouterr().out
-    assert "수복 완료" in out_heal
+    assert "Repair is complete" in out_heal
 
 
 def test_diagnose_and_heal_connected_ghost_cluster(temp_db: Path):

@@ -289,19 +289,19 @@ def test_cli_theme_collaborator_flags(tmp_path: Path, monkeypatch: pytest.Monkey
     ret = cli.main(["theme", "define", "--label", "비공개테마", "--no-collaborator", "--private"])
     assert ret == 0
     captured = capsys.readouterr()
-    assert "차단 (Collaborator Blocked)" in captured.out
+    assert "Collaborator Blocked" in captured.out
 
     # 2. List themes
     ret = cli.main(["theme", "list"])
     assert ret == 0
     captured_list = capsys.readouterr()
-    assert "차단" in captured_list.out
+    assert "blocked" in captured_list.out
 
     # 3. Update theme with --collaborator
     ret = cli.main(["theme", "update", "1", "--collaborator"])
     assert ret == 0
     captured_up = capsys.readouterr()
-    assert "공개 (Collaborator Allowed)" in captured_up.out
+    assert "Collaborator Allowed" in captured_up.out
 
 
 @pytest.mark.asyncio

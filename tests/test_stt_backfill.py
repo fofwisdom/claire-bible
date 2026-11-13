@@ -153,7 +153,7 @@ def test_cli_stt_backfill_dry_run_and_apply(tmp_path, monkeypatch, capsys):
     ret = main(["stt-backfill", "--apply"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "소급 적용 완료: 총 1건 갱신됨" in out
+    assert "STT metadata backfill done: 1 documents updated" in out
 
     # DB 확인: is_stt가 True로 반영됨
     conn = sqlite3.connect(test_db)

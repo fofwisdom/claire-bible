@@ -261,4 +261,4 @@ def test_cmd_video_reprocess_fails_cleanly_when_stt_fails(tmp_path, capsys):
         ret = cmd_video_reprocess(args)
         assert ret == 1
         captured = capsys.readouterr()
-        assert "STT 음성 전사 실패" in captured.err or "실패" in captured.err
+        assert "Video STT transcription failed" in captured.err
