@@ -11,11 +11,11 @@
 #  4) 전체 테스트.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+pytest_skip=()
 
 # Temporary files of the tests go to a directory on disk, not to /tmp. On many hosts /tmp is a small tmpfs in RAM, and the test runs fill it (pytest keeps the directories of earlier runs). When /tmp is full, SQLite fails and the failures look like code errors. Each run gets a new directory, and the run deletes it at exit.
-ci_tmp_root="${XDG_CACHE_HOME:-$HOME/.cache}/claire-bible-ci"
-mkdir -p "$ci_tmp_root"
-ci_tmp="$(mktemp -d "$ci_tmp_root/run.XXXXXX")"
+# The path must stay short: some tests open a Unix socket in their temporary directory, and a socket path has a limit of 108 bytes (AF_UNIX path too long). /var/tmp is on disk and has a short path.
+ci_tmp="$(mktemp -d /var/tmp/cbci.XXXXXX)"
 trap 'rm -rf "${ci_tmp:?}"' EXIT
 export TMPDIR="$ci_tmp"
 
@@ -79,6 +79,8 @@ fi
 if command -v deno >/dev/null 2>&1; then
   echo "[ci] 2/4 Fedify sidecar tests (deno task test)"
   (cd sidecar/fedify && deno task test)
+  # pytest runs the same Deno tests in this test. They passed above, so pytest does not run them again.
+  pytest_skip=(--deselect tests/test_fedify_sidecar.py::test_sidecar_deno_tests_pass)
 else
   echo "[ci] 2/4 Fedify sidecar tests skipped: deno is not installed"
 fi
@@ -87,6 +89,7 @@ echo "[ci] 3/4 uv.lock 일관성 검사 (pyproject 와 동기인지)"
 uv lock --check
 
 echo "[ci] 4/4 테스트"
-PYTHONPATH=. uv run --extra dev pytest -q
+# Fast feedback: the tests run in parallel on all CPUs (pytest-xdist), the tests that failed in the last run go first (--ff), and the run stops after 10 failures (--maxfail). One cause (for example a full disk) often fails many tests, and a full run then only adds time. --basetemp keeps the directory path short (see TMPDIR above). The 10 slowest tests are shown at the end.
+PYTHONPATH=. uv run --extra dev pytest -q -n auto --ff --maxfail=10 --basetemp="$ci_tmp/p" --durations=10 "${pytest_skip[@]}"
 
 echo "[ci] ✅ 통과"
