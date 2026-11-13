@@ -1,7 +1,7 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD20 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD22 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
 - **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
 - **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
@@ -53,7 +53,7 @@ The owner decision (2026-11-13): the federation client is in `/syndication`. It 
 | :--- | :--- | :--- | :--- | :--- |
 | Collection (수집) | Account | Federation client in `/syndication` | Posts of followed actors, boosts, replies, mentions (Sections 6, 6.6) | Replies, favourites, boosts (Section 5.4) |
 | Ingestion (적재) | Theme | Knowledge base (`/syndication` knowledge base view, `/ingest`) | Only an item that the owner takes from the client (Section 4.4) | Nothing goes out directly |
-| Publication (게시) | Account and theme | Federation client (the dispatch dialog of FP3-5) | An ingested document | `Article` to followers (FP3) |
+| Publication (게시) | Account and theme | Federation client (the dispatch dialog of FP3-5) | An ingested document | `Article` with the summary and the share link to followers (FP3, RD21, Section 5.5) |
 
 Rules:
 
@@ -225,6 +225,24 @@ The task has a new column `target_iri` for the remote actor or the remote object
     - **Content warning.** An optional `summary` with `sensitive` = true. The client shows the summary first, as for inbound items (Section 8 rule 4).
     - **Language.** The note has `contentMap` with one language tag. The default is the locale of the account (`accounts.locale`), else the instance default. The owner can change it per note.
     - **Hashtags.** A `#tag` in the text becomes a `Hashtag` tag with a link, and a link in the HTML. FD8 (no hashtags) stays for published documents (`Article`) only.
+
+### 5.5 Content of a Published Document (RD21)
+
+The owner decision (2026-11-13): the ActivityPub object of a published document has the summary of the document and its share link. It does not have the body. The body stays on Claire: a remote user reads it on the share page.
+
+Facts at the base commit **[code]**: the object path builds `content` from the compiled body (`detail_html`, else `render_to_html(detail, detail_format)`) and sanitizes it with `nh3` (`api/federation_routes.py`, `published_object`). The publish route makes or reuses the share of the document before the object row (`dbm.create_doc_share(..., reuse_existing=True)`, `api/accounts_routes/federation.py`), and the object `url` is the share page `/p?s={token}`. The summary of a document is in the latest extraction (`dbm.latest_extraction_summary`); `documents` has no summary column.
+
+Rules:
+
+1. **Content.** `content` is HTML with two parts: the summary as one paragraph (`<p>`, text escaped, no markup from the body), then a paragraph with the link to the share page (`<a href="{share url}">`). The language rule of Section 5.4 rule 12 applies: the sidecar sends `content` and `contentMap` (RT8).
+2. **Summary source.** The summary is `dbm.latest_extraction_summary` of the document. A document without a summary sends the title as the first paragraph. The summary is plain text; the length limit is `article_summary_max_chars` (proposal: 500 characters, cut at a word end with "…").
+3. **Share link.** The object always has a share link: `url` and the link in `content` are the same share page. The publish route makes the share when it does not exist (as now). A published document whose share has expired or was deleted gets a new share at the next publish or update; until then the object path gives the object without the link paragraph and without `url` (as now for `url`).
+4. **Fields.** `type` stays `Article`. `name` is the title. `summary` (the ActivityPub content warning field) is not set: the document summary goes in `content`, so that Mastodon shows it as the post text. FD8 (no hashtags) stays.
+5. **Updates.** A change of the summary or of the share link makes an `update` task, as a change of the document does now (FP3). A change of the body alone sends no `Update`, because the object does not contain the body.
+6. **Body format.** The body format (AsciiDoc or old Markdown, RD22) has no effect on the object. Claire does not render a body for federation.
+7. **Already published objects.** The new content applies to the next answer of the object path; no migration is necessary. The next `update` task of a document sends the new form to the followers. Claire does not send `Update` to all followers for old objects at the change (a burst of deliveries without a change that the owner made).
+
+Work unit: FP4-P1 (Section 14).
 
 ---
 
@@ -608,6 +626,8 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD18 | Live update of the client | Periodic polling first: about every 30 seconds while the tab is visible, and once when the tab becomes visible again. The timeline routes use cursors, so that Server-Sent Events can later send only a "new items" signal. | Locked 2026-11-13 |
 | RD19 | Role of DrFed | A debugging tool of the developer only: not in the repository, not in CI, not in the service. `FEDERATION.md` has a short note on its use. | Locked 2026-11-13 |
 | RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype`, as a static page with mock data only. The prototype is a tool for the maintainer: it has no setting. The host name is fixed in code: `prototype.` + the registrable domain of `CLAIRE_FQDN` (Public Suffix List), for example `prototype.netspheres.org` for `cb.netspheres.org`. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
+| RD21 | Content of a published document | The `Article` of a published document has the summary and the share link only, not the body (Section 5.5). | Locked 2026-11-13 |
+| RD22 | Markdown bodies | Ingestion stops making Markdown bodies; AsciiDoc is the only body format. Markdown stays as an export format. Old Markdown documents stay readable without an operator action. Design: [`MARKDOWN_BODY_RETIREMENT_DESIGN.md`](MARKDOWN_BODY_RETIREMENT_DESIGN.md). | Locked 2026-11-13 |
 
 ---
 
@@ -637,6 +657,14 @@ Feed units (RD13, RD15). They need no actor and no federation unit, and they wor
 | FP4-F1 | Account feed tables (`claire.db` version 21), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | — (first unit, 2026-11-13) | M |
 | FP4-F2 | OPML import (feeds, folders, skip list, report) and OPML export | A Tiny Tiny RSS style OPML file with categories gives the same folders and feeds; a second import adds nothing. | FP4-F1 | S |
 | FP4-F3 | Feed view in the client (tree, list, reader, link share, star, ingest of one item), item merge by URL with the timeline | An end-to-end test subscribes to a local feed, reads an item, and ingests it into a theme. | FP4-F1, FP4-5 (network mode parts only) | M |
+
+Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
+
+| Unit | Scope | Completion criteria | After | Size |
+| :--- | :--- | :--- | :--- | :--- |
+| FP4-P1 | Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
+
+The Markdown units MD-1 to MD-3 (RD22) are in [`MARKDOWN_BODY_RETIREMENT_DESIGN.md`](MARKDOWN_BODY_RETIREMENT_DESIGN.md) Section 5.
 
 Order (owner, 2026-11-13): the feed units start first (version 21), parallel to FP4-0. FP4-2 follows as version 22.
 
