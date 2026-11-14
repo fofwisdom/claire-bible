@@ -466,3 +466,28 @@ No item is open.
 | O1 | Take isolated entities and pairs off the graph canvas and keep them only in the entity list. | Not done. They stay on the canvas (HD11). |
 | O2 | Color the relation lines by relation type in the full graph. | Not done (HD12). Recommendation that the owner followed: the canvas has one color code, the entity type. A second color code for lines makes the two codes compete, and the many relation types have no stable set of colors. The relation type shows as text: the label of the lines of the selected entity, and the groups of the entity detail. The line style keeps its one meaning, solid or provisional (Section 7). |
 | O3 | The text of the home title. | Accepted (HD13). |
+
+---
+
+## 15. Recorded Changes, Not Implemented (2026-11-15)
+
+The owner recorded these items. They are implemented together with the next work on this design, when the owner asks for it. No code changed for them.
+
+| ID | Item | Record |
+| :--- | :--- | :--- |
+| P1 | The label "model output" (`모델 산출`, `모델 생성`) | The label goes away from the summary block, the detail heading, and the Source tab. Reason (owner): ingestion in Claire Bible is always the work of an LLM, thus the label says nothing. The meaning of its hover text stays (an output of a model; it does not replace the source text; it can be made again). In its place, the page shows the model that the ingestion used, because a later ingestion with a better model is possible. **[code]** The `extractions` table has the columns `provider` and `model` for each document; `GET /document` does not give them at this time. The work needs a read-only field on `GET /document` (the provider and the model of the latest extraction) and its contract update. Where the model shows (reader meta line, Source tab, or the two) is a decision for the implementation request. Section 7 changes with it: the dashed line stays for provisional items and entity marks, and the rule for "an output of a model" on the summary and the detail goes away. |
+| P2 | The badge "source text kept" (`원문 보존`) | The owner does not see its purpose: the link "open the source" (`원문 열기`) already tells the reader that a source exists. The proposal of Section 15.1 is not decided. |
+| P3 | The Home button from the reader view goes to the graph view first and then to the home view | A defect. **[code]** `enterHome()` calls `resetWorkspaceState()`, which calls `closeReader()`; `closeReader()` calls `setCenterView('graph')` when the view is `reader`. Then `enterHome()` sets the `home` view. The fix: the reader closes without a change of the view when the home entry is the cause. An end-to-end test checks that `data-center-view` does not get the value `graph` between `reader` and `home`. |
+
+### 15.1 Proposal for P2
+
+Facts **[code]**: "open the source" is a link to the URL on the remote site. It shows only when the document has a web URL. It does not say that Claire has a copy. The badge says a different thing: Claire has the raw text in its own store (`has_raw_file`, `raw_chars`), which is principle A1. The two can differ: the remote page can be gone while the copy stays, a document from a file or a note has a copy and no URL, and a copy can be cut (`raw_truncated`).
+
+Proposal: remove the badge as a decoration, and show only the cases that change what the reader can do.
+
+1. **No badge in the normal case.** A complete copy is the normal state, thus it gets no visual element. The solid-line badge of Section 7.1 goes away.
+2. **One control for the copy.** The link to the stored copy (`원본 열기`, the raw file route) is next to "open the source" in the reader meta line, for a user who can read it. The two links have names that show the difference: the source on the remote site, and the copy in Claire.
+3. **A notice only for an exception.** When the copy is cut (`raw_truncated`), the meta line keeps the notice with the two character counts, as `docMetaHtml()` shows it today. When a document has no stored copy, the Source tab says so in one line.
+4. **The Source tab keeps the facts.** Fetch time, source type, and character counts stay there as text, without a badge.
+
+Result: the reader page has fewer elements, and principle A1 shows as a function (the copy opens) and not as a label.
