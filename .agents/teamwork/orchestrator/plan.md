@@ -1,39 +1,26 @@
-# Orchestration Plan: Account, IdP, and Fedify Preparation
+# Orchestration Plan: HW-4 & HW-5
 
 ## Plan Summary
-This plan decomposes the approved user request into three sequential milestones. Each milestone executes an iteration loop with workers, reviewers, challengers, and an auditor.
+This plan guides the execution of Milestone M1 (Units HW-4 and HW-5 from `HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`) into a single combined production git commit.
 
-## Milestones
-
-### Milestone 1 (M1): Account & Username Surface Contracts (R1 & R2)
-- **Scope**:
-  - `src/claire/store/accounts.py`: Add `update_profile_public` method.
-  - `src/claire/api/accounts_routes/me.py`: Update `me_payload` to include `"profile_public"`. Accept `profile_public` (0 or 1) in `PATCH /api/me`.
-  - `src/claire/api/accounts_routes/console.py`: Remove obsolete hint. Render switch `<input type="checkbox" switch data-settings-toggle="profile-public">` in network mode. Obey S9 in single mode.
-  - `src/claire/static/js/console_account.js`: Add toggle change handler calling `PATCH /api/me`.
-  - `src/claire/accounts/username_policy.py`: Add Fedify and IdP reserved words to `RESERVED_USERNAMES`.
-  - Tests: Update `tests/test_account_routes.py`, `tests/test_username_policy.py`, `tests/test_route_surface_contract.py`. Add unit and E2E test cases.
-- **Verification**: `uv run pytest tests/test_account_routes.py tests/test_username_policy.py tests/test_route_surface_contract.py`
-
-### Milestone 2 (M2): OAuth Token Exchange Integrity & Syndication Prototype Sealing (R3 & R5)
-- **Scope**:
-  - `src/claire/api/oauth.py`: Remove lines 906-921 unauthenticated fallback. Require valid session binding and valid `account_id`. Return HTTP 400 `invalid_grant` if binding is missing. Ensure `account_id=exchange_account_id` is passed to token creation.
-  - `tests/test_oauth_token_exchange.py`: Write comprehensive unit and integration tests for RFC 8693 token exchange. Verify rejection of unbound subject tokens. Verify bound tokens retain correct `account_id`.
-  - Syndication: Keep `/prototype/syndication` as a sealed reference prototype. Keep live `/syndication` free of prototype seeds.
-  - Tests: Verify all 5 syndication test suites pass (`tests/test_syndication_route.py`, `e2e/test_syndication_e2e.py`, `tests/test_e2e_syndication_namespace.py`, `tests/test_api_security.py`, `tests/test_route_surface_contract.py`).
-- **Verification**: `uv run pytest tests/test_oauth_token_exchange.py tests/test_oauth_flow.py tests/test_syndication_route.py e2e/test_syndication_e2e.py`
-
-### Milestone 3 (M3): Hygiene, Baseline Hotfix, PROJECT.md Update & Full CI Gate (R4 & R6)
-- **Scope**:
-  - `tests/test_security_hotfixes.py`: Update regex at line 291 to accept parameters in `function esc(...)`.
-  - `PROJECT.md`: Update status of Phase P2 to completed. Retitle and document current milestones and feature inventory.
-  - Engineering rules: English git commit messages, no hard-wrapped code lines, ASD-STE100 text.
-  - CI: Run `./scripts/ci.sh` to confirm 100% pass across all 2755+ tests.
-- **Verification**: `bash ./scripts/ci.sh`
-
-## Verification and Gate Policy
-- Worker verifies code with builds and test executions.
-- Two Reviewers review correctness, security, interface conformance, and code formatting.
-- Two Challengers test edge cases and error paths.
-- Forensic Auditor verifies integrity and checks for cheats or workarounds.
-- Gate pass requires strict AND of all reviewer, challenger, and auditor approvals.
+## Execution Sequence for Milestone M1
+1. **Worker Dispatch**:
+   - Worker implements HW-5 server aliases in `src/claire/store/queries.py`.
+   - Worker implements HW-4 local graph inline SVG, line grammar, degree sorting, unshown count text, accessibility tree buttons, and cross-view hover synchronization in `src/claire/static/js/app.js` and `workspace.css`.
+   - Worker implements HW-5 reader text CSS Custom Highlight API entity marks, candidate filtering, collision suppression, short name handling, text limits, zero DOM mutation, click selection without POST, and share page exclusion in `src/claire/static/js/reader.js`, `reader.css`, and `index.html`.
+   - Worker adds localization strings to `src/claire/static/locales/en.json` and `ko.json`.
+   - Worker writes unit test in `tests/test_graphview.py` and automated Playwright E2E tests in `e2e/workspace.spec.js` for HW-4 and HW-5 (T1-T4).
+   - Worker updates implementation docs: `IMPLEMENTATION_STATUS.md`, `GLOSSARY.md`, `API_HTTP_CONTRACT.md`, and `openapi.yaml`.
+   - Worker runs `pytest tests/test_graphview.py` and `npx playwright test e2e/workspace.spec.js` (or `cd e2e && npx playwright test workspace.spec.js`).
+2. **Reviewers Dispatch (2 parallel reviewers)**:
+   - Reviewer 1: Technical correctness, SVG visual grammar, CSS Custom Highlight API compliance, zero DOM mutation verification, interface contracts.
+   - Reviewer 2: Repository guidelines, ASD-STE100 compliance, no hard-wrapped lines, English commit message readiness, test coverage rules.
+3. **Challengers Dispatch (2 parallel challengers)**:
+   - Challenger 1: Empirical verification of HW-4 (Rings 1 and 2, limits, pre-graph fallback, click selection, hover links, a11y tree buttons).
+   - Challenger 2: Empirical verification of HW-5 (T1 DOM textContent/innerHTML invariance, T2 zero POST on click, T3 share page exclusion, T4 match cases).
+4. **Forensic Auditor Dispatch**:
+   - Teamwork Auditor independently audits the code for integrity, hardcoded test values, facade implementations, or circumvented logic.
+5. **Gate Check**:
+   - Strict AND evaluation of all criteria: tests pass, 2 Reviewer APPROVE, 2 Challenger APPROVE, Auditor CLEAN.
+6. **Git Commit**:
+   - If Gate PASS, Worker executes the single combined git commit with English commit message adhering to repository standards.

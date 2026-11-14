@@ -1,42 +1,46 @@
-Execute sealing and cleanup tasks in Claire Bible to prepare for account, IdP, and Fedify MIT sidecar integration.
+This is a single self-contained fix; keep it small and focused. Implement unit HW-6 (Graph view insight lists in context panel without selection, and entity detail navigation from each view) from `docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md` as a production feature for the Claire Bible web application.
 
 Working directory: /home/fow/Projects/claire-bible
 Integrity mode: development
 
+Reference material:
+- Design document: `docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md` (Sections 4.5, 5.3, 12, 12.1)
+- Completed commits: HW-1 (`212d50c0`), HW-2 (`5d372178`), HW-3 (`1147c28b`), HW-4 + HW-5 (`666ceeed`)
+
 ## Requirements
 
-### R1. `profile_public` Toggle and Account Contract Seal
-Support the `profile_public` toggle (0 or 1) in `PATCH /api/me` and `/settings/account`, sealing the canonical account contract.
+### R1. Graph View Insight Lists in Context Panel
+In the graph view (`data-center-view="graph"`), when no entity or node is selected, render the insight lists in the context panel (`#detailpane`):
+- Display the same three lists as the knowledge map card (Section 5.3):
+  1. Hubs (sorted by node degree descending).
+  2. Bridges (sorted by sources count descending, tie-broken by degree).
+  3. Added in the last 7 days (sorted by `created_at` descending, hidden if no nodes are in the period).
+- Clicking an entity in these insight lists selects that entity and opens its entity detail in the context panel without navigating away from the graph view.
 
-### R2. Reserved Usernames Synchronization
-Add Fedify federation and IdP-related reserved words (`inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, etc.) to `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py`, and synchronize tests (`tests/test_username_policy.py`, `tests/test_route_surface_contract.py`, etc.).
+### R2. Entity Detail from Each View and Back Link
+Support inspecting entity details in the context panel from any view (home view, reader view, graph view):
+- Clicking an entity in a list, card, local graph, full graph, or reader mark opens the entity detail in the context panel without changing the current center view.
+- When an entity detail is open while a document is open in the reader, provide a back link/action in the context panel to return directly to the document context.
+- When an entity is selected, pressing Escape deselects the entity first before closing the panel.
 
-### R3. Token Exchange Account Binding Integrity
-Enforce account binding integrity for `exchange_account_id` in RFC 8693 Token Exchange (`urn:ietf:params:oauth:grant-type:token-exchange`) within `src/claire/api/oauth.py`, blocking fallbacks to admin account ID 1.
-
-### R4. `PROJECT.md` Status Update and Hygiene
-Clean up and update remaining items from the previous Admin-Settings P2 milestone in `PROJECT.md`.
-
-### R5. Syndication Prototype Sealing and Cleanup
-Cleanly seal or clean up legacy seed-based syndication prototype elements (`/prototype/syndication` and seed components) without breaking existing tests, leaving the approach to the team's judgment.
-
-### R6. Engineering Rules
-- Use ASD-STE100 for all non-user communication.
+### R3. Repository Standards, E2E Testing, and Non-Goals
+Adhere strictly to project conventions:
+- Use ASD-STE100 for all code comments, documentation, and test descriptions.
 - Write Git commit messages in English only.
 - Do not hard-wrap code lines.
-- Follow test policy: unit tests for module interfaces, I/O, and external calls; at least one E2E test if new features are added.
+- Write at least one Playwright E2E test in `e2e/workspace.spec.js` covering entity detail opening and navigation across views.
+- Non-goal: Screenshot updates in `docs/screenshots/` and root `README.md` are out of scope for this run.
+
+## Verification Resources
+- Run standard pytest suite: `pytest`
+- Run Playwright E2E tests: `npx playwright test e2e/workspace.spec.js`
 
 ## Acceptance Criteria
 
-### Account and Security Contracts
-- [ ] `PATCH /api/me` accepts `profile_public` toggle (0 or 1) and updates the canonical account state.
-- [ ] `/settings/account` provides the `profile_public` toggle control corresponding to the backend contract.
-- [ ] `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py` contains all specified Fedify/IdP reserved words, and route surface/username policy tests pass.
-- [ ] RFC 8693 Token Exchange in `src/claire/api/oauth.py` strictly prevents unauthorized fallback to admin account ID 1.
-
-### Documentation and Hygiene
-- [ ] `PROJECT.md` reflects current status with Admin-Settings P2 remnants resolved.
-- [ ] Legacy seed-based syndication prototype elements are sealed or cleaned up without test regressions.
-- [ ] Git commit messages are written in English only, and code lines are not hard-wrapped.
-- [ ] Unit tests for module interfaces/IO/external calls and E2E coverage meet repository rules.
-- [ ] Full test suite and `./scripts/ci.sh` pass cleanly.
+### Context Panel Behavior and Navigation
+- [ ] In the graph view without an active selection, the context panel displays the three insight lists (Hubs, Bridges, Added in the last 7 days).
+- [ ] Clicking an entity row from an insight list selects the entity and displays entity details in the context panel without leaving the graph view.
+- [ ] In the home view, clicking an entity list row opens the entity detail in the context panel and preserves the home view.
+- [ ] In the reader view, viewing an entity detail displays a back link to return to the document context panel.
+- [ ] At least one automated Playwright E2E test in `e2e/workspace.spec.js` verifies opening entity details from the home view and graph view insight lists.
+- [ ] All code comments, documentation, and tests follow ASD-STE100, code lines are not hard-wrapped, and Git commit messages are written in English only.

@@ -1,50 +1,56 @@
-# Survey Synthesis: Account, IdP, and Fedify Preparation
+# Survey Synthesis: HW-4 & HW-5 Units
 
-## 1. Consensus Findings
+## 1. Catalog of Inputs
+1. **Source 1 (`teamwork_spec_miner_hw_1`)**:
+   - Analyzed `docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md` (Sections 6.4, 7, 8, 9, 12).
+   - Specified complete requirements, limits, visual grammar, matching rules, limits, and documentation requirements.
+2. **Source 2 (`teamwork_explorer_hw_2`)**:
+   - Analyzed client codebase for HW-4 (Local Graph and Hover Connections).
+   - Specified inline SVG architecture, Ring 1 (max 24) and Ring 2 (max 12) layout, line styles, unshown count text, a11y buttons, click selection, and hover synchronization across all views.
+3. **Source 3 (`teamwork_explorer_hw_3`)**:
+   - Analyzed server endpoint `GET /document` and reader text for HW-5.
+   - Specified `nodes[].aliases` addition in `queries.py` with invariant `detail`/`detail_html`.
+   - Specified CSS Custom Highlight API rules, matching engine, collision suppression, short name handling, text limits, zero DOM mutation, click selection without POST, share page exclusion, and test baselines (`pytest` and `playwright`).
 
-### Requirement R1: `profile_public` Toggle and Account Contract Seal
-- The `accounts` database table already contains the column `profile_public INTEGER NOT NULL DEFAULT 0`.
-- The `Account` model in `src/claire/store/accounts.py` defines `profile_public: bool`.
-- `AccountStore` in `src/claire/store/accounts.py` needs a method to update `profile_public`.
-- `PATCH /api/me` in `src/claire/api/accounts_routes/me.py` currently permits only `display_name`. It must accept `profile_public` (0 or 1) and return the updated account in `me_payload`.
-- `me_payload` must include `"profile_public": 1 if account.profile_public else 0`.
-- `/settings/account` in `src/claire/api/accounts_routes/console.py` must remove the obsolete hint note and render an interactive switch control in network mode. Rule S9 (hide control in single mode) must remain intact.
-- `src/claire/static/js/console_account.js` must submit `PATCH /api/me` with `{"profile_public": checked ? 1 : 0}` when the toggle changes.
-- Existing tests in `tests/test_account_routes.py` must be updated to expect `profile_public` in `GET /api/me` response.
+## 2. Consensus Findings
+- **Single Git Commit**: HW-4 and HW-5 must be delivered together in a single commit adhering to ASD-STE100, English commit message, no hard-wrapped lines, unit tests for module boundaries/IO/external libs, and at least one E2E test.
+- **HW-4 Local Graph**:
+  - Rendered as an inline SVG inside `#ctx-local-graph-slot` in the Links tab of the context panel.
+  - Document center node at `(0, 0)`.
+  - Ring 1 contains up to 24 document entities from `dc.nodes` sorted descending by degree.
+  - Ring 2 contains up to 12 external entities related via `allEdges` from `GET /graph`.
+  - If `allEdges` or `GET /graph` is not yet loaded, render Ring 1 only; when `GET /graph` loads, re-render automatically.
+  - Text below SVG shows the total count of unshown entities if Ring 1 > 24 or Ring 2 > 12.
+  - Line grammar: thin gray line from document center to Ring 1; solid line for non-provisional relations; dashed line for provisional relations (`dashes === true`).
+  - Accessibility: Each entity node is exposed as an accessible button with `role="button"`, `tabindex="0"`, `aria-label="[name]"`, responding to click and Enter/Space.
+  - Selection: Clicking an entity node calls `selectDocEntity(id)` -> `GET /node` without mutation.
+  - Hover synchronization: Hovering an entity highlights the same entity across the local graph, Entities tab, Knowledge Map card, left entity list, and reader text marks.
+- **HW-5 Server Aliases**:
+  - `src/claire/store/queries.py` adds `"aliases": e.aliases or []` to each node in `document_detail()`.
+  - `detail` and `detail_html` remain strictly unchanged.
+- **HW-5 Entity Marks in Reader Text**:
+  - Uses CSS Custom Highlight API (`CSS.highlights` with `Highlight` and `Range` objects) on `#rbody`.
+  - Zero DOM mutation guarantee: `textContent` and `innerHTML` of `#rbody` remain strictly identical whether marks are on or off (`localStorage` switch `claireEntityMarks`).
+  - Matching rules: Case-insensitive via `toLowerCase()`, except 2-3 ASCII characters which match case-sensitively. Names < 2 characters ignored.
+  - ASCII boundary checks: Matched candidate must have non-ASCII-alphanumeric boundary characters if start/end is ASCII alphanumeric (Korean particles allowed).
+  - Longest match first: Candidates sorted by length descending, overlaps discarded.
+  - Collision suppression: If candidate string belongs to 2 or more entities in the document, no mark is applied.
+  - Traversal scope: `TreeWalker` on text nodes in `p`, `li`, `td`, `th` of summary and detail; headings, code, pre, links, and math (`.katex`) are excluded.
+  - Safety limits: If text length > 400,000 chars or candidate count > 300 names, highlighting is skipped and legend updated.
+  - Click navigation: Clicking marked text uses caret position to select entity via `GET /node` without POST or mutation.
+  - Share page exclusion: No marks applied on share page.
+- **Documentation Updates**:
+  - `docs/implementation/IMPLEMENTATION_STATUS.md` (Section 1 status table)
+  - `docs/implementation/GLOSSARY.md` (Local graph and entity mark entries)
+  - `docs/implementation/API_HTTP_CONTRACT.md` (`GET /document` aliases field)
+  - `docs/implementation/openapi.yaml` and `src/claire/static/docs/openapi.yaml` (`GET /document` aliases schema)
 
-### Requirement R2: Reserved Usernames Synchronization
-- `RESERVED_USERNAMES` in `src/claire/accounts/username_policy.py` must add Fedify and IdP reserved words:
-  `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, plus recommended related words (`sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`).
-- `tests/test_username_policy.py` must update `SPEC_RESERVED` to match.
-- Zero conflicts exist with existing routes or tests.
+## 3. Resolved Conflicts / Clarifications
+- **Legend Location**: The legend must be placed outside `#rbody` (in `#reader .sheet` or as `#rlegend` within `.rbody-wrap`) so that legend updates do not affect `#rbody.innerHTML` or `#rbody.textContent`.
+- **Pre-existing E2E Tests**: Existing mobile and ingest failures documented in `IMPLEMENTATION_STATUS.md` Section 3 are unrelated to HW-4/HW-5. Target test commands are:
+  - `pytest tests/test_graphview.py`
+  - `npx playwright test e2e/workspace.spec.js` (or `cd e2e && npx playwright test workspace.spec.js`)
+- **Hover Sync Hook**: HW-4 and HW-5 synchronize hover state via global functions (`setEntityHoverHighlight`, `setReaderEntityMarkHover`), checking for existence before invocation to avoid runtime errors during independent or progressive loading.
 
-### Requirement R3: Token Exchange Account Binding Integrity
-- In `src/claire/api/oauth.py` (lines 884-930), RFC 8693 Token Exchange contains an unauthenticated fallback branch (lines 906-921).
-- In this branch, `exchange_account_id` remains `None`. Because `dbm.create_oauth_token` uses default `ADMIN_ACCOUNT_ID = 1`, unbound tokens receive admin credentials.
-- Fix: Remove lines 906-921. Require `binding is not None` and `binding.account_id is not None`. Return HTTP 400 `invalid_grant` with description `"Subject token is invalid, expired, or unbound"`. Pass explicit `account_id=exchange_account_id` to token creation.
-- Add comprehensive automated tests in `tests/test_oauth_token_exchange.py`.
-
-### Requirement R4: `PROJECT.md` Status Update and Hygiene
-- Phase P2 is complete in code but marked `IN_PROGRESS` and `PLANNED` in `PROJECT.md`.
-- Mark Phase P2 milestones as complete.
-- Retitle `PROJECT.md` and define current milestones for Requirements R1 through R6.
-
-### Requirement R5: Syndication Prototype Sealing and Cleanup
-- Five existing test suites assert the `/prototype/syndication` route and its mock factories.
-- Deleting the prototype breaks existing test suites.
-- Resolution: Keep `/prototype/syndication` as a sealed reference prototype with authentication (`_system("read")`). Keep live `/syndication` clean and independent of prototype seeds. Ensure all 5 test files remain passing.
-
-### Requirement R6: Baseline CI and Engineering Rules
-- CI script `scripts/ci.sh` runs bash syntax checks, docker compose config checks, volume assertions, `uv lock --check`, and `pytest -q`.
-- Deterministic baseline failure in `tests/test_security_hotfixes.py` line 291: regex does not match `function esc(s, quote)` introduced in `adoc_parser.js`. Fix regex pattern.
-- Flake notice: `tests/test_e2e_presentation_resilience.py` has a 100ms threshold that can fail under heavy CPU load during the 5-minute full suite. It passes in isolation.
-
-## 2. Interface Contracts
-- `PATCH /api/me`: Accepts JSON `{"profile_public": 0|1}` and/or `{"display_name": string}`. Returns HTTP 200 with complete `me_payload` containing `profile_public: 0|1`.
-- `POST /oauth/token` (grant_type `urn:ietf:params:oauth:grant-type:token-exchange`): Requires valid session binding. Rejects unbound tokens with HTTP 400 `invalid_grant`. Never issues tokens bound to admin account ID 1 unless subject token belongs to admin.
-- `username_policy.py`: Rejects usernames containing Fedify/IdP reserved words.
-
-## 3. Milestone Decomposition
-- **Milestone 1 (M1)**: Account & Username Surface Contracts (R1 & R2)
-- **Milestone 2 (M2)**: OAuth Token Exchange Integrity & Syndication Prototype Sealing (R3 & R5)
-- **Milestone 3 (M3)**: Hygiene, Baseline Hotfix, PROJECT.md Update & CI Verification (R4 & R6)
+## 4. Dissenting Views / Gaps
+- None. All three investigators produced harmonious, reinforcing technical specifications matching the design document.
