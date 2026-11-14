@@ -121,7 +121,7 @@ def test_graph_html_self_contained_markers():
     assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
     assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
-    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
+    assert '<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
@@ -190,9 +190,9 @@ def test_graph_html_self_contained_markers():
     assert 'id="morebtn"' in GRAPH_HTML
     assert '<div class="head">' in GRAPH_HTML
     assert 'class="rhead"' not in GRAPH_HTML
-    assert GRAPH_HTML.count('role="tabpanel"') == 2
+    assert "docsPane.setAttribute('role', 'dialog')" in GRAPH_HTML
     assert 'id="tab-detail"' not in GRAPH_HTML
-    assert 'id="detailpane" role="region" aria-label="문맥 상세"' in GRAPH_HTML
+    assert 'id="detailpane" aria-label="문맥 상세"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
     assert "function openDetailPane()" in GRAPH_HTML and "let activePane='graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
@@ -230,20 +230,21 @@ def test_graph_html_self_contained_markers():
     assert "clearTimeout(hoverTimer); hoverTimer=null;" in GRAPH_HTML
     assert "showNodePop(id, px, py)" in GRAPH_HTML
     assert "window.addEventListener('pointerdown'" in GRAPH_HTML
-    # aside#detailpane(우측 메뉴) 활성화 시 아이콘 모드 전환 및 컴팩트 레일
-    assert "--detail-compact-width" in GRAPH_HTML and "detail-compact" in GRAPH_HTML
-    assert "id=\"detailtogglebtn\"" in GRAPH_HTML and "toggleDetailCompact" in GRAPH_HTML
-    assert "compact-rail" in GRAPH_HTML and "btn-label" in GRAPH_HTML
+    # aside#detailpane(우측 문맥 패널) 온디맨드 전환 및 목록 전환 검증
+    assert "--detail-width:360px;" in GRAPH_HTML and "ctx-closed" in GRAPH_HTML
+    assert 'id="ctxbtn"' in GRAPH_HTML and "toggleContextPanel" in GRAPH_HTML
+    assert 'id="detailclose"' in GRAPH_HTML and "btn-label" in GRAPH_HTML
 
 
 def test_right_menu_compact_icon_mode_markers():
-    """aside#detailpane(우측 메뉴) 활성화 시 메뉴 아이콘 모드 지원 검증."""
-    assert "--detail-width:360px; --detail-compact-width:56px;" in GRAPH_HTML
-    assert "body.detail-compact #detailpane" in GRAPH_HTML
-    assert "#detailpane.compact-rail" in GRAPH_HTML
-    assert "body.detail-compact #detailpane #moremenu .btn-label" in GRAPH_HTML
-    assert "toggleDetailCompact" in GRAPH_HTML
-    assert "claireDetailCompact" in GRAPH_HTML
+    """aside#detailpane(우측 문맥 패널) 및 좌측 목록 온디맨드 접기/펼치기 지원 검증."""
+    assert "--detail-width:360px;" in GRAPH_HTML
+    assert "body.ctx-closed #detailpane" in GRAPH_HTML
+    assert "body.list-closed #docs" in GRAPH_HTML
+    assert "toggleContextPanel" in GRAPH_HTML
+    assert "closeContextPanel" in GRAPH_HTML
+    assert "claireContextOpen" in GRAPH_HTML
+    assert "claireListOpen" in GRAPH_HTML
 
 
 def test_right_menu_graph_section_markers():
@@ -283,7 +284,7 @@ def test_stat_location_and_center_view_right_menu_modes():
     assert docs_pos < stat_pos < pinned_pos < detail_pos
 
     # 2. 중앙 화면 모드에 따른 경로 버튼 표시 CSS 분기 및 공통 탭 바 검증
-    assert 'body[data-center-view="graph"] #pathbtn{display:inline-flex!important}' in GRAPH_HTML
+    assert 'body[data-center-view="graph"] #pathbtn{display:flex!important}' in GRAPH_HTML
     assert 'body:not([data-center-view="graph"]) #pathbtn{display:none!important}' in GRAPH_HTML
     assert '.center-head-bar' in GRAPH_HTML
     assert '.center-tabs' in GRAPH_HTML
@@ -917,8 +918,8 @@ def test_common_header_height_and_component_synchronization():
     assert "#centerhead #barsearch{\n    display:flex;align-items:center;position:relative;width:100%;\n    height:34px;box-sizing:border-box;\n    background:var(--panel-bg);border:1px solid var(--border);\n    border-radius:6px;" in GRAPH_HTML
     assert ".center-tabs{\n    display:inline-flex;align-items:center;gap:2px;\n    height:34px;box-sizing:border-box;\n    background:var(--sec-bg);padding:2px;border-radius:6px;" in GRAPH_HTML
 
-    # 3. 우측 상세 토글 버튼(#detailtogglebtn)도 34px 정사각 및 6px 반경으로 일치함
-    assert "#detailtogglebtn{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;" in GRAPH_HTML
+    # 3. 우측 상세 닫기 버튼(#detailclose)도 34px 정사각 및 6px 반경으로 일치함
+    assert "#detailclose{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;" in GRAPH_HTML
 
 
 def test_matrix_confirm_button_and_redundant_close_removal():
@@ -938,8 +939,8 @@ def test_detailpane_title_and_duplicate_removal():
     """'메뉴 & 상세' 타이틀을 '상세 메뉴'로 변경하고, 우측 상세 패널(renderDocPanel)에서 본문 리더와 중복되는 원문 링크 및 요약 제거 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 헤더 타이틀이 '상세 메뉴'로 변경됨
-    assert "<strong>상세 메뉴</strong>" in GRAPH_HTML
+    # 1. 헤더 타이틀이 '문맥' 카탈로그 키로 변경됨
+    assert '<strong data-i18n="context.title">' in GRAPH_HTML
     assert "<strong>메뉴 &amp; 상세</strong>" not in GRAPH_HTML
 
     # 2. renderDocPanel 에서 docmeta 아이콘 뱃지 태그 및 extraSourcesHtml(병합된 출처)가 제거되고 docMetaMessageHtml 호출
@@ -968,39 +969,40 @@ def test_default_graph_view_and_stream_tabs_separation():
     """최초 접속 및 로고 클릭 시 기본 화면이 전체 그래프로 복원되고, 의사결정 스트림은 본문/프레젠테이션/그래프와 별도의 박스로 분리됨을 검증."""
     from claire.graphview import GRAPH_HTML
 
-    # 1. 초기 body 및 기본 뷰가 graph로 설정됨
-    assert '<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">' in GRAPH_HTML
-    assert "centertab-graph\" type=\"button\" class=\"center-tab-btn active\"" in GRAPH_HTML
+    # 1. 초기 body 및 기본 뷰가 home으로 설정됨
+    assert '<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">' in GRAPH_HTML
+    assert 'id="centertab-home" type="button" class="center-tab-btn" aria-current="page"' in GRAPH_HTML
 
-    # 2. 로고(brand) 클릭 시 홈(지식 그래프) 보기 복원
+    # 2. 로고(brand) 클릭 시 홈 보기 복원
     assert 'title="Claire Bible 홈 (지식 그래프)"' in GRAPH_HTML
 
-    # 3. enterHome() 및 resetHome() 호출 시 전체 그래프 뷰로 복원
+    # 3. enterHome() 및 resetHome() 호출 시 홈 뷰로 복원
     r_home_start = GRAPH_HTML.index("async function enterHome(")
     r_home_end = GRAPH_HTML.index("function selectDoc(id){")
     r_home_fn = GRAPH_HTML[r_home_start:r_home_end]
-    assert "setCenterView('graph');" in r_home_fn
+    assert "setCenterView('home');" in r_home_fn
     assert "document.title = HOME_TITLE;" in r_home_fn
     assert "function resetHome(){" in r_home_fn
 
-    # 4. 본문/그래프/프레젠테이션 뷰 탭 박스(#centertabs)와 의사결정 스트림 탭 박스(#streamtabs)의 구조적 분리
-    assert '<div id="centertabs" class="center-tabs"' in GRAPH_HTML
-    assert '<div id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
+    # 4. 홈/본문/그래프/프레젠테이션 뷰 내비게이션(#centertabs)과 의사결정 스트림(#streamtabs)의 구조적 분리
+    assert '<nav id="centertabs" class="center-tabs"' in GRAPH_HTML
+    assert '<nav id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
 
-    c_start = GRAPH_HTML.index('<div id="centertabs"')
-    c_end = GRAPH_HTML.index('</div>\n        <div id="streamtabs"')
+    c_start = GRAPH_HTML.index('<nav id="centertabs"')
+    c_end = GRAPH_HTML.index('</nav>\n        <nav id="streamtabs"')
     centertabs_content = GRAPH_HTML[c_start:c_end]
 
-    # centertabs 에는 본문, 그래프, 프레젠테이션 순서로 위치
+    # centertabs 에는 홈, 본문, 그래프, 프레젠테이션 순서로 위치
+    assert 'id="centertab-home"' in centertabs_content
     assert 'id="centertab-reader"' in centertabs_content
     assert 'id="centertab-graph"' in centertabs_content
     assert 'id="centertab-presentation"' in centertabs_content
-    assert centertabs_content.index('id="centertab-reader"') < centertabs_content.index('id="centertab-graph"') < centertabs_content.index('id="centertab-presentation"')
+    assert centertabs_content.index('id="centertab-home"') < centertabs_content.index('id="centertab-reader"') < centertabs_content.index('id="centertab-graph"') < centertabs_content.index('id="centertab-presentation"')
     assert 'id="centertab-stream"' not in centertabs_content
 
     # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
-    s_start = GRAPH_HTML.index('<div id="streamtabs"')
-    s_end = GRAPH_HTML.index('</div>\n      </div>\n    </header>')
+    s_start = GRAPH_HTML.index('<nav id="streamtabs"')
+    s_end = GRAPH_HTML.index('  <div id="viewoptions">')
     streamtabs_content = GRAPH_HTML[s_start:s_end]
     assert 'id="centertab-stream"' in streamtabs_content
 
@@ -1075,7 +1077,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
     # 1. 센터 탭 그룹은 한 줄에 모두 담김 (mobile-doclist-btn, centertabs[reader, graph, presentation], streamtabs[stream])
     g_start = GRAPH_HTML.index('<div class="center-tab-group"')
-    g_end = GRAPH_HTML.index('</div>\n    </header>')
+    g_end = GRAPH_HTML.index('  <div id="viewoptions">')
     g_tabs = GRAPH_HTML[g_start:g_end]
     assert 'id="mobile-doclist-btn"' in g_tabs
     assert 'id="centertab-reader"' in g_tabs

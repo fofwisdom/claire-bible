@@ -64,11 +64,10 @@
   #consolelinkbtn{text-decoration:none}
   #themebtn:hover,#consolelinkbtn:hover{background:var(--hover)}
   #worktabs{display:none}
+  #botnav{display:none}
   #drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
   #wrap{position:relative;display:grid;grid-template-columns:280px minmax(420px,1fr) var(--detail-width,360px);
     flex:1;min-height:0;overflow:hidden;transition:grid-template-columns .2s ease}
-  body.detail-compact #wrap,
-  #wrap.detail-compact{grid-template-columns:280px minmax(420px,1fr) var(--detail-compact-width,56px)}
   /* #netwrap 이 위치 기준자, #net 은 ClaireGraph.Network 컨테이너(엔진이 표시·라벨 캔버스 두 장을
      절대 위치로 채운다). #zoomctl 등 컨트롤은 #net *밖*, 형제로 둔다. */
   .workspace-pane{min-width:0;min-height:0}
@@ -246,16 +245,18 @@
   #detailhead{display:flex;align-items:center;justify-content:space-between;height:48px;min-height:48px;
     box-sizing:border-box;padding:0 12px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex:none}
   #detailhead .detailhead-tools{display:flex;align-items:center;gap:4px}
-  #detailtogglebtn{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
-    border-radius:6px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s ease}
-  #detailtogglebtn:hover{background:var(--hover);border-color:var(--accent)}
-  #detailclose{min-height:36px;min-width:36px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:15px;display:none}
+  #detailclose{height:34px;width:34px;min-height:34px;min-width:34px;box-sizing:border-box;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  #detailclose:hover{background:var(--hover);border-color:var(--accent)}
   #drawerscroll{--drawer-pad-y:12px;--drawer-pad-x:14px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:var(--drawer-pad-y) var(--drawer-pad-x);font-size:13px;line-height:1.5;display:flex;flex-direction:column}
   #drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
   #drawermanager{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #repolink{margin-left:auto;flex-shrink:0}
   #repolink:hover{background:var(--hover);border-color:var(--accent)}
-  #moremenu{display:flex;flex-direction:column;gap:8px;padding-bottom:0;margin-bottom:10px}
+  /* The manage menu is a popover (role=menu) below the header button. The browser shows it only in the :popover-open state, thus the base rule has no display value. */
+  #moremenu{position:fixed;inset:auto;margin:0;min-width:210px;flex-direction:column;gap:6px;padding:6px;background:var(--card-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow);font-size:13px}
+  #moremenu:popover-open{display:flex}
+  #moremenu.no-popover{display:none;z-index:60}
+  #moremenu.no-popover.open{display:flex}
   #moremenu .tool-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   #moremenu .action-btn-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #moremenu .sys-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
@@ -274,41 +275,6 @@
   #legendbar .reltog.off{opacity:.4;text-decoration:line-through}
   #detailpane button.on{outline:2px solid var(--accent2);outline-offset:1px}
 
-  /* 우측 메뉴 아이콘 전용 컴팩트 레일 모드 (aside#detailpane aria-hidden="false" 상태에서 축소 전환) */
-  body.detail-compact #detailpane,
-  #detailpane.compact-rail{width:var(--detail-compact-width,56px)}
-  body.detail-compact #detailpane #detailhead,
-  #detailpane.compact-rail #detailhead{padding:0 6px;justify-content:center}
-  body.detail-compact #detailpane #detailhead strong,
-  #detailpane.compact-rail #detailhead strong{display:none}
-  body.detail-compact #detailpane #detailtogglebtn,
-  #detailpane.compact-rail #detailtogglebtn{transform:rotate(180deg)}
-  body.detail-compact #detailpane #detailclose,
-  #detailpane.compact-rail #detailclose{display:none}
-  body.detail-compact #detailpane #drawerscroll,
-  #detailpane.compact-rail #drawerscroll{padding:10px 4px;overflow-x:hidden}
-  body.detail-compact #detailpane #moremenu,
-  #detailpane.compact-rail #moremenu{border-bottom:0;padding-bottom:0;margin-bottom:0;align-items:center;gap:6px}
-  body.detail-compact #detailpane #moremenu .menu-section,
-  #detailpane.compact-rail #moremenu .menu-section{padding-bottom:0;margin-bottom:0;padding-top:6px;margin-top:4px;border-top:1px solid var(--border);align-items:center;width:100%}
-  body.detail-compact #detailpane #moremenu .menu-section-head,
-  #detailpane.compact-rail #moremenu .menu-section-head{display:none}
-  body.detail-compact #detailpane #moremenu .tool-row,
-  #detailpane.compact-rail #moremenu .tool-row{display:none}
-  body.detail-compact #detailpane #moremenu .sys-row,
-  #detailpane.compact-rail #moremenu .sys-row{display:none}
-  body.detail-compact #detailpane #moremenu .action-btn-row,
-  #detailpane.compact-rail #moremenu .action-btn-row{flex-direction:column;align-items:center;gap:8px;width:100%}
-  body.detail-compact #detailpane #moremenu .action-btn-row button,
-  #detailpane.compact-rail #moremenu .action-btn-row button{width:42px;height:42px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:18px}
-  body.detail-compact #detailpane #moremenu .btn-label,
-  #detailpane.compact-rail #moremenu .btn-label{display:none}
-  body.detail-compact #detailpane #moremenu .btn-icon,
-  #detailpane.compact-rail #moremenu .btn-icon{font-size:18px;line-height:1}
-  body.detail-compact #detailpane #panel,
-  #detailpane.compact-rail #panel{display:none}
-  body.detail-compact #detailpane #drawerfooter,
-  #detailpane.compact-rail #drawerfooter{display:none}
 
   #panel{font-size:13px;line-height:1.5}
   #panel:not(:empty){border-top:1px solid var(--border);padding-top:10px;margin-top:10px}
@@ -449,7 +415,6 @@
     body.drawer-open #drawerbackdrop{display:block;opacity:1;pointer-events:auto}
     #detailhead{display:flex;border-radius:0}
     #detailclose{display:inline-flex!important}
-    #detailtogglebtn{display:none!important}
   }
 
   /* 모바일 화면 (720px 이하 - 1단 보기):
@@ -469,10 +434,10 @@
     #viewoptions #themebtn,#viewoptions #consolelinkbtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
-      padding-bottom:env(safe-area-inset-bottom)}
+      padding-bottom:calc(52px + env(safe-area-inset-bottom))}
     .workspace-pane,#centerwrap{grid-area:1/1;visibility:hidden!important;pointer-events:none}
     body[data-active-pane="docs"] #docs{visibility:visible!important;pointer-events:auto}
-    body[data-active-pane="graph"] #centerwrap, body[data-active-pane="graph"] #netwrap, body[data-active-pane="graph"] #matrixwrap, body[data-active-pane="graph"] #streamwrap, body[data-active-pane="graph"] #presentationwrap, body[data-center-view="matrix"] #centerwrap, body[data-center-view="matrix"] #matrixwrap, body[data-center-view="stream"] #centerwrap, body[data-center-view="stream"] #streamwrap, body[data-center-view="presentation"] #centerwrap, body[data-center-view="presentation"] #presentationwrap, body[data-center-view="reader"] #centerwrap, body[data-center-view="reader"] #reader, body.reader-open #centerwrap, body.reader-open #reader{visibility:visible!important;pointer-events:auto}
+    body[data-active-pane="graph"] #centerwrap, body[data-active-pane="graph"] #netwrap, body[data-active-pane="graph"] #matrixwrap, body[data-active-pane="graph"] #streamwrap, body[data-active-pane="graph"] #presentationwrap, body[data-center-view="home"] #centerwrap, body[data-center-view="home"] #homewrap, body[data-center-view="matrix"] #centerwrap, body[data-center-view="matrix"] #matrixwrap, body[data-center-view="stream"] #centerwrap, body[data-center-view="stream"] #streamwrap, body[data-center-view="presentation"] #centerwrap, body[data-center-view="presentation"] #presentationwrap, body[data-center-view="reader"] #centerwrap, body[data-center-view="reader"] #reader, body.reader-open #centerwrap, body.reader-open #reader{visibility:visible!important;pointer-events:auto}
     #docs{
       position:fixed!important;
       top:0!important;left:0!important;bottom:0!important;
@@ -539,13 +504,15 @@
 
     /* 하단 내비게이션 바 제거 */
     #worktabs{display:none!important}
-    /* 모바일 우측 드로어 */
-    #detailpane{position:fixed;top:0;right:0;bottom:0;
-      z-index:55;width:min(340px,86vw);height:auto;max-height:none;
-      transform:translateX(105%);visibility:hidden;pointer-events:none;
-      border:1px solid var(--border);border-bottom:0;border-radius:0;
-      box-shadow:-8px 0 24px var(--shadow);
+    /* 모바일 하단 시트 (#detailpane, 62dvh above #botnav) */
+    #detailpane{position:fixed;left:0;right:0;top:auto;bottom:calc(52px + env(safe-area-inset-bottom));
+      z-index:55;width:auto;height:62dvh;max-height:calc(100dvh - 52px - env(safe-area-inset-bottom) - 16px);
+      transform:translateY(110%);visibility:hidden;pointer-events:none;
+      border:1px solid var(--border);border-bottom:0;border-radius:14px 14px 0 0;
+      box-shadow:0 -8px 24px var(--shadow);
       transition:transform .2s ease,visibility 0s linear .2s}
+    body.detail-open #detailpane,
+    body.drawer-open #detailpane{transform:translateY(0);visibility:visible;pointer-events:auto}
     #detailclose{min-width:44px;min-height:44px}
     #drawerscroll{--drawer-pad-y:14px;--drawer-pad-x:16px;padding:var(--drawer-pad-y) var(--drawer-pad-x) max(16px,env(safe-area-inset-bottom))}
     #panel .hint br{display:none}
@@ -569,7 +536,7 @@
   }
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
-    #wrap,#detailpane,#detailtogglebtn{transition:none!important}
+    #wrap,#detailpane,#docs{transition:none!important}
   }
 
   /* --- Entity Actions Bar & Node Management Dropdown --- */
@@ -674,4 +641,84 @@
   .matrix-placeholder-wave .wave-pulse-ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--accent, #0284c7); border-top-color: transparent; animation: spin 0.9s linear infinite; display: inline-block; flex-shrink: 0; }
   .matrix-placeholder-wave .wave-msg { font-size: 13px; font-weight: 700; color: var(--fg); margin: 0; }
   .matrix-placeholder-wave .wave-sub { font-size: 11.5px; color: var(--muted); }
+
+/* --- Header view navigation, home view, list switch, and context panel on demand (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, unit HW-1) --- */
+  .lineicon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+  .bar-icon-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:30px;padding:0 6px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:background .15s ease}
+  .bar-icon-btn:hover{background:var(--hover)}
+  .bar-icon-btn[aria-expanded="true"]{background:var(--active);border-color:var(--accent);color:var(--accent)}
+  .bar-icon-btn:disabled{opacity:.4;cursor:default}
+  .bar-ingest-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;box-sizing:border-box;background:var(--btn-bg);color:var(--btn-fg);border:1px solid transparent;border-radius:4px;font-weight:700;font-size:12.5px;cursor:pointer}
+  #morebtn{align-items:center;justify-content:center}
+  /* The center head (view navigation and the search field of the view) is in the header bar. */
+  #bar{gap:10px}
+  #bar #centerhead{flex:1;min-width:0;height:auto;min-height:0;padding:0;border:0;background:transparent;z-index:auto}
+  #bar #centerhead #centertab-group{order:1}
+  #bar #centerhead #netsearch{order:2}
+  .center-tab-btn .btn-icon{display:inline-flex}
+  body[data-center-view="home"] #centertab-home{background:var(--accent,#0284c7)!important;color:#fff!important;border-color:var(--accent,#0284c7)!important;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,0.12)}
+  @media (forced-colors:active){.center-tab-btn[aria-current="page"]{outline:2px solid}}
+  /* Manage menu items */
+  #moremenu .action-btn-row{flex-direction:column;align-items:stretch;gap:2px}
+  #moremenu .menu-section{padding-top:6px;padding-bottom:0;margin-top:0;gap:4px}
+  #moremenu button[role="menuitem"]{display:flex;align-items:center;gap:8px;width:100%;margin:0;padding:6px 9px;border:0;border-radius:4px;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+  #moremenu button[role="menuitem"]:hover,#moremenu button[role="menuitem"]:focus-visible{background:var(--hover)}
+  #moremenu .menu-danger button[role="menuitem"]{color:#cf222e}
+  [data-theme="dark"] #moremenu .menu-danger button[role="menuitem"]{color:#ff7b72}
+  #moremenu .menu-section:not(:has(button)),
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #moremenu > .action-btn-row,
+  body:not([data-auth-scope="owner"]):not([data-center-view="graph"]) #moremenu #graph-section,
+  body:not([data-auth-scope="owner"]) #moremenu .menu-danger{display:none}
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #moremenu #graph-section{border-top:0;padding-top:0}
+  #synthchips:empty{display:none}
+  #synthchips{margin-bottom:10px}
+  /* List switch: documents or entities */
+  .list-switch{display:inline-flex;gap:3px;margin-right:8px;flex:none}
+  .list-switch-btn{height:24px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer}
+  .list-switch-btn[aria-pressed="true"]{background:var(--card-bg);color:var(--fg);border-color:var(--accent2);border-bottom-width:3px}
+  #docs[data-list="docs"] #listtitle,#docs[data-list="entities"] #listtitle{margin-right:auto}
+  /* Home view */
+  #homewrap{width:100%;height:100%;overflow:auto;background:var(--bar-bg);container-type:inline-size;container-name:home}
+  .home-inner{max-width:1080px;margin:0 auto;padding:18px 22px 40px}
+  #home-theme-label{margin:0;font-size:20px;letter-spacing:-.01em}
+  .home-facts{margin:2px 0 14px;color:var(--muted);font-size:12.5px;min-height:1.5em}
+  .home-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+  .home-card{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;min-width:0;font-size:13px}
+  .home-card>header{padding:9px 12px;border-bottom:1px solid var(--border)}
+  .home-card h2{margin:0;font-size:12.5px;font-weight:700;color:var(--accent2)}
+  .home-row{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:7px 12px;box-sizing:border-box;border:0;border-bottom:1px solid var(--border);background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+  .home-row:last-child{border-bottom:0}
+  .home-row:hover{background:var(--hover)}
+  .home-row-kind{flex:none;width:44px;font-size:11px;color:var(--muted)}
+  .home-row-main{flex:1;min-width:0}
+  .home-row-title{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .home-row-sub{display:block;font-size:11.5px;color:var(--muted)}
+  /* Wide screens: the list pane and the context panel have a width only when they are open. */
+  @media (min-width:1101px){
+    #wrap{grid-template-columns:var(--list-col,280px) minmax(420px,1fr) var(--ctx-col,var(--detail-width,360px))}
+    body.list-closed{--list-col:0px}
+    body.ctx-closed{--ctx-col:0px}
+    body.list-closed #docs{width:0;border-right:0;visibility:hidden}
+    body.ctx-closed #detailpane{width:0;border-left:0;visibility:hidden}
+  }
+  @media (min-width:721px) and (max-width:1100px){
+    body.list-closed #wrap{grid-template-columns:0 minmax(0,1fr)}
+    body.list-closed #docs{width:0;border-right:0;visibility:hidden}
+  }
+  @media (max-width:1100px){
+    #ctxbtn{display:none}
+  }
+  @media (max-width:1280px){
+    #centertab-presentation .btn-label,#centertab-stream .btn-label,.bar-ingest-btn .btn-label{display:none}
+  }
+  /* Narrow screens: view navigation moves to #botnav at the bottom. */
+  @media (max-width:720px){
+    #bar #centerhead,#listtoggle,#ctxbtn{display:none}
+    #botnav{position:fixed;left:0;right:0;bottom:0;z-index:53;display:grid;grid-template-columns:repeat(5,1fr);height:calc(52px + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);background:var(--bar-bg);border-top:1px solid var(--border);box-sizing:border-box}
+    #botnav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:44px;padding:4px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:500;line-height:1.1;cursor:pointer}
+    #botnav button:hover,#botnav button:focus-visible{color:var(--fg);background:var(--hover)}
+    #botnav button[aria-current="page"],#botnav button[aria-expanded="true"]{color:var(--accent);font-weight:600}
+    #botnav button .lineicon{width:18px;height:18px}
+    .home-inner{padding:14px 12px 32px}
+  }
 

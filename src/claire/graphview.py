@@ -22,6 +22,7 @@ from .store.queries import (
     synthesize,
     theme_summary,
 )
+from .i18n import browser_catalog_json
 from .presentation.favicon import (
     FAVICON_TAGS_HTML,
     inject_favicon_head_tags,
@@ -48,6 +49,8 @@ def _build_standalone_graph_html() -> str:
     adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
     reader_js = (_STATIC_DIR / "js" / "reader.js").read_text(encoding="utf-8")
     app_js = (_STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
+    # The i18n runtime reads the inline catalog element that render_graph_html() puts in the head (slot __I18N_CATALOG__).
+    i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
 
     index_tmpl = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
@@ -69,7 +72,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{graph_js}\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 
@@ -650,6 +653,7 @@ def render_graph_html(
         GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
+        .replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script>')
         .replace("__SORCERER__", safe_sorcerer)
         .replace("__OWNER__", safe_sorcerer)
         .replace("__KNOWLEDGE_MANAGER__", safe_sorcerer)

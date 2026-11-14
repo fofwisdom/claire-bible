@@ -239,7 +239,7 @@ function updateCenterSearchMode(view){
 
   const isAuthed = (typeof AUTH_SCOPE !== 'undefined' && AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown');
 
-  if(view === 'reader' || view === 'presentation'){
+  if(view === 'reader' || view === 'presentation' || view === 'home'){
     if(qicon) qicon.textContent = (view === 'presentation' ? '📊' : '📖');
     if(qlbl) qlbl.textContent = (view === 'presentation' ? '프레젠테이션 검색' : '문서 검색');
     qEl.placeholder = (view === 'presentation'
@@ -278,8 +278,8 @@ function setCenterView(mode){
       resumeGraphAfterIngest();
     }
   }
-  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : (mode==='presentation' ? 'presentation' : 'reader'))));
-  if(mode === 'matrix' || mode === 'graph' || mode === 'stream' || mode === 'presentation' || mode === 'reader'){
+  const nextView = (mode==='graph' ? 'graph' : (mode==='matrix' ? 'matrix' : (mode==='stream' ? 'stream' : (mode==='presentation' ? 'presentation' : (mode==='home' ? 'home' : 'reader')))));
+  if(mode === 'matrix' || mode === 'graph' || mode === 'stream' || mode === 'presentation' || mode === 'reader' || mode === 'home'){
     activePane = 'graph';
     document.body.dataset.activePane = 'graph';
   }
@@ -297,30 +297,26 @@ function setCenterView(mode){
   }
   centerView = nextView;
   document.body.dataset.centerView = centerView;
+  // The list goes back to the list of the view. A selection of the user stays only until the next change of the view.
+  if(typeof listOverride !== 'undefined') listOverride = null;
   if(typeof syncListPane === 'function') syncListPane();
   updateCenterSearchMode(centerView);
   const mt = document.getElementById('menu-section-title');
   if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : (centerView==='presentation' ? '프레젠테이션' : '문서와 그래프')))); }
-  const tabGraph = document.getElementById('centertab-graph');
-  const tabReader = document.getElementById('centertab-reader');
-  const tabPresentation = document.getElementById('centertab-presentation');
-  const tabStream = document.getElementById('centertab-stream');
-  if(tabGraph){
-    tabGraph.classList.toggle('active', centerView === 'graph');
-    tabGraph.setAttribute('aria-selected', centerView === 'graph');
+  // The view buttons are a navigation, not a tab list: the active one has aria-current.
+  ['home','reader','graph','presentation','stream'].forEach(name => {
+    const btn = document.getElementById('centertab-' + name);
+    if(!btn) return;
+    btn.classList.toggle('active', centerView === name);
+    if(centerView === name) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+  });
+  if(typeof syncManageButton === 'function') syncManageButton();
+  if(centerView==='home'){
+    document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : 'Claire Bible — 홈';
+    if(typeof renderHome === 'function') renderHome();
+    if(typeof loadHomeStats === 'function') loadHomeStats();
   }
-  if(tabReader){
-    tabReader.classList.toggle('active', centerView === 'reader');
-    tabReader.setAttribute('aria-selected', centerView === 'reader');
-  }
-  if(tabPresentation){
-    tabPresentation.classList.toggle('active', centerView === 'presentation');
-    tabPresentation.setAttribute('aria-selected', centerView === 'presentation');
-  }
-  if(tabStream){
-    tabStream.classList.toggle('active', centerView === 'stream');
-    tabStream.setAttribute('aria-selected', centerView === 'stream');
-  }
+  if(typeof syncWorkspaceLayout === 'function') syncWorkspaceLayout();
   if(centerView==='reader'){
     if(mobileMQ.matches){
       const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
@@ -386,6 +382,7 @@ function openReader(docId, pushHist=true){
   activeDoc=docId;
   recordSelectedDoc(docId);
   selectedNodeId=null;                          // 문서 모드로 전환 — 노드 inspect 해제
+  if(typeof contextPinned !== 'undefined') contextPinned = false;
   readerReturnFocus=document.activeElement;
   readerReturnDocId=docId;
   const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
@@ -407,6 +404,7 @@ function openReader(docId, pushHist=true){
   } else {
     setCenterView('reader');
   }
+  if(typeof syncWorkspaceLayout === 'function') syncWorkspaceLayout();
   renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
   applyView();
   if(activeDoc){
@@ -1286,7 +1284,7 @@ function closeReader(focus=false){
     window.history.back();
     return;
   }
-  document.title = 'Claire Bible — 지식 그래프';
+  document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : 'Claire Bible — 홈';
   hideNodePop();
   const r=document.getElementById('reader');
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');

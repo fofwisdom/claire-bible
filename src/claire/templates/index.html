@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Claire Bible — 지식 그래프</title>
+<title>Claire Bible — 홈</title>
 <meta name="robots" content="index, follow"/>
 <meta name="description" content="Claire Bible — 온톨로지 지식 그래프 및 의사결정 스트림 개인 지식 베이스"/>
 <meta property="og:title" content="Claire Bible — 지식 그래프"/>
@@ -25,6 +25,7 @@
 <meta name="theme-color" content="#0e1116"/>
 <script src="/static/js/pwa-register.js" defer></script>
 <!-- __GA_TAG__ -->
+<!-- __I18N_CATALOG__ -->
 <!-- Google Fonts (Noto Sans KR, Noto Serif KR) -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -77,9 +78,10 @@
 <link rel=stylesheet href=/static/css/workspace.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
-<body class="ro" data-auth-scope="unknown" data-active-pane="graph" data-center-view="graph">
+<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">
 <header id="bar">
   <div class="bar-brand-group">
+    <button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>
     <a class="brand" href="./" onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}" title="Claire Bible 홈 (지식 그래프)">
       <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
       Claire Bible
@@ -99,12 +101,50 @@
       </div>
     </div>
   </div>
+  <div id="centerhead" class="center-head-bar">
+      <div id="netsearch">
+        <div id="barsearch">
+          <label class="sr-only" for="q" id="qlbl">통합 검색</label>
+          <span class="center-search-icon" id="qicon" aria-hidden="true">🌐</span>
+          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
+          <input type="hidden" id="docq"/>
+          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
+        </div>
+      </div>
+      <div class="center-tab-group" id="centertab-group">
+        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="목록 열기" aria-label="목록">
+          <span class="btn-icon">📑</span> <span class="btn-label">목록</span>
+        </button>
+        <nav id="centertabs" class="center-tabs" data-i18n-aria-label="nav.views">
+          <button id="centertab-home" type="button" class="center-tab-btn" aria-current="page" onclick="enterHome({reason:'nav'})" data-i18n-title="nav.home">
+            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/></svg></span> <span class="btn-label" data-i18n="nav.home">Home</span>
+          </button>
+          <button id="centertab-reader" type="button" class="center-tab-btn" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
+            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg></span> <span class="btn-label">본문</span>
+          </button>
+          <button id="centertab-graph" type="button" class="center-tab-btn" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
+            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg></span> <span class="btn-label">그래프</span>
+          </button>
+          <button id="centertab-presentation" type="button" class="center-tab-btn" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
+            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-11zM8 10.5v3M5.5 13.5h5"/></svg></span> <span class="btn-label">프레젠테이션</span>
+          </button>
+        </nav>
+        <nav id="streamtabs" class="center-tabs stream-tabs" aria-label="의사결정 스트림 뷰">
+          <button id="centertab-stream" type="button" class="center-tab-btn" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
+            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg></span> <span class="btn-label">의사결정 스트림</span>
+          </button>
+        </nav>
+      </div>
+  </div>
   <div id="viewoptions">
+    <button id="addbtn" type="button" class="pri bar-ingest-btn" onclick="openIngest()" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
+    <button id="managebtn" type="button" class="bar-icon-btn" popovertarget="moremenu" aria-haspopup="menu" data-i18n-title="nav.manage" data-i18n-aria-label="nav.manage"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></svg></button>
     <span id="authstate">⏳ 권한 확인 중</span>
     <a id="consolelinkbtn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none">⚙️</a>
     <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
+    <button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
-      aria-label="도구 더보기" title="도구 더보기" onclick="toggleDrawer()">☰</button>
+      data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
   </div>
 </header>
 <div id="format-warn-banner" class="status-banner banner-warning" role="status" aria-live="polite">
@@ -120,11 +160,36 @@
     <button class="close-btn" onclick="ClaireStatusBanner.hide()" title="닫기" aria-label="안내 닫기">✕</button>
   </div>
 </div>
+<div id="moremenu" popover role="menu" data-i18n-aria-label="nav.manage">
+  <div class="action-btn-row">
+    <button type="button" role="menuitem" id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon">🔄</span> <span class="btn-label">재적재</span></button>
+    <button type="button" role="menuitem" id="regenbtn" class="sec" onclick="openRegen()" title="기존 원문 기반 컴포넌트(요약, 본문, 지식그래프) 재생성" aria-label="재생성"><span class="btn-icon">🔁</span> <span class="btn-label">재생성</span></button>
+    <button type="button" role="menuitem" id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
+  </div>
+  <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
+    <div class="menu-section-head">
+      <span class="menu-section-title" id="menu-section-title">문서와 그래프</span>
+    </div>
+    <div class="action-btn-row">
+      <button type="button" role="menuitem" id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
+      <button type="button" role="menuitem" id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
+    </div>
+  </div>
+  <div class="menu-section menu-danger">
+    <div class="action-btn-row">
+      <button type="button" role="menuitem" id="purgebtn" class="sec" onclick="openPurge()" title="문서 영구 소각 및 지식그래프 정화" aria-label="소각"><span class="btn-icon">🔥</span> <span class="btn-label">소각</span></button>
+    </div>
+  </div>
+</div>
 <div id="drawerbackdrop" onclick="closeAllDrawers()" aria-hidden="true"></div>
 <div id="wrap">
-  <aside id="docs" class="workspace-pane" role="tabpanel" aria-label="문서 목록" data-list="docs" tabindex="0">
+  <aside id="docs" class="workspace-pane" aria-label="문서 목록" data-list="docs" tabindex="0">
     <div class="dhead">
       <div class="docsearch-stat-row">
+        <div id="listswitch" class="list-switch" role="group" data-i18n-aria-label="list.switch">
+          <button type="button" class="list-switch-btn" data-list="docs" aria-pressed="true" onclick="setListOverride('docs')" data-i18n="list.documents">Documents</button>
+          <button type="button" class="list-switch-btn" data-list="entities" aria-pressed="false" onclick="setListOverride('entities')" data-i18n="list.entities">Entities</button>
+        </div>
         <span id="listtitle" class="list-title">문서</span>
         <span id="stat" role="status" aria-live="polite">로딩…</span>
         <button id="docclose" class="doc-drawer-close" type="button" onclick="closeDocDrawer(true)" title="목록 닫기" aria-label="목록 닫기">✕</button>
@@ -158,38 +223,18 @@
     </div>
   </aside>
   <div id="centerwrap">
-    <header id="centerhead" class="center-head-bar" role="navigation" aria-label="중앙 화면 전환">
-      <div id="netsearch">
-        <div id="barsearch">
-          <label class="sr-only" for="q" id="qlbl">통합 검색</label>
-          <span class="center-search-icon" id="qicon" aria-hidden="true">🌐</span>
-          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
-          <input type="hidden" id="docq"/>
-          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
+    <section id="homewrap" class="workspace-pane" data-i18n-aria-label="nav.home" tabindex="0">
+      <div class="home-inner">
+        <h1 id="home-theme-label"></h1>
+        <p id="home-facts" class="home-facts" role="status" aria-live="polite"></p>
+        <div class="home-cards">
+          <section class="home-card" id="home-recent" aria-labelledby="home-recent-title" hidden>
+            <header><h2 id="home-recent-title" data-i18n="home.recent.title">Recent ingestion</h2></header>
+            <div id="home-recent-list" role="list"></div>
+          </section>
         </div>
       </div>
-      <div class="center-tab-group" id="centertab-group">
-        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="목록 열기" aria-label="목록">
-          <span class="btn-icon">📑</span> <span class="btn-label">목록</span>
-        </button>
-        <div id="centertabs" class="center-tabs" role="tablist" aria-label="중앙 작업 영역 뷰">
-          <button id="centertab-reader" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('reader')" title="문서 본문 읽기" aria-label="본문">
-            <span class="btn-icon">📖</span> <span class="btn-label">본문</span>
-          </button>
-          <button id="centertab-graph" type="button" class="center-tab-btn active" role="tab" aria-selected="true" onclick="setCenterView('graph')" title="지식 그래프" aria-label="그래프">
-            <span class="btn-icon">🌐</span> <span class="btn-label">그래프</span>
-          </button>
-          <button id="centertab-presentation" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('presentation')" title="프레젠테이션 보기" aria-label="프레젠테이션">
-            <span class="btn-icon">📊</span> <span class="btn-label">프레젠테이션</span>
-          </button>
-        </div>
-        <div id="streamtabs" class="center-tabs stream-tabs" role="tablist" aria-label="의사결정 스트림 뷰">
-          <button id="centertab-stream" type="button" class="center-tab-btn" role="tab" aria-selected="false" onclick="setCenterView('stream')" title="엔티티 해소 의사결정 스트림" aria-label="의사결정 스트림">
-            <span class="btn-icon">📜</span> <span class="btn-label">의사결정 스트림</span>
-          </button>
-        </div>
-      </div>
-    </header>
+    </section>
     <section id="netwrap" class="workspace-pane" role="tabpanel" aria-labelledby="tab-graph" tabindex="0">
       <div id="legendbar" aria-label="그래프 범례와 관계 필터"></div>
       <div id="graphdocnav" aria-label="그래프 자료 전환">
@@ -397,34 +442,15 @@
       </div>
     </div>
   </div>
-  <aside id="detailpane" role="region" aria-label="문맥 상세" tabindex="-1">
+  <aside id="detailpane" aria-label="문맥 상세" tabindex="-1">
     <div id="detailhead">
-      <strong>상세 메뉴</strong>
+      <strong data-i18n="context.title">Context</strong>
       <div class="detailhead-tools">
-        <button id="detailtogglebtn" type="button" onclick="toggleDetailCompact()" title="상세 메뉴 축소/펼치기" aria-label="상세 메뉴 축소/펼치기">›</button>
-        <button id="detailclose" onclick="closeDrawer()" aria-label="상세 닫기">✕</button>
+        <button id="detailclose" type="button" onclick="closeContextPanel()" data-i18n-aria-label="context.close" data-i18n-title="context.close"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
       </div>
     </div>
     <div id="drawerscroll">
-      <div id="moremenu" aria-label="도구 및 그래프 설정">
-        <div class="action-btn-row">
-          <button id="addbtn" class="sec" onclick="openIngest()" title="URL·텍스트를 그래프에 적재" aria-label="적재"><span class="btn-icon">➕</span> <span class="btn-label">적재</span></button>
-          <button id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon">🔄</span> <span class="btn-label">재적재</span></button>
-          <button id="regenbtn" class="sec" onclick="openRegen()" title="기존 원문 기반 컴포넌트(요약, 본문, 지식그래프) 재생성" aria-label="재생성"><span class="btn-icon">🔁</span> <span class="btn-label">재생성</span></button>
-          <button id="purgebtn" class="sec" onclick="openPurge()" title="문서 영구 소각 및 지식그래프 정화" aria-label="소각"><span class="btn-icon">🔥</span> <span class="btn-label">소각</span></button>
-          <button id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
-        </div>
-        <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
-          <div class="menu-section-head">
-            <span class="menu-section-title" id="menu-section-title">문서와 그래프</span>
-          </div>
-          <div class="action-btn-row">
-            <button id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
-            <button id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
-            <span id="synthchips"></span>
-          </div>
-        </div>
-      </div>
+      <div id="synthchips"></div>
       <div id="panel"></div>
       <div id="drawerfooter">
         <span id="drawermanager" class="drawer-manager" title="지식 관리자: __SORCERER__">지식 관리자: __SORCERER__</span>
@@ -433,6 +459,13 @@
     </div>
   </aside>
 </div>
+<nav id="botnav" data-i18n-aria-label="nav.views">
+  <button id="botnav-home" type="button" aria-current="page" onclick="enterHome({reason:'nav'})"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/></svg><span data-i18n="nav.home">Home</span></button>
+  <button id="botnav-list" type="button" aria-expanded="false" aria-controls="docs" onclick="toggleListPane()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span data-i18n="nav.list">List</span></button>
+  <button id="botnav-reader" type="button" onclick="setCenterView('reader')"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg><span data-i18n="nav.reader">Reader</span></button>
+  <button id="botnav-graph" type="button" onclick="setCenterView('graph')"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg><span data-i18n="nav.graph">Graph</span></button>
+  <button id="botnav-context" type="button" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg><span data-i18n="context.title">Context</span></button>
+</nav>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
 <script>
@@ -446,6 +479,7 @@
     themes: __THEMES_JSON__
   };
 </script>
+<script src=/static/js/i18n.js></script>
 <script src=/static/js/graph/core.js></script>
 <script src=/static/js/graph/simulation.js></script>
 <script src=/static/js/graph/renderers.js></script>

@@ -92,6 +92,9 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await expect(page.locator('#morebtn')).toBeVisible();
   await expect(page.locator('#graphdocnav')).toBeHidden();
   await expect(page.locator('#docs')).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('#homewrap')).toBeVisible();
+  await page.locator('#centertab-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect.poll(async () => {
     const box = await page.locator('#netwrap').boundingBox();
@@ -100,6 +103,11 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await expect(page.locator('#detailpane')).toBeHidden();
 
   await page.locator('#morebtn').click();
+  await expect(page.locator('#detailpane')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#detailpane')).toBeHidden();
+
+  await page.locator('#managebtn').click();
   await expect(page.locator('#moremenu')).toBeVisible();
   await expect(page.locator('#authstate')).toContainText('익명 읽기전용');
   await expect(page.locator('#synthbtn')).toBeHidden();
@@ -121,48 +129,49 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
 });
 
 
-test('right menu compact icon mode toggles and reduces width on desktop', async ({ page }) => {
+test('context panel stays closed without selection and toggles on demand on desktop', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Right detailpane is visible and aria-hidden is false on desktop
+  // 1. Without a selection, #detailpane is collapsed (ctx-closed) and #ctxbtn is disabled
   const detailPane = page.locator('#detailpane');
+  const ctxBtn = page.locator('#ctxbtn');
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  await expect(detailPane).toHaveAttribute('aria-hidden', 'true');
+  await expect(ctxBtn).toBeDisabled();
+
+  // 2. Open a document in reader -> #detailpane opens on demand (>= 300px) and #ctxbtn becomes enabled
+  await page.locator('.docitem').first().click();
+  await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
   await expect(detailPane).toBeVisible();
   await expect(detailPane).toHaveAttribute('aria-hidden', 'false');
+  await expect(ctxBtn).toBeEnabled();
+  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(async () => {
+    const box = await detailPane.boundingBox();
+    return box ? box.width : 0;
+  }).toBeGreaterThanOrEqual(300);
 
-  // 2. Initial expanded state: detailpane width is >= 300px
-  const initialBox = await detailPane.boundingBox();
-  expect(initialBox.width).toBeGreaterThanOrEqual(300);
-
-  // 3. Toggle button exists in detailhead
-  const toggleBtn = page.locator('#detailtogglebtn');
-  await expect(toggleBtn).toBeVisible();
-
-  // 4. Click toggle button to switch to compact icon rail mode
-  await toggleBtn.click();
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug.detailCompact),
-  ).toBe(true);
-
-  // 5. In compact mode, width is reduced (<= 65px) and buttons remain accessible
+  // 3. Click #ctxbtn to collapse #detailpane to zero width
+  await ctxBtn.click();
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'false');
   await expect.poll(async () => {
     const box = await detailPane.boundingBox();
     return box ? box.width : 999;
-  }).toBeLessThanOrEqual(65);
+  }).toBeLessThanOrEqual(1);
 
   const actionBtn = page.locator('#themebtn');
   await expect(actionBtn).toBeVisible();
   await expect(actionBtn).toHaveAttribute('aria-label');
 
-  // 6. Click toggle button again to restore full width
-  await toggleBtn.click();
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug.detailCompact),
-  ).toBe(false);
-
+  // 4. Click #ctxbtn again to restore full width
+  await ctxBtn.click();
+  await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+  await expect(ctxBtn).toHaveAttribute('aria-expanded', 'true');
   await expect.poll(async () => {
     const box = await detailPane.boundingBox();
     return box ? box.width : 0;
@@ -178,23 +187,18 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Switch right menu to compact mode first
-  const isCompact = await page.evaluate(() => window.claireDebug.detailCompact);
-  if (!isCompact) {
-    const toggleBtn = page.locator('#detailtogglebtn');
-    await toggleBtn.click();
-  }
-  await expect.poll(
-    () => page.evaluate(() => window.claireDebug.detailCompact),
-  ).toBe(true);
+  // 1. Context panel starts closed without selection
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
 
-  // 2. Select document and switch to graph
+  // 2. Select document, collapse panel, and switch to graph
   // The graph view shows the entity list. The document list is in the reader view.
   await page.locator('#centertab-reader').click();
   await page.locator('.docitem').first().evaluate(element => element.click());
-  await page.evaluate(() => revealWorkspace('graph'));
+  await page.locator('#ctxbtn').click();
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  await page.evaluate(() => setCenterView('graph'));
   await expect.poll(
-    () => page.evaluate(() => window.claireDebug.activePane),
+    () => page.evaluate(() => window.claireDebug.centerView),
   ).toBe('graph');
 
   // 3. Inspect a visible node
@@ -210,8 +214,8 @@ test('inspecting node on desktop displays details without backdrop dimming or cl
 
   // 4. Detailpane automatically expands and displays panel content
   await expect.poll(
-    () => page.evaluate(() => window.claireDebug.detailCompact),
-  ).toBe(false);
+    () => page.evaluate(() => window.claireDebug.contextOpen),
+  ).toBe(true);
 
   const detailPane = page.locator('#detailpane');
   await expect.poll(async () => {
@@ -245,6 +249,7 @@ test('graph engine paints marks and labels through WebGPU or the forced Canvas2D
 
   // 1. 기본(auto): WebGPU 가 없거나 실패하면 Canvas2D 로 내려가며, 어느 쪽이든 라벨 오버레이를 그린다.
   await waitForClaire(page);
+  await page.locator('#centertab-graph').click();
   const info = await page.evaluate(() => window.claireDebug.graphRenderer);
   expect(['webgpu', 'canvas2d']).toContain(info.backend);
   await expect(page.locator('#net canvas.claire-graph-marks')).toHaveCount(1);
@@ -253,6 +258,7 @@ test('graph engine paints marks and labels through WebGPU or the forced Canvas2D
 
   // 2. ?graphBackend=canvas2d 로 강제하면 같은 프레임을 2D 경로로 그린다.
   await page.goto('/?graphBackend=canvas2d', { waitUntil: 'domcontentloaded' });
+  await page.locator('#centertab-graph').click();
   await expect.poll(() => page.evaluate(() => window.claireDebug?.graphRenderer?.backend)).toBe('canvas2d');
   await expect.poll(() => paintedPixels('#net canvas.claire-graph-marks')).toBeGreaterThan(20);
 
@@ -841,7 +847,8 @@ test('heatmap matrix replaces graph during ingestion with clean progress and liv
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. Initial state: graph canvas is visible, matrixwrap is hidden
+  // 1. Open graph view first (HW-1 boots into home), then verify graph canvas is visible and matrixwrap is hidden
+  await page.locator('#centertab-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
   await expect(page.locator('#matrixwrap')).toBeHidden();
 
@@ -1100,7 +1107,8 @@ test('heatmap matrix provides direct reader transition, compact headers, and ref
   const pageErrors = [];
   page.on('pageerror', err => pageErrors.push(err.message));
 
-  await page.goto('/');
+  await waitForClaire(page);
+  await page.locator('#centertab-graph').click();
   await page.waitForSelector('#net');
 
   // 1. Simulate opening heatmap matrix for doc-2
@@ -1248,7 +1256,8 @@ test('WebUI regenerate button opens form and executes without client script erro
   await page.goto('/?t=e2e-regen-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 
-  // 2. Click #regenbtn in right sidebar
+  // 2. Open Manage menu (#managebtn) and click #regenbtn
+  await page.locator('#managebtn').click();
   const regenBtn = page.locator('#regenbtn');
   await expect(regenBtn).toBeVisible();
   await regenBtn.click();
@@ -1293,13 +1302,14 @@ test('brand logo click restores default home state (degree, center view, title, 
 
   // 1. Boot
   await waitForClaire(page);
-  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
+  await expect(page).toHaveTitle('Claire Bible — 홈');
   const initialCenterView = await page.locator('body').getAttribute('data-center-view');
-  expect(initialCenterView).toBe('graph');
+  expect(initialCenterView).toBe('home');
   const initialDeg = await page.evaluate(() => window.claireDebug?.curMinDeg);
   const initialUrl = page.url();
 
-  // 2. Modify state: search query, change degree preset, switch center view
+  // 2. Modify state: open graph, search query, change degree preset, switch center view
+  await page.locator('#centertab-graph').click();
   await page.locator('#q').fill('Anthropic');
   await page.locator('.deg-preset-btn[data-deg="5"]').click();
   await page.locator('#centertab-stream').click();
@@ -1311,8 +1321,9 @@ test('brand logo click restores default home state (degree, center view, title, 
   await brand.click();
 
   // 4. Verify restored state identical to boot
-  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
-  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page).toHaveTitle('Claire Bible — 홈');
+  await expect(page.locator('#homewrap')).toBeVisible();
   const restoredDeg = await page.evaluate(() => window.claireDebug?.curMinDeg);
   expect(restoredDeg).toBe(initialDeg);
   await expect(page.locator('#q')).toHaveValue('');
@@ -1541,10 +1552,10 @@ test('active ingest during boot correctly mounts matrix view and recovers on bra
   await expect(brand).toBeVisible();
   await brand.click();
 
-  // 3. Recovers to graph view, resets camera & title
-  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
-  await expect(page).toHaveTitle('Claire Bible — 지식 그래프');
-  await expect(page.locator('#netwrap')).toBeVisible();
+  // 3. Recovers to home view & title
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page).toHaveTitle('Claire Bible — 홈');
+  await expect(page.locator('#homewrap')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -1568,7 +1579,9 @@ test.describe('document list with server pages', () => {
     await waitForClaire(page);
 
     await expect(page.locator('#mobile-doclist-btn')).toHaveAttribute('aria-label', '목록');
-    // The graph view shows the entity list (unit LP-3). The document list is in the reader view.
+    // The home view defaults to the document list, and the graph view defaults to the entity list (unit LP-3).
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await page.locator('#centertab-graph').click();
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
     await page.locator('#centertab-reader').click();
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
@@ -1787,6 +1800,7 @@ test('graph view shows the entity list in degree order with paging, one open row
   page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/node')) nodeRequests.push(request.url()); });
   await page.setViewportSize({ width: 1400, height: 500 });
   await waitForClaire(page);
+  await page.locator('#centertab-graph').click();
 
   // The graph view shows the entity list. The document list is hidden.
   await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
@@ -1998,6 +2012,7 @@ test.describe('node detail panel and node request order', () => {
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.setViewportSize({ width: 1400, height: 500 });
     await waitForClaire(page);
+    await page.locator('#centertab-graph').click();
     let mode = 'delay-hub';
     await page.route(url => url.pathname.endsWith('/node'), async route => {
       const id = new URL(route.request().url()).searchParams.get('id');
@@ -2099,6 +2114,7 @@ test.describe('node detail panel and node request order', () => {
     page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/node')) nodeRequests.push(request.url()); });
     await page.setViewportSize({ width: 1400, height: 700 });
     await waitForClaire(page);
+    await page.locator('#centertab-graph').click();
 
     const row = page.locator('#entlist .entitem[data-ent-id="ent-list-01"]');
     await row.locator('.entrow').click();
@@ -2238,5 +2254,109 @@ test('mobile node detail button opens the list drawer at the entity row', async 
   expect(box.left).toBe(0);
   expect(box.top).toBe(0);
   expect(box.width).toBe(box.clientWidth);
+  expect(pageErrors).toEqual([]);
+});
+
+test('home view opens by default with facts, recent ingestion, list switch, and on-demand context panel', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('#homewrap')).toBeVisible();
+  await expect(page.locator('#home-facts')).not.toBeEmpty();
+  await expect(page.locator('#home-recent')).toBeVisible();
+  await expect(page.locator('#home-recent-list .home-row').first()).toBeVisible();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  await expect(page.locator('#ctxbtn')).toBeDisabled();
+
+  // The list switch toggles between Entities and Documents in the same view, and resets on the next view change.
+  await page.locator('#listswitch .list-switch-btn[data-list="entities"]').click();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+  await page.locator('#centertab-graph').click();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+  await page.locator('#centertab-home').click();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+
+  // Opening a recent ingestion item moves to the reader and opens the context panel on demand.
+  await page.locator('#home-recent-list .home-row').first().click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+  await expect(page.locator('#reader')).toBeVisible();
+  await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+  await expect(page.locator('#ctxbtn')).toBeEnabled();
+  await expect(page.locator('#ctxbtn')).toHaveAttribute('aria-expanded', 'true');
+
+  // Returning via brand link restores the home view and closes the context panel.
+  await page.locator('a.brand').click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page).toHaveTitle('Claire Bible — 홈');
+  await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+  expect(pageErrors).toEqual([]);
+});
+
+test('narrow screen botnav switches views and opens list drawer and context bottom sheet as dialogs', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForClaire(page);
+  await expectNoHorizontalOverflow(page);
+
+  const botnav = page.locator('#botnav');
+  await expect(botnav).toBeVisible();
+  await expect(page.locator('#bar #centerhead')).toBeHidden();
+  await expect(page.locator('#botnav-home')).toBeVisible();
+  await expect(page.locator('#botnav-list')).toBeVisible();
+  await expect(page.locator('#botnav-reader')).toBeVisible();
+  await expect(page.locator('#botnav-graph')).toBeVisible();
+  await expect(page.locator('#botnav-context')).toBeVisible();
+
+  await page.locator('#botnav-home').click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('#homewrap')).toBeVisible();
+  await expect(page.locator('#botnav-home')).toHaveAttribute('aria-current', 'page');
+
+  // Open list drawer, check modal dialog semantics and inert center, then close via Escape.
+  const listBtn = page.locator('#botnav-list');
+  await listBtn.click();
+  const docs = page.locator('#docs');
+  await expect(docs).toBeVisible();
+  await expect(docs).toHaveAttribute('role', 'dialog');
+  await expect(docs).toHaveAttribute('aria-modal', 'true');
+  await expect(listBtn).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.locator('#centerwrap').evaluate(el => el.inert)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(docs).toBeHidden();
+  await expect(listBtn).toHaveAttribute('aria-expanded', 'false');
+  expect(await docs.getAttribute('role')).toBeNull();
+  expect(await page.locator('#centerwrap').evaluate(el => el.inert)).toBe(false);
+  await expect(listBtn).toBeFocused();
+
+  // Open context bottom sheet above #botnav, check sheet geometry and dialog role, then close via Escape.
+  const ctxNavBtn = page.locator('#botnav-context');
+  await ctxNavBtn.click();
+  const detailPane = page.locator('#detailpane');
+  await expect(detailPane).toBeVisible();
+  await expect(detailPane).toHaveAttribute('role', 'dialog');
+  await expect(detailPane).toHaveAttribute('aria-modal', 'true');
+  await expect(ctxNavBtn).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.locator('#centerwrap').evaluate(el => el.inert)).toBe(true);
+  const navBox = await botnav.boundingBox();
+  expect(navBox).not.toBeNull();
+  await expect.poll(async () => {
+    const b = await detailPane.boundingBox();
+    return b ? Math.round(b.y + b.height) : 9999;
+  }).toBeLessThanOrEqual(Math.round(navBox.y + 2));
+  const sheetBox = await detailPane.boundingBox();
+  expect(sheetBox).not.toBeNull();
+  expect(sheetBox.height).toBeGreaterThan(844 * 0.55);
+  await page.keyboard.press('Escape');
+  await expect(detailPane).toBeHidden();
+  await expect(ctxNavBtn).toHaveAttribute('aria-expanded', 'false');
+  expect(await detailPane.getAttribute('role')).toBeNull();
+  expect(await page.locator('#centerwrap').evaluate(el => el.inert)).toBe(false);
+  await expect(ctxNavBtn).toBeFocused();
   expect(pageErrors).toEqual([]);
 });

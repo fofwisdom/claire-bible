@@ -56,7 +56,7 @@
     --card-bg:#ffffff; --detail-bg:#ffffff; --mark-bg:#fff8c5; --mark-fg:#633c01;
     --btn-bg:#1f883d; --btn-fg:#ffffff; --sec-bg:#eaeef2; --sec-fg:#24292f;
     --rel:#9a6700; --nodebtn-hover:#dde3ea; --shadow:rgba(31,35,40,.28);
-    --detail-width:360px; --detail-compact-width:56px;
+    --detail-width:360px;
   }
   [data-theme="dark"]{
     --bg:#0e1116; --fg:#d7dbe0; --muted:#8b949e; --bar-bg:#161b22; --border:#2a2f37;

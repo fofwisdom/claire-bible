@@ -10,15 +10,18 @@
 
 ---
 
-## 1. 홈 화면 `목록` (좌측 목록 창)
+## 1. 홈 화면 `목록` (좌측 목록 창) · 문맥 패널
 
-본문 뷰는 문서 목록, 그래프 뷰는 엔티티 목록을 보인다(용어: [`GLOSSARY.md`](GLOSSARY.md) `목록`). 두 목록 모두 31개씩 보이고 스크롤하면 더 보인다.
+홈과 본문 뷰는 문서 목록, 그래프 뷰는 엔티티 목록을 기본으로 보이고 `#listswitch`로 전환한다(용어: [`GLOSSARY.md`](GLOSSARY.md) `목록`). 두 목록 모두 31개씩 보이고 스크롤하면 더 보인다. 우측 문맥 패널(`aside#detailpane`)은 선택이 있거나 그래프 뷰일 때만 열린다.
 
 ### 1.1 코드 위치
 
 | 대상 | 위치 |
 | :--- | :--- |
-| 목록 창 전환 | `syncListPane()` (`src/claire/static/js/app.js`), 호출: `setCenterView()` (`src/claire/static/js/reader.js`) |
+| 홈 화면 (개요) | `renderHome()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/claire/static/js/app.js`), `#homewrap` (`src/claire/templates/index.html`) |
+| 목록 전환 및 접기/펼치기 | `listMode()`, `setListOverride()`, `syncListPane()`, `toggleListPane()`, 저장소 키 `claireListOpen` (`src/claire/static/js/app.js`), 호출: `setCenterView()` (`src/claire/static/js/reader.js`), `#listswitch` · `#listtoggle` |
+| 문맥 패널 (온디맨드) | `hasContext()`, `isContextOpen()`, `setContextUserOpen()`, `toggleContextPanel()`, `closeContextPanel()`, `syncWorkspaceLayout()`, 저장소 키 `claireContextOpen` (`src/claire/static/js/app.js`), `#detailpane` · `#ctxbtn` · `#detailclose` |
+| 좁은 화면 하단 바·시트 (≤720px) | `openDocDrawer()`, `closeDocDrawer()`, `openDrawer()`, `closeDrawer()`, `closeAllDrawers()` (`src/claire/static/js/app.js`), `#botnav` (`src/claire/templates/index.html`, `src/claire/static/css/workspace.css`) |
 | 31개 창 표시와 무한 스크롤 | `createWindowedList()`, 상수 `LIST_PAGE` |
 | 문서 목록 데이터 | `docMainPager` · `docFilterPager`, `loadDocPage()`, `refreshDocs()`, `ensureDocLoaded()`, `loadDocsById()` |
 | 엔티티 목록 | `renderEntityList()`, 표시 조건 `isNodeListed()` (그래프 `applyView()`와 같은 조건, [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §10) |

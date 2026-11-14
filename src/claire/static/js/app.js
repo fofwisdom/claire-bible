@@ -145,7 +145,13 @@ function switchView(mode) {
 }
 
 var initialDefaultToReader = shouldDefaultToReader(null);
-let activePane='graph', detailOpen=false, centerView=(initialDefaultToReader ? 'reader' : 'graph'), drawerOpen=false;
+// The first view is the home overview (design HD1). A launch on a narrow screen or as an installed application starts in the reader, and a link to a node starts in the graph.
+function initialCenterView(){
+  if(initialDefaultToReader) return 'reader';
+  try{ if(new URLSearchParams(window.location.search).get('node')) return 'graph'; }catch(_){}
+  return 'home';
+}
+let activePane='graph', detailOpen=false, centerView=initialCenterView(), drawerOpen=false;
 let detailReturnFocus=null, docSearchActive=false, serverSearchResults=null;
 let graphCamera = null, preservingGraphCamera = false, netBusy = false;
 let isDraggingNode = false;
@@ -155,7 +161,10 @@ let net = null, allNodes = null, allEdges = null;
 let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null, hoverTimer = null;
 // 노드(그래프·'이 문서의 노드' 버튼)에 커서를 이만큼 올려 두면 요약 팝업을 띄운다.
 const NODE_POP_DELAY_MS = 1000;
-const HOME_TITLE = 'Claire Bible — 지식 그래프';
+const HOME_TITLE = (window.ClaireI18n ? ClaireI18n.t('home.title') : 'Claire Bible');
+const tr = (key, params) => (window.ClaireI18n ? ClaireI18n.t(key, params) : key);
+if(window.ClaireI18n) ClaireI18n.applyDom();
+if(centerView === 'home') document.title = HOME_TITLE;
 let activeJobs = [];
 let selectedJobId = null;
 let isolatedNodeId = null, activeHoverEdges = null, activeHoverNodes = null;
@@ -672,20 +681,46 @@ let relFilter = null;
 let pathMode = false, pathPicks = [], pathNodes = null, pathEdges = null;
 let edgeLabelsByZoom = false, selectedEdgeIds = new Set(), lastZoomTier = 0;
 let graphStabilized = false;
-let detailCompact = false;
-try{
-  const savedDetailCompact = getAccountStorage('claireDetailCompact');
-  if(savedDetailCompact === 'true') detailCompact = true;
-}catch(_){}
-
-function toggleDetailCompact(force){
-  if(typeof force === 'boolean'){
-    detailCompact = force;
-  }else{
-    detailCompact = !document.body.classList.contains('detail-compact');
-  }
-  try{ setAccountStorage('claireDetailCompact', detailCompact ? 'true' : 'false'); }catch(_){}
+// --- Context panel on demand (design Section 4.5) ---
+// The right pane has a width on a wide screen only when a context exists (a document, an entity, or the graph view) and the user did not close it.
+let contextUserOpen = true, contextPinned = false;
+try{ if(getAccountStorage('claireContextOpen') === 'false') contextUserOpen = false; }catch(_){}
+function hasContext(){
+  if(contextPinned || selectedNodeId) return true;
+  if(centerView === 'home') return false;
+  return Boolean(activeDoc || curReaderDoc || centerView === 'graph');
+}
+function isContextOpen(){ return hasContext() && contextUserOpen; }
+function setContextUserOpen(open){
+  contextUserOpen = Boolean(open);
+  try{ setAccountStorage('claireContextOpen', contextUserOpen ? 'true' : 'false'); }catch(_){}
   syncWorkspaceLayout();
+}
+function toggleContextPanel(){
+  if(compactMQ.matches || mobileMQ.matches){ toggleDrawer(); return; }
+  if(hasContext()) setContextUserOpen(!contextUserOpen);
+}
+function closeContextPanel(){
+  if(compactMQ.matches || mobileMQ.matches){ closeDrawer(true); return; }
+  const dp = document.getElementById('detailpane');
+  if(dp && dp.contains(document.activeElement)){
+    const cb = document.getElementById('ctxbtn');
+    if(cb && !cb.disabled) cb.focus();
+  }
+  setContextUserOpen(false);
+}
+// --- List pane: open state and the list that the user selects (design Section 4.3) ---
+let listPaneOpen = true, listOverride = null;
+try{ if(getAccountStorage('claireListOpen') === 'false') listPaneOpen = false; }catch(_){}
+function toggleListPane(){
+  if(mobileMQ.matches){ toggleDocDrawer(); return; }
+  listPaneOpen = !listPaneOpen;
+  try{ setAccountStorage('claireListOpen', listPaneOpen ? 'true' : 'false'); }catch(_){}
+  syncWorkspaceLayout();
+}
+function setListOverride(mode){
+  listOverride = (mode === 'entities' || mode === 'docs') ? mode : null;
+  syncListPane();
 }
 
 const paneEls = {
@@ -987,19 +1022,57 @@ function syncWorkspaceLayout(){
     }
   }
 
-  // aside#detailpane의 aria-hidden이 false일 때 (또는 detailCompact 설정 시)
-  // 우측 메뉴를 아이콘만 보여주는 컴팩트 레일 모드로 전환
-  const isCompact = !mobileMQ.matches && detailVisible && detailCompact;
-  document.body.classList.toggle('detail-compact', isCompact);
-  const wrapEl = document.getElementById('wrap');
-  if(wrapEl) wrapEl.classList.toggle('detail-compact', isCompact);
-  if(dp) dp.classList.toggle('compact-rail', isCompact);
-  const toggleBtn = document.getElementById('detailtogglebtn');
-  if(toggleBtn){
-    toggleBtn.setAttribute('aria-expanded', isCompact ? 'false' : 'true');
-    toggleBtn.title = isCompact ? '상세 메뉴 펼치기' : '상세 메뉴 축소(아이콘 모드)';
-    toggleBtn.setAttribute('aria-label', isCompact ? '상세 메뉴 펼치기' : '상세 메뉴 축소(아이콘 모드)');
+  // Wide screens: the context panel and the list pane have a width only when they are open.
+  const wide = !isMobileOrCompact, ctxOpen = isContextOpen();
+  document.body.classList.toggle('ctx-closed', wide && !ctxOpen);
+  document.body.classList.toggle('list-closed', !mobileMQ.matches && !listPaneOpen);
+  if(dp && wide){
+    dp.setAttribute('aria-hidden', ctxOpen ? 'false' : 'true');
+    dp.inert = !ctxOpen;
   }
+  const ctxBtn = document.getElementById('ctxbtn');
+  if(ctxBtn){
+    ctxBtn.disabled = !hasContext();
+    ctxBtn.setAttribute('aria-expanded', ctxOpen ? 'true' : 'false');
+  }
+  const listBtn = document.getElementById('listtoggle');
+  if(listBtn) listBtn.setAttribute('aria-expanded', listPaneOpen ? 'true' : 'false');
+  const docsPane = document.getElementById('docs');
+  const docOpenNarrow = mobileMQ.matches && typeof docDrawerOpen !== 'undefined' && docDrawerOpen;
+  const ctxOpenNarrow = mobileMQ.matches && isDrawerActive;
+  if(docsPane){
+    if(!mobileMQ.matches){
+      docsPane.setAttribute('aria-hidden', listPaneOpen ? 'false' : 'true');
+      docsPane.inert = !listPaneOpen;
+    }
+    if(docOpenNarrow){
+      docsPane.setAttribute('role', 'dialog');
+      docsPane.setAttribute('aria-modal', 'true');
+    }else{
+      docsPane.removeAttribute('role');
+      docsPane.removeAttribute('aria-modal');
+    }
+  }
+  if(dp){
+    if(ctxOpenNarrow){
+      dp.setAttribute('role', 'dialog');
+      dp.setAttribute('aria-modal', 'true');
+    }else{
+      dp.removeAttribute('role');
+      dp.removeAttribute('aria-modal');
+    }
+  }
+  const cw = document.getElementById('centerwrap');
+  if(cw) cw.inert = Boolean(docOpenNarrow || ctxOpenNarrow);
+  ['home','reader','graph'].forEach(name => {
+    const b = document.getElementById('botnav-' + name);
+    if(!b) return;
+    if(centerView === name) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  const bList = document.getElementById('botnav-list');
+  if(bList) bList.setAttribute('aria-expanded', docOpenNarrow ? 'true' : 'false');
+  const bCtx = document.getElementById('botnav-context');
+  if(bCtx) bCtx.setAttribute('aria-expanded', ctxOpenNarrow ? 'true' : 'false');
 
   if(activePane==='graph'){
     requestAnimationFrame(()=>{ relayoutPreservingCamera(); applyTouchMode(); });
@@ -1038,8 +1111,8 @@ function openDetailPane(){
   detailReturnFocus=document.activeElement;
   detailOpen=true;
   drawerOpen=true;
-  detailCompact=false;
-  try{ setAccountStorage('claireDetailCompact', 'false'); }catch(_){}
+  contextPinned=true;
+  contextUserOpen=true;
   if((compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
   closeGraphDocPicker();
   syncWorkspaceLayout();
@@ -1059,29 +1132,54 @@ function closeDetailPane(){
   replaceAppHistory({ modal: getActiveModalName() });
   requestAnimationFrame(()=>{ if(target) target.focus(); });
 }
-function openDrawer(){
+let pendingDrawerFocus = false, docDrawerReturnFocus = null, pendingDocDrawerFocus = false;
+function openDrawer(pushHist=true){
   hideNodePop();
+  let replacedModal = false;
+  if(mobileMQ.matches && typeof docDrawerOpen !== 'undefined' && docDrawerOpen){
+    docDrawerOpen = false;
+    docDrawerReturnFocus = null;
+    pendingDocDrawerFocus = false;
+    document.body.classList.remove('docdrawer-open');
+    if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'docdrawer'){
+      replaceAppHistory({ modal: 'drawer' });
+      replacedModal = true;
+    }
+  }
   detailReturnFocus=document.activeElement;
   drawerOpen=true;
   detailOpen=true;
-  if((compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
+  if(pushHist && !replacedModal && (compactMQ.matches || mobileMQ.matches)) pushAppHistory({ modal: 'drawer' });
   closeGraphDocPicker();
   syncWorkspaceLayout();
+  if(mobileMQ.matches){
+    requestAnimationFrame(()=>{
+      const dp = document.getElementById('detailpane');
+      if((drawerOpen || detailOpen) && dp && !dp.contains(document.activeElement)){
+        const dc = document.getElementById('detailclose') || dp;
+        dc.focus();
+      }
+    });
+  }
 }
 function closeDrawer(focus=false){
+  const restoreFocus = (typeof focus === 'object' && focus !== null) ? focus.restoreFocus !== false : Boolean(focus);
   if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'drawer' && !isPoppingHistory){
+    pendingDrawerFocus = restoreFocus;
     window.history.back();
     return;
   }
+  const shouldFocus = restoreFocus || pendingDrawerFocus;
+  pendingDrawerFocus = false;
   hideNodePop();
   drawerOpen=false;
   detailOpen=false;
   syncWorkspaceLayout();
   let target=detailReturnFocus && detailReturnFocus.isConnected ? detailReturnFocus : null;
-  if(!target) target=(compactMQ.matches || mobileMQ.matches) ? (document.getElementById('morebtn') || paneEls[activePane]) : document.getElementById('morebtn');
+  if(!target) target=mobileMQ.matches ? (document.getElementById('botnav-context') || document.getElementById('morebtn') || paneEls[activePane]) : (compactMQ.matches ? (document.getElementById('morebtn') || paneEls[activePane]) : document.getElementById('morebtn'));
   detailReturnFocus=null;
   replaceAppHistory({ modal: getActiveModalName() });
-  if(focus && target) requestAnimationFrame(()=>target.focus());
+  if(shouldFocus && target) requestAnimationFrame(()=>target.focus());
 }
 function toggleDrawer(){
   if(drawerOpen || detailOpen) closeDrawer(true);
@@ -1090,6 +1188,18 @@ function toggleDrawer(){
 let docDrawerOpen = false;
 function openDocDrawer(pushHist=true){
   hideNodePop();
+  let replacedModal = false;
+  if(mobileMQ.matches && (drawerOpen || detailOpen)){
+    drawerOpen = false;
+    detailOpen = false;
+    detailReturnFocus = null;
+    pendingDrawerFocus = false;
+    if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'drawer'){
+      replaceAppHistory({ modal: 'docdrawer' });
+      replacedModal = true;
+    }
+  }
+  docDrawerReturnFocus = document.activeElement;
   docDrawerOpen = true;
   document.body.classList.add('docdrawer-open');
   const docsEl = document.getElementById('docs');
@@ -1100,13 +1210,26 @@ function openDocDrawer(pushHist=true){
   const backdrop = document.getElementById('drawerbackdrop');
   if(backdrop) backdrop.setAttribute('aria-hidden', 'false');
   closeGraphDocPicker();
-  if(pushHist && mobileMQ.matches) pushAppHistory({ modal: 'docdrawer' });
+  syncWorkspaceLayout();
+  if(pushHist && !replacedModal && mobileMQ.matches) pushAppHistory({ modal: 'docdrawer' });
+  if(mobileMQ.matches){
+    requestAnimationFrame(()=>{
+      if(docDrawerOpen && docsEl && !docsEl.contains(document.activeElement)){
+        const f = document.querySelector('#docs #listswitch button, #docclose') || docsEl;
+        f.focus();
+      }
+    });
+  }
 }
 function closeDocDrawer(focus=false){
+  const restoreFocus = (typeof focus === 'object' && focus !== null) ? focus.restoreFocus !== false : Boolean(focus);
   if(typeof window !== 'undefined' && window.history && window.history.state && window.history.state.modal === 'docdrawer' && !isPoppingHistory){
+    pendingDocDrawerFocus = restoreFocus;
     window.history.back();
     return;
   }
+  const shouldFocus = restoreFocus || pendingDocDrawerFocus;
+  pendingDocDrawerFocus = false;
   hideNodePop();
   docDrawerOpen = false;
   document.body.classList.remove('docdrawer-open');
@@ -1117,19 +1240,19 @@ function closeDocDrawer(focus=false){
   }
   const backdrop = document.getElementById('drawerbackdrop');
   if(backdrop && !drawerOpen && !detailOpen) backdrop.setAttribute('aria-hidden', 'true');
+  syncWorkspaceLayout();
   replaceAppHistory({ modal: getActiveModalName() });
-  if(focus){
-    const btn = document.getElementById('mobile-doclist-btn');
-    if(btn) requestAnimationFrame(()=>btn.focus());
-  }
+  const target = docDrawerReturnFocus && docDrawerReturnFocus.isConnected ? docDrawerReturnFocus : (document.getElementById('botnav-list') || document.getElementById('mobile-doclist-btn'));
+  docDrawerReturnFocus = null;
+  if(shouldFocus && target) requestAnimationFrame(()=>target.focus());
 }
 function toggleDocDrawer(){
   if(docDrawerOpen) closeDocDrawer(true);
   else openDocDrawer();
 }
 function closeAllDrawers(){
-  if(docDrawerOpen) closeDocDrawer();
-  if(drawerOpen || detailOpen) closeDrawer();
+  if(docDrawerOpen) closeDocDrawer(true);
+  if(drawerOpen || detailOpen) closeDrawer(true);
 }
 function openGraphFromDrawer(){
   openDocGraph(activeDoc || curReaderDoc || (mobileMQ.matches ? (getRecentDocId() || docWithMostNodes()) : null));
@@ -1276,7 +1399,7 @@ if(wt){
 document.addEventListener('pointerdown',e=>{
   const bar=document.getElementById('bar');
   const pane=document.getElementById('detailpane');
-  const bnav=document.getElementById('worktabs');
+  const bnav=document.getElementById('botnav')||document.getElementById('worktabs');
   if((drawerOpen||detailOpen) && pane && (!bar||!bar.contains(e.target)) && (!bnav||!bnav.contains(e.target)) && !pane.contains(e.target)) closeDrawer(false, true);
   const nav=document.getElementById('graphdocnav');
   const gdm=document.getElementById('graphdocmenu');
@@ -1492,6 +1615,7 @@ function initGraph(onComplete){
       graphStabilized=true;
       if(!netBusy) rememberGraphCamera();
     });
+    if(!netEl.clientWidth || !netEl.clientHeight) graphStabilized = true;
     const _fit = net.fit.bind(net), _focus = net.focus.bind(net), _moveTo = net.moveTo.bind(net);
     net.fit = (opts) => {
       const dur = getAnimDuration(opts);
@@ -1679,20 +1803,24 @@ fetch(apiUrl('stats')).then(r => r.ok ? r.json() : null).then(d => {
     setCenterView('matrix');
     processActiveJobsStats(d);
     startFastIngestPolling();
-  } else if(view === 'graph+banner'){
+  } else if(view === 'home+banner'){
+    homeStats = d || homeStats;
     initGraph();
     if(shouldDefaultToReader(d)){
       setCenterView('reader');
     }
+    renderHome();
     showOtherThemeJobBanner(d);
     if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
       renderDecisionStreamCenter(false);
     }
   } else {
+    homeStats = d || homeStats;
     initGraph();
     if(shouldDefaultToReader(d)){
       setCenterView('reader');
     }
+    renderHome();
     if(centerView === 'stream' && typeof renderDecisionStreamCenter === 'function'){
       renderDecisionStreamCenter(false);
     }
@@ -1718,14 +1846,17 @@ function restoreSelection(){
 // 검색·inspect 모두 해제(ESC / 검색창 비우기). synthSet(종합 수집)은 보존.
 function clearSelections(){
   highlightSet=null; selectedNodeId=null;
+  contextPinned = false;
   if(isolatedNodeId){
     isolatedNodeId = null;
-    if(currentNodeData) renderPanel(currentNodeData);
   }
   const q=document.getElementById('q'); if(q) q.value='';
   if(net) net.unselectAll();
   unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
+  if(activeDoc) loadDocPanel(activeDoc);
+  else if(panel) panel.innerHTML = defaultHint();
   applyView();
+  syncWorkspaceLayout();
 }
 document.addEventListener('keydown', e=>{
   if(handleReaderKey(e)) return;
@@ -1875,6 +2006,7 @@ let nodeLoadSeq = 0;
 function loadNode(id, hidePop=true){
   const focusCamera = arguments.length > 2 ? arguments[2] : true;
   if(hidePop) hideNodePop();
+  setContextUserOpen(true);
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   openEntityRow(id);               // The entity list opens the row of this node before applyView(), thus applyView() does not render the list again. The row uses the response of the request below.
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
@@ -3725,6 +3857,7 @@ function applyView(){
     + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
     + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':'')) + '</span>';
   renderEntityList();
+  if(typeof renderHome === 'function' && centerView === 'home') renderHome();
 }
 
 // --- 2노드 경로 하이라이트(전용 모드): 🔗 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
@@ -4107,7 +4240,7 @@ function internDoc(d){
   docById.set(d.id, d);
   return d;
 }
-function rebuildAllDocs(){ allDocs = [...docById.values()].sort(docCmp); }
+function rebuildAllDocs(){ allDocs = [...docById.values()].sort(docCmp); if(centerView === 'home') renderHome(); }
 // The list has the documents that are not hidden and not pinned. The pinned and hidden documents come from two other requests.
 function docPagerParams(p){
   const sp = new URLSearchParams({limit: String(LIST_PAGE), hidden: '0', pinned: '0'});
@@ -4273,7 +4406,10 @@ function docWindow(){
   dl.addEventListener('scroll', syncListTopBtn, {passive: true});
   return docWindowList;
 }
-function listMode(){ return (ENTITY_LIST_READY && centerView === 'graph') ? 'entities' : 'docs'; }
+function listMode(){
+  if(!ENTITY_LIST_READY) return 'docs';
+  return listOverride || (centerView === 'graph' ? 'entities' : 'docs');
+}
 function updateListTitle(){
   const el = document.getElementById('listtitle'); if(!el) return;
   const ent = listMode() === 'entities', w = ent ? entWindowList : docWindowList, name = ent ? '엔티티' : '문서';
@@ -4287,6 +4423,7 @@ function syncListPane(){
   const mode = listMode();
   docsEl.dataset.list = mode;
   docsEl.setAttribute('aria-label', mode === 'entities' ? '엔티티 목록' : '문서 목록');
+  document.querySelectorAll('#listswitch .list-switch-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.list === mode ? 'true' : 'false'));
   if(mode === 'entities') renderEntityList();
   else if(net && typeof net.setHoverNode === 'function') net.setHoverNode(null);
   updateListTitle();
@@ -4771,13 +4908,15 @@ function resetWorkspaceState(){
   renderLegend();
 
   // Reset panel hint and graph camera
+  contextPinned = false;
+  listOverride = null;
   if(panel) panel.innerHTML = defaultHint();
   resetGraphCamera();
   syncGraphDocNav();
 }
 
 function resolveHomeView(stats, activeThemeId){
-  if(!stats) return 'graph';
+  if(!stats) return 'home';
   const targetTheme = String((activeThemeId !== undefined && activeThemeId !== null) ? activeThemeId : '0');
   let jobs = [];
   if(Array.isArray(stats.active_jobs) && stats.active_jobs.length > 0){
@@ -4787,7 +4926,7 @@ function resolveHomeView(stats, activeThemeId){
   } else if(stats.ingesting){
     jobs = [{ active: true, theme_id: targetTheme }];
   }
-  if(jobs.length === 0) return 'graph';
+  if(jobs.length === 0) return 'home';
   const matchesCurrent = jobs.some(j => {
     const jTheme = String((j.theme_id !== undefined && j.theme_id !== null) ? j.theme_id : '0');
     const curThemeObj = findTheme(targetTheme);
@@ -4796,7 +4935,7 @@ function resolveHomeView(stats, activeThemeId){
     return jTheme === targetTheme;
   });
   if(matchesCurrent) return 'job';
-  return 'graph+banner';
+  return 'home+banner';
 }
 
 function showOtherThemeJobBanner(stats){
@@ -4845,7 +4984,7 @@ async function enterHome({reason = 'brand'} = {}){
   const currentThemeParam = url.searchParams.get('theme');
   url.search = (activeThemeId && String(activeThemeId) !== '0') ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
   url.hash = '';
-  window.history.replaceState({ pane: 'graph', modal: null }, HOME_TITLE, url.pathname + url.search);
+  window.history.replaceState({ pane: 'graph', modal: null, view: 'home' }, HOME_TITLE, url.pathname + url.search);
 
   // Sync brand href with current theme
   const brandLink = document.querySelector('a.brand');
@@ -4866,27 +5005,13 @@ async function enterHome({reason = 'brand'} = {}){
     setCenterView('matrix');
     processActiveJobsStats(stats);
     startFastIngestPolling();
-  } else if(view === 'graph+banner'){
-    setCenterView('graph');
-    revealWorkspace('graph', false, true);
-    if(!graphInitialized){
-      initGraph();
-    } else {
-      applyView();
-      resetGraphCamera();
-    }
-    showOtherThemeJobBanner(stats);
   } else {
-    // 'graph'
-    setCenterView('graph');
-    revealWorkspace('graph', false, true);
-    if(!graphInitialized){
-      initGraph();
-    } else {
-      applyView();
-      resetGraphCamera();
-    }
-    hideOtherThemeJobBanner();
+    // 'home' or 'home+banner': the overview. The graph data loads for the lists and the counts; the graph pane is hidden, thus the engine does not run its loop.
+    homeStats = stats || homeStats;
+    setCenterView('home');
+    if(!graphInitialized) initGraph(); else applyView();
+    if(view === 'home+banner') showOtherThemeJobBanner(stats); else hideOtherThemeJobBanner();
+    syncWorkspaceLayout();
   }
 
   if(reason === 'brand' && typeof window.gtag === 'function'){
@@ -5126,7 +5251,7 @@ function onCenterSearchInput(v){
     dq.value = v;
   }
   const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
-  if(view === 'reader'){
+  if(view === 'reader' || view === 'home'){
     onDocqInput(v);
   } else if(view === 'stream'){
     if(typeof filterDecisionStreamByQuery === 'function'){
@@ -5279,6 +5404,7 @@ function setAccessScope(scope, reason){
     panel.innerHTML=defaultHint();
   }
   updateSearchModeUI();
+  syncManageButton();
   renderDocs();
   if(selectedNodeId) loadNode(selectedNodeId);
   else if(activeDoc) loadDocPanel(activeDoc);
@@ -5610,10 +5736,103 @@ window.addEventListener('popstate', e => {
 });
 
 syncListPane();
+syncManageButton();
 // 초기 베이스 히스토리 엔트리 등록
 replaceAppHistory({ pane: activePane || 'graph', modal: getActiveModalName() });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
+
+// --- Home view (design Section 5, unit HW-1): the facts line and the recent ingestion card ---
+// Rule: a card shows only stored facts. When its source is absent, the card is hidden.
+let homeStats = null, homeStatsSeq = 0;
+function homeEntityCount(docId){
+  if(!allNodes) return null;
+  let n = 0;
+  allNodes.forEach(node => { if((node.sources || []).includes(docId)) n++; });
+  return n;
+}
+function renderHome(){
+  const wrap = document.getElementById('homewrap'); if(!wrap) return;
+  const theme = (typeof findTheme === 'function') ? findTheme(activeThemeId) : null;
+  const label = document.getElementById('home-theme-label');
+  if(label) label.textContent = (homeStats && homeStats.theme_label) || (theme && theme.label) || '';
+  const docs = (allDocs || []).filter(d => d.hidden !== 1);
+  const facts = document.getElementById('home-facts');
+  if(facts){
+    const parts = [];
+    if(homeStats && homeStats.documents != null) parts.push(tr('home.facts', {documents: homeStats.documents, entities: homeStats.entities, relations: homeStats.relations}));
+    if(docs.length && docs[0].fetched_at) parts.push(tr('home.facts.last_ingest', {time: dayOf(docs[0].fetched_at)}));
+    facts.textContent = parts.join(' · ');
+  }
+  const card = document.getElementById('home-recent'), list = document.getElementById('home-recent-list');
+  if(card && list){
+    const rows = docs.slice(0, 5);
+    card.hidden = !rows.length;
+    list.innerHTML = rows.map(d => {
+      const count = homeEntityCount(d.id);
+      const sub = [d.fetched_at ? dayOf(d.fetched_at) : '', count == null ? '' : tr('home.recent.entities', {count: count})].filter(Boolean).join(' · ');
+      return '<button type="button" class="home-row" role="listitem" data-home-doc="' + esc(d.id) + '"><span class="home-row-kind">' + esc(d.source_type || '') + '</span><span class="home-row-main"><span class="home-row-title">' + esc(d.title || tr('home.recent.untitled')) + '</span><span class="home-row-sub">' + esc(sub) + '</span></span></button>';
+    }).join('');
+  }
+}
+function loadHomeStats(){
+  const seq = ++homeStatsSeq;
+  fetch(apiUrl('stats'), {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(d => {
+    if(seq !== homeStatsSeq || !d) return;
+    homeStats = d;
+    if(centerView === 'home') renderHome();
+  }).catch(() => {});
+}
+(function(){
+  const list = document.getElementById('home-recent-list');
+  if(list) list.addEventListener('click', e => {
+    const row = e.target.closest('[data-home-doc]');
+    if(row) selectDoc(row.dataset.homeDoc);
+  });
+})();
+
+// --- Manage menu (design Section 4.1): a popover with role=menu. The browser gives the light dismiss and the Escape key; this code gives the position and the arrow keys. ---
+function syncManageButton(){
+  const btn = document.getElementById('managebtn'); if(!btn) return;
+  // The menu has an item only for a user who can ingest, or in the graph view (the path tool).
+  btn.hidden = !(canIngest() || centerView === 'graph');
+}
+(function(){
+  const menu = document.getElementById('moremenu'), btn = document.getElementById('managebtn');
+  if(!menu || !btn) return;
+  const native = 'popover' in HTMLElement.prototype;
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]')].filter(el => el.offsetParent !== null);
+  const place = () => {
+    const r = btn.getBoundingClientRect();
+    menu.style.top = (r.bottom + 6) + 'px';
+    menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+  };
+  const close = () => { if(native){ try{ menu.hidePopover(); }catch(_){} } else menu.classList.remove('open'); };
+  if(native){
+    menu.addEventListener('beforetoggle', e => { if(e.newState === 'open') place(); });
+    menu.addEventListener('toggle', e => { if(e.newState === 'open'){ const f = items()[0]; if(f) f.focus(); } });
+  } else {
+    // A browser without the Popover API: the same element with a class switch.
+    menu.classList.add('no-popover');
+    btn.addEventListener('click', () => { place(); menu.classList.toggle('open'); const f = items()[0]; if(f && menu.classList.contains('open')) f.focus(); });
+    document.addEventListener('click', e => { if(!menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove('open'); });
+    document.addEventListener('keydown', e => { if(e.key === 'Escape' && menu.classList.contains('open')){ menu.classList.remove('open'); btn.focus(); } });
+  }
+  menu.addEventListener('click', e => { if(e.target.closest('[role="menuitem"]')) close(); });
+  menu.addEventListener('keydown', e => {
+    if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const all = items(), i = all.indexOf(document.activeElement);
+    if(!all.length) return;
+    all[(i + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length].focus();
+    e.preventDefault();
+  });
+})();
+
+// The content of the panel changes when the context changes (a node, a document, or the default hint), thus the open state of the context panel follows it.
+if(panel && typeof MutationObserver === 'function'){
+  new MutationObserver(() => syncWorkspaceLayout()).observe(panel, {childList: true});
+}
+
 window.claireDebug = {
   get sel(){ return net ? net.getSelectedNodes() : []; },
   get highlight(){ return highlightSet ? [...highlightSet] : null; },
@@ -5649,8 +5868,12 @@ window.claireDebug = {
   get trackingIngest(){ return trackingIngest; },
   get isFastPolling(){ return isFastPolling; },
   pollForUpdates: pollForUpdates,
-  get detailCompact(){ return document.body.classList.contains('detail-compact'); },
-  toggleDetailCompact: toggleDetailCompact,
+  get contextOpen(){ return isContextOpen(); },
+  get hasContext(){ return hasContext(); },
+  get listMode(){ return listMode(); },
+  get centerView(){ return centerView; },
+  get allDocs(){ return allDocs; },
+  toggleContextPanel: toggleContextPanel,
   docWithMostNodes: docWithMostNodes,
   getRecentDocId: getRecentDocId,
   get lastSelectedDocId(){ return lastSelectedDocId; },

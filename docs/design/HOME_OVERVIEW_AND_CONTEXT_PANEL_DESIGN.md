@@ -178,7 +178,7 @@ Theme label, then documents, entities, and relations from `GET /stats`, then the
 
 The first five rows of `GET /documents` (the request that the list makes; no second request). Each row: source type, title, relative time, and the entity count of the document. The entity count is the number of graph nodes whose `sources` has the document identifier; it shows only after `GET /graph` is loaded. A click opens the reader.
 
-The source badge of a row (Section 7.1) shows only when the row has the necessary fields. **[unverified]** The fields of a list row for the raw text; unit HW-1 confirms them, and the badge stays in the reader when they are absent.
+The source badge of a row (Section 7.1) shows only when the row has the necessary fields. **[code]** `documents_list()` (`src/claire/store/queries.py`) does not return raw text fields (`has_raw_file`, `raw_chars`, `raw_truncated`), thus the source badge stays in the reader (unit HW-3).
 
 ### 5.3 Knowledge Map Card
 

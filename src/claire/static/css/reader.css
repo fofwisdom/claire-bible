@@ -31,14 +31,22 @@
   body[data-center-view="stream"] #streamwrap{display:flex!important}
   body[data-center-view="stream"] #presentationwrap{display:none!important}
 
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #netwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #matrixwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #streamwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #presentationwrap{display:none!important}
-  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]) #reader{display:flex!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]):not([data-center-view="home"]) #netwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]):not([data-center-view="home"]) #matrixwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]):not([data-center-view="home"]) #streamwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]):not([data-center-view="home"]) #presentationwrap{display:none!important}
+  body:not([data-center-view="graph"]):not([data-center-view="matrix"]):not([data-center-view="stream"]):not([data-center-view="presentation"]):not([data-center-view="home"]) #reader{display:flex!important}
 
   /* 중앙 화면 모드에 따른 고유 표시 */
-  body[data-center-view="graph"] #pathbtn{display:inline-flex!important}
+  body[data-center-view="home"] #homewrap{display:block!important}
+  body:not([data-center-view="home"]) #homewrap{display:none!important}
+  body[data-center-view="home"] #netwrap{display:none!important}
+  body[data-center-view="home"] #reader:not(.open){display:none!important}
+  body[data-center-view="home"] #matrixwrap{display:none!important}
+  body[data-center-view="home"] #streamwrap{display:none!important}
+  body[data-center-view="home"] #presentationwrap{display:none!important}
+
+  body[data-center-view="graph"] #pathbtn{display:flex!important}
   body:not([data-center-view="graph"]) #pathbtn{display:none!important}
 
   /* 데스크톱/노트북 (중간 폭): 1100px 이하에서는 우측 패널을 drawer 로 (2단 보기 지원, 하단 바 비사용) */
