@@ -1448,6 +1448,7 @@ window.deselectEntity = deselectEntity;
 
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
+    if(document.querySelector('dialog[open]')) return;
     const nodeMenu = document.getElementById('node-manage-menu');
     if(nodeMenu && nodeMenu.style.display !== 'none'){
       closeNodeManageMenu();
@@ -7803,4 +7804,57 @@ document.addEventListener('visibilitychange', () => {
     pollForUpdates();
   }
 });
+
+// Open command palette from the manage popover menu (HW-7).
+function openCommandPaletteFromMenu(){
+  const menu = document.getElementById('moremenu');
+  if(menu && typeof menu.hidePopover === 'function'){
+    try{ menu.hidePopover(); }catch(_){}
+  }
+  if(window.ClaireCommandPalette) window.ClaireCommandPalette.open();
+}
+window.openCommandPaletteFromMenu = openCommandPaletteFromMenu;
+
+if(window.ClaireCommandPalette){
+  window.ClaireCommandPalette.init({
+    dialogId: 'cmdpalette',
+    getCommands: () => [
+      {id: 'home', icon: '⌂', label: tr('nav.palette.cmd_home'), keywords: 'home overview', run: () => enterHome({reason: 'nav'})},
+      {id: 'graph', icon: '🕸', label: tr('nav.palette.cmd_graph'), keywords: 'graph map', run: () => setCenterView('graph')},
+      {id: 'ingest', icon: '+', label: tr('nav.palette.cmd_ingest'), keywords: 'ingest add url text', run: () => openIngest()},
+      {id: 'light', icon: '🌞', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
+      {id: 'dark', icon: '🌙', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
+    ],
+    getListFilter: () => {
+      const qEl = document.getElementById('q');
+      return qEl ? String(qEl.value || '').trim() : '';
+    },
+    getCachedDocuments: query => {
+      const q = String(query || '').trim().toLowerCase();
+      const src = Array.isArray(allDocs) ? allDocs : [];
+      if(!q) return src.slice(0, 10);
+      return src.filter(d => String((d && (d.title || d.id)) || '').toLowerCase().includes(q)).slice(0, 10);
+    },
+    fetchDocuments: async query => {
+      const sp = new URLSearchParams({limit: '10', hidden: '0'});
+      const q = String(query || '').trim();
+      const kw = q.toLowerCase();
+      if(kw === 'is:missing-detail' || kw === 'missing:detail') sp.set('detail', 'missing');
+      else if(kw === 'is:mismatched' || kw === 'format:mismatch') sp.set('detail', 'mismatched');
+      else if(q) sp.set('q', q);
+      const data = await fetchDocuments(sp);
+      return (data && data.documents) || [];
+    },
+    getEntities: () => (allNodes && typeof allNodes.get === 'function') ? allNodes.get() : (Array.isArray(allNodes) ? allNodes : []),
+    onSelectDocument: d => {
+      if(!d || !d.id) return;
+      openReader(d.id);
+      setCenterView('reader');
+    },
+    onSelectEntity: n => {
+      if(!n || !n.id) return;
+      loadNode(n.id);
+    }
+  });
+}
 

@@ -3127,3 +3127,63 @@ test.describe('document context panel (HW-3)', () => {
   });
 
 });
+
+test.describe('command palette (HW-7)', () => {
+
+  test('HW-7: Ctrl+K opens palette, filters documents and entities, and runs commands', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    const dialog = page.locator('#cmdpalette');
+    const input = page.locator('#cmdpalette-input');
+    await expect(dialog).toBeHidden();
+
+    // 1. Open palette with Ctrl+K and close with Escape.
+    await page.keyboard.press('Control+k');
+    await expect(dialog).toBeVisible();
+    await expect(input).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
+    // 2. Open palette from the manage menu and filter for a document.
+    await page.locator('#managebtn').click();
+    await page.locator('#palettebtn').click();
+    await expect(dialog).toBeVisible();
+
+    await input.fill('테스트 문서 1');
+    const docRow = page.locator('#cmdpalette-list .cmd-palette-row').filter({ hasText: '테스트 문서 1' }).first();
+    await expect(docRow).toBeVisible();
+    await docRow.click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#rtitle')).toContainText('테스트 문서 1');
+
+    // 3. Reopen palette with Ctrl+K, select an entity, and keep the reader view.
+    await page.keyboard.press('Control+k');
+    await expect(dialog).toBeVisible();
+    await input.fill('허브 엔티티');
+    const entRow = page.locator('#cmdpalette-list .cmd-palette-row').filter({ hasText: '허브 엔티티' }).first();
+    await expect(entRow).toBeVisible();
+    await entRow.click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+
+    // 4. Reopen palette with Ctrl+K and run the Go to Graph command with Enter.
+    await page.keyboard.press('Control+k');
+    await expect(dialog).toBeVisible();
+    await input.fill('그래프');
+    await expect(page.locator('#cmdpalette-list .cmd-palette-row.is-active')).toBeVisible();
+    await page.keyboard.press('Enter');
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+
+    expect(pageErrors).toEqual([]);
+  });
+
+});

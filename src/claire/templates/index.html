@@ -161,6 +161,9 @@
   </div>
 </div>
 <div id="moremenu" popover role="menu" data-i18n-aria-label="nav.manage">
+  <div class="palette-menu-row">
+    <button type="button" role="menuitem" id="palettebtn" class="sec" onclick="openCommandPaletteFromMenu()" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open"><span class="btn-icon">⌘</span> <span class="btn-label" data-i18n="nav.palette.open">Command palette</span></button>
+  </div>
   <div class="action-btn-row">
     <button type="button" role="menuitem" id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon">🔄</span> <span class="btn-label">재적재</span></button>
     <button type="button" role="menuitem" id="regenbtn" class="sec" onclick="openRegen()" title="기존 원문 기반 컴포넌트(요약, 본문, 지식그래프) 재생성" aria-label="재생성"><span class="btn-icon">🔁</span> <span class="btn-label">재생성</span></button>
@@ -506,6 +509,14 @@
 </nav>
 <!-- 노드 hover 시 마우스 위치에 뜨는 작은 요약 팝업(우측 패널 미리보기 대체). -->
 <div id="nodepop"></div>
+<dialog id="cmdpalette" class="cmd-palette" closedby="any" aria-labelledby="cmdpalette-title">
+  <h2 id="cmdpalette-title" class="sr-only" data-i18n="nav.palette.title">Command palette</h2>
+  <div class="cmd-palette-head">
+    <input id="cmdpalette-input" type="search" autofocus autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="cmdpalette-list" data-i18n-placeholder="nav.palette.placeholder" data-i18n-aria-label="nav.palette.input_aria"/>
+  </div>
+  <div id="cmdpalette-list" class="cmd-palette-list" role="listbox"></div>
+  <div class="cmd-palette-foot"><span data-i18n="nav.palette.hint">↑↓ move · Enter run · Esc close</span></div>
+</dialog>
 <script>
   window.__CLAIRE_CONFIG = {
     sourceBaseUrl: '__SOURCE_BASE_URL__',
@@ -524,6 +535,7 @@
 <script src=/static/js/graph/network.js></script>
 <script src=/static/js/renderers/adoc_parser.js></script>
 <script src=/static/js/reader.js></script>
+<script src=/static/js/command_palette.js></script>
 <script src=/static/js/app.js></script>
 </body>
 </html>
