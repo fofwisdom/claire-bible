@@ -190,7 +190,7 @@ Three lists of five entities each. A click selects the entity and opens the cont
 | Bridges | `sources.length` of the graph nodes | Highest first; equal values in the order of `degree` |
 | Added in the last 7 days | `created_at` of the graph nodes (new field, Section 9) | Newest first; the list is not shown when no node is in the period |
 
-Mini map: one static drawing of the node positions on a 2D canvas, without a render loop and without input. A click opens the graph view. The positions come from the layout code of the engine without its renderer (`Simulation`: `setTopology()`, `snapToHomes()`, `warmup()`). **[unverified]** That the simulation runs without a `Network` instance; unit HW-2 confirms it. If it does not, the card has the three lists and the link only, and the mini map is not built.
+Mini map: one static drawing of the node positions on a 2D canvas, without a render loop and without input. A click opens the graph view. The positions come from the layout code of the engine without its renderer (`Simulation`: `setTopology()`, `snapToHomes()`, `warmup()`). **[code]** The simulation runs without a `Network` instance.
 
 ### 5.4 Recent Decisions Card
 

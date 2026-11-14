@@ -54,6 +54,7 @@ def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: 
             "sources": node_sources,  # 문서 기반 필터용(문서 클릭 → 그 문서 엔티티만)
             # 관찰 첫 줄 — hover 시 마우스 위치 커스텀 팝업이 쓴다.
             "obs": (e.observations[0][:200] if e.observations else ""),
+            "created_at": e.created_at,
         })
 
     # 양 끝 노드가 모두 존재하는 관계만(고아 엣지는 vis.js 가 유령 노드를 만들어 깨짐).

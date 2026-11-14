@@ -31,7 +31,7 @@
 | `src/claire/static/js/graph/simulation.js` | 신장 숲 구축, 별 무리 배치, 바깥 궤도, 물리 한 스텝 | `SIM_DEFAULTS`, `buildHierarchy`, `packStars`, `Simulation`(`setTopology`, `setHidden`, `_placeOrbits`, `snapToHomes`, `warmup`, `step`, `release`, `dragTo`) |
 | `src/claire/static/js/graph/renderers.js` | 렌더러와 무관한 프레임 버퍼, WebGPU(WGSL) 렌더러, Canvas2D 렌더러 | `Frame`, `NODE_STRIDE = 12`, `EDGE_STRIDE = 16`, `SHAPE_CIRCLE/RING/SQUARE`, `WebGPURenderer`, `Canvas2DRenderer` |
 | `src/claire/static/js/graph/network.js` | vis-network 호환 `Network`: 렌더 루프, 카메라, 입력, 선택, 라벨 오버레이, 백엔드 폴백 | `DEFAULT_OPTIONS`, `_tick`, `_draw`, `_drawOverlay`, `_fitNow`, `_fitInsets`, `_syncPackAspect`, `_setHover` |
-| `src/claire/static/js/app.js` | 워크스페이스. 데이터 적재, 필터, 검색, 경로, 팝업, 테마 연결 | `applyTopologicalStructure`, `applyView`, `nodeRadius`, `nodeFontSize`, `idleEdgeStyle`, `clusterMatches`, `NODE_POP_DELAY_MS`, `setupWheelZoom` |
+| `src/claire/static/js/app.js` | 워크스페이스. 데이터 적재, 필터, 검색, 경로, 팝업, 테마 연결, 홈 미니맵(`Simulation` 단독 사용) | `applyTopologicalStructure`, `applyView`, `nodeRadius`, `nodeFontSize`, `idleEdgeStyle`, `clusterMatches`, `NODE_POP_DELAY_MS`, `setupWheelZoom`, `computeHomeMiniLayout`, `drawHomeMiniMap` |
 | `src/claire/store/queries.py` | `/graph` 응답 생성 | `graph_json` |
 | `src/claire/graphview.py` | 정적 자산을 묶어 단일 HTML 생성 | `_GRAPH_ENGINE_FILES`, `_build_standalone_graph_html` |
 
@@ -42,13 +42,13 @@
 ## 2. 데이터 흐름: 서버에서 화면까지
 
 1. **[코드] `/graph`** (`store/queries.py` `graph_json`)
-   - 노드 필드: `id`, `label`, `group`(엔티티 타입), `sources`, `obs`(관찰 첫 줄, 최대 200자), `degree`.
+   - 노드 필드: `id`, `label`, `group`(엔티티 타입), `sources`, `obs`(관찰 첫 줄, 최대 200자), `degree`, `created_at`(`entities.created_at`, 에포크 초).
    - 엣지 필드: `id`(`e{순번}`, append-only), `from`, `to`, `label`(관계 타입), `arrows: "to"`, `dashes`(provisional 관계).
    - 그 밖에 `stats.max_degree`가 온다. 양끝 노드가 모두 보이는 관계만 내보낸다.
 2. **[코드] app.js 적재**: 첫 로드(`fetch('graph')` 콜백), `reloadThemeData`, `refreshGraph` 세 경로가 있다.
    - 노드마다 `size: nodeRadius(degree)`(3–9)와 `font.size: nodeFontSize(degree)`(11–18)를 붙인다.
    - `applyTopologicalStructure`로 고립 노드와 2노드 쌍에 `orbit`과 `physics:false`를 붙인다.
-   - `ClaireGraph.DataSet` 두 개와 `ClaireGraph.Network`를 만든다.
+   - `ClaireGraph.DataSet` 두 개와 `ClaireGraph.Network`를 만든다. 홈 화면의 지식 맵 미니맵(`computeHomeMiniLayout()`, `drawHomeMiniMap()`)은 `Network` 인스턴스 없이 `window.ClaireGraph.Simulation`(`setTopology()`, `snapToHomes()`, `warmup()`)만 실행해 정적 2D 캔버스 좌표를 계산한다.
 3. **[코드] `applyView`**: 연결 수 필터(`curMinDeg`), 문서·검색·경로·격리 강조를 계산해 노드와 엣지를 `DataSet.update` 배열 한 번으로 반영한다(`hidden`, 색, 테두리, 투명도).
 4. **[코드] `Network`가 `DataSet` 이벤트를 받는다**(`_bindData`).
    - `add`/`remove`: `_topologyDirty`가 켜지고 `_rebuild` → `Simulation.setTopology`로 이어진다.

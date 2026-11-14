@@ -366,6 +366,12 @@ function isPresentationEnabledForActiveTheme(){
   return Boolean(current && current.presentation_enabled === true);
 }
 
+function isDecisionStreamEnabledForActiveTheme(){
+  if(!availableThemes || !availableThemes.length) return false;
+  const current = findTheme(activeThemeId) || availableThemes[0];
+  return Boolean(current && current.decision_stream_enabled === true);
+}
+
 function syncPresentationFeatureUI(){
   const isPresEnabled = isPresentationEnabledForActiveTheme();
   const presTab = document.getElementById('centertab-presentation');
@@ -421,16 +427,7 @@ async function loadThemeDocuments(){
     renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
     if(d && d.format_status){
       window.currentFormatStatus = d.format_status;
-      const fs = d.format_status;
-      if(fs.needs_migration){
-        if((fs.mismatched || fs.mismatched_docs || 0) > 0){
-          if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.show('format_mismatch', fs);
-        } else if((fs.missing_detail_docs || 0) > 0){
-          if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.show('format_missing', fs);
-        }
-      } else {
-        if(typeof ClaireStatusBanner !== 'undefined') ClaireStatusBanner.hide();
-      }
+      if(typeof renderHome === 'function' && centerView === 'home') renderHome();
     }
     if(allDocs && allDocs.length > 0){
       let docFromUrl = null;
@@ -930,6 +927,7 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
       edges:{color:{color:th.edge,highlight:th.edgeHi},font:{color:th.nodeFont}},
       groups:buildGroups()});
     applyView(); }   // 노드별 테두리(lit/normal)도 새 테마 색으로 다시 칠함
+  if(typeof drawHomeMiniMap === 'function' && centerView === 'home') drawHomeMiniMap();
 }
 
 // 마크다운/AsciiDoc → 안전한 HTML. DOMPurify 로 스크랩 본문 유래 위험 태그 제거.
@@ -2006,11 +2004,13 @@ let nodeLoadSeq = 0;
 function loadNode(id, hidePop=true){
   const focusCamera = arguments.length > 2 ? arguments[2] : true;
   if(hidePop) hideNodePop();
+  selectedNodeId = id;
   setContextUserOpen(true);
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   openEntityRow(id);               // The entity list opens the row of this node before applyView(), thus applyView() does not render the list again. The row uses the response of the request below.
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
   if(focusCamera) focusOnNode(id);
+  if(typeof drawHomeMiniMap === 'function' && centerView === 'home') drawHomeMiniMap();
   // Only the response of the last request is used. A late response for an earlier node must not replace the panel.
   const seq = ++nodeLoadSeq;
   fetch(apiUrl('node?id='+encodeURIComponent(id)+'&docs=brief')).then(r=>r.json()).then(d=>{
@@ -3358,13 +3358,15 @@ function refreshGraph(){
     d.nodes.forEach(n=>{
       const r = nodeRadius(n.degree), fs = nodeFontSize(n.degree);
       if(allNodes && allNodes.get(n.id))
-        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, ...(n.physics===false?{orbit:n.orbit,physics:false}:{orbit:null,physics:true})});
+        changed.push({id:n.id, degree:n.degree, size:r, font:{size:fs}, sources:n.sources, obs:n.obs, created_at:n.created_at, ...(n.physics===false?{orbit:n.orbit,physics:false}:{orbit:null,physics:true})});
       else if(allNodes)
         added.push({...n, size:r, font:{size:fs}});
     });
     if(allNodes && changed.length) allNodes.update(changed);
     if(allNodes && added.length) allNodes.add(added);
     if(allEdges) d.edges.forEach(e=>{ if(!allEdges.get(e.id)) allEdges.add(e); });
+    homeMiniCacheKey = '';
+    homeDecisionsCacheKey = '';
     const fslider = document.getElementById('fslider');
     if(fslider && d.stats) fslider.max = d.stats.max_degree;
     updateDegPresets();
@@ -5406,6 +5408,7 @@ function setAccessScope(scope, reason){
   updateSearchModeUI();
   syncManageButton();
   renderDocs();
+  if(typeof renderHome === 'function' && centerView === 'home') renderHome();
   if(selectedNodeId) loadNode(selectedNodeId);
   else if(activeDoc) loadDocPanel(activeDoc);
   else panel.innerHTML=defaultHint();
@@ -5608,6 +5611,7 @@ const ClaireStatusBanner = (function(){
       presets[key] = def;
     },
     show: function(presetKey, data, options){
+      if(presetKey === 'format_mismatch' || presetKey === 'format_missing') return;
       const banner = document.getElementById('format-warn-banner');
       const text = document.getElementById('format-warn-text');
       const badge = document.getElementById('format-warn-badge');
@@ -5742,14 +5746,234 @@ replaceAppHistory({ pane: activePane || 'graph', modal: getActiveModalName() });
 
 // 읽기전용 디버그 핸들(테스트/Playwright 검증용 — closure 상태 관찰). 부작용 없음.
 
-// --- Home view (design Section 5, unit HW-1): the facts line and the recent ingestion card ---
+// --- Home view (design Section 5, units HW-1 & HW-2): facts, recent ingestion, knowledge map, recent decisions, maintenance ---
 // Rule: a card shows only stored facts. When its source is absent, the card is hidden.
 let homeStats = null, homeStatsSeq = 0;
+let homeMiniCacheKey = '', homeMiniLayout = null;
+let homeDecisionsCacheKey = '', homeDecisionsData = [], homeDecisionsSeq = 0;
 function homeEntityCount(docId){
   if(!allNodes) return null;
   let n = 0;
   allNodes.forEach(node => { if((node.sources || []).includes(docId)) n++; });
   return n;
+}
+function resolutionStageBadge(stage, score){
+  const s = String(stage || '');
+  const scoreStr = (score !== undefined && score !== null && Number.isFinite(Number(score))) ? ' ' + Number(score).toFixed(2) : '';
+  if(s === 'exact_match' || s === 'alias_match' || s === 'acronym_match') return '<span class="prov det">' + esc(tr('stage.rule')) + '</span>';
+  if(s === 'high_confidence_vector') return '<span class="prov model">' + esc(tr('stage.vector') + scoreStr) + '</span>';
+  if(s === 'borderline_llm_judge') return '<span class="prov model">' + esc(tr('stage.llm') + scoreStr) + '</span>';
+  if(s === 'no_match') return '<span class="prov det">' + esc(tr('stage.new_entity')) + '</span>';
+  return s ? '<span>' + esc(s) + '</span>' : '';
+}
+function buildHomeMiniTopo(realNodes){
+  const n = realNodes.length;
+  const ids = realNodes.map(it => it.id);
+  const index = new Map(ids.map((id, i) => [id, i]));
+  const group = new Array(n);
+  const radius = new Float32Array(n);
+  const eligible = new Uint8Array(n), anchor = new Uint8Array(n), hidden = new Uint8Array(n);
+  const fixedX = new Float64Array(n).fill(NaN), fixedY = new Float64Array(n).fill(NaN);
+  const initX = new Float64Array(n).fill(NaN), initY = new Float64Array(n).fill(NaN);
+  const orbitBand = new Int8Array(n).fill(-1), orbitIndex = new Float64Array(n), orbitSide = new Int8Array(n);
+  for(let i = 0; i < n; i++){
+    const it = realNodes[i];
+    const fixed = !!it.fixed && (it.fixed === true || !!it.fixed.x || !!it.fixed.y);
+    group[i] = it.group || '';
+    radius[i] = Math.max(0.5, Number(it.size != null ? it.size : nodeRadius(it.degree || 0)) || 4);
+    anchor[i] = 0;
+    hidden[i] = 0;
+    eligible[i] = (!fixed && it.physics !== false) ? 1 : 0;
+  }
+  const ea = [], eb = [], springs = [];
+  const adj = Array.from({length: n}, () => []);
+  if(allEdges){
+    allEdges.forEach(e => {
+      if(!e || (typeof e.id === 'string' && e.id.indexOf('cl_') === 0)) return;
+      const a = index.get(e.from), b = index.get(e.to);
+      if(a === undefined || b === undefined) return;
+      ea.push(a); eb.push(b);
+      if(a !== b){ adj[a].push(b); adj[b].push(a); }
+    });
+  }
+  const adjStart = new Int32Array(n + 1);
+  for(let i = 0; i < n; i++) adjStart[i + 1] = adjStart[i] + adj[i].length;
+  const adjList = new Int32Array(adjStart[n]);
+  for(let i = 0; i < n; i++) adjList.set(adj[i], adjStart[i]);
+  return {ids, group, radius, eligible, anchor, hidden, fixedX, fixedY, initX, initY, adjStart, adjList, springs, orbitBand, orbitIndex, orbitSide, _ea: ea, _eb: eb};
+}
+function computeHomeMiniLayout(realNodes){
+  const key = String(activeThemeId || '0') + ':' + realNodes.length + ':' + (allEdges ? allEdges.length : 0);
+  if(homeMiniCacheKey === key && homeMiniLayout) return homeMiniLayout;
+  const G = window.ClaireGraph;
+  if(!G || !G.Simulation || !realNodes.length){
+    homeMiniCacheKey = key;
+    homeMiniLayout = null;
+    return null;
+  }
+  const topo = buildHomeMiniTopo(realNodes);
+  const sim = new G.Simulation();
+  sim.setTopology(topo);
+  sim.snapToHomes();
+  sim.warmup();
+  const points = realNodes.map((n, i) => ({
+    id: n.id,
+    group: n.group,
+    degree: n.degree || 0,
+    x: Number.isFinite(sim.x[i]) ? sim.x[i] : 0,
+    y: Number.isFinite(sim.y[i]) ? sim.y[i] : 0
+  }));
+  homeMiniCacheKey = key;
+  homeMiniLayout = {points: points, ea: topo._ea, eb: topo._eb};
+  return homeMiniLayout;
+}
+function drawHomeMiniMap(){
+  const wrap = document.getElementById('home-minimap');
+  const canvas = document.getElementById('home-minimap-canvas');
+  if(!wrap || !canvas || !allNodes) return;
+  const realNodes = [];
+  allNodes.forEach(n => { if(n && !(typeof n.id === 'string' && n.id.indexOf('cl_') === 0)) realNodes.push(n); });
+  if(!realNodes.length) return;
+  const layout = computeHomeMiniLayout(realNodes);
+  if(!layout || !layout.points.length) return;
+  const w = Math.max(120, wrap.clientWidth || 220);
+  const h = Math.max(120, wrap.clientHeight || 170);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if(canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)){
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext('2d');
+  if(!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  layout.points.forEach(p => {
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  });
+  const pad = 16;
+  const spanX = Math.max(1e-3, maxX - minX), spanY = Math.max(1e-3, maxY - minY);
+  const scale = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY);
+  const ox = (w - spanX * scale) / 2 - minX * scale;
+  const oy = (h - spanY * scale) / 2 - minY * scale;
+  const dark = curTheme() === 'dark';
+  ctx.strokeStyle = dark ? 'rgba(139,148,158,0.28)' : 'rgba(101,109,118,0.25)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for(let k = 0; k < layout.ea.length; k++){
+    const pa = layout.points[layout.ea[k]], pb = layout.points[layout.eb[k]];
+    if(!pa || !pb) continue;
+    ctx.moveTo(pa.x * scale + ox, pa.y * scale + oy);
+    ctx.lineTo(pb.x * scale + ox, pb.y * scale + oy);
+  }
+  ctx.stroke();
+  const accent = (typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() : '') || '#0969da';
+  layout.points.forEach(p => {
+    const cx = p.x * scale + ox, cy = p.y * scale + oy;
+    const rad = Math.max(2.2, Math.min(6, 2 + Math.sqrt(p.degree) * 0.55));
+    ctx.beginPath();
+    ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+    ctx.fillStyle = TYPE_COLORS[p.group] || '#8b949e';
+    ctx.fill();
+    if(selectedNodeId && p.id === selectedNodeId){
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad + 2.5, 0, Math.PI * 2);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+  });
+}
+function renderHomeMapRows(el, items, unitKey, valueFn){
+  if(!el) return;
+  el.innerHTML = items.map(n => {
+    const color = TYPE_COLORS[n.group] || '#8b949e';
+    const val = tr(unitKey, {count: valueFn(n)});
+    return '<button type="button" class="home-map-row" role="listitem" data-home-ent="' + esc(n.id) + '"><span class="home-map-dot" style="background:' + esc(color) + '"></span><span class="home-map-name">' + esc(n.label || n.id) + '</span><span class="home-map-val">' + esc(val) + '</span></button>';
+  }).join('');
+}
+function renderHomeMap(){
+  const card = document.getElementById('home-map'); if(!card) return;
+  const realNodes = [];
+  if(allNodes) allNodes.forEach(n => { if(n && !(typeof n.id === 'string' && n.id.indexOf('cl_') === 0)) realNodes.push(n); });
+  if(!realNodes.length){ card.hidden = true; return; }
+  card.hidden = false;
+  const byLabel = (a, b) => String(a.label || a.id || '').localeCompare(String(b.label || b.id || ''));
+  const hubs = [...realNodes].sort((a, b) => ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
+  const bridges = [...realNodes].sort((a, b) => (((b.sources || []).length) - ((a.sources || []).length)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
+  const cutoff = (Date.now() / 1000) - 7 * 86400;
+  const recent = realNodes.filter(n => Number(n.created_at || 0) >= cutoff).sort((a, b) => (Number(b.created_at || 0) - Number(a.created_at || 0)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
+  renderHomeMapRows(document.getElementById('home-map-hubs-rows'), hubs, 'home.map.connections_unit', n => n.degree || 0);
+  renderHomeMapRows(document.getElementById('home-map-bridges-rows'), bridges, 'home.map.docs_unit', n => (n.sources || []).length);
+  const colRecent = document.getElementById('home-map-col-recent');
+  if(colRecent){
+    colRecent.hidden = !recent.length;
+    if(recent.length) renderHomeMapRows(document.getElementById('home-map-recent-rows'), recent, 'home.map.connections_unit', n => n.degree || 0);
+  }
+  drawHomeMiniMap();
+}
+function paintHomeDecisions(){
+  const card = document.getElementById('home-decisions'), list = document.getElementById('home-decisions-list');
+  if(!card || !list) return;
+  if(!isDecisionStreamEnabledForActiveTheme() || !homeDecisionsData.length){
+    card.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  card.hidden = false;
+  list.innerHTML = homeDecisionsData.slice(0, 4).map(dec => {
+    const title = dec.candidate ? (String(dec.entity || '') + ' → ' + String(dec.candidate)) : String(dec.entity || '');
+    const entId = dec.target_entity_id || dec.source_entity_id || '';
+    const sub = [dec.timestamp ? dayOf(dec.timestamp) : '', dec.document_title || ''].filter(Boolean).join(' · ');
+    const attr = entId ? (' data-home-ent="' + esc(entId) + '"') : '';
+    return '<button type="button" class="home-row" role="listitem"' + attr + '><span class="home-row-main"><span class="home-row-title">' + esc(title) + '</span><span class="home-row-sub">' + esc(sub) + '</span></span>' + resolutionStageBadge(dec.stage, dec.score) + '</button>';
+  }).join('');
+}
+function renderHomeDecisions(){
+  const card = document.getElementById('home-decisions'); if(!card) return;
+  if(!isDecisionStreamEnabledForActiveTheme()){ card.hidden = true; return; }
+  const key = String(activeThemeId || '0');
+  if(homeDecisionsCacheKey === key){
+    paintHomeDecisions();
+    return;
+  }
+  homeDecisionsCacheKey = key;
+  const seq = ++homeDecisionsSeq;
+  fetch(apiUrl('resolution/decisions?limit=4'), {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(d => {
+    if(seq !== homeDecisionsSeq) return;
+    homeDecisionsData = (d && Array.isArray(d.decisions)) ? d.decisions.slice(0, 4) : [];
+    if(centerView === 'home') paintHomeDecisions();
+  }).catch(() => {
+    if(seq !== homeDecisionsSeq) return;
+    homeDecisionsData = [];
+    if(centerView === 'home') paintHomeDecisions();
+  });
+}
+function renderHomeMaintenance(){
+  const card = document.getElementById('home-maint'), list = document.getElementById('home-maint-list');
+  if(!card || !list) return;
+  const fs = window.currentFormatStatus;
+  if(AUTH_SCOPE !== 'owner' || !fs){
+    card.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  const cmd = './cb-manuscript app format-migrate --apply';
+  const items = [];
+  const missing = Number(fs.missing_detail_docs || 0);
+  if(missing > 0) items.push({label: tr('home.maint.missing_detail', {count: missing}), cmd: cmd});
+  const mismatched = Number((fs.mismatched != null ? fs.mismatched : fs.mismatched_docs) || 0);
+  if(mismatched > 0) items.push({label: tr('home.maint.mismatched', {count: mismatched}), cmd: cmd});
+  if(!items.length){
+    card.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  card.hidden = false;
+  list.innerHTML = items.map(it =>
+    '<div class="home-maint-row" role="listitem"><span class="home-row-title">' + esc(it.label) + '</span><span class="home-maint-cmdwrap"><code class="home-cmd">' + esc(it.cmd) + '</code><button type="button" class="home-copy-btn" data-home-copy="' + esc(it.cmd) + '">' + esc(tr('home.maint.copy')) + '</button></span></div>'
+  ).join('');
 }
 function renderHome(){
   const wrap = document.getElementById('homewrap'); if(!wrap) return;
@@ -5774,6 +5998,9 @@ function renderHome(){
       return '<button type="button" class="home-row" role="listitem" data-home-doc="' + esc(d.id) + '"><span class="home-row-kind">' + esc(d.source_type || '') + '</span><span class="home-row-main"><span class="home-row-title">' + esc(d.title || tr('home.recent.untitled')) + '</span><span class="home-row-sub">' + esc(sub) + '</span></span></button>';
     }).join('');
   }
+  renderHomeMap();
+  renderHomeDecisions();
+  renderHomeMaintenance();
 }
 function loadHomeStats(){
   const seq = ++homeStatsSeq;
@@ -5784,10 +6011,16 @@ function loadHomeStats(){
   }).catch(() => {});
 }
 (function(){
-  const list = document.getElementById('home-recent-list');
-  if(list) list.addEventListener('click', e => {
-    const row = e.target.closest('[data-home-doc]');
-    if(row) selectDoc(row.dataset.homeDoc);
+  const wrap = document.getElementById('homewrap');
+  if(wrap) wrap.addEventListener('click', e => {
+    const docRow = e.target.closest('[data-home-doc]');
+    if(docRow){ selectDoc(docRow.dataset.homeDoc); return; }
+    const entRow = e.target.closest('[data-home-ent]');
+    if(entRow && entRow.dataset.homeEnt){ loadNode(entRow.dataset.homeEnt, true, false); return; }
+    const copyBtn = e.target.closest('[data-home-copy]');
+    if(copyBtn && copyBtn.dataset.homeCopy && navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(copyBtn.dataset.homeCopy).catch(() => {});
+    }
   });
 })();
 

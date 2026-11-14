@@ -18,7 +18,7 @@
 
 | 대상 | 위치 |
 | :--- | :--- |
-| 홈 화면 (개요) | `renderHome()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/claire/static/js/app.js`), `#homewrap` (`src/claire/templates/index.html`) |
+| 홈 화면 (개요) | `renderHome()`, `renderHomeMap()`, `drawHomeMiniMap()`, `renderHomeDecisions()`, `renderHomeMaintenance()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/claire/static/js/app.js`), `#homewrap` (`src/claire/templates/index.html`) |
 | 목록 전환 및 접기/펼치기 | `listMode()`, `setListOverride()`, `syncListPane()`, `toggleListPane()`, 저장소 키 `claireListOpen` (`src/claire/static/js/app.js`), 호출: `setCenterView()` (`src/claire/static/js/reader.js`), `#listswitch` · `#listtoggle` |
 | 문맥 패널 (온디맨드) | `hasContext()`, `isContextOpen()`, `setContextUserOpen()`, `toggleContextPanel()`, `closeContextPanel()`, `syncWorkspaceLayout()`, 저장소 키 `claireContextOpen` (`src/claire/static/js/app.js`), `#detailpane` · `#ctxbtn` · `#detailclose` |
 | 좁은 화면 하단 바·시트 (≤720px) | `openDocDrawer()`, `closeDocDrawer()`, `openDrawer()`, `closeDrawer()`, `closeAllDrawers()` (`src/claire/static/js/app.js`), `#botnav` (`src/claire/templates/index.html`, `src/claire/static/css/workspace.css`) |

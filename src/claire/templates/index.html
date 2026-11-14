@@ -232,6 +232,43 @@
             <header><h2 id="home-recent-title" data-i18n="home.recent.title">Recent ingestion</h2></header>
             <div id="home-recent-list" role="list"></div>
           </section>
+          <section class="home-card" id="home-decisions" aria-labelledby="home-decisions-title" hidden>
+            <header><h2 id="home-decisions-title" data-i18n="home.decisions.header">Recent decisions</h2></header>
+            <div id="home-decisions-list" role="list"></div>
+          </section>
+          <section class="home-card home-mapcard" id="home-map" aria-labelledby="home-map-title" hidden>
+            <header>
+              <h2 id="home-map-title" data-i18n="home.map.header">Knowledge map</h2>
+              <button type="button" class="home-card-link" id="home-open-graph-btn" data-i18n="home.map.open_graph" onclick="setCenterView('graph')">Open graph ›</button>
+            </header>
+            <div class="home-map-body">
+              <div class="home-mini" id="home-minimap" role="button" tabindex="0" onclick="setCenterView('graph')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setCenterView('graph');}">
+                <canvas id="home-minimap-canvas"></canvas>
+                <div class="home-mini-hint" id="home-minimap-hint" data-i18n="home.map.mini_hint">Click to open the full interactive graph</div>
+              </div>
+              <div class="home-map-cols" id="home-map-lists">
+                <div class="home-map-col" id="home-map-col-hubs" data-map-list="hubs">
+                  <div class="home-map-col-head"><span data-i18n="home.map.hubs">Hubs</span><span class="home-map-col-sub" data-i18n="home.map.hubs_sub">Most connections</span></div>
+                  <div class="home-map-col-rows" id="home-map-hubs-rows" role="list"></div>
+                </div>
+                <div class="home-map-col" id="home-map-col-bridges" data-map-list="bridges">
+                  <div class="home-map-col-head"><span data-i18n="home.map.bridges">Bridges</span><span class="home-map-col-sub" data-i18n="home.map.bridges_sub">Across documents</span></div>
+                  <div class="home-map-col-rows" id="home-map-bridges-rows" role="list"></div>
+                </div>
+                <div class="home-map-col" id="home-map-col-recent" data-map-list="recent">
+                  <div class="home-map-col-head"><span data-i18n="home.map.recent">Added in the last 7 days</span><span class="home-map-col-sub" data-i18n="home.map.recent_sub">Newest entities</span></div>
+                  <div class="home-map-col-rows" id="home-map-recent-rows" role="list"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="home-card home-span2" id="home-maint" aria-labelledby="home-maint-title" hidden>
+            <header>
+              <h2 id="home-maint-title" data-i18n="home.maint.header">Maintenance</h2>
+              <span class="home-maint-badge" data-i18n="home.maint.owner_only">owner only</span>
+            </header>
+            <div id="home-maint-list" role="list"></div>
+          </section>
         </div>
       </div>
     </section>

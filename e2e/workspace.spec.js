@@ -2360,3 +2360,69 @@ test('narrow screen botnav switches views and opens list drawer and context bott
   await expect(ctxNavBtn).toBeFocused();
   expect(pageErrors).toEqual([]);
 });
+
+test('home overview knowledge map lists, entity context selection, mini map, and owner maintenance card', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await waitForClaire(page);
+
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('#home-map')).toBeVisible();
+  await expect(page.locator('#home-decisions')).toBeHidden();
+  await expect(page.locator('#home-maint')).toBeHidden();
+  await expect(page.locator('#format-warn-banner')).toBeHidden();
+
+  const hubRows = page.locator('#home-map-hubs-rows .home-map-row');
+  await expect(hubRows).toHaveCount(5);
+  await expect(hubRows.nth(0)).toContainText('허브 엔티티');
+  await expect(hubRows.nth(0)).toContainText('40');
+  await expect(hubRows.nth(1)).toContainText('목록 엔티티 01');
+  await expect(hubRows.nth(1)).toContainText('8');
+
+  const bridgeRows = page.locator('#home-map-bridges-rows .home-map-row');
+  await expect(bridgeRows).toHaveCount(5);
+  await expect(bridgeRows.nth(0)).toContainText('목록 엔티티 01');
+  await expect(bridgeRows.nth(0)).toContainText('40');
+
+  await expect(page.locator('#home-map-col-recent')).toBeVisible();
+  await expect(page.locator('#home-map-recent-rows .home-map-row')).toHaveCount(5);
+
+  const miniBox = await page.locator('#home-minimap-canvas').boundingBox();
+  expect(miniBox).not.toBeNull();
+  expect(miniBox.width).toBeGreaterThan(50);
+  expect(miniBox.height).toBeGreaterThan(50);
+
+  // Clicking an entity row opens the context panel without leaving the home view.
+  await hubRows.nth(0).click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+  await expect(page.locator('#panel')).toContainText('허브 엔티티');
+
+  // Clicking the mini map opens the interactive graph view.
+  await page.locator('#home-minimap').click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+  await expect(page.locator('#netwrap')).toBeVisible();
+
+  // Authenticate as owner and check the maintenance card while the format banner stays hidden.
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  await expect(page.locator('#home-maint')).toBeVisible();
+  await expect(page.locator('#format-warn-banner')).toBeHidden();
+
+  const fs = await page.evaluate(() => window.currentFormatStatus);
+  expect(fs).not.toBeNull();
+  expect(fs.missing_detail_docs).toBeGreaterThan(0);
+  const mismatched = fs.mismatched != null ? fs.mismatched : fs.mismatched_docs;
+  const expectedMaintCount = (fs.missing_detail_docs > 0 ? 1 : 0) + (mismatched > 0 ? 1 : 0);
+
+  const maintRows = page.locator('#home-maint-list .home-maint-row');
+  await expect(maintRows).toHaveCount(expectedMaintCount);
+  await expect(maintRows.nth(0)).toContainText(String(fs.missing_detail_docs));
+  await expect(maintRows.nth(0)).toContainText('./cb-manuscript app format-migrate --apply');
+  if (mismatched > 0) {
+    await expect(maintRows.nth(1)).toContainText(String(mismatched));
+    await expect(maintRows.nth(1)).toContainText('./cb-manuscript app format-migrate --apply');
+  }
+  expect(pageErrors).toEqual([]);
+});

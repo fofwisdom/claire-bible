@@ -1201,3 +1201,16 @@ def test_node_detail_docs_brief_has_raw_file_is_equal_to_document_detail():
         assert store_queries.document_detail(conn, doc_id)["has_raw_file"] is expected
     assert store_queries.document_detail(conn, "d-inbox")["raw_file_name"] == "a.pdf"
     assert store_queries.document_detail(conn, "d-meta")["raw_file_name"] == "b.pdf"
+
+
+def test_graph_json_includes_node_created_at():
+    """graph_json() gives created_at in epoch seconds for each node."""
+    conn = _db()
+    ent = Entity(id="e1", type="Concept", name="MCP", created_at=1700001234.5)
+    dbm.upsert_entity(conn, ent)
+    data = store_queries.graph_json(conn)
+    assert len(data["nodes"]) == 1
+    node = data["nodes"][0]
+    assert node["id"] == "e1"
+    assert isinstance(node["created_at"], (int, float))
+    assert abs(node["created_at"] - 1700001234.5) < 1e-6

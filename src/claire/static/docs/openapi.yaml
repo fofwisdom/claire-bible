@@ -829,6 +829,9 @@ paths:
                           type: string
                         type:
                           type: string
+                        created_at:
+                          type: number
+                          description: Creation time in epoch seconds (entities.created_at).
                   links:
                     type: array
                     items:
