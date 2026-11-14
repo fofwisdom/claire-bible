@@ -686,6 +686,16 @@
   .home-inner{max-width:1080px;margin:0 auto;padding:18px 22px 40px}
   #home-theme-label{margin:0;font-size:20px;letter-spacing:-.01em}
   .home-facts{margin:2px 0 14px;color:var(--muted);font-size:12.5px;min-height:1.5em}
+  /* Stage strip (unit HW-8): the three stages of /syndication. The home only links to them. One column by default; three columns come from the container query below. */
+  #homewrap{--stage-collect:#8250df;--stage-ingest:#1a7f37;--stage-publish:#bc4c00}
+  [data-theme="dark"] #homewrap{--stage-collect:#d2a8ff;--stage-ingest:#7ee787;--stage-publish:#ffa657}
+  .home-flow{display:grid;grid-template-columns:minmax(0,1fr);margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:13px}
+  .home-flow[hidden]{display:none}
+  .home-flow-stage{display:block;padding:9px 14px;border-left:3px solid var(--stage);color:var(--fg);text-decoration:none;min-width:0}
+  .home-flow-stage:hover{background:var(--hover)}
+  .home-flow-stage b{color:var(--stage)}
+  .home-flow-counts{display:block;font-size:12px;color:var(--muted);min-height:1.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @container home (min-width:720px){.home-flow{grid-template-columns:repeat(3,minmax(0,1fr))}}
   .home-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
   .home-card{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;min-width:0;font-size:13px}
   .home-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border)}

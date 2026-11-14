@@ -160,6 +160,7 @@ def seed(db_path: Path) -> None:
             ("e2e-regen-nonce", "e2e-regen-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"),
         )
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-home-nonce", "e2e-home-token-0123456789abcdef012", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-flow-nonce", "e2e-flow-token-0123456789abcdef012", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-panel-nonce", "e2e-panel-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"))
 
         e1 = Entity(

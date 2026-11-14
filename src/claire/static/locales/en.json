@@ -139,5 +139,16 @@
   "reader.marks.limits_exceeded": "Entity marks are off for this document (limit exceeded)",
   "reader.marks.unsupported": "Entity marks are not supported in this browser",
   "reader.marks.disabled": "Entity marks are turned off",
-  "nav.syndication": "Collection, ingestion, and publication"
+  "nav.syndication": "Collection, ingestion, and publication",
+  "home.flow.label": "Collection, ingestion, and publication",
+  "home.flow.collect": "1 · Collection",
+  "home.flow.ingest": "2 · Ingestion",
+  "home.flow.publish": "3 · Publication",
+  "home.flow.feeds": "{count} feeds",
+  "home.flow.unread": "{count} unread",
+  "home.flow.following": "{count} following",
+  "home.flow.documents": "{count} documents",
+  "home.flow.active_jobs": "{count} in progress",
+  "home.flow.followers": "{count} followers",
+  "home.flow.pending": "{count} waiting"
 }

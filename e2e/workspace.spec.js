@@ -3191,3 +3191,39 @@ test.describe('command palette (HW-7)', () => {
   });
 
 });
+
+test.describe('stage strip (HW-8)', () => {
+  // The first page load registers the service worker, and a request that the service worker sends does not go through page.route(). This test replaces responses after the first load, thus it blocks service workers.
+  test.use({ serviceWorkers: 'block' });
+
+  test('HW-8: the stage strip shows for the owner with counts from routes that exist and links to /syndication', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1400, height: 900 });
+
+    // An anonymous session has no strip.
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('anonymous');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('#home-flow')).toBeHidden();
+
+    // A route that fails gives no count: the stage keeps its link only.
+    await page.route('**/api/federation/status', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
+    await page.route('**/api/federation/following?limit=1', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total: 3, limit: 1, items: [], next_max_id: null }) }));
+    await page.route('**/api/feeds', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ feeds: [{ id: 1, unread: 4 }, { id: 2, unread: 1 }], folders: [], limit: 1000 }) }));
+    // A login token of the seed database is for one login. This test has its own token.
+    await page.goto('/?t=e2e-flow-token-0123456789abcdef012', { waitUntil: 'domcontentloaded' });
+    await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+    const flow = page.locator('#home-flow');
+    await expect(flow).toBeVisible();
+    await expect(flow.locator('a.home-flow-stage')).toHaveCount(3);
+    for (const id of ['#home-flow-collect', '#home-flow-ingest', '#home-flow-publish']) {
+      await expect(page.locator(id)).toHaveAttribute('href', '/syndication');
+    }
+    await expect(page.locator('#home-flow-collect-counts')).toHaveText('피드 2 · 안 읽음 5 · 팔로잉 3');
+    const documents = await page.evaluate(() => fetch('stats').then(r => r.json()).then(d => d.documents));
+    await expect(page.locator('#home-flow-ingest-counts')).toHaveText('문서 ' + documents + ' · 진행 중 0');
+    await expect(page.locator('#home-flow-publish-counts')).toHaveText('');
+    expect(pageErrors).toEqual([]);
+  });
+});

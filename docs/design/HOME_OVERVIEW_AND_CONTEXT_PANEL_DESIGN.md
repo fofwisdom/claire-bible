@@ -1,7 +1,7 @@
 # Home Overview, Context Panel, and Local Graph Design
 
 - **Document Identifier**: `DESIGN-HOME-OVERVIEW-CONTEXT-PANEL-20261114`
-- **Status**: Implemented (units HW-1 to HW-7 completed on 2026-11-15; unit HW-8 waits for FP4-5). The owner accepted the visual prototype and decided HD1 to HD13 on 2026-11-14.
+- **Status**: Implemented (units HW-1 to HW-8 completed on 2026-11-15; HD14). The owner accepted the visual prototype and decided HD1 to HD13 on 2026-11-14.
 - **Date**: 2026-11-14 · Base Commit `59f8788b`
 - **Visual prototype**: [`prototypes/home_workspace_prototype.html`](prototypes/home_workspace_prototype.html) (one static file, mock data, no network call)
 - **Related Documents**:
@@ -61,6 +61,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]** (confirm
 | HD10 | Dependencies | The proposal was free of the dependencies that the project had. The result adds no dependency. |
 | HD11 | Isolated entities and pairs | They stay on the graph canvas, as the engine shows them at the base commit. |
 | HD12 | Relation lines in the full graph | No color for each relation type. The owner followed the recommendation of Section 14. |
+| HD14 | Stage strip before FP4-5 (2026-11-15) | Unit HW-8 does not wait for FP4-5. The strip uses the counts of routes that exist (Section 5.6). |
 | HD13 | Home title | `Claire Bible — 홈` (ko) and `Claire Bible — Home` (en), catalog key `home.title`. |
 
 ---
@@ -213,7 +214,16 @@ A row for failed ingestions needs a count that `GET /stats` does not give by sta
 
 Three links in the order of the `/syndication` pipeline (RD14): collection, ingestion, publication. The home only links to the stages; the federation client stays in `/syndication` (RD10).
 
-The counts of the strip are the counts of the stage bar that unit FP4-5 builds. The strip is unit HW-8 and comes after FP4-5. Until then the header has one link to `/syndication` for the owner (`#syndlink`), without a count.
+The strip is for the owner (HD14). Each stage is a link to `/syndication`. Each count comes from a route that exists; a route that is absent (404 in single mode) or fails gives no count, and the stage shows its link only (`PRINCIPLES.md` C1, C2).
+
+| Stage | Counts | Source |
+| :--- | :--- | :--- |
+| Collection | Feeds, unread feed items | `GET /api/feeds` (number of feeds, sum of `unread`) |
+| Collection | Following | `GET /api/federation/following?limit=1` (`total`) |
+| Ingestion | Documents, jobs in progress | `GET /stats` (`documents`, active items of `active_jobs`) |
+| Publication | Followers, tasks that wait | `GET /api/federation/status` (`followers.total`, `pending_tasks`) |
+
+When unit FP4-5 builds the stage bar of `/syndication`, the strip takes the counts of that bar (timeline items, mentions, published documents), and the three links go to the three stages. The header link to `/syndication` (`#syndlink`) stays.
 
 ---
 
@@ -392,9 +402,9 @@ Each unit ends with passing tests and one commit. Each unit records its result i
 | HW-5 | Entity marks (8) with `nodes[].aliases` (9) | Tests T1 to T4 pass. | HW-3 | M |
 | HW-6 | Graph view: insight lists in the context panel without a selection; entity detail from each view | A click on a list row in the home view opens the entity detail and does not change the view. | HW-2 | S |
 | HW-7 | Command palette (11) | Ctrl+K opens the palette. A document row opens the reader. | HW-1 | S |
-| HW-8 | Stage strip (5.6) | The strip shows the counts of the `/syndication` stage bar. | FP4-5 | S |
+| HW-8 | Stage strip (5.6) | The strip shows for the owner with the counts of the routes that exist. A route that fails gives no count. | HW-1 | S |
 
-Order (HD9): HW-1 to HW-7 come before the units of [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) and [`I18N_DESIGN.md`](I18N_DESIGN.md) that are not done. HW-8 waits for FP4-5.
+Order (HD9, HD14): HW-1 to HW-8 come before the units of [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) and [`I18N_DESIGN.md`](I18N_DESIGN.md) that are not done.
 
 Units that can be done in any order after HW-1: HW-2, HW-3, and HW-7.
 
@@ -438,7 +448,7 @@ The owner accepted the prototype. These items differ in the design, with the rea
 | "Entities +N, relations +M" for each recent document | Entity count of the document | The graph data has no record of the document that added an entity first |
 | Content hash, provider name, and Markdown export in the Source tab | Removed | `GET /document` does not give the first two; the export belongs to `/syndication` (RD25) |
 | Row for failed ingestions in the maintenance card | Not built at this time | No route gives the count (Section 5.5) |
-| Stage strip with counts | Unit HW-8, after FP4-5 | The counts come from the FP4-5 stage bar |
+| Stage strip with new posts, mentions, and published documents | The strip has the counts of the routes that exist (Section 5.6) | The timeline and the count of published documents come with FP4-5 |
 | Relation colors by type and a legend of relation lines in the graph view | The graph view does not change | HD12 |
 | Isolated entities and pairs removed from the map | They stay on the canvas | HD11 |
 | The header search opens the command palette | The header keeps the search field of the view; the palette opens with Ctrl+K | The search of each view must stay |

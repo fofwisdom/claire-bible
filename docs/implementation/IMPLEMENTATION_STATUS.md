@@ -19,6 +19,7 @@
 | 대상 | 위치 |
 | :--- | :--- |
 | 홈 화면 (개요) | `renderHome()`, `renderHomeMap()`, `drawHomeMiniMap()`, `renderHomeDecisions()`, `renderHomeMaintenance()`, `loadHomeStats()`, `resolveHomeView()`, `enterHome()` (`src/claire/static/js/app.js`), `#homewrap` (`src/claire/templates/index.html`) |
+| 홈 단계 띠 (HW-8) | `renderHomeFlow()`, `paintHomeFlow()` (`src/claire/static/js/app.js`), `#home-flow` (`src/claire/templates/index.html`), `.home-flow` (`src/claire/static/css/workspace.css`). owner에게만 보이고 `GET /api/feeds`, `GET /api/federation/following?limit=1`, `GET /api/federation/status`, `GET /stats`의 건수를 쓴다. 실패한 경로의 건수는 보이지 않는다 |
 | 목록 전환 및 접기/펼치기 | `listMode()`, `setListOverride()`, `syncListPane()`, `toggleListPane()`, 저장소 키 `claireListOpen` (`src/claire/static/js/app.js`), 호출: `setCenterView()` (`src/claire/static/js/reader.js`), `#listswitch` · `#listtoggle` |
 | 문맥 패널 (온디맨드) | `hasContext()`, `isContextOpen()`, `setContextUserOpen()`, `toggleContextPanel()`, `closeContextPanel()`, `syncWorkspaceLayout()`, 저장소 키 `claireContextOpen` (`src/claire/static/js/app.js`), `#detailpane` · `#ctxbtn` · `#detailclose` |
 | 좁은 화면 하단 바·시트 (≤720px) | `openDocDrawer()`, `closeDocDrawer()`, `openDrawer()`, `closeDrawer()`, `closeAllDrawers()` (`src/claire/static/js/app.js`), `#botnav` (`src/claire/templates/index.html`, `src/claire/static/css/workspace.css`) |
@@ -56,7 +57,7 @@
 2. 좁은 화면에서 엔티티를 고르면 문맥 시트가 열린다. 목록 드로어가 열려 있을 때는 열지 않는다(엔티티 목록의 행이 상세를 보인다).
 3. 지식 맵의 「브리지」 목록은 문서가 0개인 엔티티를 넣지 않는다.
 4. 엔티티 마크의 클릭·호버 판정은 캐럿 위치와 범위 사각형을 함께 본다. 줄 끝 여백이나 문단 옆 여백은 마크로 판정하지 않는다. 마크 후보는 엔티티 이름과 별칭뿐이고 식별자는 후보가 아니다.
-5. 상단 바의 `/syndication` 링크(`#syndlink`)는 owner에게만 보인다. 단계 띠와 건수는 HW-8이다.
+5. 상단 바의 `/syndication` 링크(`#syndlink`)와 홈의 단계 띠(`#home-flow`)는 owner에게만 보인다. 띠의 세 링크는 모두 `/syndication`으로 간다. 타임라인·멘션·게시 문서 수는 FP4-5가 단계 막대를 만든 뒤에 붙는다.
 6. 좁은 화면(≤720px)에서 뷰 전환은 하단 바(`#botnav`)에 있고, 뷰별 검색창은 상단 바의 둘째 줄에 남는다. 하단 바에는 프레젠테이션과 의사결정 스트림 단추가 없다.
 
 ### 1.5 보류 결정 [결정]
@@ -75,7 +76,7 @@
 
 ## 3. E2E 테스트 기준선 [실측]
 
-2026-11-15 기준 `e2e/workspace.spec.js` 전체 실행(46개)에서 아래 테스트가 이미 실패한다. 이 실패는 다른 작업의 결과가 아니다. 새 실패만 조사한다.
+2026-11-15 기준 `e2e/workspace.spec.js` 전체 실행(47개)에서 아래 테스트가 이미 실패한다. 이 실패는 다른 작업의 결과가 아니다. 새 실패만 조사한다.
 
 | 테스트 | 상태 |
 | :--- | :--- |

@@ -695,7 +695,7 @@ The Markdown units MD-1 to MD-5 (RD22 to RD24) are in [`MARKDOWN_RETIREMENT_DESI
 
 Order (owner, 2026-11-13): the feed units start first (version 21), parallel to FP4-0. FP4-2 follows as version 22.
 
-Order (owner, 2026-11-14, HD9): the home units HW-1 to HW-7 of [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) come before the units of this design that are not done. Unit HW-8 (the stage strip of the home page) comes after FP4-5 and uses the counts of its stage bar.
+Order (owner, 2026-11-14, HD9): the home units HW-1 to HW-7 of [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) come before the units of this design that are not done. Unit HW-8 (the stage strip of the home page) is also done before FP4-5 with the counts of routes that exist (HD14); FP4-5 gives it the counts of its stage bar.
 
 Units that can be done in any order after their "After" units: FP4-1 and FP4-2; FP4-6, FP4-7, and FP4-8.
 

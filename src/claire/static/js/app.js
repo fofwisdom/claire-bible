@@ -6575,6 +6575,51 @@ function renderHome(){
   renderHomeMap();
   renderHomeDecisions();
   renderHomeMaintenance();
+  renderHomeFlow();
+}
+// --- Stage strip (design Section 5.6, unit HW-8): collection, ingestion, publication ---
+// The strip is for the owner. Each count comes from a route that exists; a route that is absent (404 in single mode) or fails gives no count, and the stage shows its link only.
+let homeFlowData = null, homeFlowKey = '', homeFlowSeq = 0;
+function paintHomeFlow(){
+  const nav = document.getElementById('home-flow'); if(!nav) return;
+  if(AUTH_SCOPE !== 'owner'){ nav.hidden = true; return; }
+  nav.hidden = false;
+  const d = homeFlowData || {};
+  const set = (id, parts) => { const el = document.getElementById(id); if(el) el.textContent = parts.filter(Boolean).join(' · '); };
+  set('home-flow-collect-counts', [
+    d.feeds ? tr('home.flow.feeds', {count: d.feeds.count}) : '',
+    d.feeds ? tr('home.flow.unread', {count: d.feeds.unread}) : '',
+    d.following != null ? tr('home.flow.following', {count: d.following}) : ''
+  ]);
+  const jobs = (homeStats && Array.isArray(homeStats.active_jobs)) ? homeStats.active_jobs.filter(j => j && j.active).length : null;
+  set('home-flow-ingest-counts', [
+    (homeStats && homeStats.documents != null) ? tr('home.flow.documents', {count: homeStats.documents}) : '',
+    jobs != null ? tr('home.flow.active_jobs', {count: jobs}) : ''
+  ]);
+  set('home-flow-publish-counts', [
+    d.followers != null ? tr('home.flow.followers', {count: d.followers}) : '',
+    d.pending != null ? tr('home.flow.pending', {count: d.pending}) : ''
+  ]);
+}
+function renderHomeFlow(){
+  const nav = document.getElementById('home-flow'); if(!nav) return;
+  if(AUTH_SCOPE !== 'owner'){ nav.hidden = true; return; }
+  paintHomeFlow();
+  const key = String(activeThemeId || '0');
+  if(homeFlowKey === key) return;
+  homeFlowKey = key;
+  const seq = ++homeFlowSeq;
+  const getJson = url => fetch(url, {cache: 'no-store', credentials: 'same-origin'}).then(r => r.ok ? r.json() : null).catch(() => null);
+  Promise.all([getJson('/api/feeds'), getJson('/api/federation/following?limit=1'), getJson('/api/federation/status')]).then(([feeds, following, status]) => {
+    if(seq !== homeFlowSeq) return;
+    const data = {};
+    if(feeds && Array.isArray(feeds.feeds)) data.feeds = {count: feeds.feeds.length, unread: feeds.feeds.reduce((n, f) => n + (Number(f.unread) || 0), 0)};
+    if(following && typeof following.total === 'number') data.following = following.total;
+    if(status && status.followers && typeof status.followers.total === 'number') data.followers = status.followers.total;
+    if(status && typeof status.pending_tasks === 'number') data.pending = status.pending_tasks;
+    homeFlowData = data;
+    if(centerView === 'home') paintHomeFlow();
+  });
 }
 function loadHomeStats(){
   const seq = ++homeStatsSeq;
