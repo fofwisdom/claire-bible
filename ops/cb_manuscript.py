@@ -3569,34 +3569,45 @@ def command_install(runtime: Runtime) -> int:
     return 0
 
 
+UPDATE_PREVIOUS_REVISION_ENV = "CB_MANUSCRIPT_UPDATE_PREVIOUS_REVISION"
+
+
+def _reexec_update(runtime: Runtime, *, previous_revision: str | None) -> None:
+    """Replace this process with the pulled manuscript code to complete the update.
+
+    The target is the Python module, not the `cb-manuscript` Bash wrapper. The Python interpreter cannot run the wrapper.
+    """
+    argv = [sys.executable, str(Path(__file__).resolve())]
+    if runtime.dev:
+        argv.append("dev")
+    argv.extend(["update", "--no-fetch"])
+    env = dict(os.environ)
+    if previous_revision:
+        env[UPDATE_PREVIOUS_REVISION_ENV] = previous_revision
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execve(sys.executable, argv, env)
+
+
 def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
     with InstanceLock(runtime) as lock:
         config_preflight(runtime)
         previous_state = _profile_state(runtime) or {}
         _require_stable_project(runtime, previous_state)
         previous_revision = _source_revision(runtime.layout)
-        if not no_fetch:
+        if no_fetch:
+            # A re-executed update gives the revision from before the pull.
+            previous_revision = os.environ.pop(UPDATE_PREVIOUS_REVISION_ENV, "").strip() or previous_revision
+        else:
             update_source(runtime.layout)
             new_rev = _source_revision(runtime.layout)
-            if (
-                new_rev
-                and new_rev != previous_revision
-                and not os.environ.get("PYTEST_CURRENT_TEST")
-            ):
+            if new_rev and new_rev != previous_revision:
                 print(
                     f"cb-manuscript: Source updated ({previous_revision[:7] if previous_revision else 'unknown'} -> {new_rev[:7]}). "
                     "Re-executing update with updated manuscript..."
                 )
-                cb_script = str(runtime.layout.root / "cb-manuscript")
-                argv = [sys.executable, cb_script]
-                if runtime.dev:
-                    argv.append("dev")
-                argv.extend(["update", "--no-fetch"])
-                if lock is not None:
-                    lock.__exit__(None, None, None)
-                sys.stdout.flush()
-                sys.stderr.flush()
-                os.execv(sys.executable, argv)
+                lock.__exit__(None, None, None)
+                _reexec_update(runtime, previous_revision=previous_revision)
 
         env_changes = sync_environment_files(runtime.layout)
         if env_changes.get("env"):

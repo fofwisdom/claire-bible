@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1330,6 +1333,69 @@ def test_update_build_failure_does_not_stop_existing_stack(tmp_path):
     assert ["git", "pull", "--ff-only"] in commands
     assert not any(cmd[-1:] == ["stop"] for cmd in commands if cmd[:2] == ["docker", "compose"])
     assert not any(cmd[:2] == ["docker", "stop"] for cmd in commands)
+
+
+def test_update_reexecutes_python_module_after_source_change(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_BUILD_COMMIT", raising=False)
+    pulled = []
+
+    def fake(argv, **_kwargs):
+        if argv[:2] == ["git", "status"]:
+            return _completed(argv, stdout="")
+        if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            return _completed(argv, stdout="origin/main\n")
+        if argv == ["git", "pull", "--ff-only"]:
+            pulled.append(True)
+        if argv == ["git", "rev-parse", "HEAD"]:
+            return _completed(argv, stdout=("b" * 40 if pulled else "a" * 40) + "\n")
+        return _completed(argv)
+
+    class Reexec(Exception):
+        pass
+
+    calls = []
+
+    def fake_execve(path, argv, env):
+        calls.append((path, argv, env))
+        raise Reexec
+
+    monkeypatch.setattr(cb.os, "execve", fake_execve)
+    with patch.object(cb.subprocess, "run", side_effect=fake) as run:
+        with pytest.raises(Reexec):
+            cb.main(["update"], root=tmp_path)
+
+    (path, argv, env), = calls
+    assert path == sys.executable
+    assert argv == [sys.executable, str(Path(cb.__file__).resolve()), "update", "--no-fetch"]
+    assert env[cb.UPDATE_PREVIOUS_REVISION_ENV] == "a" * 40
+    assert not any(command[-1:] == ["build"] for command in _commands(run))
+    # The interpreter must be able to run the re-execution target. The Bash wrapper is not a permitted target.
+    probe = subprocess.run([*argv[:2], "update", "--help"], capture_output=True, text=True, check=False)
+    assert probe.returncode == 0, probe.stderr
+
+
+def test_reexecuted_update_records_revision_from_before_pull(tmp_path, monkeypatch):
+    _write_layout(tmp_path, dev=False)
+    monkeypatch.delenv("CLAIRE_BUILD_COMMIT", raising=False)
+    monkeypatch.setenv(cb.UPDATE_PREVIOUS_REVISION_ENV, "a" * 40)
+
+    def fake(argv, **_kwargs):
+        if argv[:2] == ["docker", "compose"] and argv[-2:] == ["ps", "-q"]:
+            return _completed(argv, stdout="project-container\n")
+        if argv[:3] == ["docker", "ps", "-q"]:
+            return _completed(argv, stdout="")
+        if argv == ["git", "rev-parse", "HEAD"]:
+            return _completed(argv, stdout="b" * 40 + "\n")
+        return _completed(argv)
+
+    with patch.object(cb.subprocess, "run", side_effect=fake):
+        assert cb.main(["update", "--no-fetch"], root=tmp_path) == 0
+
+    state = json.loads(cb.Layout(tmp_path).state_for(dev=False).read_text(encoding="utf-8"))
+    assert state["source_revision"] == "b" * 40
+    assert state["previous_source_revision"] == "a" * 40
+    assert cb.UPDATE_PREVIOUS_REVISION_ENV not in os.environ
 
 
 def test_update_no_fetch_skips_git_and_stops_project_after_build(tmp_path):
