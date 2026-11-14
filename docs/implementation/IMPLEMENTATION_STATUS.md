@@ -1,6 +1,6 @@
 # 구현 상태: 알려진 제약 · 보류 결정 · 테스트 기준선
 
-기준일: 2026-11-13 · 대상 독자: 기능을 바꾸는 에이전트 · 근거 태그: [`PROVIDERS.md`](PROVIDERS.md)와 같다(`[코드]`, `[실측]`, `[결정]`, `[미검증]`)
+기준일: 2026-11-15 · 대상 독자: 기능을 바꾸는 에이전트 · 근거 태그: [`PROVIDERS.md`](PROVIDERS.md)와 같다(`[코드]`, `[실측]`, `[결정]`, `[미검증]`)
 
 이 문서는 **치명적이지 않은** 구현 상태만 적는다. 버그는 아니지만 알고 시작해야 하는 제약, 소유자가 보류한 결정, 이미 실패하는 테스트가 대상이다. 작업 전에 해당 절만 읽으면 따로 분석하지 않고 착수할 수 있게 쓴다.
 
@@ -26,12 +26,13 @@
 | 문서 목록 데이터 | `docMainPager` · `docFilterPager`, `loadDocPage()`, `refreshDocs()`, `ensureDocLoaded()`, `loadDocsById()` |
 | 엔티티 목록 | `renderEntityList()`, 표시 조건 `isNodeListed()` (그래프 `applyView()`와 같은 조건, [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §10) |
 | 노드 상세 패널 | `renderPanel()`, `srcRowHtml()`, `showNodeInList()`, 요청 순서 `nodeLoadSeq` |
+| 문서 문맥 3탭 및 출처·대조 단계 배지 (HW-3) | `renderDocPanel()`, `renderDocLinksTab()`, `renderDocEntitiesTab()`, `renderDocSourceTab()`, `setDocCtxTab()`, `onDocCtxTabKeydown()`, `docSourceBadgeHtml()`, `resolutionStageBadge()` (`src/claire/static/js/app.js`), `docMetaHtml()`, `renderReader()` (`src/claire/static/js/reader.js`), `.ctx-tabs`, `.src-badge`, `.stage-*` (`src/claire/static/css/workspace.css`) |
 | 로컬 그래프 (문맥 패널 연결 탭, HW-4) | `renderLocalGraphHtml()`, `setEntityHoverHighlight()`, `clearEntityHoverHighlight()` (`src/claire/static/js/app.js`), `#ctx-local-graph-slot` (`renderDocLinksTab()`), `.ctx-local-graph` (`src/claire/static/css/workspace.css`), 링 1 최대 24개, 링 2 최대 12개, 초과 시 미표시 개수 안내 |
 | 리더 엔티티 마크 및 서버 별칭 (HW-5) | `document_detail()` (`src/claire/store/queries.py`의 `nodes[].aliases`), `applyEntityMarks()`, `clearEntityMarks()`, `setReaderEntityMarkHover()`, `clearReaderEntityMarkHover()` (`src/claire/static/js/reader.js`), `::highlight(claire-entity)` (`src/claire/static/css/reader.css`), `#rlegend` (`src/claire/templates/index.html`), 본문 400,000자 초과 또는 후보 300개 초과 시 마크 비활성화 |
 | 그래프 인사이트 목록 및 뷰 간 엔티티 상세 (HW-6) | `renderGraphInsights()`, `getGraphInsightLists()`, `deselectEntity()` (`src/claire/static/js/app.js`), `#ctx-insights`, `.ctx-insight-row`, `.backlink` |
 | 명령 팔레트 (HW-7) | `ClaireCommandPalette` (`src/claire/static/js/command_palette.js`), `<dialog id="cmdpalette">` · `#palettebtn` (`src/claire/templates/index.html`), `.cmd-palette` (`src/claire/static/css/workspace.css`), `openCommandPaletteFromMenu()` (`src/claire/static/js/app.js`) |
 | 서버 페이지 | `documents_page()` (`src/claire/store/queries.py`), 커서 `decode_documents_cursor()` (`src/claire/store/db.py`), 계약: [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) `GET /documents` |
-| 테스트 | `tests/test_documents_paging.py`, `tests/test_graphview.py`, `e2e/workspace.spec.js`의 `document list with server pages`, `node detail panel and node request order` |
+| 테스트 | `tests/test_documents_paging.py`, `tests/test_graphview.py`, `e2e/workspace.spec.js`의 `document list with server pages`, `node detail panel and node request order`, `home view (HW-1, HW-2)`, `document context panel (HW-3)`, `command palette (HW-7)` |
 
 ### 1.2 문서 목록의 제약 [코드]
 

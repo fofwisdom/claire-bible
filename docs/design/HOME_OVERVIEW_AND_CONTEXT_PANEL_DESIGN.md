@@ -1,7 +1,7 @@
 # Home Overview, Context Panel, and Local Graph Design
 
 - **Document Identifier**: `DESIGN-HOME-OVERVIEW-CONTEXT-PANEL-20261114`
-- **Status**: Draft. The owner accepted the visual prototype and decided HD1 to HD13 on 2026-11-14.
+- **Status**: Implemented (units HW-1 to HW-7 completed on 2026-11-15; unit HW-8 waits for FP4-5). The owner accepted the visual prototype and decided HD1 to HD13 on 2026-11-14.
 - **Date**: 2026-11-14 · Base Commit `59f8788b`
 - **Visual prototype**: [`prototypes/home_workspace_prototype.html`](prototypes/home_workspace_prototype.html) (one static file, mock data, no network call)
 - **Related Documents**:

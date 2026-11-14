@@ -28,7 +28,7 @@ docs/
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 연합 클라이언트·원격 읽기·피드 설계 초안 (2026-11-13, RD12 보류), 시각 프로토타입은 design/prototypes/
 │   ├── DATA_STORE_LAYOUT_DESIGN.md  # DB 파일 분리(claire.db·client.db·auth.db·fedify.db)와 하위 시스템별 버전, 계정별 지식 DB 방안 (RD27–RD29, 2026-11-13 초안)
 │   ├── MARKDOWN_RETIREMENT_DESIGN.md  # Markdown 폐쇄: 설정 봉인, AsciiDoc 내보내기에서만 Markdown 사용 (RD22–RD24, 2026-11-13 초안)
-│   ├── HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md  # 이용자 홈 개편: 개요 홈·문맥 패널·문서별 그래프·엔티티 밑줄 (HD1–HD13, 2026-11-14 초안), 시각 프로토타입은 design/prototypes/
+│   ├── HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md  # 이용자 홈 개편: 개요 홈·문맥 패널·문서별 그래프·엔티티 마크·명령 팔레트 (HD1–HD13, 2026-11-14 승인, HW-1–HW-7 구현 완료·HW-8은 FP4-5 이후, 시각 프로토타입은 design/prototypes/)
 │   └── ... (기능별 상세 아키텍처 설계 명세)
 ├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
 │   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본
