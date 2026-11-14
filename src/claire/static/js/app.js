@@ -5120,17 +5120,235 @@ function docNodes(docId, dc){
   out.sort((a,b)=> (b.degree||0)-(a.degree||0));   // 중심성 높은 노드부터(핵심이 위로)
   return out;
 }
+const DOC_CTX_TABS = ['links', 'entities', 'source'];
+let activeDocCtxTab = 'links';
+let curDocPanelData = null;
+const sharedDocsAttempted = new Set();
+
+function sourceBadgeHtml(dc){
+  if(!dc) return '';
+  const isTrunc = !!(dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
+  const origChars = Number((dc.orig_chars || (dc.meta && dc.meta.orig_chars) || dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars)) || 0);
+  const rawChars = Number((dc.raw_chars || (dc.meta && dc.meta.raw_chars) || dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars)) || 0);
+  const hasRawText = Boolean(rawChars > 0 || dc.has_raw_file || (dc.raw_text && String(dc.raw_text).length > 0));
+  if(isTrunc){
+    let label = tr('context.doc.source_kept_partial');
+    if(origChars > 0 && rawChars > 0){
+      label += ' (' + rawChars.toLocaleString() + ' / ' + origChars.toLocaleString() + ')';
+    } else if(rawChars > 0){
+      label += ' (' + rawChars.toLocaleString() + ')';
+    }
+    return '<span class="prov det source-badge" data-source-badge="partial">' + esc(label) + '</span>';
+  }
+  if(hasRawText){
+    return '<span class="prov det source-badge" data-source-badge="full">' + esc(tr('context.doc.source_kept')) + '</span>';
+  }
+  return '';
+}
+
+function computeSharedDocs(dc){
+  if(!dc || !dc.id) return [];
+  const ns = docNodes(dc.id, dc);
+  const counts = new Map();
+  const seenEnt = new Set();
+  ns.forEach(n => {
+    if(!n || !n.id || seenEnt.has(n.id)) return;
+    seenEnt.add(n.id);
+    const existing = (allNodes && typeof allNodes.get === 'function') ? allNodes.get(n.id) : null;
+    const srcs = (existing && Array.isArray(existing.sources) && existing.sources.length) ? existing.sources : (Array.isArray(n.sources) ? n.sources : []);
+    const docSet = new Set(srcs);
+    docSet.forEach(otherId => {
+      if(!otherId || otherId === dc.id) return;
+      const d = docById.get(otherId);
+      if(d && d.hidden === 1 && !showHidden) return;
+      counts.set(otherId, (counts.get(otherId) || 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, count, doc: docById.get(id) || null }))
+    .sort((a, b) => (b.count - a.count) || String(a.id).localeCompare(String(b.id)))
+    .slice(0, 5);
+}
+
+function renderDocLinksTab(dc){
+  let h = '<div id="ctx-local-graph-slot"></div>';
+  const shared = computeSharedDocs(dc);
+  h += '<section aria-labelledby="ctx-shared-heading"><div id="ctx-shared-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.shared_docs')) + '</span></div>';
+  if(shared.length){
+    h += '<div class="ctx-shared-list" role="list">';
+    shared.forEach(item => {
+      const title = (item.doc && item.doc.title) ? item.doc.title : item.id;
+      const sType = (item.doc && item.doc.source_type) ? item.doc.source_type : '';
+      h += '<button type="button" class="ctx-shared-row" role="listitem" data-shared-doc="' + esc(item.id) + '" onclick="selectDoc(' + jsArg(item.id) + ')">';
+      h += '<span class="ctx-row-top"><span class="ctx-row-title">' + esc(title) + '</span><span class="prov det">' + esc(tr('context.doc.shared_unit', {count: item.count})) + '</span></span>';
+      if(sType) h += '<span class="ctx-row-obs">' + esc(sType) + '</span>';
+      h += '</button>';
+    });
+    h += '</div>';
+  } else {
+    h += '<p class="al">' + esc(tr('context.doc.no_shared')) + '</p>';
+  }
+  h += '</section>';
+  return h;
+}
+
+function renderDocEntitiesTab(dc, ns){
+  let h = '<section aria-labelledby="ctx-entities-heading"><div id="ctx-entities-heading" class="ctx-sec-head"><span>이 문서의 지식 노드 (' + ns.length + ')</span></div>';
+  if(ns.length){
+    h += '<div class="ctx-entity-list nodebtns" role="list">';
+    ns.forEach(n => {
+      const c = TYPE_COLORS[n.group] || '#8b949e';
+      const firstObs = Array.isArray(n.obs) ? (n.obs[0] || '') : (n.obs || '');
+      h += '<button type="button" class="ctx-entity-row nodebtn" role="listitem" data-entity-id="' + esc(n.id) + '" title="' + esc(n.group || '') + '" onmouseenter="peekNode(event,' + jsArg(n.id) + ')" onmouseleave="leaveNode()" onclick="selectDocEntity(' + jsArg(n.id) + ')">';
+      h += '<span class="ctx-row-top"><span class="ctx-row-title"><i class="home-map-dot" style="background:' + c + '"></i>' + esc(n.label) + ' <small style="color:var(--muted);font-weight:400">' + esc(n.group || '') + '</small></span><span class="prov det">' + esc(tr('context.doc.degree_unit', {count: n.degree || 0})) + '</span></span>';
+      if(firstObs) h += '<span class="ctx-row-obs">' + esc(firstObs) + '</span>';
+      h += '</button>';
+    });
+    h += '</div>';
+  } else {
+    h += '<p class="al">이 문서에서 추출된 노드가 없습니다.</p>';
+  }
+  h += '</section>';
+  return h;
+}
+
+function renderDocSourceTab(dc, ns){
+  const canAccessRaw = (typeof canIngest === 'function' ? canIngest() : false) || Boolean(dc.can_access_raw);
+  const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
+  const presentation = dc.presentation_pdf || (dc.meta && dc.meta.presentation_pdf) || {};
+  const hasPresentation = presentation.status === 'available' && isWebUrl(presentation.public_url);
+  const origChars = Number((dc.orig_chars || (dc.meta && dc.meta.orig_chars) || dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars)) || 0);
+  const rawChars = Number((dc.raw_chars || (dc.meta && dc.meta.raw_chars) || dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars)) || 0);
+  const author = (dc.author || (dc.meta && dc.meta.author) || '').trim();
+  const publishedAt = dc.published_at || (dc.meta && dc.meta.published_at) || '';
+
+  let h = '<section aria-labelledby="ctx-src-heading"><div id="ctx-src-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.source_text')) + '</span>' + sourceBadgeHtml(dc) + '</div>';
+  const links = [];
+  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target="_blank" rel="noopener">↗ 원문 열기</a>');
+  if(canAccessRaw && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target="_blank" rel="noopener">📄 원본 열기</a>');
+  if(isStt) links.push('<a href="#" class="stt-link" onclick="openSttReader();return false;">↗ 전사 열기</a>');
+  if(hasPresentation) links.push('<a href="' + esc(presentation.public_url) + '" target="_blank" rel="noopener">↗ Presentation PDF</a>');
+  if(links.length) h += '<div class="ctx-source-links">' + links.join(' ') + '</div>';
+
+  h += '<dl class="ctx-kv">';
+  h += '<dt>' + esc(tr('context.doc.field_type')) + '</dt><dd>' + esc(dc.source_type || '—') + '</dd>';
+  h += '<dt>' + esc(tr('context.doc.field_fetched')) + '</dt><dd>' + esc(dc.fetched_at ? dayOf(dc.fetched_at) : '—') + '</dd>';
+  if(author) h += '<dt>' + esc(tr('context.doc.field_author')) + '</dt><dd>' + esc(author) + '</dd>';
+  if(publishedAt) h += '<dt>' + esc(tr('context.doc.field_published')) + '</dt><dd>' + esc(typeof publishedAt === 'number' ? dayOf(publishedAt) : String(publishedAt)) + '</dd>';
+  if(origChars > 0 || rawChars > 0){
+    const charVal = (origChars > 0 && rawChars > 0 && origChars !== rawChars) ? (rawChars.toLocaleString() + ' / ' + origChars.toLocaleString()) : (rawChars || origChars).toLocaleString();
+    h += '<dt>' + esc(tr('context.doc.field_chars')) + '</dt><dd>' + esc(charVal) + '</dd>';
+  }
+  h += '</dl>';
+  if(Array.isArray(dc.extra_sources) && dc.extra_sources.length && typeof extraSourcesHtml === 'function'){
+    h += '<div class="ctx-source-extra">' + extraSourcesHtml(dc) + '</div>';
+  }
+  h += '</section>';
+
+  h += '<section aria-labelledby="ctx-model-heading"><div id="ctx-model-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.model_outputs')) + '</span><span class="prov model">' + esc(tr('context.doc.badge_model')) + '</span></div>';
+  h += '<dl class="ctx-kv">';
+  h += '<dt>' + esc(tr('context.doc.summary_status')) + '</dt><dd>' + esc(Boolean(dc.summary) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
+  h += '<dt>' + esc(tr('context.doc.detail_status')) + '</dt><dd>' + esc(Boolean(dc.detail || dc.detail_html) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
+  h += '<dt>' + esc(tr('context.doc.entity_count')) + '</dt><dd>' + esc(String(ns.length)) + '</dd>';
+  h += '</dl></section>';
+
+  const resLog = Array.isArray(dc.resolution_log) ? dc.resolution_log : (dc.meta && Array.isArray(dc.meta.resolution_log) ? dc.meta.resolution_log : []);
+  h += '<section aria-labelledby="ctx-res-heading"><div id="ctx-res-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.resolution')) + '</span></div>';
+  if(resLog.length){
+    const grouped = new Map();
+    resLog.forEach(item => {
+      const st = String((item && item.stage) || '');
+      let key = st, badge = st ? ('<span>' + esc(st) + '</span>') : '<span>—</span>';
+      if(st === 'exact_match' || st === 'alias_match' || st === 'acronym_match'){
+        key = 'rule';
+        badge = '<span class="prov det">' + esc(tr('stage.rule')) + '</span>';
+      } else if(st === 'high_confidence_vector'){
+        key = 'vector';
+        badge = '<span class="prov model">' + esc(tr('stage.vector')) + '</span>';
+      } else if(st === 'borderline_llm_judge'){
+        key = 'llm';
+        badge = '<span class="prov model">' + esc(tr('stage.llm')) + '</span>';
+      } else if(st === 'no_match'){
+        key = 'new_entity';
+        badge = '<span class="prov det">' + esc(tr('stage.new_entity')) + '</span>';
+      }
+      const cur = grouped.get(key) || { badge, count: 0 };
+      cur.count += 1;
+      grouped.set(key, cur);
+    });
+    h += '<dl class="ctx-kv">';
+    grouped.forEach(g => {
+      h += '<dt>' + g.badge + '</dt><dd>' + esc(String(g.count)) + '</dd>';
+    });
+    h += '</dl>';
+  } else {
+    h += '<p class="al">' + esc(tr('context.doc.no_resolution')) + '</p>';
+  }
+  if(resLog.length || dc.has_decision_stream){
+    h += '<button type="button" class="home-card-link ctx-stream-link" onclick="setCenterView(\'stream\')">' + esc(tr('context.doc.open_stream')) + '</button>';
+  }
+  h += '</section>';
+  return h;
+}
+
+function scheduleSharedDocTitles(dc){
+  if(!dc || !dc.id || activeDocCtxTab !== 'links') return;
+  const shared = computeSharedDocs(dc);
+  const missingIds = shared.filter(item => !item.doc && !sharedDocsAttempted.has(item.id)).map(item => item.id);
+  if(!missingIds.length || typeof loadDocsById !== 'function') return;
+  missingIds.forEach(id => sharedDocsAttempted.add(id));
+  loadDocsById(missingIds).then(() => {
+    if(activeDoc === dc.id && curDocPanelData && curDocPanelData.id === dc.id && activeDocCtxTab === 'links'){
+      renderDocPanel(curDocPanelData);
+    }
+  });
+}
+
+function switchDocCtxTab(tab, focusTab = false){
+  if(!DOC_CTX_TABS.includes(tab)) return;
+  activeDocCtxTab = tab;
+  if(curDocPanelData) renderDocPanel(curDocPanelData);
+  if(focusTab){
+    const btn = document.getElementById('ctx-tab-' + tab);
+    if(btn && typeof btn.focus === 'function') btn.focus();
+  }
+}
+
+function selectDocEntity(id){
+  if(centerView === 'graph'){
+    focusNode(id);
+  } else {
+    loadNode(id, true, false);
+  }
+}
+
+panel.addEventListener('keydown', e => {
+  const tabBtn = e.target && e.target.closest ? e.target.closest('.ctx-tab[data-ctx-tab]') : null;
+  if(!tabBtn) return;
+  const curTab = tabBtn.dataset.ctxTab;
+  const idx = DOC_CTX_TABS.indexOf(curTab);
+  if(idx === -1) return;
+  let nextIdx = -1;
+  if(e.key === 'ArrowRight') nextIdx = (idx + 1) % DOC_CTX_TABS.length;
+  else if(e.key === 'ArrowLeft') nextIdx = (idx - 1 + DOC_CTX_TABS.length) % DOC_CTX_TABS.length;
+  else if(e.key === 'Home') nextIdx = 0;
+  else if(e.key === 'End') nextIdx = DOC_CTX_TABS.length - 1;
+  if(nextIdx !== -1){
+    e.preventDefault();
+    switchDocCtxTab(DOC_CTX_TABS[nextIdx], true);
+  }
+});
+
 function renderDocPanel(dc){
   curReaderDocData=dc;
-  let h='<h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  if(typeof docMetaMessageHtml === 'function'){
-    h+=docMetaMessageHtml(dc);
-  }
+  curDocPanelData=dc;
+  const tab=DOC_CTX_TABS.includes(activeDocCtxTab)?activeDocCtxTab:'links';
+  activeDocCtxTab=tab;
+  let h='<div class="ctx-doc-head"><h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
-    h+='<div style="margin:.4em 0 .6em;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(focus)+'</div>';
+    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(focus)+'</div>';
   }
-  // 숨기기 — 상세 패널의 FTS 스타일 체크박스로(사용자 요구).
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
@@ -5138,19 +5356,36 @@ function renderDocPanel(dc){
       '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
   }
+  h+='</div>';
 
-  // 본문의 원문 여는 기능 및 요약 내용은 중앙 리더 본문과 중복 표시이므로 우측 상세 패널에서는 제거함.
-  // 이 문서의 노드 버튼 — 누르면 그래프에서 그 노드로 이동(nav).
+  const tabMeta=[
+    {id:'links',label:tr('context.doc.tab_links')},
+    {id:'entities',label:tr('context.doc.tab_entities')},
+    {id:'source',label:tr('context.doc.tab_source')}
+  ];
+  h+='<div class="ctx-tabs" role="tablist" aria-label="'+esc(tr('context.doc.tabs_aria'))+'">';
+  tabMeta.forEach(item=>{
+    const sel=item.id===tab;
+    h+='<button type="button" id="ctx-tab-'+item.id+'" class="ctx-tab" role="tab" data-ctx-tab="'+item.id+'" aria-selected="'+(sel?'true':'false')+'" tabindex="'+(sel?'0':'-1')+'" aria-controls="ctx-tabpanel-doc" onclick="switchDocCtxTab('+jsArg(item.id)+')">'+esc(item.label)+'</button>';
+  });
+  h+='</div>';
+
   const ns=docNodes(dc.id, dc);
-  h+='<h3>이 문서의 지식 노드 ('+ns.length+')</h3>';
-  if(ns.length){ h+='<div class=nodebtns>'+ ns.map(n=>{
-      const c=TYPE_COLORS[n.group]||'#8b949e';
-      return '<button class=nodebtn title="'+esc(n.group||'')+'" onmouseenter="peekNode(event,'+jsArg(n.id)+')" '+
-        'onmouseleave="leaveNode()" onclick="focusNode('+jsArg(n.id)+')">'+
-        '<i style="background:'+c+'"></i>'+esc(n.label)+'</button>'; }).join('')+'</div>';
-  } else { h+='<p class=al>이 문서에서 추출된 노드가 없습니다.</p>'; }
+  h+='<div id="ctx-tabpanel-doc" class="ctx-tabpanel" role="tabpanel" aria-labelledby="ctx-tab-'+tab+'">';
+  if(tab==='links'){
+    h+=renderDocLinksTab(dc);
+  } else if(tab==='entities'){
+    h+=renderDocEntitiesTab(dc, ns);
+  } else {
+    if(typeof docMetaMessageHtml === 'function'){
+      h+=docMetaMessageHtml(dc);
+    }
+    h+=renderDocSourceTab(dc, ns);
+  }
+  h+='</div>';
   panel.innerHTML=h;
 
+  if(tab==='links') scheduleSharedDocTitles(dc);
   if(dc && Array.isArray(dc.nodes) && dc.nodes.length > 0){
     const missing = allNodes && typeof allNodes.get === 'function' && dc.nodes.some(n => !allNodes.get(n.id));
     if(missing && typeof refreshGraph === 'function'){

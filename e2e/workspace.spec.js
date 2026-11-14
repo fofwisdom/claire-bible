@@ -2426,3 +2426,132 @@ test('home overview knowledge map lists, entity context selection, mini map, and
   }
   expect(pageErrors).toEqual([]);
 });
+
+test.describe('document context panel (HW-3)', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('document context panel renders Links, Entities, and Source tabs with keyboard navigation (HW-3)', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // 1. Open doc-page-1 from the document list (has summary, detail, and shared entity across 40 docs)
+    const docPage1 = page.locator('#doclist .docitem').filter({ hasText: '페이징 자료 01' });
+    await expect(docPage1).toBeVisible();
+    await docPage1.click();
+
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    const tablist = page.locator('#panel [role="tablist"]');
+    await expect(tablist).toBeVisible();
+    const tabs = tablist.locator('[role="tab"]');
+    await expect(tabs).toHaveCount(3);
+
+    const tabLinks = page.locator('#ctx-tab-links');
+    const tabEntities = page.locator('#ctx-tab-entities');
+    const tabSource = page.locator('#ctx-tab-source');
+    const tabPanel = page.locator('#ctx-tabpanel-doc');
+
+    await expect(tabLinks).toHaveAttribute('aria-selected', 'true');
+    await expect(tabLinks).toHaveAttribute('tabindex', '0');
+    await expect(tabEntities).toHaveAttribute('aria-selected', 'false');
+    await expect(tabEntities).toHaveAttribute('tabindex', '-1');
+    await expect(tabPanel).toHaveAttribute('role', 'tabpanel');
+    await expect(tabPanel).toHaveAttribute('aria-labelledby', 'ctx-tab-links');
+
+    // Verify active tab has a visible bottom border highlight
+    const borderWidth = await tabLinks.evaluate(el => getComputedStyle(el).borderBottomWidth);
+    const borderColor = await tabLinks.evaluate(el => getComputedStyle(el).borderBottomColor);
+    expect(borderWidth).toBe('2px');
+    expect(borderColor).not.toBe('rgba(0, 0, 0, 0)');
+
+    // Links tab shows top 5 documents sharing entities with shared count badges
+    const sharedRows = tabPanel.locator('.ctx-shared-row');
+    await expect(sharedRows).toHaveCount(5);
+    await expect(sharedRows.first().locator('.prov.det')).toContainText('공유 1');
+
+    // 2. Keyboard navigation: ArrowRight -> Entities, ArrowRight -> Source, Home -> Links, End -> Source, ArrowLeft -> Entities
+    await tabLinks.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tabEntities).toHaveAttribute('aria-selected', 'true');
+    await expect(tabEntities).toBeFocused();
+    await expect(tabPanel).toHaveAttribute('aria-labelledby', 'ctx-tab-entities');
+    await expect(tabPanel.locator('.ctx-entity-row')).toHaveCount(1);
+    await expect(tabPanel.locator('.ctx-entity-row').first()).toContainText('목록 엔티티 01');
+
+    await page.keyboard.press('ArrowRight');
+    await expect(tabSource).toHaveAttribute('aria-selected', 'true');
+    await expect(tabSource).toBeFocused();
+    await expect(tabPanel).toHaveAttribute('aria-labelledby', 'ctx-tab-source');
+    await expect(tabPanel).toContainText('원문');
+    await expect(tabPanel).toContainText('모델 생성물');
+    await expect(tabPanel.locator('.prov.model')).toBeVisible();
+    await expect(tabPanel).toContainText('요약');
+    await expect(tabPanel).toContainText('있음');
+
+    await page.keyboard.press('Home');
+    await expect(tabLinks).toHaveAttribute('aria-selected', 'true');
+    await expect(tabLinks).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(tabSource).toHaveAttribute('aria-selected', 'true');
+    await expect(tabSource).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(tabEntities).toHaveAttribute('aria-selected', 'true');
+    await expect(tabEntities).toBeFocused();
+
+    // 3. Open doc-1 -> verify Entities tab lists degree + clicking an entity opens entity detail with backlink to document
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await expect(tabEntities).toHaveAttribute('aria-selected', 'true');
+    const entRows = tabPanel.locator('.ctx-entity-row');
+    await expect(entRows).toHaveCount(2);
+    await entRows.first().click();
+
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await expect(page.locator('#panel .backlink')).toContainText('문서로 돌아가기');
+    await page.locator('#panel .backlink').click();
+    await expect(tablist).toBeVisible();
+
+    // 4. Verify Source badge (full and partial), resolution stage classes, and decision stream link on doc-2
+    let doc2Mode = 'full';
+    await page.route(url => url.pathname.endsWith('/document'), async (route) => {
+      const id = new URL(route.request().url()).searchParams.get('id');
+      const response = await route.fetch();
+      const json = await response.json();
+      if (id === 'doc-2') {
+        if (doc2Mode === 'full') {
+          json.orig_chars = 1200;
+          json.raw_chars = 1200;
+          json.raw_truncated = false;
+        } else {
+          json.orig_chars = 12000;
+          json.raw_chars = 4800;
+          json.raw_truncated = true;
+        }
+      }
+      await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(json) });
+    });
+
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).click();
+    await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="full"].prov.det')).toHaveText('원문 보존');
+    await tabSource.click();
+    await expect(tabPanel.locator('.source-badge[data-source-badge="full"].prov.det')).toHaveText('원문 보존');
+    await expect(tabPanel.locator('.prov.det', { hasText: '규칙 일치' })).toBeVisible();
+    // Unknown stage 'semantic_high' must render as plain text without .prov class
+    await expect(tabPanel.locator('dt span:not(.prov)', { hasText: 'semantic_high' })).toBeVisible();
+
+    // Check partial source badge with character counts on reload of doc-2
+    doc2Mode = 'partial';
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).click();
+    await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="partial"].prov.det')).toContainText('원문 일부 보존');
+    await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="partial"].prov.det')).toContainText('4,800 / 12,000');
+    await expect(tabPanel.locator('.source-badge[data-source-badge="partial"].prov.det')).toContainText('원문 일부 보존 (4,800 / 12,000)');
+
+    // Decision stream link in Source tab switches to stream view
+    await tabPanel.locator('.ctx-stream-link').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'stream');
+
+    expect(pageErrors).toEqual([]);
+  });
+});
