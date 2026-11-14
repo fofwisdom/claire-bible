@@ -317,7 +317,25 @@ function setCenterView(mode){
     if(typeof loadHomeStats === 'function') loadHomeStats();
   }
   if(typeof syncWorkspaceLayout === 'function') syncWorkspaceLayout();
+  // Update entity detail panel when an entity is selected and center view changes.
+  if(selectedNodeId && typeof currentNodeData !== 'undefined' && currentNodeData && typeof renderPanel === 'function'){
+    renderPanel(currentNodeData);
+  }
   if(centerView==='reader'){
+    // Show document context when returning to reader view without an entity selection.
+    if(!selectedNodeId){
+      const docId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc;
+      if(docId){
+        if(typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === docId && typeof renderDocPanel === 'function'){
+          renderDocPanel(curReaderDocData);
+        } else if(typeof loadDocPanel === 'function'){
+          loadDocPanel(docId);
+        }
+      } else {
+        const p = document.getElementById('panel');
+        if(p && typeof defaultHint === 'function') p.innerHTML = defaultHint();
+      }
+    }
     if(mobileMQ.matches){
       const docId = curReaderDoc || activeDoc || (allDocs && allDocs.length ? allDocs[0].id : null);
       if(docId && curReaderDoc !== docId && typeof openReader === 'function'){
@@ -340,6 +358,9 @@ function setCenterView(mode){
   }
   if(centerView==='graph'){
     graphCamera = null;
+    if(!selectedNodeId && typeof renderGraphInsights === 'function'){
+      renderGraphInsights();
+    }
     requestAnimationFrame(()=>{
       relayout(true);
       applyTouchMode();

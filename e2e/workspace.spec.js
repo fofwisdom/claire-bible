@@ -2884,4 +2884,246 @@ test.describe('document context panel (HW-3)', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('HW-6: verify graph view insight lists, cross-view entity detail, backlink, and escape key deselect', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // 1. In graph view without selection, context panel displays the three insight lists
+    await page.locator('#centertab-graph').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    const hubRows = page.locator('#ctx-insights-hubs-rows .ctx-insight-row');
+    await expect(hubRows).toHaveCount(5);
+    await expect(hubRows.nth(0)).toContainText('허브 엔티티');
+    await expect(hubRows.nth(0)).toContainText('40');
+    await expect(hubRows.nth(1)).toContainText('목록 엔티티 01');
+    await expect(hubRows.nth(1)).toContainText('8');
+
+    const bridgeRows = page.locator('#ctx-insights-bridges-rows .ctx-insight-row');
+    await expect(bridgeRows).toHaveCount(5);
+    await expect(bridgeRows.nth(0)).toContainText('목록 엔티티 01');
+    await expect(bridgeRows.nth(0)).toContainText('40');
+
+    await expect(page.locator('#ctx-insights-col-recent')).toBeVisible();
+    await expect(page.locator('#ctx-insights-recent-rows .ctx-insight-row')).toHaveCount(5);
+
+    // 2. Click entity in insight list opens entity detail without changing center view
+    await hubRows.nth(0).click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+    await expect(page.locator('#panel .backlink')).toBeHidden();
+
+    // 3. Press Escape in graph view deselects entity and restores insight lists
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+    await expect(page.locator('#ctx-insights-hubs-rows .ctx-insight-row')).toHaveCount(5);
+
+    // 4. In home view, clicking an entity list row opens entity detail in context panel and preserves home view
+    await page.locator('#centertab-home').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+
+    await page.locator('#listswitch .list-switch-btn[data-list="entities"]').click();
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'entities');
+    const entListRows = page.locator('#entlist .entrow');
+    await expect(entListRows.first()).toBeVisible();
+
+    await entListRows.first().click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+
+    // Press Escape deselects entity in home view and closes context panel
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+
+    // 5. In reader view, entity detail displays back link to document context panel
+    await page.locator('#centertab-reader').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+
+    await page.locator('#listswitch .list-switch-btn[data-list="docs"]').click();
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+
+    const tabEntities = page.locator('#ctx-tab-entities');
+    await tabEntities.click();
+    const docEntRows = page.locator('.ctx-entity-row');
+    await expect(docEntRows).toHaveCount(2);
+
+    await docEntRows.first().click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await expect(page.locator('#panel .backlink')).toContainText('문서로 돌아가기');
+
+    // Click back link returns directly to document context and restores focus to active tab
+    await page.locator('#panel .backlink').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#ctx-tab-entities')).toBeVisible();
+    await expect(page.locator('#ctx-tab-entities')).toBeFocused();
+
+    // Select entity again and verify Escape deselects entity and returns to document context
+    await page.locator('#ctx-tab-entities').click();
+    await docEntRows.first().click();
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    await expect(page.locator('#ctx-tab-links')).toBeVisible();
+
+    // 6. Cross-view verification: after opening doc in reader, return to graph view
+    await page.locator('#centertab-graph').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    // Click entity in graph view: backlink must NOT appear
+    await hubRows.nth(0).click();
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+    await expect(page.locator('#panel .backlink')).toBeHidden();
+
+    // Press Escape to deselect: insight lists restored
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    // Press Escape again when nothing is selected (clearSelections): insight lists must remain
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+    await expect(page.locator('#panel .ctx-doc-head')).toBeHidden();
+
+    // 7. Switching from graph view back to reader view restores the document context panel
+    await page.locator('#centertab-reader').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#ctx-tab-links')).toBeVisible();
+
+    // 8. Entity selected in reader view hides back link when moving to graph view, and restores it when returning
+    await page.locator('#ctx-tab-entities').click();
+    await docEntRows.first().click();
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await page.locator('#centertab-graph').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    await expect(page.locator('#panel h2')).toContainText('엔티티 A');
+    await expect(page.locator('#panel .backlink')).toBeHidden();
+    await page.locator('#centertab-reader').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await page.locator('#panel .backlink').click();
+    await expect(page.locator('#ctx-tab-entities')).toBeVisible();
+
+    // 9. Document selection does not overwrite graph insight lists in graph view
+    await page.locator('#centertab-graph').click();
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+    await page.evaluate(() => setActiveDoc('test-doc-1'));
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+    await expect(page.locator('#panel .ctx-doc-head')).toBeHidden();
+    await page.evaluate(() => setActiveDoc(null));
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    // 10. Empty graph fallback displays default hint
+    await page.evaluate(() => {
+      const backup = allNodes;
+      try {
+        allNodes = null;
+        renderGraphInsights();
+      } finally {
+        allNodes = backup;
+      }
+    });
+    await expect(page.locator('#ctx-insights')).toBeHidden();
+    await expect(page.locator('#panel .hint')).toBeVisible();
+    await page.evaluate(() => renderGraphInsights());
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    // 11. Cross-view verification: return to home view, select entity, press Escape closes panel
+    await page.locator('#centertab-home').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+
+    const homeMapRows = page.locator('#home-map-hubs-rows .home-map-row');
+    await expect(homeMapRows.first()).toBeVisible();
+    await homeMapRows.first().click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).not.toHaveClass(/ctx-closed/);
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+    await expect(page.locator('#panel .backlink')).toBeHidden();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).toHaveClass(/ctx-closed/);
+    await expect(page.locator('#panel .ctx-doc-head')).toBeHidden();
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('HW-6: verify mobile sheet behavior for entity details and graph insight lists', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 375, height: 667 });
+    await waitForClaire(page);
+
+    // 1. On mobile launch, navigate to home view via bottom navigation bar
+    await page.locator('#botnav-home').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).not.toHaveClass(/drawer-open/);
+
+    const homeMapHubRow = page.locator('#home-map-hubs-rows .home-map-row').first();
+    await expect(homeMapHubRow).toBeVisible();
+    await homeMapHubRow.click();
+
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).toHaveClass(/drawer-open/);
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+
+    // Press Escape on mobile deselects entity and closes bottom sheet
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+    await expect(page.locator('body')).not.toHaveClass(/drawer-open/);
+
+    // 2. In mobile graph view, tapping Context opens bottom sheet with insight lists
+    await page.locator('#botnav-graph').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+
+    await page.locator('#botnav-context').click();
+    await expect(page.locator('body')).toHaveClass(/drawer-open/);
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    const mobileHubRow = page.locator('#ctx-insights-hubs-rows .ctx-insight-row').first();
+    await mobileHubRow.click();
+    await expect(page.locator('body')).toHaveClass(/drawer-open/);
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+
+    // First Escape deselects entity and restores insight lists in sheet
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveClass(/drawer-open/);
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+
+    // Second Escape closes the bottom sheet
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).not.toHaveClass(/drawer-open/);
+
+    // 3. Resize screen from desktop to mobile when an entity is selected in graph view
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.locator('#centertab-graph').click();
+    await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+    const desktopHubRow = page.locator('#ctx-insights-hubs-rows .ctx-insight-row').first();
+    await desktopHubRow.click();
+    await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
+
+    // Resize to mobile viewport and deselect with Escape
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.keyboard.press('Escape');
+    await page.locator('#botnav-context').click();
+    await expect(page.locator('body')).toHaveClass(/drawer-open/);
+    await expect(page.locator('#ctx-insights')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).not.toHaveClass(/drawer-open/);
+
+    expect(pageErrors).toEqual([]);
+  });
+
 });

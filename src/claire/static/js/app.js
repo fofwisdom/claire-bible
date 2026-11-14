@@ -683,14 +683,17 @@ let graphStabilized = false;
 let contextUserOpen = true, contextPinned = false;
 try{ if(getAccountStorage('claireContextOpen') === 'false') contextUserOpen = false; }catch(_){}
 function hasContext(){
+  if(centerView === 'home') return Boolean(selectedNodeId);
   if(contextPinned || selectedNodeId) return true;
-  if(centerView === 'home') return false;
   return Boolean(activeDoc || curReaderDoc || centerView === 'graph');
 }
 function isContextOpen(){ return hasContext() && contextUserOpen; }
 function setContextUserOpen(open){
   contextUserOpen = Boolean(open);
   try{ setAccountStorage('claireContextOpen', contextUserOpen ? 'true' : 'false'); }catch(_){}
+  if(contextUserOpen && centerView === 'graph' && !selectedNodeId && typeof renderGraphInsights === 'function'){
+    renderGraphInsights();
+  }
   syncWorkspaceLayout();
 }
 function toggleContextPanel(){
@@ -1403,12 +1406,73 @@ document.addEventListener('pointerdown',e=>{
   const gdm=document.getElementById('graphdocmenu');
   if(gdm && !gdm.hidden && nav && !nav.contains(e.target)) closeGraphDocPicker(false, true);
 });
+// Remove entity selection and restore panel state for the active center view.
+function deselectEntity(){
+  if(!selectedNodeId) return;
+  selectedNodeId = null;
+  currentNodeData = null;
+  contextPinned = false;
+  nodeLoadSeq++;
+  if(isolatedNodeId) clearNodeIsolation();
+  if(net) net.unselectAll();
+  if(typeof closeEntityRow === 'function') closeEntityRow();
+  if(centerView === 'graph'){
+    if(typeof renderGraphInsights === 'function') renderGraphInsights();
+    syncWorkspaceLayout();
+  } else if(centerView === 'reader'){
+    const returnDocId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc;
+    if(returnDocId && typeof loadDocPanel === 'function'){
+      loadDocPanel(returnDocId);
+    } else {
+      const p = document.getElementById('panel');
+      if(p && typeof defaultHint === 'function') p.innerHTML = defaultHint();
+    }
+    syncWorkspaceLayout();
+  } else if(centerView === 'home'){
+    const p = document.getElementById('panel');
+    if(p && typeof defaultHint === 'function') p.innerHTML = defaultHint();
+    if(compactMQ.matches || mobileMQ.matches){
+      closeDrawer(true);
+    } else {
+      syncWorkspaceLayout();
+    }
+  } else {
+    const p = document.getElementById('panel');
+    if(p && typeof defaultHint === 'function') p.innerHTML = defaultHint();
+    syncWorkspaceLayout();
+  }
+  applyView();
+  if(typeof drawHomeMiniMap === 'function' && centerView === 'home') drawHomeMiniMap();
+}
+window.deselectEntity = deselectEntity;
+
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
+    const nodeMenu = document.getElementById('node-manage-menu');
+    if(nodeMenu && nodeMenu.style.display !== 'none'){
+      closeNodeManageMenu();
+      return;
+    }
+    const aliasCancelBtn = document.getElementById('alias-cancel-btn');
+    if(aliasCancelBtn && aliasCancelBtn.style.display !== 'none'){
+      cancelAliasSelectMode();
+      return;
+    }
+    const gdm = document.getElementById('graphdocmenu');
+    if(gdm && !gdm.hidden){
+      closeGraphDocPicker(true, true);
+      return;
+    }
     if(docDrawerOpen){
       e.preventDefault();
       e.stopImmediatePropagation();
       closeDocDrawer(true);
+      return;
+    }
+    if(selectedNodeId){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      deselectEntity();
       return;
     }
     if(drawerOpen||detailOpen){
@@ -1636,11 +1700,16 @@ function initGraph(onComplete){
         // vis 가 내부적으로 선택을 비우므로 그 뒤에 검색 선택을 다시 적용한다.
         hideNodePop();
         selectedNodeId=null;
+        currentNodeData=null;
+        contextPinned=false;
+        nodeLoadSeq++;
         if(isolatedNodeId){
           isolatedNodeId = null;
-          if(currentNodeData) renderPanel(currentNodeData);
         }
+        if(typeof closeEntityRow === 'function') closeEntityRow();
         applyView();
+        if(centerView === 'graph' && typeof renderGraphInsights === 'function') renderGraphInsights();
+        syncWorkspaceLayout();
         if(highlightSet && highlightSet.size) setTimeout(restoreSelection, 0);
         return;
       }
@@ -1745,10 +1814,12 @@ function initGraph(onComplete){
     });
   }
   applyView();
-  if(activeDoc && !selectedNodeId){
+  if(centerView === 'graph' && !selectedNodeId && typeof renderGraphInsights === 'function'){
+    renderGraphInsights();
+  } else if(centerView === 'reader' && activeDoc && !selectedNodeId){
     if(curReaderDocData && curReaderDocData.id===activeDoc) renderDocPanel(curReaderDocData);
     else loadDocPanel(activeDoc);
-  } else if(curDocPanelData && activeDocCtxTab === 'links'){
+  } else if(centerView === 'reader' && curDocPanelData && activeDocCtxTab === 'links'){
     renderDocPanel(curDocPanelData);
   }
   if(onComplete) onComplete();
@@ -1845,16 +1916,22 @@ function restoreSelection(){
 }
 // 검색·inspect 모두 해제(ESC / 검색창 비우기). synthSet(종합 수집)은 보존.
 function clearSelections(){
-  highlightSet=null; selectedNodeId=null;
+  highlightSet=null; selectedNodeId=null; currentNodeData=null;
   contextPinned = false;
+  nodeLoadSeq++;
   if(isolatedNodeId){
     isolatedNodeId = null;
   }
   const q=document.getElementById('q'); if(q) q.value='';
   if(net) net.unselectAll();
   unclusterEdges();   // 검색으로 뭉치게 한 임시 spring 엣지 제거 → 물리가 원래대로
-  if(activeDoc) loadDocPanel(activeDoc);
-  else if(panel) panel.innerHTML = defaultHint();
+  if(centerView === 'graph'){
+    if(typeof renderGraphInsights === 'function') renderGraphInsights();
+  } else if(centerView === 'reader' && (activeDoc || (typeof curReaderDoc !== 'undefined' && curReaderDoc))){
+    loadDocPanel(activeDoc || curReaderDoc);
+  } else if(panel){
+    panel.innerHTML = defaultHint();
+  }
   applyView();
   syncWorkspaceLayout();
 }
@@ -2008,6 +2085,9 @@ function loadNode(id, hidePop=true){
   if(hidePop) hideNodePop();
   selectedNodeId = id;
   setContextUserOpen(true);
+  if((compactMQ.matches || mobileMQ.matches) && !drawerOpen && !detailOpen){
+    openDrawer(true);
+  }
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
   openEntityRow(id);               // The entity list opens the row of this node before applyView(), thus applyView() does not render the list again. The row uses the response of the request below.
   applyView();                     // 선택 노드 주변 엣지만 강조하고 관계 라벨을 펼친다
@@ -2060,6 +2140,11 @@ function filterSourceList(v){
 }
 panel.addEventListener('input', e => { if(e.target && e.target.id === 'srcfilter') filterSourceList(e.target.value); });
 panel.addEventListener('click', e => {
+  const insight = e.target.closest('[data-insight-ent]');
+  if(insight && insight.dataset.insightEnt){
+    loadNode(insight.dataset.insightEnt);
+    return;
+  }
   const read = e.target.closest('.srcread');
   if(read){ openReader(read.dataset.readDoc); setCenterView('reader'); return; }
   const t = e.target.closest('.srctitle'); if(!t) return;
@@ -2097,8 +2182,10 @@ function renderPanel(d){
   if(!d || d.error){ currentNodeData = null; panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
   currentNodeData = d;
   const inSet = synthSet.has(d.id);
-  // 문서를 고른 상태에서 노드로 들어왔으면 문서 패널로 한 번에 돌아갈 링크.
-  let h = activeDoc ? '<span class=backlink onclick="loadDocPanel(activeDoc)">← 문서로 돌아가기</span>' : '';
+  // Provide a back link to document context when a document is open in reader view.
+  const returnDocId = (centerView === 'reader') ? ((typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc) : null;
+  const showBackLink = Boolean(returnDocId);
+  let h = showBackLink ? ('<button type="button" class="backlink" onclick="loadDocPanel(' + jsArg(returnDocId) + ', true)" aria-label="문서로 돌아가기">← 문서로 돌아가기</button>') : '';
   // The node header (name, type, action buttons) stays in view while the panel scrolls.
   h+='<div class="nodehead">';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
@@ -3373,7 +3460,11 @@ function refreshGraph(){
     if(fslider && d.stats) fslider.max = d.stats.max_degree;
     updateDegPresets();
     applyView();
-    if(activeDoc && curReaderDocData && curReaderDocData.id === activeDoc){
+    if(centerView === 'graph' && !selectedNodeId && typeof renderGraphInsights === 'function'){
+      renderGraphInsights();
+    } else if(centerView === 'home' && typeof renderHomeMap === 'function'){
+      renderHomeMap();
+    } else if(centerView === 'reader' && activeDoc && curReaderDocData && curReaderDocData.id === activeDoc){
       renderDocPanel(curReaderDocData);
     }
   });
@@ -4661,11 +4752,20 @@ function onEntListKeydown(e){
     const rows = [...el.querySelectorAll('.entrow')], next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)];
     e.preventDefault();
     if(next) next.focus();
-  } else if(e.key === 'Escape' && entOpenId != null){
-    const id = entOpenId;
-    e.preventDefault(); e.stopPropagation();
-    closeEntityRow();
-    const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true});
+  } else if(e.key === 'Escape'){
+    if(selectedNodeId != null){
+      const id = selectedNodeId;
+      e.preventDefault(); e.stopPropagation();
+      deselectEntity();
+      const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true});
+      return;
+    }
+    if(entOpenId != null){
+      const id = entOpenId;
+      e.preventDefault(); e.stopPropagation();
+      closeEntityRow();
+      const r = entRowEl(id); if(r) r.querySelector('.entrow').focus({preventScroll: true});
+    }
   }
 }
 
@@ -4883,6 +4983,7 @@ function resetWorkspaceState(){
 
   activeDoc = null;
   selectedNodeId = null;
+  currentNodeData = null;
   curReaderDoc = null;
   curReaderDocData = null;
 
@@ -5066,19 +5167,35 @@ function setActiveDoc(id){
       if(ids.length) net.selectNodes(ids);
       if(!ids.length) resetGraphCamera(); else cameraToNodes(ids);
     }});
-    loadDocPanel(activeDoc);    // wide rail/후속 문맥 작업을 위해 내용만 준비
+    if(centerView === 'reader') loadDocPanel(activeDoc);
+    else if(centerView === 'graph' && !selectedNodeId && typeof renderGraphInsights === 'function') renderGraphInsights();
   } else {
     if(net) net.unselectAll();
     resetGraphCamera();
-    panel.innerHTML = defaultHint();             // 해제 시 기본 힌트로 복원
+    if(centerView === 'graph' && !selectedNodeId && typeof renderGraphInsights === 'function') renderGraphInsights();
+    else if(panel) panel.innerHTML = defaultHint();
   }
 }
 
 // 좌측 문서 선택 시 우측 패널: 문서 요약 + 상세 + '이 문서의 노드' 버튼.
-function loadDocPanel(id){
+function loadDocPanel(id, focusTab = false){
+  selectedNodeId = null;
+  currentNodeData = null;
+  if(isolatedNodeId) clearNodeIsolation();
+  if(net) net.unselectAll();
+  if(typeof closeEntityRow === 'function') closeEntityRow();
+  applyView();
+  function restoreTabFocus(){
+    if(!focusTab) return;
+    requestAnimationFrame(() => {
+      const tabBtn = document.getElementById('ctx-tab-' + activeDocCtxTab);
+      if(tabBtn && typeof tabBtn.focus === 'function') tabBtn.focus();
+    });
+  }
   if(curReaderDocData && curReaderDocData.id===id){
     renderDocPanel(curReaderDocData);
     markDocumentSeen(id);
+    restoreTabFocus();
     if(typeof centerView !== 'undefined' && centerView === 'presentation'){
       if(typeof updatePresentationView === 'function') updatePresentationView(id);
     }
@@ -5086,7 +5203,7 @@ function loadDocPanel(id){
   }
   panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
   fetch(apiUrl('document?id='+encodeURIComponent(id))).then(r=>r.json()).then(dc=>{
-    if(activeDoc!==id) return;                  // 그 사이 다른 문서/노드로 이동했으면 무시
+    if(activeDoc!==id && (typeof curReaderDoc === 'undefined' || curReaderDoc !== id)) return;
     if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
     curReaderDocData=dc;
     const docInAll = allDocs && allDocs.find(d => d.id === id);
@@ -5095,6 +5212,7 @@ function loadDocPanel(id){
     }
     renderDocPanel(dc);
     markDocumentSeen(id);
+    restoreTabFocus();
     if(typeof centerView !== 'undefined' && centerView === 'presentation'){
       if(typeof updatePresentationView === 'function') updatePresentationView(id);
     }
@@ -5809,8 +5927,9 @@ function setAccessScope(scope, reason){
   renderDocs();
   if(typeof renderHome === 'function' && centerView === 'home') renderHome();
   if(selectedNodeId) loadNode(selectedNodeId);
-  else if(activeDoc) loadDocPanel(activeDoc);
-  else panel.innerHTML=defaultHint();
+  else if(centerView === 'graph' && typeof renderGraphInsights === 'function') renderGraphInsights();
+  else if(centerView === 'reader' && (activeDoc || (typeof curReaderDoc !== 'undefined' && curReaderDoc))) loadDocPanel(activeDoc || curReaderDoc);
+  else if(panel) panel.innerHTML=defaultHint();
 }
 function expireWriteAccess(){
   IS_ADMIN = false;
@@ -6284,25 +6403,37 @@ function drawHomeMiniMap(){
     }
   });
 }
-function renderHomeMapRows(el, items, unitKey, valueFn){
-  if(!el) return;
-  el.innerHTML = items.map(n => {
-    const color = TYPE_COLORS[n.group] || '#8b949e';
-    const val = tr(unitKey, {count: valueFn(n)});
-    return '<button type="button" class="home-map-row" role="listitem" data-home-ent="' + esc(n.id) + '" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()"><span class="home-map-dot" style="background:' + esc(color) + '"></span><span class="home-map-name">' + esc(n.label || n.id) + '</span><span class="home-map-val">' + esc(val) + '</span></button>';
-  }).join('');
-}
-function renderHomeMap(){
-  const card = document.getElementById('home-map'); if(!card) return;
+// Extract the three insight lists from graph nodes.
+function getGraphInsightLists(){
   const realNodes = [];
   if(allNodes) allNodes.forEach(n => { if(n && !(typeof n.id === 'string' && n.id.indexOf('cl_') === 0)) realNodes.push(n); });
-  if(!realNodes.length){ card.hidden = true; return; }
-  card.hidden = false;
+  if(!realNodes.length) return null;
   const byLabel = (a, b) => String(a.label || a.id || '').localeCompare(String(b.label || b.id || ''));
   const hubs = [...realNodes].sort((a, b) => ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
   const bridges = [...realNodes].sort((a, b) => (((b.sources || []).length) - ((a.sources || []).length)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
   const cutoff = (Date.now() / 1000) - 7 * 86400;
   const recent = realNodes.filter(n => Number(n.created_at || 0) >= cutoff).sort((a, b) => (Number(b.created_at || 0) - Number(a.created_at || 0)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
+  return { hubs, bridges, recent };
+}
+
+function renderMapRowsHtml(items, unitKey, valueFn, extraClass = ''){
+  return items.map(n => {
+    const color = TYPE_COLORS[n.group] || '#8b949e';
+    const val = tr(unitKey, {count: valueFn(n)});
+    const cls = 'home-map-row' + (extraClass ? (' ' + extraClass) : '');
+    return '<button type="button" class="' + cls + '" role="listitem" data-home-ent="' + esc(n.id) + '" data-insight-ent="' + esc(n.id) + '" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()" onfocus="setEntityHoverHighlight(' + jsArg(n.id) + ')" onblur="clearEntityHoverHighlight()"><span class="home-map-dot" style="background:' + esc(color) + '"></span><span class="home-map-name">' + esc(n.label || n.id) + '</span><span class="home-map-val">' + esc(val) + '</span></button>';
+  }).join('');
+}
+function renderHomeMapRows(el, items, unitKey, valueFn){
+  if(!el) return;
+  el.innerHTML = renderMapRowsHtml(items, unitKey, valueFn);
+}
+function renderHomeMap(){
+  const card = document.getElementById('home-map'); if(!card) return;
+  const insights = getGraphInsightLists();
+  if(!insights){ card.hidden = true; return; }
+  card.hidden = false;
+  const { hubs, bridges, recent } = insights;
   renderHomeMapRows(document.getElementById('home-map-hubs-rows'), hubs, 'home.map.connections_unit', n => n.degree || 0);
   renderHomeMapRows(document.getElementById('home-map-bridges-rows'), bridges, 'home.map.docs_unit', n => (n.sources || []).length);
   const colRecent = document.getElementById('home-map-col-recent');
@@ -6312,6 +6443,43 @@ function renderHomeMap(){
   }
   drawHomeMiniMap();
 }
+
+// Render the graph view insight lists in the context panel.
+function renderGraphInsights(){
+  const p = document.getElementById('panel');
+  if(!p) return;
+  if(centerView !== 'graph' || selectedNodeId) return;
+  const insights = getGraphInsightLists();
+  if(!insights){
+    p.innerHTML = defaultHint();
+    return;
+  }
+  const { hubs, bridges, recent } = insights;
+  let h = '<div class="ctx-insights" id="ctx-insights">';
+  h += '<div class="ctx-insights-head"><h2 class="ctx-sec-head" data-i18n="home.map.header">' + esc(tr('home.map.header')) + '</h2></div>';
+  h += '<div class="ctx-insights-cols">';
+  h += '<div class="ctx-insights-col" id="ctx-insights-col-hubs" data-map-list="hubs">';
+  h += '<div class="home-map-col-head"><span>' + esc(tr('home.map.hubs')) + '</span><span class="home-map-col-sub">' + esc(tr('home.map.hubs_sub')) + '</span></div>';
+  h += '<div class="home-map-col-rows ctx-insights-rows" id="ctx-insights-hubs-rows" role="list">';
+  h += renderMapRowsHtml(hubs, 'home.map.connections_unit', n => n.degree || 0, 'ctx-insight-row');
+  h += '</div></div>';
+  h += '<div class="ctx-insights-col" id="ctx-insights-col-bridges" data-map-list="bridges">';
+  h += '<div class="home-map-col-head"><span>' + esc(tr('home.map.bridges')) + '</span><span class="home-map-col-sub">' + esc(tr('home.map.bridges_sub')) + '</span></div>';
+  h += '<div class="home-map-col-rows ctx-insights-rows" id="ctx-insights-bridges-rows" role="list">';
+  h += renderMapRowsHtml(bridges, 'home.map.docs_unit', n => (n.sources || []).length, 'ctx-insight-row');
+  h += '</div></div>';
+  if(recent.length){
+    h += '<div class="ctx-insights-col" id="ctx-insights-col-recent" data-map-list="recent">';
+    h += '<div class="home-map-col-head"><span>' + esc(tr('home.map.recent')) + '</span><span class="home-map-col-sub">' + esc(tr('home.map.recent_sub')) + '</span></div>';
+    h += '<div class="home-map-col-rows ctx-insights-rows" id="ctx-insights-recent-rows" role="list">';
+    h += renderMapRowsHtml(recent, 'home.map.connections_unit', n => n.degree || 0, 'ctx-insight-row');
+    h += '</div></div>';
+  }
+  h += '</div></div>';
+  p.innerHTML = h;
+}
+window.renderGraphInsights = renderGraphInsights;
+window.getGraphInsightLists = getGraphInsightLists;
 function paintHomeDecisions(){
   const card = document.getElementById('home-decisions'), list = document.getElementById('home-decisions-list');
   if(!card || !list) return;

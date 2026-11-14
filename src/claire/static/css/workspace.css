@@ -338,7 +338,9 @@
     text-overflow:ellipsis;white-space:nowrap}
   #panel .nodebtn:hover{background:var(--nodebtn-hover);border-color:var(--accent2)}
   #panel .nodebtn i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
-  #panel .backlink{display:inline-block;margin:0 0 .6em;color:var(--accent);font-size:12px;cursor:pointer}
+  #panel .backlink{display:inline-block;margin:0 0 .6em;color:var(--accent);font-size:12px;cursor:pointer;background:none;border:none;padding:0;font-family:inherit;text-align:left}
+  #panel .backlink:hover,#panel .backlink:focus-visible{text-decoration:underline}
+  #panel .backlink:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
   #panel .rel{color:var(--rel);font-size:11px} #panel .al{color:var(--muted)}
   #panel .hint{color:var(--muted);margin-top:1em}
   #panel .synth{white-space:pre-wrap;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;padding:10px;margin:.4em 0;line-height:1.6}
@@ -761,6 +763,12 @@
   .ctx-local-graph .ctx-lg-node.hover-active text{fill:var(--accent);font-weight:700}
   .ctx-local-graph .ctx-lg-edge.hover-active,.ctx-local-graph .ctx-lg-doc-edge.hover-active{stroke:var(--accent);stroke-width:2px;opacity:1}
   .ctx-local-graph-unshown{font-size:11px;color:var(--muted);text-align:center;margin:2px 0 10px 0}
+  /* Context panel graph insight lists (HW-6) */
+  .ctx-insights{display:flex;flex-direction:column;gap:14px}
+  .ctx-insights-head h2{margin:0 0 4px;font-size:12.5px;font-weight:700;color:var(--accent2)}
+  .ctx-insights-cols{display:flex;flex-direction:column;gap:14px}
+  .ctx-insights-col{min-width:0}
+  .ctx-insights-rows{display:flex;flex-direction:column}
   /* Cross-view hover synchronization */
   .ctx-entity-row.entity-hover-active,.home-map-row.entity-hover-active,.entitem.entity-hover-active{background:var(--hover) !important;border-color:var(--accent) !important}
   .rsection-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:1.2em 0 .2em}
