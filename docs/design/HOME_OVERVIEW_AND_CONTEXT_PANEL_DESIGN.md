@@ -448,7 +448,7 @@ The owner accepted the prototype. These items differ in the design, with the rea
 | "Entities +N, relations +M" for each recent document | Entity count of the document | The graph data has no record of the document that added an entity first |
 | Content hash, provider name, and Markdown export in the Source tab | Removed | `GET /document` does not give the first two; the export belongs to `/syndication` (RD25) |
 | Row for failed ingestions in the maintenance card | Not built at this time | No route gives the count (Section 5.5) |
-| Stage strip with new posts, mentions, and published documents | The strip has the counts of the routes that exist (Section 5.6) | The timeline and the count of published documents come with FP4-5 |
+| Stage strip with new posts, mentions, and published documents | Done with FP4-5 (2026-11-15): the strip has the counts of `GET /api/federation/timeline?limit=1`, and its links go to the three stages | — |
 | Relation colors by type and a legend of relation lines in the graph view | The graph view does not change | HD12 |
 | Isolated entities and pairs removed from the map | They stay on the canvas | HD11 |
 | The header search opens the command palette | The header keeps the search field of the view; the palette opens with Ctrl+K | The search of each view must stay |

@@ -707,6 +707,35 @@
       });
     }
 
+    // Reading settings of the instance (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). The server renders the form with the values and the texts; only the changed values go to the server.
+    var readingForm = document.getElementById("admin-federation-reading-form");
+    var readingResult = document.getElementById("admin-federation-reading-result");
+    if (readingForm) {
+      readingForm.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var update = {};
+        var fields = readingForm.querySelectorAll("[data-reading-initial]");
+        Array.prototype.forEach.call(fields, function (field) {
+          if (String(field.value) === field.getAttribute("data-reading-initial")) return;
+          var scale = Number(field.getAttribute("data-reading-scale") || "0");
+          update[field.name] = scale ? Math.round(Number(field.value) * scale) : field.value;
+        });
+        if (!Object.keys(update).length) {
+          setResult(readingResult, readingForm.getAttribute("data-msg-nochange"), false);
+          return;
+        }
+        sendChange("PUT", "/api/admin/federation/reading", update, readingResult, function (res) {
+          if (!res.ok) {
+            var detail = res.body && typeof res.body.detail === "string" ? " " + res.body.detail : "";
+            setResult(readingResult, readingForm.getAttribute("data-msg-failed") + detail, true);
+            return;
+          }
+          Array.prototype.forEach.call(fields, function (field) { field.setAttribute("data-reading-initial", String(field.value)); });
+          setResult(readingResult, readingForm.getAttribute("data-msg-saved"), false);
+        });
+      });
+    }
+
     function loadState() {
       if (refreshBtn) refreshBtn.disabled = true;
       return send("GET", "/api/admin/federation").then(function (res) {

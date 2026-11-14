@@ -1466,6 +1466,76 @@ def create_app(
         rep_dict["theme_label"] = theme.label
         return JSONResponse(rep_dict)
 
+    async def federation_timeline_ingest_route(request: Request) -> JSONResponse:
+        """``POST /api/federation/timeline/{item_id}/ingest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 4.4, unit FP4-5).
+
+        Start the existing URL ingest for one item of the timeline of the caller, into a theme of the caller. The item stays in the timeline and gets the link to the new document (P2). Collection is not ingestion: only this action of the owner brings a received post into a theme.
+        """
+        from ..store import client_db
+        from ..store import federation_client as federation_client_store
+
+        principal = request_principal(request)
+        if principal.scope != "owner" or principal.account_id is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        account_id = principal.account_id
+        raw_id = request.path_params["item_id"]
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            return JSONResponse({"error": "item_not_found"}, status_code=404)
+        body = await _json_object(request)
+        # ``theme`` is a theme reference, as for ``POST /ingest``. ``theme_id`` is the name of the design; the two are the same value.
+        if body.get("theme") is None and body.get("theme_id") is not None:
+            body["theme"] = body["theme_id"]
+        if body.get("theme") is None or not str(body["theme"]).strip():
+            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
+        # The owner must be able to write to the theme: the theme is of the account of the caller.
+        if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
+            raise HTTPException(status_code=404, detail="theme not found")
+        client_path = client_db.client_db_path(s.db_file)
+
+        def _load() -> Any:
+            client = client_db.connect_client_existing(client_path, readonly=True)
+            try:
+                return federation_client_store.get_timeline_item(client, account_id, int(raw_id))
+            finally:
+                client.close()
+
+        item = await asyncio.to_thread(_load)
+        if item is None:
+            return JSONResponse({"error": "item_not_found"}, status_code=404)
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+        ingest_kwargs: dict[str, Any] = {"source": "federation"}
+        if focus is not None:
+            ingest_kwargs["focus"] = focus
+        try:
+            report = await _run_expensive(theme_svc.ingest, item.url or item.object_iri, **ingest_kwargs)
+        except (HTTPException, policy.ProviderPolicyError):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _log_operation_failure(request, "federation_timeline_ingest", exc)
+            return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
+        rep_dict = report_to_dict(report)
+        rep_dict["theme_id"] = theme.id
+        rep_dict["theme_label"] = theme.label
+        document_id = getattr(report, "document_id", None)
+        if document_id and not getattr(report, "error", None):
+
+            def _link() -> None:
+                client = client_db.connect_client_existing(client_path)
+                try:
+                    federation_client_store.link_timeline_item(client, account_id, item.id, theme_id=theme.id, doc_id=str(document_id))
+                    client.commit()
+                finally:
+                    client.close()
+
+            await asyncio.to_thread(_link)
+            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+        else:
+            rep_dict["linked"] = None
+        return JSONResponse(rep_dict)
+
     async def do_reingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
@@ -4746,6 +4816,7 @@ def create_app(
         Route("/ingest-limits", limits_get_route, methods=["GET", "HEAD"]),
         Route("/ingest-limits", limits_update_route, methods=["PATCH", "POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
+        Route("/api/federation/timeline/{item_id}/ingest", federation_timeline_ingest_route, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/reingest", do_reingest, methods=["POST"]),
         Route("/reingest-stream", reingest_stream_route, methods=["POST"]),

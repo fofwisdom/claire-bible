@@ -19,33 +19,43 @@
 <link rel="stylesheet" href="/static/css/theme.css"/>
 <link rel="stylesheet" href="/static/css/syndication.css"/>
 </head>
-<body data-auth-scope="__AUTH_SCOPE__" data-app-tab="kb" data-layout="three-panel" data-list-style="list">
+<body data-auth-scope="__AUTH_SCOPE__" data-app-tab="kb" data-stage="ingest" data-layout="three-panel" data-list-style="list">
 
   <!-- TT-RSS Minimal Top Action Bar -->
   <header class="tt-topbar">
     <div class="tt-top-left">
       <a class="tt-btn" href="/" title="Claire Bible 지식 그래프 홈으로 이동"><img src="/favicon.svg" width="15" height="15" alt="" aria-hidden="true"/><span>Claire</span></a>
       <label for="theme-selector" class="sr-only">지식 테마 선택</label>
-      <select id="theme-selector" class="tt-btn" aria-label="지식 테마 선택"></select>
-      <span id="active-stream-title" class="tt-stream-title">전체 적재 문서 (All documents)</span>
+      <select id="theme-selector" class="tt-btn kb-only" aria-label="지식 테마 선택"></select>
+      <span id="active-stream-title" class="tt-stream-title kb-only">전체 적재 문서 (All documents)</span>
+      <span id="client-stream-title" class="tt-stream-title client-only"></span>
     </div>
 
     <div class="tt-top-right">
-      <span id="selected-count-label" class="tt-sel-count" aria-live="polite"></span>
-      <button type="button" class="tt-btn" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
-      <input id="stream-search" type="search" class="tt-search" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="문서 검색"/>
-      <button type="button" id="btn-refresh" class="tt-btn" title="현재 테마 DB 문서 및 엔티티 새로고침 (r)">↻ 새로고침</button>
-      <button type="button" id="btn-mark-read" class="tt-btn" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
-      <button type="button" id="btn-open-ingest" class="tt-btn tt-btn-pri" title="현재 테마 지식베이스에 URL 또는 원문 적재">+ 문서 적재</button>
+      <span id="selected-count-label" class="tt-sel-count kb-only" aria-live="polite"></span>
+      <button type="button" class="tt-btn kb-only" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
+      <input id="stream-search" type="search" class="tt-search kb-only" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="문서 검색"/>
+      <button type="button" id="btn-refresh" class="tt-btn kb-only" title="현재 테마 DB 문서 및 엔티티 새로고침 (r)">↻ 새로고침</button>
+      <button type="button" id="btn-mark-read" class="tt-btn kb-only" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
+      <button type="button" id="btn-open-ingest" class="tt-btn tt-btn-pri kb-only" title="현재 테마 지식베이스에 URL 또는 원문 적재">+ 문서 적재</button>
+      <button type="button" id="btn-client-refresh" class="tt-btn client-only" data-i18n="synd.client.refresh" data-i18n-title="synd.client.refresh_title">Refresh</button>
+      <button type="button" id="btn-palette" class="tt-btn" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open">⌘K</button>
 
       <!-- 공통 컨트롤 -->
-      <button type="button" id="btn-toggle-list-style" class="tt-btn" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
-      <button type="button" id="btn-toggle-layout" class="tt-btn" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
+      <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
+      <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
       <a id="top-pref-link" class="tt-btn" href="/settings/reader" data-settings-path="/settings/reader" title="설정 콘솔(/settings) 열기">⚙️ 환경설정</a>
       <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
       <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기">☰</button>
     </div>
   </header>
+
+  <!-- Stage bar (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 6, RD14): collection, ingestion, publication. Stage 1 opens the federation client view; stages 2 and 3 open the knowledge base view. For the owner only. -->
+  <nav id="stagebar" class="synd-stagebar" data-i18n-aria-label="home.flow.label" hidden>
+    <button type="button" class="synd-stage" data-stage-btn="collect" style="--stage:var(--stage-collect)"><b data-i18n="home.flow.collect">1 · Collection</b> <small data-i18n="synd.stage.collect_sub">Federation client · account</small><span class="synd-stage-counts" id="stage-collect-counts"></span></button>
+    <button type="button" class="synd-stage" data-stage-btn="ingest" style="--stage:var(--stage-ingest)"><b data-i18n="home.flow.ingest">2 · Ingestion</b> <small data-i18n="synd.stage.ingest_sub">Knowledge base · theme</small><span class="synd-stage-counts" id="stage-ingest-counts"></span></button>
+    <button type="button" class="synd-stage" data-stage-btn="publish" style="--stage:var(--stage-publish)"><b data-i18n="home.flow.publish">3 · Publication</b> <small data-i18n="synd.stage.publish_sub">Sent by the federation client</small><span class="synd-stage-counts" id="stage-publish-counts"></span></button>
+  </nav>
 
   <!-- Viewport-Aware Popovers -->
   <div id="pop-list-style" popover="auto" class="tt-popover tt-popover-end" role="menu" aria-label="목록 스타일">
@@ -93,9 +103,48 @@
     <button type="button" class="tt-pop-item" data-art-cmd="toggle-unread"><span>읽음 표시 처리</span><kbd>u</kbd></button>
     <button type="button" class="tt-pop-item" data-art-cmd="toggle-star"><span>별표(고정) 토글</span><kbd>f</kbd></button>
     <button type="button" class="tt-pop-item" data-art-cmd="dispatch"><span>📡 다른 테마로 적재 전달 (Cross-Theme Dispatch)...</span><kbd>d</kbd></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
+  </div>
+
+  <!-- Context menu (right click) of one item of the knowledge base view (FP4-5, MD-3). The commands are those of the article menu. -->
+  <div id="pop-doc-context" popover="manual" class="tt-popover synd-context-menu" role="menu" data-i18n-aria-label="synd.kb.menu.label">
+    <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="open-url"><span data-i18n="synd.kb.menu.open_original">Open original in a new tab</span></button>
+    <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
+    <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="dispatch"><span data-i18n="synd.kb.menu.publish">Publish or dispatch…</span></button>
+    <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="toggle-star"><span data-i18n="synd.kb.menu.toggle_star">Toggle star</span></button>
   </div>
 
   <main class="tt-app-main">
+    <!-- Federation client view (stage 1, FP4-5): streams and follows, timeline list, and reader with the thread. The body of a post renders in a sandbox iframe on the usercontent origin. -->
+    <div id="panel-client" class="tt-workspace" data-app-panel="client" hidden>
+      <aside id="client-tree" class="synd-column tt-tree" data-i18n-aria-label="synd.client.tree_label">
+        <details class="tt-folder" open>
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.client.streams">Streams</span></span></summary>
+          <div id="client-streams" class="tt-tree-children"></div>
+        </details>
+        <details class="tt-folder" open id="client-following-folder">
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.client.following">Following</span></span></summary>
+          <form id="client-follow-form" class="synd-follow-form">
+            <label for="client-follow-target" class="sr-only" data-i18n="synd.client.follow_label">Handle or actor address</label>
+            <input id="client-follow-target" type="text" class="tt-search" autocomplete="off" spellcheck="false" data-i18n-placeholder="synd.client.follow_placeholder"/>
+            <button type="submit" class="tt-btn" data-i18n="synd.client.follow_button">Follow</button>
+          </form>
+          <div id="client-follow-msg" class="synd-note" role="status"></div>
+          <div id="client-following" class="tt-tree-children"></div>
+        </details>
+        <p class="synd-note" data-i18n="synd.client.collect_note">Collection is not ingestion. A post enters a theme only when you take it in.</p>
+      </aside>
+      <div class="tt-main-area">
+        <section id="client-list-pane" class="synd-column tt-stream" data-i18n-aria-label="synd.client.list_label">
+          <div id="client-notice" class="synd-notice" role="status" hidden></div>
+          <div id="client-list" class="tt-headlines"></div>
+        </section>
+        <aside id="client-reader-pane" class="synd-column tt-reader-pane" data-i18n-aria-label="synd.client.reader_label">
+          <div id="client-reader"></div>
+        </aside>
+      </div>
+    </div>
+
     <div id="panel-kb" class="tt-workspace" data-app-panel="kb">
       <aside id="pane-tree" class="synd-column tt-tree" aria-label="스트림, 출처 및 엔티티 트리">
         <details class="tt-folder" open>
@@ -116,6 +165,11 @@
 
       <div id="pane-main-area" class="tt-main-area">
         <section id="pane-stream" class="synd-column tt-stream" aria-label="문서 스트림">
+          <div id="pub-filter" class="synd-pub-filter" role="group" data-i18n-aria-label="synd.kb.filter.label" hidden>
+            <button type="button" class="tt-btn" data-pub-filter="all" data-i18n="synd.kb.filter.all">All</button>
+            <button type="button" class="tt-btn" data-pub-filter="unpublished" data-i18n="synd.kb.filter.unpublished">Not published</button>
+            <button type="button" class="tt-btn" data-pub-filter="published" data-i18n="synd.kb.filter.published">Published</button>
+          </div>
           <div id="headlines-container" class="tt-headlines"></div>
         </section>
 
@@ -153,6 +207,40 @@
     </form>
   </dialog>
 
+  <!-- Ingest of one item of the timeline (design Section 4.4, FP4-5) -->
+  <dialog id="modal-item-ingest" closedby="any" aria-labelledby="modal-item-ingest-title" class="synd-dialog">
+    <form id="form-item-ingest" class="synd-dialog-form">
+      <div class="synd-dialog-head">
+        <h2 id="modal-item-ingest-title" data-i18n="synd.ingest.title">Take this post into the knowledge base</h2>
+        <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n-aria-label="common.action.cancel">✕</button>
+      </div>
+      <p id="item-ingest-source" class="synd-note"></p>
+      <div>
+        <label for="item-ingest-theme" data-i18n="synd.ingest.theme_label">Theme</label>
+        <select id="item-ingest-theme" class="tt-btn" required></select>
+      </div>
+      <div>
+        <label for="item-ingest-focus" data-i18n="synd.ingest.focus_label">Focus (optional)</label>
+        <input id="item-ingest-focus" type="text" class="tt-search" data-i18n-placeholder="synd.ingest.focus_placeholder"/>
+      </div>
+      <p class="synd-note" data-i18n="synd.ingest.note">The post stays in the timeline. The theme rules apply to the new document.</p>
+      <div id="item-ingest-msg" class="synd-note" role="status"></div>
+      <div class="synd-dialog-foot">
+        <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
+        <button type="submit" id="btn-item-ingest" class="tt-btn tt-btn-pri" data-i18n="synd.ingest.submit">Take in</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cmdpalette" class="cmd-palette" closedby="any" aria-labelledby="cmdpalette-title">
+    <h2 id="cmdpalette-title" class="sr-only" data-i18n="nav.palette.title">Command palette</h2>
+    <div class="cmd-palette-head">
+      <input id="cmdpalette-input" type="search" autofocus autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="cmdpalette-list" data-i18n-placeholder="nav.palette.placeholder" data-i18n-aria-label="nav.palette.input_aria"/>
+    </div>
+    <div id="cmdpalette-list" class="cmd-palette-list" role="listbox"></div>
+    <div class="cmd-palette-foot"><span data-i18n="nav.palette.hint">↑↓ move · Enter run · Esc close</span></div>
+  </dialog>
+
   <!-- Live Cross-Theme Dispatch Modal -->
   <dialog id="modal-dispatch" closedby="any" aria-labelledby="modal-dispatch-title" class="synd-dialog synd-dialog-wide">
     <div id="modal-dispatch-body" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
@@ -173,6 +261,7 @@
       themeMode: '__THEME_MODE__',
       activeThemeId: __ACTIVE_THEME_ID__,
       authScope: '__AUTH_SCOPE__',
+      instanceMode: '__INSTANCE_MODE__',
       themes: __THEMES_JSON__
     };
     function toggleClaireTheme() {
@@ -186,6 +275,10 @@
     (function(){ const btn=document.getElementById("themebtn"); if(btn) btn.textContent=(document.documentElement.getAttribute("data-theme")==="dark"?"☀️":"🌙"); })();
   </script>
   <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+  <!-- __I18N_CATALOG__ -->
+  <script src="/static/js/i18n.js"></script>
+  <script src="/static/js/command_palette.js"></script>
   <script src="/static/js/syndication_live.js"></script>
+  <script src="/static/js/syndication_client.js"></script>
 </body>
 </html>

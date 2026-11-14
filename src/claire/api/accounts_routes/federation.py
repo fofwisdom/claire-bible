@@ -20,6 +20,16 @@ Publishing routes, for the owner or a collaborator of the account, in network mo
 
 The account of each task is the account of the caller, and the theme must be of that account. No route has a default account, and the admin cannot publish for a member (K5).
 
+Federation client routes, for the owner of the account, in network mode only (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 8, unit FP4-5).
+
+- ``GET /api/federation/timeline``: one cursor page of the timeline of the caller, with the counts of the stage bar. The list has plain text only, no remote HTML.
+- ``GET /api/federation/timeline/{item_id}``: one item with its thread and the render URL of each body.
+- ``PATCH /api/federation/timeline/{item_id}``: ``unread`` and ``starred``.
+- ``GET /api/federation/objects``: one cursor page of the published documents of the caller (stage 3 of the stage bar).
+- ``GET /render/remote/{item_id}``: the body of an item on the app origin, only when the instance has no ``usercontent`` host (Section 8 rule 5).
+
+``POST /api/federation/timeline/{item_id}/ingest`` is in ``server``, because it uses the ingest service of a theme.
+
 The console section ``/settings/federation`` is in ``console``.
 """
 
@@ -43,6 +53,7 @@ from ...store import db as dbm
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
 from .. import federation_routes
+from .. import usercontent
 from ..collections import parse_collection_query
 from ..principal import Principal, request_principal
 from ..security import read_json_body
@@ -64,6 +75,12 @@ FEDERATION_SETTINGS_API_PATH = "/api/federation/settings"
 # FP4-3 (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.1 and 5.3): follows of the own account.
 FEDERATION_FOLLOWING_API_PATH = "/api/federation/following"
 FOLLOWING_PAGE_MAX = 80
+# FP4-5 (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 8): the timeline of the own account.
+FEDERATION_TIMELINE_API_PATH = "/api/federation/timeline"
+FEDERATION_OBJECTS_API_PATH = "/api/federation/objects"
+REMOTE_RENDER_PATH = "/render/remote"
+TIMELINE_PAGE_MAX = 80
+TIMELINE_FILTERS = ("unread", "starred", "mention")
 READING_AUDIT_ACTION = "federation.reading.update"
 DOCUMENT_ID_MAX_LENGTH = 200
 AUDIT_ACTION = "federation.update"
@@ -737,7 +754,194 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         return JSONResponse(result[1], status_code=result[0], headers=_NO_STORE)
 
+    # --- Timeline of the own account (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 8, FP4-5) ---
+
+    def _usercontent_origin() -> str | None:
+        roles = ctx.config.host_roles
+        return None if roles is None else roles.origin("usercontent")
+
+    def _render_url(account_id: int, item_id: int) -> str:
+        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the instance has no such host (development, Section 8 rule 5). The token binds the account and the item."""
+        token = usercontent.create_remote_token(account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None))
+        return f"{_usercontent_origin() or ''}{REMOTE_RENDER_PATH}/{item_id}?t={token}"
+
+    def _item_view(item: Any, *, detail: bool = False) -> dict[str, Any]:
+        # Section 8 rule 4: an item with a content warning shows the summary first. Its text is not in the list.
+        warned = item.sensitive or bool(item.summary)
+        view = {
+            "id": str(item.id),
+            "object_iri": item.object_iri,
+            "url": item.url,
+            "type": item.object_type,
+            "author": item.author,
+            "announced_by": item.announced_by,
+            "name": item.name,
+            "summary": item.summary,
+            "sensitive": item.sensitive,
+            # Plain text: the tags are removed on the server (Section 8 rule 1).
+            "text": "" if warned else usercontent.remote_item_text(item.content_html),
+            "language": item.language,
+            "attachments": len(item.attachments),
+            "in_reply_to": item.in_reply_to_iri,
+            "in_timeline": item.in_timeline,
+            "published_at": item.published_at,
+            "updated_at": item.updated_at,
+            "received_at": item.received_at,
+            "unread": item.unread,
+            "starred": item.starred,
+            "mention": item.mention,
+            "linked": None if item.linked_doc_id is None else {"theme_id": item.linked_theme_id, "document_id": item.linked_doc_id},
+        }
+        if detail:
+            view["render_url"] = _render_url(item.account_id, item.id)
+        return view
+
+    def _item_id(request: Request) -> int | None:
+        raw = request.path_params["item_id"]
+        return int(raw) if raw.isascii() and raw.isdigit() and raw[0] != "0" and len(raw) <= 18 else None
+
+    def _network() -> bool:
+        conn = open_db(ctx)
+        try:
+            return _network_mode(conn)
+        finally:
+            conn.close()
+
+    async def federation_timeline_get(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        params = request.query_params
+        raw_max, raw_limit = params.get("max_id"), params.get("limit", "40")
+        if (raw_max is not None and not (raw_max.isascii() and raw_max.isdigit() and len(raw_max) <= 18)) or not (raw_limit.isascii() and raw_limit.isdigit() and 1 <= int(raw_limit) <= TIMELINE_PAGE_MAX):
+            return json_error(400, "invalid_request")
+        if any(params.get(name) not in (None, "0", "1") for name in TIMELINE_FILTERS):
+            return json_error(400, "invalid_request")
+        filters = tuple(name for name in TIMELINE_FILTERS if params.get(name) == "1")
+        limit = int(raw_limit)
+
+        def _fetch() -> dict[str, Any] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                # The count of stage 3 of the stage bar: the published documents of the account.
+                published = federation_store.count_objects(conn, account_id)
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                rows = federation_client_store.list_timeline(client, account_id, limit=limit, max_id=None if raw_max is None else int(raw_max), filters=filters)
+                counts = federation_client_store.count_timeline(client, account_id)
+            finally:
+                client.close()
+            # The cursor is the ID of the last item (RD18): a later request with ``max_id`` gives the older items.
+            return {"items": [_item_view(item) for item in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit else None, "counts": {**counts, "published": published}}
+
+        data = await asyncio.to_thread(_fetch)
+        return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
+
+    async def federation_timeline_item_get(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        item_id = _item_id(request)
+        if item_id is None:
+            return json_error(404, "item_not_found")
+
+        def _fetch() -> dict[str, Any] | None | bool:
+            if not _network():
+                return None
+            client = open_client_db(ctx)
+            try:
+                item = federation_client_store.get_timeline_item(client, account_id, item_id)
+                if item is None:
+                    return False
+                thread = federation_client_store.timeline_thread(client, account_id, item_id)
+            finally:
+                client.close()
+            return {"item": _item_view(item, detail=True), "thread": [_item_view(entry, detail=True) for entry in thread]}
+
+        data = await asyncio.to_thread(_fetch)
+        if data is None:
+            return not_found()
+        return json_error(404, "item_not_found") if data is False else JSONResponse(data, headers=_NO_STORE)
+
+    async def federation_timeline_item_patch(request: Request) -> Response:
+        # Same-origin rule for a cookie request: ``AuthenticationMiddleware``.
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        item_id = _item_id(request)
+        if item_id is None:
+            return json_error(404, "item_not_found")
+        body = await read_json_body(request)
+        if not body or set(body) - {"unread", "starred"} or any(not isinstance(value, bool) for value in body.values()):
+            return json_error(400, "invalid_request", fields=["unread", "starred"])
+
+        def _execute() -> dict[str, Any] | None | bool:
+            if not _network():
+                return None
+            client = open_client_db(ctx)
+            try:
+                item = federation_client_store.set_timeline_flags(client, account_id, item_id, unread=body.get("unread"), starred=body.get("starred"))
+                client.commit()
+                counts = federation_client_store.count_timeline(client, account_id)
+            finally:
+                client.close()
+            return False if item is None else {"item": _item_view(item), "counts": counts}
+
+        data = await asyncio.to_thread(_execute)
+        if data is None:
+            return not_found()
+        return json_error(404, "item_not_found") if data is False else JSONResponse(data, headers=_NO_STORE)
+
+    async def federation_objects_get(request: Request) -> Response:
+        """The published documents of the caller, newest first. The knowledge base view uses the list for its filter of published and unpublished documents (design Section 1.3 rule 6)."""
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        try:
+            query = parse_collection_query(request.query_params)
+        except HTTPException:
+            return json_error(400, "invalid_request")
+
+        def _fetch() -> dict[str, Any] | None:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                total = federation_store.count_objects(conn, account_id)
+                rows = federation_store.list_objects(conn, account_id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
+            finally:
+                conn.close()
+            return {
+                "total": total,
+                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at} for row in rows],
+                "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
+            }
+
+        data = await asyncio.to_thread(_fetch)
+        return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
+
+    async def remote_render_fallback(request: Request) -> Response:
+        """The body of an item on the app origin (Section 8 rule 5). With a ``usercontent`` host this path does not exist here: the body renders on that origin only."""
+        account_id = _owner_account_id(request)
+        item_id = _item_id(request)
+        if account_id is None or item_id is None or _usercontent_origin() is not None:
+            return not_found()
+        item = await asyncio.to_thread(usercontent.load_remote_item, ctx.db_file, item_id)
+        token = request.query_params.get("t", "")
+        if item is None or item["account_id"] != account_id or not usercontent.verify_remote_token(token, account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None)):
+            return not_found()
+        return usercontent.remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN"})
+
     return [
+        Route(FEDERATION_TIMELINE_API_PATH, federation_timeline_get, methods=["GET"]),
+        Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}", federation_timeline_item_get, methods=["GET"]),
+        Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}", federation_timeline_item_patch, methods=["PATCH"]),
+        Route(FEDERATION_OBJECTS_API_PATH, federation_objects_get, methods=["GET"]),
+        Route(REMOTE_RENDER_PATH + "/{item_id}", remote_render_fallback, methods=["GET"]),
         Route(FEDERATION_PUBLISH_API_PATH, federation_publish_post, methods=["POST"]),
         Route(FEDERATION_RETRACT_API_PATH, federation_retract_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_get, methods=["GET"]),

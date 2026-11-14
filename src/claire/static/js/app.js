@@ -6586,9 +6586,15 @@ function paintHomeFlow(){
   nav.hidden = false;
   const d = homeFlowData || {};
   const set = (id, parts) => { const el = document.getElementById(id); if(el) el.textContent = parts.filter(Boolean).join(' · '); };
+  // FP4-5: the counts of the stage bar of /syndication (timeline items, mentions, published documents) come first.
+  const tl = d.timeline;
   set('home-flow-collect-counts', [
+    tl ? tr('home.flow.timeline', {count: tl.total}) : '',
+    tl ? tr('home.flow.unread', {count: tl.unread}) : '',
+    tl ? tr('home.flow.mentions', {count: tl.unread_mentions}) : '',
     d.feeds ? tr('home.flow.feeds', {count: d.feeds.count}) : '',
-    d.feeds ? tr('home.flow.unread', {count: d.feeds.unread}) : '',
+    // Without a timeline (single mode) the unread count is that of the feeds.
+    d.feeds && !tl ? tr('home.flow.unread', {count: d.feeds.unread}) : '',
     d.following != null ? tr('home.flow.following', {count: d.following}) : ''
   ]);
   const jobs = (homeStats && Array.isArray(homeStats.active_jobs)) ? homeStats.active_jobs.filter(j => j && j.active).length : null;
@@ -6597,6 +6603,7 @@ function paintHomeFlow(){
     jobs != null ? tr('home.flow.active_jobs', {count: jobs}) : ''
   ]);
   set('home-flow-publish-counts', [
+    tl ? tr('home.flow.published', {count: tl.published}) : '',
     d.followers != null ? tr('home.flow.followers', {count: d.followers}) : '',
     d.pending != null ? tr('home.flow.pending', {count: d.pending}) : ''
   ]);
@@ -6610,13 +6617,14 @@ function renderHomeFlow(){
   homeFlowKey = key;
   const seq = ++homeFlowSeq;
   const getJson = url => fetch(url, {cache: 'no-store', credentials: 'same-origin'}).then(r => r.ok ? r.json() : null).catch(() => null);
-  Promise.all([getJson('/api/feeds'), getJson('/api/federation/following?limit=1'), getJson('/api/federation/status')]).then(([feeds, following, status]) => {
+  Promise.all([getJson('/api/feeds'), getJson('/api/federation/following?limit=1'), getJson('/api/federation/status'), getJson('/api/federation/timeline?limit=1')]).then(([feeds, following, status, timeline]) => {
     if(seq !== homeFlowSeq) return;
     const data = {};
     if(feeds && Array.isArray(feeds.feeds)) data.feeds = {count: feeds.feeds.length, unread: feeds.feeds.reduce((n, f) => n + (Number(f.unread) || 0), 0)};
     if(following && typeof following.total === 'number') data.following = following.total;
     if(status && status.followers && typeof status.followers.total === 'number') data.followers = status.followers.total;
     if(status && typeof status.pending_tasks === 'number') data.pending = status.pending_tasks;
+    if(timeline && timeline.counts && typeof timeline.counts.total === 'number') data.timeline = timeline.counts;
     homeFlowData = data;
     if(centerView === 'home') paintHomeFlow();
   });

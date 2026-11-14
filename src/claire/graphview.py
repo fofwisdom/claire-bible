@@ -106,8 +106,12 @@ def _build_standalone_syndication_html() -> str:
     css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
-    html = re.sub(r'<script src="/static/js/syndication_[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{synd_live_js}\n</script>"
+    # The i18n runtime, the shared command palette (HW-7), and the federation client view (FP4-5) are in the same bundle. The inline catalog element of the template comes before the bundle.
+    i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
+    command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
+    synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
+    html = re.sub(r'<script src="/static/js/[^"]+"></script>\s*', "", html)
+    js_bundle = f"<script>\n{i18n_js}\n{command_palette_js}\n{synd_live_js}\n{synd_client_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 
@@ -812,6 +816,8 @@ def _render_syndication_bundle(
         .replace("__AUTH_SCOPE__", safe_scope)
         .replace("__THEMES_JSON__", themes_json_safe)
         .replace("__CLAIRE_STORAGE_KEY__", storage_key)
+        .replace("__INSTANCE_MODE__", "network" if is_network_mode else "single")
+        .replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script>')
     )
 
 

@@ -26,6 +26,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
+| Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No media in the body before FP4-7; no reply, favourite, or boost before FP4-9. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -849,7 +850,7 @@ Routes:
 | `GET` | `/api/federation/settings` | owner, network mode | `{"retention_days", "instance_retention_days", "effective_retention_days"}` |
 | `PUT` | `/api/federation/settings` | owner, network mode | `{"retention_days": null or 1 to the instance value}`; another body is 400 |
 
-The console fields come with FP4-5. Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
+Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the instance" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has the retention of the account, with the choice "use the instance value". Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
 
 
 ## 17. Follows of an Account (Unit FP4-3)
@@ -915,3 +916,54 @@ Differences from the design:
 - The cleanup of the media cache at a `Delete` comes with the media cache (FP4-7).
 
 Tests: `tests/test_e2e_federation_timeline.py`, `tests/test_federation_routes.py` (contract fixtures), `tests/test_client_db.py`, `sidecar/fedify/tests/timeline_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
+
+
+## 19. Federation Client in `/syndication` (Unit FP4-5)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3, 4.4, 5.3, and 8.
+
+### 19.1 Routes
+
+All routes are for the owner of the account, in network mode only. An item of another account gives 404.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/api/federation/timeline` | `{"items", "next_max_id", "counts"}`. Query: `limit` (1 to 80, default 40), `max_id` (cursor: the items with a lower ID), and the filters `unread=1`, `starred=1`, `mention=1`. Only items with `in_timeline` = 1, newest first. |
+| `GET` | `/api/federation/timeline/{item_id}` | `{"item", "thread"}`. `thread` has all stored items of the thread, oldest first, also those with `in_timeline` = 0. Each entry has `render_url`. |
+| `PATCH` | `/api/federation/timeline/{item_id}` | Body: `unread` and `starred` (booleans, one or both). Answer `{"item", "counts"}`. |
+| `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`theme_id`, `document_id`). The item stays in the timeline. |
+| `GET` | `/api/federation/objects` | `{"total", "items": [{"id", "theme_id", "document_id", "published_at", "updated_at"}], "next_max_id"}`: the published documents of the caller, for the filter of stage 3. |
+| `GET` | `/render/remote/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the instance has no `usercontent` host. |
+
+- An item of the list has `id`, `object_iri`, `url`, `type`, `author`, `announced_by`, `name`, `summary`, `sensitive`, `text`, `language`, `attachments` (a number), `in_reply_to`, `in_timeline`, `published_at`, `updated_at`, `received_at`, `unread`, `starred`, `mention`, and `linked`. `text` is plain text (the tags are removed on the server, 600 characters at most). It is empty for an item with a content warning. The list has no remote HTML.
+- `counts`: `total`, `unread`, `starred`, `mentions`, `unread_mentions`, `ingested` (items of the timeline), and `published` (published documents of the account).
+- The thread of an item is the set of stored items that the reply links and the `context` join to it, 200 items at most. The fetch of a thread from the remote server is unit FP4-6.
+
+### 19.2 Rendering
+
+1. `render_url` has a viewing token of the kind `remote`. The token binds `(account_id, item_id, exp)` (HMAC, one hour). A document token is not valid for an item, and the reverse. A token that is absent, expired, or of another item or account gets the same 404 as an item that does not exist.
+2. The page has the HTML after `sanitize_remote_html` (the `nh3` allowlist without `img`, `picture`, `source`, `audio`, `video`, `track`, `map`, and `area`; no `style` and no `id`; links with `rel="nofollow noopener noreferrer"` and `target="_blank"`) and the attachments as a list of links.
+3. Policy of the page: `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {app origin}; sandbox allow-popups allow-popups-to-escape-sandbox`. No script runs, and no remote resource loads. The client puts the page in an `iframe` with the same `sandbox` value.
+4. With a `usercontent` host the body renders on that origin only: the path on the app origin gives 404. Without one (development), the path on the app origin needs the session of the owner of the item and the token, and `frame-ancestors` is `'self'`.
+5. The page has one fixed light surface. It cannot read the theme of the page around it, because its origin is opaque.
+
+### 19.3 View
+
+- The page `/syndication` has a stage bar for the owner: 1 collection, 2 ingestion, 3 publication, each with its counts. Stage 1 shows the client view (`#panel-client`); stages 2 and 3 show the knowledge base view (`#panel-kb`). The two views are in one page. `?stage=collect|ingest|publish` selects the stage; without it the page opens stage 2.
+- Client view: streams (home, unread, mentions, starred), follows (follow a handle or an address, unfollow), the list, and the reader with the thread. A post with a content warning shows the summary first, and its frame loads after a click. The list reads again each 30 seconds while the tab is visible, and when the tab becomes visible again (RD18).
+- Actions of an item: star, read or unread, "take into knowledge base" (the ingest dialog with the themes of the owner), and, for an item with a document, "open document" and "publish" (the dispatch dialog of FP3-5 for that document).
+- Stage 3 has the filter all, not published, and published. The published documents come from `GET /api/federation/objects`.
+- Knowledge base view: the context menu (right click) of a document has "open original", "Markdown export" (`GET /document/export`, MD-3), "publish or dispatch", and "toggle star". The article menu of the reader has the Markdown export too.
+- The page has the command palette of the workspace (`command_palette.js`, Ctrl+K) with the three stages.
+- In single mode the stage bar shows; stage 1 has a notice and sends no timeline request.
+- The stage strip of the home page (HW-8) shows the counts of the timeline (`GET /api/federation/timeline?limit=1`) and its three links go to the three stages.
+- Code: `src/claire/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/claire/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.
+
+### 19.4 Differences from the Design and Limits
+
+- The body has no image, audio, or video before the media proxy (FP4-7). An attachment is a link to the remote server; the viewer contacts that server only by a click.
+- The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty), and no feed view (FP4-F3).
+- `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
+- The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
+
+Tests: `tests/test_e2e_federation_client.py` (routes, render on the two origins, ingest), `tests/test_e2e_federation_reading_settings.py` (console fields), `e2e/federation_client.spec.js` (view in a browser), `e2e/workspace.spec.js` (stage strip of the home page).

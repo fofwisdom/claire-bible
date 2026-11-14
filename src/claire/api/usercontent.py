@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import hmac
 import re
 import secrets
@@ -42,8 +43,13 @@ from ..store.secrets import SecretService, get_secret_service
 __all__ = [
     "DEFAULT_VIEWING_TOKEN_TTL",
     "create_usercontent_app",
+    "create_remote_token",
     "create_viewing_token",
+    "remote_item_response",
+    "remote_item_text",
+    "sanitize_remote_html",
     "sanitize_usercontent_html",
+    "verify_remote_token",
     "verify_viewing_token",
 ]
 
@@ -117,6 +123,114 @@ def sanitize_usercontent_html(raw_html: str) -> str:
     custom_attrs = dict(nh3.ALLOWED_ATTRIBUTES)
     custom_attrs["*"] = {"class", "id", "title", "aria-label", "aria-hidden", "role"}
     return nh3.clean(raw_html, attributes=custom_attrs)
+
+
+# --- Remote items of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 8, unit FP4-5) ---
+
+# Elements that load a resource. The media proxy (Section 9, unit FP4-7) is the only way for remote media; until it exists the render has no media element.
+_REMOTE_RESOURCE_TAGS = frozenset({"img", "picture", "source", "audio", "video", "track", "map", "area"})
+
+
+def _remote_token_message(account_id: int, item_id: int, exp: int) -> bytes:
+    return f"remote:{int(account_id)}:{int(item_id)}:{exp}".encode("utf-8")
+
+
+def create_remote_token(account_id: int, item_id: int, expires_in: int = DEFAULT_VIEWING_TOKEN_TTL, *, secret_service: SecretService | None = None, now: float | None = None) -> str:
+    """Make a viewing token of the kind ``remote``: it binds ``(account_id, item_id, exp)`` of one timeline item (Section 8 rule 2). A token of a document is not valid for an item, and the reverse."""
+    exp = int(now if now is not None else time.time()) + int(expires_in)
+    key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
+    return f"{exp}.{hmac.new(key, _remote_token_message(account_id, item_id, exp), hashlib.sha256).hexdigest()}"
+
+
+def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_service: SecretService | None = None, now: float | None = None) -> bool:
+    if not isinstance(token, str) or token.count(".") != 1:
+        return False
+    exp_text, signature = token.split(".")
+    if not (exp_text.isascii() and exp_text.isdigit() and len(exp_text) <= 12):
+        return False
+    exp = int(exp_text)
+    if int(now if now is not None else time.time()) > exp:
+        return False
+    key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
+    return hmac.compare_digest(signature, hmac.new(key, _remote_token_message(account_id, item_id, exp), hashlib.sha256).hexdigest())
+
+
+def sanitize_remote_html(raw_html: str) -> str:
+    """Sanitize the HTML of a remote server (Section 8 rule 3): the allowlist of ``sanitize_usercontent_html`` without the elements that load a resource. Each link opens a new tab and gives the remote site no referrer."""
+    if not raw_html:
+        return ""
+    attributes = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items() if tag not in _REMOTE_RESOURCE_TAGS}
+    # ``class`` only: an ``id`` or a ``style`` of a remote server has no use in the frame.
+    attributes["*"] = {"class", "title", "lang", "dir"}
+    return nh3.clean(
+        raw_html,
+        tags=set(nh3.ALLOWED_TAGS) - _REMOTE_RESOURCE_TAGS,
+        attributes=attributes,
+        url_schemes={"http", "https", "mailto"},
+        link_rel="nofollow noopener noreferrer",
+        set_tag_attribute_values={"a": {"target": "_blank"}},
+    )
+
+
+def remote_item_text(raw_html: str, limit: int = 600) -> str:
+    """The plain text of remote HTML for the timeline list (Section 8 rule 1): the list has no remote HTML."""
+    text = nh3.clean(re.sub(r"<(?:br\s*/?|/p|/div|/li|/h[1-6]|/blockquote)>", " ", raw_html or "", flags=re.IGNORECASE), tags=set())
+    text = re.sub(r"\s+", " ", html.unescape(text)).strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _attachment_list(attachments: list[dict[str, Any]]) -> str:
+    """The attachments as links to the remote server. The viewer contacts the remote server only by a click (RS3)."""
+    rows = []
+    for attachment in attachments:
+        url = str(attachment.get("url") or "")
+        if not url.startswith(("https://", "http://")):
+            continue
+        label = str(attachment.get("name") or attachment.get("media_type") or url)
+        kind = str(attachment.get("media_type") or "")
+        rows.append(f'<li><a href="{html.escape(url, quote=True)}" target="_blank" rel="nofollow noopener noreferrer">{html.escape(label)}</a>{" <small>" + html.escape(kind) + "</small>" if kind and kind != label else ""}</li>')
+    return f'<ul class="cb-remote-attachments">{"".join(rows)}</ul>' if rows else ""
+
+
+# One fixed light surface: the frame has an opaque origin and cannot read the theme of the page around it.
+_REMOTE_STYLE = (
+    "body{margin:0;padding:12px 14px;font:15px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif;color:#1f2328;background:#fff;overflow-wrap:anywhere}"
+    "a{color:#0969da}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #d0d7de;color:#57606a}pre{overflow:auto;padding:8px;background:#f6f8fa;border-radius:6px}"
+    ".cb-remote-attachments{margin:12px 0 0;padding:8px 0 0 18px;border-top:1px solid #d0d7de;font-size:13px}.cb-remote-attachments small{color:#57606a}"
+)
+
+
+def remote_item_response(*, content_html: str, attachments: list[dict[str, Any]], language: str | None, frame_ancestors: str, extra_headers: dict[str, str] | None = None) -> Response:
+    """The body of one timeline item as a page for a sandbox ``iframe`` (Section 8 rules 2 and 3).
+
+    The policy permits no script, no remote resource, and no form. ``sandbox`` gives the page an opaque origin; a link opens a new tab. ``frame_ancestors`` is the app origin, or ``'self'`` for the fallback on the app origin (rule 5).
+    """
+    lang = html.escape(language or "", quote=True)
+    page = (
+        f'<!DOCTYPE html>\n<html lang="{lang}">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="referrer" content="no-referrer">\n'
+        f"<title>Remote post</title>\n<style>{_REMOTE_STYLE}</style>\n</head>\n<body>\n<article>{sanitize_remote_html(content_html)}</article>\n{_attachment_list(attachments)}\n</body>\n</html>"
+    )
+    csp = f"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {frame_ancestors}; sandbox allow-popups allow-popups-to-escape-sandbox"
+    return HTMLResponse(page, headers={"content-security-policy": csp, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "private, no-store", **(extra_headers or {})})
+
+
+def load_remote_item(db_path: Path | None, item_id: int) -> dict[str, Any] | None:
+    """Read the columns that the render needs from ``client.db`` next to ``claire.db``, or ``None``."""
+    from ..store import client_db
+
+    if db_path is None:
+        return None
+    client_path = client_db.client_db_path(db_path)
+    if not client_path.exists():
+        return None
+    conn = client_db.connect_client_existing(client_path, readonly=True)
+    try:
+        row = conn.execute("SELECT account_id, content_html, attachments_json, language FROM federation_timeline_items WHERE id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {"account_id": int(row[0]), "content_html": str(row[1]), "attachments": json.loads(row[2]), "language": row[3]}
 
 
 class _CookielessMiddleware:
@@ -296,6 +410,15 @@ def create_usercontent_app(
         }
         return HTMLResponse(doc_html, headers=headers)
 
+    async def render_remote_route(request: Any) -> Response:
+        """``GET /render/remote/{item_id}?t={token}`` (FEDERATION_REMOTE_READING_DESIGN.md Section 8 rule 2). A token that is absent, expired, or of another item or account gets the same 404 as an item that does not exist."""
+        item_id = int(request.path_params["id"])
+        item = load_remote_item(db_path, item_id)
+        token = request.query_params.get("t", "")
+        if item is None or not verify_remote_token(token, item["account_id"], item_id, secret_service=secret_service, now=now() if now is not None else None):
+            return PlainTextResponse("Not Found", status_code=404)
+        return remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors=app_origin)
+
     async def presentation_route(request: Any) -> Response:
         doc_id_param = request.query_params.get("id", "").strip()
         doc_dict: dict[str, Any] | None = None
@@ -410,6 +533,7 @@ Reveal.initialize({{ hash: true, slideNumber: true }});
             Route("/static/{path:path}", static_asset_route, methods=["GET", "HEAD"]),
             Route("/render/doc/{id:int}", render_doc_route, methods=["GET", "HEAD"]),
             Route("/render/doc/{id}", render_doc_route, methods=["GET", "HEAD"]),
+            Route("/render/remote/{id:int}", render_remote_route, methods=["GET", "HEAD"]),
             Route("/p/presentation", presentation_route, methods=["GET", "HEAD"]),
         ],
     )

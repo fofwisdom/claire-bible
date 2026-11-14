@@ -12,8 +12,10 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Literal
 
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import federation as federation_store
+from ...store import federation_client as federation_client_store
 from .common import AccountsContext, escape, format_ts, open_db
 
 __all__ = [
@@ -123,6 +125,17 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
         '<div><button type="button" class="pref-btn" data-followers-more hidden>더 보기</button></div>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
+        # FP4-5 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the retention of the received posts of this account. console_account.js reads and saves the value with /api/federation/settings.
+        f'<section class="console-subcard" id="settings-federation-reading" data-federation-reading aria-label="{escape(t("console.federation.retention.title"))}">'
+        f'<h2>🗂️ {escape(t("console.federation.retention.title"))}</h2>'
+        f'<p class="hint">{escape(t("console.federation.retention.hint"))}</p>'
+        f'<form data-retention-form data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}" data-msg-instance="{escape(t("console.federation.retention.use_instance"))}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">'
+        '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" name="use_instance"/> <span data-retention-instance-label></span></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.federation.reading.retention_days"))}<input type="number" name="retention_days" class="pref-input" min="1" step="1" inputmode="numeric" autocomplete="off"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
+        "</form>"
+        '<p class="result" data-retention-result role="status" aria-live="polite"></p>'
+        "</section>"
     )
     return body, {"federation_mode": "network", "federation_status": status}
 
@@ -144,6 +157,41 @@ def _domain_block_rows_html(blocks: list[federation_store.DomainBlock]) -> str:
     )
 
 
+# The settings whose stored unit is bytes. The form shows them in MiB.
+_READING_BYTE_KEYS = ("media_image_max_bytes", "media_av_max_bytes")
+_MIB = 1024 * 1024
+
+
+def _reading_settings_html(values: dict[str, Any]) -> str:
+    """The form of the reading settings of the instance (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). ``console_admin.js`` sends the changed values to ``PUT /api/admin/federation/reading``."""
+    fields = []
+    for key in federation_client_store.READING_DEFAULTS:
+        label = escape(t(f"console.federation.reading.{key}"))
+        if key == "context_fetch":
+            options = "".join(f'<option value="{value}"{" selected" if values[key] == value else ""}>{escape(t(f"console.federation.reading.context_fetch_{value}"))}</option>' for value in ("on", "off"))
+            fields.append(f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{label}<select name="{key}" class="pref-input" data-reading-initial="{escape(str(values[key]))}">{options}</select></label>')
+            continue
+        low, high = federation_client_store.READING_RANGES[key]
+        scale = _MIB if key in _READING_BYTE_KEYS else 1
+        shown, low, high = int(values[key]) // scale, low // scale, high // scale
+        fields.append(
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{label}'
+            f'<input type="number" name="{key}" class="pref-input" value="{shown}" min="{low}" max="{high}" step="1" required inputmode="numeric" autocomplete="off" data-reading-scale="{scale}" data-reading-initial="{shown}"/>'
+            f'<small style="font-weight:400;color:var(--muted)">{escape(t("console.federation.reading.range", low=f"{low:,}", high=f"{high:,}"))}</small></label>'
+        )
+    return (
+        f'<section class="card" id="admin-federation-reading" aria-label="{escape(t("console.federation.reading.title"))}">'
+        f'<h2>📥 {escape(t("console.federation.reading.title"))}</h2>'
+        f'<p class="hint">{escape(t("console.federation.reading.hint"))}</p>'
+        f'<form id="admin-federation-reading-form" data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-nochange="{escape(t("console.federation.reading.nochange"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}">'
+        f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px 16px;margin-bottom:12px;align-items:start">{"".join(fields)}</div>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
+        "</form>"
+        '<p class="result" id="admin-federation-reading-result" role="status" aria-live="polite"></p>'
+        "</section>"
+    )
+
+
 def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     """Return the body and the bootstrap data of ``/admin/federation``.
 
@@ -155,8 +203,10 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         federation = store.federation_state()
         mode = store.instance_mode()
         blocks = federation_store.list_domain_blocks(conn)
+        reading = federation_client_store.get_reading_settings(conn)
     finally:
         conn.close()
+    reading_html = _reading_settings_html(reading)
     target = "off" if federation == "on" else "on"
     switch_label = "연합 끄기" if federation == "on" else "연합 켜기"
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
@@ -201,5 +251,6 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</form>"
         '<p class="result" id="admin-federation-domain-blocks-result" role="status" aria-live="polite"></p>'
         "</section>"
+        f"{reading_html}"
     )
     return body, {"federation": federation, "domain_blocks": [domain_block_view(block) for block in blocks]}

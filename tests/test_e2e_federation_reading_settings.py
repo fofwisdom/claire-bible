@@ -55,3 +55,24 @@ def test_e2e_admin_and_owner_reading_settings(env):
     # null returns to the instance value; a body outside the model is refused.
     assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": None}).json()["effective_retention_days"] == 10
     assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 5, "x": 1}).status_code == 400
+
+
+def test_console_sections_have_the_fields_of_the_reading_settings(env):
+    """The console fields of unit FP4-5: the admin form shows the stored values (sizes in MiB), and the owner section has the retention form."""
+    c = env.client
+    assert c.request("PUT", READING, session=env.admin, json={"retention_days": 30, "media_image_max_bytes": 40 * 1024 * 1024, "context_fetch": "off"}).status_code == 200
+    page = c.request("GET", "/admin/federation", session=env.admin)
+    assert page.status_code == 200
+    assert 'id="admin-federation-reading-form"' in page.text
+    assert 'name="retention_days" class="pref-input" value="30" min="1" max="3650"' in page.text
+    assert 'name="media_image_max_bytes" class="pref-input" value="40" min="1" max="100"' in page.text and 'data-reading-scale="1048576"' in page.text
+    assert '<option value="off" selected>' in page.text
+    # Each setting of Section 10 has one field.
+    from claire.store import federation_client
+
+    for key in federation_client.READING_DEFAULTS:
+        assert f'name="{key}"' in page.text, key
+    owner_page = c.request("GET", "/settings/federation", session=env.alpha_session)
+    assert owner_page.status_code == 200 and "data-retention-form" in owner_page.text and 'name="retention_days"' in owner_page.text
+    # A member has no admin section.
+    assert "admin-federation-reading-form" not in owner_page.text

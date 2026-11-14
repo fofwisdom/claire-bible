@@ -83,7 +83,7 @@ Each use of Section 2 changes as follows:
 
 1. The export makes a Markdown file from an ingested AsciiDoc document (MX1: one document).
 2. The export is a read-only function: it writes nothing in the database.
-3. **Place in the user interface (owner, 2026-11-13).** The federation client in `/syndication` offers the export in the context menu (right click) of each item of the knowledge base view. Neither the design of `/syndication` nor the code has a context menu yet; the menu is part of FP4-5 (the client view). Until then only the backend exists.
+3. **Place in the user interface (owner, 2026-11-13).** The federation client in `/syndication` offers the export in the context menu (right click) of each item of the knowledge base view. The menu came with FP4-5 (2026-11-15): the context menu of a document in the knowledge base view, and the article menu of the reader, have "Markdown export".
 4. **Backend.** `GET /document/export?id=...&format=markdown` (access `read`, the rule of `GET /document`). The answer is `text/markdown; charset=utf-8` with `Content-Disposition: attachment`. `markdown` is the only format; another value gives 400.
 5. **Conversion (MX2).** `render/markdown_export.py` converts the AsciiDoc subset of the body prompt without a dependency: section titles, strong, emphasis, highlight (to strong), links, images, lists, tables (GFM), source, literal, quote, admonition, and sidebar blocks, thematic breaks, anchors, and cross references. A construct that it does not know goes out as text.
 6. **File (MX3).** A YAML front matter header (`title`, `source`, `date`, `summary`, `claire_document_id`), the title as a level 1 heading, then the body.
@@ -104,7 +104,7 @@ A published document sends its summary and its share link, not its body ([`FEDER
 | MD-2 | Replaced by RD25: one-time deletion of Markdown bodies and deletion of all Markdown code (Section 3.1). Done 2026-11-13. | The first start deletes a Markdown body once and keeps an AsciiDoc body (`tests/test_e2e_markdown_export.py`). | MD-1 | S |
 | MD-4 | Raw text of the fetchers and `table_budget.py` in AsciiDoc (Section 4). Done 2026-11-13. | A web page with a table gives an AsciiDoc table in the raw text, and the table budget counts it. | MD-1 | M |
 | MD-5 | Vision prompts and Telegram messages without Markdown (Section 4). Done 2026-11-13. | A bot message with `_` and `*` in a title arrives as text. | — | S |
-| MD-3 | Markdown export (Section 5). Backend done 2026-11-13; the context menu item comes with FP4-5. | An end-to-end test exports an AsciiDoc document as a Markdown file (`tests/test_e2e_markdown_export.py`). | MD-1, MX1 to MX3 | M |
+| MD-3 | Markdown export (Section 5). Backend done 2026-11-13; the context menu item done 2026-11-15 (FP4-5). | An end-to-end test exports an AsciiDoc document as a Markdown file (`tests/test_e2e_markdown_export.py`). | MD-1, MX1 to MX3 | M |
 
 Documentation: `ENVIRONMENT_VARIABLES.md` (`CLAIRE_RENDER_FORMAT`), `COMMANDS.md` (`--format`), `API_HTTP_CONTRACT.md` and `openapi.yaml` (export route of MD-3).
 

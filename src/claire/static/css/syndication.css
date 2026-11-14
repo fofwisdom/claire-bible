@@ -553,3 +553,92 @@ button.tt-link-dot.peer-dot:hover { background: rgba(26, 127, 55, 0.2); }
 @media (max-width: 640px) {
   .peer-mode-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* --- Stage bar and federation client view (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3, unit FP4-5) --- */
+body { --stage-collect: #8250df; --stage-ingest: #1a7f37; --stage-publish: #bc4c00; }
+[data-theme="dark"] body { --stage-collect: #d2a8ff; --stage-ingest: #7ee787; --stage-publish: #ffa657; }
+.synd-stagebar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--card-bg); }
+.synd-stagebar[hidden] { display: none; }
+.synd-stage { display: block; min-width: 0; padding: 6px 12px; border: 0; border-left: 3px solid var(--stage); border-right: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.synd-stage:last-child { border-right: 0; }
+.synd-stage:hover { background: var(--hover); }
+.synd-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.synd-stage.is-active { background: var(--active); box-shadow: inset 0 -3px 0 var(--stage); }
+.synd-stage b { color: var(--stage); }
+.synd-stage small { font-size: 11px; color: var(--muted); }
+.synd-stage-counts { display: block; min-height: 1.4em; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-only { display: none !important; }
+.synd-pub-filter { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.synd-pub-filter[hidden] { display: none; }
+.synd-context-menu { position: fixed; inset: auto; margin: 0; position-area: none; }
+.synd-note { margin: 0; padding: 4px 8px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.synd-note:empty { display: none; }
+.synd-notice { padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel-bg); font-size: 12.5px; color: var(--fg); flex-shrink: 0; }
+.synd-notice[hidden] { display: none; }
+.synd-empty { padding: 42px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+.synd-follow-form { display: flex; gap: 4px; padding: 4px 8px 2px 18px; }
+.synd-follow-form input { flex: 1; min-width: 0; height: 26px; }
+.synd-follow-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12.5px; }
+.synd-follow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.synd-post { padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.synd-post:hover { background: var(--hover); }
+.synd-post:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.synd-post.is-selected { background: var(--active); }
+.synd-post-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.synd-post-author { font-size: 13px; font-weight: 600; color: var(--muted); }
+.synd-post.is-unread .synd-post-author { color: var(--fg); font-weight: 700; }
+.synd-post-handle, .synd-post-time, .synd-post-boost { font-size: 11.5px; color: var(--muted); }
+.synd-post-time { font-variant-numeric: tabular-nums; }
+.synd-post-title { font-size: 13.5px; font-weight: 700; }
+.synd-post-text { font-size: 13px; line-height: 1.55; color: var(--fg); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.synd-post:not(.is-unread) .synd-post-text { opacity: 0.86; }
+.synd-post-cw { color: var(--muted); }
+.synd-post-actions { display: flex; align-items: center; gap: 6px; }
+.tt-btn.synd-mini { height: 23px; padding: 0 7px; font-size: 11px; }
+.synd-more { padding: 12px; text-align: center; }
+.synd-reader { padding: 14px 16px 28px; display: flex; flex-direction: column; gap: 12px; }
+.synd-reader-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.synd-thread-title { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.synd-entry { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); overflow: hidden; }
+.synd-entry.is-main { border-color: var(--accent); }
+.synd-entry-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.synd-entry-tools { display: inline-flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.synd-entry-title { margin: 0; padding: 8px 12px 0; font-size: 15px; }
+.synd-cw { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+.synd-cw.is-open { border-bottom: 1px dashed var(--border); }
+/* The page in the frame has one fixed light surface (usercontent.py): it cannot read the theme of this page. */
+.synd-frame { display: block; width: 100%; height: 260px; min-height: 120px; border: 0; background: #fff; resize: vertical; }
+.synd-dialog-form { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.synd-dialog-form label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.synd-dialog-form select, .synd-dialog-form input[type="text"] { width: 100%; height: 34px; }
+.synd-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.synd-dialog-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.synd-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+@media (max-width: 720px) {
+  .synd-stage small { display: none; }
+  .synd-stage { padding: 5px 8px; }
+  /* One column: streams, list, then the reader. The page scrolls as one. */
+  #panel-client .tt-tree { flex: none; }
+  #panel-client .tt-main-area { flex: none; flex-direction: column; overflow: visible; }
+  #panel-client .tt-stream, #panel-client .tt-reader-pane { flex: none; width: 100%; min-width: 0; max-width: none; max-height: none; overflow: visible; }
+  #panel-client .tt-headlines { overflow: visible; }
+}
+
+/* Command palette (HW-7). The same rules as in workspace.css: the two pages use one script module. */
+dialog:modal { overscroll-behavior: contain; }
+.cmd-palette { margin: min(12vh, 80px) auto auto; padding: 0; width: min(560px, calc(100vw - 24px)); max-width: 560px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); color: var(--fg); box-shadow: 0 18px 48px rgba(0, 0, 0, .35); }
+.cmd-palette::backdrop { background: rgba(0, 0, 0, .45); overflow: hidden; overscroll-behavior: contain; }
+.cmd-palette-head { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.cmd-palette-head input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; }
+.cmd-palette-head input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cmd-palette-list { max-height: min(54vh, 420px); overflow-y: auto; padding: 8px; }
+.cmd-palette-group { margin-bottom: 8px; }
+.cmd-palette-group:last-child { margin-bottom: 0; }
+.cmd-palette-group-title { padding: 4px 8px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.cmd-palette-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.cmd-palette-row:hover, .cmd-palette-row.is-active { background: var(--hover); border-color: var(--accent); }
+.cmd-palette-icon { flex: 0 0 auto; width: 18px; text-align: center; font-size: 12px; }
+.cmd-palette-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-palette-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.cmd-palette-empty { padding: 18px 12px; text-align: center; font-size: 13px; color: var(--muted); }
+.cmd-palette-foot { padding: 7px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }

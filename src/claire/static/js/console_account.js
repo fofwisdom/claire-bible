@@ -282,7 +282,50 @@
     return tr;
   }
 
+  // Retention of the received posts of this account (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). An empty choice is the instance value.
+  function bindFederationRetention() {
+    var card = document.querySelector("[data-federation-reading]");
+    if (!card) return;
+    var form = card.querySelector("[data-retention-form]");
+    var result = card.querySelector("[data-retention-result]");
+    var useInstance = form.elements.use_instance;
+    var days = form.elements.retention_days;
+    var label = card.querySelector("[data-retention-instance-label]");
+
+    function say(text, isError) {
+      result.textContent = text;
+      result.setAttribute("data-state", isError ? "error" : "ok");
+    }
+
+    function render(settings) {
+      var instance = Number(settings.instance_retention_days);
+      label.textContent = String(form.getAttribute("data-msg-instance")).replace("{days}", String(instance));
+      days.max = String(instance);
+      useInstance.checked = settings.retention_days == null;
+      days.value = String(settings.retention_days == null ? instance : settings.retention_days);
+      days.disabled = useInstance.checked;
+    }
+
+    useInstance.addEventListener("change", function () { days.disabled = useInstance.checked; });
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var value = useInstance.checked ? null : Number(days.value);
+      request("PUT", "/api/federation/settings", { retention_days: value }).then(function (r) {
+        if (!r.ok || !r.body) {
+          say(form.getAttribute("data-msg-failed") + (r.body && typeof r.body.detail === "string" ? " " + r.body.detail : ""), true);
+          return;
+        }
+        render(r.body);
+        say(form.getAttribute("data-msg-saved"), false);
+      }).catch(function () { say(form.getAttribute("data-msg-failed"), true); });
+    });
+    request("GET", "/api/federation/settings").then(function (r) {
+      if (r.ok && r.body) render(r.body);
+    }).catch(function () { say(form.getAttribute("data-msg-failed"), true); });
+  }
+
   function bindFederation() {
+    bindFederationRetention();
     var box = document.querySelector("[data-federation-followers]");
     if (!box) return;
     var tbody = box.querySelector("[data-followers-tbody]");

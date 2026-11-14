@@ -748,6 +748,10 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(activeSelect).toBeVisible();
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   await expect(page.locator('#prov-agy-bin')).toBeVisible();
+  const agyModelSelect = page.locator('#prov-agy-model');
+  await expect(agyModelSelect).toBeVisible();
+  await expect(page.locator('#prov-agy-effort')).toHaveCount(0);
+  await expect(agyModelSelect.locator('option[value="gemini-4-hydrogen-medium"]')).toHaveCount(1);
   await expect(page.locator('#prov-cdx-bin')).toBeVisible();
   await expect(page.locator('#prov-oai-url')).toBeVisible();
 
@@ -3217,8 +3221,9 @@ test.describe('stage strip (HW-8)', () => {
     const flow = page.locator('#home-flow');
     await expect(flow).toBeVisible();
     await expect(flow.locator('a.home-flow-stage')).toHaveCount(3);
-    for (const id of ['#home-flow-collect', '#home-flow-ingest', '#home-flow-publish']) {
-      await expect(page.locator(id)).toHaveAttribute('href', '/syndication');
+    // FP4-5: each stage of the strip goes to its stage of /syndication.
+    for (const stage of ['collect', 'ingest', 'publish']) {
+      await expect(page.locator('#home-flow-' + stage)).toHaveAttribute('href', '/syndication?stage=' + stage);
     }
     await expect(page.locator('#home-flow-collect-counts')).toHaveText('피드 2 · 안 읽음 5 · 팔로잉 3');
     const documents = await page.evaluate(() => fetch('stats').then(r => r.json()).then(d => d.documents));

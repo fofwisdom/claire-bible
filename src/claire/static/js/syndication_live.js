@@ -153,7 +153,10 @@
     checkedIds: new Set(),
     contentTabByDoc: {},
     activeArticleMenuDocId: null,
-    loading: false
+    loading: false,
+    // Stage 3 of the stage bar (FP4-5): "all", "published", or "unpublished". publishedKeys has "themeId:documentId" of each published document of the account.
+    pubFilter: "all",
+    publishedKeys: new Set()
   };
 
   function savePrefs() {
@@ -213,6 +216,7 @@
     if (state.treeSel.kind === "virtual" && state.treeSel.value === "dispatches") return [];
     const q = state.searchQuery.trim().toLowerCase();
     const list = (theme.documents || []).filter((doc) => {
+      if (state.pubFilter !== "all" && state.publishedKeys.has(`${theme.id}:${doc.id}`) !== (state.pubFilter === "published")) return false;
       const s = state.treeSel;
       if (s.kind === "virtual") {
         if (s.value === "unread" && !doc.unread) return false;
@@ -915,15 +919,7 @@
     const themeSel = document.getElementById("theme-selector");
     if (themeSel) {
       themeSel.addEventListener("change", (e) => {
-        state.themeId = e.target.value;
-        const nextPrefs = loadPrefs(state.themeId);
-        Object.keys(prefs).forEach((k) => { delete prefs[k]; });
-        Object.assign(prefs, nextPrefs);
-        state.layoutMode = prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel";
-        state.listStyle = prefs.listStyle;
-        state.treeSel = { kind: "virtual", value: "all", label: "전체 적재 문서 (All documents)" };
-        state.checkedIds.clear();
-        state.selectedDocId = null;
+        selectTheme(e.target.value);
         syncLiveThemeDb();
       });
     }
@@ -982,6 +978,8 @@
         else if (cmd === "toggle-unread") { markDocumentSeen(doc); renderAll(); }
         else if (cmd === "toggle-star") togglePinDocument(doc);
         else if (cmd === "dispatch") openDispatchModal(doc.id);
+        // MD-3: the Markdown export of a knowledge base document. The response is a file (Content-Disposition: attachment).
+        else if (cmd === "export-md") window.location.assign(`/document/export?id=${encodeURIComponent(doc.id)}&format=markdown&theme=${encodeURIComponent(themeRefOf(state.themeId))}`);
       });
     });
 
@@ -1039,6 +1037,8 @@
     document.addEventListener("keydown", (e) => {
       if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // The keys below are for the knowledge base view. The federation client view (stage 1) has its own keys.
+      if (document.body.getAttribute("data-stage") === "collect") return;
 
       if (e.key === "l" || e.key === "L") { cycleListStyle(); return; }
       if (e.key === "m" || e.key === "M") { toggleLayoutMode(); return; }
@@ -1076,7 +1076,45 @@
     renderTopBar();
     renderTree();
     renderStreamAndReader();
+    if (typeof bridge.onRender === "function") bridge.onRender();
   }
+
+  function selectTheme(themeKey) {
+    state.themeId = String(themeKey);
+    const nextPrefs = loadPrefs(state.themeId);
+    Object.keys(prefs).forEach((k) => { delete prefs[k]; });
+    Object.assign(prefs, nextPrefs);
+    state.layoutMode = prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel";
+    state.listStyle = prefs.listStyle;
+    state.treeSel = { kind: "virtual", value: "all", label: "전체 적재 문서 (All documents)" };
+    state.checkedIds.clear();
+    state.selectedDocId = null;
+  }
+
+  // The interface for the federation client view (syndication_client.js, FP4-5). The client and the knowledge base are two views of this page (design Section 1.3 rule 3).
+  const bridge = {
+    themes: THEMES,
+    state,
+    curTheme,
+    themeRefOf,
+    ticker,
+    renderAll,
+    reload: syncLiveThemeDb,
+    openDispatchModal,
+    // Shows one document of a theme in the knowledge base view.
+    showDocument(themeKey, docId) {
+      if (THEMES[String(themeKey)] && String(themeKey) !== String(state.themeId)) selectTheme(themeKey);
+      state.selectedDocId = docId;
+      return syncLiveThemeDb();
+    },
+    setPublishFilter(filter, publishedKeys) {
+      state.pubFilter = filter;
+      if (publishedKeys) state.publishedKeys = publishedKeys;
+      renderAll();
+    },
+    onRender: null
+  };
+  window.ClaireSyndication = bridge;
 
   bindGlobalControls();
   renderAll();

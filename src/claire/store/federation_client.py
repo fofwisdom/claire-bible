@@ -23,6 +23,7 @@ from typing import Any, Literal
 __all__ = [
     "FOLLOWING_STATES",
     "READING_DEFAULTS",
+    "READING_RANGES",
     "READING_SETTING_KEY",
     "Following",
     "ReadingSettingsError",
@@ -50,7 +51,14 @@ __all__ = [
     "validate_reading_update",
     "TIMELINE_CONTENT_MAX_BYTES",
     "TIMELINE_MAX_ATTACHMENTS",
+    "TimelineItem",
     "accounts_following_actor",
+    "count_timeline",
+    "get_timeline_item",
+    "link_timeline_item",
+    "list_timeline",
+    "set_timeline_flags",
+    "timeline_thread",
     "delete_announced_items",
     "delete_timeline_items",
     "is_following",
@@ -92,6 +100,8 @@ _READING_RANGES: dict[str, tuple[int, int]] = {
     "mention_rate_per_hour": (1, 10000),
     "auto_reply_hours": (1, 720),
 }
+# The ranges for a form (the console fields of FP4-5). ``validate_reading_update`` is the check.
+READING_RANGES: dict[str, tuple[int, int]] = dict(_READING_RANGES)
 _CONTEXT_FETCH_VALUES = ("on", "off")
 _FOLLOWING_COLUMNS = "id, account_id, request, actor_iri, actor_type, inbox_iri, shared_inbox_iri, display_name, state, created_at, updated_at"
 _MAX_REQUEST_LENGTH = 2048
@@ -452,3 +462,125 @@ def delete_announced_items(conn: sqlite3.Connection, object_iri: str, announcer_
         "AND NOT EXISTS (SELECT 1 FROM federation_following f WHERE f.account_id=federation_timeline_items.account_id AND f.actor_iri=federation_timeline_items.author_iri AND f.state='accepted')",
         (object_iri, announcer_iri),
     ).rowcount
+
+
+# --- Timeline of the owner (Sections 5.3 and 8, unit FP4-5) ----------------
+
+_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_theme_id, linked_doc_id, mention"
+TimelineFilter = Literal["unread", "starred", "mention"]
+# The thread view shows this number of items at most. The thread fetch of FP4-6 has its own limit (``context_max_items``).
+TIMELINE_THREAD_MAX = 200
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineItem:
+    id: int
+    account_id: int
+    object_iri: str
+    url: str | None
+    object_type: str
+    author_iri: str
+    author: dict[str, Any]
+    announced_by_iri: str | None
+    announced_by: dict[str, Any] | None
+    name: str | None
+    summary: str | None
+    sensitive: bool
+    content_html: str
+    language: str | None
+    attachments: list[dict[str, Any]]
+    context_iri: str | None
+    in_reply_to_iri: str | None
+    in_timeline: bool
+    published_at: float | None
+    updated_at: float | None
+    received_at: float
+    unread: bool
+    starred: bool
+    linked_theme_id: int | None
+    linked_doc_id: str | None
+    mention: bool
+
+
+def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
+    v = tuple(row)
+    return TimelineItem(
+        id=int(v[0]), account_id=int(v[1]), object_iri=str(v[2]), url=v[3], object_type=str(v[4]), author_iri=str(v[5]), author=json.loads(v[6]), announced_by_iri=v[7], announced_by=None if v[8] is None else json.loads(v[8]),
+        name=v[9], summary=v[10], sensitive=bool(v[11]), content_html=str(v[12]), language=v[13], attachments=json.loads(v[14]), context_iri=v[15], in_reply_to_iri=v[16], in_timeline=bool(v[17]),
+        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_theme_id=v[23], linked_doc_id=v[24], mention=bool(v[25]),
+    )
+
+
+def _filter_sql(filters: tuple[str, ...]) -> str:
+    for name in filters:
+        if name not in ("unread", "starred", "mention"):
+            raise ValueError(f"unknown timeline filter: {name!r}")
+    return "".join(f" AND {name}=1" for name in filters)
+
+
+def list_timeline(conn: sqlite3.Connection, account_id: int, *, limit: int, max_id: int | None = None, filters: tuple[str, ...] = ()) -> list[TimelineItem]:
+    """The items of the timeline of the account (``in_timeline`` = 1), newest first by ID. ``max_id`` gives the items with a lower ID (cursor, RD18)."""
+    if limit < 1:
+        raise ValueError("limit must be more than 0")
+    cursor = "" if max_id is None else " AND id<?"
+    params: tuple[Any, ...] = (account_id,) if max_id is None else (account_id, max_id)
+    rows = conn.execute(f"SELECT {_TIMELINE_COLUMNS} FROM federation_timeline_items WHERE account_id=? AND in_timeline=1{_filter_sql(filters)}{cursor} ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
+    return [_timeline_item(r) for r in rows]
+
+
+def count_timeline(conn: sqlite3.Connection, account_id: int) -> dict[str, int]:
+    """The numbers of the stage bar: the items of the timeline, the unread ones, the starred ones, the mentions, and the items that the owner took into a theme."""
+    row = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(unread), 0), COALESCE(SUM(starred), 0), COALESCE(SUM(mention), 0), COALESCE(SUM(mention AND unread), 0), COALESCE(SUM(linked_doc_id IS NOT NULL), 0) FROM federation_timeline_items WHERE account_id=? AND in_timeline=1",
+        (account_id,),
+    ).fetchone()
+    return {"total": int(row[0]), "unread": int(row[1]), "starred": int(row[2]), "mentions": int(row[3]), "unread_mentions": int(row[4]), "ingested": int(row[5])}
+
+
+def get_timeline_item(conn: sqlite3.Connection, account_id: int, item_id: int) -> TimelineItem | None:
+    row = conn.execute(f"SELECT {_TIMELINE_COLUMNS} FROM federation_timeline_items WHERE id=? AND account_id=?", (item_id, account_id)).fetchone()
+    return None if row is None else _timeline_item(row)
+
+
+def set_timeline_flags(conn: sqlite3.Connection, account_id: int, item_id: int, *, unread: bool | None = None, starred: bool | None = None) -> TimelineItem | None:
+    """Set ``unread`` and ``starred`` of an item of the account. ``None`` keeps a value. Return the item, or ``None`` when the account has no such item. The caller commits."""
+    if unread is not None:
+        conn.execute("UPDATE federation_timeline_items SET unread=? WHERE id=? AND account_id=?", (1 if unread else 0, item_id, account_id))
+    if starred is not None:
+        conn.execute("UPDATE federation_timeline_items SET starred=? WHERE id=? AND account_id=?", (1 if starred else 0, item_id, account_id))
+    return get_timeline_item(conn, account_id, item_id)
+
+
+def link_timeline_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, theme_id: int, doc_id: str) -> bool:
+    """Record the document that the owner made from the item (Section 4.1, P2). The item stays in the timeline. The caller commits."""
+    return conn.execute("UPDATE federation_timeline_items SET linked_theme_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (theme_id, doc_id, item_id, account_id)).rowcount == 1
+
+
+def timeline_thread(conn: sqlite3.Connection, account_id: int, item_id: int) -> list[TimelineItem]:
+    """All items of the thread of an item that the account has, oldest first (Section 6.5 rule 3: the thread view shows the items with ``in_timeline`` = 0 too).
+
+    The thread is the set of items that the reply links (``in_reply_to_iri``) and the FEP-7888 ``context`` join to the item. Only stored items are in it: the fetch of a thread from the remote server is unit FP4-6.
+    """
+    start = get_timeline_item(conn, account_id, item_id)
+    if start is None:
+        return []
+    found: dict[str, TimelineItem] = {start.object_iri: start}
+    queue = [start]
+    contexts: set[str] = set()
+    while queue and len(found) < TIMELINE_THREAD_MAX:
+        current = queue.pop()
+        clauses, params = ["in_reply_to_iri=?"], [current.object_iri]
+        if current.in_reply_to_iri is not None:
+            clauses.append("object_iri=?")
+            params.append(current.in_reply_to_iri)
+        if current.context_iri is not None and current.context_iri not in contexts:
+            contexts.add(current.context_iri)
+            clauses.append("context_iri=?")
+            params.append(current.context_iri)
+        rows = conn.execute(f"SELECT {_TIMELINE_COLUMNS} FROM federation_timeline_items WHERE account_id=? AND ({' OR '.join(clauses)}) LIMIT ?", (account_id, *params, TIMELINE_THREAD_MAX)).fetchall()
+        for row in rows:
+            item = _timeline_item(row)
+            if item.object_iri not in found and len(found) < TIMELINE_THREAD_MAX:
+                found[item.object_iri] = item
+                queue.append(item)
+    return sorted(found.values(), key=lambda i: (i.published_at if i.published_at is not None else i.received_at, i.id))
