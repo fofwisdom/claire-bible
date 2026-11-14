@@ -138,5 +138,6 @@
   "reader.marks.legend": "점선 밑줄 = 이 문서의 엔티티 이름과 일치하는 문자열",
   "reader.marks.limits_exceeded": "문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.",
   "reader.marks.unsupported": "사용 중인 브라우저가 CSS Custom Highlight API를 지원하지 않습니다.",
-  "reader.marks.disabled": "엔티티 마크가 비활성화되어 있습니다."
+  "reader.marks.disabled": "엔티티 마크가 비활성화되어 있습니다.",
+  "nav.syndication": "수집 · 적재 · 게시"
 }

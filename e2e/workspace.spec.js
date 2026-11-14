@@ -21,20 +21,19 @@ async function expectNoHorizontalOverflow(page) {
   expect(size.scroll).toBeLessThanOrEqual(size.client);
 }
 
-test('mobile primary view displays center tabs and graph, bottom bar is removed, and more menu is positioned to the right of theme button', async ({ page }) => {
+test('mobile primary view displays the bottom view bar and the graph, and the context button is to the right of the theme button', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 기본 보기가 센터 탭(centertabs) 및 그래프(netwrap)로 표시되는지 확인
-  await expect(page.locator('#centertabs')).toBeVisible();
-  await expect(page.locator('#mobile-doclist-btn')).toBeVisible();
-  await expect(page.locator('#centertab-graph')).toBeVisible();
-  await expect(page.locator('#centertab-reader')).toBeVisible();
-  await expect(page.locator('#centertab-presentation')).toBeVisible();
-  await expect(page.locator('#centertab-stream')).toBeVisible();
+  // 1. The bottom view bar shows. A launch on a narrow screen starts in the reader, thus the graph button opens the graph.
+  await expect(page.locator('#botnav')).toBeVisible();
+  await expect(page.locator('#botnav-list')).toBeVisible();
+  await expect(page.locator('#botnav-graph')).toBeVisible();
+  await expect(page.locator('#botnav-reader')).toBeVisible();
+  await page.locator('#botnav-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
 
   // 2. 바텀 바 및 단추 제거 확인
@@ -60,25 +59,23 @@ test('mobile primary view displays center tabs and graph, bottom bar is removed,
   await expect(detailPane).toBeVisible();
   await page.locator('#detailclose').click();
   await expect(detailPane).toBeHidden();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 5. 센터탭에서 본문 읽기(reader) 본문 영역 표시 (팝업 모달이 아닌 중앙 작업 영역)
-  const tabReader = page.locator('#centertab-reader');
+  const tabReader = page.locator('#botnav-reader');
   await tabReader.click();
 
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 6. 리더 닫기 버튼 클릭 시 다시 센터 뷰로 복귀
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 7. 센터탭에서 프레젠테이션 및 그래프 전환
-  await page.locator('#centertab-presentation').click();
-  await expect(page.locator('#presentationwrap')).toBeVisible();
-  await page.locator('#centertab-graph').click();
+  await page.locator('#botnav-graph').click();
   await expect(page.locator('#netwrap')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
@@ -312,13 +309,14 @@ test('mobile history back navigation closes modal and returns to previous view w
   await waitForClaire(page);
   await expectNoHorizontalOverflow(page);
 
-  // 1. 기본 보기가 센터 뷰(그래프)이고 modal은 닫혀있음
-  await expect(page.locator('#centertabs')).toBeVisible();
+  // 1. A launch on a narrow screen starts in the reader. The test starts from the graph view with no modal.
+  await expect(page.locator('#botnav')).toBeVisible();
+  await page.locator('#botnav-graph').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeHidden();
 
-  // 2. 왼쪽 드로어(#mobile-doclist-btn) 열기
-  await page.locator('#mobile-doclist-btn').click();
+  // 2. 왼쪽 드로어(#botnav-list) 열기
+  await page.locator('#botnav-list').click();
   const docsDrawer = page.locator('#docs');
   await expect(docsDrawer).toBeVisible();
   expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(true);
@@ -326,7 +324,7 @@ test('mobile history back navigation closes modal and returns to previous view w
   // 3. 브라우저 뒤로가기 실행 -> 드로어 닫히고 센터 뷰 유지
   await page.goBack();
   expect(await page.locator('body').evaluate(body => body.classList.contains('docdrawer-open'))).toBe(false);
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 4. 상단 우측의 상세 메뉴(#morebtn) 열기
   await page.locator('#morebtn').click();
@@ -336,14 +334,14 @@ test('mobile history back navigation closes modal and returns to previous view w
   // 5. 브라우저 뒤로가기 실행 -> 드로어 닫히고 센터 뷰 유지
   await page.goBack();
   await expect(detailPane).toBeHidden();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 6. 리더 열고 ✕ 닫기 단추로 닫기
-  await page.locator('#centertab-reader').click();
+  await page.locator('#botnav-reader').click();
   await expect(reader).toBeVisible();
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -356,15 +354,15 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await expectNoHorizontalOverflow(page);
 
   // 1. 센터탭에서 본문 클릭하여 본문 영역 표시
-  await page.locator('#centertab-reader').click();
+  await page.locator('#botnav-reader').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 2. 리더 닫기 버튼(✕) 클릭하여 리더 닫기
   await page.locator('#reader .rclose').click();
   await expect(reader).toBeHidden();
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   // 3. 상단의 햄버거 메뉴(#morebtn) 클릭
   const moreBtn = page.locator('#morebtn');
@@ -383,7 +381,7 @@ test('mobile reader can be opened and closed, and drawer menu opens above docume
   await expect(backdrop).toBeHidden();
 
   // 6. 센터 뷰가 계속 활성화되어 있는지 확인
-  await expect(page.locator('#centertabs')).toBeVisible();
+  await expect(page.locator('#botnav')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
@@ -396,14 +394,14 @@ test('mobile reader extends to bottom and displays text to the end without obstr
   await expectNoHorizontalOverflow(page);
 
   // 1. 리더 모달 열기
-  await page.locator('#centertab-reader').click();
+  await page.locator('#botnav-reader').click();
   const reader = page.locator('#reader');
   await expect(reader).toBeVisible();
 
-  // 2. 바텀 바가 없으므로 리더 박스가 화면 바닥까지 도달하고 가로 스크롤 없음
+  // 2. The reader box goes down to the bottom view bar (52px), with no horizontal scroll.
   const readerBox = await reader.boundingBox();
   expect(readerBox).not.toBeNull();
-  expect(readerBox.y + readerBox.height).toBeGreaterThanOrEqual(840);
+  expect(readerBox.y + readerBox.height).toBeGreaterThanOrEqual(790);
 
   const rbodyMetrics = await page.evaluate(() => {
     const b = document.getElementById('rbody');
@@ -1161,7 +1159,7 @@ test('heatmap matrix provides direct reader transition, compact headers, and ref
   expect(pageErrors).toEqual([]);
 });
 
-test('mobile view features: single-row center tabs, left doc drawer, and inline reader without popup', async ({ page }) => {
+test('mobile view features: bottom view bar, left doc drawer, and inline reader without popup', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1169,15 +1167,13 @@ test('mobile view features: single-row center tabs, left doc drawer, and inline 
   await expectNoHorizontalOverflow(page);
 
   // 1. Verify center tabs are single-row nowrap
-  const centerTabs = page.locator('#centertabs');
+  const centerTabs = page.locator('#botnav');
   await expect(centerTabs).toBeVisible();
-  const tabsFlexWrap = await centerTabs.evaluate(el => window.getComputedStyle(el).flexWrap);
-  expect(tabsFlexWrap).toBe('nowrap');
 
   // 2. Verify leftmost button in center tabs is the mobile document list button
-  const mobileDocBtn = page.locator('#mobile-doclist-btn');
+  const mobileDocBtn = page.locator('#botnav-list');
   await expect(mobileDocBtn).toBeVisible();
-  const readerTabBtn = page.locator('#centertab-reader');
+  const readerTabBtn = page.locator('#botnav-reader');
   const mobileDocBox = await mobileDocBtn.boundingBox();
   const readerTabBox = await readerTabBtn.boundingBox();
   expect(mobileDocBox).not.toBeNull();
@@ -1211,7 +1207,7 @@ test('mobile view features: single-row center tabs, left doc drawer, and inline 
   expect(readerPosition).toBe('relative');
 
   // 7. Switching to graph via center tab works cleanly
-  await page.locator('#centertab-graph').click();
+  await page.locator('#botnav-graph').click();
   await expect(reader).toBeHidden();
   await expect(page.locator('#netwrap')).toBeVisible();
 
@@ -2306,7 +2302,9 @@ test('narrow screen botnav switches views and opens list drawer and context bott
 
   const botnav = page.locator('#botnav');
   await expect(botnav).toBeVisible();
-  await expect(page.locator('#bar #centerhead')).toBeHidden();
+  // The view buttons are in the bottom bar. The search field of the view stays in the header.
+  await expect(page.locator('#centertab-group')).toBeHidden();
+  await expect(page.locator('#q')).toBeVisible();
   await expect(page.locator('#botnav-home')).toBeVisible();
   await expect(page.locator('#botnav-list')).toBeVisible();
   await expect(page.locator('#botnav-reader')).toBeVisible();
@@ -2381,7 +2379,7 @@ test('home overview knowledge map lists, entity context selection, mini map, and
   await expect(hubRows.nth(1)).toContainText('8');
 
   const bridgeRows = page.locator('#home-map-bridges-rows .home-map-row');
-  await expect(bridgeRows).toHaveCount(5);
+  await expect(bridgeRows).toHaveCount(4);
   await expect(bridgeRows.nth(0)).toContainText('목록 엔티티 01');
   await expect(bridgeRows.nth(0)).toContainText('40');
 
@@ -2405,7 +2403,8 @@ test('home overview knowledge map lists, entity context selection, mini map, and
   await expect(page.locator('#netwrap')).toBeVisible();
 
   // Authenticate as owner and check the maintenance card while the format banner stays hidden.
-  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  // A login token of the seed database is for one login. This test has its own token.
+  await page.goto('/?t=e2e-home-token-0123456789abcdef012', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   await expect(page.locator('#home-maint')).toBeVisible();
   await expect(page.locator('#format-warn-banner')).toBeHidden();
@@ -2705,6 +2704,9 @@ test.describe('document context panel (HW-3)', () => {
     await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
     const rbody = page.locator('#rbody');
     await expect(rbody).toBeVisible();
+    // The reader empties #rbody while the document loads. The baseline is the rendered text, not the empty state.
+    await expect(page.locator('#rbody .doc-content').first()).toBeVisible();
+    await expect(page.locator('#reader')).toHaveAttribute('aria-busy', 'false');
 
     // T1: Strict zero DOM mutation verification on #rbody
     const baselineInnerHTML = await page.evaluate(() => document.getElementById('rbody').innerHTML);
@@ -2904,7 +2906,7 @@ test.describe('document context panel (HW-3)', () => {
     await expect(hubRows.nth(1)).toContainText('8');
 
     const bridgeRows = page.locator('#ctx-insights-bridges-rows .ctx-insight-row');
-    await expect(bridgeRows).toHaveCount(5);
+    await expect(bridgeRows).toHaveCount(4);
     await expect(bridgeRows.nth(0)).toContainText('목록 엔티티 01');
     await expect(bridgeRows.nth(0)).toContainText('40');
 
@@ -3005,9 +3007,11 @@ test.describe('document context panel (HW-3)', () => {
     await page.locator('#ctx-tab-entities').click();
     await docEntRows.first().click();
     await expect(page.locator('#panel .backlink')).toBeVisible();
+    // An earlier test can change the primary label of this entity (alias promotion), thus the expected name comes from the panel.
+    const selectedEntityName = (await page.locator('#panel h2').innerText()).trim();
     await page.locator('#centertab-graph').click();
     await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
-    await expect(page.locator('#panel h2')).toContainText('엔티티 A');
+    await expect(page.locator('#panel h2')).toHaveText(selectedEntityName);
     await expect(page.locator('#panel .backlink')).toBeHidden();
     await page.locator('#centertab-reader').click();
     await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');

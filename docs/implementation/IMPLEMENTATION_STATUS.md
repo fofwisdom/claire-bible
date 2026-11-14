@@ -50,7 +50,16 @@
 3. 출처 문서 행의 출처 유형 배지는 원래 값(`web`, `file`)을 보인다. 번역은 i18n 단위 IP2-2의 범위다.
 4. 출처 문서 요약은 양쪽 정렬이다. CJK 문장에서 간격이 어절 사이에만 몰리지 않도록 `.srcsum`만 `word-break:normal`이다(본문 기본값은 `keep-all`).
 
-### 1.4 보류 결정 [결정]
+### 1.4 홈 화면과 문맥 패널의 제약 [코드]
+
+1. 적재·재생성·조사·종합의 양식과 결과는 문맥 패널(`#panel`)에 그린다. 이때 `openDetailPane()`이 `contextPinned`를 켜므로 홈 뷰에서도 패널이 열린다.
+2. 좁은 화면에서 엔티티를 고르면 문맥 시트가 열린다. 목록 드로어가 열려 있을 때는 열지 않는다(엔티티 목록의 행이 상세를 보인다).
+3. 지식 맵의 「브리지」 목록은 문서가 0개인 엔티티를 넣지 않는다.
+4. 엔티티 마크의 클릭·호버 판정은 캐럿 위치와 범위 사각형을 함께 본다. 줄 끝 여백이나 문단 옆 여백은 마크로 판정하지 않는다. 마크 후보는 엔티티 이름과 별칭뿐이고 식별자는 후보가 아니다.
+5. 상단 바의 `/syndication` 링크(`#syndlink`)는 owner에게만 보인다. 단계 띠와 건수는 HW-8이다.
+6. 좁은 화면(≤720px)에서 뷰 전환은 하단 바(`#botnav`)에 있고, 뷰별 검색창은 상단 바의 둘째 줄에 남는다. 하단 바에는 프레젠테이션과 의사결정 스트림 단추가 없다.
+
+### 1.5 보류 결정 [결정]
 
 | 항목 | 결정 (2026-11-13) |
 | :--- | :--- |
@@ -66,14 +75,16 @@
 
 ## 3. E2E 테스트 기준선 [실측]
 
-2026-11-13 기준 `e2e/workspace.spec.js` 전체 실행에서 아래 테스트가 이미 실패한다. 이 실패는 다른 작업의 결과가 아니다. 새 실패만 조사한다.
+2026-11-15 기준 `e2e/workspace.spec.js` 전체 실행(46개)에서 아래 테스트가 이미 실패한다. 이 실패는 다른 작업의 결과가 아니다. 새 실패만 조사한다.
 
 | 테스트 | 상태 |
 | :--- | :--- |
-| 모바일 테스트 5개 (`mobile primary view …`, `mobile history back navigation …`, `mobile reader can be opened and closed …`, `mobile reader extends to bottom …`, `mobile view features …`) | `waitForClaire`에서 멈춘다. 원인 [미검증] |
+| `shared document page allows scrolling …` | 실패. 헤딩 마커가 5개 이상이어야 하는데 2개다. 홈 개편 전 커밋(`60fe8f87`)에서도 같은 결과다. 원인 [미검증] |
 | `telegram bot ingest dynamically suspends active graph …` | 실패. 원인 [미검증] |
 | `Unified Ingest Cockpit renders 5-stage horizontal milestone stepper …` | 간헐 실패 |
 | `accessing Claire Bible during active ingest boots directly into heatmap …`, `provider management lives in the admin console …` | 전체 실행에서만 간헐 실패하고 단독 실행은 통과한다. 앞 테스트의 상태가 넘어오는 것으로 보인다 [미검증] |
 
+- 모바일 테스트 5개(`mobile primary view …` 등)는 하단 바(`#botnav`) 기준으로 고쳤고 통과한다. 좁은 화면으로 시작하면 첫 화면이 본문 뷰다(`initialCenterView()`).
+- 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
 - 실행: `cd e2e && npx playwright test`. Playwright가 `e2e/seed_db.py`로 시드 DB를 만들고 포트 8766에 서버를 띄운다(시작 제한 30초).
 - 전체 `pytest`는 모두 통과한다. 시간이 약 9분 걸리고, 임시 파일이 `/tmp/pytest-of-<user>`에 실행마다 1GB 가까이 쌓인다. `/tmp`가 작은 환경에서는 `TMPDIR`과 `--basetemp`를 다른 볼륨으로 준다(`--basetemp`는 `TMPDIR` 안에 두어야 asciidoctor 테스트가 통과한다).

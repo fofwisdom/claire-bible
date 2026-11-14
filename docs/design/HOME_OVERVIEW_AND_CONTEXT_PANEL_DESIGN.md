@@ -160,7 +160,7 @@ From 721px to 1100px (`compactMQ`): the context panel is an overlay above the ce
 ### 4.7 Home Entry and History
 
 - `resolveHomeView()` returns `'home'`, `'job'`, or `'home+banner'`. The rules for the active job do not change.
-- `enterHome()` applies the `home` view. The graph engine starts only when the graph view or the mini map needs it (`initGraph()` is not called for the home view).
+- `enterHome()` applies the `home` view. `initGraph()` runs also for the home view, because the lists and the counts of the home view use the graph data. The graph pane is hidden, thus the engine does not run its render loop until the graph view opens.
 - `HOME_TITLE` comes from the catalog key `home.title`. The history state keeps the `pane` field and gets the view name `home`.
 - A deep link (`?doc=`) opens the reader as today.
 
@@ -187,7 +187,7 @@ Three lists of five entities each. A click selects the entity and opens the cont
 | List | Source | Rule |
 | :--- | :--- | :--- |
 | Hubs | `degree` of the graph nodes | Highest first |
-| Bridges | `sources.length` of the graph nodes | Highest first; equal values in the order of `degree` |
+| Bridges | `sources.length` of the graph nodes | Highest first; equal values in the order of `degree`. An entity that is in no document is not in the list. |
 | Added in the last 7 days | `created_at` of the graph nodes (new field, Section 9) | Newest first; the list is not shown when no node is in the period |
 
 Mini map: one static drawing of the node positions on a 2D canvas, without a render loop and without input. A click opens the graph view. The positions come from the layout code of the engine without its renderer (`Simulation`: `setTopology()`, `snapToHomes()`, `warmup()`). **[code]** The simulation runs without a `Network` instance.
@@ -213,7 +213,7 @@ A row for failed ingestions needs a count that `GET /stats` does not give by sta
 
 Three links in the order of the `/syndication` pipeline (RD14): collection, ingestion, publication. The home only links to the stages; the federation client stays in `/syndication` (RD10).
 
-The counts of the strip are the counts of the stage bar that unit FP4-5 builds. The strip is unit HW-8 and comes after FP4-5. Until then the header has one link to `/syndication`, without a count.
+The counts of the strip are the counts of the stage bar that unit FP4-5 builds. The strip is unit HW-8 and comes after FP4-5. Until then the header has one link to `/syndication` for the owner (`#syndlink`), without a count.
 
 ---
 
@@ -362,7 +362,7 @@ Each unit updates [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.m
 ## 10. Localization and Accessibility
 
 1. **Catalog keys from the start (ID5).** Each new text of this design is a key in `static/locales/en.json` and `ko.json`, under `home.*`, `context.*`, and `nav.*`. The text that this design does not touch stays for unit IP2-3. IP2-3 comes after the units of this design for the header, the view navigation, and the right pane, because this design replaces them.
-2. **Dialogs.** The ingest dialog and the command palette are `<dialog>` elements opened with `showModal()`, with a name (`aria-labelledby` or `aria-label`) and `autofocus` on the first field. The browser gives the focus limits, the Escape key, and the return of the focus; the page adds no `role="dialog"`, no focus trap, and no Escape handler for them. `closedby="any"` gives the close by a click outside; a browser without `closedby` gets a click handler that checks the rectangle of the dialog. `dialog:modal` and `dialog::backdrop` have `overscroll-behavior: contain`, thus the page behind does not scroll. The page does not lock the scroll on `html` or `body`.
+2. **Dialogs.** The command palette is a `<dialog>` element opened with `showModal()`, with a name (`aria-labelledby` or `aria-label`) and `autofocus` on the first field. The ingest form is not a dialog: it stays in the context panel, as at the base commit. The browser gives the focus limits, the Escape key, and the return of the focus; the page adds no `role="dialog"`, no focus trap, and no Escape handler for them. `closedby="any"` gives the close by a click outside; a browser without `closedby` gets a click handler that checks the rectangle of the dialog. `dialog:modal` and `dialog::backdrop` have `overscroll-behavior: contain`, and the backdrop has `overflow: hidden` (without it the backdrop is not a scroll container and the rule has no effect), thus the page behind does not scroll. The page does not lock the scroll on `html` or `body`.
 3. **Cards.** The center pane is a size container (`container-type: inline-size`). The card grid is one column by default and gets its columns from container queries, because the width of the center pane changes with the two side panes.
 4. **Motion.** The transitions of the panes stop with `prefers-reduced-motion`.
 5. **Selected state.** A selected tab or switch button has a line or a border change, not only a color. The active view button has a visible outline in forced colors mode.

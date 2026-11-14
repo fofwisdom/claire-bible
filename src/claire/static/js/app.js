@@ -683,8 +683,9 @@ let graphStabilized = false;
 let contextUserOpen = true, contextPinned = false;
 try{ if(getAccountStorage('claireContextOpen') === 'false') contextUserOpen = false; }catch(_){}
 function hasContext(){
-  if(centerView === 'home') return Boolean(selectedNodeId);
+  // A form or a result in the panel (ingest, regenerate, research, synthesis) is a context in each view, also in the home view.
   if(contextPinned || selectedNodeId) return true;
+  if(centerView === 'home') return false;
   return Boolean(activeDoc || curReaderDoc || centerView === 'graph');
 }
 function isContextOpen(){ return hasContext() && contextUserOpen; }
@@ -2086,7 +2087,8 @@ function loadNode(id, hidePop=true){
   if(hidePop) hideNodePop();
   selectedNodeId = id;
   setContextUserOpen(true);
-  if((compactMQ.matches || mobileMQ.matches) && !drawerOpen && !detailOpen){
+  // Narrow screens: the selection opens the context sheet, but not from the list drawer. A row of the entity list shows its detail in the row, and the list stays open.
+  if((compactMQ.matches || mobileMQ.matches) && !drawerOpen && !detailOpen && !docDrawerOpen){
     openDrawer(true);
   }
   if(net) net.selectNodes([id]);   // 클릭 inspect — hover 는 더 이상 패널을 안 쓴다(팝업으로 분리)
@@ -5915,6 +5917,9 @@ function setAccessScope(scope, reason){
       clBtn.textContent = IS_ADMIN ? '🛠️' : '⚙️';
     }
   }
+  // The link to /syndication (collection, ingestion, publication) is for the owner. The stage strip with counts is unit HW-8.
+  const syndLink = document.getElementById('syndlink');
+  if(syndLink) syndLink.hidden = !canWrite();
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -6411,7 +6416,8 @@ function getGraphInsightLists(){
   if(!realNodes.length) return null;
   const byLabel = (a, b) => String(a.label || a.id || '').localeCompare(String(b.label || b.id || ''));
   const hubs = [...realNodes].sort((a, b) => ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
-  const bridges = [...realNodes].sort((a, b) => (((b.sources || []).length) - ((a.sources || []).length)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
+  // An entity that is in no document is not a bridge.
+  const bridges = realNodes.filter(n => (n.sources || []).length > 0).sort((a, b) => (((b.sources || []).length) - ((a.sources || []).length)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
   const cutoff = (Date.now() / 1000) - 7 * 86400;
   const recent = realNodes.filter(n => Number(n.created_at || 0) >= cutoff).sort((a, b) => (Number(b.created_at || 0) - Number(a.created_at || 0)) || ((b.degree || 0) - (a.degree || 0)) || byLabel(a, b)).slice(0, 5);
   return { hubs, bridges, recent };
@@ -6595,8 +6601,8 @@ function loadHomeStats(){
 // --- Manage menu (design Section 4.1): a popover with role=menu. The browser gives the light dismiss and the Escape key; this code gives the position and the arrow keys. ---
 function syncManageButton(){
   const btn = document.getElementById('managebtn'); if(!btn) return;
-  // The menu has an item only for a user who can ingest, or in the graph view (the path tool).
-  btn.hidden = !(canIngest() || centerView === 'graph');
+  // The menu always has an item: the command palette is for each user.
+  btn.hidden = false;
 }
 (function(){
   const menu = document.getElementById('moremenu'), btn = document.getElementById('managebtn');

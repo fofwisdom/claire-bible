@@ -138,5 +138,6 @@
   "reader.marks.legend": "a dotted underline = a string that is equal to a name of an entity of this document",
   "reader.marks.limits_exceeded": "Entity marks are off for this document (limit exceeded)",
   "reader.marks.unsupported": "Entity marks are not supported in this browser",
-  "reader.marks.disabled": "Entity marks are turned off"
+  "reader.marks.disabled": "Entity marks are turned off",
+  "nav.syndication": "Collection, ingestion, and publication"
 }

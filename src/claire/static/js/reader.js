@@ -1899,9 +1899,9 @@ function collectEntityCandidates(dc){
 
   dc.nodes.forEach(n => {
     const names = [];
+    // Only a name of the entity is a candidate. The identifier is not a name (PRINCIPLES.md C1).
     if(n.label) names.push(n.label);
     else if(n.name) names.push(n.name);
-    else if(n.id) names.push(n.id);
     if(Array.isArray(n.aliases)){
       n.aliases.forEach(a => { if(a && typeof a === 'string') names.push(a); });
     }
@@ -2128,6 +2128,23 @@ function getCaretPosition(e){
   return null;
 }
 
+// The mark at a pointer position, or null. The caret functions give the nearest character also for a point in the margin or after the end of a line, thus the point must be in the rectangle of the range.
+function readerMarkAtPoint(e){
+  if(!readerActiveMarkRanges.length) return null;
+  const caret = getCaretPosition(e);
+  if(!caret) return null;
+  for(let i = 0; i < readerActiveMarkRanges.length; i++){
+    const item = readerActiveMarkRanges[i];
+    if(item.textNode !== caret.node || caret.offset < item.start || caret.offset > item.end) continue;
+    const rects = item.range.getClientRects();
+    for(let k = 0; k < rects.length; k++){
+      const r = rects[k];
+      if(e.clientX >= r.left - 1 && e.clientX <= r.right + 1 && e.clientY >= r.top - 1 && e.clientY <= r.bottom + 1) return item;
+    }
+  }
+  return null;
+}
+
 function setupReaderMarkListeners(){
   if(readerMarksInitializedListeners) return;
   const body = document.getElementById('rbody');
@@ -2139,19 +2156,7 @@ function setupReaderMarkListeners(){
       if(body.style.cursor === 'pointer') body.style.cursor = '';
       return;
     }
-    const caret = getCaretPosition(e);
-    if(!caret){
-      if(body.style.cursor === 'pointer') body.style.cursor = '';
-      return;
-    }
-    let hitItem = null;
-    for(let i = 0; i < readerActiveMarkRanges.length; i++){
-      const item = readerActiveMarkRanges[i];
-      if(item.textNode === caret.node && caret.offset >= item.start && caret.offset <= item.end){
-        hitItem = item;
-        break;
-      }
-    }
+    const hitItem = readerMarkAtPoint(e);
     if(hitItem){
       body.style.cursor = 'pointer';
       if(readerHoverMarkEntityId !== hitItem.entityId){
@@ -2186,16 +2191,7 @@ function setupReaderMarkListeners(){
     const sel = window.getSelection();
     if(sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
 
-    const caret = getCaretPosition(e);
-    if(!caret) return;
-    let hitItem = null;
-    for(let i = 0; i < readerActiveMarkRanges.length; i++){
-      const item = readerActiveMarkRanges[i];
-      if(item.textNode === caret.node && caret.offset >= item.start && caret.offset <= item.end){
-        hitItem = item;
-        break;
-      }
-    }
+    const hitItem = readerMarkAtPoint(e);
     if(hitItem){
       if(typeof selectDocEntity === 'function'){
         selectDocEntity(hitItem.entityId);

@@ -647,6 +647,7 @@
 /* --- Header view navigation, home view, list switch, and context panel on demand (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, unit HW-1) --- */
   .lineicon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
   .bar-icon-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:30px;padding:0 6px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:background .15s ease}
+  .bar-icon-btn[hidden]{display:none}
   .bar-icon-btn:hover{background:var(--hover)}
   .bar-icon-btn[aria-expanded="true"]{background:var(--active);border-color:var(--accent);color:var(--accent)}
   .bar-icon-btn:disabled{opacity:.4;cursor:default}
@@ -679,6 +680,7 @@
   .list-switch-btn{height:24px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer}
   .list-switch-btn[aria-pressed="true"]{background:var(--card-bg);color:var(--fg);border-color:var(--accent2);border-bottom-width:3px}
   #docs[data-list="docs"] #listtitle,#docs[data-list="entities"] #listtitle{margin-right:auto}
+  .docsearch-stat-row #stat{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Home view */
   #homewrap{width:100%;height:100%;overflow:auto;background:var(--bar-bg);container-type:inline-size;container-name:home}
   .home-inner{max-width:1080px;margin:0 auto;padding:18px 22px 40px}
@@ -798,7 +800,11 @@
   }
   /* Narrow screens: view navigation moves to #botnav at the bottom. */
   @media (max-width:720px){
-    #bar #centerhead,#listtoggle,#ctxbtn{display:none}
+    /* The view buttons are in the bottom bar. The search field of the view stays, as the second row of the header. */
+    #bar{flex-wrap:wrap}
+    #bar #centerhead{order:10;flex:1 0 100%}
+    #bar #centerhead #centertab-group,#listtoggle,#ctxbtn{display:none}
+    #bar #centerhead #netsearch{max-width:none;width:100%}
     #botnav{position:fixed;left:0;right:0;bottom:0;z-index:53;display:grid;grid-template-columns:repeat(5,1fr);height:calc(52px + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);background:var(--bar-bg);border-top:1px solid var(--border);box-sizing:border-box}
     #botnav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:44px;padding:4px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:500;line-height:1.1;cursor:pointer}
     #botnav button:hover,#botnav button:focus-visible{color:var(--fg);background:var(--hover)}
@@ -807,7 +813,9 @@
     .home-inner{padding:14px 12px 32px}
   }
   /* Modal dialogs and command palette (HW-7) */
-  dialog:modal,dialog::backdrop{overscroll-behavior:contain}
+  /* The backdrop is a scroll container (overflow:hidden); without it overscroll-behavior has no effect there and the page behind scrolls. */
+  dialog:modal{overscroll-behavior:contain}
+  dialog::backdrop{overflow:hidden;overscroll-behavior:contain}
   .cmd-palette{margin:min(12vh,80px) auto auto;padding:0;width:min(560px,calc(100vw - 24px));max-width:560px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--fg);box-shadow:0 18px 48px rgba(0,0,0,.35)}
   .cmd-palette::backdrop{background:rgba(0,0,0,.45)}
   .cmd-palette-head{padding:10px 12px;border-bottom:1px solid var(--border)}
