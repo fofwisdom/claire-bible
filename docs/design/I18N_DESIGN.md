@@ -482,6 +482,8 @@ Each unit ends with passing tests and one commit, following the repository work-
 | **IP3-2** | **Done 2026-11-14.** ID6: CLI human output, errors, help, and prompts in ASD-STE100 English (`cli.py`, `ops/cb_manuscript.py`); no `--lang` option; `--json` `AgentOutput` contract unchanged | No Korean text in the human output, help, and errors of `claire` and `cb-manuscript`; `test_agent_cli.py` passes unchanged. | — | M |
 | **IP3-3** | End-to-end i18n test (`tests/test_e2e_i18n.py`), implementation docs (`ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `SCHEMA_VERSIONING.md`, `ENVIRONMENT_VARIABLES.md`, `openapi.yaml`), full `./scripts/ci.sh` gate | E2E test verifies default `en`, `Accept-Language: ko`, `/settings/account` persistence, and logout fallback. `./scripts/ci.sh` passes with 0 failures. | IP2-2, IP2-3, IP3-1, IP3-2 | M |
 
+Order (owner, 2026-11-14, HD9): the home units HW-1 to HW-7 of [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) come before the IP units that are not done. Those units write their new text with catalog keys (ID5). IP2-3 does not localize the header, the view navigation, and the right pane of `index.html` before those units replace them.
+
 ### 10.3 Testing Policy Alignment
 
 Following the repository testing rules:

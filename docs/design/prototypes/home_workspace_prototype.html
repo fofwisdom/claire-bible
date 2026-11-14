@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Claire Bible — 이용자 홈 시각 프로토타입 (읽기 중심 홈 · 문맥 패널 · 지도)</title>
+<meta name="robots" content="noindex, nofollow"/>
+<style>
+/* Tokens: the same values as src/claire/static/css/theme.css. The stage colors (--client, --kb, --pub) are the same as federation_client_prototype.html. */
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--bar-bg:#f6f8fa;--border:#d0d7de;--panel-bg:#f6f8fa;--accent:#0969da;--accent2:#1a7f37;--chip-bg:#eaeef2;--hover:#eef1f4;--active:#ddf4ff;--card-bg:#ffffff;--mark-bg:#fff8c5;--mark-fg:#633c01;--btn-bg:#1f883d;--btn-fg:#fff;--sec-bg:#eaeef2;--sec-fg:#24292f;--rel:#9a6700;--shadow:rgba(31,35,40,.28);--danger:#cf222e;--client:#8250df;--kb:#1a7f37;--pub:#bc4c00;--side-w:280px;--insp-w:348px}
+[data-theme=dark]{--bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;--bar-bg:#161b22;--border:#2a2f37;--panel-bg:#10151c;--accent:#58a6ff;--accent2:#7ee787;--chip-bg:#1f2937;--hover:#1b222c;--active:#1f2937;--card-bg:#161b22;--mark-bg:#4d3800;--mark-fg:#ffdf5d;--btn-bg:#238636;--sec-bg:#30363d;--sec-fg:#d7dbe0;--rel:#d29922;--shadow:rgba(1,4,9,.6);--danger:#ff7b72;--client:#d2a8ff;--kb:#7ee787;--pub:#ffa657}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.5 'Noto Sans KR','Noto Sans Korean',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;word-break:keep-all;overflow-wrap:break-word}
+body{display:grid;grid-template-rows:auto minmax(0,1fr);height:100dvh;overflow:hidden}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+svg.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+code,.mono{font-family:'D2Coding','SFMono-Regular',Menlo,Consolas,monospace;font-size:11.5px}
+code{background:var(--chip-bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.muted{color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);border-radius:4px;white-space:nowrap;text-decoration:none}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--btn-bg);color:var(--btn-fg);border-color:transparent;font-weight:700}
+.btn.ghost{background:transparent}
+.btn.on{background:var(--active);border-color:var(--accent);color:var(--accent)}
+.btn.sm{height:24px;padding:0 7px;font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:10px;background:var(--chip-bg);border:1px solid var(--border);font-size:11.5px;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex:none}
+.tag{font-size:11px;color:var(--muted);flex:none}
+/* Visual grammar of the proposal: a solid line is a fact (source text, deterministic result). A dashed line is an inference (model output, provisional). */
+.prov{display:inline-flex;align-items:center;gap:3px;padding:0 6px;border-radius:4px;font-size:11px;line-height:17px;white-space:nowrap}
+.prov.raw{border:1px solid var(--accent2);color:var(--accent2)}
+.prov.det{border:1px solid var(--border);color:var(--fg)}
+.prov.model{border:1px dashed var(--client);color:var(--client)}
+
+/* Header bar */
+#bar{position:relative;z-index:30;display:flex;align-items:center;gap:8px;padding:7px 12px;min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);white-space:nowrap}
+.brand{display:inline-flex;align-items:center;gap:6px;font-weight:700;letter-spacing:-.01em;text-decoration:none;color:inherit;font-size:13.5px}
+.brand i{width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#7ee787,#1a7f37);box-shadow:0 0 5px rgba(0,255,170,.5)}
+.themepick{height:28px;padding:0 6px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:500;max-width:150px}
+.tabs{display:inline-flex;gap:2px;padding:2px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px}
+.tabs button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border:0;border-radius:4px;background:transparent;color:var(--muted);font-weight:500}
+.tabs button:hover{background:var(--hover);color:var(--fg)}
+.tabs button.on{background:var(--accent);color:#fff;font-weight:700}
+[data-theme=dark] .tabs button.on{color:#0e1116}
+@media (forced-colors:active){.tabs button.on{outline:2px solid}}
+.search{flex:1;min-width:120px;max-width:420px;display:flex;align-items:center;gap:6px;height:30px;padding:0 9px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);text-align:left}
+.search:hover{border-color:var(--accent)}
+.search kbd{margin-left:auto;font:11px 'D2Coding',monospace;border:1px solid var(--border);border-radius:4px;padding:0 5px;background:var(--bar-bg)}
+.spacer{flex:1}
+.flowchip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border:1px solid var(--border);border-radius:14px;background:var(--bg);text-decoration:none;color:inherit;font-size:12px}
+.flowchip b{color:var(--client)}
+.menuwrap{position:relative}
+.menu{position:fixed;inset:auto;margin:0;min-width:190px;background:var(--card-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow);padding:4px;z-index:40}
+.menu:not([popover]){display:none}
+.menu.open{display:block}
+.menu button{display:flex;width:100%;gap:8px;align-items:center;border:0;background:none;padding:6px 9px;border-radius:4px;text-align:left}
+.menu button:hover{background:var(--hover)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 0}
+.menu .danger{color:var(--danger)}
+.menu small{display:block;padding:4px 9px 2px;color:var(--muted);font-size:11px}
+
+/* Main grid: left list, center, context panel. The context panel has a width only when a context exists. */
+#main{display:grid;grid-template-columns:var(--side-w) minmax(0,1fr) var(--insp-w);min-height:0;transition:grid-template-columns .2s ease}
+body.no-side{--side-w:0px}
+body.no-insp{--insp-w:0px}
+#side,#insp{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--panel-bg)}
+#side{border-right:1px solid var(--border)}
+#insp{border-left:1px solid var(--border);background:var(--bg)}
+body.no-side #side,body.no-insp #insp{border:0}
+.phead{display:flex;align-items:center;gap:6px;height:44px;min-height:44px;padding:0 10px;border-bottom:1px solid var(--border);background:var(--bar-bg)}
+.phead strong{font-size:13.5px}
+.seg{display:flex;flex:1;gap:4px}
+.seg button{flex:1;height:26px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);font-size:12px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--card-bg);color:var(--fg);border-color:var(--accent2);border-bottom-width:3px}
+.pfilter{padding:8px 10px;border-bottom:1px solid var(--border)}
+.pfilter input{width:100%;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg)}
+.plist{flex:1;overflow:auto;min-height:0}
+.lhead{padding:6px 10px 3px;font-size:11px;font-weight:700;color:var(--muted)}
+.docitem{display:block;width:100%;border:0;border-bottom:1px solid var(--border);border-left:3px solid transparent;background:none;padding:8px 10px 8px 7px;text-align:left}
+.docitem:hover{background:var(--hover)}
+.docitem.on{background:var(--active);border-left-color:var(--accent2)}
+.docitem .t{display:flex;gap:5px;align-items:flex-start}
+.docitem b{flex:1;font-size:13.5px;line-height:1.35}
+.docitem.unread b::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent2);margin-right:5px}
+.docitem p{margin:3px 0 0;font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.entrow{display:flex;width:100%;align-items:center;gap:7px;min-height:34px;border:0;border-bottom:1px solid var(--border);background:none;padding:5px 10px;text-align:left}
+.entrow:hover{background:var(--hover)}
+.entrow.on{background:var(--active)}
+.entrow span.n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entrow .num{font-size:11px;color:var(--muted);background:var(--chip-bg);border-radius:8px;padding:0 6px;min-width:22px;text-align:center}
+
+/* Center */
+#center{min-width:0;min-height:0;overflow:auto;background:var(--bar-bg);container-type:inline-size;container-name:center;position:relative}
+.home{max-width:1080px;margin:0 auto;padding:18px 22px 110px}
+.home h1{margin:0;font-size:20px;letter-spacing:-.01em}
+.home .facts{margin:2px 0 14px;color:var(--muted);font-size:12.5px}
+.cards{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+.cards>*{grid-column:span 12}
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:6px;min-width:0}
+.card>header{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.card>header h2{margin:0;font-size:12.5px;font-weight:700;color:var(--accent2);flex:1}
+.card>header a,.linkbtn{font-size:12px;color:var(--accent);text-decoration:none;background:none;border:0;padding:0}
+.card>header a:hover,.linkbtn:hover{text-decoration:underline}
+.row{display:flex;align-items:center;gap:8px;width:100%;padding:7px 12px;border:0;border-bottom:1px solid var(--border);background:none;text-align:left;min-height:36px}
+.row:last-child{border-bottom:0}
+button.row:hover{background:var(--hover)}
+.row .grow{flex:1;min-width:0}
+.row .ttl{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .sub{display:block;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:3px;border-radius:2px;background:var(--chip-bg);margin-top:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+/* Stage strip: the same three stages as the /syndication pipeline (RD14). The home only links to them. */
+.flow{display:grid;grid-template-columns:1fr;margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.flow a{position:relative;display:block;padding:9px 14px 9px 18px;text-decoration:none;color:inherit;border-left:3px solid var(--c)}
+.flow a:hover{background:var(--hover)}
+.flow a b{color:var(--c)}
+.flow a span{display:block;font-size:12px;color:var(--muted)}
+.flow a+a::before{display:none;content:'›';position:absolute;left:-9px;top:50%;transform:translateY(-50%);width:16px;height:16px;line-height:14px;text-align:center;border-radius:50%;background:var(--card-bg);border:1px solid var(--border);color:var(--muted);font-size:12px;z-index:1}
+.mapcard{display:grid;grid-template-columns:minmax(0,1fr)}
+.mapcard .mini{border-bottom:1px solid var(--border);padding:6px;min-width:0}
+.mapcard .mini svg{width:100%;height:236px;cursor:pointer}
+.cols3{display:grid;grid-template-columns:minmax(0,1fr)}
+.cols3>div+div{border-top:1px solid var(--border)}
+.cols3 h3{margin:0;padding:8px 10px 4px;font-size:11.5px;color:var(--muted)}
+.cols3 .row{padding:5px 10px;min-height:30px;border-bottom:0}
+.cmd{display:flex;align-items:center;gap:6px;margin-top:3px}
+.cmd code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* Container queries: the stacked layout above is the default. These rules are the wide layout, and they come after the default rules. */
+@container center (min-width:820px){.c7{grid-column:span 7}.c6{grid-column:span 6}.c5{grid-column:span 5}.flow{grid-template-columns:repeat(3,1fr)}.flow a+a::before{display:block}.mapcard{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}.mapcard .mini{border-right:1px solid var(--border);border-bottom:0}}
+@container center (min-width:560px){.cols3:not(.cols1){grid-template-columns:repeat(3,minmax(0,1fr))}.cols3:not(.cols1)>div+div{border-top:0;border-left:1px solid var(--border)}}
+
+/* Reader */
+.readerwrap{display:grid;grid-template-columns:minmax(0,1fr);min-height:100%;background:var(--bg)}
+.readerwrap.split{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.sheet{max-width:780px;width:100%;margin:0 auto;padding:0 28px 110px}
+.sheet .head{position:sticky;top:0;display:flex;align-items:flex-start;gap:8px;padding:14px 0 10px;background:var(--bg);border-bottom:1px solid var(--border);z-index:2}
+.sheet h1{flex:1;margin:0;font-size:21px;line-height:1.35;letter-spacing:-.01em}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 14px;font-size:12px;color:var(--muted)}
+.meta a{color:var(--accent);text-decoration:none}
+.sec{font-size:12.5px;font-weight:700;color:var(--accent2);margin:18px 0 6px;display:flex;align-items:center;gap:8px}
+.summary{border:1px dashed var(--client);border-radius:6px;padding:10px 14px;font-size:14px;line-height:1.75;background:var(--card-bg)}
+.body{font-size:15px;line-height:1.85}
+.body p{margin:0 0 14px}
+.body h2{font-size:17px;margin:22px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+::highlight(ent-mark){text-decoration:underline dotted;text-decoration-color:var(--muted);text-decoration-thickness:1.5px;text-underline-offset:4px}
+::highlight(ent-hot){background-color:var(--mark-bg);color:var(--mark-fg)}
+.splitpane{border-left:1px solid var(--border);background:var(--bg);display:flex;flex-direction:column;position:sticky;top:0;height:calc(100dvh - 49px)}
+.splitpane svg{flex:1;min-height:0;width:100%}
+.empty{padding:60px 24px;text-align:center;color:var(--muted)}
+.stub{max-width:560px;margin:70px auto;padding:22px;text-align:center;color:var(--muted);background:var(--card-bg);border:1px dashed var(--border);border-radius:6px}
+
+/* Graph view */
+.gview{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend .rel i{display:inline-block;width:16px;height:0;border-top:2px solid var(--c)}
+.legend .rel.weak i{border-top-style:dashed}
+.gstage{position:relative;flex:1;min-height:0}
+.gstage svg{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.gctl{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px}
+.gctl button{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg);font-size:17px;line-height:1}
+.gnote{position:absolute;left:12px;top:10px;font-size:11.5px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:4px 9px;max-width:60%}
+svg text{font-family:inherit;fill:var(--fg);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.ge{stroke:var(--c,var(--border));stroke-width:1.3;opacity:.55}
+.ge.weak{stroke-dasharray:4 4;opacity:.4}
+.ge.mention{stroke:var(--border);opacity:.9}
+.gn{cursor:pointer}
+.gn circle,.gn rect{stroke:var(--bg);stroke-width:1.5}
+.gn text{opacity:0;transition:opacity .12s}
+.gn.lbl text,.gn:hover text,.gn.sel text,.gn.nb text,.gn.hl text{opacity:1}
+.gn.lbl text,.gn.sel text,.gn.nb text{pointer-events:auto}
+.gn.sel circle{stroke:var(--fg);stroke-width:2.5}
+.gn.hl circle{stroke:var(--mark-fg);stroke-width:3}
+.dimmed .gn:not(.sel):not(.nb){opacity:.18}
+.dimmed .ge:not(.act){opacity:.08}
+.ge.act{opacity:1;stroke-width:2}
+.elbl{font-size:10px;fill:var(--muted)}
+
+/* Context panel */
+.ptabs{display:flex;border-bottom:1px solid var(--border);background:var(--bar-bg)}
+.ptabs button{flex:1;height:34px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);font-weight:600}
+.ptabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
+.pbody{flex:1;overflow:auto;min-height:0}
+.pbody h3{margin:0;padding:12px 12px 4px;font-size:12.5px;color:var(--accent2)}
+.pbody .hint{padding:12px;color:var(--muted);line-height:1.7}
+.localg{display:block;width:100%;aspect-ratio:524/364;border-bottom:1px solid var(--border)}
+.kv{display:grid;grid-template-columns:86px minmax(0,1fr);gap:5px 8px;padding:6px 12px 10px;font-size:12px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.nd{padding:12px}
+.nd h2{margin:0 0 4px;font-size:17px}
+.obs{margin:8px 0 0;padding:0 0 0 16px;line-height:1.7}
+.acts{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border)}
+
+/* Dialogs */
+dialog{border:1px solid var(--border);border-radius:8px;padding:0;background:var(--card-bg);color:var(--fg);box-shadow:0 16px 48px var(--shadow);width:min(560px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.4);overflow:hidden;overscroll-behavior:contain}
+dialog:modal{overscroll-behavior:contain}
+#pal{margin-top:12vh}
+#pal input{width:100%;height:44px;border:0;border-bottom:1px solid var(--border);padding:0 14px;background:transparent;font-size:15px;outline:none}
+#palres{max-height:46vh;overflow:auto;padding:4px}
+#palres button{display:flex;width:100%;gap:8px;align-items:center;border:0;background:none;padding:7px 10px;border-radius:4px;text-align:left}
+#palres button.cur,#palres button:hover{background:var(--active)}
+#palres small{margin-left:auto;color:var(--muted)}
+.dlg{padding:16px}
+.dlg h2{margin:0 0 10px;font-size:15px}
+.dlg textarea,.dlg select{width:100%;border:1px solid var(--border);border-radius:4px;background:var(--bg);padding:8px}
+.dlg .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+
+/* Prototype controls: the same dashed box as federation_client_prototype.html */
+#proto{position:fixed;left:12px;bottom:12px;z-index:60;max-width:min(430px,calc(100vw - 24px));background:var(--card-bg);border:1px dashed var(--pub);border-radius:8px;box-shadow:0 6px 20px var(--shadow);font-size:12px}
+#proto summary{padding:7px 10px;color:var(--pub);font-weight:700;cursor:pointer}
+#proto .opts{padding:2px 10px 10px;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+#proto .opts>span{color:var(--muted)}
+#proto .opts>div{display:flex;flex-wrap:wrap;gap:4px}
+#proto p{margin:0;padding:0 10px 9px;color:var(--muted)}
+#botnav,#scrim{display:none}
+@media (prefers-reduced-motion:reduce){#main,#side,#insp,.gn text{transition:none!important}}
+
+/* Narrow screens: the list is a drawer, the context panel is a bottom sheet, and the view tabs go to the bottom. */
+@media (max-width:1180px){.tabs .lb2{display:none}.flowchip .lb{display:none}}
+@media (max-width:900px){
+  #main{grid-template-columns:minmax(0,1fr)!important}
+  #side{position:fixed;left:0;top:49px;bottom:52px;width:min(320px,86vw);z-index:45;box-shadow:8px 0 24px var(--shadow);transform:translateX(-105%);transition:transform .2s ease}
+  body:not(.no-side) #side{transform:none}
+  #insp{position:fixed;left:0;right:0;bottom:52px;height:62dvh;z-index:44;border-top:1px solid var(--border);border-left:0;border-radius:12px 12px 0 0;box-shadow:0 -8px 24px var(--shadow);transform:translateY(110%);transition:transform .2s ease}
+  body:not(.no-insp) #insp{transform:none}
+  body.overlay #scrim{display:block;position:fixed;inset:49px 0 52px;z-index:43;background:rgba(0,0,0,.4)}
+  #bar .tabs,#bar .themepick,#bar .auth,#bar .spacer~.btn.ghost[data-act=toggle-insp],#bar>.btn.ghost[data-act=toggle-side],.search span,.search kbd{display:none}
+  #bar [data-act=theme]{display:none}
+  .sheet .head{flex-wrap:wrap}.sheet h1{flex:1 0 100%;font-size:19px}
+  .search{flex:none;min-width:0;width:34px;justify-content:center;padding:0}
+  #bar{gap:6px}
+  #botnav{position:fixed;left:0;right:0;bottom:0;height:52px;z-index:50;display:grid;grid-template-columns:repeat(5,1fr);background:var(--bar-bg);border-top:1px solid var(--border)}
+  #botnav button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10.5px;color:var(--muted)}
+  #botnav button.on{color:var(--accent);font-weight:700}
+  .home{padding:14px 12px 150px}.sheet{padding:0 16px 150px}
+  .readerwrap.split{grid-template-columns:minmax(0,1fr)}.splitpane{display:none}
+  #proto{bottom:60px}
+}
+</style></head>
+<body>
+<header id="bar"></header>
+<div id="main">
+  <aside id="side" aria-label="목록"></aside>
+  <main id="center"></main>
+  <aside id="insp" aria-label="문맥"></aside>
+</div>
+<div id="scrim" data-act="close-overlay"></div>
+<nav id="botnav" aria-label="화면 전환"></nav>
+<dialog id="pal" closedby="any" aria-label="검색 · 이동 · 명령"><input id="palq" placeholder="문서 · 엔티티 · 명령 검색" autocomplete="off"/><div id="palres"></div></dialog>
+<dialog id="ing" closedby="any" aria-labelledby="ingtitle"><div class="dlg"><h2 id="ingtitle">적재</h2><textarea rows="3" placeholder="URL 또는 텍스트" aria-label="URL 또는 텍스트" autofocus></textarea><p class="muted" style="margin:8px 0 4px">대상 테마</p><select><option>연구 노트</option></select><div class="foot"><button type="button" class="btn" data-act="close-dlg">취소</button><button class="btn pri" disabled title="프로토타입: 네트워크 호출 없음">적재</button></div></div></dialog>
+<details id="proto" open><summary>시각 프로토타입 조절 — 목업 데이터, 네트워크 호출 없음</summary><div class="opts" id="opts"></div><p id="optnote"></p></details>
+<script>
+'use strict';
+/* ---------- Mock data: public topics and synthetic notes only (PRINCIPLES.md B4). ---------- */
+const TYPE_COLORS={Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700'};
+const REL_COLORS={implements:'#1a7f37',uses:'#0969da',part_of:'#8957e5',defined_by:'#9a6700',extends:'#bf3989',alternative_to:'#bc4c00',related_to:'#8b949e'};
+const E=[['ap','ActivityPub','Concept','분산 소셜 네트워킹을 위한 W3C 권고안. 서버 간 연합 프로토콜과 클라이언트 프로토콜을 정의한다.'],['as2','ActivityStreams 2.0','Concept','활동·액터·객체의 어휘와 JSON 직렬화를 정의한다.'],['jsonld','JSON-LD','Concept','연결 데이터를 JSON으로 표현하는 형식.'],['actor','액터','Concept','인박스와 아웃박스를 가진 주체. 사람, 그룹, 서비스일 수 있다.'],['inbox','인박스','Concept','다른 서버가 활동을 배달하는 엔드포인트.'],['outbox','아웃박스','Concept','액터가 발행한 활동의 컬렉션.'],['article','Article 객체','Concept','장문 글을 나타내는 ActivityStreams 객체 타입.'],['fedify','Fedify','Framework','ActivityPub 서버를 만드는 TypeScript 프레임워크.'],['deno','Deno','Tool','TypeScript 런타임.'],['wf','WebFinger','Concept','acct: URI로 계정의 링크를 찾는 탐색 프로토콜 (RFC 7033).'],['nodeinfo','NodeInfo','Concept','서버 소프트웨어와 사용량 메타데이터를 공개하는 규약.'],['hsig','HTTP Message Signatures','Concept','HTTP 메시지 일부에 서명하는 표준 (RFC 9421).'],['masto','Mastodon','Tool','ActivityPub를 구현한 마이크로블로깅 서버.'],['w3c','W3C','Org','웹 표준 기구.'],['ietf','IETF','Org','인터넷 표준 기구.'],['fep','FEP-044f','Paper','인용 게시물의 동의 절차를 다루는 Fediverse 개선 제안.'],['sqlite','SQLite','Tool','임베디드 관계형 데이터베이스.'],['fts5','FTS5','Tool','SQLite의 전문 검색 가상 테이블 모듈.'],['bm25','BM25','Concept','용어 빈도 기반 순위 함수.'],['adoc','AsciiDoc','Tool','기술 문서를 위한 경량 마크업 언어.'],['adr','Asciidoctor','Tool','AsciiDoc 변환기.'],['antora','Antora','Tool','여러 저장소의 AsciiDoc으로 문서 사이트를 만드는 생성기.'],['oauth','OAuth 2.0','Concept','권한 위임 프레임워크.'],['tx','Token Exchange','Concept','보안 토큰을 다른 토큰으로 교환하는 OAuth 확장 (RFC 8693).'],['oidc','OpenID Connect','Concept','OAuth 2.0 위의 신원 계층.'],['opml','OPML','Concept','개요와 구독 목록을 교환하는 XML 형식.'],['rss','RSS 2.0','Concept','웹 피드 형식.'],['atom','Atom','Concept','웹 피드 형식 (RFC 4287).'],['websub','WebSub','Concept','피드 갱신을 허브로 밀어 주는 W3C 권고안.'],['er','엔티티 해소','Concept','같은 대상을 가리키는 이름을 하나로 합치는 절차.'],['cos','코사인 유사도','Concept','두 벡터의 방향 유사도.'],['garage','Garage','Tool','S3 호환 분산 객체 저장소.'],['s3','S3 API','Concept','객체 저장소 HTTP 인터페이스.']].map(a=>({id:a[0],name:a[1],type:a[2],obs:a[3]}));
+const R=[['ap','as2','uses'],['as2','jsonld','uses'],['ap','w3c','defined_by'],['as2','w3c','defined_by'],['actor','ap','part_of'],['inbox','actor','part_of'],['outbox','actor','part_of'],['article','as2','part_of'],['fedify','ap','implements'],['fedify','wf','implements'],['fedify','nodeinfo','implements'],['fedify','hsig','implements'],['fedify','deno','uses'],['masto','ap','implements'],['masto','wf','uses'],['masto','hsig','uses'],['wf','ietf','defined_by'],['hsig','ietf','defined_by'],['fep','ap','extends'],['fep','masto','related_to',1],['fts5','sqlite','part_of'],['fts5','bm25','uses'],['adr','adoc','implements'],['antora','adr','uses'],['antora','adoc','uses'],['tx','oauth','extends'],['oidc','oauth','extends'],['tx','ietf','defined_by'],['opml','rss','related_to'],['atom','rss','alternative_to'],['atom','ietf','defined_by'],['websub','rss','uses'],['websub','atom','uses'],['websub','w3c','defined_by'],['er','cos','uses'],['er','fts5','uses',1],['article','fedify','related_to',1],['outbox','article','related_to'],['garage','s3','implements'],['jsonld','w3c','defined_by'],['nodeinfo','masto','related_to']].map(a=>({from:a[0],to:a[1],type:a[2],prov:!!a[3]}));
+const D=[
+ {id:'d12',title:'메모: 엔티티 해소 임계값 실험',kind:'note',date:'11월 14일 09:12',ago:'2시간 전',unread:1,ents:['er','cos','fts5','bm25'],sum:'병합 임계값 0.93과 경계 구간 0.72–0.93에서 엔티티 해소 결과를 비교한 합성 메모.',add:[2,3]},
+ {id:'d11',title:'발표: 연합 우주에서 장문 글 게시하기',kind:'video',date:'11월 13일 21:40',ago:'어제',unread:1,ents:['article','ap','masto','fep','outbox'],sum:'Article 객체로 장문 글을 발행할 때 요약과 링크만 보내는 방식과 인용 동의 절차를 다룬 발표의 전사.',add:[1,4]},
+ {id:'d2',title:'Fedify 문서: 액터 디스패처와 인박스 리스너',kind:'web',date:'11월 13일 10:05',ago:'어제',pin:1,ents:['fedify','actor','inbox','wf','hsig','nodeinfo','deno'],sum:'Fedify는 액터 디스패처로 액터 문서를 만들고, 인박스 리스너로 들어오는 활동을 타입별로 처리한다. WebFinger와 HTTP 서명 검증은 프레임워크가 맡는다.',add:[3,6],
+  body:['h:액터 디스패처','[[fedify|Fedify]]에서 [[actor|액터]]는 디스패처 함수가 요청마다 만들어 돌려주는 객체다. 디스패처는 식별자를 받아 액터 문서를 구성하고, 프레임워크가 이를 [[ap|ActivityPub]] 형식으로 직렬화한다.','계정 탐색은 [[wf|WebFinger]]가 맡는다. 액터 디스패처를 등록하면 프레임워크가 WebFinger 응답과 [[nodeinfo|NodeInfo]] 문서를 함께 제공한다.','h:인박스 리스너','[[inbox|인박스]]로 들어온 활동은 타입별 리스너가 처리한다. 리스너가 실행되기 전에 프레임워크가 [[hsig|HTTP Message Signatures]]를 검증하므로, 서명이 맞지 않는 요청은 애플리케이션 코드에 닿지 않는다.','런타임은 [[deno|Deno]]를 포함한 여러 환경을 지원한다. 키 쌍 디스패처와 메시지 큐는 별도 절에서 다룬다.']},
+ {id:'d1',title:'ActivityPub — W3C 권고안 개요',kind:'web',date:'11월 12일 18:22',ago:'2일 전',pin:1,ents:['ap','as2','actor','inbox','outbox','w3c','jsonld'],sum:'ActivityPub는 ActivityStreams 2.0 어휘 위에서 액터의 인박스와 아웃박스로 활동을 주고받는 연합 프로토콜이다.',add:[5,7],
+  body:['h:개요','[[ap|ActivityPub]]는 [[w3c|W3C]]가 권고안으로 발행한 분산 소셜 네트워킹 프로토콜이다. 데이터 형식은 [[as2|ActivityStreams 2.0]]을 쓰고, 직렬화는 [[jsonld|JSON-LD]]를 따른다.','h:액터와 컬렉션','모든 [[actor|액터]]는 [[inbox|인박스]]와 [[outbox|아웃박스]]를 가진다. 다른 서버는 인박스로 활동을 배달하고, 아웃박스는 액터가 발행한 활동을 보여 준다.']},
+ {id:'d8',title:'HTTP Message Signatures (RFC 9421)',kind:'pdf',date:'11월 11일 14:03',ago:'3일 전',ents:['hsig','ietf','masto'],sum:'HTTP 메시지의 구성 요소를 골라 서명 기반 문자열을 만들고 서명·검증하는 절차를 정의한다.',add:[0,2]},
+ {id:'d3',title:'WebFinger (RFC 7033) 요약',kind:'web',date:'11월 10일 09:47',ago:'4일 전',ents:['wf','ietf','masto'],sum:'acct: URI로 계정을 질의하면 JRD 문서가 링크 목록을 돌려준다.',add:[0,1]},
+ {id:'d4',title:'SQLite FTS5 확장 문서',kind:'web',date:'11월 8일 22:10',ago:'6일 전',ents:['fts5','sqlite','bm25'],sum:'FTS5는 전문 검색 가상 테이블이다. 토크나이저, 접두 색인, bm25() 순위 함수를 제공한다.',add:[3,2]},
+ {id:'d7',title:'RFC 8693 — OAuth 2.0 Token Exchange',kind:'pdf',date:'11월 6일 11:30',ago:'8일 전',ents:['tx','oauth','oidc','ietf'],sum:'주체 토큰과 행위자 토큰을 받아 새 보안 토큰을 발급하는 토큰 교환 승인 유형을 정의한다.',add:[3,3]},
+ {id:'d10',title:'WebSub 권고안',kind:'web',date:'11월 5일 16:45',ago:'9일 전',ents:['websub','rss','atom','w3c'],sum:'발행자가 허브에 갱신을 알리면 허브가 구독자에게 내용을 배달한다.',add:[1,3]},
+ {id:'d9',title:'OPML 2.0 사양',kind:'web',date:'11월 5일 16:20',ago:'9일 전',ents:['opml','rss'],sum:'outline 요소의 중첩으로 구독 목록과 폴더를 표현한다.',add:[2,1]},
+ {id:'d6',title:'Antora 작동 방식',kind:'web',date:'11월 2일 08:15',ago:'12일 전',ents:['antora','adr','adoc'],sum:'Antora는 여러 Git 저장소의 콘텐츠를 가상 파일시스템으로 모아 정적 문서 사이트를 만든다.',add:[1,2]},
+ {id:'d5',title:'AsciiDoc 문법 빠른 참조',kind:'web',date:'11월 2일 08:02',ago:'12일 전',ents:['adoc','adr'],sum:'텍스트 서식, 링크, 목록, 표, 콜아웃의 기본 문법을 정리한 참조 문서.',add:[2,1]}
+];
+const DECISIONS=[['병합','FTS 5 → FTS5','이름 일치','det','d12'],['병합','Asciidoctor.js → Asciidoctor','모델 판정 0.87','model','d6'],['병합','W3C 컨소시엄 → W3C','임베딩 유사도 0.95','model','d1'],['신규','FEP-044f','일치 후보 없음','det','d11']];
+const byId=Object.fromEntries(E.map(e=>[e.id,e])),docById=Object.fromEntries(D.map(d=>[d.id,d]));
+E.forEach(e=>{e.nb=[];e.docs=D.filter(d=>d.ents.includes(e.id)).map(d=>d.id);});
+R.forEach(r=>{byId[r.from].nb.push({id:r.to,r,dir:'out'});byId[r.to].nb.push({id:r.from,r,dir:'in'});});
+E.forEach(e=>{e.deg=e.nb.length;});
+/* Components: a node without relations and a pair of two nodes are not on the map. They stay in the entity list. */
+(function(){const seen=new Set();E.forEach(e=>{if(seen.has(e.id))return;const comp=[],st=[e.id];seen.add(e.id);while(st.length){const id=st.pop();comp.push(id);byId[id].nb.forEach(n=>{if(!seen.has(n.id)){seen.add(n.id);st.push(n.id);}});}comp.forEach(id=>{byId[id].off=comp.length<=2;});});})();
+const GN=E.filter(e=>!e.off),GR=R.filter(r=>!byId[r.from].off&&!byId[r.to].off);
+/* Deterministic force layout (fixed seed): the same map on each load. */
+(function(){let s=7;const rnd=()=>((s=(s*1664525+1013904223)>>>0)/4294967296);GN.forEach((n,i)=>{const a=i*2.399963,rad=40+260*Math.sqrt(i/GN.length);n.x=Math.cos(a)*rad+rnd()*8;n.y=Math.sin(a)*rad+rnd()*8;});
+ for(let it=0;it<600;it++){const k=1-it/600;GN.forEach(n=>{n.fx=-n.x*.012;n.fy=-n.y*.018;});
+  for(let i=0;i<GN.length;i++)for(let j=i+1;j<GN.length;j++){const a=GN[i],b=GN[j];let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy+.01,d=Math.sqrt(d2),f=5200/d2;a.fx+=dx/d*f;a.fy+=dy/d*f;b.fx-=dx/d*f;b.fy-=dy/d*f;}
+  GR.forEach(r=>{const a=byId[r.from],b=byId[r.to];let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)+.01,f=(d-78)*.06;a.fx+=dx/d*f;a.fy+=dy/d*f;b.fx-=dx/d*f;b.fy-=dy/d*f;});
+  GN.forEach(n=>{const m=Math.hypot(n.fx,n.fy),c=Math.min(m,18*k+1.5)/(m||1);n.x+=n.fx*c;n.y+=n.fy*c;});}
+})();
+const BOUNDS=(function(){const xs=GN.map(n=>n.x),ys=GN.map(n=>n.y),p=70;return{x:Math.min(...xs)-p,y:Math.min(...ys)-p,w:Math.max(...xs)-Math.min(...xs)+p*2,h:Math.max(...ys)-Math.min(...ys)+p*2};})();
+let VB={...BOUNDS};
+
+/* ---------- State ---------- */
+const S={view:'home',doc:null,ent:null,list:'docs',entSort:'deg',q:'',tab:'links',sidebar:true,insp:true,o:{home:'overview',side:'ctx',gpos:'panel'}};
+const OPTS=[['home','홈 첫 화면',[['overview','개요 (제안)'],['graph','그래프 (현행)']]],['side','사이드바',[['ctx','왼쪽 + 문맥 패널 (제안)'],['both','좌우 고정 (현행)']]],['gpos','본문 읽을 때 그래프',[['panel','문맥 패널 안 (제안)'],['split','본문 옆 분할'],['none','숨김']]]];
+const NOTES={home:{overview:'홈은 개요 카드로 시작한다. 그래프는 「지식 지도」 카드와 그래프 탭에서 연다.',graph:'현행처럼 첫 화면이 전체 그래프다. 비교용.'},side:{ctx:'오른쪽 패널은 문맥(문서, 엔티티, 그래프)이 있을 때만 열린다. 관리 동작은 상단 「적재」와 ⋯ 메뉴에 있다.',both:'현행처럼 오른쪽 상세 메뉴가 항상 360px를 차지한다. 비교용.'},gpos:{panel:'본문을 읽는 동안 그 문서의 연결만 문맥 패널에 작게 보인다.',split:'넓은 화면에서 본문과 문맥 그래프를 나란히 둔다.',none:'그래프 없이 엔티티와 관련 문서 목록만 둔다.'}};
+const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ICONS={home:'<path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/>',doc:'<path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/>',graph:'<circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/>',slides:'<path d="M2.5 3.5h11v7h-11zM8 10.5v3M5.5 13.5h5"/>',stream:'<path d="M3 4h10M3 8h10M3 12h6"/>',search:'<circle cx="7" cy="7" r="4"/><path d="m10 10 3.5 3.5"/>',plus:'<path d="M8 3v10M3 8h10"/>',side:'<path d="M2.5 3.5h11v9h-11zM6 3.5v9"/>',insp:'<path d="M2.5 3.5h11v9h-11zM10 3.5v9"/>',moon:'<path d="M12.5 9.5a5 5 0 0 1-6-6 5 5 0 1 0 6 6z"/>',x:'<path d="m4 4 8 8M12 4l-8 8"/>',more:'<circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/>',inbox:'<path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/>',check:'<path d="m3.5 8.3 2.8 2.8 6-6.2"/>',lock:'<path d="M4 7.5h8v6H4zM5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2"/>',list:'<path d="M3 4h10M3 8h10M3 12h10"/>',star:'<path d="m8 2.5 1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 11.2 4.6 13l.7-3.8L2.5 6.5l3.8-.5z"/>'};
+const ic=n=>'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true">'+ICONS[n]+'</svg>';
+const tdot=t=>'<i class="dot" style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>';
+const KIND={web:'web',pdf:'pdf',video:'video',note:'note'};
+const POPOVER='popover' in HTMLElement.prototype,HILITE=typeof CSS!=='undefined'&&!!CSS.highlights&&typeof Highlight!=='undefined';
+const hasCtx=()=>!!S.ent||(S.view==='reader'&&!!S.doc)||S.view==='graph';
+const inspOpen=()=>S.o.side==='both'?true:(S.insp&&hasCtx());
+
+/* ---------- Graph SVG ---------- */
+function radius(n){return 4+Math.min(n.deg,8)*.85;}
+function graphSVG(o){const mini=o.mini,sel=!mini&&S.ent&&byId[S.ent]&&!byId[S.ent].off?S.ent:null,nbs=new Set(sel?byId[sel].nb.map(n=>n.id):[]);const vb=mini?BOUNDS:VB;let h='<svg viewBox="'+[vb.x,vb.y,vb.w,vb.h].join(' ')+'" class="'+(sel?'dimmed':'')+'" '+(mini?'':'id="gsvg"')+' role="img" aria-label="지식 그래프">';
+ GR.forEach(r=>{const a=byId[r.from],b=byId[r.to],act=sel&&(r.from===sel||r.to===sel);h+='<line class="ge'+(r.type==='related_to'||r.prov?' weak':'')+(act?' act':'')+'" style="--c:'+REL_COLORS[r.type]+'" x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'"/>';if(act){const s0=r.from===sel?a:b,s1=r.from===sel?b:a;h+='<text class="elbl" text-anchor="middle" x="'+(s0.x+(s1.x-s0.x)*.6).toFixed(1)+'" y="'+(s0.y+(s1.y-s0.y)*.6-3).toFixed(1)+'">'+r.type+'</text>';}});
+ const top=[...GN].sort((a,b)=>b.deg-a.deg).slice(0,mini?5:9).map(n=>n.id);
+ GN.forEach(n=>{const cls='gn'+(top.includes(n.id)?' lbl':'')+(n.id===sel?' sel':'')+(nbs.has(n.id)?' nb':'');const rr=radius(n)*(mini?1.5:1);h+='<g class="'+cls+'" data-act="'+(mini?'nav':'ent')+'" data-id="'+(mini?'graph':n.id)+'" data-ent="'+n.id+'"><circle cx="'+n.x.toFixed(1)+'" cy="'+n.y.toFixed(1)+'" r="'+rr.toFixed(1)+'" fill="'+TYPE_COLORS[n.type]+'"/><text x="'+(n.x+rr+4).toFixed(1)+'" y="'+(n.y+4).toFixed(1)+'" font-size="'+(mini?19:11+Math.min(n.deg,6)*.5)+'">'+esc(n.name)+'</text></g>';});
+ return h+'</svg>';}
+/* Local graph of one document: ring 1 = the entities of the document, ring 2 = their neighbors in other documents. The position shows the distance from the document. */
+function localSVG(d,big){const r1=d.ents.map(id=>byId[id]).sort((a,b)=>a.type.localeCompare(b.type)),in1=new Set(d.ents),ang={},pos={};r1.forEach((e,i)=>{ang[e.id]=-Math.PI/2+i*2*Math.PI/r1.length;pos[e.id]=[Math.cos(ang[e.id])*78,Math.sin(ang[e.id])*78];});
+ const outer={};r1.forEach(e=>e.nb.forEach(n=>{if(!in1.has(n.id)){(outer[n.id]=outer[n.id]||[]).push(ang[e.id]);}}));
+ let r2=Object.keys(outer).map(id=>({e:byId[id],a:Math.atan2(outer[id].reduce((s,a)=>s+Math.sin(a),0),outer[id].reduce((s,a)=>s+Math.cos(a),0))})).sort((a,b)=>b.e.deg-a.e.deg);const more=Math.max(0,r2.length-9);r2=r2.slice(0,9).sort((a,b)=>a.a-b.a);
+ r2.forEach((o,i)=>{const a=r2.length>6?(-Math.PI/2+Math.PI/r2.length+i*2*Math.PI/r2.length):o.a;pos[o.e.id]=[Math.cos(a)*148,Math.sin(a)*148];o.ang=a;});
+ const sel=S.ent&&pos[S.ent]?S.ent:null;let h='<svg class="'+(big?'':'localg')+(sel?' dimmed':'')+'" viewBox="-262 -182 524 364" role="img" aria-label="이 문서의 연결"><circle cx="0" cy="0" r="78" fill="none" stroke="var(--border)" stroke-dasharray="2 5"/><circle cx="0" cy="0" r="148" fill="none" stroke="var(--border)" stroke-dasharray="2 5"/>';
+ r1.forEach(e=>{h+='<line class="ge mention" x1="0" y1="0" x2="'+pos[e.id][0].toFixed(1)+'" y2="'+pos[e.id][1].toFixed(1)+'"/>';});
+ R.forEach(r=>{if(pos[r.from]&&pos[r.to]&&(in1.has(r.from)||in1.has(r.to))){const a=pos[r.from],b=pos[r.to],act=sel&&(r.from===sel||r.to===sel);h+='<line class="ge'+(r.type==='related_to'||r.prov?' weak':'')+(act?' act':'')+'" style="--c:'+REL_COLORS[r.type]+'" x1="'+a[0].toFixed(1)+'" y1="'+a[1].toFixed(1)+'" x2="'+b[0].toFixed(1)+'" y2="'+b[1].toFixed(1)+'"/>';}});
+ const node=(e,ring)=>{const p=pos[e.id],a=Math.atan2(p[1],p[0]),right=Math.cos(a)>=-.01,rr=ring===1?8:5.5,nbsel=sel&&byId[sel].nb.some(n=>n.id===e.id);return '<g class="gn lbl'+(e.id===sel?' sel':'')+(nbsel?' nb':'')+'" data-act="ent" data-id="'+e.id+'" data-ent="'+e.id+'"><circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="'+rr+'" fill="'+TYPE_COLORS[e.type]+'"'+(ring===2?' opacity=".75"':'')+'/><text x="'+(p[0]+(right?rr+4:-rr-4)).toFixed(1)+'" y="'+(p[1]+4).toFixed(1)+'" text-anchor="'+(right?'start':'end')+'" font-size="'+(ring===1?15:12.5)+'"'+(ring===2?' style="fill:var(--muted)"':'')+'>'+esc(e.name)+'</text></g>';};
+ r2.forEach(o=>{h+=node(o.e,2);});r1.forEach(e=>{h+=node(e,1);});
+ h+='<rect x="-10" y="-10" width="20" height="20" rx="3" fill="var(--accent2)" stroke="var(--bg)" stroke-width="2"/>';
+ if(more)h+='<text x="254" y="174" text-anchor="end" font-size="12" style="fill:var(--muted)">이웃 +'+more+'</text>';
+ return h+'</svg>';}
+
+/* ---------- Render ---------- */
+function renderBar(){const tabs=[['home','홈','home'],['reader','본문','doc'],['graph','그래프','graph'],['presentation','프레젠테이션','slides',1],['stream','의사결정 스트림','stream',1]].filter(t=>S.o.home==='overview'||t[0]!=='home');
+ $('bar').innerHTML='<button class="btn ghost" data-act="toggle-side" title="목록 열기/닫기" aria-label="목록 열기/닫기" aria-pressed="'+S.sidebar+'">'+ic('side')+'</button><a class="brand" href="#" data-act="nav" data-id="'+(S.o.home==='overview'?'home':'graph')+'" title="Claire Bible 홈"><i></i>Claire Bible</a><select class="themepick" aria-label="지식 테마 선택"><option>연구 노트</option><option>기본 지식베이스</option></select>'+
+ '<nav class="tabs" aria-label="화면 전환">'+tabs.map(t=>'<button type="button" '+(S.view===t[0]?'aria-current="page" ':'')+'class="'+(S.view===t[0]?'on':'')+'" data-act="nav" data-id="'+t[0]+'" title="'+t[1]+'">'+ic(t[2])+'<span class="'+(t[3]?'lb2':'')+'">'+t[1]+'</span></button>').join('')+'</nav>'+
+ '<button class="search" data-act="pal" aria-label="검색과 명령 열기">'+ic('search')+'<span>검색 · 이동 · 명령</span><kbd>Ctrl K</kbd></button><span class="spacer"></span>'+
+ '<button class="btn pri" data-act="ing" title="URL·텍스트를 테마에 적재">'+ic('plus')+'적재</button><div class="menuwrap"><button type="button" class="btn" id="menubtn" '+(POPOVER?'popovertarget="menu"':'data-act="menu"')+' aria-haspopup="menu" aria-label="관리 메뉴" title="관리">'+ic('more')+'</button><div class="menu" id="menu" role="menu" '+(POPOVER?'popover':'')+'><small>문서 관리</small><button type="button" role="menuitem" tabindex="-1">재적재</button><button type="button" role="menuitem" tabindex="-1">재생성</button><button type="button" role="menuitem" tabindex="-1">중복정리</button><hr/><small>그래프 도구</small><button type="button" role="menuitem" tabindex="-1">경로 찾기</button><button type="button" role="menuitem" tabindex="-1">종합 (0)</button><hr/><button type="button" role="menuitem" tabindex="-1" class="danger">소각…</button></div></div>'+
+ '<a class="flowchip" href="#" title="/syndication 수집 단계로 이동" data-act="noop">'+ic('inbox')+'<span class="lb">수집</span><b>12</b></a><span class="chip auth">'+ic('lock')+'인증됨</span><button class="btn ghost" data-act="theme" title="라이트/다크 전환" aria-label="라이트/다크 전환">'+ic('moon')+'</button>'+
+ (S.o.side==='ctx'?'<button class="btn ghost'+(inspOpen()?' on':'')+'" data-act="toggle-insp" title="문맥 패널 열기/닫기" aria-label="문맥 패널 열기/닫기" '+(hasCtx()?'':'disabled style="opacity:.4"')+'>'+ic('insp')+'</button>':'');
+ $('botnav').innerHTML=[['home','홈','home'],['list','목록','list'],['reader','본문','doc'],['graph','그래프','graph'],['ctx','문맥','insp']].map(t=>'<button class="'+((t[0]===S.view)?'on':'')+'" data-act="'+(t[0]==='list'?'toggle-side':t[0]==='ctx'?'toggle-insp':'nav')+'" data-id="'+t[0]+'">'+ic(t[2])+t[1]+'</button>').join('');}
+function renderSide(){const q=S.q.trim().toLowerCase();let body='';
+ if(S.list==='docs'){const ds=D.filter(d=>!q||(d.title+d.sum).toLowerCase().includes(q)),row=d=>'<button class="docitem'+(d.id===S.doc?' on':'')+(d.unread?' unread':'')+'" data-act="doc" data-id="'+d.id+'"><span class="t"><b>'+esc(d.title)+'</b><span class="tag">'+KIND[d.kind]+'</span></span><p>'+esc(d.sum)+'</p></button>';const pin=ds.filter(d=>d.pin);
+  body=(pin.length?'<div class="lhead">즐겨찾기</div>'+pin.map(row).join(''):'')+'<div class="lhead">최근 적재순</div>'+ds.filter(d=>!d.pin).map(row).join('')+(ds.length?'':'<p class="muted" style="padding:10px">일치하는 문서 없음</p>');
+ }else{let es=E.filter(e=>!q||e.name.toLowerCase().includes(q));es=[...es].sort(S.entSort==='deg'?(a,b)=>b.deg-a.deg:(a,b)=>a.name.localeCompare(b.name,'ko'));const row=e=>'<button class="entrow'+(e.id===S.ent?' on':'')+'" data-act="ent" data-id="'+e.id+'">'+tdot(e.type)+'<span class="n">'+esc(e.name)+'</span><span class="tag">'+e.type+'</span><span class="num" title="연결 수">'+e.deg+'</span></button>';const on=es.filter(e=>!e.off),off=es.filter(e=>e.off);
+  body='<div style="display:flex;gap:4px;padding:6px 10px"><button class="btn sm'+(S.entSort==='deg'?' on':'')+'" data-act="esort" data-id="deg">연결순</button><button class="btn sm'+(S.entSort==='name'?' on':'')+'" data-act="esort" data-id="name">이름순</button></div>'+on.map(row).join('')+(off.length?'<div class="lhead" title="연결이 없거나 둘만 이어진 엔티티는 지도에 그리지 않고 목록에 둔다">지도에서 제외 (고립·쌍) '+off.length+'</div>'+off.map(row).join(''):'');}
+ $('side').innerHTML='<div class="phead"><div class="seg" role="tablist"><button class="'+(S.list==='docs'?'on':'')+'" data-act="list" data-id="docs">문서 '+D.length+'</button><button class="'+(S.list==='ents'?'on':'')+'" data-act="list" data-id="ents">엔티티 '+E.length+'</button></div><button class="btn ghost sm" data-act="toggle-side" aria-label="목록 닫기" title="목록 닫기">'+ic('x')+'</button></div><div class="pfilter"><label class="sr" for="sq">목록 필터</label><input id="sq" placeholder="'+(S.list==='docs'?'제목·요약 필터':'엔티티 이름 필터')+'" value="'+esc(S.q)+'"/></div><div class="plist">'+body+'</div>';}
+function insights(){const hubs=[...GN].sort((a,b)=>b.deg-a.deg).slice(0,5),br=[...E].sort((a,b)=>b.docs.length-a.docs.length||b.deg-a.deg).slice(0,5),rec=['er','cos','fep','article','nodeinfo'].map(id=>byId[id]);const row=(e,v,t)=>'<button class="row" data-act="ent" data-id="'+e.id+'">'+tdot(e.type)+'<span class="grow"><span class="ttl" style="font-weight:500">'+esc(e.name)+'</span></span><span class="tag" title="'+t+'">'+v+'</span></button>';
+ return '<div class="cols3"><div><h3>허브 · 연결 수</h3>'+hubs.map(e=>row(e,e.deg,'연결 수')).join('')+'</div><div><h3>다리 · 출처 문서 수</h3>'+br.map(e=>row(e,'문서 '+e.docs.length,'이 엔티티를 언급한 문서 수')).join('')+'</div><div><h3>최근 7일 추가</h3>'+rec.map(e=>row(e,e.docs[0]?docById[e.docs[0]].ago:'—','처음 나온 적재')).join('')+'</div></div>';}
+function renderHome(){const last=D[0];
+ return '<div class="home"><h1>연구 노트</h1><p class="facts">문서 '+D.length+' · 엔티티 '+E.length+' · 관계 '+R.length+' · 마지막 적재 '+last.ago+' ('+last.date+')</p>'+
+ '<div class="flow" aria-label="수집 · 적재 · 게시 단계"><a href="#" data-act="noop" style="--c:var(--client)" title="/syndication 1단계"><b>1 · 수집</b> <small class="tag">계정</small><span>새 글 12 · 멘션 1 · 피드 5</span></a><a href="#" data-act="noop" style="--c:var(--kb)" title="/syndication 2단계"><b>2 · 적재</b> <small class="tag">연구 노트</small><span>이번 주 5건 · 진행 중 0 · 실패 1</span></a><a href="#" data-act="noop" style="--c:var(--pub)" title="/syndication 3단계"><b>3 · 게시</b> <small class="tag">팔로워 19</small><span>게시 3 · 미게시 9 · 반응 4</span></a></div>'+
+ '<div class="cards">'+
+ '<section class="card c7"><header><h2>최근 적재</h2></header>'+D.slice(0,5).map(d=>'<button class="row" data-act="doc" data-id="'+d.id+'"><span class="tag" style="width:34px">'+KIND[d.kind]+'</span><span class="grow"><span class="ttl">'+esc(d.title)+'</span><span class="sub">'+d.ago+' · 엔티티 '+d.ents.length+'</span></span><span class="prov raw" title="원문과 출처 메타데이터가 보존됨">'+ic('check')+'원문</span></button>').join('')+'</section>'+
+ '<section class="card c5"><header><h2>최근 판단</h2><button class="linkbtn" data-act="nav" data-id="stream">의사결정 스트림 ›</button></header>'+DECISIONS.map(x=>'<div class="row"><span class="chip">'+x[0]+'</span><span class="grow"><span class="ttl" style="font-weight:500">'+esc(x[1])+'</span><span class="sub">'+esc(docById[x[4]].title)+'</span></span><span class="prov '+x[3]+'">'+x[2]+'</span></div>').join('')+'</section>'+
+ '<section class="card c12"><header><h2>지식 지도</h2><span class="muted" style="font-size:11.5px">지도는 질문에 답하는 목록으로 먼저 보인다</span><button class="linkbtn" data-act="nav" data-id="graph">그래프 열기 ›</button></header><div class="mapcard"><div class="mini">'+graphSVG({mini:1})+'</div>'+insights()+'</div></section>'+
+ '<section class="card c12"><header><h2>정비</h2><span class="muted" style="font-size:11.5px">소유자에게만 보임</span></header>'+[['상세(detail) 미생성','8건','./cb-manuscript app format-migrate --apply'],['적재 실패 (오류 인박스)','1건','./cb-manuscript app replay-failed'],['요약 누락','1건','./cb-manuscript app regenerate d9 --summary --apply']].map(x=>'<div class="row"><span class="grow"><span class="ttl" style="font-weight:500">'+x[0]+' <span class="tag">'+x[1]+'</span></span><span class="cmd"><code>'+x[2]+'</code><button class="btn sm" data-act="noop">복사</button></span></span></div>').join('')+'</section>'+
+ '</div></div>';}
+function bodyHtml(d){if(!d.body)return '<p>'+esc(d.sum)+'</p><p class="muted">(프로토타입: 이 문서의 상세 본문은 생략함)</p>';return d.body.map(p=>p.startsWith('h:')?'<h2>'+esc(p.slice(2))+'</h2>':'<p>'+esc(p.replace(/\[\[\w+\|([^\]]+)\]\]/g,'$1'))+'</p>').join('');}
+function renderReader(){const d=docById[S.doc];if(!d)return '<div class="readerwrap"><p class="empty">왼쪽 목록에서 문서를 선택하면 본문이 표시됩니다.</p></div>';const split=S.o.gpos==='split';
+ return '<div class="readerwrap'+(split?' split':'')+'"><article class="sheet"><div class="head"><h1>'+esc(d.title)+'</h1><button class="btn sm" title="글자 작게">A−</button><button class="btn sm" title="글자 크게">A+</button><button class="btn sm" title="공유 링크 만들기">공유</button>'+(S.o.side==='ctx'&&!inspOpen()?'<button class="btn sm" data-act="toggle-insp" title="문맥 패널 열기">'+ic('insp')+'문맥</button>':'')+'<button class="btn sm" data-act="close-doc" aria-label="읽기 닫기" title="닫기">'+ic('x')+'</button></div>'+
+ '<div class="meta"><a href="#" data-act="noop">↗ 원문 열기</a><span>'+KIND[d.kind]+' · '+d.date+' 수집</span><span class="prov raw">'+ic('check')+'원문 보존</span><span>엔티티 '+d.ents.length+'</span></div>'+
+ '<div class="sec">요약 <span class="prov model" title="모델이 만든 결과. 원문을 대체하지 않으며 다시 만들 수 있다">모델 산출</span></div><div class="summary" id="rsum">'+esc(d.sum)+'</div>'+
+ '<div class="sec">상세 <span class="prov model">모델 산출</span><span class="muted" style="font-weight:400">'+(HILITE?'점선 밑줄 = 이 문서 엔티티의 이름과 같은 문자열':'이 브라우저는 엔티티 밑줄을 지원하지 않음')+'</span></div><div class="body" id="rbody">'+bodyHtml(d)+'</div></article>'+
+ (split?'<div class="splitpane"><div class="phead"><strong>문맥 그래프</strong><span class="muted">안쪽 고리 = 이 문서 · 바깥 고리 = 다른 문서의 이웃</span></div>'+localSVG(d,1)+'</div>':'')+'</div>';}
+function renderGraph(){const types=[...new Set(GN.map(n=>n.type))].sort(),rels=[...new Set(GR.map(r=>r.type))].sort();
+ return '<div class="gview"><div class="legend">'+types.map(t=>'<span>'+tdot(t)+t+'</span>').join('')+'<span style="margin-left:8px">관계:</span>'+rels.map(t=>'<span class="rel'+(t==='related_to'?' weak':'')+'" style="--c:'+REL_COLORS[t]+'"><i></i>'+t+'</span>').join('')+'</div><div class="gstage">'+graphSVG({})+'<div class="gnote">실선 = 확정 관계 · 점선 = 임시(provisional) 또는 related_to · 고립·쌍 '+E.filter(e=>e.off).length+'개는 목록에만 표시</div><div class="gctl"><button data-act="zoom" data-id="in" aria-label="확대">+</button><button data-act="zoom" data-id="out" aria-label="축소">−</button><button data-act="zoom" data-id="fit" aria-label="전체 맞춤">↺</button></div></div></div>';}
+function nodeDetail(e){const groups={};e.nb.forEach(n=>{(groups[n.r.type]=groups[n.r.type]||[]).push(n);});
+ return '<div class="phead">'+(S.view==='reader'&&S.doc?'<button class="btn sm" data-act="unent">‹ 문서 문맥</button>':'')+'<strong style="flex:1">엔티티</strong><button class="btn ghost sm" data-act="'+(S.view==='reader'&&S.doc?'unent':'close-insp')+'" aria-label="닫기">'+ic('x')+'</button></div><div class="pbody"><div class="nd"><h2>'+esc(e.name)+'</h2><span class="chip">'+tdot(e.type)+e.type+'</span> <span class="chip">연결 '+e.deg+'</span> <span class="chip">문서 '+e.docs.length+'</span><ul class="obs"><li>'+esc(e.obs)+'</li></ul></div><div class="acts">'+(S.view!=='graph'&&!e.off?'<button class="btn sm" data-act="nav" data-id="graph">'+ic('graph')+'그래프에서 보기</button>':'')+'<button class="btn sm">경로 시작</button><button class="btn sm">종합에 추가</button></div>'+
+ Object.keys(groups).map(t=>'<h3 style="color:'+REL_COLORS[t]+'">'+t+'</h3>'+groups[t].map(n=>'<button class="row" data-act="ent" data-id="'+n.id+'">'+tdot(byId[n.id].type)+'<span class="grow"><span class="ttl" style="font-weight:500">'+(n.dir==='out'?'→ ':'← ')+esc(byId[n.id].name)+'</span></span>'+(n.r.prov?'<span class="prov model">임시</span>':'')+'</button>').join('')).join('')+
+ '<h3>출처 문서</h3>'+(e.docs.length?e.docs.map(id=>'<button class="row" data-act="doc" data-id="'+id+'"><span class="grow"><span class="ttl" style="font-weight:500">'+esc(docById[id].title)+'</span></span><span class="tag">'+docById[id].ago+'</span></button>').join(''):'<p class="hint">출처 문서 없음</p>')+'</div>';}
+function docContext(d){const rel=D.filter(x=>x.id!==d.id).map(x=>({x,n:x.ents.filter(e=>d.ents.includes(e)).length})).filter(o=>o.n).sort((a,b)=>b.n-a.n).slice(0,5);let b='';
+ if(S.tab==='links')b=(S.o.gpos==='panel'?localSVG(d)+'<p class="hint" style="padding:6px 12px 0;font-size:11.5px">안쪽 고리 = 이 문서의 엔티티 · 바깥 고리 = 다른 문서에서 이어진 이웃</p>':'')+'<h3>엔티티를 공유하는 문서</h3>'+(rel.length?rel.map(o=>'<button class="row" data-act="doc" data-id="'+o.x.id+'"><span class="grow"><span class="ttl" style="font-weight:500">'+esc(o.x.title)+'</span></span><span class="tag" title="공유 엔티티 수 (결정론적 집계)">공유 '+o.n+'</span></button>').join(''):'<p class="hint">공유 엔티티가 있는 문서 없음</p>');
+ else if(S.tab==='ents')b=d.ents.map(id=>byId[id]).sort((a,b2)=>b2.deg-a.deg).map(e=>'<button class="row" data-act="ent" data-id="'+e.id+'" data-ent="'+e.id+'">'+tdot(e.type)+'<span class="grow"><span class="ttl" style="font-weight:500">'+esc(e.name)+'</span><span class="sub">'+esc(e.obs)+'</span></span><span class="tag">'+e.deg+'</span></button>').join('');
+ else{const n=d.ents.length,rule=Math.max(1,n-2-d.add[0]);b='<h3>원문 <span class="prov raw" style="margin-left:4px">'+ic('check')+'보존됨</span></h3><dl class="kv"><dt>출처</dt><dd>https://example.org/'+d.id+'</dd><dt>수집 시각</dt><dd>'+d.date+'</dd><dt>출처 유형</dt><dd>'+KIND[d.kind]+'</dd><dt>문자 수</dt><dd>적재 18,204자 (전체 18,204자)</dd></dl><div class="acts" style="border-top:1px solid var(--border)"><button class="btn sm">원문 보기</button></div><h3>산출물 <span class="prov model" style="margin-left:4px">모델 산출</span></h3><dl class="kv"><dt>요약 · 상세</dt><dd>있음</dd><dt>엔티티</dt><dd>'+n+'개</dd></dl><h3>해소 판단</h3><dl class="kv"><dt>규칙 일치</dt><dd>'+rule+'건 <span class="prov det">이름 · 별칭 · 약어</span></dd><dt>유사도 · 판정</dt><dd>'+Math.max(0,n-rule-d.add[0])+'건 <span class="prov model">임베딩 · 모델</span></dd><dt>신규</dt><dd>'+d.add[0]+'건</dd></dl><div class="acts" style="border-top:1px solid var(--border)"><button class="btn sm" data-act="nav" data-id="stream">판단 기록 보기</button></div>';}
+ return '<div class="phead"><strong style="flex:1">문서 문맥</strong>'+(S.o.side==='ctx'?'<button class="btn ghost sm" data-act="close-insp" aria-label="문맥 패널 닫기">'+ic('x')+'</button>':'')+'</div><div class="ptabs" role="tablist" aria-label="문서 문맥">'+[['links','연결'],['ents','엔티티 '+d.ents.length],['src','출처']].map(t=>'<button type="button" role="tab" id="ctab-'+t[0]+'" aria-selected="'+(S.tab===t[0])+'" tabindex="'+(S.tab===t[0]?0:-1)+'" class="'+(S.tab===t[0]?'on':'')+'" data-act="tab" data-id="'+t[0]+'">'+t[1]+'</button>').join('')+'</div><div class="pbody" role="tabpanel" aria-labelledby="ctab-'+S.tab+'" tabindex="0">'+b+'</div>';}
+function renderInsp(){const legacy=S.o.side==='both',tools=legacy?'<div class="acts"><button class="btn sm">적재</button><button class="btn sm">재적재</button><button class="btn sm">재생성</button><button class="btn sm">소각</button><button class="btn sm">중복정리</button></div>':'';let h;
+ if(S.ent)h=nodeDetail(byId[S.ent]);
+ else if(S.view==='reader'&&S.doc)h=docContext(docById[S.doc]);
+ else if(S.view==='graph'&&!legacy)h='<div class="phead"><strong style="flex:1">지도 읽기</strong><button class="btn ghost sm" data-act="close-insp" aria-label="닫기">'+ic('x')+'</button></div><div class="pbody"><p class="hint">노드를 고르기 전에는 지도가 답하는 목록을 보인다. 행을 누르면 그 엔티티와 이웃만 강조된다.</p>'+insights().replace('cols3','cols1')+'</div>';
+ else h='<div class="phead"><strong>상세 메뉴</strong></div>'+tools+'<div class="pbody"><p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br/><br/>(현행: 선택이 없을 때도 이 칸이 항상 열려 있다.)</p></div>';
+ if(legacy&&(S.ent||(S.view==='reader'&&S.doc)))h=h.replace('<div class="pbody">',tools+'<div class="pbody">');
+ $('insp').innerHTML=h;}
+function renderOpts(){$('opts').innerHTML=OPTS.map(o=>'<span>'+o[1]+'</span><div>'+o[2].map(v=>'<button class="btn sm'+(S.o[o[0]]===v[0]?' on':'')+'" data-act="opt" data-k="'+o[0]+'" data-id="'+v[0]+'">'+v[1]+'</button>').join('')+'</div>').join('');$('optnote').textContent=OPTS.map(o=>NOTES[o[0]][S.o[o[0]]]).join(' ');}
+function render(){document.body.classList.toggle('no-side',!S.sidebar);document.body.classList.toggle('no-insp',!inspOpen());renderBar();renderSide();const c=$('center'),keep=c.dataset.view===S.view+':'+S.doc?c.scrollTop:0;c.dataset.view=S.view+':'+S.doc;
+ c.innerHTML=S.view==='home'?renderHome():S.view==='reader'?renderReader():S.view==='graph'?renderGraph():'<div class="stub"><b>'+(S.view==='stream'?'의사결정 스트림':'프레젠테이션')+'</b><br/>현행 화면을 그대로 둔다. 이 프로토타입은 홈 · 본문 · 그래프의 배치만 다룬다.</div>';c.scrollTop=keep;renderInsp();renderOpts();markEntities();const ov=narrow()&&(S.sidebar||inspOpen());document.body.classList.toggle('overlay',ov);c.inert=ov;}
+
+/* Entity marks (CSS Custom Highlight API): Range objects on the text nodes. The DOM of the text does not change, thus textContent, copy, and selection give the same text with and without the marks. A browser without the API shows no marks.
+   Match rules: only the names of the entities of this document; longest name first; no overlap; letters without case; an ASCII letter or digit next to an ASCII name end is not a match; headings have no marks. */
+let MARKS=[];
+function markEntities(){if(!HILITE)return;CSS.highlights.delete('ent-mark');CSS.highlights.delete('ent-hot');MARKS=[];const d=S.view==='reader'&&docById[S.doc];if(!d)return;const cands=d.ents.map(id=>({id,k:byId[id].name.toLowerCase()})).filter(c=>c.k.length>=2).sort((a,b)=>b.k.length-a.k.length),isAN=ch=>/[a-z0-9]/i.test(ch||'');
+ ['rsum','rbody'].forEach(rid=>{const root=$(rid);if(!root)return;const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('h1,h2,h3,code,pre,a')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});for(let n=w.nextNode();n;n=w.nextNode()){const t=n.data.toLowerCase(),used=[];cands.forEach(c=>{for(let i=t.indexOf(c.k);i!==-1;i=t.indexOf(c.k,i+c.k.length)){const e=i+c.k.length;if(isAN(c.k[0])&&isAN(t[i-1]))continue;if(isAN(c.k[c.k.length-1])&&isAN(t[e]))continue;if(used.some(u=>i<u[1]&&e>u[0]))continue;used.push([i,e]);const r=new Range();r.setStart(n,i);r.setEnd(n,e);MARKS.push({r,id:c.id,n,s:i,e});}});}});
+ if(MARKS.length)CSS.highlights.set('ent-mark',new Highlight(...MARKS.map(m=>m.r)));}
+function menuOpen(){const m=$('menu');return m.classList.contains('open')||(POPOVER&&m.matches(':popover-open'));}
+function hot(id){if(!HILITE)return;const rs=MARKS.filter(m=>m.id===id).map(m=>m.r);if(rs.length){const h=new Highlight(...rs);h.priority=1;CSS.highlights.set('ent-hot',h);}else CSS.highlights.delete('ent-hot');}
+function markAt(x,y){if(!MARKS.length)return null;let n,o;if(document.caretPositionFromPoint){const p=document.caretPositionFromPoint(x,y);if(!p)return null;n=p.offsetNode;o=p.offset;}else if(document.caretRangeFromPoint){const r=document.caretRangeFromPoint(x,y);if(!r)return null;n=r.startContainer;o=r.startOffset;}else return null;const m=MARKS.find(m=>m.n===n&&o>=m.s&&o<=m.e);if(!m)return null;const b=m.r.getBoundingClientRect();return x>=b.left-1&&x<=b.right+1&&y>=b.top-1&&y<=b.bottom+1?m:null;}
+
+/* ---------- Actions ---------- */
+const narrow=()=>matchMedia('(max-width:900px)').matches;
+function go(view){S.view=view;if(view==='graph')S.list='ents';else if(view==='reader'||view==='home')S.list='docs';if(view!=='graph'&&view!=='reader')S.ent=null;if(narrow()){S.sidebar=false;S.insp=false;}}
+function act(a,id,el){switch(a){
+ case'nav':go(id);break;
+ case'doc':S.doc=id;S.ent=null;S.tab='links';go('reader');docById[id].unread=0;if(!narrow())S.insp=true;break;
+ case'ent':S.ent=id;S.insp=true;if(narrow())S.sidebar=false;break;
+ case'unent':S.ent=null;break;
+ case'list':S.list=id;S.q='';break;
+ case'esort':S.entSort=id;break;
+ case'tab':S.tab=id;break;
+ case'toggle-side':S.sidebar=!S.sidebar;if(narrow()&&S.sidebar)S.insp=false;break;
+ case'toggle-insp':if(!hasCtx())return;S.insp=!inspOpen();if(narrow()&&S.insp)S.sidebar=false;break;
+ case'close-insp':S.insp=false;S.ent=null;break;
+ case'close-doc':S.doc=null;S.ent=null;go(S.o.home==='overview'?'home':'graph');break;
+ case'theme':document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';return;
+ case'pal':openPal();return;
+ case'ing':$('ing').showModal();return;
+ case'close-dlg':el.closest('dialog').close();return;
+ case'close-overlay':S.sidebar=false;S.insp=false;break;
+ case'menu':$('menu').classList.toggle('open');return;
+ case'zoom':{if(id==='fit')VB={...BOUNDS};else{const f=id==='in'?.8:1.25,cx=VB.x+VB.w/2,cy=VB.y+VB.h/2;VB={x:cx-VB.w*f/2,y:cy-VB.h*f/2,w:VB.w*f,h:VB.h*f};}break;}
+ case'opt':S.o[el.dataset.k]=id;if(el.dataset.k==='home'){S.ent=null;go(id==='overview'?'home':'graph');}if(el.dataset.k==='side')S.insp=true;break;
+ default:return;}
+ render();}
+document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!POPOVER&&!e.target.closest('.menuwrap'))$('menu')&&$('menu').classList.remove('open');if(!el){const m=e.target.closest('#rbody,#rsum')&&String(getSelection())===''&&markAt(e.clientX,e.clientY);if(m)act('ent',m.id,e.target);return;}if(el.tagName==='A')e.preventDefault();act(el.dataset.act,el.dataset.id,el);if(el.dataset.act==='tab'){const t=$('ctab-'+S.tab);t&&t.focus();}});
+/* The menu is a popover: the browser gives the light dismiss and the Escape key. The script gives the position and the arrow keys. */
+document.addEventListener('beforetoggle',e=>{if(e.target.id!=='menu'||e.newState!=='open')return;const b=$('menubtn').getBoundingClientRect();e.target.style.top=(b.bottom+6)+'px';e.target.style.right=Math.max(8,innerWidth-b.right)+'px';},true);
+document.addEventListener('toggle',e=>{if(e.target.id!=='menu'||e.newState!=='open')return;const f=e.target.querySelector('[role=menuitem]');f&&f.focus();},true);
+document.addEventListener('keydown',e=>{const it=e.target.closest&&e.target.closest('#menu [role=menuitem]');if(it&&(e.key==='ArrowDown'||e.key==='ArrowUp')){const all=[...$('menu').querySelectorAll('[role=menuitem]')],i=all.indexOf(it);all[(i+(e.key==='ArrowDown'?1:all.length-1))%all.length].focus();e.preventDefault();}
+ const tab=e.target.closest&&e.target.closest('.ptabs [role=tab]');if(tab&&(e.key==='ArrowRight'||e.key==='ArrowLeft')){const ids=['links','ents','src'],i=ids.indexOf(S.tab);S.tab=ids[(i+(e.key==='ArrowRight'?1:2))%3];render();$('ctab-'+S.tab).focus();e.preventDefault();}});
+document.addEventListener('input',e=>{if(e.target.id==='sq'){S.q=e.target.value;const p=e.target.selectionStart;renderSide();const n=$('sq');n.focus();n.setSelectionRange(p,p);}if(e.target.id==='palq')renderPal();});
+/* A hover on an entity in the text or in a list marks the same entity in the graph, and the reverse. */
+let hotId=null;
+function setHot(id){if(id===hotId)return;hotId=id;document.querySelectorAll('.hl').forEach(n=>n.classList.remove('hl'));if(id)document.querySelectorAll('[data-ent="'+id+'"]').forEach(n=>n.classList.add('hl'));hot(id);const rb=$('rbody');if(rb)rb.style.cursor='';}
+document.addEventListener('mousemove',e=>{const el=e.target.closest('[data-ent]');if(el){setHot(el.dataset.ent);return;}const m=e.target.closest('#rbody,#rsum')?markAt(e.clientX,e.clientY):null;setHot(m?m.id:null);if(m)$('rbody').style.cursor='pointer';});
+/* Pan and wheel zoom of the map */
+let drag=null;
+document.addEventListener('pointerdown',e=>{const svg=e.target.closest('#gsvg');if(svg&&!e.target.closest('.gn'))drag={x:e.clientX,y:e.clientY,vb:{...VB},k:VB.w/svg.clientWidth};});
+document.addEventListener('pointermove',e=>{if(!drag)return;const k=Math.max(drag.k,VB.h/$('gsvg').clientHeight);VB.x=drag.vb.x-(e.clientX-drag.x)*k;VB.y=drag.vb.y-(e.clientY-drag.y)*k;$('gsvg').setAttribute('viewBox',[VB.x,VB.y,VB.w,VB.h].join(' '));});
+document.addEventListener('pointerup',()=>{drag=null;});
+document.addEventListener('wheel',e=>{const svg=e.target.closest&&e.target.closest('#gsvg');if(!svg)return;e.preventDefault();const f=e.deltaY>0?1.12:.89,r=svg.getBoundingClientRect(),px=VB.x+VB.w*(e.clientX-r.left)/r.width,py=VB.y+VB.h*(e.clientY-r.top)/r.height;VB={x:px-(px-VB.x)*f,y:py-(py-VB.y)*f,w:VB.w*f,h:VB.h*f};svg.setAttribute('viewBox',[VB.x,VB.y,VB.w,VB.h].join(' '));},{passive:false});
+/* Command palette: one entry for search, movement, and commands */
+let palCur=0,palItems=[];
+function openPal(){$('palq').value='';palCur=0;renderPal();$('pal').showModal();$('palq').focus();}
+function renderPal(){const q=$('palq').value.trim().toLowerCase(),cmds=[['홈으로','nav','home','명령'],['그래프 열기','nav','graph','명령'],['적재…','ing','','명령'],['라이트/다크 전환','theme','','명령']];palItems=cmds.filter(c=>!q||c[0].toLowerCase().includes(q)).map(c=>({h:esc(c[0]),a:c[1],id:c[2],k:c[3]})).concat(D.filter(d=>q&&d.title.toLowerCase().includes(q)||!q&&d.pin).map(d=>({h:esc(d.title),a:'doc',id:d.id,k:'문서'})),E.filter(e=>q&&e.name.toLowerCase().includes(q)).slice(0,8).map(e=>({h:tdot(e.type)+esc(e.name),a:'ent',id:e.id,k:'엔티티'})));palCur=Math.min(palCur,Math.max(0,palItems.length-1));$('palres').innerHTML=palItems.map((it,i)=>'<button class="'+(i===palCur?'cur':'')+'" data-pal="'+i+'">'+it.h+'<small>'+it.k+'</small></button>').join('')||'<p class="muted" style="padding:10px">일치 항목 없음</p>';}
+function runPal(i){const it=palItems[i];if(!it)return;$('pal').close();act(it.a,it.id,document.body);}
+$('pal').addEventListener('click',e=>{const b=e.target.closest('[data-pal]');if(b)runPal(+b.dataset.pal);});
+if(!('closedBy' in HTMLDialogElement.prototype))['pal','ing'].forEach(id=>$(id).addEventListener('click',e=>{const dlg=$(id);if(e.target!==dlg)return;const r=dlg.getBoundingClientRect();if(r.top<=e.clientY&&e.clientY<=r.bottom&&r.left<=e.clientX&&e.clientX<=r.right)return;dlg.close();}));
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPal();return;}if($('pal').open){if(e.key==='ArrowDown'){palCur=Math.min(palCur+1,palItems.length-1);renderPal();e.preventDefault();}else if(e.key==='ArrowUp'){palCur=Math.max(palCur-1,0);renderPal();e.preventDefault();}else if(e.key==='Enter'){runPal(palCur);e.preventDefault();}return;}if(e.key!=='Escape'||$('ing').open||menuOpen())return;if(document.body.classList.contains('overlay')){S.sidebar=false;S.insp=false;render();}else if(S.ent){S.ent=null;render();}});
+if(narrow()){S.sidebar=false;S.insp=false;$('proto').open=false;}
+/* Query parameters for screenshots and links: ?view=reader&doc=d2&home=graph&side=both&gpos=split&theme=dark */
+(function(){const p=new URLSearchParams(location.search);['home','side','gpos'].forEach(k=>{if(p.get(k))S.o[k]=p.get(k);});if(p.get('theme'))document.documentElement.dataset.theme=p.get('theme');if(S.o.home==='graph')go('graph');if(p.get('doc')&&docById[p.get('doc')]){S.doc=p.get('doc');go('reader');}if(p.get('view'))go(p.get('view'));if(p.get('ent')&&byId[p.get('ent')])S.ent=p.get('ent');if(p.get('tab'))S.tab=p.get('tab');if(p.get('panel')==='0')$('proto').open=false;})();
+render();
+</script>
+</body></html>
