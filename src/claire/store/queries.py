@@ -240,6 +240,7 @@ def document_detail(
             "label": e.name,
             "group": e.type,
             "observations": e.observations or [],
+            "aliases": e.aliases or [],
         }
         for e in ents
     ]

@@ -96,6 +96,8 @@
   "context.doc.tab_links": "Links",
   "context.doc.tab_entities": "Entities",
   "context.doc.tab_source": "Source",
+  "context.doc.local_graph_aria": "Local graph of this document",
+  "context.doc.local_graph_unshown": "+{count} more entities not shown",
   "context.doc.shared_docs": "Documents that share entities",
   "context.doc.shared_unit": "{count} shared",
   "context.doc.no_shared": "No other documents share entities with this document.",
@@ -117,5 +119,9 @@
   "context.doc.absent": "Absent",
   "context.doc.resolution": "Resolution",
   "context.doc.no_resolution": "No resolution records",
-  "context.doc.open_stream": "Open decision stream ›"
+  "context.doc.open_stream": "Open decision stream ›",
+  "reader.marks.legend": "a dotted underline = a string that is equal to a name of an entity of this document",
+  "reader.marks.limits_exceeded": "Entity marks are off for this document (limit exceeded)",
+  "reader.marks.unsupported": "Entity marks are not supported in this browser",
+  "reader.marks.disabled": "Entity marks are turned off"
 }

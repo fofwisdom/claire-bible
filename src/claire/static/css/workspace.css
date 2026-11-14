@@ -744,6 +744,25 @@
   .ctx-source-links{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;margin:4px 0}
   .ctx-source-extra{margin-top:6px}
   .ctx-stream-link{align-self:flex-start;margin-top:4px}
+  /* Local Graph in Links tab (HW-4) */
+  #ctx-local-graph-slot{display:flex;flex-direction:column;align-items:center;width:100%}
+  .ctx-local-graph{display:block;width:100%;max-width:320px;height:auto;margin:6px auto 2px;overflow:visible}
+  .ctx-local-graph .ctx-lg-doc-edge{stroke:var(--border);stroke-width:0.8px;opacity:0.6;transition:stroke 0.15s ease,stroke-width 0.15s ease,opacity 0.15s ease}
+  .ctx-local-graph .ctx-lg-edge{stroke:var(--border);stroke-width:1.2px;opacity:0.6;transition:stroke 0.15s ease,stroke-width 0.15s ease,opacity 0.15s ease}
+  .ctx-local-graph .ctx-lg-edge.provisional{stroke-dasharray:3 3}
+  .ctx-local-graph .ctx-lg-center circle{fill:var(--card-bg);stroke:var(--border);stroke-width:1.5px}
+  .ctx-local-graph .ctx-lg-node{cursor:pointer;outline:none;transition:opacity 0.15s ease}
+  .ctx-local-graph .ctx-lg-node:focus-visible circle{stroke:var(--accent);stroke-width:2.5px}
+  .ctx-local-graph .ctx-lg-node text{font-size:9px;fill:var(--fg);user-select:none;cursor:pointer}
+  .ctx-local-graph.has-hover .ctx-lg-node:not(.hover-active){opacity:0.35}
+  .ctx-local-graph.has-hover .ctx-lg-edge:not(.hover-active){opacity:0.15}
+  .ctx-local-graph.has-hover .ctx-lg-doc-edge:not(.hover-active){opacity:0.15}
+  .ctx-local-graph .ctx-lg-node.hover-active circle{stroke:var(--accent);stroke-width:2.5px}
+  .ctx-local-graph .ctx-lg-node.hover-active text{fill:var(--accent);font-weight:700}
+  .ctx-local-graph .ctx-lg-edge.hover-active,.ctx-local-graph .ctx-lg-doc-edge.hover-active{stroke:var(--accent);stroke-width:2px;opacity:1}
+  .ctx-local-graph-unshown{font-size:11px;color:var(--muted);text-align:center;margin:2px 0 10px 0}
+  /* Cross-view hover synchronization */
+  .ctx-entity-row.entity-hover-active,.home-map-row.entity-hover-active,.entitem.entity-hover-active{background:var(--hover) !important;border-color:var(--accent) !important}
   .rsection-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:1.2em 0 .2em}
   #reader .rsection-row .rsection{margin:0}
   @container home (min-width:680px){.home-map-body{grid-template-columns:220px minmax(0,1fr)}}

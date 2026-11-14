@@ -96,6 +96,8 @@
   "context.doc.tab_links": "연결",
   "context.doc.tab_entities": "엔티티",
   "context.doc.tab_source": "출처",
+  "context.doc.local_graph_aria": "이 문서의 로컬 그래프",
+  "context.doc.local_graph_unshown": "외 {count}개 엔티티 미표시",
   "context.doc.shared_docs": "엔티티를 공유하는 문서",
   "context.doc.shared_unit": "공유 {count}",
   "context.doc.no_shared": "엔티티를 공유하는 다른 문서가 없습니다.",
@@ -117,5 +119,9 @@
   "context.doc.absent": "없음",
   "context.doc.resolution": "엔티티 대조",
   "context.doc.no_resolution": "대조 기록 없음",
-  "context.doc.open_stream": "의사결정 스트림 보기 ›"
+  "context.doc.open_stream": "의사결정 스트림 보기 ›",
+  "reader.marks.legend": "점선 밑줄 = 이 문서의 엔티티 이름과 일치하는 문자열",
+  "reader.marks.limits_exceeded": "문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.",
+  "reader.marks.unsupported": "사용 중인 브라우저가 CSS Custom Highlight API를 지원하지 않습니다.",
+  "reader.marks.disabled": "엔티티 마크가 비활성화되어 있습니다."
 }

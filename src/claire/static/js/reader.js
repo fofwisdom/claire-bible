@@ -848,6 +848,9 @@ function renderReader(dc){
   document.getElementById('reader').setAttribute('aria-busy','false');
   updateReaderRail();
   setupReaderAccessibleBlocks(body);
+  if(typeof applyEntityMarks === 'function'){
+    applyEntityMarks(dc);
+  }
   if(typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'){
     window.requestAnimationFrame(()=>{
       if(body && typeof body.focus === 'function'){
@@ -1301,6 +1304,9 @@ function closeReader(focus=false){
   }
   document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : 'Claire Bible — 홈';
   hideNodePop();
+  if(typeof clearEntityMarks === 'function'){
+    clearEntityMarks();
+  }
   const r=document.getElementById('reader');
   r.classList.remove('open'); r.setAttribute('aria-hidden','true'); r.setAttribute('aria-busy','false');
   document.body.classList.remove('reader-open');
@@ -1845,8 +1851,365 @@ function openDocPresentation(docId){
   updatePresentationView(targetId);
 }
 
+// --- Reader Text Entity Marks (HW-5) ---
+let readerActiveMarkRanges = [];
+let readerHoverMarkEntityId = null;
+let readerMarksInitializedListeners = false;
+
+function isEntityMarksExcluded(){
+  if(typeof window === 'undefined') return true;
+  if(window.location && window.location.search && (window.location.search.includes('s=') || window.location.pathname.startsWith('/p'))) return true;
+  if(document.body && document.body.classList && document.body.classList.contains('shared-page')) return true;
+  return false;
+}
+
+function isAsciiAlphanumericChar(c){
+  if(!c) return false;
+  const code = c.charCodeAt(0);
+  return (code >= 48 && code <= 57) || // 0-9
+         (code >= 65 && code <= 90) || // A-Z
+         (code >= 97 && code <= 122);  // a-z
+}
+
+function collectEntityCandidates(dc){
+  if(!dc || !Array.isArray(dc.nodes)) return { candidates: [], totalCandidateNames: 0 };
+  const rawCandidates = [];
+  let totalCandidateNames = 0;
+
+  dc.nodes.forEach(n => {
+    const names = [];
+    if(n.label) names.push(n.label);
+    else if(n.name) names.push(n.name);
+    else if(n.id) names.push(n.id);
+    if(Array.isArray(n.aliases)){
+      n.aliases.forEach(a => { if(a && typeof a === 'string') names.push(a); });
+    }
+    names.forEach(nameStr => {
+      const trimmed = nameStr.trim();
+      if(!trimmed) return;
+      totalCandidateNames++;
+      if(trimmed.length < 2) return;
+      const isShortAscii = trimmed.length <= 3 && /^[A-Za-z0-9]{2,3}$/.test(trimmed);
+      rawCandidates.push({
+        text: trimmed,
+        entityId: n.id,
+        isShortAscii: isShortAscii,
+        key: isShortAscii ? ('exact:' + trimmed) : ('lower:' + trimmed.toLowerCase())
+      });
+    });
+  });
+
+  const keyEntities = new Map();
+  rawCandidates.forEach(cand => {
+    if(!keyEntities.has(cand.key)) keyEntities.set(cand.key, new Set());
+    keyEntities.get(cand.key).add(cand.entityId);
+  });
+
+  const validCandidates = [];
+  const seenPairs = new Set();
+  rawCandidates.forEach(cand => {
+    const entSet = keyEntities.get(cand.key);
+    if(entSet && entSet.size === 1){
+      const pair = cand.key + '|' + cand.entityId;
+      if(!seenPairs.has(pair)){
+        seenPairs.add(pair);
+        validCandidates.push(cand);
+      }
+    }
+  });
+
+  validCandidates.sort((a, b) => (b.text.length - a.text.length) || a.text.localeCompare(b.text));
+
+  return { candidates: validCandidates, totalCandidateNames };
+}
+
+function findMarkableTextNodes(root){
+  const textNodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: function(node){
+      if(!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if(!parent) return NodeFilter.FILTER_REJECT;
+      if(parent.closest('h1, h2, h3, h4, h5, h6, code, pre, a, .katex, .katex-display, script, style')){
+        return NodeFilter.FILTER_REJECT;
+      }
+      if(!parent.closest('p, li, td, th')){
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let curr;
+  while((curr = walker.nextNode())){
+    textNodes.push(curr);
+  }
+  return textNodes;
+}
+
+function updateReaderLegend(message, isVisible){
+  const el = document.getElementById('rlegend');
+  if(!el) return;
+  if(isVisible && message){
+    el.textContent = message;
+    el.classList.add('visible');
+  } else {
+    el.textContent = '';
+    el.classList.remove('visible');
+  }
+}
+
+function clearEntityMarks(){
+  readerActiveMarkRanges = [];
+  readerHoverMarkEntityId = null;
+  if(typeof CSS !== 'undefined' && CSS.highlights){
+    CSS.highlights.delete('claire-entity');
+    CSS.highlights.delete('claire-entity-hover');
+  }
+  updateReaderLegend('', false);
+}
+
+function applyEntityMarks(dc){
+  if(isEntityMarksExcluded()) {
+    clearEntityMarks();
+    return;
+  }
+  const body = document.getElementById('rbody');
+  if(!body) return;
+
+  if(typeof CSS === 'undefined' || !CSS.highlights){
+    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
+      ? ClaireI18n.t('reader.marks.unsupported')
+      : '사용 중인 브라우저가 CSS Custom Highlight API를 지원하지 않습니다.';
+    updateReaderLegend(msg, true);
+    return;
+  }
+
+  readerActiveMarkRanges = [];
+  readerHoverMarkEntityId = null;
+  CSS.highlights.delete('claire-entity');
+  CSS.highlights.delete('claire-entity-hover');
+
+  let marksEnabled = true;
+  try{
+    if(typeof localStorage !== 'undefined' && localStorage.getItem('claireEntityMarks') === '0'){
+      marksEnabled = false;
+    }
+  }catch(_){}
+
+  if(!marksEnabled){
+    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
+      ? ClaireI18n.t('reader.marks.disabled')
+      : '엔티티 마크가 비활성화되어 있습니다.';
+    updateReaderLegend(msg, true);
+    return;
+  }
+
+  const bodyText = body.textContent || '';
+  if(bodyText.length > 400000){
+    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
+      ? ClaireI18n.t('reader.marks.limits_exceeded')
+      : '문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.';
+    updateReaderLegend(msg, true);
+    return;
+  }
+
+  const { candidates, totalCandidateNames } = collectEntityCandidates(dc);
+  if(totalCandidateNames > 300){
+    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
+      ? ClaireI18n.t('reader.marks.limits_exceeded')
+      : '문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.';
+    updateReaderLegend(msg, true);
+    return;
+  }
+
+  if(!candidates.length){
+    updateReaderLegend('', false);
+    return;
+  }
+
+  const textNodes = findMarkableTextNodes(body);
+  textNodes.forEach(textNode => {
+    const content = textNode.nodeValue || '';
+    if(!content) return;
+    const lowerContent = content.toLowerCase();
+    const intervals = [];
+
+    candidates.forEach(cand => {
+      const candText = cand.text;
+      const candLen = candText.length;
+      const searchTarget = cand.isShortAscii ? content : lowerContent;
+      const query = cand.isShortAscii ? candText : candText.toLowerCase();
+      let searchIdx = 0;
+
+      while(searchIdx < searchTarget.length){
+        const idx = searchTarget.indexOf(query, searchIdx);
+        if(idx === -1) break;
+        const endIdx = idx + candLen;
+        searchIdx = idx + 1;
+
+        if(isAsciiAlphanumericChar(candText[0])){
+          if(idx > 0 && isAsciiAlphanumericChar(content[idx - 1])) continue;
+        }
+        if(isAsciiAlphanumericChar(candText[candLen - 1])){
+          if(endIdx < content.length && isAsciiAlphanumericChar(content[endIdx])) continue;
+        }
+
+        let overlaps = false;
+        for(let k = 0; k < intervals.length; k++){
+          const inv = intervals[k];
+          if(Math.max(idx, inv.start) < Math.min(endIdx, inv.end)){
+            overlaps = true;
+            break;
+          }
+        }
+        if(overlaps) continue;
+
+        intervals.push({ start: idx, end: endIdx });
+        try{
+          const range = new Range();
+          range.setStart(textNode, idx);
+          range.setEnd(textNode, endIdx);
+          readerActiveMarkRanges.push({
+            range: range,
+            entityId: cand.entityId,
+            textNode: textNode,
+            start: idx,
+            end: endIdx
+          });
+        }catch(_){}
+      }
+    });
+  });
+
+  if(readerActiveMarkRanges.length > 0){
+    const ranges = readerActiveMarkRanges.map(item => item.range);
+    const highlight = new Highlight(...ranges);
+    CSS.highlights.set('claire-entity', highlight);
+    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
+      ? ClaireI18n.t('reader.marks.legend')
+      : '점선 밑줄 = 이 문서의 엔티티 이름과 일치하는 문자열';
+    updateReaderLegend(msg, true);
+  } else {
+    updateReaderLegend('', false);
+  }
+
+  setupReaderMarkListeners();
+}
+
+function getCaretPosition(e){
+  if(document.caretPositionFromPoint){
+    const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+    if(pos) return { node: pos.offsetNode, offset: pos.offset };
+  } else if(document.caretRangeFromPoint){
+    const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if(r) return { node: r.startContainer, offset: r.startOffset };
+  }
+  return null;
+}
+
+function setupReaderMarkListeners(){
+  if(readerMarksInitializedListeners) return;
+  const body = document.getElementById('rbody');
+  if(!body) return;
+  readerMarksInitializedListeners = true;
+
+  body.addEventListener('mousemove', e => {
+    if(!readerActiveMarkRanges.length){
+      if(body.style.cursor === 'pointer') body.style.cursor = '';
+      return;
+    }
+    const caret = getCaretPosition(e);
+    if(!caret){
+      if(body.style.cursor === 'pointer') body.style.cursor = '';
+      return;
+    }
+    let hitItem = null;
+    for(let i = 0; i < readerActiveMarkRanges.length; i++){
+      const item = readerActiveMarkRanges[i];
+      if(item.textNode === caret.node && caret.offset >= item.start && caret.offset <= item.end){
+        hitItem = item;
+        break;
+      }
+    }
+    if(hitItem){
+      body.style.cursor = 'pointer';
+      if(readerHoverMarkEntityId !== hitItem.entityId){
+        readerHoverMarkEntityId = hitItem.entityId;
+        if(typeof window.setEntityHoverHighlight === 'function'){
+          window.setEntityHoverHighlight(hitItem.entityId);
+        }
+      }
+    } else {
+      if(body.style.cursor === 'pointer') body.style.cursor = '';
+      if(readerHoverMarkEntityId !== null){
+        readerHoverMarkEntityId = null;
+        if(typeof window.clearEntityHoverHighlight === 'function'){
+          window.clearEntityHoverHighlight();
+        }
+      }
+    }
+  });
+
+  body.addEventListener('mouseleave', () => {
+    if(body.style.cursor === 'pointer') body.style.cursor = '';
+    if(readerHoverMarkEntityId !== null){
+      readerHoverMarkEntityId = null;
+      if(typeof window.clearEntityHoverHighlight === 'function'){
+        window.clearEntityHoverHighlight();
+      }
+    }
+  });
+
+  body.addEventListener('click', e => {
+    if(!readerActiveMarkRanges.length) return;
+    const sel = window.getSelection();
+    if(sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
+
+    const caret = getCaretPosition(e);
+    if(!caret) return;
+    let hitItem = null;
+    for(let i = 0; i < readerActiveMarkRanges.length; i++){
+      const item = readerActiveMarkRanges[i];
+      if(item.textNode === caret.node && caret.offset >= item.start && caret.offset <= item.end){
+        hitItem = item;
+        break;
+      }
+    }
+    if(hitItem){
+      if(typeof selectDocEntity === 'function'){
+        selectDocEntity(hitItem.entityId);
+      } else if(typeof loadNode === 'function'){
+        loadNode(hitItem.entityId, true, false);
+      }
+    }
+  });
+}
+
+function setReaderEntityMarkHover(entityId){
+  if(!entityId || typeof CSS === 'undefined' || !CSS.highlights) return;
+  const matchingRanges = [];
+  readerActiveMarkRanges.forEach(item => {
+    if(item.entityId === entityId) matchingRanges.push(item.range);
+  });
+  if(matchingRanges.length > 0){
+    const hoverHighlight = new Highlight(...matchingRanges);
+    CSS.highlights.set('claire-entity-hover', hoverHighlight);
+  } else {
+    CSS.highlights.delete('claire-entity-hover');
+  }
+}
+
+function clearReaderEntityMarkHover(){
+  if(typeof CSS === 'undefined' || !CSS.highlights) return;
+  CSS.highlights.delete('claire-entity-hover');
+}
+
 // --- Global Export & Namespace ---
 const ClaireReader = {
+  applyEntityMarks,
+  clearEntityMarks,
+  setReaderEntityMarkHover,
+  clearReaderEntityMarkHover,
   openReader,
   closeReader,
   applyReadFS,
@@ -1919,6 +2282,10 @@ if (typeof window !== 'undefined') {
   window.applyDescLines = applyDescLines;
   window.setDescLines = setDescLines;
   window.doclistToolbarHtml = doclistToolbarHtml;
+  window.applyEntityMarks = applyEntityMarks;
+  window.clearEntityMarks = clearEntityMarks;
+  window.setReaderEntityMarkHover = setReaderEntityMarkHover;
+  window.clearReaderEntityMarkHover = clearReaderEntityMarkHover;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

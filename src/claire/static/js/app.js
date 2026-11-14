@@ -1748,6 +1748,8 @@ function initGraph(onComplete){
   if(activeDoc && !selectedNodeId){
     if(curReaderDocData && curReaderDocData.id===activeDoc) renderDocPanel(curReaderDocData);
     else loadDocPanel(activeDoc);
+  } else if(curDocPanelData && activeDocCtxTab === 'links'){
+    renderDocPanel(curDocPanelData);
   }
   if(onComplete) onComplete();
 }).catch(err => {
@@ -4479,7 +4481,7 @@ function setEntitySort(mode){
 function entItemHtml(n){
   const open = (n.id === entOpenId), out = (n.id === entOutId), deg = n.degree || 0;
   const c = TYPE_COLORS[n.group] || '#8b949e';
-  let h = '<div class="entitem' + (open ? ' open' : '') + ((open || n.id === selectedNodeId) ? ' active' : '') + '" role="listitem" data-ent-id="' + esc(n.id) + '">';
+  let h = '<div class="entitem' + (open ? ' open' : '') + ((open || n.id === selectedNodeId) ? ' active' : '') + '" role="listitem" data-ent-id="' + esc(n.id) + '" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()">';
   h += '<button type="button" class="entrow" aria-expanded="' + (open ? 'true' : 'false') + '"' + (open ? ' aria-controls="entbody"' : '') + '>';
   h += '<span class="entline"><i class="entdot" style="background:' + c + '"></i><span class="entname">' + esc(n.label) + '</span>';
   if(out) h += '<span class="entout" title="현재 필터에 없는 엔티티">필터 밖</span>';
@@ -5170,8 +5172,170 @@ function computeSharedDocs(dc){
     .slice(0, 5);
 }
 
+function setEntityHoverHighlight(id){
+  if(!id) return;
+  document.querySelectorAll('.ctx-local-graph').forEach(el => el.classList.add('has-hover'));
+  document.querySelectorAll('.ctx-lg-node[data-entity-id="' + id + '"]').forEach(el => el.classList.add('hover-active'));
+  document.querySelectorAll('.ctx-lg-edge[data-from="' + id + '"], .ctx-lg-edge[data-to="' + id + '"]').forEach(el => el.classList.add('hover-active'));
+  document.querySelectorAll('.ctx-lg-doc-edge[data-entity-id="' + id + '"]').forEach(el => el.classList.add('hover-active'));
+  document.querySelectorAll('.ctx-entity-row[data-entity-id="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
+  document.querySelectorAll('.home-map-row[data-home-ent="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
+  document.querySelectorAll('.entitem[data-ent-id="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
+  if(typeof window.setReaderEntityMarkHover === 'function'){
+    window.setReaderEntityMarkHover(id);
+  }
+}
+
+function clearEntityHoverHighlight(){
+  document.querySelectorAll('.ctx-local-graph').forEach(el => el.classList.remove('has-hover'));
+  document.querySelectorAll('.ctx-lg-node.hover-active').forEach(el => el.classList.remove('hover-active'));
+  document.querySelectorAll('.ctx-lg-edge.hover-active').forEach(el => el.classList.remove('hover-active'));
+  document.querySelectorAll('.ctx-lg-doc-edge.hover-active').forEach(el => el.classList.remove('hover-active'));
+  document.querySelectorAll('.ctx-entity-row.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
+  document.querySelectorAll('.home-map-row.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
+  document.querySelectorAll('.entitem.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
+  if(typeof window.clearReaderEntityMarkHover === 'function'){
+    window.clearReaderEntityMarkHover();
+  }
+}
+window.setEntityHoverHighlight = setEntityHoverHighlight;
+window.clearEntityHoverHighlight = clearEntityHoverHighlight;
+
+function renderLocalGraphHtml(dc){
+  if(!dc) return '';
+  const allDocEntities = docNodes(dc.id, dc);
+  const r1 = allDocEntities.slice(0, 24);
+  const r1Set = new Set(r1.map(n => n.id));
+  const docEntSet = new Set(allDocEntities.map(n => n.id));
+  const pos = {};
+
+  r1.forEach((n, i) => {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI / Math.max(r1.length, 1));
+    pos[n.id] = {
+      x: Math.round(Math.cos(angle) * 78 * 10) / 10,
+      y: Math.round(Math.sin(angle) * 78 * 10) / 10,
+      angle: angle
+    };
+  });
+
+  let r2 = [];
+  let r2CandidatesCount = 0;
+  if(graphInitialized && allEdges){
+    const candMap = new Map();
+    allEdges.forEach(e => {
+      if(!e || (typeof e.id === 'string' && e.id.indexOf('cl_') === 0)) return;
+      if(r1Set.has(e.from) && !docEntSet.has(e.to)){
+        if(!candMap.has(e.to)) candMap.set(e.to, { id: e.to, connectedR1: new Set() });
+        candMap.get(e.to).connectedR1.add(e.from);
+      }
+      if(r1Set.has(e.to) && !docEntSet.has(e.from)){
+        if(!candMap.has(e.from)) candMap.set(e.from, { id: e.from, connectedR1: new Set() });
+        candMap.get(e.from).connectedR1.add(e.to);
+      }
+    });
+    const candidates = Array.from(candMap.values()).map(cand => {
+      const nodeInfo = allNodes ? allNodes.get(cand.id) : null;
+      return {
+        id: cand.id,
+        connectedR1: cand.connectedR1,
+        degree: (nodeInfo && nodeInfo.degree) || 0,
+        label: (nodeInfo && (nodeInfo.label || nodeInfo.name)) || cand.id,
+        group: (nodeInfo && nodeInfo.group) || 'Concept',
+      };
+    });
+    candidates.sort((a, b) => ((b.degree || 0) - (a.degree || 0)) || String(a.label).localeCompare(String(b.label)));
+    r2CandidatesCount = candidates.length;
+    r2 = candidates.slice(0, 12);
+
+    r2.forEach(cand => {
+      let sinSum = 0, cosSum = 0, count = 0;
+      cand.connectedR1.forEach(r1Id => {
+        if(pos[r1Id]){
+          sinSum += Math.sin(pos[r1Id].angle);
+          cosSum += Math.cos(pos[r1Id].angle);
+          count++;
+        }
+      });
+      cand.targetAngle = count > 0 ? Math.atan2(sinSum, cosSum) : 0;
+    });
+    r2.sort((a, b) => a.targetAngle - b.targetAngle);
+    r2.forEach((cand, idx) => {
+      const angle = r2.length <= 4 ? cand.targetAngle : (-Math.PI / 2 + (idx * 2 * Math.PI / r2.length));
+      pos[cand.id] = {
+        x: Math.round(Math.cos(angle) * 148 * 10) / 10,
+        y: Math.round(Math.sin(angle) * 148 * 10) / 10,
+        angle: angle
+      };
+    });
+  } else if(typeof initGraph === 'function' && !graphInitialized){
+    initGraph();
+  }
+
+  let linesHtml = '';
+  r1.forEach(n => {
+    const p = pos[n.id];
+    linesHtml += '<line class="ctx-lg-doc-edge" data-entity-id="' + esc(n.id) + '" x1="0" y1="0" x2="' + p.x + '" y2="' + p.y + '" />';
+  });
+
+  if(graphInitialized && allEdges){
+    const renderedSet = new Set([...r1.map(n => n.id), ...r2.map(n => n.id)]);
+    const pairEdges = new Map();
+    allEdges.forEach(e => {
+      if(!e || (typeof e.id === 'string' && e.id.indexOf('cl_') === 0)) return;
+      if(renderedSet.has(e.from) && renderedSet.has(e.to) && e.from !== e.to){
+        const pairKey = e.from < e.to ? (e.from + ':' + e.to) : (e.to + ':' + e.from);
+        const existing = pairEdges.get(pairKey);
+        if(!existing || (existing.dashes && !e.dashes)){
+          pairEdges.set(pairKey, e);
+        }
+      }
+    });
+    pairEdges.forEach(e => {
+      const p1 = pos[e.from], p2 = pos[e.to];
+      if(p1 && p2){
+        const isProv = e.dashes === true;
+        linesHtml += '<line class="ctx-lg-edge' + (isProv ? ' provisional" stroke-dasharray="3 3' : '') + '" data-from="' + esc(e.from) + '" data-to="' + esc(e.to) + '" x1="' + p1.x + '" y1="' + p1.y + '" x2="' + p2.x + '" y2="' + p2.y + '" />';
+      }
+    });
+  }
+
+  const docTitle = dc.title || 'Document';
+  let nodesHtml = '<g class="ctx-lg-center" role="img" aria-label="' + esc(docTitle) + '"><circle cx="0" cy="0" r="14" /><text x="0" y="3.5" font-size="11" text-anchor="middle" fill="var(--fg)">📄</text></g>';
+
+  const renderNode = (n, isR1) => {
+    const p = pos[n.id];
+    const color = TYPE_COLORS[n.group] || '#8b949e';
+    const label = n.label || n.name || n.id;
+    const trunc = label.length > 10 ? (label.slice(0, 9) + '…') : label;
+    const anchor = p.x >= 0 ? 'start' : 'end';
+    const tx = p.x >= 0 ? (p.x + 8) : (p.x - 8);
+    const ty = p.y + 3;
+    const r = isR1 ? 6 : 4.5;
+    return '<g class="ctx-lg-node ' + (isR1 ? 'ring-1' : 'ring-2') + '" role="button" tabindex="0" aria-label="' + esc(label) + '" data-entity-id="' + esc(n.id) + '" onclick="selectDocEntity(' + jsArg(n.id) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();selectDocEntity(' + jsArg(n.id) + ');}" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()">' +
+      '<circle cx="' + p.x + '" cy="' + p.y + '" r="14" fill="none" pointer-events="all" />' +
+      '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + r + '" fill="' + esc(color) + '" stroke="var(--bg)" stroke-width="1.2" />' +
+      '<text x="' + tx + '" y="' + ty + '" text-anchor="' + anchor + '">' + esc(trunc) + '</text>' +
+      '</g>';
+  };
+
+  r1.forEach(n => { nodesHtml += renderNode(n, true); });
+  r2.forEach(n => { nodesHtml += renderNode(n, false); });
+
+  const svgAria = tr('context.doc.local_graph_aria');
+  let h = '<svg class="ctx-local-graph" viewBox="-160 -160 320 320" role="region" aria-label="' + esc(svgAria) + '">' +
+    linesHtml + nodesHtml + '</svg>';
+
+  const unshownR1 = Math.max(0, allDocEntities.length - 24);
+  const unshownR2 = Math.max(0, r2CandidatesCount - 12);
+  const totalUnshown = unshownR1 + unshownR2;
+  if(totalUnshown > 0){
+    h += '<p class="ctx-local-graph-unshown">' + esc(tr('context.doc.local_graph_unshown', {count: totalUnshown})) + '</p>';
+  }
+  return h;
+}
+
 function renderDocLinksTab(dc){
-  let h = '<div id="ctx-local-graph-slot"></div>';
+  let h = '<div id="ctx-local-graph-slot">' + renderLocalGraphHtml(dc) + '</div>';
   const shared = computeSharedDocs(dc);
   h += '<section aria-labelledby="ctx-shared-heading"><div id="ctx-shared-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.shared_docs')) + '</span></div>';
   if(shared.length){
@@ -5199,7 +5363,7 @@ function renderDocEntitiesTab(dc, ns){
     ns.forEach(n => {
       const c = TYPE_COLORS[n.group] || '#8b949e';
       const firstObs = Array.isArray(n.obs) ? (n.obs[0] || '') : (n.obs || '');
-      h += '<button type="button" class="ctx-entity-row nodebtn" role="listitem" data-entity-id="' + esc(n.id) + '" title="' + esc(n.group || '') + '" onmouseenter="peekNode(event,' + jsArg(n.id) + ')" onmouseleave="leaveNode()" onclick="selectDocEntity(' + jsArg(n.id) + ')">';
+      h += '<button type="button" class="ctx-entity-row nodebtn" role="listitem" data-entity-id="' + esc(n.id) + '" title="' + esc(n.group || '') + '" onmouseenter="peekNode(event,' + jsArg(n.id) + ');setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="leaveNode();clearEntityHoverHighlight()" onclick="selectDocEntity(' + jsArg(n.id) + ')">';
       h += '<span class="ctx-row-top"><span class="ctx-row-title"><i class="home-map-dot" style="background:' + c + '"></i>' + esc(n.label) + ' <small style="color:var(--muted);font-weight:400">' + esc(n.group || '') + '</small></span><span class="prov det">' + esc(tr('context.doc.degree_unit', {count: n.degree || 0})) + '</span></span>';
       if(firstObs) h += '<span class="ctx-row-obs">' + esc(firstObs) + '</span>';
       h += '</button>';
@@ -6125,7 +6289,7 @@ function renderHomeMapRows(el, items, unitKey, valueFn){
   el.innerHTML = items.map(n => {
     const color = TYPE_COLORS[n.group] || '#8b949e';
     const val = tr(unitKey, {count: valueFn(n)});
-    return '<button type="button" class="home-map-row" role="listitem" data-home-ent="' + esc(n.id) + '"><span class="home-map-dot" style="background:' + esc(color) + '"></span><span class="home-map-name">' + esc(n.label || n.id) + '</span><span class="home-map-val">' + esc(val) + '</span></button>';
+    return '<button type="button" class="home-map-row" role="listitem" data-home-ent="' + esc(n.id) + '" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()"><span class="home-map-dot" style="background:' + esc(color) + '"></span><span class="home-map-name">' + esc(n.label || n.id) + '</span><span class="home-map-val">' + esc(val) + '</span></button>';
   }).join('');
 }
 function renderHomeMap(){
@@ -6162,7 +6326,7 @@ function paintHomeDecisions(){
     const entId = dec.target_entity_id || dec.source_entity_id || '';
     const sub = [dec.timestamp ? dayOf(dec.timestamp) : '', dec.document_title || ''].filter(Boolean).join(' · ');
     const attr = entId ? (' data-home-ent="' + esc(entId) + '"') : '';
-    return '<button type="button" class="home-row" role="listitem"' + attr + '><span class="home-row-main"><span class="home-row-title">' + esc(title) + '</span><span class="home-row-sub">' + esc(sub) + '</span></span>' + resolutionStageBadge(dec.stage, dec.score) + '</button>';
+    return '<button type="button" class="home-row" role="listitem"' + attr + (entId ? (' onmouseenter="setEntityHoverHighlight(' + jsArg(entId) + ')" onmouseleave="clearEntityHoverHighlight()"') : '') + '><span class="home-row-main"><span class="home-row-title">' + esc(title) + '</span><span class="home-row-sub">' + esc(sub) + '</span></span>' + resolutionStageBadge(dec.stage, dec.score) + '</button>';
   }).join('');
 }
 function renderHomeDecisions(){
@@ -6302,6 +6466,8 @@ if(panel && typeof MutationObserver === 'function'){
 }
 
 window.claireDebug = {
+  get allNodes(){ return allNodes; },
+  get allEdges(){ return allEdges; },
   get sel(){ return net ? net.getSelectedNodes() : []; },
   get highlight(){ return highlightSet ? [...highlightSet] : null; },
   get selected(){ return selectedNodeId; },

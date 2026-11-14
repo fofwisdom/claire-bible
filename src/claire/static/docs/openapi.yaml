@@ -792,6 +792,21 @@ paths:
                     type: array
                     items:
                       type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        group:
+                          type: string
+                        observations:
+                          type: array
+                          items:
+                            type: string
+                        aliases:
+                          type: array
+                          items:
+                            type: string
         '404':
           description: Document not found.
           content:

@@ -1214,3 +1214,50 @@ def test_graph_json_includes_node_created_at():
     assert node["id"] == "e1"
     assert isinstance(node["created_at"], (int, float))
     assert abs(node["created_at"] - 1700001234.5) < 1e-6
+
+
+def test_document_detail_includes_entity_aliases_and_preserves_detail():
+    """Verify that document_detail gives entity aliases and keeps detail and detail_html unchanged."""
+    conn = _db()
+    _seed_two(conn)
+    ent = Entity(
+        id="ent-with-aliases",
+        type="Concept",
+        name="Structured Extraction",
+        aliases=["Data Extraction", "Schema Extraction"],
+        sources=["d1"],
+    )
+    dbm.upsert_entity(conn, ent)
+    dbm.set_document_detail(conn, "d1", "Detailed article text for testing invariance.", format="md")
+
+    detail_data = store_queries.document_detail(conn, "d1")
+    assert detail_data is not None
+    assert "nodes" in detail_data
+    assert detail_data["detail"] == "Detailed article text for testing invariance."
+    assert "detail_html" in detail_data
+    assert "detail_format" in detail_data
+
+    nodes_by_id = {node["id"]: node for node in detail_data["nodes"]}
+    assert "ent-with-aliases" in nodes_by_id
+    assert nodes_by_id["ent-with-aliases"]["aliases"] == ["Data Extraction", "Schema Extraction"]
+    assert isinstance(nodes_by_id["ent-with-aliases"]["observations"], list)
+
+    # Verify that an entity with no aliases gives an empty list
+    ent_no_alias = Entity(
+        id="ent-no-alias",
+        type="Concept",
+        name="No Alias Concept",
+        aliases=[],
+        sources=["d1"],
+    )
+    dbm.upsert_entity(conn, ent_no_alias)
+    detail_data = store_queries.document_detail(conn, "d1")
+    nodes_by_id = {node["id"]: node for node in detail_data["nodes"]}
+    assert nodes_by_id["ent-no-alias"]["aliases"] == []
+    assert nodes_by_id["e1"]["aliases"] == ["Model Context Protocol"]
+    assert nodes_by_id["e2"]["aliases"] == []
+    for node in detail_data["nodes"]:
+        assert isinstance(node["aliases"], list)
+
+
+

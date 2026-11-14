@@ -181,3 +181,5 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `themes` 테이블, `*.theme_id` |
 | 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
 | 추출 지향성 | **초점** | Extraction Focus | `focus`, `default_focus` | `documents.meta["focus"]` |
+| 국소 그래프 | **로컬 그래프** | Local Graph | `renderLocalGraphHtml()`, `ctx-local-graph` | 문서 문맥 패널 연결 탭의 인라인 SVG 그래프 (링 1 문서 엔티티 최대 24, 링 2 타 문서 연결 엔티티 최대 12) |
+| 본문 마크 | **엔티티 마크** | Entity Mark | `applyEntityMarks()`, `claire-entity` | CSS Custom Highlight API 기반 리더 본문 엔티티 하이라이트 (DOM 트리 변경 없음) |

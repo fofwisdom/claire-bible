@@ -2554,4 +2554,334 @@ test.describe('document context panel (HW-3)', () => {
 
     expect(pageErrors).toEqual([]);
   });
+
+  test('HW-4: local graph renders Ring 1 and Ring 2, line grammar, limits, accessible buttons, selection, and cross-view hover synchronization', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // 1. Select document 1 in document list and verify local graph in Links tab
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    const tabLinks = page.locator('#ctx-tab-links');
+    await tabLinks.click();
+    const localGraphSvg = page.locator('#ctx-local-graph-slot svg.ctx-local-graph');
+    await expect(localGraphSvg).toBeVisible();
+    await expect(localGraphSvg).toHaveAttribute('role', 'region');
+
+    // Document center node at (0, 0)
+    const centerNode = localGraphSvg.locator('.ctx-lg-center');
+    await expect(centerNode).toBeVisible();
+
+    // Ring 1 entities (ent-1 and ent-2)
+    const ring1Nodes = localGraphSvg.locator('.ctx-lg-node.ring-1');
+    await expect(ring1Nodes).toHaveCount(2);
+
+    // Accessibility tree: verify role="button", tabindex="0", and aria-label
+    const ent1Btn = localGraphSvg.locator('.ctx-lg-node[data-entity-id="ent-1"]');
+    await expect(ent1Btn).toHaveAttribute('role', 'button');
+    await expect(ent1Btn).toHaveAttribute('tabindex', '0');
+    await expect(ent1Btn).toHaveAttribute('aria-label', /엔티티 A|별칭 A1/);
+
+    // Thin line from document center to Ring 1 node
+    const docLines = localGraphSvg.locator('.ctx-lg-doc-edge');
+    await expect(docLines).toHaveCount(2);
+
+    // 2. Entity selection via click triggers GET /node and opens entity details without mutation
+    const [nodeReq] = await Promise.all([
+      page.waitForRequest(req => req.url().includes('/node?id=ent-1') && req.method() === 'GET'),
+      ent1Btn.click(),
+    ]);
+    expect(nodeReq.method()).toBe('GET');
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await page.locator('#panel .backlink').click();
+
+    // 3. Keyboard navigation: Tab / Enter selection
+    await tabLinks.click();
+    await ent1Btn.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#panel .backlink')).toBeVisible();
+    await page.locator('#panel .backlink').click();
+
+    // 4. Cross-view hover synchronization: local graph, Entities tab, and reader marks
+    await tabLinks.click();
+    await ent1Btn.hover();
+    await expect(localGraphSvg).toHaveClass(/has-hover/);
+    await expect(ent1Btn).toHaveClass(/hover-active/);
+
+    // Mouse leave clears hover state on local graph
+    await page.locator('#ctx-tabpanel-doc').hover({ position: { x: 5, y: 5 } });
+    await expect(localGraphSvg).not.toHaveClass(/has-hover/);
+    await expect(ent1Btn).not.toHaveClass(/hover-active/);
+
+    // Switch to Entities tab and hover an entity row
+    const tabEntities = page.locator('#ctx-tab-entities');
+    await tabEntities.click();
+    const entRow = page.locator('.ctx-entity-row[data-entity-id="ent-1"]');
+    await entRow.hover();
+    await expect(entRow).toHaveClass(/entity-hover-active/);
+
+    // Mouse leave clears hover state on entity row
+    await page.locator('#ctx-tabpanel-doc').hover({ position: { x: 5, y: 5 } });
+    await expect(entRow).not.toHaveClass(/entity-hover-active/);
+
+    await tabLinks.click();
+
+    // 5. Mock larger document and graph to verify Ring 1 (max 24), Ring 2 (max 12), line grammar, and unshown count text
+    const mockNodes = [];
+    for (let i = 1; i <= 26; i++) {
+      mockNodes.push({ id: `mock-ent-${i}`, label: `Mock Ent ${i}`, group: 'Concept', degree: 30 - i, observations: [] });
+    }
+    const mockEdges = [];
+    for (let j = 1; j <= 15; j++) {
+      mockEdges.push({
+        id: `e-ext-${j}`,
+        from: 'mock-ent-1',
+        to: `ext-ent-${j}`,
+        label: 'relates_to',
+        dashes: j % 2 === 1,
+      });
+    }
+
+    await page.evaluate(({ nodes, edges }) => {
+      const mockDoc = {
+        id: 'doc-mock-rings',
+        title: 'Mock Document Rings',
+        source_type: 'web',
+        nodes: nodes,
+      };
+      const debugAllNodes = window.claireDebug?.allNodes;
+      const debugAllEdges = window.claireDebug?.allEdges;
+      if (debugAllNodes && typeof debugAllNodes.add === 'function') {
+        nodes.forEach(n => {
+          if (!debugAllNodes.get(n.id)) debugAllNodes.add(n);
+        });
+        for (let j = 1; j <= 15; j++) {
+          if (!debugAllNodes.get(`ext-ent-${j}`)) {
+            debugAllNodes.add({ id: `ext-ent-${j}`, label: `External Ent ${j}`, degree: 20 - j, group: 'Tool' });
+          }
+        }
+      }
+      if (debugAllEdges && typeof debugAllEdges.add === 'function') {
+        edges.forEach(e => {
+          if (!debugAllEdges.get(e.id)) debugAllEdges.add(e);
+        });
+      }
+      renderDocPanel(mockDoc);
+    }, { nodes: mockNodes, edges: mockEdges });
+
+    // Ring 1 shows max 24 entities
+    const mockedRing1Nodes = page.locator('#ctx-local-graph-slot svg.ctx-local-graph .ctx-lg-node.ring-1');
+    await expect(mockedRing1Nodes).toHaveCount(24);
+
+    // Ring 2 shows max 12 entities
+    const mockedRing2Nodes = page.locator('#ctx-local-graph-slot svg.ctx-local-graph .ctx-lg-node.ring-2');
+    await expect(mockedRing2Nodes).toHaveCount(12);
+
+    // Total unshown entities text: 2 unshown in Ring 1 (26 - 24) + 3 unshown in Ring 2 (15 - 12) = 5
+    const unshownText = page.locator('.ctx-local-graph-unshown');
+    await expect(unshownText).toBeVisible();
+    await expect(unshownText).toContainText('5');
+
+    // Visual line grammar: solid lines for standard relations, dashed lines for provisional relations
+    const provisionalEdge = page.locator('#ctx-local-graph-slot svg.ctx-local-graph .ctx-lg-edge.provisional').first();
+    await expect(provisionalEdge).toBeAttached();
+    await expect(provisionalEdge).toHaveAttribute('stroke-dasharray', '3 3');
+
+    const solidEdge = page.locator('#ctx-local-graph-slot svg.ctx-local-graph .ctx-lg-edge:not(.provisional)').first();
+    await expect(solidEdge).toBeAttached();
+    await expect(solidEdge).not.toHaveAttribute('stroke-dasharray');
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('HW-5: reader text entity marks verify zero DOM mutation (T1), selection without mutation (T2), share page exclusion (T3), and rule validation (T4)', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // 1. Open test document 1 in reader
+    await page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 1' }).click();
+    const rbody = page.locator('#rbody');
+    await expect(rbody).toBeVisible();
+
+    // T1: Strict zero DOM mutation verification on #rbody
+    const baselineInnerHTML = await page.evaluate(() => document.getElementById('rbody').innerHTML);
+    const baselineTextContent = await page.evaluate(() => document.getElementById('rbody').textContent);
+
+    // Turn marks off via localStorage
+    await page.evaluate(() => {
+      localStorage.setItem('claireEntityMarks', '0');
+      applyEntityMarks(curReaderDocData);
+    });
+    const offInnerHTML = await page.evaluate(() => document.getElementById('rbody').innerHTML);
+    const offTextContent = await page.evaluate(() => document.getElementById('rbody').textContent);
+    expect(offInnerHTML).toBe(baselineInnerHTML);
+    expect(offTextContent).toBe(baselineTextContent);
+
+    // Turn marks on via localStorage
+    await page.evaluate(() => {
+      localStorage.setItem('claireEntityMarks', '1');
+      applyEntityMarks(curReaderDocData);
+    });
+    const onInnerHTML = await page.evaluate(() => document.getElementById('rbody').innerHTML);
+    const onTextContent = await page.evaluate(() => document.getElementById('rbody').textContent);
+    expect(onInnerHTML).toBe(baselineInnerHTML);
+    expect(onTextContent).toBe(baselineTextContent);
+
+    // Legend #rlegend is located outside #rbody
+    const isLegendOutsideRbody = await page.evaluate(() => {
+      const leg = document.getElementById('rlegend');
+      const b = document.getElementById('rbody');
+      return leg !== null && !b.contains(leg);
+    });
+    expect(isLegendOutsideRbody).toBe(true);
+
+    // T2: Click marked entity text triggers GET /node with zero POST requests
+    const postRequests = [];
+    page.on('request', req => {
+      if (req.method() === 'POST') postRequests.push(req.url());
+    });
+
+    // Set sample text with candidate match to verify pointer selection
+    await page.evaluate(() => {
+      const testDoc = {
+        id: 'doc-t2',
+        title: 'T2 Test Doc',
+        nodes: [{ id: 'ent-1', label: '엔티티 A', group: 'Concept', aliases: [] }],
+      };
+      const b = document.getElementById('rbody');
+      b.innerHTML = '<div class="doc-content"><p id="test-p">여기에서 엔티티 A 대상 문장이 있습니다.</p></div>';
+      applyEntityMarks(testDoc);
+    });
+
+    const [nodeGetReq] = await Promise.all([
+      page.waitForRequest(req => req.url().includes('/node?id=ent-1') && req.method() === 'GET'),
+      page.evaluate(() => {
+        const p = document.getElementById('test-p');
+        const textNode = p.firstChild;
+        const range = document.createRange();
+        const start = textNode.nodeValue.indexOf('엔티티 A');
+        range.setStart(textNode, start);
+        range.setEnd(textNode, start + 5);
+        const rect = range.getBoundingClientRect();
+        document.getElementById('rbody').dispatchEvent(new MouseEvent('click', {
+          clientX: rect.left + 5,
+          clientY: rect.top + 5,
+          bubbles: true
+        }));
+      }),
+    ]);
+    expect(nodeGetReq.method()).toBe('GET');
+    expect(postRequests).toEqual([]);
+
+    // T3: Entity marks must not appear on share page
+    await page.goto('/p?s=23456789abcdefgh', { waitUntil: 'domcontentloaded' });
+    const shareHighlights = await page.evaluate(() => {
+      if (typeof CSS !== 'undefined' && CSS.highlights && CSS.highlights.has('claire-entity')) {
+        return CSS.highlights.get('claire-entity').size;
+      }
+      return 0;
+    });
+    expect(shareHighlights).toBe(0);
+
+    // T4: Match engine rules (ASCII boundary, 2-3 char acronyms, longest match, collision suppression, and limits)
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForClaire(page);
+
+    const matchEvaluation = await page.evaluate(() => {
+      const docT4 = {
+        id: 'doc-t4',
+        title: 'T4 Match Validation',
+        nodes: [
+          { id: 'e-go', label: 'Go', group: 'Concept', aliases: [] },
+          { id: 'e-ai', label: 'AI', group: 'Concept', aliases: [] },
+          { id: 'e-fedify', label: 'Fedify', group: 'Tool', aliases: [] },
+          { id: 'e-ge', label: 'Graph Engine', group: 'Concept', aliases: [] },
+          { id: 'e-g', label: 'Graph', group: 'Concept', aliases: [] },
+          { id: 'e-c1', label: 'Entity 1', group: 'Concept', aliases: ['SharedCollision'] },
+          { id: 'e-c2', label: 'Entity 2', group: 'Concept', aliases: ['SharedCollision'] },
+          { id: 'e-short', label: 'X', group: 'Concept', aliases: [] },
+        ],
+      };
+      const b = document.getElementById('rbody');
+      b.innerHTML = '<div class="doc-content"><p id="t4-p">We use Go and AI in Fedify에서. Do not match go or ai in BioGraph or Graphics. Test Graph Engine and SharedCollision. Also X.</p></div>';
+      applyEntityMarks(docT4);
+
+      const markTexts = [];
+      const ranges = (typeof CSS !== 'undefined' && CSS.highlights && CSS.highlights.get('claire-entity')) ? [...CSS.highlights.get('claire-entity')] : [];
+      ranges.forEach(r => {
+        markTexts.push(r.toString());
+      });
+
+      return {
+        markTexts: markTexts,
+        hasGo: markTexts.includes('Go'),
+        hasLowercaseGo: markTexts.includes('go'),
+        hasAI: markTexts.includes('AI'),
+        hasLowercaseAI: markTexts.includes('ai'),
+        hasFedify: markTexts.includes('Fedify'),
+        hasGraphEngine: markTexts.includes('Graph Engine'),
+        hasBioGraphMatch: markTexts.includes('BioGraph'),
+        hasCollision: markTexts.includes('SharedCollision'),
+        hasShortChar: markTexts.includes('X'),
+      };
+    });
+
+    // 2-3 ASCII characters match case-sensitively
+    expect(matchEvaluation.hasGo).toBe(true);
+    expect(matchEvaluation.hasLowercaseGo).toBe(false);
+    expect(matchEvaluation.hasAI).toBe(true);
+    expect(matchEvaluation.hasLowercaseAI).toBe(false);
+
+    // ASCII boundaries allow Korean particles (Fedify에서)
+    expect(matchEvaluation.hasFedify).toBe(true);
+
+    // ASCII boundaries reject substring inside alphanumeric word (BioGraph)
+    expect(matchEvaluation.hasBioGraphMatch).toBe(false);
+
+    // Longest match first and overlap suppression
+    expect(matchEvaluation.hasGraphEngine).toBe(true);
+
+    // Collision suppression: candidate belonging to multiple entities receives no mark
+    expect(matchEvaluation.hasCollision).toBe(false);
+
+    // Names < 2 characters dropped
+    expect(matchEvaluation.hasShortChar).toBe(false);
+
+    // Safety limits: text > 400,000 characters or candidates > 300 names
+    const limitsEvaluation = await page.evaluate(() => {
+      const giantDoc = {
+        id: 'doc-giant',
+        nodes: [{ id: 'e-sample', label: 'Sample', group: 'Concept', aliases: [] }],
+      };
+      const b = document.getElementById('rbody');
+      b.innerHTML = '<div class="doc-content"><p>' + 'A'.repeat(400005) + '</p></div>';
+      applyEntityMarks(giantDoc);
+      const giantMarksCount = (typeof CSS !== 'undefined' && CSS.highlights && CSS.highlights.get('claire-entity')) ? CSS.highlights.get('claire-entity').size : 0;
+      const legendText = document.getElementById('rlegend')?.textContent || '';
+
+      const manyCandidatesDoc = {
+        id: 'doc-many',
+        nodes: Array.from({ length: 305 }, (_, i) => ({ id: `e-${i}`, label: `EntityCandidate${i}`, group: 'Concept', aliases: [] })),
+      };
+      b.innerHTML = '<div class="doc-content"><p>Sample text for entity marking limits test.</p></div>';
+      applyEntityMarks(manyCandidatesDoc);
+      const manyMarksCount = (typeof CSS !== 'undefined' && CSS.highlights && CSS.highlights.get('claire-entity')) ? CSS.highlights.get('claire-entity').size : 0;
+
+      return {
+        giantMarksCount,
+        manyMarksCount,
+        legendHasLimitNotice: legendText.length > 0,
+      };
+    });
+
+    expect(limitsEvaluation.giantMarksCount).toBe(0);
+    expect(limitsEvaluation.manyMarksCount).toBe(0);
+    expect(limitsEvaluation.legendHasLimitNotice).toBe(true);
+
+    expect(pageErrors).toEqual([]);
+  });
+
 });
