@@ -125,6 +125,23 @@
         if (d.ok) {
           resEl.style.color = 'var(--accent2,#1a7f37)';
           resEl.textContent = '✅ ' + (d.message || '연결 성공');
+          if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
+            const sel = document.getElementById('prov-agy-model');
+            if (sel) {
+              const prev = sel.value;
+              const ids = new Set(d.details.models.map(m => m.id));
+              let optHtml = '';
+              if (prev && !ids.has(prev)) {
+                optHtml += `<option value="${esc(prev)}">${esc(prev)} (현재 설정)</option>`;
+              }
+              for (const m of d.details.models) {
+                const mLabel = m.label ? `${m.label} — ${m.id}` : m.id;
+                optHtml += `<option value="${esc(m.id)}">${esc(mLabel)}</option>`;
+              }
+              sel.innerHTML = optHtml;
+              if (prev) sel.value = prev;
+            }
+          }
         } else {
           resEl.style.color = 'var(--err,#cf222e)';
           resEl.textContent = '❌ ' + (d.error || '연결 실패');
@@ -150,7 +167,6 @@
 
     const agyBin = document.getElementById('prov-agy-bin').value.trim();
     const agyModel = document.getElementById('prov-agy-model').value.trim();
-    const agyEffort = document.getElementById('prov-agy-effort').value;
     const agyTimeout = parseFloat(document.getElementById('prov-agy-timeout').value) || 120.0;
     const agyConc = parseInt(document.getElementById('prov-agy-concurrency').value, 10) || 2;
 
@@ -177,7 +193,7 @@
       active_provider: activeProv,
       providers: {
         gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, min_interval: gemInterval, max_retries: gemRetries },
-        antigravity: { bin: agyBin, model: agyModel, effort: agyEffort, timeout: agyTimeout, max_concurrency: agyConc },
+        antigravity: { bin: agyBin, model: agyModel, timeout: agyTimeout, max_concurrency: agyConc },
         codex: { bin: cdxBin, model: cdxModel, effort: cdxEffort, timeout: cdxTimeout, max_concurrency: cdxConc },
         openai: { base_url: oaiUrl, model: oaiModel, embed_model: oaiEmbed },
         jev: { enabled: jevEnabled, base_url: jevUrl },
@@ -296,18 +312,35 @@
     h += `<strong style="font-size:13px;">🚀 Antigravity CLI (agy) ${agyBadge}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
     h += '</div>';
+    const agyModels = Array.isArray(agy.available_models) && agy.available_models.length ? agy.available_models : [
+      { id: 'gemini-4-hydrogen-low', label: 'Gemini 4 Hydrogen (Low)' },
+      { id: 'gemini-4-hydrogen-medium', label: 'Gemini 4 Hydrogen (Medium)' },
+      { id: 'gemini-4-hydrogen-high', label: 'Gemini 4 Hydrogen (High)' },
+      { id: 'gemini-4-hydrogen-xhigh', label: 'Gemini 4 Hydrogen (XHigh)' },
+      { id: 'gemini-4-argon-low', label: 'Gemini 4 Argon (Low)' },
+      { id: 'gemini-4-argon-medium', label: 'Gemini 4 Argon (Medium)' },
+      { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)' },
+      { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' },
+      { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
+      { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+    ];
+    const currentAgyModel = agy.model || 'gemini-3.7-flash';
+    const agyModelIds = new Set(agyModels.map(m => m.id));
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-agy-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.bin||'agy')}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label><input id="prov-agy-model" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.model||'gemini-3.7-flash')}"/></div>`;
+    h += '<div style="flex:1.5;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
+    h += '<select id="prov-agy-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    if (currentAgyModel && !agyModelIds.has(currentAgyModel)) {
+      h += `<option value="${esc(currentAgyModel)}" selected>${esc(currentAgyModel)} (현재 설정)</option>`;
+    }
+    for (const m of agyModels) {
+      const mLabel = m.label ? `${m.label} — ${m.id}` : m.id;
+      h += `<option value="${esc(m.id)}" ${currentAgyModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
+    }
+    h += '</select></div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
-    h += '<select id="prov-agy-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="low" ${agy.effort==='low'?'selected':''}>low</option>`;
-    h += `<option value="medium" ${agy.effort==='medium'||!agy.effort?'selected':''}>medium</option>`;
-    h += `<option value="high" ${agy.effort==='high'?'selected':''}>high</option>`;
-    h += '</select></div>';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">타임아웃 (초)</label><input id="prov-agy-timeout" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.timeout||120.0}"/></div>`;
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">동시성</label><input id="prov-agy-concurrency" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.max_concurrency||2}"/></div>`;
     h += '</div>';

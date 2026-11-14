@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -27,6 +28,83 @@ from .config import (
 log = logging.getLogger("claire.provider")
 
 PROVIDERS_CONFIG_FILENAME = "providers.json"
+
+DEFAULT_AGY_MODELS: list[dict[str, str]] = [
+    {"id": "gemini-4-hydrogen-low", "label": "Gemini 4 Hydrogen (Low)"},
+    {"id": "gemini-4-hydrogen-medium", "label": "Gemini 4 Hydrogen (Medium)"},
+    {"id": "gemini-4-hydrogen-high", "label": "Gemini 4 Hydrogen (High)"},
+    {"id": "gemini-4-hydrogen-xhigh", "label": "Gemini 4 Hydrogen (XHigh)"},
+    {"id": "gemini-4-argon-low", "label": "Gemini 4 Argon (Low)"},
+    {"id": "gemini-4-argon-medium", "label": "Gemini 4 Argon (Medium)"},
+    {"id": "gemini-4-argon-high", "label": "Gemini 4 Argon (High)"},
+    {"id": "gemini-3.8-flash-low", "label": "Gemini 3.8 Flash (Low)"},
+    {"id": "gemini-3.8-flash-medium", "label": "Gemini 3.8 Flash (Medium)"},
+    {"id": "gemini-3.8-flash-high", "label": "Gemini 3.8 Flash (High)"},
+]
+
+_AGY_MODELS_CACHE_TTL_SEC = 300.0
+_AGY_MODELS_CACHE: dict[str, tuple[float, list[dict[str, str]]]] = {}
+
+
+def infer_agy_effort_from_model(model_name: str) -> str | None:
+    """모델명 접미사(-xhigh, -high, -medium, -low)에서 추론 수준을 추출한다."""
+    m = str(model_name or "").strip().lower()
+    for suf in ("xhigh", "high", "medium", "low"):
+        if m.endswith(f"-{suf}"):
+            return suf
+    return None
+
+
+def _parse_agy_models_output(raw: str) -> list[dict[str, str]]:
+    """`agy models` CLI 표준 출력을 파싱한다."""
+    models: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"[\r\n]+", raw or ""):
+        line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", chunk).strip()
+        if not line or line.startswith("Fetching available models"):
+            continue
+        # 스피너 문자 제거
+        line = re.sub(r"^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s]+", "", line).strip()
+        if not line or line.startswith("Fetching available models"):
+            continue
+        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]+)\s{2,}(.+)$", line)
+        if not m:
+            continue
+        model_id = m.group(1).strip()
+        label = m.group(2).strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            models.append({"id": model_id, "label": label})
+    return models
+
+
+def list_agy_models(
+    bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False
+) -> list[dict[str, str]]:
+    """설치된 agy CLI에서 사용 가능한 모델 목록을 조회한다(실패 시 기본 목록 폴백)."""
+    exe = find_agy_executable(bin_name)
+    if not exe:
+        return [dict(item) for item in DEFAULT_AGY_MODELS]
+    now = time.monotonic()
+    if not force_refresh and exe in _AGY_MODELS_CACHE:
+        cached_at, cached_models = _AGY_MODELS_CACHE[exe]
+        if (now - cached_at) < _AGY_MODELS_CACHE_TTL_SEC:
+            return [dict(item) for item in cached_models]
+    try:
+        proc = subprocess.run(
+            [exe, "models"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        parsed = _parse_agy_models_output(proc.stdout or "")
+        if proc.returncode == 0 and parsed:
+            _AGY_MODELS_CACHE[exe] = (now, parsed)
+            return [dict(item) for item in parsed]
+    except Exception as exc:
+        log.debug("Failed to list agy models via %s: %s", exe, exc)
+    return [dict(item) for item in DEFAULT_AGY_MODELS]
 
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "version": 1,
@@ -280,6 +358,7 @@ class ProviderManager:
             agy = providers["antigravity"]
             bin_name = str(agy.get("bin") or "agy")
             agy["installed"] = find_agy_executable(bin_name) is not None
+            agy["available_models"] = list_agy_models(bin_name)
 
         # Codex CLI
         if "codex" in providers:
@@ -338,9 +417,15 @@ class ProviderManager:
                 
                 # 나머지 일반 필드 갱신
                 for k, v in inc_data.items():
-                    if k in ("api_key", "has_api_key", "clear_api_key", "installed"):
+                    if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models"):
                         continue
                     target[k] = v
+
+                # Antigravity CLI 모델명의 접미사에서 추론 수준 자동 동기화
+                if name == "antigravity" and "model" in inc_data and "effort" not in inc_data:
+                    inferred_effort = infer_agy_effort_from_model(str(inc_data["model"]))
+                    if inferred_effort:
+                        target["effort"] = inferred_effort
 
         self.save_config(current)
         return self.get_sanitized_config()
@@ -612,11 +697,12 @@ class ProviderManager:
             exe = find_agy_executable(bin_name)
             if exe:
                 diag = diagnose_agy_environment(bin_name)
+                models = list_agy_models(bin_name, force_refresh=True)
                 return {
                     "ok": True,
                     "provider": "antigravity",
-                    "message": f"Antigravity CLI 감지 성공: {exe}",
-                    "details": diag,
+                    "message": f"Antigravity CLI 감지 성공: {exe} (모델 {len(models)}개)",
+                    "details": {**diag, "models": models},
                 }
             return {
                 "ok": False,

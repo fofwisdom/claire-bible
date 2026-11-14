@@ -231,3 +231,37 @@ def test_providers_cli(capsys):
     args = parser.parse_args(["providers", "migrate"])
     rc = args.func(args)
     assert rc == 0
+
+
+def test_agy_models_parsing_and_effort_inference(tmp_path: Path):
+    from claire.provider_manager import _parse_agy_models_output
+
+    raw = (
+        "\r⠋ Fetching available models...\r⠙ Fetching available models..."
+        "\rgemini-4-hydrogen-high    Gemini 4 Hydrogen (High)\n"
+        "gemini-4-hydrogen-xhigh   Gemini 4 Hydrogen (XHigh)\n"
+        "gemini-4-hydrogen-medium  Gemini 4 Hydrogen (Medium)\n"
+        "gemini-4-hydrogen-low     Gemini 4 Hydrogen (Low)\n"
+    )
+    parsed = _parse_agy_models_output(raw)
+    assert [m["id"] for m in parsed] == [
+        "gemini-4-hydrogen-high",
+        "gemini-4-hydrogen-xhigh",
+        "gemini-4-hydrogen-medium",
+        "gemini-4-hydrogen-low",
+    ]
+
+    pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
+    updated = pm.update_config({
+        "active_provider": "antigravity",
+        "providers": {
+            "antigravity": {
+                "bin": "agy",
+                "model": "gemini-4-hydrogen-xhigh",
+            }
+        },
+    })
+    assert updated["providers"]["antigravity"]["model"] == "gemini-4-hydrogen-xhigh"
+    assert updated["providers"]["antigravity"]["effort"] == "xhigh"
+    assert isinstance(updated["providers"]["antigravity"]["available_models"], list)
+    assert any(m["id"] == "gemini-4-hydrogen-xhigh" for m in updated["providers"]["antigravity"]["available_models"])

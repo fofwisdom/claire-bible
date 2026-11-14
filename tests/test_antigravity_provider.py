@@ -435,6 +435,23 @@ def test_effort_flag_omitted_for_model_with_effort_suffix(mock_run):
 
 
 @patch("subprocess.run")
+def test_effort_flag_omitted_for_xhigh_model_suffix(mock_run):
+    mock_run.return_value = SimpleNamespace(
+        returncode=0,
+        stdout="response text",
+        stderr="",
+    )
+    s = _make_settings(agy_model="gemini-4-hydrogen-xhigh", agy_effort="medium")
+    prov = AntigravityProvider(s)
+    prov._run_cli("test prompt", output_format="text")
+
+    cmd = mock_run.call_args[0][0]
+    assert "--model" in cmd
+    assert "gemini-4-hydrogen-xhigh" in cmd
+    assert "--effort" not in cmd
+
+
+@patch("subprocess.run")
 def test_extract_fallback_summary_when_empty(mock_run):
     payload = {
         "status": "SUCCESS",
