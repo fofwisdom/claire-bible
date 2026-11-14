@@ -877,6 +877,14 @@ paths:
                           type: array
                           items:
                             type: string
+                  extraction_provider:
+                    type: string
+                    nullable: true
+                    description: The provider of the latest extraction of the document. Null when the document has no extraction row.
+                  extraction_model:
+                    type: string
+                    nullable: true
+                    description: The model of the latest extraction of the document. Null when the document has no extraction row.
         '404':
           description: Document not found.
           content:

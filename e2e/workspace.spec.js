@@ -2489,7 +2489,6 @@ test.describe('document context panel (HW-3)', () => {
     await expect(tabPanel).toHaveAttribute('aria-labelledby', 'ctx-tab-source');
     await expect(tabPanel).toContainText('원문');
     await expect(tabPanel).toContainText('모델 생성물');
-    await expect(tabPanel.locator('.prov.model')).toBeVisible();
     await expect(tabPanel).toContainText('요약');
     await expect(tabPanel).toContainText('있음');
 
@@ -2522,6 +2521,9 @@ test.describe('document context panel (HW-3)', () => {
       const response = await route.fetch();
       const json = await response.json();
       if (id === 'doc-2') {
+        // The provider and the model of the latest extraction.
+        json.extraction_provider = 'gemini';
+        json.extraction_model = 'gemini-test-1';
         if (doc2Mode === 'full') {
           json.orig_chars = 1200;
           json.raw_chars = 1200;
@@ -2530,6 +2532,7 @@ test.describe('document context panel (HW-3)', () => {
           json.orig_chars = 12000;
           json.raw_chars = 4800;
           json.raw_truncated = true;
+          json.references_truncated = true;
         }
       }
       await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(json) });
@@ -2540,6 +2543,15 @@ test.describe('document context panel (HW-3)', () => {
     await tabSource.click();
     await expect(tabPanel.locator('.source-badge[data-source-badge="full"].prov.det')).toHaveText('원문 보존');
     await expect(tabPanel.locator('.prov.det', { hasText: '규칙 일치' })).toBeVisible();
+    // The model of the latest extraction shows in the Source tab and in the reader meta line, to the right of the source badge. The summary and the detail have no "model output" label.
+    await expect(page.locator('#ctx-src-model')).toHaveText('gemini · gemini-test-1');
+    const modelBadge = page.locator('#reader .docmeta .model-badge.prov.det');
+    await expect(modelBadge).toHaveText('gemini-test-1');
+    await expect(modelBadge).toHaveAttribute('title', /모델/);
+    const fullBadgeBox = await page.locator('#reader .docmeta .source-badge').boundingBox();
+    const modelBadgeBox = await modelBadge.boundingBox();
+    expect(modelBadgeBox.x).toBeGreaterThan(fullBadgeBox.x);
+    await expect(page.locator('#rbody .prov.model')).toHaveCount(0);
     // Unknown stage 'semantic_high' must render as plain text without .prov class
     await expect(tabPanel.locator('dt span:not(.prov)', { hasText: 'semantic_high' })).toBeVisible();
 
@@ -2550,6 +2562,12 @@ test.describe('document context panel (HW-3)', () => {
     await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="partial"].prov.det')).toContainText('원문 일부 보존');
     await expect(page.locator('#reader .docmeta .source-badge[data-source-badge="partial"].prov.det')).toContainText('4,800 / 12,000');
     await expect(tabPanel.locator('.source-badge[data-source-badge="partial"].prov.det')).toContainText('원문 일부 보존 (4,800 / 12,000)');
+    // One notice for a cut source text: the source badge has the counts and its hover text has the reason. The old truncation tag does not show.
+    const partialBadge = page.locator('#reader .docmeta .source-badge[data-source-badge="partial"]');
+    await expect(partialBadge).toHaveAttribute('data-trunc', 'references');
+    await expect(partialBadge).toHaveAttribute('title', /참고문헌/);
+    await expect(page.locator('#reader .docmeta .trunc-references')).toHaveCount(0);
+    await expect(page.locator('#reader .docmeta').getByText('4,800 / 12,000')).toHaveCount(1);
 
     // Decision stream link in Source tab switches to stream view
     await tabPanel.locator('.ctx-stream-link').click();
@@ -3231,4 +3249,26 @@ test.describe('stage strip (HW-8)', () => {
     await expect(page.locator('#home-flow-publish-counts')).toHaveText('');
     expect(pageErrors).toEqual([]);
   });
+});
+
+test('the home button from the reader view goes to the home view without the graph view between them', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await waitForClaire(page);
+  await page.locator('#doclist .docitem').first().click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
+  // Record each value of data-center-view from here.
+  await page.evaluate(() => {
+    window.__views = [];
+    new MutationObserver(() => window.__views.push(document.body.dataset.centerView)).observe(document.body, { attributes: true, attributeFilter: ['data-center-view'] });
+  });
+  await page.locator('#centertab-home').click();
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'home');
+  await expect(page.locator('#homewrap')).toBeVisible();
+  await page.waitForTimeout(500);
+  const views = await page.evaluate(() => window.__views);
+  expect(views).not.toContain('graph');
+  expect(views[views.length - 1]).toBe('home');
+  expect(pageErrors).toEqual([]);
 });

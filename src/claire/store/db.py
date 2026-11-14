@@ -3763,6 +3763,17 @@ def resolve_single_document_target(
     )
 
 
+def latest_extraction_model(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> tuple[str | None, str | None]:
+    """The provider and the model of the latest extraction of a document (``extractions.provider``, ``extractions.model``). A document without an extraction row gives ``(None, None)``."""
+    if theme_id is not None:
+        row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? AND theme_id=? ORDER BY id DESC LIMIT 1", (document_id, theme_id)).fetchone()
+    else:
+        row = conn.execute("SELECT provider, model FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1", (document_id,)).fetchone()
+    if row is None:
+        return None, None
+    return (row["provider"] or None), (row["model"] or None)
+
+
 def latest_extraction_summary(conn: sqlite3.Connection, document_id: str, theme_id: int | None = None) -> str | None:
     """문서의 최신 추출 결과에서 summary 를 꺼낸다(documents 엔 summary 컬럼이 없고 extractions.raw_response = ExtractionResult JSON 에 들어있다). 노드 상세 패널용."""
     from ..extract.prompts import clean_plain_summary

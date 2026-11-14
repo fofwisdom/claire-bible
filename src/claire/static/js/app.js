@@ -5083,8 +5083,13 @@ function hideOtherThemeJobBanner(){
   }
 }
 
+// True while the home entry resets the workspace. closeReader() then does not change the view to the graph, thus the view goes from the reader to the home view in one step.
+let homeEntryActive = false;
 async function enterHome({reason = 'brand'} = {}){
-  resetWorkspaceState();
+  homeEntryActive = true;
+  try{ resetWorkspaceState(); } finally { homeEntryActive = false; }
+  // The home view shows at once. A job of this theme changes it to the job view after the stats arrive.
+  if(centerView !== 'matrix') setCenterView('home');
   document.title = HOME_TITLE;
 
   // URL / History: preserve ?theme=N if non-zero, replaceState without pushing
@@ -5530,8 +5535,10 @@ function renderDocSourceTab(dc, ns){
   }
   h += '</section>';
 
-  h += '<section aria-labelledby="ctx-model-heading"><div id="ctx-model-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.model_outputs')) + '</span><span class="prov model">' + esc(tr('context.doc.badge_model')) + '</span></div>';
+  h += '<section aria-labelledby="ctx-model-heading"><div id="ctx-model-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.model_outputs')) + '</span></div>';
   h += '<dl class="ctx-kv">';
+  const exModel = String(dc.extraction_model || '').trim(), exProvider = String(dc.extraction_provider || '').trim();
+  if(exModel || exProvider) h += '<dt>' + esc(tr('context.doc.field_model')) + '</dt><dd id="ctx-src-model">' + esc([exProvider, exModel].filter(Boolean).join(' · ')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.summary_status')) + '</dt><dd>' + esc(Boolean(dc.summary) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.detail_status')) + '</dt><dd>' + esc(Boolean(dc.detail || dc.detail_html) ? tr('context.doc.present') : tr('context.doc.absent')) + '</dd>';
   h += '<dt>' + esc(tr('context.doc.entity_count')) + '</dt><dd>' + esc(String(ns.length)) + '</dd>';

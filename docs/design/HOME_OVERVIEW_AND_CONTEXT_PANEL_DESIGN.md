@@ -270,9 +270,11 @@ One rule for all screens of this design. It makes principle A2 visible.
 | Line | Meaning | Examples |
 | :--- | :--- | :--- |
 | Solid | The source text, or a result of deterministic code | Source badge, shared entity count, a relation that is not provisional, a resolution by name, alias, or acronym |
-| Dashed | An output of a model, or a provisional item | Summary block, detail label, provisional relation, a resolution by embedding or by the model, entity marks |
+| Dashed | A provisional item, or a decision by a model | Provisional relation, a resolution by embedding or by the model, entity marks |
 
 The line style carries the meaning; a color alone never does.
+
+The summary and the detail have no label "model output" (P1, 2026-11-15): ingestion is always the work of a model. The reader meta line shows the model of the latest extraction, to the right of the source badge.
 
 ### 7.1 Source Badge
 
@@ -469,9 +471,9 @@ No item is open.
 
 ---
 
-## 15. Recorded Changes, Not Implemented (2026-11-15)
+## 15. Recorded Changes (2026-11-15), Implemented
 
-The owner recorded these items. They are implemented together with the next work on this design, when the owner asks for it. No code changed for them.
+The owner recorded these items, and then changed P2 after a look at the implemented page. The three items are implemented. The table has the first record; Section 15.2 has the result.
 
 | ID | Item | Record |
 | :--- | :--- | :--- |
@@ -479,7 +481,9 @@ The owner recorded these items. They are implemented together with the next work
 | P2 | The badge "source text kept" (`원문 보존`) | The owner does not see its purpose: the link "open the source" (`원문 열기`) already tells the reader that a source exists. The proposal of Section 15.1 is not decided. |
 | P3 | The Home button from the reader view goes to the graph view first and then to the home view | A defect. **[code]** `enterHome()` calls `resetWorkspaceState()`, which calls `closeReader()`; `closeReader()` calls `setCenterView('graph')` when the view is `reader`. Then `enterHome()` sets the `home` view. The fix: the reader closes without a change of the view when the home entry is the cause. An end-to-end test checks that `data-center-view` does not get the value `graph` between `reader` and `home`. |
 
-### 15.1 Proposal for P2
+### 15.1 Proposal for P2 (Not Used)
+
+The owner did not take this proposal: the implemented badge is correct, and the defect was the second notice of the same fact (Section 15.2).
 
 Facts **[code]**: "open the source" is a link to the URL on the remote site. It shows only when the document has a web URL. It does not say that Claire has a copy. The badge says a different thing: Claire has the raw text in its own store (`has_raw_file`, `raw_chars`), which is principle A1. The two can differ: the remote page can be gone while the copy stays, a document from a file or a note has a copy and no URL, and a copy can be cut (`raw_truncated`).
 
@@ -491,3 +495,13 @@ Proposal: remove the badge as a decoration, and show only the cases that change 
 4. **The Source tab keeps the facts.** Fetch time, source type, and character counts stay there as text, without a badge.
 
 Result: the reader page has fewer elements, and principle A1 shows as a function (the copy opens) and not as a label.
+
+### 15.2 Result
+
+| ID | Result |
+| :--- | :--- |
+| P1 | The label "model output" is gone from the summary, the detail, and the Source tab. `GET /document` gives `extraction_provider` and `extraction_model` (the latest row of `extractions`; null without a row). The reader meta line shows the model as a badge to the right of the source badge; its hover text keeps the meaning of the old label. The Source tab shows the provider and the model as text. |
+| P2 | The source badge stays. A cut source text had two notices with the same counts (the old truncation tag and the source badge); the old truncation tags are gone from the reader meta line, and their reason is the hover text of the source badge (`data-trunc`: `references`, `appendix`, `appendix-references`, `stt`, `limit`). The other tags of the meta line (parser fallback, encoding flaw, scanned PDF, bundle, focus, STT, CC, image transcription) have the style of the source badge (`.prov.det`). The share page keeps its truncation tag, because it has no source badge; it gets the same style. |
+| P3 | `enterHome()` sets `homeEntryActive` while it resets the workspace, thus `closeReader()` does not change the view to the graph. The view goes from the reader to the home view in one step. |
+| HW-8 | Done with FP4-5: the strip has the timeline counts of `GET /api/federation/timeline?limit=1`, and its links go to the three stages of `/syndication`. |
+

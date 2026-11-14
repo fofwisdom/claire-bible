@@ -126,7 +126,6 @@
   "context.doc.field_published": "Published",
   "context.doc.field_chars": "Characters",
   "context.doc.model_outputs": "Model outputs",
-  "context.doc.badge_model": "Model output",
   "context.doc.summary_status": "Summary",
   "context.doc.detail_status": "Detail",
   "context.doc.entity_count": "Entities",
@@ -255,5 +254,7 @@
   "console.federation.reading.failed": "The values were not saved.",
   "console.federation.retention.title": "Retention of received posts",
   "console.federation.retention.hint": "Received posts older than this period are deleted. Starred posts and posts that you took into the knowledge base stay. Your value cannot be more than the instance value.",
-  "console.federation.retention.use_instance": "Use the instance value ({days} days)"
+  "console.federation.retention.use_instance": "Use the instance value ({days} days)",
+  "context.doc.model_tip": "The model of the latest ingestion of this document. The summary, the detail, and the entities are its outputs; they do not replace the source text, and a new ingestion can make them again with a different model.",
+  "context.doc.field_model": "Model"
 }

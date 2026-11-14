@@ -131,7 +131,9 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert ".cc-tag" in html
     assert ".vlm-tag" in html
     assert "docMetaHtml" in html
-    assert "✂️ 원문 일부 절단" in html
+    # The cut of the source text is one notice in the reader: the source badge has the counts, and its hover text has the reason.
+    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert 'data-source-badge="partial"' in html
     assert "🎯" in html
     assert "🎙️ STT" in html
     assert "🔤 CC" in html

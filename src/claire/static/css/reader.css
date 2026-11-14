@@ -472,17 +472,8 @@ body.stt-modal-open{overflow:hidden}
 /* --- Document Metadata & Status Badges (.docmeta) --- */
 #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
-.docmeta .trunc-tag{display:inline-flex;align-items:center;gap:4px;color:#d29922;background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
-.docmeta .trunc-tag.trunc-appendix, .docmeta .trunc-tag-appendix{color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3)}
-.docmeta .trunc-tag.trunc-references{color:#bc8cff;background:rgba(188,140,255,0.12);border:1px solid rgba(188,140,255,0.3)}
-.docmeta .trunc-tag.parser-fallback-tag{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
-.docmeta .trunc-tag.encoding-flaw-tag{color:#f85149;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.35)}
-.docmeta .trunc-tag.scanned-tag{color:#58a6ff;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.35)}
-.docmeta .focus-tag{display:inline-flex;align-items:center;gap:4px;color:var(--accent2,#58a6ff);background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
-.docmeta .stt-tag{display:inline-flex;align-items:center;gap:4px;color:#a371f7;background:rgba(163,113,247,0.12);border:1px solid rgba(163,113,247,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
-.docmeta .cc-tag{display:inline-flex;align-items:center;gap:4px;color:#58a6ff;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
-.docmeta .vlm-tag{display:inline-flex;align-items:center;gap:4px;color:#3fb950;background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.3);border-radius:10px;padding:1px 7px;font-size:11px;cursor:help;white-space:nowrap;line-height:1.4}
-.docmeta .trunc-tag.trunc-stt{color:#f0883e;background:rgba(240,136,62,0.12);border:1px solid rgba(240,136,62,0.35)}
+/* The tags of the reader meta line have one style, the style of the source badge (.prov.det). The class names stay for the code and the tests: .trunc-tag.trunc-appendix .trunc-tag.trunc-references .trunc-tag.trunc-stt .trunc-tag.parser-fallback-tag .trunc-tag.encoding-flaw-tag .trunc-tag.scanned-tag */
+.docmeta .trunc-tag,.docmeta .focus-tag,.docmeta .stt-tag,.docmeta .cc-tag,.docmeta .vlm-tag{display:inline-flex;align-items:center;gap:5px;font:11px 'D2Coding','D2 Coding','SFMono-Regular',Menlo,Monaco,Consolas,'Liberation Mono',monospace;padding:1px 6px;border-radius:4px;border:1px solid var(--border);color:var(--muted);background:var(--sec-bg);white-space:nowrap;cursor:help}
 .docmeta a.pres-tag{color:var(--accent2,#58a6ff);text-decoration:none;cursor:pointer;transition:all .15s ease}
 .docmeta a.pres-tag:hover{background:rgba(88,166,255,0.22);text-decoration:none;border-color:rgba(88,166,255,0.5)}
 .docmeta a.stt-link{color:var(--accent);text-decoration:none;margin-left:8px;font-weight:500;cursor:pointer}

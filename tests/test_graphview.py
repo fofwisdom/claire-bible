@@ -1260,4 +1260,17 @@ def test_document_detail_includes_entity_aliases_and_preserves_detail():
         assert isinstance(node["aliases"], list)
 
 
-
+def test_document_detail_gives_provider_and_model_of_latest_extraction():
+    """document_detail() gives the provider and the model of the latest extraction row, and None for a document without a row."""
+    conn = _db()
+    _seed_two(conn)
+    conn.execute("DELETE FROM extractions WHERE document_id='d1'")
+    before = store_queries.document_detail(conn, "d1")
+    assert before["extraction_provider"] is None and before["extraction_model"] is None
+    conn.execute("INSERT INTO extractions(theme_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-old','v1','{}',1.0)")
+    conn.execute("INSERT INTO extractions(theme_id,document_id,provider,model,prompt_version,raw_response,created_at) VALUES (0,'d1','gemini','model-new','v1','{}',2.0)")
+    conn.commit()
+    after = store_queries.document_detail(conn, "d1")
+    assert after["extraction_provider"] == "gemini"
+    assert after["extraction_model"] == "model-new"
+    assert after["detail"] == before["detail"] and after["detail_html"] == before["detail_html"]

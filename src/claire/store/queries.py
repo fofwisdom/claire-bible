@@ -300,6 +300,7 @@ def document_detail(
             presentation_status = "ready"
 
     has_raw_file, raw_file_name = _document_raw_file(conn, document_id, meta_dict, theme_id=theme_id)
+    extraction_provider, extraction_model = dbm.latest_extraction_model(conn, document_id, theme_id=theme_id)
 
     if "original_requested_file" in meta_dict and meta_dict["original_requested_file"]:
         meta_dict["original_requested_file"] = _safe_file_name(meta_dict["original_requested_file"])
@@ -375,6 +376,9 @@ def document_detail(
         "presentation_status": presentation_status,
         "has_raw_file": bool(has_raw_file),
         "raw_file_name": raw_file_name,
+        # The provider and the model of the latest extraction (ingestion or regeneration). None when the document has no extraction row.
+        "extraction_provider": extraction_provider,
+        "extraction_model": extraction_model,
         "meta": meta_dict,
     }
 
