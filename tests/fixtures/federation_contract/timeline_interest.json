@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/timeline-interest?actor=https%3A%2F%2Fremote.example%2Fusers%2Fdan"
+  },
+  "status": 200,
+  "response": {
+    "followed": true,
+    "context_fetch": "on",
+    "context_depth": 5
+  }
+}

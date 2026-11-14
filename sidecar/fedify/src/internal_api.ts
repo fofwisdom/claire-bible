@@ -135,6 +135,60 @@ export interface ResolvedActor {
   name: string | null;
 }
 
+// The author or the announcer of a remote object. handle is @name@host from the actor document.
+export interface TimelineActor {
+  iri: string;
+  name: string | null;
+  handle: string | null;
+}
+
+// The normal form of one remote object (FEDERATION_REMOTE_READING_DESIGN.md Section 6.3, unit FP4-4). The times are Unix seconds. content_html is the raw HTML of the remote server.
+export interface TimelineObject {
+  object_iri: string;
+  url: string | null;
+  type: "Note" | "Article" | "Page" | "Question";
+  author: TimelineActor;
+  name: string | null;
+  summary: string | null;
+  sensitive: boolean;
+  content_html: string;
+  language: string | null;
+  published_at: number | null;
+  updated_at: number | null;
+  attachments: { url: string; media_type: string | null; name: string | null; width: number | null; height: number | null; blurhash: string | null }[];
+  context: string | null;
+  in_reply_to: string | null;
+}
+
+// One inbound activity for the timelines of the accounts (unit FP4-4). Undo is an Undo(Announce): object_iri is the object of the Announce.
+// public is false for an object that is not public; then object is null. public is null for Delete and Undo. parents is the reply chain of object, nearest parent first.
+export interface TimelineEvent {
+  event_id: string;
+  type: "Create" | "Update" | "Delete" | "Announce" | "Undo";
+  recipient_public_id: string | null;
+  actor: { iri: string; inbox: string; shared_inbox: string | null };
+  announced_by: TimelineActor | null;
+  object_iri: string;
+  public: boolean | null;
+  object: TimelineObject | null;
+  parents: TimelineObject[];
+  verified_by: "http-signature" | "ld-signature" | "object-integrity-proof";
+}
+
+// items is the number of items that the event made, changed, or deleted.
+export interface TimelineDecision {
+  decision: "accepted" | "rejected" | "ignored";
+  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "invalid_object" | "too_large" | "not_public" | "not_followed" | "no_item" | null;
+  items: number;
+}
+
+// followed: an account that is an actor follows the remote actor. The sidecar fetches the object of an Announce and the parents of a reply only then.
+export interface TimelineInterest {
+  followed: boolean;
+  context_fetch: "on" | "off";
+  context_depth: number;
+}
+
 // The canonical form of one published object. content is HTML that Claire sanitized.
 export interface ObjectRecord {
   public_id: string;
@@ -206,6 +260,9 @@ const num: Check = (v, p) => {
 const int: Check = (v, p) => {
   if (typeof v !== "number" || !Number.isInteger(v) || v < 0) fail(p, "an integer that is 0 or more");
 };
+const bool: Check = (v, p) => {
+  if (typeof v !== "boolean") fail(p, "a boolean");
+};
 const nullable = (check: Check): Check => (v, p) => {
   if (v !== null) check(v, p);
 };
@@ -264,6 +321,12 @@ const clientTasksShape = sealed({
   tasks: list(sealed({ id: int, kind: oneOf("follow", "undo_follow", "reject_follow"), actor_public_id: str, target: str, following_id: nullable(str), created_at: num, lease_until: num })),
 });
 const followingShape = sealed({ public_id: str, total: int });
+const timelineDecisionShape = sealed({
+  decision: oneOf("accepted", "rejected", "ignored"),
+  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item")),
+  items: int,
+});
+const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -369,6 +432,22 @@ export class InternalApi {
     if (value === null) throw new InternalApiError(404, "not_found");
     decisionShape(value, "decision");
     return value as InboxDecision;
+  }
+
+  // Sends one verified inbound activity for the timelines (unit FP4-4). An error means no decision: the caller must fail, and the Fedify inbox queue tries again.
+  async timelineEvent(event: TimelineEvent): Promise<TimelineDecision> {
+    const value = await this.#call("POST", "/timeline-events", event);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    timelineDecisionShape(value, "timeline_decision");
+    return value as TimelineDecision;
+  }
+
+  // Asks if an account that is an actor follows the remote actor, and gets the limits of the parent chain.
+  async timelineInterest(actorIri: string): Promise<TimelineInterest> {
+    const value = await this.#call("GET", `/timeline-interest?${new URLSearchParams({ actor: actorIri })}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    timelineInterestShape(value, "timeline_interest");
+    return value as TimelineInterest;
   }
 
   // One cursor page of the followers of an actor, or null when the account is not an actor.

@@ -161,8 +161,9 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 1`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 2`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
   - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`, `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
+  - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 

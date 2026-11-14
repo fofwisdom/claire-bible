@@ -25,6 +25,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
+| Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -271,6 +272,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
 - Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
+- Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -873,3 +875,43 @@ The internal API gives a client task only for an account that is an actor now; t
 | `DELETE` | `/api/federation/following/{id}` | owner, network mode | `{"removed": true}`; 404 `following_not_found` |
 
 Tests: `tests/test_e2e_federation_following.py`, `tests/test_federation_routes.py` (contract fixtures), `sidecar/fedify/tests/client_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
+
+
+## 18. Inbound Posts (Unit FP4-4)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 6.1 to 6.5 and 7.1. Data: `client.db` version 2 (`federation_timeline_items`, key `(account_id, object_iri)`).
+
+Flow:
+
+1. The sidecar gets a verified activity. A `Create`, an `Update`, or an `Announce` of a `Note`, `Article`, `Page`, or `Question`, a `Delete` of an object that is not the actor, and an `Undo(Announce)` are timeline events. All other activities stay inbox events (Section 5).
+2. For a `Create` and an `Announce`, the sidecar first asks `GET /timeline-interest?actor={iri}`. When no account that is an actor follows the actor, the sidecar fetches nothing and sends the activity as an inbox event (Claire ignores it). An `Update` has its object in the activity and changes only an item that exists, so it asks no interest.
+3. The sidecar makes the normal form (`sidecar/fedify/src/timeline.ts`): the object of a `Create` or an `Update` must have the actor as its author; the object of an `Announce` and its author are fetched with a signed request. An object without the public collection in `to` or `cc` goes to Claire with `public: false` and without content. An attachment that is not in the object document is not fetched.
+4. For a reply, the sidecar fetches the parents with `inReplyTo`, nearest first, `context_depth` levels at most, when `context_fetch` is `on`. The chain stops at a parent that is not a public post, has no author, is on this instance, is on a blocked domain, or is not available.
+5. `POST /timeline-events`: Claire checks the actor, the domain blocks (actor, author, host of the object IRI), and the limits, and makes one item for each account that is an actor and has an accepted follow of the actor (the author of a `Create`, the announcer of an `Announce`). Each parent is an item with `in_timeline` = 0.
+6. Timeline rule: an item has `in_timeline` = 1 when it is not a reply, or when the parent author is the author, the account itself (its actor or a published object of the account), or a followed actor. When Claire does not know the parent (no parent in the event and no item with that IRI), the value is 0.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/timeline-interest?actor={iri}` | `{"followed", "context_fetch", "context_depth"}` |
+| `POST` | `/timeline-events` | `{"decision", "reason", "items"}`. `items` is the number of items that the event made, changed, or deleted for all accounts (parents are not counted). |
+
+Request of `timeline-events`: `event_id`, `type` (`Create`, `Update`, `Delete`, `Announce`, `Undo`), `recipient_public_id`, `actor`, `announced_by` (profile of the announcer, or null), `object_iri`, `public` (null for `Delete` and `Undo`), `object` (normal form or null), `parents`, `verified_by`.
+
+| Event | Effect | Reasons without an effect |
+| :--- | :--- | :--- |
+| `Create`, `Announce` | New items. An item that exists keeps its content, its announcer, and its owner state; only `in_timeline` can change from 0 to 1. | `not_followed` (ignored), `not_public` (ignored), `blocked_domain`, `invalid_object`, `too_large` (rejected) |
+| `Update` | The content of all items with the same object IRI and author. An `Update` with `public: false` deletes those items. | `no_item` (ignored) |
+| `Delete` | Deletes all items with the same object IRI and author. | `no_item` (ignored) |
+| `Undo` | Deletes the items that this announcer brought, for each account that does not follow the author. A starred or ingested item stays. | `no_item` (ignored) |
+
+Limits (Section 6.3): `content_html` at most 65536 bytes and 8 attachments. The sidecar sends no object with more content and keeps the first 8 attachments; Claire refuses a larger event (`too_large`).
+
+Differences from the design:
+
+- The times of the normal form (`published_at`, `updated_at`) are Unix seconds, as in the other shapes of the contract, not ISO 8601 text.
+- The normal form has `in_reply_to`, which the example of design Section 6.3 does not show. `announced_by` is a field of the event, not of the object. `blurhash` is always null (the Fedify vocabulary has no such property).
+- The handle of an author is `@preferredUsername@host` of the actor ID. The sidecar makes no WebFinger request for it.
+- An item stores the first announcer only. Thus `Undo(Announce)` cannot know if another followed actor also announced the object; it deletes the item when the announcer is the stored one and the account does not follow the author.
+- The cleanup of the media cache at a `Delete` comes with the media cache (FP4-7).
+
+Tests: `tests/test_e2e_federation_timeline.py`, `tests/test_federation_routes.py` (contract fixtures), `tests/test_client_db.py`, `sidecar/fedify/tests/timeline_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.

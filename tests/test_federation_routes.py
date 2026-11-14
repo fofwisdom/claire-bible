@@ -36,7 +36,7 @@ ALICE_IRI = f"https://claire.example.com/ap/actors/{ALICE_PUBLIC_ID}"
 BOB_IRI = "https://remote.example/users/bob"
 INBOX_EVENT_FIXTURES = ["inbox_event_follow", "inbox_event_accept_follow", "inbox_event_undo_follow", "inbox_event_delete_actor", "inbox_event_update_actor", "inbox_event_blocked_domain", "inbox_event_not_an_actor", "inbox_event_ignored"]
 FP2_FIXTURES = ["followers", "followers_next", "followers_not_found", "domain_blocks", *INBOX_EVENT_FIXTURES]
-FP4_FIXTURES = ["client_tasks", "client_task_ack", "following"]
+FP4_FIXTURES = ["client_tasks", "client_task_ack", "following", "timeline_interest", "timeline_event_create", "timeline_event_announce", "timeline_event_not_public", "timeline_event_delete"]
 FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found", "actor_gone"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
@@ -259,7 +259,7 @@ def test_fixture_files_all_have_a_test(internal):
 
 
 def test_response_models_are_sealed():
-    models = {"config": federation_routes.ConfigResponse, "actor": federation_routes.ActorRecord, "heartbeat": federation_routes.HeartbeatResponse, "actor_keys": federation_routes.ActorKeysResponse, "followers": federation_routes.FollowersResponse, "domain_blocks": federation_routes.DomainBlocksResponse, "inbox_event_follow": federation_routes.InboxEventResponse, "outbox_tasks": federation_routes.OutboxTasksResponse, "outbox_task_ack": federation_routes.OutboxAckResponse, "object": federation_routes.ObjectRecord, "actor_outbox": federation_routes.ActorOutboxResponse}
+    models = {"config": federation_routes.ConfigResponse, "actor": federation_routes.ActorRecord, "heartbeat": federation_routes.HeartbeatResponse, "actor_keys": federation_routes.ActorKeysResponse, "followers": federation_routes.FollowersResponse, "domain_blocks": federation_routes.DomainBlocksResponse, "inbox_event_follow": federation_routes.InboxEventResponse, "outbox_tasks": federation_routes.OutboxTasksResponse, "outbox_task_ack": federation_routes.OutboxAckResponse, "object": federation_routes.ObjectRecord, "actor_outbox": federation_routes.ActorOutboxResponse, "timeline_event_create": federation_routes.TimelineEventResponse, "timeline_interest": federation_routes.TimelineInterestResponse}
     for name, model in models.items():
         body = fixture(name)["response"]
         model.model_validate(body)

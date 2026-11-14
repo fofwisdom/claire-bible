@@ -5,6 +5,7 @@ Two files (DATA_STORE_LAYOUT_DESIGN.md, RD27):
 - ``client.db`` (``store.client_db``): ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``. The functions with ``conn`` for these tables take a ``client.db`` connection.
 - ``claire.db``: the reading settings of the instance, one JSON value in ``instance_settings`` (key ``federation_reading``). ``get_reading_settings`` and ``set_reading_settings`` take a ``claire.db`` connection.
 
+- ``federation_timeline_items`` (``client.db`` version 2, unit FP4-4) has the received posts of an account. The key is ``(account_id, object_iri)``. ``content_html`` is the raw HTML of the remote server: only the render route sanitizes it (Section 8).
 - A follow starts as ``pending`` with the handle or IRI that the owner gave (``request``). ``actor_iri`` is ``None`` until the sidecar resolves it (FP4-3).
 - The retention of an account is the lower of the account value and the instance value (Section 10 rule 1). An account value above the instance value is refused when the owner sets it; a later decrease of the instance value does not change the account value.
 
@@ -47,6 +48,15 @@ __all__ = [
     "set_following_state",
     "set_reading_settings",
     "validate_reading_update",
+    "TIMELINE_CONTENT_MAX_BYTES",
+    "TIMELINE_MAX_ATTACHMENTS",
+    "accounts_following_actor",
+    "delete_announced_items",
+    "delete_timeline_items",
+    "is_following",
+    "timeline_item_author",
+    "update_timeline_items",
+    "upsert_timeline_item",
 ]
 
 FollowingState = Literal["pending", "accepted", "rejected"]
@@ -356,3 +366,89 @@ def follows_on_domain(conn: sqlite3.Connection, domain: str) -> list[Following]:
         if host == domain or host.endswith("." + domain):
             found.append(f)
     return found
+
+
+# --- Timeline items (Sections 6 and 7.1, unit FP4-4) -----------------------
+
+# Section 6.3: the limits of one object. A larger event is refused (``too_large``).
+TIMELINE_CONTENT_MAX_BYTES = 64 * 1024
+TIMELINE_MAX_ATTACHMENTS = 8
+
+
+def accounts_following_actor(conn: sqlite3.Connection, actor_iri: str, account_ids: list[int]) -> list[int]:
+    """The accounts of ``account_ids`` (the accounts that are actors now) that have an accepted follow of ``actor_iri`` (Section 6.4 rule 1)."""
+    if not account_ids:
+        return []
+    marks = ",".join("?" for _ in account_ids)
+    rows = conn.execute(f"SELECT DISTINCT account_id FROM federation_following WHERE actor_iri=? AND state='accepted' AND account_id IN ({marks}) ORDER BY account_id", (actor_iri, *account_ids)).fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def is_following(conn: sqlite3.Connection, account_id: int, actor_iri: str) -> bool:
+    return conn.execute("SELECT 1 FROM federation_following WHERE account_id=? AND actor_iri=? AND state='accepted'", (account_id, actor_iri)).fetchone() is not None
+
+
+def timeline_item_author(conn: sqlite3.Connection, account_id: int, object_iri: str) -> str | None:
+    """The author of an item that the account has, or ``None``."""
+    row = conn.execute("SELECT author_iri FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, object_iri)).fetchone()
+    return None if row is None else str(row[0])
+
+
+def _item_values(item: dict[str, Any]) -> dict[str, Any]:
+    """The content columns of an item from the normal form of the sidecar (Section 6.3)."""
+    return {
+        "url": item.get("url"),
+        "object_type": item["type"],
+        "author_json": json.dumps(item["author"], ensure_ascii=False, sort_keys=True),
+        "name": item.get("name"),
+        "summary": item.get("summary"),
+        "sensitive": 1 if item.get("sensitive") else 0,
+        "content_html": item.get("content_html") or "",
+        "language": item.get("language"),
+        "attachments_json": json.dumps(item.get("attachments") or [], ensure_ascii=False, sort_keys=True),
+        "context_iri": item.get("context"),
+        "in_reply_to_iri": item.get("in_reply_to"),
+        "published_at": item.get("published_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def upsert_timeline_item(conn: sqlite3.Connection, *, account_id: int, item: dict[str, Any], announced_by: dict[str, Any] | None, in_timeline: bool, now: float) -> bool:
+    """Store one object for the account. Return ``True`` when the item is new.
+
+    The event is idempotent (Section 6.4 rule 3): an item that exists keeps its content, its announcer, and its owner state (``unread``, ``starred``). Only ``in_timeline`` can change, from 0 to 1: an item that came first as the parent of a reply shows in the timeline when it comes again by the timeline rule.
+    """
+    values = _item_values(item)
+    columns = ["account_id", "object_iri", "author_iri", "announced_by_iri", "announced_by_json", "in_timeline", "received_at", *values]
+    params = [account_id, item["object_iri"], item["author"]["iri"], None if announced_by is None else announced_by["iri"], None if announced_by is None else json.dumps(announced_by, ensure_ascii=False, sort_keys=True), 1 if in_timeline else 0, now, *values.values()]
+    cur = conn.execute(f"INSERT OR IGNORE INTO federation_timeline_items ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})", params)
+    if cur.rowcount == 1:
+        return True
+    if in_timeline:
+        conn.execute("UPDATE federation_timeline_items SET in_timeline=1 WHERE account_id=? AND object_iri=? AND in_timeline=0", (account_id, item["object_iri"]))
+    return False
+
+
+def update_timeline_items(conn: sqlite3.Connection, *, item: dict[str, Any], now: float) -> int:
+    """Change the content of the items of all accounts that have the object with the same author (Section 6.1, ``Update``). Return the number of items. The reply target and the thread do not change. ``updated_at`` is the time of the object, or ``now`` when the object has none."""
+    values = _item_values(item)
+    for fixed in ("in_reply_to_iri", "context_iri", "published_at"):
+        values.pop(fixed)
+    if values["updated_at"] is None:
+        values["updated_at"] = now
+    assignments = ", ".join(f"{column}=?" for column in values)
+    return conn.execute(f"UPDATE federation_timeline_items SET {assignments} WHERE object_iri=? AND author_iri=?", (*values.values(), item["object_iri"], item["author"]["iri"])).rowcount
+
+
+def delete_timeline_items(conn: sqlite3.Connection, object_iri: str, author_iri: str) -> int:
+    """Delete the items of all accounts that have the object with this author (Section 6.1, ``Delete``). Return the number of items."""
+    return conn.execute("DELETE FROM federation_timeline_items WHERE object_iri=? AND author_iri=?", (object_iri, author_iri)).rowcount
+
+
+def delete_announced_items(conn: sqlite3.Connection, object_iri: str, announcer_iri: str) -> int:
+    """``Undo(Announce)``: delete the items that this announcer brought, for each account that does not follow the author (Section 6.1). An item that the owner starred or took into a theme stays. Return the number of items."""
+    return conn.execute(
+        "DELETE FROM federation_timeline_items WHERE object_iri=? AND announced_by_iri=? AND starred=0 AND linked_doc_id IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM federation_following f WHERE f.account_id=federation_timeline_items.account_id AND f.actor_iri=federation_timeline_items.author_iri AND f.state='accepted')",
+        (object_iri, announcer_iri),
+    ).rowcount

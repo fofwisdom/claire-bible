@@ -2,7 +2,7 @@
 
 Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddleware`` checks each request before a handler runs. The handlers do not read a ``Principal`` credential.
 
-Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3).
+Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6).
 
 Actor rule (FK4): an account is an actor only when the instance setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
 
@@ -61,6 +61,9 @@ __all__ = [
     "HeartbeatResponse",
     "InboxEventRequest",
     "InboxEventResponse",
+    "TimelineEventRequest",
+    "TimelineEventResponse",
+    "TimelineInterestResponse",
     "federation_internal_routes",
     "read_heartbeat",
     "software_version",
@@ -266,6 +269,78 @@ class FollowingResponse(_Sealed):
     public_id: str
     # Accepted follows only. The public collection shows the total only (RD9).
     total: int
+
+
+class TimelineActor(_Sealed):
+    """The author or the announcer of a remote object. ``handle`` is ``@name@host`` from the actor document, without a WebFinger check."""
+
+    iri: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    name: str | None = Field(max_length=512)
+    handle: str | None = Field(max_length=512)
+
+
+class TimelineAttachment(_Sealed):
+    url: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    media_type: str | None = Field(max_length=128)
+    name: str | None = Field(max_length=4096)
+    width: int | None = Field(ge=0)
+    height: int | None = Field(ge=0)
+    blurhash: str | None = Field(max_length=256)
+
+
+class TimelineObject(_Sealed):
+    """The normal form of one remote object (FEDERATION_REMOTE_READING_DESIGN.md Section 6.3). The times are Unix seconds, as in the other shapes of this contract. ``content_html`` is the raw HTML of the remote server."""
+
+    object_iri: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    url: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    type: Literal["Note", "Article", "Page", "Question"]
+    author: TimelineActor
+    name: str | None = Field(max_length=4096)
+    summary: str | None = Field(max_length=16384)
+    sensitive: bool
+    # The limit of Section 6.3 is in bytes and gives ``too_large``. This length only stops a body that no inbox request can have.
+    content_html: str = Field(max_length=2 * 1024 * 1024)
+    language: str | None = Field(max_length=64)
+    published_at: float | None
+    updated_at: float | None
+    attachments: list[TimelineAttachment] = Field(max_length=64)
+    context: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    in_reply_to: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+
+
+class TimelineEventRequest(_Sealed):
+    """One inbound activity for the timelines of the accounts (Sections 6.1 to 6.5, unit FP4-4).
+
+    ``Create`` and ``Update``: ``object`` is the object of the activity, and its author is ``actor``. ``Announce``: ``object`` is the object that the sidecar fetched, and ``announced_by`` is the profile of ``actor``. ``Delete``: ``object_iri`` is the deleted object. ``Undo``: an ``Undo(Announce)``, and ``object_iri`` is the object of the ``Announce``.
+
+    ``public`` is ``False`` for an object without the public collection in ``to`` or ``cc``; then ``object`` is ``None``, because Claire stores no such object. ``public`` is ``None`` for ``Delete`` and ``Undo``. ``parents`` is the reply chain of ``object``, nearest parent first (Section 6.5 rule 2).
+    """
+
+    event_id: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    type: Literal["Create", "Update", "Delete", "Announce", "Undo"]
+    recipient_public_id: str | None = Field(pattern=r"^[1-9][0-9]{0,18}$")
+    actor: InboxActor
+    announced_by: TimelineActor | None
+    object_iri: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    public: bool | None
+    object: TimelineObject | None
+    parents: list[TimelineObject] = Field(max_length=20)
+    verified_by: Literal["http-signature", "ld-signature", "object-integrity-proof"]
+
+
+class TimelineEventResponse(_Sealed):
+    decision: Literal["accepted", "rejected", "ignored"]
+    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item"] | None
+    # The number of items that the event made, changed, or deleted, for all accounts. The parents are not in this number.
+    items: int
+
+
+class TimelineInterestResponse(_Sealed):
+    """The answer to "does an account that is an actor follow this remote actor". The sidecar asks before it fetches the object of an ``Announce`` or the parents of a reply (RS2, RS4)."""
+
+    followed: bool
+    context_fetch: Literal["on", "off"]
+    context_depth: int
 
 
 class ObjectRecord(_Sealed):
@@ -636,6 +711,137 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         _log.info("inbox event %s: %s%s", event.type, decision.decision, "" if decision.reason is None else f" ({decision.reason})")
         return _json(decision)
 
+    def _too_large(obj: TimelineObject) -> bool:
+        return len(obj.content_html.encode("utf-8")) > client_store.TIMELINE_CONTENT_MAX_BYTES or len(obj.attachments) > client_store.TIMELINE_MAX_ATTACHMENTS
+
+    def _object_refusal(conn: Any, origin: str, obj: TimelineObject) -> Literal["invalid_object", "blocked_domain", "too_large"] | None:
+        """The reason why an object cannot be an item, or ``None``. The domain block applies to the author and to the host of the object IRI (Section 6.2 rule 3). An object of this instance is not an item of a timeline."""
+        hosts = [_remote_host(obj.object_iri, origin), _remote_host(obj.author.iri, origin)]
+        if any(host is None for host in hosts):
+            return "invalid_object"
+        if any(federation_store.blocking_domain(conn, host) is not None for host in hosts if host is not None):
+            return "blocked_domain"
+        return "too_large" if _too_large(obj) else None
+
+    def _own_object(store: accounts_store.AccountStore, origin: str, account_id: int, iri: str) -> bool:
+        """True when ``iri`` is a published object of the account (``{origin}/ap/objects/{public_id}``)."""
+        prefix = f"{origin}/ap/objects/"
+        if not iri.startswith(prefix):
+            return False
+        try:
+            found = federation_store.get_object(store.conn, ids.parse_public_id(iri[len(prefix) :]))
+        except ValueError:
+            return False
+        return found is not None and found.account_id == account_id
+
+    def _decide_timeline(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> TimelineEventResponse:
+        """Apply one timeline event to ``client.db`` and return the decision (Sections 6.1 to 6.5). The caller commits ``client``."""
+
+        def answer(decision: Any, reason: Any, items: int = 0) -> TimelineEventResponse:
+            return TimelineEventResponse(decision=decision, reason=reason, items=items)
+
+        conn = store.conn
+        if not _federation_active(store):
+            return answer("rejected", "federation_off")
+        hosts = [_remote_host(address, origin) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
+        if any(host is None for host in hosts):
+            return answer("rejected", "invalid_actor")
+        if any(federation_store.blocking_domain(conn, host) is not None for host in hosts if host is not None):
+            return answer("rejected", "blocked_domain")
+        actor_iri = event.actor.iri
+        if event.type == "Delete":
+            # Fedify verified that the activity comes from ``actor``. Only the author deletes an item.
+            removed = client_store.delete_timeline_items(client, event.object_iri, actor_iri)
+            return answer("accepted", None, removed) if removed else answer("ignored", "no_item")
+        if event.type == "Undo":
+            removed = client_store.delete_announced_items(client, event.object_iri, actor_iri)
+            return answer("accepted", None, removed) if removed else answer("ignored", "no_item")
+        if event.public is not True:
+            # Claire has no visibility model for an object that is not public (Section 6.2 rule 2). An item that the author changed to not public goes.
+            removed = client_store.delete_timeline_items(client, event.object_iri, actor_iri) if event.type == "Update" else 0
+            return answer("ignored", "not_public", removed)
+        obj = event.object
+        if obj is None or obj.object_iri != event.object_iri:
+            return answer("rejected", "invalid_object")
+        if event.type != "Announce" and obj.author.iri != actor_iri:
+            return answer("rejected", "invalid_object")
+        refusal = _object_refusal(conn, origin, obj)
+        if refusal is not None:
+            return answer("rejected", refusal)
+        item = obj.model_dump(mode="json")
+        if event.type == "Update":
+            changed = client_store.update_timeline_items(client, item=item, now=now())
+            return answer("accepted", None, changed) if changed else answer("ignored", "no_item")
+
+        # ``Create`` and ``Announce``: one item for each account that is an actor and follows the author or the announcer (Section 6.4).
+        actor_ids = _actor_account_ids(store)
+        accounts = client_store.accounts_following_actor(client, actor_iri, actor_ids)
+        if not accounts:
+            return answer("ignored", "not_followed")
+        announced_by = None
+        if event.type == "Announce":
+            announced_by = (event.announced_by or TimelineActor(iri=actor_iri, name=None, handle=None)).model_dump(mode="json")
+            announced_by["iri"] = actor_iri
+        # The parent chain stops at the first parent that cannot be an item: a later parent has no link to the thread that the owner can read.
+        parents: list[TimelineObject] = []
+        expected = obj.in_reply_to
+        for parent in event.parents:
+            if parent.object_iri != expected or _object_refusal(conn, origin, parent) is not None:
+                break
+            parents.append(parent)
+            expected = parent.in_reply_to
+        made = 0
+        for account_id in accounts:
+            in_timeline = True
+            if obj.in_reply_to is not None:
+                # Timeline rule (Section 6.5 rule 3): the parent author is the author, the account itself, or a followed actor.
+                parent_author = parents[0].author.iri if parents else client_store.timeline_item_author(client, account_id, obj.in_reply_to)
+                own_actor = f"{origin}/ap/actors/{store.get(account_id).public_id}"
+                in_timeline = _own_object(store, origin, account_id, obj.in_reply_to) or (parent_author is not None and (parent_author in (obj.author.iri, own_actor) or client_store.is_following(client, account_id, parent_author)))
+            made += client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=announced_by, in_timeline=in_timeline, now=now())
+            for parent in parents:
+                client_store.upsert_timeline_item(client, account_id=account_id, item=parent.model_dump(mode="json"), announced_by=None, in_timeline=False, now=now())
+        return answer("accepted", None, made)
+
+    async def timeline_event(request: Request) -> Response:
+        try:
+            event = TimelineEventRequest.model_validate_json(await request.body())
+        except ValidationError:
+            return _error(400, "invalid_request")
+        origin = _runtime().public_origin
+
+        def _apply() -> TimelineEventResponse:
+            store = _open_store()
+            client = _client()
+            try:
+                decision = _decide_timeline(store, client, origin, event)
+                client.commit()
+                return decision
+            finally:
+                client.close()
+                store.conn.close()
+
+        decision = await run_in_threadpool(_apply)
+        _log.info("timeline event %s: %s%s, %d item(s)", event.type, decision.decision, "" if decision.reason is None else f" ({decision.reason})", decision.items)
+        return _json(decision)
+
+    def timeline_interest(request: Request) -> Response:
+        actor_iri = request.query_params.get("actor", "")
+        if not actor_iri or len(actor_iri) > _MAX_IRI_LENGTH:
+            return _error(400, "invalid_request")
+        store = _open_store()
+        try:
+            actor_ids = _actor_account_ids(store)
+            reading = client_store.get_reading_settings(store.conn)
+        finally:
+            store.conn.close()
+        client = _client()
+        try:
+            followed = bool(client_store.accounts_following_actor(client, actor_iri, actor_ids))
+        finally:
+            client.close()
+        return _json(TimelineInterestResponse(followed=followed, context_fetch=reading["context_fetch"], context_depth=int(reading["context_depth"])))
+
     def followers(request: Request) -> Response:
         try:
             query = parse_collection_query(request.query_params)
@@ -907,6 +1113,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/client-tasks", client_tasks, methods=["GET"]),
         Route("/client-tasks/{task_id}/ack", client_task_ack, methods=["POST"]),
         Route("/inbox-events", inbox_event, methods=["POST"]),
+        Route("/timeline-events", timeline_event, methods=["POST"]),
+        Route("/timeline-interest", timeline_interest, methods=["GET"]),
         Route("/domain-blocks", domain_blocks, methods=["GET"]),
         Route("/actors/{public_id}/outbox", actor_outbox, methods=["GET"]),
         Route("/outbox-tasks", outbox_tasks, methods=["GET"]),

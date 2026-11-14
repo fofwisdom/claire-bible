@@ -41,6 +41,14 @@ export interface FakeClaire {
   acks: string[];
   // The acknowledgements of client tasks (contract 1.3), in sequence: the body of each request with its task ID.
   clientAcks: { id: number; result: string; error_code: string | null; actor: unknown }[];
+  // The bodies of the timeline events (unit FP4-4), in sequence.
+  timelineEvents: Record<string, unknown>[];
+  // When set, each timeline event gets this decision. If not, an event gets the decision of the fixture with the same body.
+  timelineDecision: Record<string, unknown> | null;
+  // The remote actors that an account follows, in addition to the actor of the timeline_interest fixture. Other actors are not followed.
+  followed: Set<string>;
+  // The limits of the parent chain in the answer for an actor of `followed`.
+  context: { context_fetch: "on" | "off"; context_depth: number };
 }
 
 // A transport that answers from the fixtures. It refuses a request with a bad signature, the same as Claire.
@@ -56,6 +64,10 @@ export function fakeClaire(): FakeClaire {
     events: [],
     acks: [],
     clientAcks: [],
+    timelineEvents: [],
+    timelineDecision: null,
+    followed: new Set(),
+    context: { context_fetch: "on", context_depth: 5 },
     transport: async (request) => {
       const url = new URL(request.url);
       const target = url.pathname + url.search;
@@ -70,6 +82,10 @@ export function fakeClaire(): FakeClaire {
         fake.events.push(JSON.parse(text));
         if (fake.decision !== null) return Response.json(fake.decision);
       }
+      if (request.method === "POST" && target.endsWith("/timeline-events")) {
+        fake.timelineEvents.push(JSON.parse(text));
+        if (fake.timelineDecision !== null) return Response.json(fake.timelineDecision);
+      }
       const ack = /\/outbox-tasks\/([0-9]+)\/ack$/.exec(target);
       if (request.method === "POST" && ack !== null) {
         const sent = JSON.parse(text) as { result: string; error_code: string | null };
@@ -80,6 +96,8 @@ export function fakeClaire(): FakeClaire {
       const override = fake.overrides.get(`${request.method} ${target}`);
       if (override !== undefined) return Response.json(override.response, { status: override.status });
       const match = fixtures.find((f) => f.request.method === request.method && f.request.path === target && (f.request.body === undefined || JSON.stringify(f.request.body) === text));
+      // An actor without a fixture: followed only when the test says so.
+      if (match === undefined && request.method === "GET" && url.pathname.endsWith("/timeline-interest")) return Response.json({ followed: fake.followed.has(url.searchParams.get("actor") ?? ""), ...fake.context });
       if (match === undefined) return Response.json({ error: "not_found" }, { status: 404 });
       const response = target.endsWith("/config") ? { ...match.response, ...fake.config } : match.response;
       return Response.json(response, { status: match.status });

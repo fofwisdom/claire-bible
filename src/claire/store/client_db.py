@@ -11,6 +11,7 @@ Rules:
 Versions:
 
 - 1 (FP4-2, 2026-11-13): feed tables (moved from ``claire.db`` version 21), ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``.
+- 2 (FP4-4, 2026-11-15): ``federation_timeline_items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 1
+CLIENT_SCHEMA_VERSION = 2
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -94,6 +95,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
         raise RuntimeError(f"client.db schema is newer than this code: actual={version}, expected<={CLIENT_SCHEMA_VERSION}")
     conn.execute("CREATE TABLE IF NOT EXISTS client_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     _migrate_v1(conn)
+    _migrate_v2(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -203,11 +205,55 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_client_outbox_ready ON federation_client_outbox(status, id)")
 
 
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    # Received posts of an account (Section 7.1). The key is (account_id, object_iri) (Section 6.4 rule 3). content_html is raw: only the render route sanitizes it (Section 8).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_timeline_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            object_iri TEXT NOT NULL,
+            url TEXT,
+            object_type TEXT NOT NULL,
+            author_iri TEXT NOT NULL,
+            author_json TEXT NOT NULL,
+            announced_by_iri TEXT,
+            announced_by_json TEXT,
+            name TEXT,
+            summary TEXT,
+            sensitive INTEGER NOT NULL DEFAULT 0,
+            content_html TEXT NOT NULL,
+            language TEXT,
+            attachments_json TEXT NOT NULL DEFAULT '[]',
+            context_iri TEXT,
+            in_reply_to_iri TEXT,
+            in_timeline INTEGER NOT NULL DEFAULT 1,
+            published_at REAL,
+            updated_at REAL,
+            received_at REAL NOT NULL,
+            unread INTEGER NOT NULL DEFAULT 1,
+            starred INTEGER NOT NULL DEFAULT 0,
+            linked_theme_id INTEGER,
+            linked_doc_id TEXT,
+            mention INTEGER NOT NULL DEFAULT 0,
+            quote_of_iri TEXT,
+            favourited INTEGER NOT NULL DEFAULT 0,
+            boosted INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (account_id, object_iri)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_timeline_account ON federation_timeline_items(account_id, received_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_timeline_object ON federation_timeline_items(object_iri)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_timeline_thread ON federation_timeline_items(account_id, context_iri)")
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits."""
     conn.execute("DELETE FROM feed_items WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM feed_subscriptions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_following WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_timeline_items WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_account_settings WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_client_outbox WHERE account_id=?", (account_id,))
 

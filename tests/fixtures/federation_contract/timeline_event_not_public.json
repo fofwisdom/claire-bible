@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/timeline-events",
+    "body": {
+      "event_id": "https://remote.example/activities/203",
+      "type": "Create",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/dan",
+        "inbox": "https://remote.example/users/dan/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "announced_by": null,
+      "object_iri": "https://remote.example/notes/3",
+      "public": false,
+      "object": null,
+      "parents": [],
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "ignored",
+    "reason": "not_public",
+    "items": 0
+  }
+}

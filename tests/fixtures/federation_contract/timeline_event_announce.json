@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/timeline-events",
+    "body": {
+      "event_id": "https://remote.example/activities/202",
+      "type": "Announce",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/dan",
+        "inbox": "https://remote.example/users/dan/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "announced_by": {
+        "iri": "https://remote.example/users/dan",
+        "name": null,
+        "handle": "@dan@remote.example"
+      },
+      "object_iri": "https://forum.example/post/42",
+      "public": true,
+      "object": {
+        "object_iri": "https://forum.example/post/42",
+        "url": "https://forum.example/post/42",
+        "type": "Page",
+        "author": {
+          "iri": "https://forum.example/users/erin",
+          "name": null,
+          "handle": "@erin@forum.example"
+        },
+        "name": "Forum post",
+        "summary": null,
+        "sensitive": false,
+        "content_html": "<p>A forum post</p>",
+        "language": null,
+        "published_at": 1800000390,
+        "updated_at": null,
+        "attachments": [],
+        "context": null,
+        "in_reply_to": null
+      },
+      "parents": [],
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reason": null,
+    "items": 1
+  }
+}

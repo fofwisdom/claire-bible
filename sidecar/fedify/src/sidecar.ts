@@ -16,11 +16,13 @@
 // - An actor task becomes Update(Person) or Delete(Person) (unit FP3-4). A purged actor gets 410 with a Tombstone.
 // - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
 // - A delivery does not go to a follower on a blocked domain.
+// - A Create, an Update, or an Announce of a post, a Delete of an object, and an Undo(Announce) go to Claire as a timeline event with the normal form of the object (unit FP4-4). The sidecar fetches the object of an Announce and the parents of a reply only when Claire says that an account follows the actor. All other activities go to Claire as an inbox event.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
-import { Accept, Activity, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor } from "./internal_api.ts";
+import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
+import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineObject } from "./internal_api.ts";
+import { actorProfile, isPost, isPublic, type LoadOptions, normalObject, type Post } from "./timeline.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -457,16 +459,19 @@ export class Sidecar {
     const actor = await activity.getActor({ ...ctx, suppressError: true });
     if (actor === null || actor.id === null || actor.id.href !== activity.actorId.href || actor.inboxId === null) return drop("the actor document has no inbox");
     const document = await activity.toJsonLd({ contextLoader: ctx.contextLoader }) as Record<string, unknown>;
-    const event: InboxEvent = {
-      event_id: activity.id.href,
-      type,
-      object_type: objectType,
-      recipient_public_id: ctx.recipient !== null && PUBLIC_ID.test(ctx.recipient) ? ctx.recipient : null,
-      actor: { iri: actor.id.href, inbox: actor.inboxId.href, shared_inbox: actor.endpoints?.sharedInbox?.href ?? null },
-      object_iri: objectIri,
-      // Fedify verified the activity with one of the mechanisms that the activity has. The value names the strongest one that is present.
-      verified_by: "proof" in document ? "object-integrity-proof" : "signature" in document ? "ld-signature" : "http-signature",
-    };
+    const recipient = ctx.recipient !== null && PUBLIC_ID.test(ctx.recipient) ? ctx.recipient : null;
+    const remote = { iri: actor.id.href, inbox: actor.inboxId.href, shared_inbox: actor.endpoints?.sharedInbox?.href ?? null };
+    // Fedify verified the activity with one of the mechanisms that the activity has. The value names the strongest one that is present.
+    const verifiedBy = "proof" in document ? "object-integrity-proof" : "signature" in document ? "ld-signature" : "http-signature";
+    const timeline = await this.#timelineEvent(ctx, activity, actor, objectType, objectIri, { event_id: activity.id.href, recipient_public_id: recipient, actor: remote, verified_by: verifiedBy });
+    if (timeline === "dropped") return;
+    if (timeline !== null) {
+      const result = await this.#api.timelineEvent(timeline);
+      this.counters[result.decision] += 1;
+      if (result.decision !== "accepted") console.warn(`inbox activity ${type} ${result.decision}: ${result.reason}`);
+      return;
+    }
+    const event: InboxEvent = { event_id: activity.id.href, type, object_type: objectType, recipient_public_id: recipient, actor: remote, object_iri: objectIri, verified_by: verifiedBy };
     const decision: InboxDecision = await this.#api.inboxEvent(event);
     this.counters[decision.decision] += 1;
     if (decision.decision !== "accepted") console.warn(`inbox activity ${type} ${decision.decision}: ${decision.reason}`);
@@ -489,6 +494,76 @@ export class Sidecar {
     if (decision.decision === "rejected" && decision.reason === "recipient_mismatch" && (await ctx.getActorKeyPairs(followed.identifier)).length > 0) {
       await ctx.sendActivity(sender, actor, new Reject({ id: await replyId("rejects"), actor: ctx.getActorUri(followed.identifier), object: follow }));
     }
+  }
+
+  // The timeline event of an activity (unit FP4-4), null when the activity is not for the timelines (then it goes to Claire as an inbox event), or "dropped" when the object cannot have a normal form.
+  // Create, Update, and Announce of a post; Delete of an object that is not the actor; Undo(Announce).
+  async #timelineEvent(ctx: InboxContext<void>, activity: Activity, actor: Actor, undoneType: string | null, objectIri: string | null, base: Pick<TimelineEvent, "event_id" | "recipient_public_id" | "actor" | "verified_by">): Promise<TimelineEvent | "dropped" | null> {
+    if (objectIri === null || objectIri === base.actor.iri) return null;
+    const without = (type: TimelineEvent["type"], isPublicObject: boolean | null): TimelineEvent => ({ event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: null, object_iri: objectIri, public: isPublicObject, object: null, parents: [], verified_by: base.verified_by });
+    if (activity instanceof Undo) return undoneType === "Announce" ? without("Undo", null) : null;
+    if (activity instanceof Delete) return without("Delete", null);
+    const type = activity instanceof Create ? "Create" : activity instanceof Update ? "Update" : activity instanceof Announce ? "Announce" : null;
+    if (type === null) return null;
+    const drop = (why: string): "dropped" => {
+      this.counters.dropped += 1;
+      console.warn(`inbox activity ${type} dropped: ${why}`);
+      return "dropped";
+    };
+    // An Update changes only an item that exists, and its object is in the activity. A Create or an Announce can need fetches: Claire says first if an account follows the actor (RS2, RS4).
+    const interest = type === "Update" ? null : await this.#api.timelineInterest(base.actor.iri);
+    if (interest !== null && !interest.followed) return null;
+    const load: LoadOptions & { suppressError: true } = { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader, suppressError: true };
+    const object = await activity.getObject(load);
+    if (!isPost(object) || object.id === null) return null;
+    if (await this.isBlocked(object.id.hostname)) {
+      this.counters.blocked += 1;
+      return "dropped";
+    }
+    if (!isPublic(object)) return { ...without(type, false), object_iri: object.id.href };
+    const selfProfile = actorProfile(actor);
+    if (selfProfile === null) return drop("the actor has no ID");
+    let author = selfProfile;
+    if (type === "Announce") {
+      if (object.attributionId === null) return drop("the announced object has no author");
+      if (await this.isBlocked(object.attributionId.hostname)) {
+        this.counters.blocked += 1;
+        return "dropped";
+      }
+      author = await this.#authorProfile(object, load);
+    } else if (object.attributionId?.href !== base.actor.iri) {
+      // Only the author makes or changes an object.
+      return drop("the object has another author");
+    }
+    const normal = await normalObject(object, author, load);
+    if (typeof normal === "string") return drop(normal);
+    const parents = interest !== null && interest.context_fetch === "on" ? await this.#parents(object, interest.context_depth, load) : [];
+    return { event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: type === "Announce" ? selfProfile : null, object_iri: normal.object_iri, public: true, object: normal, parents, verified_by: base.verified_by };
+  }
+
+  // The profile of the author of an object. When the actor document is not available, the profile has the ID only.
+  async #authorProfile(object: Post, load: LoadOptions & { suppressError: true }): Promise<{ iri: string; name: string | null; handle: string | null }> {
+    const fetched = await object.getAttribution(load);
+    const profile = fetched !== null && fetched.id?.href === object.attributionId?.href ? actorProfile(fetched) : null;
+    return profile ?? { iri: object.attributionId!.href, name: null, handle: null };
+  }
+
+  // The reply chain of a post, nearest parent first, `depth` levels at most (design Section 6.5 rule 2). The chain stops at a parent that is not a public post, has no author, is on this instance or on a blocked domain, or cannot be fetched.
+  async #parents(post: Post, depth: number, load: LoadOptions & { suppressError: true }): Promise<TimelineObject[]> {
+    const origin = (await this.config()).canonical_origin;
+    const parents: TimelineObject[] = [];
+    let current = post;
+    while (parents.length < depth) {
+      const target = current.replyTargetId;
+      if (target === null || target.origin === origin || await this.isBlocked(target.hostname)) break;
+      const parent = await current.getReplyTarget(load);
+      if (!isPost(parent) || parent.id?.href !== target.href || parent.attributionId === null || !isPublic(parent) || await this.isBlocked(parent.attributionId.hostname)) break;
+      const normal = await normalObject(parent, await this.#authorProfile(parent, load), load);
+      if (typeof normal === "string") break;
+      parents.push(normal);
+      current = parent;
+    }
+    return parents;
   }
 
   // A Fedify context for code that has no HTTP request, for example a signed fetch with the key of the instance actor.

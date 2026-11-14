@@ -1,0 +1,56 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/timeline-events",
+    "body": {
+      "event_id": "https://remote.example/activities/201",
+      "type": "Create",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/dan",
+        "inbox": "https://remote.example/users/dan/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "announced_by": null,
+      "object_iri": "https://remote.example/notes/1",
+      "public": true,
+      "object": {
+        "object_iri": "https://remote.example/notes/1",
+        "url": "https://remote.example/@dan/1",
+        "type": "Note",
+        "author": {
+          "iri": "https://remote.example/users/dan",
+          "name": null,
+          "handle": "@dan@remote.example"
+        },
+        "name": null,
+        "summary": null,
+        "sensitive": false,
+        "content_html": "<p>Hello from Dan</p>",
+        "language": "en",
+        "published_at": 1800000390,
+        "updated_at": null,
+        "attachments": [
+          {
+            "url": "https://remote.example/media/1.png",
+            "media_type": "image/png",
+            "name": "alt text",
+            "width": 800,
+            "height": 600,
+            "blurhash": null
+          }
+        ],
+        "context": "https://remote.example/contexts/1",
+        "in_reply_to": null
+      },
+      "parents": [],
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reason": null,
+    "items": 1
+  }
+}
