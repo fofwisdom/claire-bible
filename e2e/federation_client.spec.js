@@ -24,6 +24,7 @@ test.describe('federation client view (FP4-5)', () => {
   test('FP4-5: the stage bar switches between the client and the knowledge base, the body renders in a sandbox frame, and the context menu has the Markdown export', async ({ page }) => {
     const pageErrors = [];
     const patches = [];
+    const threadFetch = { calls: 0, done: false, requests: [] };
     // With service workers blocked, the test runner puts its own script into each frame. In the sandbox frame that script fails; it is not a script of the page or of the post.
     page.on('pageerror', error => { if (!error.message.includes('Service worker is disabled because the context is sandboxed')) pageErrors.push(error.message); });
     await page.setViewportSize({ width: 1400, height: 900 });
@@ -45,7 +46,18 @@ test.describe('federation client view (FP4-5)', () => {
         return route.fulfill(json({ item: found, counts: Object.assign({}, COUNTS, { unread: ITEMS.filter(entry => entry.unread).length, starred: ITEMS.filter(entry => entry.starred).length }) }));
       }
       const detail = Object.assign({}, found, { render_url: '/render/remote/' + id + '?t=test' });
-      return route.fulfill(json({ item: detail, thread: [detail] }));
+      // Thread fetch (FP4-6): after the fetch task of post 8 has a result, its thread has one more post.
+      const fetchedReply = item(10, { in_reply_to: found.object_iri, in_timeline: false, render_url: '/render/remote/10?t=test' });
+      return route.fulfill(json({ item: detail, thread: id === '8' && threadFetch.done ? [detail, fetchedReply] : [detail] }));
+    });
+    // Thread fetch (FP4-6): the first request for post 8 makes a task that waits; the next one says that the task has a result. Other posts have a recent fetch.
+    await page.route('**/api/federation/timeline/*/context', route => {
+      threadFetch.requests.push(route.request().method() + ' ' + new URL(route.request().url()).pathname);
+      if (!route.request().url().includes('/timeline/8/')) return route.fulfill(json({ state: 'recent', pending: false }));
+      threadFetch.calls += 1;
+      if (threadFetch.calls === 1) return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ state: 'queued', pending: true }) });
+      threadFetch.done = true;
+      return route.fulfill(json({ state: 'recent', pending: false }));
     });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: FRAME_BODY }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 1, limit: 1000, items: [{ id: '1', request: '@carol@remote.example', actor_iri: author.iri, actor_type: 'Person', display_name: 'Carol', state: 'accepted', created_at: 1, updated_at: 1 }], next_max_id: null })));
@@ -88,6 +100,15 @@ test.describe('federation client view (FP4-5)', () => {
     await expect(page.locator('#client-reader iframe')).toHaveCount(0);
     await page.locator('#client-reader [data-open-warning]').click();
     await expect(page.locator('#client-reader iframe')).toHaveCount(1);
+
+    // Thread fetch (FP4-6): opening a post asks for its thread. While the task waits, the reader shows a note; then the thread loads again with the fetched post.
+    expect(threadFetch.requests[0]).toBe('POST /api/federation/timeline/7/context');
+    await expect(page.locator('#client-thread-fetch')).toBeVisible();
+    await expect(page.locator('#client-thread-fetch')).toHaveText('이 스레드의 게시물을 더 가져오는 중…');
+    await expect(page.locator('.synd-thread-title')).toHaveText('스레드 · 게시물 2개');
+    await expect(page.locator('#client-thread-fetch')).toBeHidden();
+    await expect(page.locator('#client-reader .synd-entry')).toHaveCount(2);
+    expect(threadFetch.calls).toBe(2);
 
     // The star is a change of the item.
     await posts.nth(0).locator('[data-item-star]').click();

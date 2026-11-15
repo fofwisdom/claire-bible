@@ -31,6 +31,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
 | Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
 | Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
+| Thread fetch: route `POST /api/federation/timeline/{item_id}/context`, task `fetch_context` of the client outbox, internal endpoints `context-tasks` and `context-objects`, contract 1.5, sidecar fetch with `@fedify/backfill` (Section 24) | Implemented (FP4-6) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -272,13 +273,14 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.4"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.5"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
 - Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
 - Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
 - Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
+- Unit FP4-6 added `GET /context-tasks` and `POST /context-objects` (Section 24.1). The version is 1.5. No shape that existed changed.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -1223,3 +1225,62 @@ A feed item and a timeline item of the same account are the same post when the `
 - `GET /api/feeds/items/{item_id}` and `POST /api/feeds/discover` are not in the design. The reader and the subscribe form need them.
 
 Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, subscribe, poll, read with the render on the two origins, star, ingest; network mode: merge by URL and account isolation), `e2e/feed_view.spec.js` (the view in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
+
+## 24. Thread Fetch (Unit FP4-6)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 (`fetch_context`), 6.5 rules 4 to 6, 10, and 12.1 (RT6). Data: no schema change (`client.db` stays at its version; the task is a row of `federation_client_outbox`). Contract: 1.5. New sidecar dependency: `@fedify/backfill` 2.4.5 (MIT), in `deno.json`, `deno.lock`, and `THIRD_PARTY_LICENSES.md`.
+
+### 24.1 Routes
+
+| Method | Path | Function |
+| :--- | :--- | :--- |
+| `POST` | `/api/federation/timeline/{item_id}/context` | Owner, network mode only (`ROUTE_POLICY`). No body. Makes the `fetch_context` task for the thread of the item. Answer `{"state", "pending"}`: `queued` (a new task, status 202), `recent` (no task was made, status 200), or `off` (status 200). `pending` is true while a task of the thread waits for the sidecar. An item that the caller does not have gives 404 `item_not_found`. |
+| `GET` | `/internal/federation/v1/context-tasks` | Query `limit` (1 to 50, default 2). Gives a lease (300 seconds) on the oldest `fetch_context` tasks of the accounts that are actors: `{"tasks": [{"id", "actor_public_id", "object_iri", "max_items", "max_depth", "created_at", "lease_until"}]}`. `max_items` is `context_max_items`, and `max_depth` is `context_depth`. |
+| `POST` | `/internal/federation/v1/context-objects` | Body `{"task_id", "objects"}`: `objects` has 1000 normal forms at most (the shape of Section 18). Answer `{"decision", "reason", "stored", "refused"}`. 404 when `task_id` is not a `fetch_context` task that waits. |
+
+The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17), with `actor` null.
+
+### 24.2 Task Rules (Claire)
+
+1. The client view asks for the fetch each time the owner opens an item (rule 4 of design Section 6.5).
+2. The start object of a task is the top stored item of the reply chain of the item (`target_iri`). `ref_id` is the item.
+3. No task is made (`recent`) when a `fetch_context` task of the account waits, or was made less than `context_refetch_minutes` ago, for a start object that is one of the stored items of the same thread. The task rows have the time (`created_at`): there is no other record of the last fetch. A task that was rejected counts also, so that a server that failed gets no second request in that time.
+4. No task is made (`off`) when `context_fetch` is `off`, when `context_max_items` is 0, or when the account is not an actor (the sidecar takes only the tasks of actors).
+5. `context-tasks` rejects a task at the lease with `context_fetch_off` when the admin set the fetch to off after the owner made the task.
+
+### 24.3 Fetch Rules (Sidecar, `sidecar/fedify/src/context.ts`)
+
+1. The sidecar has a loop for the thread fetches that is separate from the loop of the other tasks (`main.ts`): each 5 seconds, 2 tasks at most in one call, one call at a time.
+2. Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address (Section 11). No request goes to this instance or to a blocked domain.
+3. The sidecar reads the FEP-7888 `context` of the start object as a collection (FEP-f228) with `@fedify/backfill` (strategy `context-auto`: objects, or `Create` activities with their objects). When that gives no object, it reads the reply tree (strategy `reply-tree`): the `inReplyTo` parents and the `replies` collections, `max_depth` levels at most.
+4. Limits of one task: `max_items` objects, `3 × max_items + 20` requests, and 120 seconds. After a limit, the objects that the sidecar has go to Claire.
+5. An object in a collection document is not used as it is. Each object that goes to Claire comes from a document on the origin of its own ID (the sidecar reads it again when it was in a collection of a server), is a public post (`Note`, `Article`, `Page`, `Question`), and has an author on the same origin. The author profile comes from the actor document; without it, the profile has the ID only.
+6. The objects go to Claire in parts of 50 objects and 512 KiB at most (the body limit of the internal API is 1 MiB). Then the sidecar acknowledges the task: `handed_off`, or `rejected` with `object_not_found` (the start object is not an available post), `no_actor_key`, or the reason of Claire.
+
+### 24.4 Storage Rules (Claire, `context-objects`)
+
+1. The answer is `rejected` when federation is not active (`federation_off`), when the account of the task is not an actor (`not_an_actor`), or when `context_fetch` is `off` (`context_fetch_off`).
+2. Claire reads `context_max_items` objects at most of one request. Each object must pass the rules of a `Create` (Section 18): a permitted remote address of the object and of the author, no blocked domain for these two hosts, and the size limits.
+3. Only an object of the thread is stored: it has the `context` of a stored item of the thread, it is a reply to an object of the thread, or an object of the thread is a reply to it (also through other objects of the same request).
+4. Each stored object is an item of the account that asked, with `in_timeline` = 0 and no announcer. An item that exists keeps its content and its state. The render route sanitizes the HTML, as for each item.
+5. `stored` is the number of new items. `refused` is the number of objects that Claire did not take.
+
+### 24.5 View
+
+- After the detail of an item is in the reader, `syndication_client.js` sends the `POST`. While `pending` is true, the reader shows the note `synd.client.thread_fetching`, and the script sends the `POST` again each 3 seconds, 10 times at most. Then it reads `GET /api/federation/timeline/{item_id}` again and makes the reader again only when the thread has other items.
+
+### 24.6 Differences from the Design and Limits
+
+- The sidecar takes the tasks with `context-tasks`, not with `client-tasks`. Reason: the task has limits and no activity, and one fetch can make many requests; a separate call and a separate loop keep the follow tasks quick. The acknowledgement is the same call as for the other client tasks.
+- The design names one internal endpoint (`context-objects`). `context-tasks` is not in the design.
+- No setting `context_max_requests` (RT6 result). The request limit comes from `context_max_items`. Reason: one more value for the admin has no use before a real instance shows a need.
+- The reply tree runs when the context collection gives no object, also when the object has a `context` that is not a collection (the RT6 result says "no `context`"). Reason: the `context` of many servers is an address without a collection.
+- The public route `POST /api/federation/timeline/{item_id}/context` is not in the route table of design Section 5.3. A `GET` of the thread makes no task.
+- The limit `context_max_items` applies in the sidecar to one task. Claire applies it to each `context-objects` request, not to the sum of the requests of one task.
+- An object that comes in an earlier request than the object that links it to the thread is not stored, when it has no `context` of the thread.
+- A task of an account that stops being an actor waits until the account is an actor again. While it waits, no new task of that thread is made.
+- The thread view shows 200 items at most (Section 19), also when the fetch stored more.
+- A fetched item has no part in the retention rules of this unit: the retention run is unit FP4-10.
+- The Deno tests have no network permission. The remote servers of the tests are in the test process (a replaced `fetch`), as in the other sidecar tests, not a listener on a local port.
+
+Tests: `tests/test_e2e_federation_thread_fetch.py` (a real app and the signed internal API: task, no second task in the refetch time, lease, storage rules, limits, the switch, the actor rule), `tests/test_federation_routes.py` (contract 1.5 fixtures `context_tasks.json` and `context_objects.json`), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`, `sidecar/fedify/tests/context_test.ts` (context collection with pages, reply tree, limits, blocked domain, objects of other origins, parts), `sidecar/fedify/tests/internal_api_test.ts` (fixtures), `e2e/federation_client.spec.js` (the note and the new thread in a browser).

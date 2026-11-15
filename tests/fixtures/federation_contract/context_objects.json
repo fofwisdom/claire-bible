@@ -1,0 +1,38 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/context-objects",
+    "body": {
+      "task_id": 4,
+      "objects": [
+        {
+          "object_iri": "https://remote.example/notes/41",
+          "url": null,
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/erin",
+            "name": "Erin",
+            "handle": "@erin@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A reply from Erin</p>",
+          "language": null,
+          "published_at": 1800000395,
+          "updated_at": null,
+          "attachments": [],
+          "context": "https://remote.example/contexts/40",
+          "in_reply_to": "https://remote.example/notes/40"
+        }
+      ]
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reason": null,
+    "stored": 1,
+    "refused": 0
+  }
+}
