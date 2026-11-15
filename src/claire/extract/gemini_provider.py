@@ -420,7 +420,7 @@ class GeminiProvider:
 
             settings = get_settings()
         limit = getattr(settings, "embed_char_budget", 8000)
-        tt = task_type or getattr(settings, "embed_task_type", "SEMANTIC_SIMILARITY")
+        tt = task_type or "RETRIEVAL_DOCUMENT"
 
         from google.genai import types
 

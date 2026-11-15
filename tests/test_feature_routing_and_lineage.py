@@ -240,3 +240,77 @@ def test_feature_routed_provider_decouples_extract_and_summarize_and_records_lin
     assert lineage["final_output_models"]["extract_graph"]["model"] == "gemini-3.8-flash"
     assert lineage["final_output_models"]["summarize"]["model"] == "gemini-4-hydrogen"
     assert lineage["fallbacks_triggered"] == []
+
+
+def test_jev_gate_ordering_and_hybrid_single_winner_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Gate 2/3 run before JEV in filter/hybrid modes and ambiguous hybrid candidates defer to LLM."""
+    import claire.extract.resolver as resolver_mod
+
+    monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
+    conn = _memory_db()
+    vstore = VectorStore(conn, "brute")
+    e_alpha = Entity(type="Tool", name="AlphaCore", observations=["engine"], sources=["d0"])
+    e_beta = Entity(type="Tool", name="BetaTool", observations=["cli"], sources=["d0"])
+    e_wrong = Entity(type="Tool", name="Alpha Engine 3.11", observations=["older release"], sources=["d0"])
+    dbm.upsert_entity(conn, e_alpha)
+    dbm.upsert_entity(conn, e_beta)
+    dbm.upsert_entity(conn, e_wrong)
+    vstore.put(e_alpha.id, [0.82, 0.57, 0.0], "claire")
+    vstore.put(e_beta.id, [0.80, 0.60, 0.0], "claire")
+    vstore.put(e_wrong.id, [0.81, 0.58, 0.0], "claire")
+
+    # 1. Version collision fails Gate 2 before JEV, and two >=0.90 scores trigger ambiguous handoff to LLM judge_fn.
+    judge_calls: list[str] = []
+    client_ambig = _FakeJevClient({"AlphaCore": 0.94, "BetaTool": 0.91, "Alpha Engine 3.11": 0.99})
+    shadow_ambig = JevShadow(client_ambig, executor=_InlineExecutor())
+    res_ambig = resolve_or_create(
+        conn, vstore, name="Alpha Engine 3.12", etype="Tool", aliases=[], observations=["ambiguous"], document_id="d1",
+        embed_fn=lambda: [1.0, 0.0, 0.0],
+        judge_fn=lambda nm, et, obs, cand: judge_calls.append(cand.name) or (cand.name == "AlphaCore"),
+        shadow=shadow_ambig, jev_mode="hybrid", jev_filter_threshold=0.20, jev_auto_merge_threshold=0.90,
+    )
+    assert len(client_ambig.requests) == 1
+    sent_names = {c["name"] for c in client_ambig.requests[0][0]["candidates"].values()}
+    assert "Alpha Engine 3.11" not in sent_names
+    assert sent_names == {"AlphaCore", "BetaTool"}
+    assert "AlphaCore" in judge_calls
+    assert res_ambig.decision.stage == "borderline_llm_judge"
+    assert res_ambig.entity.id == e_alpha.id
+
+
+def test_embedding_task_types_fixed_and_cli_rejected_from_server_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query search fixes RETRIEVAL_QUERY, Gemini models discovery works, and server_scope blocks CLI."""
+    import claire.provider_manager as pm_mod
+    from claire.retrieval.query import search
+
+    embed_calls: list[tuple[str, str | None]] = []
+
+    class _RecordingProvider:
+        name = "gemini"
+        embed_model = "claire"
+
+        def has_embed_capability(self) -> bool:
+            return True
+
+        def embed(self, text: str, *, task_type: str | None = None, title: str | None = None) -> list[float]:
+            embed_calls.append((text, task_type))
+            return [1.0, 0.0, 0.0]
+
+    conn = _memory_db()
+    vstore = VectorStore(conn, "brute")
+    search(conn, vstore, _RecordingProvider(), "find python library", summarize=False)
+    assert embed_calls == [("find python library", "RETRIEVAL_QUERY")]
+
+    pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
+    with pytest.raises(ValueError):
+        pm.update_config({"active_provider": "antigravity"}, server_scope=True)
+    with pytest.raises(ValueError):
+        pm.update_config({"feature_routing": {"extract_graph": {"provider": "codex"}}}, server_scope=True)
+
+    # Personal CLI configuration succeeds cleanly on the personal scope method.
+    monkeypatch.setattr(pm_mod, "is_running_in_container", lambda: False)
+    monkeypatch.setattr(pm_mod, "find_codex_executable", lambda _bin="codex": "/usr/bin/codex")
+    pcli = pm.update_personal_cli_config({"enabled": True, "active_cli": "codex", "providers": {"codex": {"bin": "codex", "model": "gpt-5.4"}}})
+    assert pcli["personal_cli"]["enabled"] is True
+    assert pcli["personal_cli"]["active_cli"] == "codex"
+    assert pcli["providers"]["codex"]["model"] == "gpt-5.4"

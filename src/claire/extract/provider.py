@@ -683,6 +683,16 @@ def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
     routes = getattr(settings, "feature_routing", None) or {}
     entry = dict(routes.get(slot) or {}) if isinstance(routes, dict) else {}
     ctx = context_of(settings)
+    is_admin_scope = ctx is None or bool(ctx.is_admin)
+    pcli = getattr(settings, "personal_cli", None) if is_admin_scope else None
+    pcli_enabled = isinstance(pcli, dict) and bool(pcli.get("enabled"))
+    pcli_active = str(pcli.get("active_cli") or "").strip().lower() if pcli_enabled else ""
+    if pcli_enabled:
+        pcli_routes = pcli.get("feature_routing") if isinstance(pcli.get("feature_routing"), dict) else {}
+        pcli_slot = pcli_routes.get(slot) if isinstance(pcli_routes.get(slot), dict) else {}
+        for k, v in pcli_slot.items():
+            if v is not None and v != "" and not (k == "provider" and str(v).strip().lower() == "inherit"):
+                entry[k] = v
     member_explicit_provider = False
     if ctx is not None and not ctx.is_admin:
         fm = getattr(ctx, "feature_models", None) or {}
@@ -695,7 +705,10 @@ def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
                     entry[k] = v
     raw_prov = str(entry.get("provider") or "inherit").strip().lower()
     if raw_prov in ("", "inherit"):
-        target_prov = str(getattr(settings, "effective_provider", "") or getattr(settings, "provider", "") or "mock").strip().lower()
+        if pcli_enabled and pcli_active in ("antigravity", "codex") and slot not in ("embed", "stt", "vlm"):
+            target_prov = pcli_active
+        else:
+            target_prov = str(getattr(settings, "effective_provider", "") or getattr(settings, "provider", "") or "mock").strip().lower()
     else:
         target_prov = raw_prov
     if ctx is not None and not ctx.is_admin and not member_explicit_provider:
@@ -722,6 +735,15 @@ def _has_feature_routing_override(settings: Any) -> bool:
             if prov not in ("", "inherit") or mod or eff:
                 return True
     ctx = context_of(settings)
+    if ctx is None or ctx.is_admin:
+        pcli = getattr(settings, "personal_cli", None)
+        if isinstance(pcli, dict) and pcli.get("enabled"):
+            p_act = str(pcli.get("active_cli") or "").strip().lower()
+            if p_act in ("antigravity", "codex"):
+                return True
+            p_routes = pcli.get("feature_routing") if isinstance(pcli.get("feature_routing"), dict) else {}
+            if any(isinstance(v, dict) and (str(v.get("provider") or "inherit").strip().lower() != "inherit" or v.get("model") or v.get("effort")) for v in p_routes.values()):
+                return True
     if ctx is not None and not ctx.is_admin:
         fm = getattr(ctx, "feature_models", None) or {}
         if isinstance(fm, dict) and any(isinstance(v, dict) and any(v.get(k) for k in ("provider", "model", "effort")) for v in fm.values()):
@@ -730,7 +752,7 @@ def _has_feature_routing_override(settings: Any) -> bool:
 
 
 def _clone_settings_for_slot(settings: Any, *, slot: str, target_provider: str, target_model: str, target_effort: str) -> Any:
-    updates: dict[str, Any] = {"feature_routing": {}}
+    updates: dict[str, Any] = {"feature_routing": {}, "personal_cli": {}}
     if target_provider and target_provider not in ("unavailable", "none"):
         updates["provider"] = target_provider
     if target_model:

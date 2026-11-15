@@ -315,8 +315,13 @@ _EFFORT_ALIASES: Final[dict[str, str]] = {"off": "none", "0": "none"}
 
 
 def admin_context(settings: "Settings") -> ProviderContext:
-    """관리자(또는 호스트 운영자) 컨텍스트. 지금과 같이 ``providers.json``을 쓴다(§10.2-1)."""
+    """Admin or host operator context using providers.json and optional personal CLI settings."""
     provider = str(getattr(settings, "provider", "") or "").strip().lower()
+    pcli = getattr(settings, "personal_cli", None)
+    if isinstance(pcli, dict) and pcli.get("enabled"):
+        p_act = str(pcli.get("active_cli") or "").strip().lower()
+        if p_act in ("antigravity", "codex"):
+            provider = p_act
     model_field, effort_field = _ADMIN_MODEL_FIELDS.get(provider, ("gemini_model", "gemini_effort"))
     return ProviderContext(
         account_id=None,

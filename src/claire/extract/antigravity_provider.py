@@ -588,7 +588,7 @@ class AntigravityProvider:
         client = genai.Client(api_key=self.settings.gemini_api_key)
         embed_model = getattr(self.settings, "gemini_embed_model", "gemini-embedding-001")
         limit = getattr(self.settings, "embed_char_budget", 8000)
-        tt = task_type or getattr(self.settings, "embed_task_type", "SEMANTIC_SIMILARITY")
+        tt = task_type or "RETRIEVAL_DOCUMENT"
         embed_cfg_kwargs: dict[str, Any] = {"task_type": tt}
         if title and tt == "RETRIEVAL_DOCUMENT":
             embed_cfg_kwargs["title"] = title

@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 test.use({ serviceWorkers: 'block' });
 
-test('admin providers configures feature routing, jev mode, embed task type, and visualizes pipeline lineage', async ({ page }) => {
+test('admin providers visualizes pipeline lineage at top, consolidates server_tier, and saves routing without embed_task_type dropdown', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', err => pageErrors.push(err.message));
 
@@ -27,7 +27,8 @@ test('admin providers configures feature routing, jev mode, embed task type, and
           active_provider: 'gemini',
           effective_provider: 'gemini',
           effective_stt_provider: 'mock',
-          embed_task_types: ['SEMANTIC_SIMILARITY', 'RETRIEVAL_DOCUMENT', 'RETRIEVAL_QUERY', 'CLASSIFICATION', 'CLUSTERING'],
+          server_tier: { provider: 'gemini', model: 'gemini-3.8-flash', max_effort: 'medium', features: ['expand', 'stt'] },
+          server_tier_configured: true,
           feature_routing: {
             extract_graph: { provider: 'inherit', model: '', effort: '' },
             summarize: { provider: 'gemini', model: 'gemini-4-argon', effort: 'high' },
@@ -46,13 +47,9 @@ test('admin providers configures feature routing, jev mode, embed task type, and
               model: 'gemini-3.8-flash',
               effort: 'medium',
               embed_model: 'gemini-embedding-001',
-              embed_task_type: 'RETRIEVAL_DOCUMENT',
               available_models: [{ id: 'gemini-3.8-flash' }, { id: 'gemini-4-argon' }],
               available_embed_models: [{ id: 'gemini-embedding-001' }]
             },
-            antigravity: { installed: false, bin: 'agy', model: '', available_models: [] },
-            codex: { installed: false, bin: 'codex', model: '', available_models: [{ id: 'gpt-5.4' }] },
-            openai: { has_api_key: false, api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', embed_model: 'text-embedding-3-small' },
             jev: { enabled: true, has_api_key: true, api_key: '••••••••', base_url: 'https://api.typesafe.ai/v1', mode: 'filter', filter_threshold: 0.2, auto_merge_threshold: 0.9 },
             stt: { enabled: false, provider: 'mock', language: 'ko' }
           },
@@ -65,6 +62,10 @@ test('admin providers configures feature routing, jev mode, embed task type, and
               relation_judge: { provider: 'gemini', model: 'gemini-3.8-flash', effort: 'medium' }
             },
             jev: { enabled: true, mode: 'filter', filter_threshold: 0.2, auto_merge_threshold: 0.9, shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6, below_filter_threshold: 180 },
+            architecture_specs: [
+              { stage: '임베딩 Task Type (문서 색인)', fixed_value: 'RETRIEVAL_DOCUMENT', scope: 'extract/gemini_provider.py', rationale: '색인 고정' },
+              { stage: '임베딩 Task Type (검색 질의)', fixed_value: 'RETRIEVAL_QUERY', scope: 'retrieval/query.py', rationale: '질의 고정' }
+            ],
             fallbacks: [
               { id: 'F1', location: 'antigravity_provider.py', status: 'REMOVED', description: 'Removed silent plain-text fallback.' },
               { id: 'F10', location: 'pdf_fetcher', status: 'OUT_OF_SCOPE', description: 'Non-LLM parser chain left unchanged.' }
@@ -81,10 +82,7 @@ test('admin providers configures feature routing, jev mode, embed task type, and
             stt: { enabled: false, provider: 'mock', ready: true },
             providers: {
               gemini: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-              antigravity: { selectable: false, locked_reason: 'not installed', available_models: [], features: { extract: true, research: true, embedding: false, stt_vlm: false } },
-              codex: { selectable: false, locked_reason: 'not installed', features: { extract: true, research: true, embedding: false, stt_vlm: false } },
-              openai: { selectable: false, locked_reason: 'not implemented', features: { extract: false, research: false, embedding: false, stt_vlm: false } },
-              mock: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } }
+              mock: { selectable: true, locked_reason: '', features: { extract: false, research: false, embedding: false, stt_vlm: false } }
             }
           }
         })
@@ -101,22 +99,23 @@ test('admin providers configures feature routing, jev mode, embed task type, and
             active_provider: patchedPayload.active_provider,
             effective_provider: patchedPayload.active_provider,
             effective_stt_provider: 'mock',
+            server_tier: patchedPayload.server_tier || { provider: 'gemini', model: 'gemini-3.8-flash', max_effort: 'medium', features: ['expand', 'stt'] },
             feature_routing: patchedPayload.feature_routing,
             providers: {
               gemini: { has_api_key: true, ...patchedPayload.providers.gemini, available_models: [{ id: 'gemini-3.8-flash' }, { id: 'gemini-4-argon' }], available_embed_models: [{ id: 'gemini-embedding-001' }] },
-              antigravity: { installed: false, bin: 'agy', model: '', available_models: [] },
-              codex: { installed: false, bin: 'codex', model: '', available_models: [{ id: 'gpt-5.4' }] },
-              openai: { has_api_key: false, base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', embed_model: 'text-embedding-3-small' },
               jev: { enabled: true, has_api_key: true, ...patchedPayload.providers.jev },
               stt: patchedPayload.providers.stt
             },
             lineage_summary: {
               effective_slots: { extract_graph: { provider: 'gemini', model: 'gemini-3.8-flash', effort: 'medium' }, summarize: { provider: 'gemini', model: 'gemini-4-argon', effort: 'high' }, embed: { provider: 'gemini', model: 'gemini-embedding-001', effort: '' } },
               jev: { enabled: true, mode: patchedPayload.providers.jev.mode, filter_threshold: patchedPayload.providers.jev.filter_threshold, auto_merge_threshold: patchedPayload.providers.jev.auto_merge_threshold, shadow_pairs: 249, ok_calls: 249, avg_latency_ms: 224.6, below_filter_threshold: 180 },
+              architecture_specs: [
+                { stage: '임베딩 Task Type (문서 색인)', fixed_value: 'RETRIEVAL_DOCUMENT', scope: 'extract/gemini_provider.py', rationale: '색인 고정' }
+              ],
               fallbacks: [],
               recent_documents: []
             },
-            capabilities: { active_provider: 'gemini', can_save: true, lock_reasons: [], warnings: [], stt: { enabled: false, provider: 'mock', ready: true }, providers: { gemini: { selectable: true, features: { extract: true, research: true, embedding: true, stt_vlm: true } }, antigravity: { selectable: false, locked_reason: 'not installed', features: {} }, codex: { selectable: false, locked_reason: 'not installed', features: {} }, openai: { selectable: false, locked_reason: 'not implemented', features: {} }, mock: { selectable: true, features: {} } } }
+            capabilities: { active_provider: 'gemini', can_save: true, lock_reasons: [], warnings: [], stt: { enabled: false, provider: 'mock', ready: true }, providers: { gemini: { selectable: true, features: { extract: true, research: true, embedding: true, stt_vlm: true } }, mock: { selectable: true, features: {} } } }
           }
         })
       });
@@ -136,9 +135,6 @@ test('admin providers configures feature routing, jev mode, embed task type, and
         stt: { enabled: false, provider: 'mock', ready: true },
         providers: {
           gemini: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-          antigravity: { selectable: false, locked_reason: 'not installed', available_models: [], features: {} },
-          codex: { selectable: false, locked_reason: 'not installed', features: {} },
-          openai: { selectable: false, locked_reason: 'not implemented', features: {} },
           mock: { selectable: true, locked_reason: '', features: {} }
         }
       })
@@ -146,9 +142,18 @@ test('admin providers configures feature routing, jev mode, embed task type, and
   });
 
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#prov-lineage-visualizer-card')).toBeVisible();
   await expect(page.locator('#prov-feature-routing-card')).toBeVisible();
+  await expect(page.locator('#prov-member-tier-card')).toBeVisible();
+  await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
+
+  const linTop = await page.locator('#prov-lineage-visualizer-card').evaluate(el => el.getBoundingClientRect().top);
+  const featTop = await page.locator('#prov-feature-routing-card').evaluate(el => el.getBoundingClientRect().top);
+  expect(linTop).toBeLessThan(featTop);
+
   await expect(page.locator('#prov-lineage-svg')).toBeVisible();
   await expect(page.locator('#prov-lineage-svg')).toContainText('gemini-4-argon');
+  await expect(page.locator('#prov-architecture-spec-table')).toContainText('RETRIEVAL_DOCUMENT');
   await expect(page.locator('#prov-recent-lineage-table')).toContainText('Sample Doc');
 
   await page.locator('#prov-jev-mode').selectOption('hybrid');
@@ -157,8 +162,73 @@ test('admin providers configures feature routing, jev mode, embed task type, and
 
   await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
   expect(patchedPayload).not.toBeNull();
-  expect(patchedPayload.providers.gemini.embed_task_type).toBe('RETRIEVAL_DOCUMENT');
   expect(patchedPayload.providers.jev.mode).toBe('hybrid');
   expect(patchedPayload.feature_routing.summarize.model).toBe('gemini-4-argon');
+  expect(patchedPayload.server_tier.provider).toBe('gemini');
+  expect(patchedPayload.server_tier.features).toEqual(['expand', 'stt']);
+
+  let savedPersonalCli = null;
+  const mockCliState = () => ({
+    personal_cli: {
+      enabled: true,
+      active_cli: 'antigravity',
+      feature_routing: {}
+    },
+    providers: {
+      antigravity: {
+        bin: 'agy',
+        model: 'gemini-3-flash-preview',
+        effort: 'high',
+        installed: true,
+        cli_version: '2.0.0',
+        available_models: [
+          { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }
+        ]
+      },
+      codex: {
+        bin: 'codex',
+        model: '',
+        installed: true,
+        available_models: [{ id: '', label: '계정 기본' }]
+      }
+    },
+    capabilities: {
+      providers: {
+        antigravity: { selectable: true, locked_reason: '' },
+        codex: { selectable: true, locked_reason: '' }
+      }
+    }
+  });
+
+  await page.route(u => u.pathname === '/api/me/personal-cli', async (route) => {
+    const req = route.request();
+    if (req.method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockCliState()) });
+    }
+    if (req.method() === 'PATCH') {
+      savedPersonalCli = JSON.parse(req.postData() || '{}');
+      const next = mockCliState();
+      next.personal_cli.enabled = savedPersonalCli.enabled;
+      next.personal_cli.active_cli = savedPersonalCli.active_cli;
+      next.providers.antigravity.model = savedPersonalCli.providers.antigravity.model;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(next) });
+    }
+    return route.continue();
+  });
+
+  await page.goto('/settings/keys', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#admin-personal-cli-host')).toBeVisible();
+  await expect(page.locator('#pcli-enabled')).toBeChecked();
+  await expect(page.locator('#pcli-active')).toHaveValue('antigravity');
+  await expect(page.locator('#pcli-agy-model')).toBeVisible();
+  await page.locator('#pcli-agy-model').selectOption('claude-sonnet-4-6');
+  await page.locator('[data-personal-cli-form] button[type="submit"]').click();
+
+  await expect(page.getByText('개인 CLI 설정을 저장했습니다.')).toBeVisible();
+  expect(savedPersonalCli).not.toBeNull();
+  expect(savedPersonalCli.enabled).toBe(true);
+  expect(savedPersonalCli.active_cli).toBe('antigravity');
+  expect(savedPersonalCli.providers.antigravity.model).toBe('claude-sonnet-4-6');
   expect(pageErrors).toEqual([]);
 });

@@ -1149,13 +1149,18 @@ def _settings_keys_body(
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
     if admin_viewer:
-        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
-        notice = "싱글 모드에서는 인스턴스 프로바이더 설정이 모든 LLM·STT·VLM 작업에 쓰입니다." if mode == "single" else "관리자 계정은 BYOK 키 대신 인스턴스 프로바이더 설정을 씁니다."
+        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
+        notice = "서버 공용 프로바이더(Google AI Studio · ServerTier · Feature Routing)는 프로바이더 관리 화면에서 설정합니다. 개인 CLI 클라이언트(Antigravity · Codex)는 약관 분리 정책에 따라 이 관리자 개인 계정 화면에서만 선택·관리할 수 있습니다."
         body = (
             '<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="프로바이더 설정 안내">'
-            "<h2><span data-icon='bolt'></span> 인스턴스 프로바이더 설정</h2>"
+            "<h2><span data-icon='bolt'></span> 서버 공용 프로바이더 설정</h2>"
             f'<p class="hint">{escape(notice)}</p>'
             '<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> 프로바이더 설정 열기</a>'
+            "</section>"
+            '<section class="console-subcard" id="admin-personal-cli-host" data-admin-personal-cli aria-label="관리자 개인 CLI 클라이언트 설정">'
+            "<h2><span data-icon='terminal'></span> 관리자 개인 CLI 클라이언트</h2>"
+            '<p class="hint">호스트에 설치된 Antigravity CLI(agy) 또는 Codex CLI는 최상위 관리자 개인 계정 범위에서만 선택하여 사용할 수 있습니다. 일반 멤버와 ServerTier에는 노출되지 않습니다.</p>'
+            '<p class="hint" data-personal-cli-loading>CLI 상태와 지원 모델 목록을 불러오는 중입니다...</p>'
             "</section>"
         )
         return body, {"keys_mode": "admin"}

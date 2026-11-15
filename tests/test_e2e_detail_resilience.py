@@ -149,11 +149,7 @@ def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
 
 
 def test_e2e_antigravity_multitier_fallback_execution():
-    """E2E Scenario 2:
-    AntigravityProvider가 대용량 문서(35,000자 초과) 렌더링 시
-    high effort 타임아웃 -> medium effort 타임아웃 -> condensed body 압축 재시도 과정을 거쳐
-    최종적으로 성공 렌더링 및 텔레메트리를 기록하는지 검증.
-    """
+    """Verify F3 removal: AntigravityProvider raises timeout strictly without lowering effort or compressing prompts."""
     settings = Settings(
         provider="antigravity",
         agy_bin="agy",
@@ -164,32 +160,13 @@ def test_e2e_antigravity_multitier_fallback_execution():
     prov = AntigravityProvider(settings)
 
     efforts_seen: list[str] = []
-    prompts_captured: list[str] = []
 
     def mock_run_side_effect(cmd, input=None, timeout=None, **kwargs):
-        assert timeout == 300.0  # detail_timeout 전달 확인
+        assert timeout == 300.0
         eff_idx = cmd.index("--effort") if "--effort" in cmd else -1
         effort_val = cmd[eff_idx + 1] if eff_idx != -1 else "none"
         efforts_seen.append(effort_val)
-
-        # 프롬프트 내용 캡처 (argv 또는 stdin)
-        if input:
-            prompts_captured.append(input)
-        elif "-p" in cmd:
-            p_idx = cmd.index("-p")
-            prompts_captured.append(cmd[p_idx + 1])
-        else:
-            prompts_captured.append("")
-
-        if len(efforts_seen) < 3:
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
-
-        # 3번째 호출 (condensed context) 성공 반환
-        return SimpleNamespace(
-            returncode=0,
-            stdout="## 2026 Kimodo 기술 보고서 가독 상세\n\nKimodo는 2단계 트랜스포머 아키텍처 기반 모션 디퓨전 모델이다.",
-            stderr="",
-        )
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
 
     huge_text = "NVIDIA Kimodo Detailed Architecture Paper " * 1200  # > 40,000자
     doc = Document(
@@ -200,14 +177,10 @@ def test_e2e_antigravity_multitier_fallback_execution():
     )
 
     with patch("subprocess.run", side_effect=mock_run_side_effect):
-        detail_result = prov.render_detail(doc, effort="high")
+        with pytest.raises(RuntimeError, match="timed out"):
+            prov.render_detail(doc, effort="high")
 
-    assert "Kimodo는 2단계 트랜스포머 아키텍처" in detail_result
-    # 1차: high effort, 2차: medium effort, 3차: medium effort (condensed)
-    assert efforts_seen == ["high", "medium", "medium"]
-    assert len(prompts_captured) == 3
-    # 3번째 프롬프트에 대용량 본문 일부 압축 안내 문구가 포함되어 있는지 검증
-    assert "중략 (대용량 본문 일부 압축)" in prompts_captured[2]
+    assert efforts_seen == ["high"]
 
 
 def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):

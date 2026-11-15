@@ -88,10 +88,28 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
 
     with TestClient(app, base_url=PUBLIC_URL) as client:
         owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}", "Origin": ORIGIN}
+        admin_sess = _create_session(db_file, 1)
+        admin_cookie_headers = {"Cookie": f"claire_session={admin_sess}", "Origin": ORIGIN}
         member_sess = _create_session(db_file, 2)
         member_headers = {"Cookie": f"claire_session={member_sess}", "Origin": ORIGIN}
 
-        # 1. Admin configures Gemini key, 3.8 baseline, separated summarize slot, embed_task_type, and JEV filter mode.
+        # 0. Server-wide /providers rejects personal CLI providers, while /api/me/personal-cli manages them for admin.
+        cli_reject = client.patch(
+            "/providers",
+            headers=owner_headers,
+            json={"active_provider": "antigravity"},
+        )
+        assert cli_reject.status_code == 400
+        assert client.get("/api/me/personal-cli", headers=member_headers).status_code == 404
+        admin_pcli = client.get("/api/me/personal-cli", headers=admin_cookie_headers)
+        assert admin_pcli.status_code == 200
+        assert "personal_cli" in admin_pcli.json()
+        admin_keys_html = client.get("/settings/keys", headers={"Cookie": f"claire_session={admin_sess}"})
+        assert admin_keys_html.status_code == 200
+        assert "admin-personal-cli-host" in admin_keys_html.text
+        client.cookies.clear()
+
+        # 1. Admin configures Google AI Studio key, 3.8 baseline, separated summarize slot, ServerTier, and JEV filter mode.
         patch_resp = client.patch(
             "/providers",
             headers=owner_headers,
@@ -103,7 +121,6 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
                         "model": "gemini-3.8-flash",
                         "effort": "medium",
                         "embed_model": "gemini-embedding-001",
-                        "embed_task_type": "RETRIEVAL_DOCUMENT",
                     },
                     "jev": {
                         "enabled": True,
@@ -116,15 +133,24 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
                     "extract_graph": {"provider": "inherit", "model": "", "effort": ""},
                     "summarize": {"provider": "gemini", "model": "gemini-4-argon", "effort": "high"},
                 },
+                "server_tier": {
+                    "provider": "gemini",
+                    "model": "gemini-3.8-flash",
+                    "max_effort": "medium",
+                    "features": ["expand", "stt"],
+                },
             },
         )
         assert patch_resp.status_code == 200, patch_resp.text
         cfg = patch_resp.json()["config"]
-        assert cfg["providers"]["gemini"]["embed_task_type"] == "RETRIEVAL_DOCUMENT"
         assert cfg["providers"]["jev"]["mode"] == "filter"
         assert cfg["feature_routing"]["summarize"]["model"] == "gemini-4-argon"
+        assert cfg["server_tier"]["provider"] == "gemini"
+        assert cfg["server_tier"]["model"] == "gemini-3.8-flash"
+        assert set(cfg["server_tier"]["features"]) == {"expand", "stt"}
         assert cfg["lineage_summary"]["effective_slots"]["extract_graph"]["model"] == "gemini-3.8-flash"
         assert cfg["lineage_summary"]["effective_slots"]["summarize"]["model"] == "gemini-4-argon"
+        assert len(cfg["lineage_summary"]["architecture_specs"]) >= 4
         assert any(f["id"] == "F1" and f["status"] == "REMOVED" for f in cfg["lineage_summary"]["fallbacks"])
         assert any(f["id"] == "F10" and f["status"] == "OUT_OF_SCOPE" for f in cfg["lineage_summary"]["fallbacks"])
 
