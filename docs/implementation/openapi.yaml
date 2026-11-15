@@ -2036,6 +2036,210 @@ paths:
         '404':
           description: '`object_not_found`. Also single mode.'
 
+  /api/federation/notes:
+    post:
+      summary: Publish a public note, or a reply to an item of the timeline (network mode)
+      description: >-
+        The owner gives plain text. The server makes the HTML (paragraphs, links,
+        mentions `@name@host`, hashtags `#tag`) and sanitizes it. The note, its
+        item of the timeline, and its `note` task are stored in one transaction.
+        The sidecar sends `Create(Note)` to the followers and to the mentioned
+        actors. The account must be a federation actor.
+      operationId: createFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [content]
+              properties:
+                content: {type: string, description: Plain text. The limit is the reading setting `note_max_chars`.}
+                in_reply_to: {type: [string, 'null'], description: ID of an item of the own timeline.}
+                summary: {type: [string, 'null'], description: Content warning, 500 characters at most.}
+                sensitive: {type: boolean}
+                language: {type: [string, 'null'], description: 'Language tag, for example `en`. Default: the locale of the account.'}
+      responses:
+        '201':
+          description: The note is stored and its task waits for the sidecar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note: {$ref: '#/components/schemas/FederationNote'}
+                  item_id: {type: string, description: ID of the item of the own timeline for this note.}
+        '400':
+          description: '`invalid_request`, `empty_content`, `content_too_long`, `summary_too_long`, `too_many_mentions`, `too_many_tags`, `invalid_language`, `invalid_mention`, or `blocked_domain`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: '`item_not_found`. Also single mode, or not an owner-scope credential.'
+        '409':
+          description: '`not_actor`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
+  /api/federation/notes/{note_id}:
+    parameters:
+      - {name: note_id, in: path, required: true, schema: {type: string}, description: Note number as a decimal string.}
+    patch:
+      summary: Edit an own note (network mode)
+      description: Changes the text, the content warning, or the language. The sidecar sends `Update(Note)` with `updated`.
+      operationId: updateFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                content: {type: string}
+                summary: {type: [string, 'null']}
+                sensitive: {type: boolean}
+                language: {type: [string, 'null']}
+      responses:
+        '200':
+          description: The changed note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note: {$ref: '#/components/schemas/FederationNote'}
+        '400':
+          description: The 400 codes of `POST /api/federation/notes`.
+        '404':
+          description: '`note_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor`.'
+    delete:
+      summary: Delete an own note (network mode)
+      description: The object ID returns 410 from then on. The sidecar sends `Delete` with a `Tombstone`. A remote server can ignore it.
+      operationId: deleteFederationNote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The note is deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: {type: boolean}
+                  id: {type: string}
+        '404':
+          description: '`note_not_found`. Also single mode.'
+
+  /api/federation/timeline/{item_id}/favourite:
+    parameters:
+      - {name: item_id, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Favourite the object of an item of the timeline (network mode)
+      description: Records the state on the item and makes a `like` task. A repeated request changes nothing.
+      operationId: favouriteFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '400':
+          description: '`blocked_domain`.'
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+    delete:
+      summary: Remove the favourite of an item (network mode)
+      description: Makes an `undo_like` task with the ID of the `Like`.
+      operationId: unfavouriteFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+
+  /api/federation/timeline/{item_id}/boost:
+    parameters:
+      - {name: item_id, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Boost the object of an item of the timeline (network mode)
+      description: Records the state on the item and makes an `announce` task. A repeated request changes nothing.
+      operationId: boostFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '400':
+          description: '`blocked_domain`.'
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+    delete:
+      summary: Remove the boost of an item (network mode)
+      description: Makes an `undo_announce` task with the ID of the `Announce`.
+      operationId: unboostFederationItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The state of the item.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationItemInteraction'}
+        '404':
+          description: '`item_not_found`. Also single mode.'
+        '409':
+          description: '`not_actor` or `own_item`.'
+
   /api/feeds:
     get:
       summary: List the feeds of the own account
@@ -2624,6 +2828,30 @@ components:
           type: string
           format: uri
 
+    FederationNote:
+      type: object
+      description: An own note of the federation client (FEDERATION.md Section 25).
+      properties:
+        id: {type: string}
+        url: {type: string, description: '`{origin}/ap/objects/{id}`'}
+        in_reply_to: {type: [string, 'null']}
+        content: {type: string, description: The plain text that the owner gave.}
+        summary: {type: [string, 'null']}
+        sensitive: {type: boolean}
+        language: {type: [string, 'null']}
+        tags: {type: array, items: {type: string}}
+        mentions: {type: array, items: {type: string}}
+        published_at: {type: number}
+        updated_at: {type: number}
+        edited_at: {type: [number, 'null']}
+        likes: {type: integer}
+        announces: {type: integer}
+    FederationItemInteraction:
+      type: object
+      properties:
+        item_id: {type: string}
+        favourited: {type: boolean}
+        boosted: {type: boolean}
     StandardError:
       type: object
       required: [error]

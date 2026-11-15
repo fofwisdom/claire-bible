@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/interaction-tasks/10/ack",
+    "body": {
+      "result": "handed_off",
+      "error_code": null,
+      "mentions": [
+        {
+          "handle": "@dan@other.example",
+          "iri": "https://other.example/users/dan"
+        }
+      ]
+    }
+  },
+  "status": 200,
+  "response": {
+    "id": 10,
+    "status": "handed_off"
+  }
+}

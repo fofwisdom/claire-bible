@@ -41,6 +41,8 @@ export interface FakeClaire {
   acks: string[];
   // The acknowledgements of client tasks (contract 1.3), in sequence: the body of each request with its task ID.
   clientAcks: { id: number; result: string; error_code: string | null; actor: unknown }[];
+  // The acknowledgements of interaction tasks (contract 1.6), in sequence: the body of each request with its task ID.
+  interactionAcks: { id: number; result: string; error_code: string | null; mentions: unknown }[];
   // The bodies of the timeline events (unit FP4-4), in sequence.
   timelineEvents: Record<string, unknown>[];
   // When set, each timeline event gets this decision. If not, an event gets the decision of the fixture with the same body.
@@ -64,6 +66,7 @@ export function fakeClaire(): FakeClaire {
     events: [],
     acks: [],
     clientAcks: [],
+    interactionAcks: [],
     timelineEvents: [],
     timelineDecision: null,
     followed: new Set(),
@@ -93,6 +96,8 @@ export function fakeClaire(): FakeClaire {
       }
       const clientAck = /\/client-tasks\/([0-9]+)\/ack$/.exec(target);
       if (request.method === "POST" && clientAck !== null) fake.clientAcks.push({ id: Number(clientAck[1]), ...JSON.parse(text) });
+      const interactionAck = /\/interaction-tasks\/([0-9]+)\/ack$/.exec(target);
+      if (request.method === "POST" && interactionAck !== null) fake.interactionAcks.push({ id: Number(interactionAck[1]), ...JSON.parse(text) });
       const override = fake.overrides.get(`${request.method} ${target}`);
       if (override !== undefined) return Response.json(override.response, { status: override.status });
       const match = fixtures.find((f) => f.request.method === request.method && f.request.path === target && (f.request.body === undefined || JSON.stringify(f.request.body) === text));

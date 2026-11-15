@@ -39,6 +39,7 @@
       <button type="button" id="btn-mark-read" class="tt-btn kb-only" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
       <button type="button" id="btn-open-ingest" class="tt-btn tt-btn-pri kb-only" title="현재 테마 지식베이스에 URL 또는 원문 적재">+ 문서 적재</button>
       <button type="button" id="btn-client-refresh" class="tt-btn client-only" data-i18n="synd.client.refresh" data-i18n-title="synd.client.refresh_title">Refresh</button>
+      <button type="button" id="btn-note-new" class="tt-btn tt-btn-pri client-only" data-i18n-title="synd.compose.new_note_title" hidden><span data-icon="edit"></span> <span data-i18n="synd.compose.new_note">New note</span></button>
       <button type="button" id="btn-palette" class="tt-btn" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open" aria-keyshortcuts="/">/</button>
 
       <!-- 공통 컨트롤 -->
@@ -253,6 +254,36 @@
     </form>
   </dialog>
 
+  <!-- New note, reply, and edit of an own note (design Section 5.4, FP4-9). The owner gives plain text; the server makes the HTML. -->
+  <dialog id="modal-note-compose" closedby="any" aria-labelledby="modal-note-compose-title" class="synd-dialog">
+    <form id="form-note-compose" class="synd-dialog-form">
+      <div class="synd-dialog-head">
+        <h2 id="modal-note-compose-title" data-i18n="synd.compose.title.new">New note</h2>
+        <button type="button" data-close-dialog="modal-note-compose" class="tt-btn" data-i18n-aria-label="common.action.cancel"><span data-icon="close"></span></button>
+      </div>
+      <p id="note-compose-context" class="synd-note" hidden></p>
+      <div>
+        <label for="note-compose-text" data-i18n="synd.compose.text_label">Text</label>
+        <textarea id="note-compose-text" class="synd-compose-text" rows="6" required data-i18n-placeholder="synd.compose.text_placeholder"></textarea>
+        <div id="note-compose-count" class="synd-note" aria-live="polite"></div>
+      </div>
+      <div>
+        <label for="note-compose-summary" data-i18n="synd.compose.summary_label">Content warning (optional)</label>
+        <input id="note-compose-summary" type="text" class="tt-search" maxlength="500" autocomplete="off" data-i18n-placeholder="synd.compose.summary_placeholder"/>
+      </div>
+      <div>
+        <label for="note-compose-language" data-i18n="synd.compose.language_label">Language (optional)</label>
+        <input id="note-compose-language" type="text" class="tt-search" maxlength="35" autocomplete="off" spellcheck="false" data-i18n-placeholder="synd.compose.language_placeholder"/>
+      </div>
+      <p class="synd-note" data-i18n="synd.compose.note">A note is public. Your followers and the accounts that you mention get it.</p>
+      <div id="note-compose-msg" class="synd-note" role="status"></div>
+      <div class="synd-dialog-foot">
+        <button type="button" data-close-dialog="modal-note-compose" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
+        <button type="submit" id="btn-note-compose" class="tt-btn tt-btn-pri" data-i18n="synd.compose.submit">Publish</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="cmdpalette" class="cmd-palette" closedby="any" aria-labelledby="cmdpalette-title">
     <h2 id="cmdpalette-title" class="sr-only" data-i18n="nav.palette.title">Command palette</h2>
     <div class="cmd-palette-head">
@@ -301,6 +332,7 @@
   <script src="/static/js/icons.js"></script>
   <script src="/static/js/command_palette.js"></script>
   <script src="/static/js/syndication_live.js"></script>
+  <script src="/static/js/syndication_compose.js"></script>
   <script src="/static/js/syndication_feeds.js"></script>
   <script src="/static/js/syndication_client.js"></script>
 </body>

@@ -531,6 +531,14 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/federation/timeline/{item_id}/context"): _any("owner", modes=NETWORK_ONLY),
     ("GET", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
     ("HEAD", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
+    # Outbound interactions (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 5.4, unit FP4-9): own notes, favourite, and boost.
+    ("POST", "/api/federation/notes"): _any("owner", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/notes/{note_id}"): _any("owner", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/notes/{note_id}"): _any("owner", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/favourite"): _any("owner", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/timeline/{item_id}/favourite"): _any("owner", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
     ("GET", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     ("HEAD", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     # Both modes (unit FP4-F3): the body of a feed item has media too, and feeds work in single mode (RD15).
