@@ -1,6 +1,9 @@
 {
   "common.action.save": "Save",
   "common.action.cancel": "Cancel",
+  "common.action.close": "Close",
+  "common.action.delete": "Delete",
+  "console.providers.toggle_key": "Show or hide the key",
   "common.action.logout": "Log out",
   "common.status.loading": "Loading…",
   "nav.topbar.graph": "← Knowledge Graph",

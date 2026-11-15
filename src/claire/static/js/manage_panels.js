@@ -14,6 +14,11 @@
     return esc(JSON.stringify(String(v ?? '')));
   }
 
+  // Catalog text (static/js/i18n.js). Without the runtime, the key shows.
+  function trKey(key, params) {
+    return window.ClaireI18n ? window.ClaireI18n.t(key, params) : key;
+  }
+
   if (typeof window.esc !== 'function') window.esc = esc;
   if (typeof window.jsArg !== 'function') window.jsArg = jsArg;
 
@@ -845,7 +850,7 @@
     h += '<div><label style="font-size:11px;opacity:0.8;">Gemini API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
     h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '설정됨 (••••••••)' : 'Gemini API Key 입력'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="'+esc(trKey('console.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     if (gemini.has_api_key) {
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">삭제</button>';
     }
@@ -969,7 +974,7 @@
     h += '<div><label style="font-size:11px;opacity:0.8;">API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
     h += `<input id="prov-oai-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${oai.has_api_key ? '설정됨 (••••••••)' : 'API Key 입력'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-oai-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-oai-key\')" title="'+esc(trKey('console.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     if (oai.has_api_key) {
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-oai-key\', \'openai\')">삭제</button>';
     }
@@ -997,7 +1002,7 @@
     h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (System 1 엔티티 판정 가속 · Filter / Hybrid / Shadow)</label>`;
     h += '<div style="margin-top:6px;display:flex;gap:4px;">';
     h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="'+esc(trKey('console.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     h += '</div>';
     h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
     const curJevMode = jev.mode || 'filter';
@@ -1319,7 +1324,7 @@
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     h += '<div style="display:flex;gap:8px;margin-top:16px;">';
     h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()"><span data-icon="save"></span> 설정 저장</button>';
-    h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()">↩️ 기본값 복원</button>';
+    h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()"><span data-icon="restore"></span> 기본값 복원</button>';
     if (canClose) {
       h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeLimitManager()">닫기</button>';
     }

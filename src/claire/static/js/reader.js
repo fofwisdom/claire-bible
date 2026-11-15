@@ -58,8 +58,8 @@ function setReadFS(delta){
   if(typeof updateReaderRail === 'function') updateReaderRail();
 }
 
-// 중앙 읽기 — 좌측 문서의 '읽기' 버튼/노드 상세의 📖 로 연다(nav 와 분리, 사용자 요구).
-let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(🔗 공유 링크 생성 대상)
+// 중앙 읽기 — 좌측 문서의 '읽기' 버튼/노드 상세의 본문 보기 단추로 연다(nav 와 분리, 사용자 요구).
+let curReaderDoc=null;   // 현재 읽기 팝업의 문서 id(공유 링크 생성 대상)
 let curReaderDocData=null; // 현재 읽기 팝업의 문서 객체
 let readerReturnFocus=null, readerReturnDocId=null;
 function setReaderBackgroundInert(on){
@@ -772,7 +772,7 @@ function renderReader(dc){
   if(dc.summary){
     h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   }else if(dc.detail || dc.detail_html){
-    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
+    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
       ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')"><span data-icon="repeat"></span> 웹에서 요약 재생성</button></div>' : '')+'</div>';
   }
   if(dc.detail_html){
@@ -782,7 +782,7 @@ function renderReader(dc){
   }else if(dc.detail){
     h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }else if(dc.summary){
-    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
+    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
       ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')"><span data-icon="repeat"></span> 웹에서 본문 재생성</button></div>' : '')+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html){
