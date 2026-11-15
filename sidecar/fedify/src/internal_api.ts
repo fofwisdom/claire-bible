@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.3";
+export const CONTRACT_VERSION = "1.4";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -80,7 +80,7 @@ export interface InboxEvent {
 export interface InboxDecision {
   decision: "accepted" | "rejected" | "ignored";
   reply: "accept" | null;
-  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "not_an_actor" | "recipient_mismatch" | "unsupported_type" | null;
+  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "not_an_actor" | "recipient_mismatch" | "unsupported_type" | "no_object" | null;
 }
 
 export interface FollowerItem {
@@ -162,6 +162,7 @@ export interface TimelineObject {
 
 // One inbound activity for the timelines of the accounts (unit FP4-4). Undo is an Undo(Announce): object_iri is the object of the Announce.
 // public is false for an object that is not public; then object is null. public is null for Delete and Undo. parents is the reply chain of object, nearest parent first.
+// Contract 1.4 (unit FP4-8): actor_type is the type of the actor (null for a type outside the list). mentioned has the actors of this instance that the object of a Create mentions (a Mention tag) or addresses (to, cc), MAX_MENTIONED at most. in_reply_to is the reply target of the object, also when object is null.
 export interface TimelineEvent {
   event_id: string;
   type: "Create" | "Update" | "Delete" | "Announce" | "Undo";
@@ -172,14 +173,25 @@ export interface TimelineEvent {
   public: boolean | null;
   object: TimelineObject | null;
   parents: TimelineObject[];
+  actor_type: "Person" | "Group" | "Service" | "Application" | "Organization" | null;
+  mentioned: string[];
+  in_reply_to: string | null;
   verified_by: "http-signature" | "ld-signature" | "object-integrity-proof";
 }
 
-// items is the number of items that the event made, changed, or deleted.
+// One automatic notice for a non-public message (unit FP4-8): the sidecar sends a Note of the actor actor_public_id to the sender of the event only. content is HTML that Claire made; language is the locale of the account.
+export interface TimelineNotice {
+  actor_public_id: string;
+  content: string;
+  language: "en" | "ko";
+}
+
+// items is the number of items that the event made, changed, or deleted. notices are the automatic notices to send now.
 export interface TimelineDecision {
   decision: "accepted" | "rejected" | "ignored";
-  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "invalid_object" | "too_large" | "not_public" | "not_followed" | "no_item" | null;
+  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "invalid_object" | "too_large" | "not_public" | "not_followed" | "no_item" | "rate_limited" | null;
   items: number;
+  notices: TimelineNotice[];
 }
 
 // followed: an account that is an actor follows the remote actor. The sidecar fetches the object of an Announce and the parents of a reply only then.
@@ -306,7 +318,7 @@ const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa20
 const decisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
   reply: nullable(oneOf("accept")),
-  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type")),
+  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object")),
 });
 const followersShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, actor_iri: str, inbox_iri: str, shared_inbox_iri: nullable(str) })), next_max_id: nullable(str) });
 const domainBlocksShape = sealed({ etag: str, domains: list(str) });
@@ -323,8 +335,9 @@ const clientTasksShape = sealed({
 const followingShape = sealed({ public_id: str, total: int });
 const timelineDecisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
-  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item")),
+  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited")),
   items: int,
+  notices: list(sealed({ actor_public_id: str, content: str, language: oneOf("en", "ko") })),
 });
 const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });

@@ -30,6 +30,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No reply, favourite, or boost before FP4-9. |
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
 | Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
+| Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -271,12 +272,13 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.3"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.4"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
 - Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
 - Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
+- Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -963,7 +965,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 ### 19.4 Differences from the Design and Limits
 
-- The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty).
+- The client has no reply, favourite, or boost (FP4-9), and no thread fetch (FP4-6). Mentions of actors that are not followed are in Section 22.
 - `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
 
@@ -1094,6 +1096,74 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 - The timeline list has no thumbnail: media shows in the body only.
 
 Tests: `tests/test_media_proxy.py` (fetch rules with a local HTTP server, token, records, migration of `client.db`), `tests/test_e2e_federation_media.py` (the proxy on the app origin and on the role hosts, limits, token, delete, cleanup command), `tests/test_federation_media_browser.py` (a real Chromium over three local hosts; skipped without a Playwright Chromium).
+
+## 22. Inbound Interactions (Unit FP4-8)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 6.2 rule 4, 6.6 rules 1 to 4 and 6, 7.1, and 10. Data: `client.db` version 4. Contract: 1.4. Quote requests (Section 6.6 rule 5) are unit FP4-9Q. Own notes and their counters are unit FP4-9.
+
+### 22.1 Routes
+
+This unit adds no route. It changes these answers:
+
+| Method | Path | Change |
+| :--- | :--- | :--- |
+| `GET` | `/api/federation/timeline` | The filter `mention=1` now has items. `counts` has `private_messages`: the number of non-public messages that the account got (Section 22.5). |
+| `GET` | `/api/federation/objects` | Each item has `likes` and `announces`: the counters of the published document. |
+| `POST` | `/internal/federation/v1/timeline-events` | Request: `actor_type` (`Person`, `Group`, `Service`, `Application`, `Organization`, or null), `mentioned` (actor IRIs of this instance, 16 at most), `in_reply_to` (the reply target of the object, also when `object` is null). Response: the reason `rate_limited`, and `notices` (a list of `actor_public_id`, `content`, `language`). |
+| `POST` | `/internal/federation/v1/inbox-events` | `Like`, `Announce`, and `Undo` of them for an object path of this instance get a decision (Section 22.4). New reason: `no_object`. No shape of the request changed. |
+
+Contract 1.4 changed the shapes of the timeline event and of the two decisions. The shapes are sealed: Claire and the sidecar must come from the same commit.
+
+### 22.2 Tables (`client.db` Version 4)
+
+- `federation_object_reactions`: key `(object_public_id, kind, actor_iri)`, with `account_id` (the owner of the object), `activity_iri`, and `received_at`. `kind` is `like` or `announce` (the `CHECK` also permits `quote` for unit FP4-9Q, as in the design). `object_public_id` is the number of the object; the number space of published documents and notes is the same (RT7), so the notes of unit FP4-9 can use this table without a change.
+- `federation_auto_replies`: key `(account_id, sender_iri)`, with `last_sent_at` and `count`. No content of a message is stored.
+- The migration adds the two tables at the start of the process. The account purge deletes the rows of the account in the two tables (`client_db.purge_account`).
+
+### 22.3 Mentions and Replies (Section 6.6 Rules 1, 2, and 6)
+
+1. The sidecar asks `timeline-interest` for the actor of a `Create`, as before. When no account follows the actor, the sidecar reads only the object that is in the activity, with a loader that refuses each fetch. The activity becomes a timeline event only when the object has a `Mention` tag with an actor of this instance, has such an actor in `to` or `cc`, or has `inReplyTo` on this instance. If not, it stays an inbox event, and Claire ignores it. The sidecar fetches no parent for an actor that no account follows.
+2. `mentioned` is read for each `Create`, also from a followed actor. An `Announce` has an empty list.
+3. Claire makes one item for each account that is an actor and that follows the actor, is in `mentioned`, or owns the published document in `in_reply_to` of the object. An item of the last two groups has `mention` = 1 and `in_timeline` = 1. An item that exists changes `mention` from 0 to 1 only.
+4. The domain blocks and the limits of Section 18 apply. A mention that is not public is not stored (`not_public`).
+5. Rate limit: for an account that does not follow the author, Claire counts the mention items of the account from the domain of the author in the last hour. At `mention_rate_per_hour` (reading settings, default 100) the account gets no item. When all accounts of the event are at the limit, the decision is `ignored` with the reason `rate_limited`. A followed author has no limit.
+
+### 22.4 Reactions to Own Objects (Section 6.6 Rules 3 and 4)
+
+1. A `Like`, an `Announce` whose object is on this instance, and an `Undo` of one stay inbox events. The sidecar does not fetch the object. For an `Undo`, `object_type` is the type of the activity that is undone, and that activity must be in the `Undo`.
+2. Claire applies the event when `object_iri` is `{origin}/ap/objects/{public_id}`. A new reaction needs a published document whose account is an actor and whose theme is public; Claire stores the actor one time for each object and kind. An `Undo` deletes the row of the same actor in all states of the object. A repeated activity and a repeated `Undo` give `accepted` and change nothing.
+3. An object path without an object gives `ignored` with the reason `no_object`. An object of another server gives `unsupported_type`, as before. The check of the domain blocks comes first.
+4. A reaction makes no item. The counter of an object is the number of its rows; `GET /api/federation/objects` gives `likes` and `announces`.
+
+### 22.5 Automatic Notice for a Non-Public Message (Section 6.2 Rule 4)
+
+1. A `Create` of an object that is not public and that mentions or addresses an account goes to Claire with `public: false`, without content, with `mentioned`, `actor_type`, and `in_reply_to`.
+2. For each account in `mentioned` that is an actor, Claire counts the message in `federation_auto_replies`. Claire answers with one notice for the account when the sender has no row, or when `auto_reply_hours` (reading settings, default 24) are over since the last notice.
+3. Rules that stop a loop: no notice when `actor_type` is `Service`, `Application`, or null; no notice when `in_reply_to` is the ID of an automatic notice of this instance (`{actor}#auto-replies/...`); no notice for a blocked domain (the event is `rejected` before this step). Such a message is not counted.
+4. The text is the catalog key `federation.auto_reply.text` in the locale of the account (`en` or `ko`), else the instance locale (`CLAIRE_LANG`), else English. `content` is one paragraph of escaped text.
+5. The sidecar sends each notice at once: `Create` of a `Note` from the actor of the account, with the ID `{actor}#auto-replies/{digest}` (the first 16 bytes of the SHA-256 of the object ID, hexadecimal), `inReplyTo` = the object, `to` = the sender only, a `Mention` of the sender, and `content` with `contentMap`. The `Note` is not public and not in the outbox collection.
+
+### 22.6 View
+
+- The stream "Mentions and replies" of the client view (filter `mention=1`) shows the items of Section 22.3. An item has the badge "Mention".
+- Below the streams, the client shows the number of non-public messages (`synd.client.private_messages`) when it is more than 0.
+- In the knowledge base view, a published document shows its counters (`synd.kb.reactions`) in the list. The client script reads them with the published documents (`GET /api/federation/objects`).
+
+### 22.7 Differences from the Design and Limits
+
+- The automatic notice is not a task of the client outbox (`auto_reply` in design Section 5.2). Claire gives the notice in the decision of the event, and the sidecar sends it in the same inbox run, the same pattern as `Accept(Follow)`. Reason: the notice needs the sender and the object ID at one time, and Claire must store no data of the message other than the sender and the time. Limit: when the sidecar stops between the decision and the handoff to its queue, that notice is lost, and the sender gets the next one after `auto_reply_hours`.
+- The ID of a notice is a fragment of the actor ID. A remote server cannot fetch the `Note` by its ID.
+- The counters are not columns of `federation_objects` (design Section 6.6 rule 3). They are the number of rows in `federation_object_reactions`. Reason: the object table is in `claire.db`, and the reactions are in `client.db`; one file has the full state.
+- `federation_object_reactions` has the column `account_id`, which design Section 7.1 does not have. The account purge needs it.
+- The rows of a retracted document stay until the account purge. The object number is not used again, so no list shows them.
+- An actor of this instance in `to` or `cc` counts as a mention, also without a `Mention` tag.
+- The mention rate limit counts stored items. An item that the author deleted is not in the count.
+- `count` in `federation_auto_replies` is the number of non-public messages of the sender, also those without a notice. The client shows the sum; it has no reset. The rows have no cleanup before the account purge.
+- A message from a `Service`, an `Application`, or an actor of an unknown type is not counted.
+- An `Undo` that has only the ID of the undone activity is ignored: the sidecar cannot read the type.
+- The counters of own notes come with unit FP4-9.
+
+Tests: `tests/test_e2e_federation_interactions.py` (mentions, rate limit, reactions with `Undo`, automatic notice), `tests/test_federation_routes.py` (contract 1.4 fixtures), `tests/test_client_db.py` (purge), `sidecar/fedify/tests/timeline_test.ts` (the mention in the object, no fetch for an actor that is not followed, reactions as inbox events, delivery of the notice), `sidecar/fedify/tests/internal_api_test.ts`.
 
 ## 23. Feed View (Unit FP4-F3)
 

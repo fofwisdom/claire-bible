@@ -34,9 +34,9 @@ def _object(iri: str, author: str, **changes) -> dict:
     return {"object_iri": iri, "url": iri, "type": "Note", "author": _profile(author), "name": None, "summary": None, "sensitive": False, "content_html": "<p>text <script>alert(1)</script></p>", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": None, **changes}
 
 
-def _event(kind: str, actor: str, obj: dict | None = None, *, object_iri: str | None = None, public: bool | None = True, parents: list[dict] | None = None, n: list[int] = [0]) -> dict:
+def _event(kind: str, actor: str, obj: dict | None = None, *, object_iri: str | None = None, public: bool | None = True, parents: list[dict] | None = None, actor_type: str | None = "Person", mentioned: list[str] | None = None, in_reply_to: str | None = None, n: list[int] = [0]) -> dict:
     n[0] += 1
-    return {"event_id": f"{actor}#activities/{n[0]}", "type": kind, "recipient_public_id": None, "actor": _actor(actor), "announced_by": _profile(actor) if kind == "Announce" else None, "object_iri": object_iri or obj["object_iri"], "public": public, "object": obj, "parents": parents or [], "verified_by": "http-signature"}
+    return {"event_id": f"{actor}#activities/{n[0]}", "type": kind, "recipient_public_id": None, "actor": _actor(actor), "announced_by": _profile(actor) if kind == "Announce" else None, "object_iri": object_iri or obj["object_iri"], "public": public, "object": obj, "parents": parents or [], "actor_type": actor_type, "mentioned": mentioned or [], "in_reply_to": in_reply_to if obj is None else obj["in_reply_to"], "verified_by": "http-signature"}
 
 
 @pytest.fixture
@@ -70,14 +70,14 @@ def _items(env, where: str = "1=1", params: tuple = ()) -> list[tuple]:
 def test_e2e_create_announce_reply_update_and_delete(env):
     note = f"{CAROL}/notes/1"
     # A public Create from a followed actor makes one item for each account that follows the actor. The HTML is stored as it is.
-    assert _send(env, _event("Create", CAROL, _object(note, CAROL))) == {"decision": "accepted", "reason": None, "items": 2}
+    assert _send(env, _event("Create", CAROL, _object(note, CAROL))) == {"decision": "accepted", "reason": None, "items": 2, "notices": []}
     assert _items(env) == [(env.alpha, note, 1), (env.beta, note, 1)]
     assert _client_rows(env.settings, "SELECT DISTINCT content_html, unread, starred FROM federation_timeline_items") == [("<p>text <script>alert(1)</script></p>", 1, 0)]
     # The same event again makes no second item (the key is the account and the object).
     assert _send(env, _event("Create", CAROL, _object(note, CAROL)))["items"] == 0
     assert len(_items(env)) == 2
     # A followers-only object makes no item, and its content does not come to Claire.
-    assert _send(env, _event("Create", CAROL, None, object_iri=f"{CAROL}/notes/private", public=False)) == {"decision": "ignored", "reason": "not_public", "items": 0}
+    assert _send(env, _event("Create", CAROL, None, object_iri=f"{CAROL}/notes/private", public=False)) == {"decision": "ignored", "reason": "not_public", "items": 0, "notices": []}
     # An actor that no account follows makes no item.
     assert _send(env, _event("Create", STRANGER, _object(f"{STRANGER}/notes/1", STRANGER)))["reason"] == "not_followed"
     assert len(_items(env)) == 2
@@ -113,10 +113,10 @@ def test_e2e_create_announce_reply_update_and_delete(env):
     assert _send(env, _event("Undo", GROUP, None, object_iri=post, public=None))["items"] == 1
     assert _client_rows(env.settings, "SELECT account_id FROM federation_timeline_items WHERE object_iri=?", (post,)) == [(env.beta,)]
     assert _send(env, _event("Delete", STRANGER, None, object_iri=note, public=None))["reason"] == "no_item"
-    assert _send(env, _event("Delete", CAROL, None, object_iri=note, public=None)) == {"decision": "accepted", "reason": None, "items": 2}
+    assert _send(env, _event("Delete", CAROL, None, object_iri=note, public=None)) == {"decision": "accepted", "reason": None, "items": 2, "notices": []}
     assert _items(env, "object_iri=?", (note,)) == []
     # An Update that makes the object not public deletes the items.
-    assert _send(env, _event("Update", CAROL, None, object_iri=f"{CAROL}/notes/3", public=False)) == {"decision": "ignored", "reason": "not_public", "items": 2}
+    assert _send(env, _event("Update", CAROL, None, object_iri=f"{CAROL}/notes/3", public=False)) == {"decision": "ignored", "reason": "not_public", "items": 2, "notices": []}
 
 
 def test_e2e_blocks_limits_and_the_actor_rule(env):
@@ -129,7 +129,7 @@ def test_e2e_blocks_limits_and_the_actor_rule(env):
     assert env.sidecar.call("GET", "/timeline-interest?actor=" + STRANGER.replace(":", "%3A").replace("/", "%2F")).json()["followed"] is False
 
     # Limits of Section 6.3: a larger event is refused.
-    assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/11", CAROL, content_html="x" * (64 * 1024 + 1)))) == {"decision": "rejected", "reason": "too_large", "items": 0}
+    assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/11", CAROL, content_html="x" * (64 * 1024 + 1)))) == {"decision": "rejected", "reason": "too_large", "items": 0, "notices": []}
     attachment = {"url": "https://remote.example/media/1.png", "media_type": "image/png", "name": None, "width": None, "height": None, "blurhash": None}
     assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/12", CAROL, attachments=[attachment] * 9)))["reason"] == "too_large"
     assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/12", CAROL, attachments=[attachment] * 8)))["items"] == 1

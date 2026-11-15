@@ -1,0 +1,53 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/timeline-events",
+    "body": {
+      "event_id": "https://remote.example/activities/260",
+      "type": "Create",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/bob",
+        "inbox": "https://remote.example/users/bob/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "announced_by": null,
+      "object_iri": "https://remote.example/notes/60",
+      "public": true,
+      "object": {
+        "object_iri": "https://remote.example/notes/60",
+        "url": null,
+        "type": "Note",
+        "author": {
+          "iri": "https://remote.example/users/bob",
+          "name": null,
+          "handle": "@bob@remote.example"
+        },
+        "name": null,
+        "summary": null,
+        "sensitive": false,
+        "content_html": "<p>A public reply to Alice</p>",
+        "language": null,
+        "published_at": 1800000390,
+        "updated_at": null,
+        "attachments": [],
+        "context": null,
+        "in_reply_to": "https://claire.example.com/ap/objects/816412345678901234"
+      },
+      "parents": [],
+      "actor_type": "Person",
+      "mentioned": [
+        "https://claire.example.com/ap/actors/116412345678901234"
+      ],
+      "in_reply_to": "https://claire.example.com/ap/objects/816412345678901234",
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reason": null,
+    "items": 1,
+    "notices": []
+  }
+}

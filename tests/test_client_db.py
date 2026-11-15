@@ -110,13 +110,15 @@ def test_purge_of_an_account_deletes_its_client_rows_only(tmp_path: Path) -> Non
         client.execute("INSERT INTO federation_following (account_id, request, state, created_at, updated_at) VALUES (?, '@a@remote.example', 'pending', 1, 1)", (account_id,))
         client.execute("INSERT INTO federation_client_outbox (account_id, kind, status, created_at) VALUES (?, 'follow', 'pending', 1)", (account_id,))
         client.execute("INSERT INTO federation_timeline_items (account_id, object_iri, object_type, author_iri, author_json, content_html, received_at) VALUES (?, 'https://remote.example/notes/1', 'Note', 'https://remote.example/users/a', '{}', '', 1)", (account_id,))
+        client.execute("INSERT INTO federation_object_reactions (object_public_id, account_id, kind, actor_iri, activity_iri, received_at) VALUES (?, ?, 'like', 'https://remote.example/users/a', 'https://remote.example/likes/1', 1)", (800 + account_id, account_id))
+        client.execute("INSERT INTO federation_auto_replies (account_id, sender_iri, last_sent_at) VALUES (?, 'https://remote.example/users/a', 1)", (account_id,))
     client.commit()
     client.close()
     assert client_db.purge_account_of_claire_db(conn, 2) is True
     conn.close()
     client = client_db.connect_client_existing(client_db.client_db_path(path))
     try:
-        for table in ("feed_subscriptions", "federation_following", "federation_client_outbox", "federation_timeline_items"):
+        for table in ("feed_subscriptions", "federation_following", "federation_client_outbox", "federation_timeline_items", "federation_object_reactions", "federation_auto_replies"):
             assert [r[0] for r in client.execute(f"SELECT account_id FROM {table}")] == [1]
     finally:
         client.close()

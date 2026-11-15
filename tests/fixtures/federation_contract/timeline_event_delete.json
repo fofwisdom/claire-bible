@@ -16,6 +16,9 @@
       "public": null,
       "object": null,
       "parents": [],
+      "actor_type": "Person",
+      "mentioned": [],
+      "in_reply_to": null,
       "verified_by": "http-signature"
     }
   },
@@ -23,6 +26,7 @@
   "response": {
     "decision": "ignored",
     "reason": "no_item",
-    "items": 0
+    "items": 0,
+    "notices": []
   }
 }
