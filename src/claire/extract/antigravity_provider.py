@@ -119,7 +119,7 @@ class AntigravityProvider:
         self.settings = settings
         raw_bin = getattr(settings, "agy_bin", "agy")
         self.agy_bin = find_agy_executable(raw_bin) or raw_bin
-        self.model = getattr(settings, "agy_model", "gemini-3.7-flash")
+        self.model = getattr(settings, "agy_model", "gemini-3.8-flash-medium")
         self.effort = getattr(settings, "agy_effort", "medium")
         self.timeout = float(getattr(settings, "agy_timeout", 180.0))
         self.detail_timeout = float(getattr(settings, "agy_detail_timeout", 300.0))
@@ -604,7 +604,7 @@ class AntigravityProvider:
 
                 client = genai.Client(api_key=self.settings.gemini_api_key)
                 embed_model = getattr(
-                    self.settings, "gemini_embed_model", "text-embedding-004"
+                    self.settings, "gemini_embed_model", "gemini-embedding-001"
                 )
                 limit = getattr(self.settings, "embed_char_budget", 8000)
                 tt = task_type or getattr(

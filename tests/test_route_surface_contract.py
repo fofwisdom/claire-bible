@@ -25,7 +25,7 @@ from claire.store.token_store import reset_token_stores
 SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any"}
 
 ROOT = {"/"}
-ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
+ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
        "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
@@ -70,6 +70,7 @@ SYSTEM = {
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/providers/test"),
+    ("POST", "/providers/check"),
     ("POST", "/support/bundle"),
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/instance", "/api/admin/instance") for m in ("GET", "HEAD")),
     ("PATCH", "/api/admin/accounts"),

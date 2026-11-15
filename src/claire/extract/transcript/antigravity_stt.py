@@ -71,7 +71,7 @@ class AntigravityTranscriptProvider(TranscriptProvider):
     def __init__(self, settings: Any = None):
         self.settings = settings
         self.model = getattr(settings, "stt_model", "") or getattr(
-            settings, "agy_model", "gemini-3.7-flash"
+            settings, "agy_model", "gemini-3.8-flash-medium"
         )
         self.language = getattr(settings, "stt_language", "ko")
         self.timeout = float(getattr(settings, "agy_timeout", 180.0))

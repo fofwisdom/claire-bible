@@ -449,6 +449,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for method in ("GET", "HEAD", "POST", "PATCH")
         ),
         ("POST", "/providers/test"),
+        ("POST", "/providers/check"),
         ("POST", "/support/bundle"),
         *(
             (method, path)
