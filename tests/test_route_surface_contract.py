@@ -38,6 +38,8 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/api/federation/timeline/{item_id}/context", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
        # Outbound interactions (FP4-9)
        "/api/federation/notes", "/api/federation/notes/{note_id}", "/api/federation/timeline/{item_id}/favourite", "/api/federation/timeline/{item_id}/boost",
+       # Quotes (FP4-9Q)
+       "/api/federation/quotes", "/api/federation/quotes/{quote_id}", "/api/federation/objects/{object_id}",
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items",
        # Feed view (FP4-F3)
@@ -125,6 +127,10 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
     *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
     *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
+    # Quotes (FP4-9Q)
+    *((m, "/api/federation/quotes") for m in ("GET", "HEAD")),
+    ("PATCH", "/api/federation/quotes/{quote_id}"),
+    ("PATCH", "/api/federation/objects/{object_id}"),
     ("POST", "/api/federation/publish"),
     ("POST", "/api/federation/retract"),
 }

@@ -41,7 +41,8 @@
           }
         ],
         "context": "https://remote.example/contexts/1",
-        "in_reply_to": null
+        "in_reply_to": null,
+        "quote": null
       },
       "parents": [],
       "actor_type": "Person",

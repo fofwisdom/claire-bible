@@ -41,7 +41,8 @@ __all__ = [
 ]
 
 # The kinds of the client outbox that the internal endpoint ``interaction-tasks`` gives to the sidecar (contract 1.6).
-INTERACTION_KINDS: tuple[str, ...] = ("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce")
+# Contract 1.7 (unit FP4-9Q) adds the four quote kinds (``store.federation_quotes.QUOTE_TASK_KINDS``).
+INTERACTION_KINDS: tuple[str, ...] = ("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce", "quote_request", "quote_authorize", "quote_reject", "quote_revoke")
 # The HMAC label of a note number. The label of a published document is ``federation_objects``: two numbers of the same millisecond differ, except for one case in 65536, and ``taken`` finds that case.
 _NUMBER_LABEL = "federation_notes"
 _NOTE_COLUMNS = "public_id, account_id, in_reply_to_iri, audience_iri, content_text, content_html, mentions_json, summary, sensitive, language, tags_json, edited_at, published_at, updated_at, deleted_at, quote_of_iri, quote_author_iri, quote_state, quote_authorization_iri, quote_policy"

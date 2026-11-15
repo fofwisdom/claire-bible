@@ -2,8 +2,8 @@
 
 For the owner of the account, in network mode only. A note, an edit, a favourite, and a boost need an account that is an actor (409 ``not_actor``).
 
-- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID).
-- ``PATCH /api/federation/notes/{note_id}``: change the text, the content warning, or the language (Section 5.4 rule 12).
+- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
+- ``PATCH /api/federation/notes/{note_id}``: change the text, the content warning, the language (Section 5.4 rule 12), or the quote policy.
 - ``DELETE /api/federation/notes/{note_id}``: delete an own note. The object path gives 410 from then on.
 - ``POST``, ``DELETE /api/federation/timeline/{item_id}/favourite`` and ``.../boost``: ``Like`` and ``Announce`` of the object of an item, and their ``Undo``.
 
@@ -26,6 +26,7 @@ from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 from ...store import federation_client as client_store
 from ...store import federation_notes as notes_store
+from ...store import federation_quotes as quotes_store
 from ..principal import request_principal
 from ..security import read_json_body
 from .common import AccountsContext, json_error, not_found, open_client_db, open_db
@@ -34,7 +35,9 @@ from .console_federation_panels import actor_state
 FEDERATION_NOTES_API_PATH = "/api/federation/notes"
 FEDERATION_TIMELINE_API_PATH = "/api/federation/timeline"
 _NO_STORE = {"Cache-Control": "no-store"}
-_NOTE_FIELDS = {"content", "in_reply_to", "summary", "sensitive", "language"}
+_NOTE_FIELDS = {"content", "in_reply_to", "summary", "sensitive", "language", "quote_of", "quote_policy"}
+# The fields that only a new note can have.
+_CREATE_ONLY_FIELDS = {"in_reply_to", "quote_of"}
 # Route name: the item column, the task kind, and the task kind of the Undo (Section 5.4 rule 4).
 _INTERACTIONS = {"favourite": ("favourited", "like", "undo_like"), "boost": ("boosted", "announce", "undo_announce")}
 
@@ -49,16 +52,21 @@ def _digits(raw: str, length: int = 18) -> int | None:
     return int(raw) if raw.isascii() and raw.isdigit() and raw[0] != "0" and len(raw) <= length else None
 
 
-def note_view(note: notes_store.Note, *, origin: str, reactions: dict[str, int] | None = None) -> dict[str, Any]:
+def note_view(note: notes_store.Note, *, origin: str, reactions: dict[str, int] | None = None, quotes: int = 0) -> dict[str, Any]:
+    """The view of an own note. ``quote_policy`` is the quote policy of the note, ``quotes`` is the number of approved quotes of it, and ``quote`` is the object that the note quotes with the state of the quote (``pending``, ``approved``, ``refused``, ``revoked``), or ``None`` (unit FP4-9Q)."""
     counters = reactions or {"like": 0, "announce": 0}
     return {
+        "quote_policy": note.quote_policy, "quotes": quotes, "quote": None if note.quote_of_iri is None else {"iri": note.quote_of_iri, "state": note.quote_state},
         "id": str(note.public_id), "url": f"{origin}/ap/objects/{note.public_id}", "in_reply_to": note.in_reply_to_iri, "content": note.content_text, "summary": note.summary, "sensitive": note.sensitive, "language": note.language,
         "tags": note.tags, "mentions": [m.get("handle") or m.get("iri") for m in note.mentions], "published_at": note.published_at, "updated_at": note.updated_at, "edited_at": note.edited_at, "likes": counters["like"], "announces": counters["announce"],
     }
 
 
 def item_extras(client: Any, account_id: int, item_ids: list[int], *, origin: str) -> dict[int, dict[str, Any]]:
-    """The keys that this unit adds to an item of the timeline: ``favourited``, ``boosted``, and ``note`` (the own note of the item with its counters, or ``None``). ``client`` is a ``client.db`` connection."""
+    """The keys that the outbound interactions add to an item of the timeline: ``favourited``, ``boosted``, ``note`` (the own note of the item with its counters, or ``None``), and ``quote`` (unit FP4-9Q). ``client`` is a ``client.db`` connection.
+
+    ``quote``: ``None``, or the object that the item quotes: ``iri``, ``item_id`` (the item of the account with that object, or ``None``), and ``state`` (the quote state of an own note; ``None`` for an item of a remote actor, whose quote Claire does not verify).
+    """
     flags = notes_store.item_flags(client, account_id, item_ids)
     prefix = f"{origin}/ap/objects/"
     own: dict[int, notes_store.Note] = {}
@@ -71,7 +79,26 @@ def item_extras(client: Any, account_id: int, item_ids: list[int], *, origin: st
             if note is not None and note.account_id == account_id and note.deleted_at is None:
                 own[item_id] = note
     reactions = client_store.count_object_reactions(client, [note.public_id for note in own.values()])
-    return {item_id: {"favourited": flag["favourited"], "boosted": flag["boosted"], "note": None if item_id not in own else note_view(own[item_id], origin=origin, reactions=reactions[own[item_id].public_id])} for item_id, flag in flags.items()}
+    quotes = quotes_store.count_approved_quotes(client, [note.public_id for note in own.values()])
+    quoted: dict[int, str] = {}
+    if flags:
+        marks = ",".join("?" for _ in flags)
+        quoted = {int(r[0]): str(r[1]) for r in client.execute(f"SELECT id, quote_of_iri FROM federation_timeline_items WHERE account_id=? AND quote_of_iri IS NOT NULL AND id IN ({marks})", (account_id, *flags))}
+    targets: dict[str, str] = {}
+    if quoted:
+        iris = sorted(set(quoted.values()))
+        marks = ",".join("?" for _ in iris)
+        targets = {str(r[0]): str(r[1]) for r in client.execute(f"SELECT object_iri, id FROM federation_timeline_items WHERE account_id=? AND object_iri IN ({marks})", (account_id, *iris))}
+
+    def _quote(item_id: int) -> dict[str, Any] | None:
+        if item_id not in quoted:
+            return None
+        return {"iri": quoted[item_id], "item_id": targets.get(quoted[item_id]), "state": own[item_id].quote_state if item_id in own else None}
+
+    return {
+        item_id: {"favourited": flag["favourited"], "boosted": flag["boosted"], "quote": _quote(item_id), "note": None if item_id not in own else note_view(own[item_id], origin=origin, reactions=reactions[own[item_id].public_id], quotes=quotes[own[item_id].public_id])}
+        for item_id, flag in flags.items()
+    }
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -94,7 +121,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     def _blocked(conn: Any, host: str | None) -> bool:
         return host is not None and federation_store.blocking_domain(conn, host) is not None
 
-    def _compose(conn: Any, client: Any, account: accounts_store.Account, *, text: str, parent_author: tuple[str, str | None] | None, old_mentions: list[dict[str, Any]]) -> tuple[note_text.RenderedNote, list[dict[str, Any]]]:
+    def _compose(conn: Any, client: Any, account: accounts_store.Account, *, text: str, parent_author: tuple[str, str | None] | None, old_mentions: list[dict[str, Any]], quote_url: str | None = None) -> tuple[note_text.RenderedNote, list[dict[str, Any]]]:
         """Make the HTML and the mentions of a note. ``parent_author`` is the actor IRI and the handle of the author of the parent of a reply: it is a mention also when the text does not have its handle (Section 5.4 rule 1)."""
         own_actor = f"{origin}/ap/actors/{account.public_id}"
         own_handle = f"@{account.username}@{ctx.config.expected_authority}".lower()
@@ -124,7 +151,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 raise _Refused(400, "invalid_mention") from None
             if _blocked(conn, host) or _blocked(conn, handle_host):
                 raise _Refused(400, "blocked_domain")
-        rendered = note_text.render_note(text, origin=origin, mention_iris={m["handle"]: m["iri"] for m in mentions if m["handle"]})
+        rendered = note_text.render_note(text, origin=origin, mention_iris={m["handle"]: m["iri"] for m in mentions if m["handle"]}, quote_url=quote_url)
         return rendered, mentions
 
     def _fields(body: dict[str, Any], *, conn: Any, account: accounts_store.Account, current: notes_store.Note | None) -> dict[str, Any]:
@@ -152,8 +179,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         language = note_text.normalize_language(raw_language) if isinstance(raw_language, str) else None
         if language is None:
             raise _Refused(400, "invalid_language")
+        # The quote policy (Section 5.4 rule 6): the default of a note is ``public``.
+        policy = body.get("quote_policy", "public" if current is None else current.quote_policy)
+        if policy not in quotes_store.QUOTE_POLICIES:
+            raise _Refused(400, "invalid_quote_policy")
         # A content warning makes the note sensitive (Section 5.4 rule 12).
-        return {"content": content, "summary": summary, "sensitive": bool(sensitive or summary), "language": language}
+        return {"content": content, "summary": summary, "sensitive": bool(sensitive or summary), "language": language, "quote_policy": policy}
 
     def _author_profile(account: accounts_store.Account) -> dict[str, Any]:
         return {"iri": f"{origin}/ap/actors/{account.public_id}", "name": account.display_name or None, "handle": f"@{account.username}@{ctx.config.expected_authority}"}
@@ -180,6 +211,11 @@ def routes(ctx: AccountsContext) -> list[Route]:
             parent_id = _digits(body["in_reply_to"]) if isinstance(body["in_reply_to"], str) else None
             if parent_id is None:
                 return json_error(404, "item_not_found")
+        quoted_id = None
+        if body.get("quote_of") is not None:
+            quoted_id = _digits(body["quote_of"]) if isinstance(body["quote_of"], str) else None
+            if quoted_id is None:
+                return json_error(404, "item_not_found")
 
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
@@ -190,12 +226,22 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return None
                 store, account = found
                 fields = _fields(body, conn=conn, account=account, current=None)
+                # Section 5.4 rule 5: a note can quote one object, an item of the timeline of the account.
+                quoted = None if quoted_id is None else client_store.get_timeline_item(client, account_id, quoted_id)
+                if quoted_id is not None and quoted is None:
+                    raise _Refused(404, "item_not_found")
+                if quoted is not None:
+                    # A quote of an own note needs no request to a remote server, and this unit has no local approval.
+                    if quoted.author_iri == f"{origin}/ap/actors/{account.public_id}":
+                        raise _Refused(409, "own_item")
+                    if _blocked(conn, federation_store.iri_host(quoted.object_iri)) or _blocked(conn, federation_store.iri_host(quoted.author_iri)):
+                        raise _Refused(400, "blocked_domain")
                 parent = None if parent_id is None else client_store.get_timeline_item(client, account_id, parent_id)
                 if parent_id is not None and parent is None:
                     raise _Refused(404, "item_not_found")
                 if parent is not None and (_blocked(conn, federation_store.iri_host(parent.object_iri)) or _blocked(conn, federation_store.iri_host(parent.author_iri))):
                     raise _Refused(400, "blocked_domain")
-                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=None if parent is None else (parent.author_iri, parent.author.get("handle")), old_mentions=[])
+                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=None if parent is None else (parent.author_iri, parent.author.get("handle")), old_mentions=[], quote_url=None if quoted is None else quoted.object_iri)
                 when = time.time()
 
                 def _taken(number: int) -> bool:
@@ -207,6 +253,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     # A reply to a thread of a group also goes to the group (FEP-1b12, Section 5.4 rule 1).
                     audience_iri=None if parent is None else notes_store.group_audience(client, account_id, parent.announced_by_iri),
                     content_text=fields["content"], content_html=rendered.html, mentions=mentions, summary=fields["summary"], sensitive=fields["sensitive"], language=fields["language"], tags=list(rendered.tags), now=when,
+                    quote_of_iri=None if quoted is None else quoted.object_iri, quote_author_iri=None if quoted is None else quoted.author_iri, quote_policy=fields["quote_policy"],
                 )
                 # Section 5.4 rule 9: the own note is an item of the own timeline, so that the thread view shows it. It is read.
                 object_iri = f"{origin}/ap/objects/{note.public_id}"
@@ -214,7 +261,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client.execute("UPDATE federation_timeline_items SET unread=0 WHERE account_id=? AND object_iri=?", (account_id, object_iri))
                 item_id = int(client.execute("SELECT id FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, object_iri)).fetchone()[0])
                 # The note and its task are in one transaction (DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 2).
-                client_store.add_client_task(client, account_id=account_id, kind="note", target_iri=None, ref_id=note.public_id, now=when)
+                # A note with a quote has the task ``quote_request``: the sidecar sends QuoteRequest to the author of the quoted object and then Create(Note) (Section 5.2).
+                client_store.add_client_task(client, account_id=account_id, kind="note" if quoted is None else "quote_request", target_iri=None if quoted is None else quoted.object_iri, ref_id=note.public_id, now=when)
                 client.commit()
                 return 201, {"note": note_view(note, origin=origin), "item_id": str(item_id)}
             finally:
@@ -238,8 +286,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if account_id is None:
             return not_found()
         body = await read_json_body(request)
-        if not body or set(body) - (_NOTE_FIELDS - {"in_reply_to"}):
-            return json_error(400, "invalid_request", fields=sorted(_NOTE_FIELDS - {"in_reply_to"}))
+        if not body or set(body) - (_NOTE_FIELDS - _CREATE_ONLY_FIELDS):
+            return json_error(400, "invalid_request", fields=sorted(_NOTE_FIELDS - _CREATE_ONLY_FIELDS))
 
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)
@@ -251,6 +299,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 _store, account = found
                 note = _own_note(client, account_id, request.path_params["note_id"])
                 fields = _fields(body, conn=conn, account=account, current=note)
+                when = time.time()
+                # Section 5.4 rule 6: a change of the quote policy is not an edit of the note. ``edited_at`` stays, and the followers get Update(Note) with the new policy.
+                policy_changed = quotes_store.set_note_quote_policy(client, note.public_id, fields["quote_policy"], now=when)
+                if set(body) == {"quote_policy"}:
+                    if policy_changed:
+                        client_store.add_client_task(client, account_id=account_id, kind="update_note", target_iri=None, ref_id=note.public_id, now=when)
+                    same_text = notes_store.get_note(client, note.public_id)
+                    assert same_text is not None
+                    view = note_view(same_text, origin=origin, reactions=client_store.count_object_reactions(client, [note.public_id])[note.public_id], quotes=quotes_store.count_approved_quotes(client, [note.public_id])[note.public_id])
+                    client.commit()
+                    return 200, {"note": view}
                 # The author of the parent stays a mention of a reply.
                 parent_iri = None if note.in_reply_to_iri is None else client_store.timeline_item_author(client, account_id, note.in_reply_to_iri)
                 parent_author = None
@@ -259,16 +318,16 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 else:
                     kept = next((m for m in note.mentions if m.get("handle") is None and m.get("iri")), None)
                     parent_author = None if kept is None else (kept["iri"], None)
-                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=parent_author, old_mentions=note.mentions)
-                when = time.time()
+                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=parent_author, old_mentions=note.mentions, quote_url=note.quote_of_iri)
                 changed = notes_store.update_note(client, note.public_id, content_text=fields["content"], content_html=rendered.html, mentions=mentions, summary=fields["summary"], sensitive=fields["sensitive"], language=fields["language"], tags=list(rendered.tags), now=when)
                 assert changed is not None
                 object_iri = f"{origin}/ap/objects/{note.public_id}"
                 client_store.update_timeline_items(client, item=notes_store.note_timeline_item(changed, object_iri=object_iri, author=_author_profile(account), context_iri=None), now=when)
                 client_store.add_client_task(client, account_id=account_id, kind="update_note", target_iri=None, ref_id=note.public_id, now=when)
                 reactions = client_store.count_object_reactions(client, [note.public_id])[note.public_id]
+                quotes = quotes_store.count_approved_quotes(client, [note.public_id])[note.public_id]
                 client.commit()
-                return 200, {"note": note_view(changed, origin=origin, reactions=reactions)}
+                return 200, {"note": note_view(changed, origin=origin, reactions=reactions, quotes=quotes)}
             finally:
                 client.close()
                 conn.close()

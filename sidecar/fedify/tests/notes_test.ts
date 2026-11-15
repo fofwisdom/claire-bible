@@ -68,7 +68,7 @@ function setup() {
 }
 
 function task(id: number, kind: string, changes: Record<string, unknown> = {}) {
-  return { id, kind, actor_public_id: ALICE, ref_id: NOTE, object_iri: null, recipients: [], created_at: 1800000371.0, lease_until: 1800000700.0, ...changes };
+  return { id, kind, actor_public_id: ALICE, ref_id: NOTE, object_iri: null, recipients: [], quote: null, created_at: 1800000371.0, lease_until: 1800000700.0, ...changes };
 }
 
 function tags(object: Record<string, unknown>): Record<string, unknown>[] {

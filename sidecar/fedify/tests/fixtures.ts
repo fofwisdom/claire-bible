@@ -47,6 +47,10 @@ export interface FakeClaire {
   timelineEvents: Record<string, unknown>[];
   // When set, each timeline event gets this decision. If not, an event gets the decision of the fixture with the same body.
   timelineDecision: Record<string, unknown> | null;
+  // The bodies of the quote events (contract 1.7), in sequence.
+  quoteEvents: Record<string, unknown>[];
+  // When set, each quote event gets this decision. If not, an event gets the decision of the fixture with the same body.
+  quoteDecision: Record<string, unknown> | null;
   // The remote actors that an account follows, in addition to the actor of the timeline_interest fixture. Other actors are not followed.
   followed: Set<string>;
   // The limits of the parent chain in the answer for an actor of `followed`.
@@ -69,6 +73,8 @@ export function fakeClaire(): FakeClaire {
     interactionAcks: [],
     timelineEvents: [],
     timelineDecision: null,
+    quoteEvents: [],
+    quoteDecision: null,
     followed: new Set(),
     context: { context_fetch: "on", context_depth: 5 },
     transport: async (request) => {
@@ -88,6 +94,10 @@ export function fakeClaire(): FakeClaire {
       if (request.method === "POST" && target.endsWith("/timeline-events")) {
         fake.timelineEvents.push(JSON.parse(text));
         if (fake.timelineDecision !== null) return Response.json(fake.timelineDecision);
+      }
+      if (request.method === "POST" && target.endsWith("/quote-events")) {
+        fake.quoteEvents.push(JSON.parse(text));
+        if (fake.quoteDecision !== null) return Response.json(fake.quoteDecision);
       }
       const ack = /\/outbox-tasks\/([0-9]+)\/ack$/.exec(target);
       if (request.method === "POST" && ack !== null) {

@@ -2,7 +2,7 @@
 
 Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddleware`` checks each request before a handler runs. The handlers do not read a ``Principal`` credential.
 
-Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6). Unit FP4-8 (contract 1.4) adds the inbound interactions with the account: mentions, reactions to own objects, and the automatic notice for a non-public message (Sections 6.2 rule 4 and 6.6).
+Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6). Unit FP4-8 (contract 1.4) adds the inbound interactions with the account: mentions, reactions to own objects, and the automatic notice for a non-public message (Sections 6.2 rule 4 and 6.6). Unit FP4-9Q (contract 1.7) adds quotes (FEP-044f): ``quote`` in the normal form of an object, ``quote_policy`` in the object record, and the routes of ``federation_quote_routes``.
 
 Actor rule (FK4): an account is an actor only when the instance setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
 
@@ -41,6 +41,7 @@ from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
+from ..store import federation_quotes as quotes_store
 from ..store.secrets import get_secret_service
 from ..i18n import catalog as i18n_catalog
 from ..i18n.resolver import resolve_bot_locale
@@ -74,7 +75,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.6"
+CONTRACT_VERSION = "1.7"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -320,6 +321,8 @@ class TimelineObject(_Sealed):
     attachments: list[TimelineAttachment] = Field(max_length=64)
     context: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
     in_reply_to: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
+    # Contract 1.7 (unit FP4-9Q): the object that this object quotes (FEP-044f ``quote``, else ``quoteUrl`` with its other keys), or ``None``. Claire shows a link to it and does not verify the authorization of the quote.
+    quote: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
 
 
 class TimelineEventRequest(_Sealed):
@@ -385,6 +388,8 @@ class ObjectRecord(_Sealed):
     url: str | None
     published_at: float
     updated_at: float
+    # Contract 1.7 (unit FP4-9Q): the quote policy of the document. The sidecar makes ``canQuote`` of the interaction policy from it (RT9).
+    quote_policy: Literal["public", "followers", "manual", "nobody"]
 
 
 class OutboxItem(_Sealed):
@@ -559,6 +564,7 @@ def _not_found() -> JSONResponse:
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
     from .federation_note_routes import note_internal_routes
+    from .federation_quote_routes import quote_internal_routes
     from .security import WebRuntimeConfig
 
     data_dir = Path(settings.data_dir)
@@ -938,7 +944,11 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if event.type == "Delete":
             # Fedify verified that the activity comes from ``actor``. Only the author deletes an item.
             removed = client_store.delete_timeline_items(client, event.object_iri, actor_iri)
-            return answer("accepted", None, removed) if removed else answer("ignored", "no_item")
+            # Quotes (unit FP4-9Q, RT9). The author of a quoted object deleted its QuoteAuthorization: the quote of each own note with that authorization becomes ``revoked``. This is the only way to that state: Claire never reads it from a lookup.
+            revoked = quotes_store.revoke_note_quotes(client, event.object_iri, actor_iri, now=now())
+            # The quoting actor deleted its object: its requests for own objects go.
+            quotes_store.remove_requests_of_object(client, event.object_iri, actor_iri)
+            return answer("accepted", None, removed) if removed or revoked else answer("ignored", "no_item")
         if event.type == "Undo":
             removed = client_store.delete_announced_items(client, event.object_iri, actor_iri)
             return answer("accepted", None, removed) if removed else answer("ignored", "no_item")
@@ -1341,6 +1351,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 url=share_url,
                 published_at=obj.published_at,
                 updated_at=obj.updated_at,
+                quote_policy=obj.quote_policy,
             )
         finally:
             store.conn.close()
@@ -1412,4 +1423,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/objects/{object_public_id}", published_object, methods=["GET"]),
         # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
+        # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
+        *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, federation_active=_federation_active),
     ]

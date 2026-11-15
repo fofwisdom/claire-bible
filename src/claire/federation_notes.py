@@ -120,10 +120,12 @@ def _line_html(line: str, origin: str, mention_iris: dict[str, str | None], ment
     return "".join(parts)
 
 
-def render_note(text: str, *, origin: str, mention_iris: dict[str, str | None] | None = None) -> RenderedNote:
+def render_note(text: str, *, origin: str, mention_iris: dict[str, str | None] | None = None, quote_url: str | None = None) -> RenderedNote:
     """Make the HTML of a note from its plain text (Section 5.4 rule 3).
 
     ``mention_iris`` gives the actor IRI of a handle that Claire knows. A mention with an IRI is a link; a mention without one is text, and the sidecar resolves it for the ``Mention`` tag. ``origin`` is the canonical origin of this instance (hashtag addresses).
+
+    ``quote_url`` is the address of the object that the note quotes (Section 5.4 rule 5, unit FP4-9Q). The HTML gets a last paragraph with a link to it (class ``quote-inline``), for a reader that does not show quotes; the paragraph stays in all quote states.
 
     Raises ``NoteTextError``: ``empty_content``, ``too_many_mentions``, ``too_many_tags``.
     """
@@ -141,6 +143,9 @@ def render_note(text: str, *, origin: str, mention_iris: dict[str, str | None] |
         raise NoteTextError("too_many_mentions")
     if len(tags) > NOTE_MAX_TAGS:
         raise NoteTextError("too_many_tags")
+    if quote_url:
+        address = html.escape(quote_url, quote=True)
+        paragraphs.append(f'<p class="quote-inline">RE: <a href="{address}">{address}</a></p>')
     # RS10: the allowlist has no element that loads a resource. nh3 adds the rel value to each link.
-    cleaned = nh3.clean("".join(paragraphs), tags={"p", "br", "a", "span"}, attributes={"a": {"href", "class"}, "span": {"class"}}, url_schemes={"http", "https"}, link_rel="nofollow noopener noreferrer")
+    cleaned = nh3.clean("".join(paragraphs), tags={"p", "br", "a", "span"}, attributes={"a": {"href", "class"}, "span": {"class"}, "p": {"class"}}, url_schemes={"http", "https"}, link_rel="nofollow noopener noreferrer")
     return RenderedNote(html=cleaned, mentions=tuple(mentions), tags=tuple(tags.values()))

@@ -32,7 +32,8 @@
         "updated_at": null,
         "attachments": [],
         "context": null,
-        "in_reply_to": "https://claire.example.com/ap/objects/816412345678901234"
+        "in_reply_to": "https://claire.example.com/ap/objects/816412345678901234",
+        "quote": null
       },
       "parents": [],
       "actor_type": "Person",

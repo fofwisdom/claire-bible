@@ -7,6 +7,7 @@
 // - An attachment that is not in the object document is not fetched.
 // - The limits of Section 6.3 apply here and in Claire: an object with more content than the limit has no normal form, and only the first attachments within the limit are kept.
 // - A mention of an actor of this instance is read from the object document only (unit FP4-8): a Mention tag, or the actor in `to` or `cc`. No tag is fetched.
+// - The quoted object of a post is read from the object document only (unit FP4-9Q): `quote` first, then the other keys (RT9).
 
 import type { DocumentLoader } from "@fedify/fedify";
 import { type Actor, Article, Document, getTypeId, LanguageString, Link, Mention, Note, type Object as ASObject, Page, PUBLIC_COLLECTION, Question } from "@fedify/fedify/vocab";
@@ -74,6 +75,13 @@ export async function localMentions(post: Post, origin: string, options: LoadOpt
   return [...found].slice(0, MAX_MENTIONED);
 }
 
+// The object that a post quotes, or null (unit FP4-9Q, RT9). FEP-044f `quote` is first; `quoteUrl` is the fallback, and Fedify reads the keys `quoteUrl`, `_misskey_quote`, and `quoteUri` as that property. A Page has no quote property. Nothing is fetched, and the authorization of the quote is not checked: Claire shows a link only.
+export function quotedObject(post: Post): string | null {
+  if (post instanceof Page) return null;
+  const quoted = post.quoteId ?? post.quoteUrl;
+  return quoted === null || (quoted.protocol !== "https:" && quoted.protocol !== "http:") ? null : quoted.href.slice(0, 2048);
+}
+
 // The normal form of a post with the given author, or the reason why it has none.
 export async function normalObject(post: Post, author: TimelineActor, options: LoadOptions): Promise<TimelineObject | "no_id" | "too_large"> {
   if (post.id === null) return "no_id";
@@ -104,5 +112,6 @@ export async function normalObject(post: Post, author: TimelineActor, options: L
     attachments,
     context: post.contextIds[0]?.href ?? null,
     in_reply_to: post.replyTargetId?.href ?? null,
+    quote: quotedObject(post),
   };
 }

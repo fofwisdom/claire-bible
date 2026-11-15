@@ -23,7 +23,8 @@
           "updated_at": null,
           "attachments": [],
           "context": "https://remote.example/contexts/40",
-          "in_reply_to": "https://remote.example/notes/40"
+          "in_reply_to": "https://remote.example/notes/40",
+          "quote": null
         }
       ]
     }
