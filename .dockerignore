@@ -17,3 +17,6 @@ PLAN.md
 sample.adoc
 sample.md
 deploy.sh
+.agents/
+.claude/
+.gemini/

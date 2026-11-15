@@ -54,5 +54,8 @@ certs/*.crt
 certs/*.pem
 !certs/README.md
 
-# 에이전트 페이즈 핸드오프 노트 (추적 안 함)
+# 에이전트 작업/설정 디렉터리 (추적 안 함)
 /.agent-work/
+/.agents/
+/.claude/
+/.gemini/
