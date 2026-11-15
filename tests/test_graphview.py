@@ -128,7 +128,7 @@ def test_graph_html_self_contained_markers():
     assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "updateCenterSearchMode" in GRAPH_HTML
-    assert "👁️ 익명 읽기전용" in GRAPH_HTML
+    assert "익명 읽기전용" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
     # 적재 폼은 CLI의 분량/사고 수준 옵션을 원클릭 선택으로 제공하고 초점을 별도 입력한다.
@@ -177,7 +177,7 @@ def test_graph_html_self_contained_markers():
     # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 노드 패널의 출처 문서 '본문 보기' 버튼이 openReader 호출
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 뷰
     # Unit LP-4: the source document row has an icon button with this label.
-    assert 'title="본문 보기" aria-label="본문 보기">📖</button>' in GRAPH_HTML
+    assert 'title="본문 보기" aria-label="본문 보기"><span data-icon="book"></span></button>' in GRAPH_HTML
     assert "📖 크게 읽기" not in GRAPH_HTML  # 중복되거나 모호한 '크게 읽기' 라벨 제거
     assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
     # RD25: no Markdown renderer and no marked library; the body renders as AsciiDoc with DOMPurify.
@@ -337,7 +337,7 @@ def test_favorite_and_hide_ui_markers():
     # 좌측 패널: 제목 줄 좌측 별표 버튼
     assert "doctitle-line" in GRAPH_HTML
     assert "docpin-btn" in GRAPH_HTML
-    assert "⭐ 즐겨찾기 (" in GRAPH_HTML
+    assert "'즐겨찾기 ('" in GRAPH_HTML
     # 우측 패널: FTS 스타일 숨기기 체크박스
     assert "dochide-row" in GRAPH_HTML and "dochide-label" in GRAPH_HTML
     assert 'id="panelhidechk"' in GRAPH_HTML

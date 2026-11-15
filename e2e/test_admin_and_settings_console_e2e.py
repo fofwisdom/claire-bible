@@ -207,7 +207,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
         assert gone not in html, gone
     # 콘솔 단추는 상단바에서 라이트/다크 전환(#themebtn) 바로 왼쪽의 아이콘이다.
     topbar = html[html.index('<div id="viewoptions">'):html.index('</header>')]
-    assert re.search(r'<a id="consolelinkbtn"[^>]*>⚙️</a>\s*<button id="themebtn"', topbar)
+    assert re.search(r'<a id="consolelinkbtn"[^>]*data-icon="settings"></a>\s*<button id="themebtn"', topbar)
 
     who = _get(env, "/whoami", env.admin)
     assert who.status_code == 200
@@ -218,7 +218,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     # 인라인된 app.js가 is_admin=true일 때 #consolelinkbtn을 🛠️ 아이콘(관리자 콘솔 → /admin)으로 바꾼다.
     assert "IS_ADMIN = d.is_admin === true" in html
     assert "clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings')" in html
-    assert "clBtn.textContent = IS_ADMIN ? '🛠️' : '⚙️'" in html
+    assert "clBtn.setAttribute('data-icon', IS_ADMIN ? 'wrench' : 'settings')" in html
 
 
 @pytest.mark.parametrize("mode", MODES)

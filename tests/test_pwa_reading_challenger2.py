@@ -129,11 +129,11 @@ def test_app_js_set_access_scope_dom_behavior_node():
       document.body.classList.toggle('ro', READONLY);
       const label=document.getElementById('authstate');
       if(label) label.textContent =
-        AUTH_SCOPE==='owner' ? '🔒 인증됨' :
-        AUTH_SCOPE==='collaborator' ? '🤝 협업자' :
-        AUTH_SCOPE==='readonly' ? '👁️ 읽기전용' :
-        AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
-        reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
+        AUTH_SCOPE==='owner' ? '인증됨' :
+        AUTH_SCOPE==='collaborator' ? '협업자' :
+        AUTH_SCOPE==='readonly' ? '읽기전용' :
+        AUTH_SCOPE==='anonymous' ? '익명 읽기전용' :
+        reason==='expired' ? '쓰기 세션 만료 — /web 재접속' : '권한 확인 실패';
       const clBtn = document.getElementById('consolelinkbtn');
       if(clBtn){
         const showConsole = canWrite();
@@ -143,7 +143,7 @@ def test_app_js_set_access_scope_dom_behavior_node():
           clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings');
           clBtn.title = label;
           clBtn.setAttribute('aria-label', label);
-          clBtn.textContent = IS_ADMIN ? '🛠️' : '⚙️';
+          clBtn.setAttribute('data-icon', IS_ADMIN ? 'wrench' : 'settings');
         }
       }
       if(!canWrite()){
@@ -165,7 +165,7 @@ def test_app_js_set_access_scope_dom_behavior_node():
     if (AUTH_SCOPE !== 'owner' || READONLY !== false || !canWrite() || elements.consolelinkbtn.style.display !== '') {
         throw new Error("Owner assertions failed");
     }
-    if (elements.authstate.textContent !== '🔒 인증됨') throw new Error("Owner label failed");
+    if (elements.authstate.textContent !== '인증됨') throw new Error("Owner label failed");
     if (elements.consolelinkbtn.attrs['href'] !== '/settings') throw new Error("Member console link failed");
 
     // 2. Test visitor (effectiveScope = 'readonly')
@@ -173,7 +173,7 @@ def test_app_js_set_access_scope_dom_behavior_node():
     if (AUTH_SCOPE !== 'readonly' || READONLY !== true || canWrite() || elements.consolelinkbtn.style.display !== 'none') {
         throw new Error("Visitor readonly assertions failed");
     }
-    if (elements.authstate.textContent !== '👁️ 읽기전용') throw new Error("Visitor label failed");
+    if (elements.authstate.textContent !== '읽기전용') throw new Error("Visitor label failed");
     if (synthSet.size !== 0) throw new Error("synthSet not cleared on readonly");
 
     // 3. Test anonymous (effectiveScope = 'anonymous')
@@ -181,12 +181,12 @@ def test_app_js_set_access_scope_dom_behavior_node():
     if (AUTH_SCOPE !== 'anonymous' || READONLY !== true || canWrite() || elements.consolelinkbtn.style.display !== 'none') {
         throw new Error("Anonymous assertions failed");
     }
-    if (elements.authstate.textContent !== '👁️ 익명 읽기전용') throw new Error("Anonymous label failed");
+    if (elements.authstate.textContent !== '익명 읽기전용') throw new Error("Anonymous label failed");
 
     // 4. Test admin owner
     IS_ADMIN = true;
     setAccessScope('owner');
-    if (elements.consolelinkbtn.attrs['href'] !== '/admin' || elements.consolelinkbtn.textContent !== '🛠️') {
+    if (elements.consolelinkbtn.attrs['href'] !== '/admin' || elements.consolelinkbtn.attrs['data-icon'] !== 'wrench') {
         throw new Error("Admin console link failed");
     }
 

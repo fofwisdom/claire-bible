@@ -8,7 +8,7 @@ window.__CLAIRE_CLEAR_LOADING = function(reason) {
     try {
       var auth = document.getElementById('authstate');
       if (auth && (auth.textContent.indexOf('확인') !== -1 || auth.textContent.indexOf('로딩') !== -1)) {
-        auth.textContent = '👁️ 익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
+        auth.textContent = '익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
       }
       var dl = document.getElementById('doclist');
       if (dl && (dl.innerHTML.indexOf('문서 로딩…') !== -1 || dl.textContent.indexOf('문서 로딩') !== -1)) {
@@ -343,7 +343,7 @@ function renderThemeSelector(){
   sel.innerHTML = availableThemes.map(t => {
     const key = getThemeKey(t);
     const label = esc(t.label);
-    const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
+    const lockStr = t.is_public === false ? ' (비공개)' : '';
     return `<option value="${key}" ${key === String(activeThemeId) ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
   updateDrawerManager(current);
@@ -410,7 +410,7 @@ function renderThemeOptions(selectedId){
     const key = getThemeKey(t);
     const icon = esc(t.icon || '📚');
     const label = esc(t.label);
-    const lockStr = t.is_public === false ? ' 🔒 (비공개)' : '';
+    const lockStr = t.is_public === false ? ' (비공개)' : '';
     return `<option value="${key}" ${key === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
   }).join('');
 }
@@ -740,12 +740,12 @@ function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
   const synthLine = canWrite()
-    ? '• <b>Ctrl+클릭</b> 또는 상세의 <b>➕ 종합에 추가</b>로 여러 노드를 모아 종합<br>'
+    ? '• <b>Ctrl+클릭</b> 또는 상세의 <b><span data-icon="plus"></span> 종합에 추가</b>로 여러 노드를 모아 종합<br>'
     : '';
   return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
     '• 다른 노드에 <b>'+(NODE_POP_DELAY_MS/1000)+'초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
-    '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b>📖</b>로 크게 읽습니다.<br>'+
-    '• 상단 <b>⋯ 도구</b>의 <b>🌙/🌞</b>로 라이트·다크를 전환합니다.</p>';
+    '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b><span data-icon="book"></span></b>로 크게 읽습니다.<br>'+
+    '• 상단 <b>⋯ 도구</b>의 <b><span data-icon="moon"></span>/<span data-icon="sun"></span></b>로 라이트·다크를 전환합니다.</p>';
 }
 if(panel) panel.innerHTML = defaultHint();
 
@@ -806,7 +806,7 @@ function showNodePop(id, x, y){
 // 팝업 하단의 출처 문서 한 건 — 제목 + 요약 일부. (GET /node?docs=brief has no detail text.)
 function popSource(d){
   const body=((d.summary||'').replace(/\s+/g,' ').trim());
-  return '<div class=psrc><div class=ptt>📄 '+esc(d.title||'(제목 없음)')+'</div>'+
+  return '<div class=psrc><div class=ptt><span data-icon="doc"></span> '+esc(d.title||'(제목 없음)')+'</div>'+
     (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
 function positionPop(x, y){
@@ -916,7 +916,7 @@ function buildGroups(){ const g={}, th=T();
     g[t]={color:{background:c,border:th.nodeBorder,highlight:{background:c,border:th.lit},hover:{background:c,border:th.lit}}}; });
   return g; }
 function syncThemeBtn(){ const b=document.getElementById('themebtn');
-  if(b) b.textContent = curTheme()==='dark'?'🌞':'🌙'; }
+  if(b) b.setAttribute('data-icon', curTheme()==='dark'?'sun':'moon'); }
 // 라이트/다크 전환 — localStorage 영속 + vis 캔버스 색(글자/엣지/테두리) 즉시 갱신.
 function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
   document.documentElement.setAttribute('data-theme', next);
@@ -1322,7 +1322,7 @@ function renderGraphDocPicker(filter='', fromServer=false){
     (!activeDoc?' aria-current="true"':'')+'>전체 그래프</button>';
   h+=docs.map(dc=>'<button class="graphdocoption" data-graph-doc="'+esc(dc.id)+'"'+
       (dc.id===activeDoc?' aria-current="true"':'')+'>'+
-      (dc.pinned===1?'⭐ ':'')+esc(dc.title||'(제목 없음)')+
+      (dc.pinned===1?'<span data-icon="star" class="filled"></span> ':'')+esc(dc.title||'(제목 없음)')+
       (dc.source_type?'<small>'+esc(dc.source_type)+'</small>':'')+'</button>').join('');
   const morePages = docMainPager.loaded && docMainPager.next != null;
   if(!docs.length) h+='<div id="graphdocempty">'+((morePages && q && !fromServer) ? '찾는 중…' : '검색 결과가 없습니다.')+'</div>';
@@ -2118,12 +2118,12 @@ function srcRowHtml(dc, prev, index){
   h += '<button type="button" class="srctitle" aria-expanded="false" aria-controls="' + sid + '"><span class="srccaret" aria-hidden="true">▸</span><span class="srcname">' + esc(dc.title) + '</span>';
   h += '<span class="srcmeta">' + (day ? '<span class="srcdate">' + day + '</span>' : '') + (dc.source_type ? '<span class="srctype">' + esc(dc.source_type) + '</span>' : '') + '</span></button>';
   // The default response of GET /node has detail, and docs=brief has has_detail.
-  if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="본문 보기" aria-label="본문 보기">📖</button>';
+  if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="본문 보기" aria-label="본문 보기"><span data-icon="book"></span></button>';
   h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(dc.title) + ' 요약" hidden>';
   h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">요약 없음</p>';
   const links = [];
   if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target=_blank rel=noopener>↗ 원문 열기</a>');
-  if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener>📄 원본 열기</a>');
+  if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>');
   if(links.length) h += '<p class="src">' + links.join(' · ') + '</p>';
   return h + '</div></div>';
 }
@@ -2191,18 +2191,18 @@ function renderPanel(d){
   let h = showBackLink ? ('<button type="button" class="backlink" onclick="loadDocPanel(' + jsArg(returnDocId) + ', true)" aria-label="문서로 돌아가기">← 문서로 돌아가기</button>') : '';
   // The node header (name, type, action buttons) stays in view while the panel scrolls.
   h+='<div class="nodehead">';
-  h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' ⚠️provisional':'')+'</small></h2>';
+  h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' <span data-icon="warning"></span>provisional':'')+'</small></h2>';
   const isIsolated = (isolatedNodeId === d.id);
-  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'🔍 주변만 보기')+'</button>';
+  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'<span data-icon="search"></span> 주변만 보기')+'</button>';
   h+='<div class="node-actions-bar">';
   h+=isoBtn;
   if(canWrite()){
-    h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?'✓ 종합 목록에 있음':'➕ 종합에 추가')+'</button>';
+    h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?'✓ 종합 목록에 있음':'<span data-icon="plus"></span> 종합에 추가')+'</button>';
     if(d.aliases && d.aliases.length){
       h+='<div class="node-manage-dropdown">';
-      h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)">⚙️ 노드 관리 ▾</button>';
+      h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)"><span data-icon="settings"></span> 노드 관리 ▾</button>';
       h+='<div class="node-manage-menu" id="node-manage-menu" style="display:none">';
-      h+='<button type="button" class="node-manage-item" id="node-manage-alias-btn" onclick="startAliasSelectMode()">🏷️ 대표 별칭</button>';
+      h+='<button type="button" class="node-manage-item" id="node-manage-alias-btn" onclick="startAliasSelectMode()"><span data-icon="tag"></span> 대표 별칭</button>';
       h+='</div>';
       h+='</div>';
     }
@@ -2287,11 +2287,11 @@ async function doResearch(){
   if(!q){ alert('조사할 키워드/문장을 입력하세요.'); return; }
   if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
   const backId=selectedNodeId;
-  panel.innerHTML='<h2>🔬 조사: '+esc(q)+'</h2><p class="al" id="relapsed">시작…</p><ul id="rprog"></ul>';
+  panel.innerHTML='<h2><span data-icon="search"></span> 조사: '+esc(q)+'</h2><p class="al" id="relapsed">시작…</p><ul id="rprog"></ul>';
   openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('relapsed');
-    if(el) el.textContent='⏱ 경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+    if(el) el.textContent='경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
   let result=null;
   try{
     // fetch('research'
@@ -2315,7 +2315,7 @@ async function doResearch(){
         const ul=document.getElementById('rprog');
         if(ul){ const li=document.createElement('li'); li.className='al';
           const msg=(ev.msg||'').replace(/^[•*-]\\s*/, '');
-          li.textContent=(ev.stage==='llm'?'⏳ ':'')+msg;
+          li.textContent=(ev.stage==='llm'?'':'')+msg;
           ul.appendChild(li); }
       }
     }
@@ -2327,8 +2327,8 @@ async function doResearch(){
 }
 function renderResearchResult(d, backId){
   if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-  let h='<h2>🔬 조사: '+esc(d.query)+(d.context_focus?' <small>'+esc(d.context_focus)+' 맥락</small>':'')+'</h2>';
-  h+='<p class=al>'+(d.added?'✅ ':'⏸ ')+esc(d.verdict||'')+
+  let h='<h2><span data-icon="search"></span> 조사: '+esc(d.query)+(d.context_focus?' <small>'+esc(d.context_focus)+' 맥락</small>':'')+'</h2>';
+  h+='<p class=al>'+(d.added?'<span data-icon="check-circle"></span> ':'<span data-icon="alert"></span> ')+esc(d.verdict||'')+
     ' <span class=meter>맥락일치 '+(d.relevance!=null?(+d.relevance).toFixed(2):'-')+
     ' · 품질 '+(d.quality!=null?(+d.quality).toFixed(2):'-')+'</span></p>';
   if(d.interpretation) h+='<p class=al>해석: '+esc(d.interpretation)+'</p>';
@@ -2354,7 +2354,7 @@ function updateIngestElapsed(){
   if(el){
     const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
     const opts = activeIngest.optionLabels || [];
-    el.textContent = '⏱ 경과 ' + elapsedSec + 's' + (opts.length ? ' (' + opts.join(' · ') + ')' : '');
+    el.textContent = '경과 ' + elapsedSec + 's' + (opts.length ? ' (' + opts.join(' · ') + ')' : '');
   }
 }
 
@@ -2368,10 +2368,10 @@ function renderIngestStatus(){
   }
   const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
   const elapsedText = elapsedSec > 0
-    ? '⏱ 경과 ' + elapsedSec + 's' + (activeIngest.optionLabels && activeIngest.optionLabels.length ? ' (' + activeIngest.optionLabels.join(' · ') + ')' : '')
+    ? '경과 ' + elapsedSec + 's' + (activeIngest.optionLabels && activeIngest.optionLabels.length ? ' (' + activeIngest.optionLabels.join(' · ') + ')' : '')
     : activeIngest.labelText;
   let h = '<div id="ingest-status-view">';
-  h += '<h2>➕ 적재 상태 <small>적재 중</small></h2>';
+  h += '<h2><span data-icon="plus"></span> 적재 상태 <small>적재 중</small></h2>';
   h += '<p class="al" id="ielapsed">' + esc(elapsedText) + '</p>';
   h += '<ul id="iprog">';
   if(activeIngest.messages){
@@ -2396,7 +2396,7 @@ function openIngest(){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 적재 가능한 협업 테마가 없습니다. 지식 관리자(owner)에게 테마 공개를 요청하세요.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 적재 가능한 협업 테마가 없습니다. 지식 관리자(owner)에게 테마 공개를 요청하세요.</p></div>';
       } else {
         const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
@@ -2420,7 +2420,7 @@ function openIngest(){
       '</div>');
     }
   }
-  panel.innerHTML='<h2>➕ 자료 적재</h2>'+
+  panel.innerHTML='<h2><span data-icon="plus"></span> 자료 적재</h2>'+
     '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
@@ -2633,10 +2633,10 @@ async function runIngest(){
   renderIngestResult(result);
 }
 function renderIngestResult(d){
-  if(d.error){ panel.innerHTML='<h2>➕ 적재</h2><p class=hint>오류: '+esc(d.error)+'</p>'+
+  if(d.error){ panel.innerHTML='<h2><span data-icon="plus"></span> 적재</h2><p class=hint>오류: '+esc(d.error)+'</p>'+
     '<p class=al>원본은 보관되어 자동복구(recover) 대상이 됩니다.</p>'; return; }
-  let h='<h2>'+(d.duplicate?'♻️ 이미 있는 자료':(d.updated?'🔄 내용 갱신':'✅ 적재 완료'))+'</h2>';
-  h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small>⚠️ 부분 처리</small>':'')+'</p>';
+  let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> 이미 있는 자료':(d.updated?'<span data-icon="restore"></span> 내용 갱신':'<span data-icon="check-circle"></span> 적재 완료'))+'</h2>';
+  h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small><span data-icon="warning"></span> 부분 처리</small>':'')+'</p>';
   if(d.focus) h+='<p class=al><b>초점:</b> '+esc(d.focus)+'</p>';
   const appliedOptions=[];
   if(d.theme_id !== undefined){
@@ -2649,7 +2649,7 @@ function renderIngestResult(d){
     (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
   if(d.theme_id !== undefined && String(d.theme_id) !== String(activeThemeId)){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">👉 '+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">'+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
   } else {
     if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
@@ -2674,7 +2674,7 @@ function openReingest(){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재적재 가능한 협업 테마가 없습니다.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 재적재 가능한 협업 테마가 없습니다.</p></div>';
       } else {
         const selId = eligibleThemes.some(t => getThemeKey(t) === curDocThemeId) ? curDocThemeId : getThemeKey(eligibleThemes[0]);
         const opts = eligibleThemes.map(t => {
@@ -2698,7 +2698,7 @@ function openReingest(){
     }
   }
 
-  panel.innerHTML = '<h2>🔄 자료 재적재</h2>'+
+  panel.innerHTML = '<h2><span data-icon="restore"></span> 자료 재적재</h2>'+
     '<p class="al">문서 ID, URL 또는 텍스트를 입력하여 기존 문서를 다시 수집하고 지식그래프를 재적재합니다.</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
@@ -2914,7 +2914,7 @@ function openRegen(docIdOverride, compOverride){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;">⚠️ 재생성 가능한 협업 테마가 없습니다.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 재생성 가능한 협업 테마가 없습니다.</p></div>';
       } else {
         const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
@@ -2939,7 +2939,7 @@ function openRegen(docIdOverride, compOverride){
 
   const selectedComp = compOverride || 'all';
 
-  panel.innerHTML = '<h2>🔁 문서 컴포넌트 재생성</h2>'+
+  panel.innerHTML = '<h2><span data-icon="repeat"></span> 문서 컴포넌트 재생성</h2>'+
     '<p class="al">기존 원문(raw_text)을 기반으로 요약, 가독 본문(상세), 지식 노드/관계를 LLM으로 다시 생성합니다.</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
@@ -2980,8 +2980,8 @@ function openRegen(docIdOverride, compOverride){
         '</label>'+
       '</div>'+
       '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon">🔍</span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
-        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon">🔁</span> <span class="btn-label">재생성 시작</span></button>'+
+        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
+        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="repeat"></span></span> <span class="btn-label">재생성 시작</span></button>'+
       '</div>'+
       '<div id="regenresult" style="margin-top:14px"></div>'+
     '</div>';
@@ -3019,7 +3019,7 @@ async function runRegen(isDryRun){
   const resDiv = document.getElementById('regenresult');
 
   if(isDryRun){
-    if(resDiv) resDiv.innerHTML = '<p class="al">⏳ 재생성 영향 분석 중…</p>';
+    if(resDiv) resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> 재생성 영향 분석 중…</p>';
     try{
       const payload = {
         target: target,
@@ -3048,7 +3048,7 @@ async function runRegen(isDryRun){
         return;
       }
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px">🔍 재생성 영향 분석 결과 (Dry-Run)</h3>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> 재생성 영향 분석 결과 (Dry-Run)</h3>';
       const tgts = d.targets || [];
       h += '<p class="al">진단 대상 문서: <b>' + (d.count || tgts.length) + '건</b> · 컴포넌트: <b>' + esc(component) + '</b></p>';
       if(tgts.length > 0){
@@ -3190,7 +3190,7 @@ async function runRegen(isDryRun){
     panel.innerHTML = '<p class="hint">재생성 실패: ' + esc(result.error) + '</p>';
     return;
   }
-  let h = '<h2>✅ 컴포넌트 재생성 완료</h2>';
+  let h = '<h2><span data-icon="check-circle"></span> 컴포넌트 재생성 완료</h2>';
   const tgts = result.targets || [];
   h += '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
   h += '<p class="al">갱신 완료 문서: <b>' + (result.count || tgts.length) + '건</b></p>';
@@ -3240,9 +3240,9 @@ function openPurge(){
     '</div>');
   }
 
-  panel.innerHTML = '<h2>🔥 문서 소각 (Purge)</h2>'+
+  panel.innerHTML = '<h2><span data-icon="flame"></span> 문서 소각 (Purge)</h2>'+
     '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
-      '⚠️ <b>영구 파괴 작업 주의</b><br>문서 데이터, 원문 아티팩트 파일, 지식그래프 고아 엔티티와 관계가 영구 소각되고 DB 물리 압축(VACUUM)이 일괄 수행됩니다.'+
+      '<span data-icon="warning"></span> <b>영구 파괴 작업 주의</b><br>문서 데이터, 원문 아티팩트 파일, 지식그래프 고아 엔티티와 관계가 영구 소각되고 DB 물리 압축(VACUUM)이 일괄 수행됩니다.'+
     '</div>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
@@ -3262,8 +3262,8 @@ function openPurge(){
         '</label>'+
       '</div>'+
       '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon">🔍</span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
-        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon">🔥</span> <span class="btn-label">소각 실행</span></button>'+
+        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
+        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="flame"></span></span> <span class="btn-label">소각 실행</span></button>'+
       '</div>'+
       '<div id="purgeresult" style="margin-top:14px"></div>'+
     '</div>';
@@ -3298,7 +3298,7 @@ async function runPurgeCheck(isDryRun){
 
   const resDiv = document.getElementById('purgeresult');
   if(resDiv){
-    resDiv.innerHTML = '<p class="al">⏳ 소각 ' + (isDryRun ? '영향 분석 중…' : '실행 중…') + '</p>';
+    resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> 소각 ' + (isDryRun ? '영향 분석 중…' : '실행 중…') + '</p>';
   }
 
   try {
@@ -3329,7 +3329,7 @@ async function runPurgeCheck(isDryRun){
 
     if(isDryRun){
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px">🔍 소각 영향 분석 결과 (Dry-Run)</h3>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> 소각 영향 분석 결과 (Dry-Run)</h3>';
       const tgts = d.targets || [];
       h += '<p class="al">소각 대상 문서: <b>' + tgts.length + '건</b> · 디스크 파일: <b>' + (d.disk_files_count || 0) + '개</b></p>';
       h += '<p class="al">툼스톤 등록: <b>' + (tombstone ? '등록 (재적재 차단)' : '미등록 (재적재 허용)') + '</b></p>';
@@ -3347,7 +3347,7 @@ async function runPurgeCheck(isDryRun){
       if(resDiv) resDiv.innerHTML = h;
     } else {
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px">✅ 영구 소각 완료</h3>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="check-circle"></span> 영구 소각 완료</h3>';
       h += '<p class="al">소각된 문서: <b>' + (d.deleted_documents || 0) + '건</b> · 삭제된 파일: <b>' + (d.disk_files_unlinked || 0) + '개</b></p>';
       if(d.purged_count){
         h += '<p class="al">등록된 툼스톤: <b>' + d.purged_count + '건</b></p>';
@@ -3377,7 +3377,7 @@ async function runPurgeCheck(isDryRun){
 let dedupClusters=[];
 async function openDedup(){
   if(!canWrite()) return;
-  panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
+  panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
     '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
   openDetailPane();
   let d;
@@ -3386,16 +3386,16 @@ async function openDedup(){
     if(r.status===401||r.status===404){ expireWriteAccess();
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     d=await r.json();
-  }catch(e){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>검사 실패: '+esc(String(e))+'</p>'; return; }
+  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class=hint>검사 실패: '+esc(String(e))+'</p>'; return; }
   renderDedup(d);
 }
 function renderDedup(d){
   if(!canWrite()) return;
-  if(d.error){ panel.innerHTML='<h2>♻️ 중복 문서 정리</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+  if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
   dedupClusters=d.clusters||[];
-  let h='<h2>♻️ 중복 문서 정리</h2>';
+  let h='<h2><span data-icon="merge"></span> 중복 문서 정리</h2>';
   h+='<p class=al>검사 '+(d.documents||0)+'개 · 근사중복 클러스터 <b>'+dedupClusters.length+'</b>개</p>';
-  if(!dedupClusters.length){ h+='<p class=al>근사 중복 문서가 없습니다. ✅</p>'; panel.innerHTML=h; return; }
+  if(!dedupClusters.length){ h+='<p class=al>근사 중복 문서가 없습니다.</p>'; panel.innerHTML=h; return; }
   h+='<p class=al><small>유지할 문서를 고르고 병합하세요. 나머지는 유지문서로 합쳐지고 참조는 보존됩니다(병합 전 내부 체크포인트 생성).</small></p>';
   dedupClusters.forEach((c,ci)=>{
     h+='<div class=doc><p class=al>유사도 '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
@@ -3418,7 +3418,7 @@ async function runDedupMerge(ci){
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
   if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
   if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\n(병합 전 내부 체크포인트를 생성합니다)')) return;
-  panel.innerHTML='<h2>♻️ 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
+  panel.innerHTML='<h2><span data-icon="merge"></span> 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
   try{
     const r=await fetch(apiUrl('dedup/merge'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
@@ -3426,15 +3426,15 @@ async function runDedupMerge(ci){
       panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
     const d=await r.json();
     if(!canWrite()) return;
-    if(d.error){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-    let h='<h2>✅ 병합 완료</h2>';
+    if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> 병합</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+    let h='<h2><span data-icon="check-circle"></span> 병합 완료</h2>';
     h+='<p class=al>문서 '+(d.deleted||0)+'개를 합쳤습니다. 엔티티 '+(d.entities_repointed||0)+
       ' · 관계 '+(d.relations_repointed||0)+' 참조 재배치.</p>';
     if(d.checkpoint) h+='<p class=al><small>내부 체크포인트: '+esc(d.checkpoint)+'</small></p>';
     h+='<p><a href="#" onclick="openDedup();return false">← 다시 검사</a></p>';
     panel.innerHTML=h;
     refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신
-  }catch(e){ panel.innerHTML='<h2>♻️ 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
+  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
 }
 
 
@@ -3541,9 +3541,9 @@ function handleActiveIngestCompleted(activeInfo){
     }
     completeIngestMatrixView(result);
   } else if(activeInfo && activeInfo.stage === 'error'){
-    if(msgEl) msgEl.innerHTML = '❌ <strong>' + esc(activeInfo.msg || '적재 중 오류 발생') + '</strong>';
+    if(msgEl) msgEl.innerHTML = '<span data-icon="block"></span> <strong>' + esc(activeInfo.msg || '적재 중 오류 발생') + '</strong>';
   } else {
-    if(msgEl) msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong>';
+    if(msgEl) msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 및 적재 완료</strong>';
   }
   if(activeInfo && activeInfo.heatmap_matrix){
     renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title, false);
@@ -3607,7 +3607,7 @@ async function pollForUpdates(){
         if(spin && spin.style.display !== 'none') spin.style.display = 'none';
         const msgEl = document.getElementById('matrix-progress-msg');
         if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
-          msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+          msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
         }
       }
     }
@@ -3950,10 +3950,10 @@ function applyView(){
   // The graph status is in span.graphstat: the document list hides it (it is not about the documents). A document status overwrites the span.
   document.getElementById('stat').innerHTML = '<span class="graphstat">' +
     '표시 <b>'+shown+'</b>/'+allNodes.length
-    + (isolatedSet ? ' · 🔍 격리 뷰 ('+isolatedSet.size+'개)' : '')
+    + (isolatedSet ? ' · <span data-icon="search"></span> 격리 뷰 ('+isolatedSet.size+'개)' : '')
     + (curMinDeg>0 && !isolatedSet ? ' · 연결≥'+curMinDeg:'')
     + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
-    + (pathActive?' · 🔗경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':'')) + '</span>';
+    + (pathActive?' · <span data-icon="link"></span>경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':'')) + '</span>';
   renderEntityList();
   if(typeof renderHome === 'function' && centerView === 'home') renderHome();
 }
@@ -3971,7 +3971,7 @@ function setGraphNotice(text){
 }
 function showPathHint(){
   const n=pathPicks.length;
-  panel.innerHTML='<h2>🔗 경로 찾기</h2><p class=al>'+
+  panel.innerHTML='<h2><span data-icon="link"></span> 경로 찾기</h2><p class=al>'+
     (n===0?'시작 노드를 클릭하세요.':'끝 노드를 클릭하세요. <small>(시작: '+esc(nodeLabel(pathPicks[0]))+')</small>')+
     '</p><p class=al><small>관계 필터가 켜져 있으면 그 관계만 따라 경로를 찾습니다.</small></p>';
   setGraphNotice(n===0?'경로 시작 노드를 선택하세요':'경로 끝 노드를 선택하세요');
@@ -3998,7 +3998,7 @@ function computePath(a, b){
   pathPicks=[];
   if(!seen.has(b)){ pathNodes=null; pathEdges=null; applyView();
     setGraphNotice('');
-    panel.innerHTML='<h2>🔗 경로</h2><p class=hint>두 노드 사이 연결 경로가 없습니다'+
+    panel.innerHTML='<h2><span data-icon="link"></span> 경로</h2><p class=hint>두 노드 사이 연결 경로가 없습니다'+
       (relFilter?' (현재 관계 필터 기준)':'')+'.</p>'+
       '<p class=al><a href="#" onclick="restartPath();return false">다시 찾기</a></p>';
     openDetailPane();
@@ -4012,7 +4012,7 @@ function computePath(a, b){
   setGraphNotice('');
   applyView();
   if(net) net.fit({nodes:[...pathNodes], animation:graphAnimation(true)});
-  panel.innerHTML='<h2>🔗 경로 <small>'+(order.length-1)+'단계</small></h2>'+
+  panel.innerHTML='<h2><span data-icon="link"></span> 경로 <small>'+(order.length-1)+'단계</small></h2>'+
     '<p class=al>'+order.map(id=>esc(nodeLabel(id))).join(' → ')+'</p>'+
     '<p class=al><a href="#" onclick="restartPath();return false">다른 경로</a> · '+
     '<a href="#" onclick="clearPath();return false">해제</a></p>';
@@ -4035,13 +4035,13 @@ function docItemHtml(dc){
   const pinBtn = canWrite()
     ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
       '" aria-label="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
-      '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+(pinned?'⭐':'☆')+'</button>'
-    : (pinned ? '<span class="docpin-icon pinned" title="즐겨찾기">⭐</span>' : '');
+      '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
+    : (pinned ? '<span class="docpin-icon pinned" title="즐겨찾기"><span data-icon="star" class="filled"></span></span>' : '');
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
     pinBtn+
-    (watching?'<span class=wbadge title="주기 갱신 추적(watch)">🔄</span>':'')+
+    (watching?'<span class=wbadge title="주기 갱신 추적(watch)"><span data-icon="restore"></span></span>':'')+
     (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
     '</div>'+
@@ -4105,7 +4105,7 @@ function renderServerDocs(){
 
     if(res.answer){
       html += '<div class="search-ai-card">' +
-        '<div class="search-ai-head"><span>💡</span> <b>AI 지식 요약</b></div>' +
+        '<div class="search-ai-head"><span><span data-icon="info"></span></span> <b>AI 지식 요약</b></div>' +
         '<div class="search-ai-body">' + esc(res.answer) + '</div>' +
         '</div>';
     }
@@ -4114,7 +4114,7 @@ function renderServerDocs(){
     html += '<div class="search-action-bar">' +
       (hitCount > 0
         ? '<button type="button" class="sec search-graph-link-btn" onclick="highlightSearchInGraph()" title="지식 그래프에서 연관 개념 노드 하이라이트">' +
-          '<span class="btn-icon">🌐</span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
+          '<span class="btn-icon"><span data-icon="globe"></span></span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
         : '') +
       '<button type="button" class="sec search-reset-btn" onclick="clearServerSearch()" title="검색 결과 초기화">✕ 닫기</button>' +
       '</div>';
@@ -4129,7 +4129,7 @@ function renderServerDocs(){
 
   const st = document.getElementById('stat');
   if(st){
-    const modeLabel = res.mode === 'hybrid' ? '🧠 AI 의미 검색' : '📄 전문(Full-Text) 검색';
+    const modeLabel = res.mode === 'hybrid' ? 'AI 의미 검색' : '전문(Full-Text) 검색';
     st.textContent = modeLabel + ': ' + (res.docs ? res.docs.length : 0) + '건 발견';
   }
   syncGraphDocNav();
@@ -4154,7 +4154,7 @@ async function doDocServerSearch(q){
 
   const statEl = document.getElementById('stat');
   if(statEl){
-    statEl.textContent = isSemantic ? '🧠 AI 지식 검색 및 요약 생성 중…' : '🔎 전체 본문(FTS5) 검색 중…';
+    statEl.textContent = isSemantic ? 'AI 지식 검색 및 요약 생성 중…' : '전체 본문(FTS5) 검색 중…';
   }
 
   let r;
@@ -4817,7 +4817,7 @@ function renderDocs(filter){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
     if(docWindowList) docWindowList.invalidate();
-    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center">🔎 검색어를 입력하세요.</p>';
+    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center"><span data-icon="search"></span> 검색어를 입력하세요.</p>';
     const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
     const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
     syncGraphDocNav();
@@ -4857,7 +4857,7 @@ function renderDocs(filter){
   const ph = document.getElementById('pinnedhead');
   if(ph){
     ph.style.display = pinned.length ? '' : 'none';
-    ph.textContent = '⭐ 즐겨찾기 (' + pinned.length + ')';
+    ph.textContent = '즐겨찾기 (' + pinned.length + ')';
   }
   const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
 
@@ -4889,7 +4889,7 @@ function renderDocs(filter){
     if(sh){
       sh.style.display='';
       sh.setAttribute('aria-expanded', showHidden ? 'true' : 'false');
-      sh.textContent = (showHidden?'▲ ':'▼ ')+'🙈 숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
+      sh.textContent = (showHidden?'▲ ':'▼ ')+'숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
     }
     if(hl){
       const prevScroll = hl.scrollTop;
@@ -4946,7 +4946,7 @@ async function toggleHide(id, val){
   // 안내(어디서 다시 꺼내는지 몰라 헤매지 않게). 숨김 해제(val=false)는 안전한 방향이라
   // 컨펌 없이 즉시. 반환값 = 실제로 적용됐는지(컨펌 취소 시 false — 호출측 버튼 갱신 판단용).
   if(val && !confirm('이 문서를 목록에서 숨길까요?\n\n그래프 엔티티는 그대로 남고, 문서 '+
-      '목록 맨 아래 "🙈 숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
+      '목록 맨 아래 "숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
     return false;
   }
   const d=allDocs.find(x=>x.id===id); if(d){ d.hidden = val?1:0; docListPlace(d); }
@@ -4970,7 +4970,7 @@ async function panelToggleHide(id, val){
     return;
   }
   if(chk) chk.checked = !!val;
-  if(lbl) lbl.textContent = val ? '🙈 숨김 처리됨' : '목록에서 숨기기';
+  if(lbl) lbl.textContent = val ? '숨김 처리됨' : '목록에서 숨기기';
 }
 function resetWorkspaceState(){
   cancelServerSearch();
@@ -5097,9 +5097,9 @@ function showOtherThemeJobBanner(stats){
       message: '다른 테마(' + tName + ')에서 ' + (job.title || '작업') + ' 진행 중입니다.'
     }, {
       level: 'info',
-      icon: '🔄',
+      icon: 'restore',
       title: '백그라운드 작업',
-      actionLabel: '👉 테마로 이동',
+      actionLabel: '테마로 이동',
       action: function(){
         switchKnowledgeTheme(String(job.theme_id || '0'));
       }
@@ -5456,7 +5456,7 @@ function renderLocalGraphHtml(dc){
   }
 
   const docTitle = dc.title || 'Document';
-  let nodesHtml = '<g class="ctx-lg-center" role="img" aria-label="' + esc(docTitle) + '"><circle cx="0" cy="0" r="14" /><text x="0" y="3.5" font-size="11" text-anchor="middle" fill="var(--fg)">📄</text></g>';
+  let nodesHtml = '<g class="ctx-lg-center" role="img" aria-label="' + esc(docTitle) + '"><circle cx="0" cy="0" r="14" /><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4" transform="translate(-8,-8)" fill="none" stroke="var(--fg)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></g>';
 
   const renderNode = (n, isR1) => {
     const p = pos[n.id];
@@ -5545,7 +5545,7 @@ function renderDocSourceTab(dc, ns){
   let h = '<section aria-labelledby="ctx-src-heading"><div id="ctx-src-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.source_text')) + '</span>' + sourceBadgeHtml(dc) + '</div>';
   const links = [];
   if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target="_blank" rel="noopener">↗ 원문 열기</a>');
-  if(canAccessRaw && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target="_blank" rel="noopener">📄 원본 열기</a>');
+  if(canAccessRaw && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target="_blank" rel="noopener"><span data-icon="doc"></span> 원본 열기</a>');
   if(isStt) links.push('<a href="#" class="stt-link" onclick="openSttReader();return false;">↗ 전사 열기</a>');
   if(hasPresentation) links.push('<a href="' + esc(presentation.public_url) + '" target="_blank" rel="noopener">↗ Presentation PDF</a>');
   if(links.length) h += '<div class="ctx-source-links">' + links.join(' ') + '</div>';
@@ -5669,13 +5669,13 @@ function renderDocPanel(dc){
   let h='<div class="ctx-doc-head"><h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
-    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)">🎯 초점:</b> '+esc(focus)+'</div>';
+    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)"><span data-icon="target"></span> 초점:</b> '+esc(focus)+'</div>';
   }
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
       ' onchange="panelToggleHide('+jsArg(dc.id)+',this.checked)">'+
-      '<span id="panelhidelabel">'+(dc.hidden===1?'🙈 숨김 처리됨':'목록에서 숨기기')+'</span>'+
+      '<span id="panelhidelabel">'+(dc.hidden===1?'숨김 처리됨':'목록에서 숨기기')+'</span>'+
       '</label></div>';
   }
   h+='</div>';
@@ -5742,7 +5742,7 @@ function renderChips(){
     return '<span class=chip onclick="toggleSynth('+jsArg(id)+')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
   const sb=document.getElementById('synthbtn');
   if(sb){
-    sb.innerHTML='<span class="btn-icon">🧩</span> <span class="btn-label">종합 ('+synthSet.size+')</span>';
+    sb.innerHTML='<span class="btn-icon"><span data-icon="puzzle"></span></span> <span class="btn-label">종합 ('+synthSet.size+')</span>';
     sb.title='종합 ('+synthSet.size+')';
   }
 }
@@ -5923,11 +5923,11 @@ function setAccessScope(scope, reason){
   document.body.classList.toggle('ro', READONLY);
   const label=document.getElementById('authstate');
   if(label) label.textContent =
-    AUTH_SCOPE==='owner' ? '🔒 인증됨' :
-    AUTH_SCOPE==='collaborator' ? '🤝 협업자' :
-    AUTH_SCOPE==='readonly' ? '👁️ 읽기전용' :
-    AUTH_SCOPE==='anonymous' ? '👁️ 익명 읽기전용' :
-    reason==='expired' ? '🔓 쓰기 세션 만료 — /web 재접속' : '⚠️ 권한 확인 실패';
+    AUTH_SCOPE==='owner' ? '인증됨' :
+    AUTH_SCOPE==='collaborator' ? '협업자' :
+    AUTH_SCOPE==='readonly' ? '읽기전용' :
+    AUTH_SCOPE==='anonymous' ? '익명 읽기전용' :
+    reason==='expired' ? '쓰기 세션 만료 — /web 재접속' : '권한 확인 실패';
   // 관리·설정 기능은 콘솔(/admin/*, /settings/*)에 있다. 상단바의 아이콘 단추가 콘솔로 이동한다.
   const clBtn = document.getElementById('consolelinkbtn');
   if(clBtn){
@@ -5938,7 +5938,7 @@ function setAccessScope(scope, reason){
       clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings');
       clBtn.title = label;
       clBtn.setAttribute('aria-label', label);
-      clBtn.textContent = IS_ADMIN ? '🛠️' : '⚙️';
+      clBtn.setAttribute('data-icon', IS_ADMIN ? 'wrench' : 'settings');
     }
   }
   // The link to /syndication (collection, ingestion, publication) is for the owner. The stage strip with counts is unit HW-8.
@@ -5969,8 +5969,8 @@ function expireWriteAccess(){
 async function synth(){
   if(!canWrite()) return;
   const ids=[...synthSet];
-  if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "➕ 종합에 추가".'); return; }
-  panel.innerHTML='<p class=hint>🧩 '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
+  if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "종합에 추가".'); return; }
+  panel.innerHTML='<p class=hint><span data-icon="puzzle"></span> '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
   openDetailPane();
   // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
   fetch(apiUrl('synthesize'),{method:'POST',
@@ -5979,7 +5979,7 @@ async function synth(){
    .then(r=> { if(r.status===401||r.status===404){ expireWriteAccess(); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
    .then(d=>{
      if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-     let h='<h2>🧩 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
+     let h='<h2><span data-icon="puzzle"></span> 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
      h+='<div class=synth>'+esc(d.answer)+'</div>';
      h+='<p class=al>대상: '+d.entities.map(esc).join(', ')+'</p>';
      panel.innerHTML=h;
@@ -6001,7 +6001,7 @@ async function semanticSearch(q){
   }
   const requestedMode = isSemantic ? 'AI 지식 검색' : '전문(FTS5) 검색';
   const statEl = document.getElementById('stat');
-  if(statEl) statEl.textContent='🔎 '+requestedMode+' 중…';
+  if(statEl) statEl.textContent=''+requestedMode+' 중…';
   let r;
   try{
     const reqOpts = {
@@ -6031,8 +6031,8 @@ async function semanticSearch(q){
   const actualMode=(d.mode==='fts'||searchMode==='fts')?'전문(FTS5) 검색':'AI 지식 검색';
   if(statEl){
     statEl.textContent=ids.length
-      ? '🔎 '+actualMode+': '+ids.length+'개'
-      : '🔎 '+actualMode+': 결과 없음';
+      ? ''+actualMode+': '+ids.length+'개'
+      : ''+actualMode+': 결과 없음';
   }
 }
 
@@ -6041,7 +6041,7 @@ const ClaireStatusBanner = (function(){
   const presets = {
     format_mismatch: {
       level: 'warning',
-      icon: '⚠️',
+      icon: 'warning',
       title: '렌더링 포맷 불일치',
       render: function(data){
         const cfg = (data.configured || 'adoc').toUpperCase();
@@ -6101,7 +6101,7 @@ const ClaireStatusBanner = (function(){
     },
     format_ok: {
       level: 'success',
-      icon: '✅',
+      icon: 'check-circle',
       title: '포맷 동기화 완료',
       render: function(data){
         const cfg = (data.configured || 'adoc').toUpperCase();
@@ -6111,7 +6111,7 @@ const ClaireStatusBanner = (function(){
     },
     readonly_mode: {
       level: 'info',
-      icon: '🔒',
+      icon: 'lock',
       title: '읽기 전용 모드',
       render: function(){
         return '현재 게스트(읽기 전용) 권한으로 접속 중입니다. 지식그래프 탐색 및 검색이 가능합니다.';
@@ -6119,12 +6119,12 @@ const ClaireStatusBanner = (function(){
     },
     network_error: {
       level: 'error',
-      icon: '⚡',
+      icon: 'bolt',
       title: '연결 확인 필요',
       render: function(data){
         return (data && data.message) || '서버와의 통신이 원활하지 않습니다. 네트워크 연결을 확인해 주세요.';
       },
-      actionLabel: '🔄 새로고침',
+      actionLabel: '새로고침',
       action: function(){
         if (typeof window !== 'undefined' && window.location && window.location.reload) {
           window.location.reload();
@@ -6133,7 +6133,7 @@ const ClaireStatusBanner = (function(){
     },
     refresh_pending: {
       level: 'warning',
-      icon: '⏳',
+      icon: 'clock',
       title: '데이터 갱신 대기',
       render: function(data){
         const count = (data && data.count) || '일부';
@@ -6142,7 +6142,7 @@ const ClaireStatusBanner = (function(){
     },
     custom_notice: {
       level: 'info',
-      icon: '📢',
+      icon: 'megaphone',
       title: '안내',
       render: function(data){
         return (data && data.message) || '';
@@ -6175,7 +6175,7 @@ const ClaireStatusBanner = (function(){
       activeData = pData;
 
       banner.className = 'status-banner banner-' + (opts.level || 'warning');
-      if (iconEl) iconEl.textContent = opts.icon || 'ℹ️';
+      if (iconEl) iconEl.setAttribute('data-icon', opts.icon || 'info');
       if (titleEl) titleEl.textContent = opts.title || '안내';
       if (badge && opts.title === '') badge.style.display = 'none';
       else if (badge) badge.style.display = 'inline-flex';
@@ -6898,7 +6898,7 @@ function buildDesktopStepperHtml(job){
       icon = '✓';
     } else if(i === curIdx){
       cls = isError ? 'error' : 'current';
-      icon = isError ? '❌' : '◐';
+      icon = isError ? '✕' : '◐';
     }
     const title = STAGE_FULL_TITLES[stg] || ((i + 1) + '. ' + (STAGE_LABELS[stg] || stg));
     const desc = STAGE_DESCS[stg] || '';
@@ -6972,7 +6972,7 @@ function updateCockpitChrome(job){
   }
 
   const themeBadge = document.getElementById('cockpit-theme-badge');
-  if(themeBadge) themeBadge.textContent = '📁 ' + themeTxt;
+  if(themeBadge) themeBadge.textContent = '' + themeTxt;
 
   const kindBadge = document.getElementById('cockpit-kind-badge');
   if(kindBadge) kindBadge.textContent = kindTxt + ' 파이프라인';
@@ -7316,7 +7316,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
     if(!isActivelyIngesting){
       if(spin) spin.style.display = 'none';
       if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
-        msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+        msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
       }
     } else {
       if(spin) spin.style.display = 'inline-block';
@@ -7368,7 +7368,7 @@ function completeIngestMatrixView(result){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '✅ <strong>대조 및 적재 완료</strong> (노드 신규 ' + ((result && result.entities_created)||0) + ' · 기존 연결 ' + ((result && result.entities_linked)||0) + ' · 관계 ' + ((result && result.relations_added)||0) + ')';
+    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 및 적재 완료</strong> (노드 신규 ' + ((result && result.entities_created)||0) + ' · 기존 연결 ' + ((result && result.entities_linked)||0) + ' · 관계 ' + ((result && result.relations_added)||0) + ')';
   }
   updateCockpitChrome({
     active: false,
@@ -7582,7 +7582,7 @@ function renderDecisionCardHtml(dec){
   let html = '<div class="decision-card">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
   html += '<div style="display:flex;align-items:center;gap:8px">';
-  html += '<strong style="font-size:14px;color:var(--fg)">🏷️ ' + esc(dec.entity || '') + '</strong>';
+  html += '<strong style="font-size:14px;color:var(--fg)"><span data-icon="tag"></span> ' + esc(dec.entity || '') + '</strong>';
   html += '<span class="decision-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>';
   html += '</div>';
   if(dec.timestamp){
@@ -7604,13 +7604,13 @@ function renderDecisionCardHtml(dec){
 
   if(dec.reason){
     html += '<div style="padding:8px 10px;background:var(--bg);border-left:3px solid var(--accent,#0284c7);border-radius:4px;font-size:12px;color:var(--fg);line-height:1.45;margin-bottom:8px">';
-    html += '<span style="margin-right:4px">💡</span>' + esc(dec.reason);
+    html += '<span style="margin-right:4px"><span data-icon="info"></span></span>' + esc(dec.reason);
     html += '</div>';
   }
 
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed var(--border);font-size:11.5px;color:var(--muted)">';
   if(dec.document_id){
-    html += '<span>📄 출처: <a href="javascript:void(0)" onclick="selectDoc(' + jsArg(dec.document_id) + ');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
+    html += '<span><span data-icon="doc"></span> 출처: <a href="javascript:void(0)" onclick="selectDoc(' + jsArg(dec.document_id) + ');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
   } else {
     html += '<span></span>';
   }
@@ -7701,7 +7701,7 @@ function renderDecisionStreamPanel(){
   const totalCount = cachedDecisions.length;
   let filtered = getFilteredDecisions();
   let ph = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">';
-  ph += '<h2>📜 의사결정 스트림</h2>';
+  ph += '<h2><span data-icon="list"></span> 의사결정 스트림</h2>';
   ph += '<span style="font-size:11px;color:var(--muted)">총 ' + totalCount + '건의 판단 기록</span>';
   ph += '</div>';
   ph += '<p class="al"><small>지식 베이스 전체의 엔티티 해소(Entity Resolution), 불변식 차단 및 가역적 병합 감사 로그입니다.</small></p>';
@@ -7759,7 +7759,7 @@ function openHeatmapMatrix(docId){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '✅ <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
   }
   setCenterView('matrix');
 }
@@ -7795,11 +7795,11 @@ function renderMiniMatrixBannerHtml(docId, mat){
   return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span>⚡</span> 지식 적재 대조 콕핏</strong>' +
+        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span><span data-icon="bolt"></span></span> 지식 적재 대조 콕핏</strong>' +
         '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 텐서입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
-        '<button type="button" class="sec" onclick="openHeatmapMatrix(' + jsArg(docId) + ')" style="padding:4px 8px;font-size:11px;">🔍 콕핏에서 보기</button>' +
+        '<button type="button" class="sec" onclick="openHeatmapMatrix(' + jsArg(docId) + ')" style="padding:4px 8px;font-size:11px;"><span data-icon="search"></span> 콕핏에서 보기</button>' +
         confirmBtnHtml +
       '</div>' +
     '</div>' +

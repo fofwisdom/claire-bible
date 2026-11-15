@@ -730,7 +730,8 @@ test('provider management lives in the admin console and the root topbar shows o
   const consoleBtn = page.locator('#consolelinkbtn');
   await expect(consoleBtn).toBeVisible();
   await expect(consoleBtn).toHaveAttribute('href', '/admin');
-  await expect(consoleBtn).toHaveText('🛠️');
+  await expect(consoleBtn).toHaveAttribute('data-icon', 'wrench');
+  await expect(consoleBtn.locator('svg.lineicon')).toHaveCount(1);
   await expect(consoleBtn).toHaveAttribute('aria-label', '관리자 콘솔');
   const nextId = await consoleBtn.evaluate(el => el.nextElementSibling && el.nextElementSibling.id);
   expect(nextId).toBe('themebtn');
@@ -1752,7 +1753,7 @@ test.describe('document list with server pages', () => {
     const items = page.locator('#doclist .docitem');
     await expect(items).toHaveCount(31);
     await page.evaluate(() => refreshDocs());
-    await expect(page.locator('#pinnedhead')).toHaveText('⭐ 즐겨찾기 (1)');
+    await expect(page.locator('#pinnedhead')).toHaveText('즐겨찾기 (1)');
     await expect(page.locator('#pinnedlist .docitem')).toContainText(['오래된 자료 25']);
 
     // Two filter texts with no pause between them: the request goes when the typing stops, thus only the second filter text is sent. The list shows the second one only.

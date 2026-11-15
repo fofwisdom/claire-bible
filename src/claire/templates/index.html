@@ -45,7 +45,7 @@
     try {
       var auth = document.getElementById('authstate');
       if (auth && (auth.textContent.indexOf('확인') !== -1 || auth.textContent.indexOf('로딩') !== -1)) {
-        auth.textContent = '👁️ 익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
+        auth.textContent = '익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
       }
       var dl = document.getElementById('doclist');
       if (dl && (dl.innerHTML.indexOf('문서 로딩…') !== -1 || dl.textContent.indexOf('문서 로딩') !== -1)) {
@@ -111,7 +111,7 @@
       </div>
       <div class="center-tab-group" id="centertab-group">
         <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="목록 열기" aria-label="목록">
-          <span class="btn-icon">📑</span> <span class="btn-label">목록</span>
+          <span class="btn-icon" data-icon="list"></span> <span class="btn-label">목록</span>
         </button>
         <nav id="centertabs" class="center-tabs" data-i18n-aria-label="nav.views">
           <button id="centertab-home" type="button" class="center-tab-btn" aria-current="page" onclick="enterHome({reason:'nav'})" data-i18n-title="nav.home">
@@ -137,10 +137,10 @@
   <div id="viewoptions">
     <button id="addbtn" type="button" class="pri bar-ingest-btn" onclick="openIngest()" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
     <button id="managebtn" type="button" class="bar-icon-btn" popovertarget="moremenu" aria-haspopup="menu" data-i18n-title="nav.manage" data-i18n-aria-label="nav.manage"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></svg></button>
-    <span id="authstate">⏳ 권한 확인 중</span>
+    <span id="authstate">권한 확인 중</span>
     <a id="syndlink" class="bar-icon-btn" href="/syndication" hidden data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/></svg></a>
-    <a id="consolelinkbtn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none">⚙️</a>
-    <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()">🌙</button>
+    <a id="consolelinkbtn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none" data-icon="settings"></a>
+    <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()" data-icon="moon"></button>
     <button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
       data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
@@ -149,7 +149,7 @@
 <div id="format-warn-banner" class="status-banner banner-warning" role="status" aria-live="polite">
   <div class="status-banner-content">
     <span id="format-warn-badge" class="status-banner-badge">
-      <span id="format-warn-icon">⚠️</span>
+      <span id="format-warn-icon" data-icon="warning"></span>
       <span id="format-warn-title">상태 알림</span>
     </span>
     <span id="format-warn-text" class="status-banner-msg"></span>
@@ -164,22 +164,22 @@
     <button type="button" role="menuitem" id="palettebtn" class="sec" onclick="openCommandPaletteFromMenu()" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open"><span class="btn-icon">⌘</span> <span class="btn-label" data-i18n="nav.palette.open">Command palette</span></button>
   </div>
   <div class="action-btn-row">
-    <button type="button" role="menuitem" id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon">🔄</span> <span class="btn-label">재적재</span></button>
-    <button type="button" role="menuitem" id="regenbtn" class="sec" onclick="openRegen()" title="기존 원문 기반 컴포넌트(요약, 본문, 지식그래프) 재생성" aria-label="재생성"><span class="btn-icon">🔁</span> <span class="btn-label">재생성</span></button>
-    <button type="button" role="menuitem" id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon">♻️</span> <span class="btn-label">중복정리</span></button>
+    <button type="button" role="menuitem" id="reingestbtn" class="sec" onclick="openReingest()" title="기존 문서를 다시 수집하여 그래프에 재적재" aria-label="재적재"><span class="btn-icon" data-icon="restore"></span> <span class="btn-label">재적재</span></button>
+    <button type="button" role="menuitem" id="regenbtn" class="sec" onclick="openRegen()" title="기존 원문 기반 컴포넌트(요약, 본문, 지식그래프) 재생성" aria-label="재생성"><span class="btn-icon" data-icon="repeat"></span> <span class="btn-label">재생성</span></button>
+    <button type="button" role="menuitem" id="dedupbtn" class="sec" onclick="openDedup()" title="근사 중복 문서를 찾아 병합" aria-label="중복정리"><span class="btn-icon" data-icon="merge"></span> <span class="btn-label">중복정리</span></button>
   </div>
   <div id="graph-section" class="menu-section" aria-label="그래프 및 문서 도구">
     <div class="menu-section-head">
       <span class="menu-section-title" id="menu-section-title">문서와 그래프</span>
     </div>
     <div class="action-btn-row">
-      <button type="button" role="menuitem" id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon">🔗</span> <span class="btn-label">경로</span></button>
-      <button type="button" role="menuitem" id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon">🧩</span> <span class="btn-label">종합 (0)</span></button>
+      <button type="button" role="menuitem" id="pathbtn" class="sec" onclick="togglePathMode()" title="두 노드 사이 연결 경로 찾기" aria-label="경로"><span class="btn-icon" data-icon="link"></span> <span class="btn-label">경로</span></button>
+      <button type="button" role="menuitem" id="synthbtn" onclick="synth()" title="종합 (0)"><span class="btn-icon" data-icon="puzzle"></span> <span class="btn-label">종합 (0)</span></button>
     </div>
   </div>
   <div class="menu-section menu-danger">
     <div class="action-btn-row">
-      <button type="button" role="menuitem" id="purgebtn" class="sec" onclick="openPurge()" title="문서 영구 소각 및 지식그래프 정화" aria-label="소각"><span class="btn-icon">🔥</span> <span class="btn-label">소각</span></button>
+      <button type="button" role="menuitem" id="purgebtn" class="sec" onclick="openPurge()" title="문서 영구 소각 및 지식그래프 정화" aria-label="소각"><span class="btn-icon" data-icon="flame"></span> <span class="btn-label">소각</span></button>
     </div>
   </div>
 </div>
@@ -207,7 +207,7 @@
     </div>
     <div id="listbody">
     <div id="doclistwrap">
-    <div id="pinnedhead" style="display:none">⭐ 즐겨찾기</div>
+    <div id="pinnedhead" style="display:none">즐겨찾기</div>
     <div id="pinnedlist"></div>
     <div id="doclist">
       <div class="doclist-toolbar">
@@ -330,7 +330,7 @@
                 <span class="cockpit-pulse-dot" id="cockpit-pulse-dot"></span>
                 <span id="cockpit-status-text">적재 진행 중</span>
               </span>
-              <span class="cockpit-theme-badge" id="cockpit-theme-badge">📁 기본 지식베이스</span>
+              <span class="cockpit-theme-badge" id="cockpit-theme-badge">기본 지식베이스</span>
               <span class="cockpit-kind-badge" id="cockpit-kind-badge">적재 파이프라인</span>
             </div>
             <div class="cockpit-title-line">
@@ -364,7 +364,7 @@
       </div>
       <div id="matrix-progress-banner" class="cockpit-telemetry-bar">
         <div class="cockpit-telemetry-left">
-          <span class="cockpit-worker-icon" aria-hidden="true">⚡</span>
+          <span class="cockpit-worker-icon" aria-hidden="true"><span data-icon="bolt"></span></span>
           <span class="cockpit-telemetry-engine" id="cockpit-telemetry-engine">적재 워커:</span>
           <div class="matrix-progress-spinner" id="matrix-progress-spinner" style="display:none"></div>
           <span id="matrix-progress-msg"></span>
@@ -422,16 +422,16 @@
         <div class="rtools" id="presentationtools">
           <span class="presentation-coords" id="presentation-coords" title="현재 슬라이드 / 전체 슬라이드">01 / 01</span>
           <button type="button" class="ptool-btn" onclick="presentationSpeaker()" title="발표자 모드 (S)" aria-label="발표자 모드">
-            🎙️ <span class="ptool-label">발표자</span>
+            <span data-icon="mic"></span> <span class="ptool-label">발표자</span>
           </button>
           <button type="button" class="ptool-btn" onclick="presentationOverview()" title="프레젠테이션 개요 (O / ESC)" aria-label="개요">
-            🗂️ <span class="ptool-label">개요</span>
+            <span data-icon="list"></span> <span class="ptool-label">개요</span>
           </button>
           <button type="button" class="ptool-btn" id="presentation-download-btn" onclick="presentationDownloadPdf()" title="PDF로 저장" aria-label="PDF로 저장">
-            📥
+            <span data-icon="download"></span>
           </button>
           <button type="button" class="ptool-btn rshare" onclick="presentationShare()" title="프레젠테이션 공유 링크 만들기" aria-label="공유 링크 만들기">
-            🔗
+            <span data-icon="link"></span>
           </button>
           <button type="button" class="ptool-btn" onclick="presentationFullscreen()" title="전체화면 (F)" aria-label="전체화면">
             ⛶
@@ -440,7 +440,7 @@
       </div>
       <div class="sharebox" id="presentation-sharebox"></div>
       <div id="presentation-empty" class="presentation-empty-banner" style="display:none">
-        <div class="presentation-empty-icon">📊</div>
+        <div class="presentation-empty-icon"><span data-icon="screen"></span></div>
         <h3 id="presentation-empty-title">프레젠테이션이 준비되지 않았습니다</h3>
         <p id="presentation-empty-msg">문서를 선택하거나 프레젠테이션을 생성하세요.</p>
         <button id="presentation-gen-btn" type="button" class="presentation-gen-btn" onclick="generatePresentationForCurrentDoc()" style="display:none">프레젠테이션 생성</button>
@@ -452,12 +452,12 @@
         <div class="head">
           <h1 id="rtitle">문서를 선택하세요</h1>
           <div class="rtools">
-            <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정">✏️</button>
+            <button class="redit" id="reditbtn" onclick="editDocTitle()" title="제목 수정" aria-label="제목 수정"><span data-icon="edit"></span></button>
             <div class="rzoom">
               <button onclick="setReadFS(-2)" title="글자 작게" aria-label="글자 작게">A−</button>
               <button onclick="setReadFS(2)" title="글자 크게" aria-label="글자 크게">A+</button>
             </div>
-            <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기">🔗</button>
+            <button class="rshare" onclick="shareDoc()" title="공유 링크 만들기" aria-label="공유 링크 만들기"><span data-icon="link"></span></button>
             <button class="rclose" onclick="closeReader()" title="닫기(ESC)" aria-label="읽기 닫기">✕</button>
           </div>
         </div>
@@ -509,7 +509,7 @@
       <div id="panel"></div>
       <div id="drawerfooter">
         <span id="drawermanager" class="drawer-manager" title="지식 관리자: __SORCERER__">지식 관리자: __SORCERER__</span>
-        <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg);margin-left:auto;flex-shrink:0"><span class="btn-icon">🐙</span> <span class="btn-label">GitHub</span></a>
+        <a id="repolink" class="sec" href="__SOURCE_BASE_URL__" target="_blank" rel="noopener noreferrer" title="소스 리포지토리 (__GITHUB_REPOSITORY__)" aria-label="GitHub 리포지토리" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;padding:3px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--sec-fg);background:var(--sec-bg);margin-left:auto;flex-shrink:0"><span class="btn-icon" data-icon="link"></span> <span class="btn-label">GitHub</span></a>
       </div>
     </div>
   </aside>
