@@ -755,7 +755,9 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(agyModelSelect).toBeVisible();
   expect(await agyModelSelect.evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-agy-effort')).toHaveCount(0);
-  await expect(agyModelSelect.locator('option[value="gemini-4-hydrogen-medium"]')).toHaveText('gemini-4-hydrogen-medium');
+  await expect(page.locator('#prov-feat-gemini')).toContainText('적재·요약');
+  await expect(page.locator('#prov-feat-antigravity')).toContainText('벡터 임베딩');
+  await expect(page.locator('#prov-active-select option[value="openai"]')).toBeDisabled();
   await expect(page.locator('#prov-cdx-bin')).toBeVisible();
   expect(await page.locator('#prov-cdx-model').evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-oai-url')).toBeVisible();
@@ -768,18 +770,19 @@ test('provider management lives in the admin console and the root topbar shows o
   await agyTestBtn.click();
   const agyResult = page.locator('#prov-test-res-antigravity');
   await expect(agyResult).toBeVisible();
-  await expect(agyResult).toContainText(/감지됨|바이너리|호스트|성공/);
+  await expect(agyResult).toContainText(/감지됨|바이너리|호스트|성공|실패|조회/);
 
   // 7. Save settings and verify notification alert
-  const saveBtn = detailPane.locator('button:has-text("설정 저장")');
+  const saveBtn = detailPane.locator('#prov-save-btn');
   await expect(saveBtn).toBeVisible();
+  await expect(saveBtn).toBeEnabled();
   await saveBtn.click();
   await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();
 
   expect(pageErrors).toEqual([]);
 });
 
-test('admin providers surfaces legacy agy fallback warning and excludes unverified models', async ({ page }) => {
+test('admin providers checks capabilities, guides features, and locks invalid selections without fallback', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 1400, height: 900 });
@@ -802,6 +805,8 @@ test('admin providers surfaces legacy agy fallback warning and excludes unverifi
       contentType: 'application/json',
       body: JSON.stringify({
         active_provider: 'antigravity',
+        effective_provider: 'antigravity',
+        effective_stt_provider: 'mock',
         providers: {
           gemini: { has_api_key: false, api_key: '', model: 'gemini-3.1-flash-lite', embed_model: 'gemini-embedding-001' },
           antigravity: {
@@ -809,17 +814,51 @@ test('admin providers surfaces legacy agy fallback warning and excludes unverifi
             bin: 'agy',
             model: 'gemini-4-hydrogen-medium',
             cli_version: '1.1.14',
-            models_source: 'fallback',
-            available_models: [
-              { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
-              { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
-              { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }
-            ]
+            models_source: 'unavailable',
+            available_models: []
           },
           codex: { installed: false, bin: 'codex', model: '' },
           openai: { has_api_key: false, api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', embed_model: 'text-embedding-3-small' },
           jev: { enabled: false, has_api_key: false, api_key: '' },
           stt: { enabled: true, provider: 'gemini', model: '', language: 'ko', timeout: 600 }
+        },
+        capabilities: {
+          active_provider: 'antigravity',
+          can_save: false,
+          lock_reasons: ['Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.'],
+          warnings: ['STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.'],
+          stt: { enabled: true, provider: 'gemini', ready: false },
+          providers: {
+            gemini: { selectable: false, locked_reason: 'Gemini API Key가 설정되지 않았습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
+            antigravity: { selectable: false, locked_reason: 'Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.', available_models: [], features: { extract: true, research: true, embedding: false, stt_vlm: false }, embedding_note: '임베딩은 GEMINI_API_KEY가 필요합니다.' },
+            codex: { selectable: false, locked_reason: 'Codex CLI 바이너리를 찾을 수 없습니다.', features: { extract: true, research: true, embedding: false, stt_vlm: false } },
+            openai: { selectable: false, locked_reason: 'OpenAI 백엔드는 아직 구현되지 않아 선택할 수 없습니다.', features: { extract: false, research: false, embedding: false, stt_vlm: false } },
+            mock: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } }
+          }
+        }
+      })
+    });
+  });
+
+  await page.route(u => u.pathname === '/providers/check', async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    const act = body.active_provider || 'mock';
+    const isMock = act === 'mock';
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        active_provider: act,
+        can_save: isMock,
+        lock_reasons: isMock ? [] : ['선택한 프로바이더가 잠금 상태입니다.'],
+        warnings: ['STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.'],
+        stt: { enabled: true, provider: 'gemini', ready: false },
+        providers: {
+          gemini: { selectable: false, locked_reason: 'Gemini API Key가 설정되지 않았습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
+          antigravity: { selectable: false, locked_reason: 'Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.', available_models: [], features: { extract: true, research: true, embedding: false, stt_vlm: false } },
+          codex: { selectable: false, locked_reason: 'Codex CLI 바이너리를 찾을 수 없습니다.', features: { extract: true, research: true, embedding: false, stt_vlm: false } },
+          openai: { selectable: false, locked_reason: 'OpenAI 백엔드는 아직 구현되지 않아 선택할 수 없습니다.', features: { extract: false, research: false, embedding: false, stt_vlm: false } },
+          mock: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } }
         }
       })
     });
@@ -829,9 +868,18 @@ test('admin providers surfaces legacy agy fallback warning and excludes unverifi
   const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();
   await expect(detailPane).toContainText('(v1.1.14)');
-  await expect(page.locator('#prov-agy-model')).toHaveValue('gemini-3.8-flash-medium');
-  await expect(page.locator('#prov-agy-model option[value="gemini-4-hydrogen-medium"]')).toHaveCount(0);
-  await expect(detailPane).toContainText('CLI v1.1.14에서 동적 모델 조회에 실패하여 기본 호환 모델만 표시합니다');
+  await expect(page.locator('#prov-agy-model')).toBeDisabled();
+  await expect(page.locator('#prov-agy-model option[value="gemini-3.8-flash-medium"]')).toHaveCount(0);
+  await expect(page.locator('#prov-cap-antigravity')).toContainText('잠금:');
+  await expect(page.locator('#prov-cap-openai')).toContainText('구현되지 않아');
+  await expect(page.locator('#prov-cap-stt')).toContainText('음성 전사가 동작하지 않습니다');
+  await expect(page.locator('#prov-cap-summary')).toContainText('저장 잠금');
+  await expect(page.locator('#prov-save-btn')).toBeDisabled();
+
+  // Switching to an unlocked provider unlocks saving
+  await page.locator('#prov-active-select').selectOption('mock');
+  await expect(page.locator('#prov-save-btn')).toBeEnabled();
+  await expect(page.locator('#prov-cap-summary')).toContainText('기능 안내');
 
   expect(pageErrors).toEqual([]);
 });
