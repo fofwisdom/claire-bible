@@ -182,10 +182,11 @@ class AntigravityProvider:
             ])
             if self.model:
                 cmd.extend(["--model", self.model])
-            # 모델명에 이미 -xhigh, -high, -medium, -low 접미사가 포함된 경우 --effort 전달 시 agy CLI 충돌 방지
+            # 모델명에 이미 -xhigh, -high, -medium, -low 접미사가 있거나 별도 --effort를 받지 않는 모델이면 생략
+            model_str = str(self.model or "").strip().lower()
             model_has_effort = any(
-                str(self.model).endswith(f"-{suf}") for suf in ("xhigh", "high", "medium", "low")
-            )
+                model_str.endswith(f"-{suf}") for suf in ("xhigh", "high", "medium", "low")
+            ) or model_str.startswith(("gemini-4-", "claude-", "gpt-oss-", "gemini-pro-orchestrator"))
             eff = effort or self.effort
             if eff and not model_has_effort:
                 cmd.extend(["--effort", eff])

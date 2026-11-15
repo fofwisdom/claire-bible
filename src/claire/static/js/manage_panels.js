@@ -94,6 +94,38 @@
     }
   }
 
+  function normalizeModelOptions(rawList, fallbackList) {
+    const src = Array.isArray(rawList) && rawList.length ? rawList : fallbackList;
+    return src.map(item => (typeof item === 'string' ? { id: item, label: '' } : { id: String(item.id || ''), label: String(item.label || '') }));
+  }
+
+  function buildModelSelectResult(rawList, fallbackList, currentVal, defaultId) {
+    const items = normalizeModelOptions(rawList, fallbackList);
+    const ids = new Set(items.map(m => m.id));
+    const cur = currentVal == null ? '' : String(currentVal);
+    let selected = cur;
+    let replacedUnsupported = false;
+    if (!ids.has(cur)) {
+      selected = defaultId && ids.has(defaultId) ? defaultId : (items[0] ? items[0].id : '');
+      replacedUnsupported = cur !== '';
+    }
+    let optionsHtml = '';
+    for (const m of items) {
+      const text = m.id === '' ? (m.label || '계정 기본') : m.id;
+      optionsHtml += `<option value="${esc(m.id)}" ${selected === m.id ? 'selected' : ''}>${esc(text)}</option>`;
+    }
+    return { optionsHtml, selected, replacedUnsupported, previousVal: cur };
+  }
+
+  function renderModelSelectField(id, rawList, fallbackList, currentVal, defaultId) {
+    const res = buildModelSelectResult(rawList, fallbackList, currentVal, defaultId);
+    let html = `<select id="${esc(id)}" style="width:100%;box-sizing:border-box;margin-top:2px;">${res.optionsHtml}</select>`;
+    if (res.replacedUnsupported) {
+      html += `<div style="margin-top:3px;font-size:10px;color:var(--warn,#9a6700);">기존 값(<code>${esc(res.previousVal)}</code>)이 지원 목록에 없어 <code>${esc(res.selected)}</code>(으)로 선택됨</div>`;
+    }
+    return html;
+  }
+
   async function testProviderConnection(provName) {
     const resEl = document.getElementById('prov-test-res-' + provName);
     if (resEl) {
@@ -128,18 +160,9 @@
           if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
             const sel = document.getElementById('prov-agy-model');
             if (sel) {
-              const prev = sel.value;
-              const ids = new Set(d.details.models.map(m => m.id));
-              let optHtml = '';
-              if (prev && !ids.has(prev)) {
-                optHtml += `<option value="${esc(prev)}">${esc(prev)} (현재 설정)</option>`;
-              }
-              for (const m of d.details.models) {
-                const mLabel = m.label ? `${m.label} — ${m.id}` : m.id;
-                optHtml += `<option value="${esc(m.id)}">${esc(mLabel)}</option>`;
-              }
-              sel.innerHTML = optHtml;
-              if (prev) sel.value = prev;
+              const res = buildModelSelectResult(d.details.models, d.details.models, sel.value, 'gemini-3.8-flash-medium');
+              sel.innerHTML = res.optionsHtml;
+              sel.value = res.selected;
             }
           }
         } else {
@@ -285,9 +308,22 @@
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">삭제</button>';
     }
     h += '</div></div>';
+    const geminiModelFallback = [
+      'gemini-3.5-flash-lite',
+      'gemini-3.8-flash',
+      'gemini-4-argon',
+      'gemini-3.6-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-pro-preview',
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.5-pro'
+    ];
+    const geminiEmbedFallback = ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview'];
     h += '<div><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
-    h += `<input id="prov-gemini-model" style="width:100%;box-sizing:border-box;margin-top:2px;" list="gemini-model-list" value="${esc(gemini.model||'gemini-3.1-flash-lite')}"/>`;
-    h += '<datalist id="gemini-model-list"><option value="gemini-3.1-flash-lite"/><option value="gemini-2.5-flash"/><option value="gemini-2.5-pro"/><option value="gemini-3.7-flash"/></datalist></div>';
+    h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite');
+    h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
     h += '<select id="prov-gemini-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
@@ -296,7 +332,8 @@
     h += `<option value="high" ${gemini.effort==='high'?'selected':''}>high</option>`;
     h += '</select></div>';
     h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 모델</label>';
-    h += `<input id="prov-gemini-embed" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(gemini.embed_model||'gemini-embedding-001')}"/></div>`;
+    h += renderModelSelectField('prov-gemini-embed', gemini.available_embed_models, geminiEmbedFallback, gemini.embed_model || 'gemini-embedding-001', 'gemini-embedding-001');
+    h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최소 간격 (초)</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
@@ -312,33 +349,32 @@
     h += `<strong style="font-size:13px;">🚀 Antigravity CLI (agy) ${agyBadge}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
     h += '</div>';
-    const agyModels = Array.isArray(agy.available_models) && agy.available_models.length ? agy.available_models : [
-      { id: 'gemini-4-hydrogen-low', label: 'Gemini 4 Hydrogen (Low)' },
-      { id: 'gemini-4-hydrogen-medium', label: 'Gemini 4 Hydrogen (Medium)' },
-      { id: 'gemini-4-hydrogen-high', label: 'Gemini 4 Hydrogen (High)' },
-      { id: 'gemini-4-hydrogen-xhigh', label: 'Gemini 4 Hydrogen (XHigh)' },
-      { id: 'gemini-4-argon-low', label: 'Gemini 4 Argon (Low)' },
-      { id: 'gemini-4-argon-medium', label: 'Gemini 4 Argon (Medium)' },
-      { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)' },
-      { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' },
-      { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
-      { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+    const agyFallbackModels = [
+      'gemini-4-argon-medium',
+      'gemini-4-argon-high',
+      'gemini-4-argon-low',
+      'gemini-4-hydrogen-high',
+      'gemini-4-hydrogen-xhigh',
+      'gemini-4-hydrogen-medium',
+      'gemini-4-hydrogen-low',
+      'gemini-pro-orchestrator-g1-pro',
+      'gemini-3.8-flash-high',
+      'gemini-3.8-flash-medium',
+      'gemini-3.8-flash-low',
+      'claude-opus-5-5-low',
+      'claude-opus-5-5-medium',
+      'claude-opus-5-5-high',
+      'claude-sonnet-5-5-low',
+      'claude-sonnet-5-5-medium',
+      'claude-sonnet-5-5-high',
+      'gpt-oss-120b-medium'
     ];
-    const currentAgyModel = agy.model || 'gemini-3.7-flash';
-    const agyModelIds = new Set(agyModels.map(m => m.id));
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-agy-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.bin||'agy')}"/></div>`;
     h += '<div style="flex:1.5;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
-    h += '<select id="prov-agy-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    if (currentAgyModel && !agyModelIds.has(currentAgyModel)) {
-      h += `<option value="${esc(currentAgyModel)}" selected>${esc(currentAgyModel)} (현재 설정)</option>`;
-    }
-    for (const m of agyModels) {
-      const mLabel = m.label ? `${m.label} — ${m.id}` : m.id;
-      h += `<option value="${esc(m.id)}" ${currentAgyModel === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
-    }
-    h += '</select></div>';
+    h += renderModelSelectField('prov-agy-model', agy.available_models, agyFallbackModels, agy.model || 'gemini-3.8-flash-medium', 'gemini-3.8-flash-medium');
+    h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">타임아웃 (초)</label><input id="prov-agy-timeout" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.timeout||120.0}"/></div>`;
@@ -355,10 +391,23 @@
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'codex\')">CLI 확인</button>';
     h += '</div>';
     h += '<p style="margin:0 0 8px;font-size:11px;color:var(--muted,#888);">네이티브 호스트 전용 (Docker 환경에서는 자동 거부됩니다)</p>';
+    const cdxFallbackModels = [
+      { id: '', label: '계정 기본' },
+      { id: 'gpt-5.4', label: '' },
+      { id: 'gpt-5.3-codex', label: '' },
+      { id: 'gpt-5.2-codex', label: '' },
+      { id: 'gpt-5.1-codex', label: '' },
+      { id: 'gpt-5-codex', label: '' },
+      { id: 'gpt-5', label: '' },
+      { id: 'o3', label: '' },
+      { id: 'o4-mini', label: '' }
+    ];
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-cdx-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(cdx.bin||'codex')}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델 (공란시 계정 기본)</label><input id="prov-cdx-model" style="width:100%;box-sizing:border-box;margin-top:2px;" placeholder="기본 모델" value="${esc(cdx.model||'')}"/></div>`;
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델</label>';
+    h += renderModelSelectField('prov-cdx-model', cdx.available_models, cdxFallbackModels, cdx.model || '', '');
+    h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
     h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
@@ -388,12 +437,17 @@
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-oai-key\', \'openai\')">삭제</button>';
     }
     h += '</div></div>';
+    const oaiModelFallback = ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-5-mini', 'gpt-5', 'o4-mini', 'o3-mini'];
+    const oaiEmbedFallback = ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'];
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">Base URL</label><input id="prov-oai-url" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.base_url||'https://api.openai.com/v1')}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델</label><input id="prov-oai-model" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.model||'gpt-4o-mini')}"/></div>`;
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">모델</label>';
+    h += renderModelSelectField('prov-oai-model', oai.available_models, oaiModelFallback, oai.model || 'gpt-4o-mini', 'gpt-4o-mini');
+    h += '</div>';
     h += '</div>';
     h += '<div><label style="font-size:11px;opacity:0.8;">임베딩 모델</label>';
-    h += `<input id="prov-oai-embed" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(oai.embed_model||'text-embedding-3-small')}"/></div>`;
+    h += renderModelSelectField('prov-oai-embed', oai.available_embed_models, oaiEmbedFallback, oai.embed_model || 'text-embedding-3-small', 'text-embedding-3-small');
+    h += '</div>';
     h += '</div>';
     h += '<div id="prov-test-res-openai" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
