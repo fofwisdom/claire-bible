@@ -48,6 +48,8 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
+_PRIVATE_KEY_PREFIXES = ("remote/", "claire-probe/")
+
 _LEGACY_IMAGE_RE = re.compile(r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|svg|mp4|webm|mp3|ogg|bin)$")
 
 
@@ -111,7 +113,8 @@ def create_media_app(
 
     async def media_object_route(request: Any) -> Response:
         key = request.path_params.get("key", "").lstrip("/")
-        if not key or ".." in key.split("/"):
+        # The cache of remote media (``remote/``) is reached only through the proxy route with its token, and the probe objects of the storage test are not media.
+        if not key or ".." in key.split("/") or key.startswith(_PRIVATE_KEY_PREFIXES):
             return PlainTextResponse("Not Found", status_code=404)
 
         # Token checking for capability access
@@ -227,6 +230,19 @@ def create_media_app(
 
         return Response(content=obj.body, status_code=obj.status_code, headers=headers)
 
+    # Remote media of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1, unit FP4-7).
+    from ..media_proxy import MediaProxy, proxy_response, verify_media_token
+
+    remote_proxy = MediaProxy(settings, media_store, now=now)
+
+    async def remote_media_route(request: Any) -> Response:
+        """``GET /media/remote/{url_hash}?t={token}``. A token that is absent, expired, or of another URL gets the same 404 as a URL without an entry."""
+        url_hash = request.path_params.get("url_hash", "")
+        token = request.query_params.get("t", "")
+        if verify_media_token(token, url_hash, secret_service=sec_svc, now=now() if now is not None else None) is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return proxy_response(await remote_proxy.serve(url_hash, request.headers.get("range")))
+
     async def legacy_images_route(request: Any) -> Response:
         filename = request.path_params.get("filename", "").strip().lstrip("/")
         if filename.startswith("images/"):
@@ -243,6 +259,7 @@ def create_media_app(
         return PlainTextResponse("Not Found", status_code=404)
 
     routes = [
+        Route("/media/remote/{url_hash}", remote_media_route, methods=["GET", "HEAD"]),
         Route("/media/{key:path}", media_object_route, methods=["GET", "HEAD"]),
         Route("/images/{filename:path}", legacy_images_route, methods=["GET", "HEAD"]),
         Route("/p/images/{filename:path}", legacy_images_route, methods=["GET", "HEAD"]),

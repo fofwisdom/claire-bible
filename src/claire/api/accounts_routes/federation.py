@@ -79,6 +79,8 @@ FOLLOWING_PAGE_MAX = 80
 FEDERATION_TIMELINE_API_PATH = "/api/federation/timeline"
 FEDERATION_OBJECTS_API_PATH = "/api/federation/objects"
 REMOTE_RENDER_PATH = "/render/remote"
+# FP4-7 (Section 9.1): the media proxy on the app origin, for an instance without a media host.
+REMOTE_MEDIA_PATH = "/media/remote"
 TIMELINE_PAGE_MAX = 80
 TIMELINE_FILTERS = ("unread", "starred", "mention")
 READING_AUDIT_ACTION = "federation.reading.update"
@@ -934,7 +936,36 @@ def routes(ctx: AccountsContext) -> list[Route]:
         token = request.query_params.get("t", "")
         if item is None or item["account_id"] != account_id or not usercontent.verify_remote_token(token, account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None)):
             return not_found()
-        return usercontent.remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN"})
+        # Section 9.1 rule 1: the media comes from the media host, or from this origin when the instance has no media host (development).
+        media_origin = _media_origin()
+        media_url = usercontent.remote_media_urls(ctx.db_file, account_id=account_id, content_html=item["content_html"], attachments=item["attachments"], media_base=media_origin or "", secret_service=getattr(ctx.settings, "secret_service", None))
+        return usercontent.remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN"}, media_url=media_url, media_source=media_origin or "'self'")
+
+    def _media_origin() -> str | None:
+        roles = ctx.config.host_roles
+        return None if roles is None else roles.origin("media")
+
+    _proxy_holder: list[Any] = []
+
+    def _media_proxy() -> Any:
+        if not _proxy_holder:
+            from ...media_proxy import MediaProxy
+            from ...store.media import get_media_store
+
+            _proxy_holder.append(MediaProxy(ctx.settings, get_media_store(ctx.settings)))
+        return _proxy_holder[0]
+
+    async def remote_media_fallback(request: Request) -> Response:
+        """Remote media on the app origin (Section 9.1), only for an instance without a media host. With a media host this path does not exist here. The caller is the owner of the account of the token."""
+        from ...media_proxy import proxy_response, verify_media_token
+
+        account_id = _owner_account_id(request)
+        url_hash = request.path_params.get("url_hash", "")
+        if account_id is None or _media_origin() is not None:
+            return not_found()
+        if verify_media_token(request.query_params.get("t", ""), url_hash, secret_service=getattr(ctx.settings, "secret_service", None)) != account_id:
+            return not_found()
+        return proxy_response(await _media_proxy().serve(url_hash, request.headers.get("range")))
 
     return [
         Route(FEDERATION_TIMELINE_API_PATH, federation_timeline_get, methods=["GET"]),
@@ -942,6 +973,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}", federation_timeline_item_patch, methods=["PATCH"]),
         Route(FEDERATION_OBJECTS_API_PATH, federation_objects_get, methods=["GET"]),
         Route(REMOTE_RENDER_PATH + "/{item_id}", remote_render_fallback, methods=["GET"]),
+        Route(REMOTE_MEDIA_PATH + "/{url_hash}", remote_media_fallback, methods=["GET"]),
         Route(FEDERATION_PUBLISH_API_PATH, federation_publish_post, methods=["POST"]),
         Route(FEDERATION_RETRACT_API_PATH, federation_retract_post, methods=["POST"]),
         Route(ADMIN_FEDERATION_API_PATH, admin_federation_get, methods=["GET"]),

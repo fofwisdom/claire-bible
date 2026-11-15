@@ -3539,6 +3539,55 @@ def cmd_instance(args) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_federation_prune(args) -> int:
+    """The media cleanup of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1 rule 6 and Section 10 rule 4): delete the media cache entries without an access in ``media_evict_days``, and the entries that no timeline item uses. The ``api`` process does the same one time each day."""
+    import asyncio
+    import json
+    import sqlite3
+
+    from . import media_proxy
+    from .store import client_db
+    from .store import federation_media
+
+    s = get_settings()
+    client_file = client_db.client_db_path(s.db_file)
+    if not s.db_file.is_file() or not client_file.is_file():
+        print("federation prune: no client database. There is nothing to delete.", file=sys.stderr)
+        return 1
+    try:
+        if args.apply:
+            result = asyncio.run(media_proxy.cleanup_proxy(s).evict())
+        else:
+            import time
+
+            from .store import db as dbm
+            from .store import federation_client as client_store
+
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                evict_days = int(client_store.get_reading_settings(conn)["media_evict_days"])
+            finally:
+                conn.close()
+            client = client_db.connect_client_existing(client_file, readonly=True)
+            try:
+                old = set(federation_media.evictable_hashes(client, before=time.time() - evict_days * 86400.0))
+                orphans = set(federation_media.orphan_hashes(client)) - old
+            finally:
+                client.close()
+            result = {"evict_days": evict_days, "evicted": len(old), "orphans": len(orphans)}
+    except sqlite3.Error as e:
+        print(f"federation prune: cannot read the database: {e}", file=sys.stderr)
+        return 1
+    result = {"applied": bool(args.apply), **result}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.apply:
+        print(f"federation prune: {result['evicted']} media entry(ies) without an access in {result['evict_days']} day(s) and {result['orphans']} media entry(ies) without an item deleted.")
+    else:
+        print(f"federation prune: {result['evicted']} media entry(ies) had no access in {result['evict_days']} day(s), and {result['orphans']} media entry(ies) have no item. Use --apply to delete them.")
+    return 0
+
+
 def cmd_federation(args) -> int:
     """Recovery for a lost sidecar database (Fedify sidecar design Section 9.4): set the tasks that the sidecar took in the last hours to ``pending`` again.
 
@@ -3551,6 +3600,8 @@ def cmd_federation(args) -> int:
     from .store import db as dbm
     from .store import federation as federation_store
 
+    if getattr(args, "federation_action", None) == "prune":
+        return _cmd_federation_prune(args)
     hours = float(args.max_age_hours)
     if not 0 < hours <= 24 * 30:
         print("federation requeue: --max-age-hours must be more than 0 and not more than 720", file=sys.stderr)
@@ -5580,7 +5631,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pfed = sub.add_parser(
         "federation",
-        help="federation maintenance: recovery after the loss of the sidecar database",
+        help="federation maintenance: recovery after the loss of the sidecar database, cleanup of the media cache",
         description="Federation maintenance commands for the admin.",
     )
     pfed_sub = pfed.add_subparsers(dest="federation_action", required=True)
@@ -5593,6 +5644,14 @@ def build_parser() -> argparse.ArgumentParser:
     pfed_requeue.add_argument("--apply", action="store_true", help="change the tasks. Without this option the command only counts them")
     pfed_requeue.add_argument("--json", action="store_true", help="output the result in JSON format")
     pfed_requeue.set_defaults(func=cmd_federation)
+    pfed_prune = pfed_sub.add_parser(
+        "prune",
+        help="delete the media cache entries of the federation client that are old or have no item",
+        description="Delete the media cache entries without an access in the number of days of the admin setting media_evict_days, and the entries that no timeline item uses, with their files in the media store. The api process does the same one time each day. Without --apply the command only counts the entries.",
+    )
+    pfed_prune.add_argument("--apply", action="store_true", help="delete the entries. Without this option the command only counts them")
+    pfed_prune.add_argument("--json", action="store_true", help="output the result in JSON format")
+    pfed_prune.set_defaults(func=cmd_federation)
 
     pmedia = sub.add_parser(
         "media",

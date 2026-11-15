@@ -393,6 +393,12 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
   - `media` 호스트는 쿠키를 읽지도 쓰지도 않는다 (`Cookie` 헤더 폐기, `Set-Cookie` 금지).
   - 샌드박스 렌더링 origin(`usercontent`)의 불투명 서브리소스 요청을 지원하기 위해 `Access-Control-Allow-Origin: *` 헤더를 제공한다.
 
+- **원격 미디어 프록시 (FP4-7)**:
+  - 연합 클라이언트가 받은 원격 게시물의 이미지·영상·오디오는 `media` 호스트의 `/media/remote/{url_hash}?t={token}`으로만 나간다. 열람자의 브라우저는 원격 서버에 접속하지 않는다.
+  - 토큰은 `(account_id, url_hash, exp)`에 바인딩된 1시간짜리 HMAC이다. 토큰이 없거나 틀리면 404다. 공개 경로 `/media/{key}`는 `remote/` 키를 내보내지 않는다.
+  - 응답 헤더: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: cross-origin`, `Cache-Control: private`.
+  - `media` 호스트가 없는 설치(개발)에서는 같은 경로가 app origin에 있고 계정 소유자 세션이 필요하다. `usercontent` 호스트만 있고 `media` 호스트가 없으면 본문에 미디어가 나오지 않는다. 세부 규칙은 [`FEDERATION.md`](FEDERATION.md) §21에 있다.
+
 ### 3. 무효화 및 수명주기 훅
 - 테마의 공개 상태가 비공개로 전환되거나 문서가 소각(purge)될 때:
   1. 테마의 `visibility_epoch`가 즉시 증가한다.

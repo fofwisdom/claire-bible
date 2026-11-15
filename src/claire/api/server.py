@@ -4725,11 +4725,14 @@ def create_app(
         from ..feeds.poller import run_scheduler as _feed_poll_scheduler
 
         feed_task = asyncio.create_task(_feed_poll_scheduler(s))
+        from ..media_proxy import run_cleanup_scheduler as _media_cleanup_scheduler
+
+        media_cleanup_task = asyncio.create_task(_media_cleanup_scheduler(s))
         try:
             async with mcp_app.router.lifespan_context(mcp_app):
                 yield
         finally:
-            for task in (backup_task, feed_task):
+            for task in (backup_task, feed_task, media_cleanup_task):
                 task.cancel()
                 try:
                     await task

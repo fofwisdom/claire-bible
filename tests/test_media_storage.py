@@ -142,7 +142,8 @@ async def test_media_host_reads_the_bucket_then_local_storage_and_answers_503(tm
     assert (await _call_asgi(app, "/media/doc1_0.png")).body == b"local-image"
     assert (await _call_asgi(app, "/media/doc2_0.png")).body == b"bucket-image"
     assert (await _call_asgi(app, "/images/doc2_0.png")).body == b"bucket-image"
-    assert (await _call_asgi(app, "/media/remote/abc")).body == b"remote-media"
+    # The cache of remote media is not reached through the public media route.
+    assert (await _call_asgi(app, "/media/remote/abc")).status == 404 and (await _call_asgi(app, "/media/remote/abc/x")).status == 404
     assert (await _call_asgi(app, "/media/doc9_0.png")).status == 404
     s3.fail = 500
     assert (await _call_asgi(app, "/media/doc1_0.png")).body == b"local-image"

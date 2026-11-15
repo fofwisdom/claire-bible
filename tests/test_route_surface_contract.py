@@ -34,7 +34,7 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
        "/api/federation/status", "/api/federation/followers", "/api/federation/settings", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
        # Federation client (FP4-5)
-       "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/render/remote/{item_id}", "/api/federation/objects",
+       "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items"}
 SYSTEM = {
@@ -110,6 +110,7 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/api/federation/timeline/{item_id}") for m in ("GET", "HEAD", "PATCH")),
     ("POST", "/api/federation/timeline/{item_id}/ingest"),
     *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
+    *((m, "/media/remote/{url_hash}") for m in ("GET", "HEAD")),
     *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
     ("POST", "/api/federation/publish"),
     ("POST", "/api/federation/retract"),

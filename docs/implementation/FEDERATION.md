@@ -26,8 +26,9 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
-| Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No media in the body before FP4-7; no reply, favourite, or boost before FP4-9. |
+| Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No reply, favourite, or boost before FP4-9. |
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
+| Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -914,7 +915,6 @@ Differences from the design:
 - The normal form has `in_reply_to`, which the example of design Section 6.3 does not show. `announced_by` is a field of the event, not of the object. `blurhash` is always null (the Fedify vocabulary has no such property).
 - The handle of an author is `@preferredUsername@host` of the actor ID. The sidecar makes no WebFinger request for it.
 - An item stores the first announcer only. Thus `Undo(Announce)` cannot know if another followed actor also announced the object; it deletes the item when the announcer is the stored one and the account does not follow the author.
-- The cleanup of the media cache at a `Delete` comes with the media cache (FP4-7).
 
 Tests: `tests/test_e2e_federation_timeline.py`, `tests/test_federation_routes.py` (contract fixtures), `tests/test_client_db.py`, `sidecar/fedify/tests/timeline_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
 
@@ -943,8 +943,8 @@ All routes are for the owner of the account, in network mode only. An item of an
 ### 19.2 Rendering
 
 1. `render_url` has a viewing token of the kind `remote`. The token binds `(account_id, item_id, exp)` (HMAC, one hour). A document token is not valid for an item, and the reverse. A token that is absent, expired, or of another item or account gets the same 404 as an item that does not exist.
-2. The page has the HTML after `sanitize_remote_html` (the `nh3` allowlist without `img`, `picture`, `source`, `audio`, `video`, `track`, `map`, and `area`; no `style` and no `id`; links with `rel="nofollow noopener noreferrer"` and `target="_blank"`) and the attachments as a list of links.
-3. Policy of the page: `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {app origin}; sandbox allow-popups allow-popups-to-escape-sandbox`. No script runs, and no remote resource loads. The client puts the page in an `iframe` with the same `sandbox` value.
+2. The page has the HTML after `sanitize_remote_html` (the `nh3` allowlist without `picture`, `source`, `audio`, `video`, `track`, `map`, and `area`; no `style` and no `id`; links with `rel="nofollow noopener noreferrer"` and `target="_blank"`) and the attachments. An `img` stays only with the address of the media proxy in place of its remote address (Section 21); without a media proxy address the element becomes its `alt` text.
+3. Policy of the page: `default-src 'none'; img-src {media}; media-src {media}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {app origin}; sandbox allow-popups allow-popups-to-escape-sandbox`. `{media}` is the origin of the media host, or `'self'` for the page on the app origin of an instance without a media host. No script runs, and no resource loads from a remote server. The client puts the page in an `iframe` with the same `sandbox` value.
 4. With a `usercontent` host the body renders on that origin only: the path on the app origin gives 404. Without one (development), the path on the app origin needs the session of the owner of the item and the token, and `frame-ancestors` is `'self'`.
 5. The page has one fixed light surface. It cannot read the theme of the page around it, because its origin is opaque.
 
@@ -962,7 +962,6 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 ### 19.4 Differences from the Design and Limits
 
-- The body has no image, audio, or video before the media proxy (FP4-7). An attachment is a link to the remote server; the viewer contacts that server only by a click.
 - The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty), and no feed view (FP4-F3).
 - `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
@@ -1008,3 +1007,58 @@ The console section `/admin/storage` shows the store for new media, the state of
 - The app route `/image` (an instance without a media host) reads the local disk only.
 
 Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command, environment lock), `tests/s3_test_server.py` (the local S3-compatible server).
+
+## 21. Media Proxy (Unit FP4-7)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 7.2, 8, and 9.1. Code: `src/claire/media_proxy.py` (fetch, proxy, cleanup, token), `src/claire/store/federation_media.py` (records), `src/claire/api/media.py` (route on the media host), `src/claire/api/accounts_routes/federation.py` (route on the app origin), `src/claire/api/usercontent.py` (render).
+
+### 21.1 Records
+
+`client.db` version 3 has `federation_media_cache` with the columns of design Section 7.2. One row is one remote URL, for all accounts (`url_hash` is the SHA-256 of the URL). The file is in the media store under `remote/{url_hash}` (Section 20), thus in local storage or in the bucket.
+
+| State | Meaning |
+| :--- | :--- |
+| `new` | The render made the entry. No fetch yet. |
+| `stored` | The file is in the media store. `media_type` and `byte_size` are those of the fetch. |
+| `failed` | The fetch failed: a blocked address, a status that is not 200, a timeout, more than 3 redirects, or a type that is not allowed. A new fetch is possible after one hour. |
+| `too_large` | The file is above the admin limit. A new fetch is possible after 24 hours. |
+
+### 21.2 Render
+
+1. The render of an item (Section 19.2) makes the entries of its media URLs: the attachments with an allowed media type, and the `src` of each `img` of the content. It makes no request to the remote server.
+2. Each such URL gets the address `{media}/media/remote/{url_hash}?t={token}`. The token is `{account_id}.{exp}.{signature}` (HMAC, one hour) and binds `(account_id, url_hash, exp)`.
+3. An attachment with the type `image/*` (not `image/svg+xml`), `video/mp4`, `video/webm`, or `audio/*` is an `img`, `video`, or `audio` element (`preload="none"`). Each attachment has a link to its remote address; the viewer contacts the remote server only by a click (RS3). Another attachment is the link only.
+4. A URL with the state `failed` or `too_large` has no element in a later render, only the link.
+5. An instance with a `usercontent` host and no `media` host has no media in the body (the page on the `usercontent` host has no cookie for the app origin). An instance without the two hosts (development) uses the app origin for the two.
+
+### 21.3 Proxy Route
+
+| Host | Path | Rule |
+| :--- | :--- | :--- |
+| `media` | `GET /media/remote/{url_hash}?t={token}` | No cookie. A token that is absent, expired, or of another URL gets 404, as a URL without an entry. |
+| app (only without a `media` host) | `GET /media/remote/{url_hash}?t={token}` | The caller is the owner of the account of the token, in network mode. With a `media` host this path gives 404. |
+
+- The first request fetches the URL, puts the file in the media store, and records the result. Later requests read the store. One fetch runs at a time for one URL in a process.
+- Fetch rules: each hop gets the private address check of the other fetchers (`allow_private_networks`, `private_network_allowlist`); 3 redirects at most; timeout 15 seconds; no cookie (each hop has a new client) and no credential; `User-Agent: ClaireBible-MediaProxy/1.0 (+{public URL})`.
+- Types and sizes: the type is the `Content-Type` of the answer, not the type that the post declared. The limits are the reading settings `media_image_max_bytes` and `media_av_max_bytes` (Section 16), checked against `Content-Length` and against the bytes that arrive.
+- Answers: 200 or 206 (byte range) with the file; 404; 413 for `too_large`; 502 for `failed`; 503 with `Retry-After: 60` when the media store is not available; 416 for a range that is not possible.
+- Headers of 200 and 206: `Content-Type` of the record, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: cross-origin`, `Cache-Control: private`, `Accept-Ranges: bytes`.
+- The public media route `/media/{key}` gives 404 for the keys `remote/...` and `claire-probe/...`: the cache is reached only with a media token.
+
+### 21.4 Cleanup
+
+- A `Delete`, an `Undo(Announce)`, and an `Update` to not public that removed items delete the entries that no item uses, and their files, in the same request of the internal API.
+- The `api` process runs the media cleanup one time each day (the first run 5 minutes after the start): the entries without an access in `media_evict_days`, then the entries that no item uses. `claire federation prune` does the same from the command line ([`COMMANDS.md`](COMMANDS.md)); without `--apply` it only counts.
+- `last_access_at` changes at most one time each hour for one entry.
+- The account purge deletes the items of the account. The media entries that no item uses after it go at the next cleanup.
+
+### 21.5 Differences from the Design and Limits
+
+- `Cross-Origin-Resource-Policy` is `cross-origin`, not `same-site` (design Section 9.1 rule 5). The body is in a sandbox frame with an opaque origin, and Chromium refuses a `same-site` resource for an opaque origin (confirmed with a test in a real browser). The media token is the access control.
+- The token has the account ID in its text (`{account_id}.{exp}.{signature}`), because the media host has no session.
+- `claire federation prune` does the media cleanup only. The retention run of the items (design Section 10 rule 2) is part of unit FP4-10.
+- An `Update` that changes the media of an item leaves the old entries until the next cleanup.
+- The table has no column for the reason of a failed fetch. The log of the process has the reason.
+- The timeline list has no thumbnail: media shows in the body only.
+
+Tests: `tests/test_media_proxy.py` (fetch rules with a local HTTP server, token, records, migration of `client.db`), `tests/test_e2e_federation_media.py` (the proxy on the app origin and on the role hosts, limits, token, delete, cleanup command), `tests/test_federation_media_browser.py` (a real Chromium over three local hosts; skipped without a Playwright Chromium).

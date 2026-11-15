@@ -126,16 +126,19 @@ def test_e2e_body_renders_in_a_sandbox_and_no_script_runs(env):
     render_url = _get(env, f"{TIMELINE}/{item_id}").json()["item"]["render_url"]
     res = _render(env, render_url, session=env.alpha_session)
     assert res.status_code == 200, res.text
-    # The policy permits no script and no remote resource, and the page has an opaque origin.
+    # The policy permits no script, and the page has an opaque origin. Media loads only from the media proxy (unit FP4-7): this origin when the instance has no media host, and nothing on a usercontent host without a media host.
     csp = res.headers["content-security-policy"]
+    assert ("img-src" not in csp) if env.usercontent_host else ("img-src 'self'; media-src 'self';" in csp)
     assert "default-src 'none'" in csp and "script-src" not in csp and "sandbox allow-popups allow-popups-to-escape-sandbox" in csp and "allow-scripts" not in csp
     assert f"frame-ancestors {PUBLIC_URL}" in csp if env.usercontent_host else "frame-ancestors 'self'" in csp
     body = res.text
-    for forbidden in ("<script", "onerror", "onclick", "javascript:", "<img", "<iframe", "tracker.example", "evil.example"):
+    for forbidden in ("<script", "onerror", "onclick", "javascript:", "<iframe", "tracker.example", "evil.example"):
         assert forbidden not in body, forbidden
+    # No element has a remote address: an image has the address of the media proxy, or is absent.
+    assert 'src="http' not in body and (("<img" not in body) if env.usercontent_host else ('<img src="/media/remote/' in body))
     assert "Hello <b>world</b>" in body
     assert '<a href="https://remote.example/x" target="_blank" rel="nofollow noopener noreferrer">a link</a>' in body
-    # The attachment is a link, not a media element: the viewer contacts the remote server only by a click.
+    # The attachment has a link to the remote server: the viewer contacts the remote server only by a click.
     assert '<a href="https://remote.example/media/1.png" target="_blank" rel="nofollow noopener noreferrer">a picture</a>' in body
     # The usercontent host sets no cookie.
     assert not env.usercontent_host or "set-cookie" not in res.headers

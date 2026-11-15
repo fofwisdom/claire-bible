@@ -12,6 +12,7 @@ Versions:
 
 - 1 (FP4-2, 2026-11-13): feed tables (moved from ``claire.db`` version 21), ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``.
 - 2 (FP4-4, 2026-11-15): ``federation_timeline_items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
+- 3 (FP4-7, 2026-11-15): ``federation_media_cache`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.2).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 2
+CLIENT_SCHEMA_VERSION = 3
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -96,6 +97,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS client_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     _migrate_v1(conn)
     _migrate_v2(conn)
+    _migrate_v3(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -248,8 +250,30 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_timeline_thread ON federation_timeline_items(account_id, context_iri)")
 
 
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    # Records of the media cache (Section 7.2, unit FP4-7). One row for each remote URL, for all accounts: the media of one post goes to many accounts. The file is in the media store under ``remote/{url_hash}``.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_media_cache (
+            url_hash TEXT PRIMARY KEY,
+            remote_url TEXT NOT NULL,
+            store_key TEXT,
+            media_type TEXT,
+            byte_size INTEGER,
+            state TEXT NOT NULL CHECK (state IN ('new', 'stored', 'failed', 'too_large')),
+            fetched_at REAL,
+            last_access_at REAL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_media_cache_access ON federation_media_cache(last_access_at)")
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
-    """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits."""
+    """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits.
+
+    The media cache has no account: the entries that no item uses after this deletion go at the next media cleanup (``media_proxy.remove_orphans``).
+    """
     conn.execute("DELETE FROM feed_items WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM feed_subscriptions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_following WHERE account_id=?", (account_id,))

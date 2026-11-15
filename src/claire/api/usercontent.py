@@ -127,8 +127,14 @@ def sanitize_usercontent_html(raw_html: str) -> str:
 
 # --- Remote items of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 8, unit FP4-5) ---
 
-# Elements that load a resource. The media proxy (Section 9, unit FP4-7) is the only way for remote media; until it exists the render has no media element.
+# Elements that load a resource. Remote media comes only through the media proxy (Section 9, unit FP4-7): the render keeps ``img`` with the proxy address and removes all other resource elements.
 _REMOTE_RESOURCE_TAGS = frozenset({"img", "picture", "source", "audio", "video", "track", "map", "area"})
+_REMOTE_IMG_ATTRIBUTES = frozenset({"src", "alt", "title", "width", "height"})
+_REMOTE_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_REMOTE_IMG_ATTR_RE = re.compile(r'\b(src|alt|title|width|height)="([^"]*)"', re.IGNORECASE)
+
+# Gives the proxy address of a remote media URL, or ``None`` when the URL has no proxy address (then the render has no element for it).
+MediaUrlFn = Callable[[str], "str | None"]
 
 
 def _remote_token_message(account_id: int, item_id: int, exp: int) -> bytes:
@@ -155,21 +161,40 @@ def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_ser
     return hmac.compare_digest(signature, hmac.new(key, _remote_token_message(account_id, item_id, exp), hashlib.sha256).hexdigest())
 
 
-def sanitize_remote_html(raw_html: str) -> str:
-    """Sanitize the HTML of a remote server (Section 8 rule 3): the allowlist of ``sanitize_usercontent_html`` without the elements that load a resource. Each link opens a new tab and gives the remote site no referrer."""
+def _proxy_image_tag(match: re.Match[str], media_url: MediaUrlFn) -> str:
+    """One sanitized ``img`` element with the proxy address in place of the remote address. Without a proxy address the element becomes its ``alt`` text."""
+    attrs = {name.lower(): value for name, value in _REMOTE_IMG_ATTR_RE.findall(match.group(0))}
+    proxied = media_url(html.unescape(attrs.get("src", "")).strip())
+    if proxied is None:
+        return attrs.get("alt", "")
+    kept = "".join(f' {name}="{attrs[name]}"' for name in ("alt", "title", "width", "height") if attrs.get(name))
+    return f'<img src="{html.escape(proxied, quote=True)}"{kept} loading="lazy" decoding="async" referrerpolicy="no-referrer">'
+
+
+def sanitize_remote_html(raw_html: str, media_url: MediaUrlFn | None = None) -> str:
+    """Sanitize the HTML of a remote server (Section 8 rule 3): the allowlist of ``sanitize_usercontent_html`` without the elements that load a resource. Each link opens a new tab and gives the remote site no referrer.
+
+    With ``media_url``, an ``img`` stays and its ``src`` becomes the address of the media proxy (Section 9.1 rule 1). All other resource elements are removed, and without ``media_url`` the ``img`` elements too.
+    """
     if not raw_html:
         return ""
+    resource_tags = _REMOTE_RESOURCE_TAGS - {"img"} if media_url is not None else _REMOTE_RESOURCE_TAGS
     attributes = {tag: set(names) for tag, names in nh3.ALLOWED_ATTRIBUTES.items() if tag not in _REMOTE_RESOURCE_TAGS}
+    if media_url is not None:
+        attributes["img"] = set(_REMOTE_IMG_ATTRIBUTES)
     # ``class`` only: an ``id`` or a ``style`` of a remote server has no use in the frame.
     attributes["*"] = {"class", "title", "lang", "dir"}
-    return nh3.clean(
+    cleaned = nh3.clean(
         raw_html,
-        tags=set(nh3.ALLOWED_TAGS) - _REMOTE_RESOURCE_TAGS,
+        tags=set(nh3.ALLOWED_TAGS) - resource_tags,
         attributes=attributes,
         url_schemes={"http", "https", "mailto"},
         link_rel="nofollow noopener noreferrer",
         set_tag_attribute_values={"a": {"target": "_blank"}},
     )
+    if media_url is None:
+        return cleaned
+    return _REMOTE_IMG_TAG_RE.sub(lambda match: _proxy_image_tag(match, media_url), cleaned)
 
 
 def remote_item_text(raw_html: str, limit: int = 600) -> str:
@@ -179,16 +204,31 @@ def remote_item_text(raw_html: str, limit: int = 600) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def _attachment_list(attachments: list[dict[str, Any]]) -> str:
-    """The attachments as links to the remote server. The viewer contacts the remote server only by a click (RS3)."""
+def _attachment_list(attachments: list[dict[str, Any]], media_url: MediaUrlFn | None = None) -> str:
+    """The attachments of an item. With ``media_url``, an image, a video, or an audio attachment is an element with the address of the media proxy. Each attachment has a link to the remote server: the viewer contacts the remote server only by a click (RS3)."""
+    from ..store.federation_media import attachment_kind
+
     rows = []
     for attachment in attachments:
         url = str(attachment.get("url") or "")
         if not url.startswith(("https://", "http://")):
             continue
         label = str(attachment.get("name") or attachment.get("media_type") or url)
-        kind = str(attachment.get("media_type") or "")
-        rows.append(f'<li><a href="{html.escape(url, quote=True)}" target="_blank" rel="nofollow noopener noreferrer">{html.escape(label)}</a>{" <small>" + html.escape(kind) + "</small>" if kind and kind != label else ""}</li>')
+        kind_text = str(attachment.get("media_type") or "")
+        link = f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="nofollow noopener noreferrer">{html.escape(label)}</a>{" <small>" + html.escape(kind_text) + "</small>" if kind_text and kind_text != label else ""}'
+        kind = attachment_kind(attachment)
+        proxied = media_url(url) if media_url is not None and kind is not None else None
+        element = ""
+        if proxied is not None:
+            src = html.escape(proxied, quote=True)
+            alt = html.escape(str(attachment.get("name") or ""), quote=True)
+            if kind == "image":
+                element = f'<img src="{src}" alt="{alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer">'
+            elif kind == "video":
+                element = f'<video src="{src}" controls preload="none" title="{alt}"></video>'
+            else:
+                element = f'<audio src="{src}" controls preload="none" title="{alt}"></audio>'
+        rows.append(f'<li data-media-kind="{kind or "link"}">{element}<span class="cb-remote-attachment-link">{link}</span></li>')
     return f'<ul class="cb-remote-attachments">{"".join(rows)}</ul>' if rows else ""
 
 
@@ -196,22 +236,56 @@ def _attachment_list(attachments: list[dict[str, Any]]) -> str:
 _REMOTE_STYLE = (
     "body{margin:0;padding:12px 14px;font:15px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif;color:#1f2328;background:#fff;overflow-wrap:anywhere}"
     "a{color:#0969da}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #d0d7de;color:#57606a}pre{overflow:auto;padding:8px;background:#f6f8fa;border-radius:6px}"
-    ".cb-remote-attachments{margin:12px 0 0;padding:8px 0 0 18px;border-top:1px solid #d0d7de;font-size:13px}.cb-remote-attachments small{color:#57606a}"
+    "img,video{max-width:100%;height:auto;border-radius:6px}audio{width:100%}"
+    ".cb-remote-attachments{margin:12px 0 0;padding:8px 0 0;border-top:1px solid #d0d7de;font-size:13px;list-style:none}.cb-remote-attachments li{margin:0 0 10px}.cb-remote-attachments small{color:#57606a}"
+    ".cb-remote-attachment-link{display:block}"
 )
 
 
-def remote_item_response(*, content_html: str, attachments: list[dict[str, Any]], language: str | None, frame_ancestors: str, extra_headers: dict[str, str] | None = None) -> Response:
+def remote_item_response(*, content_html: str, attachments: list[dict[str, Any]], language: str | None, frame_ancestors: str, extra_headers: dict[str, str] | None = None, media_url: MediaUrlFn | None = None, media_source: str | None = None) -> Response:
     """The body of one timeline item as a page for a sandbox ``iframe`` (Section 8 rules 2 and 3).
 
-    The policy permits no script, no remote resource, and no form. ``sandbox`` gives the page an opaque origin; a link opens a new tab. ``frame_ancestors`` is the app origin, or ``'self'`` for the fallback on the app origin (rule 5).
+    The policy permits no script and no form. Media loads only from ``media_source`` (the origin of the media proxy, or ``'self'``); without it the page loads no resource. ``sandbox`` gives the page an opaque origin; a link opens a new tab. ``frame_ancestors`` is the app origin, or ``'self'`` for the fallback on the app origin (rule 5).
     """
     lang = html.escape(language or "", quote=True)
+    if media_source is None:
+        media_url = None
     page = (
         f'<!DOCTYPE html>\n<html lang="{lang}">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="referrer" content="no-referrer">\n'
-        f"<title>Remote post</title>\n<style>{_REMOTE_STYLE}</style>\n</head>\n<body>\n<article>{sanitize_remote_html(content_html)}</article>\n{_attachment_list(attachments)}\n</body>\n</html>"
+        f"<title>Remote post</title>\n<style>{_REMOTE_STYLE}</style>\n</head>\n<body>\n<article>{sanitize_remote_html(content_html, media_url)}</article>\n{_attachment_list(attachments, media_url)}\n</body>\n</html>"
     )
-    csp = f"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {frame_ancestors}; sandbox allow-popups allow-popups-to-escape-sandbox"
+    media_policy = f" img-src {media_source}; media-src {media_source};" if media_source is not None else ""
+    csp = f"default-src 'none';{media_policy} style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {frame_ancestors}; sandbox allow-popups allow-popups-to-escape-sandbox"
     return HTMLResponse(page, headers={"content-security-policy": csp, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "private, no-store", **(extra_headers or {})})
+
+
+def remote_media_urls(db_path: Path | None, *, account_id: int, content_html: str, attachments: list[dict[str, Any]], media_base: str, secret_service: SecretService | None = None, now: float | None = None) -> MediaUrlFn:
+    """Make the entries of the media cache for the media URLs of one item, and return the function that gives the proxy address of a URL (Section 9.1 rule 1).
+
+    ``media_base`` is the origin of the media proxy, or an empty string for a path on this origin. A URL whose last fetch failed or was above the size limit has no proxy address: the render shows only the link to the remote URL (rule 4).
+    """
+    from ..media_proxy import create_media_token
+    from ..store import client_db
+    from ..store import federation_media
+
+    when = time.time() if now is None else now
+    entries: dict[str, Any] = {}
+    urls = federation_media.item_media_urls(content_html, attachments)
+    if db_path is not None and urls and client_db.client_db_path(db_path).exists():
+        conn = client_db.connect_client_existing(client_db.client_db_path(db_path))
+        try:
+            entries = federation_media.register_urls(conn, urls, now=when)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def media_url(url: str) -> str | None:
+        entry = entries.get(url)
+        if entry is None or entry.state in ("failed", "too_large"):
+            return None
+        return f"{media_base}/media/remote/{entry.url_hash}?t={create_media_token(account_id, entry.url_hash, secret_service=secret_service, now=when)}"
+
+    return media_url
 
 
 def load_remote_item(db_path: Path | None, item_id: int) -> dict[str, Any] | None:
@@ -417,7 +491,12 @@ def create_usercontent_app(
         token = request.query_params.get("t", "")
         if item is None or not verify_remote_token(token, item["account_id"], item_id, secret_service=secret_service, now=now() if now is not None else None):
             return PlainTextResponse("Not Found", status_code=404)
-        return remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors=app_origin)
+        # Section 9.1 rule 1: the media of the body comes from the media host. An instance without a media host has no media in a body on this host.
+        media_origin = roles.origin("media") if roles is not None and hasattr(roles, "origin") else None
+        media_url = None
+        if media_origin is not None:
+            media_url = remote_media_urls(db_path, account_id=item["account_id"], content_html=item["content_html"], attachments=item["attachments"], media_base=media_origin, secret_service=secret_service, now=now() if now is not None else None)
+        return remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors=app_origin, media_url=media_url, media_source=media_origin)
 
     async def presentation_route(request: Any) -> Response:
         doc_id_param = request.query_params.get("id", "").strip()
