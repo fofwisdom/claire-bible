@@ -86,7 +86,10 @@ def search(
         if vstore is None or provider is None:
             raise ValueError("hybrid search requires a provider and vector store")
         try:
-            qvec = provider.embed(query)
+            try:
+                qvec = provider.embed(query, task_type="RETRIEVAL_QUERY")
+            except TypeError:
+                qvec = provider.embed(query)
             # 질의 임베딩 모델이 테마 고정 모델과 다르면 벡터 후보 없이 FTS 만 쓴다(§10.4).
             qmodel = resolve_embed_identity(provider).model or None
             vec_ranked = vstore.search(qvec, limit=20, query_model=qmodel)

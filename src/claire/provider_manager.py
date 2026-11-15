@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, get_model_rank, is_model_equal_or_higher
 from .config import (
     ROOT,
     diagnose_agy_environment,
@@ -216,15 +217,46 @@ def _probe_gemini_model(api_key: str, model_name: str) -> tuple[bool, int | None
     except Exception as exc:
         return False, None, str(exc)
 
+ALLOWED_EMBED_TASK_TYPES: tuple[str, ...] = (
+    "SEMANTIC_SIMILARITY",
+    "RETRIEVAL_DOCUMENT",
+    "RETRIEVAL_QUERY",
+    "CLASSIFICATION",
+    "CLUSTERING",
+)
+
+ALLOWED_JEV_MODES: tuple[str, ...] = ("shadow", "filter", "hybrid")
+
+ALLOWED_ROUTE_PROVIDERS: tuple[str, ...] = ("inherit", "gemini", "antigravity", "codex", "mock")
+
+REMOVED_FALLBACK_CATALOG: tuple[dict[str, str], ...] = (
+    {"id": "F1", "location": "antigravity_provider.extract", "behavior": "Structured JSON failure fell back to plain text JSON prompt", "status": "REMOVED"},
+    {"id": "F2", "location": "gemini_provider.extract", "behavior": "Interactions schema failure fell back to plain text _extract_json_fallback", "status": "REMOVED"},
+    {"id": "F3", "location": "antigravity/gemini/codex extract", "behavior": "Preface summary was silently overwritten with key_claims", "status": "REMOVED"},
+    {"id": "F4", "location": "antigravity_provider.render_detail", "behavior": "high effort failure silently retried with medium effort", "status": "REMOVED"},
+    {"id": "F5", "location": "antigravity_provider.render_detail", "behavior": "Body > 30k timeout silently retried with condensed context", "status": "REMOVED"},
+    {"id": "F6", "location": "ingest/pipeline._embed", "behavior": "Embedding API error was swallowed and saved without vector", "status": "REMOVED"},
+    {"id": "F7", "location": "antigravity_provider.embed", "behavior": "Missing key or error in dev fell back to SHA-256 hash vector", "status": "REMOVED"},
+    {"id": "F8", "location": "gemini/antigravity.embed", "behavior": "Error stripped EmbedContentConfig (dropped task_type and projection space)", "status": "REMOVED"},
+    {"id": "F9", "location": "classifier.py & classify_paper", "behavior": "Cross-provider CLI scan and regex heuristic fallback on error", "status": "REMOVED"},
+    {"id": "F10", "location": "ingest/pdf & youtube", "behavior": "Non-LLM PDF/transcript parser fallback", "status": "OUT_OF_SCOPE"},
+)
+
+DEFAULT_FEATURE_ROUTING: dict[str, dict[str, str]] = {
+    slot: {"provider": "inherit", "model": "", "effort": ""} for slot in FEATURE_SLOTS
+}
+
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "version": 1,
     "active_provider": "mock",
+    "feature_routing": copy.deepcopy(DEFAULT_FEATURE_ROUTING),
     "providers": {
         "gemini": {
             "api_key": "",
             "model": "gemini-3.1-flash-lite",
             "effort": "medium",
             "embed_model": "gemini-embedding-001",
+            "embed_task_type": "SEMANTIC_SIMILARITY",
             "min_interval": 4.0,
             "max_retries": 5,
         },
@@ -256,6 +288,9 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "base_url": "https://api.typesafe.ai/v1",
             "timeout": 15.0,
             "model": "jev-latest",
+            "mode": "filter",
+            "filter_threshold": 0.20,
+            "auto_merge_threshold": 0.90,
         },
         "stt": {
             "enabled": True,
@@ -264,6 +299,11 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "language": "ko",
             "timeout": 600.0,
         },
+    },
+    "personal_cli": {
+        "enabled": False,
+        "active_cli": "none",
+        "feature_routing": copy.deepcopy(DEFAULT_FEATURE_ROUTING),
     },
     "updated_at": 0.0,
 }
@@ -305,6 +345,76 @@ MIGRATED_ENV_VARS: set[str] = {
 }
 
 SUPPORTED_ACTIVE_PROVIDERS = ("mock", "gemini", "antigravity", "codex", "openai")
+SUPPORTED_SERVER_ACTIVE_PROVIDERS = ("mock", "gemini")
+ALLOWED_SERVER_ROUTE_PROVIDERS = ("inherit", "gemini", "mock")
+ALLOWED_PERSONAL_CLI_PROVIDERS = ("none", "antigravity", "codex")
+
+_GEMINI_MODELS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_GEMINI_CACHE_TTL = 300.0
+
+
+def discover_gemini_models(api_key: str = "", *, force_refresh: bool = False) -> dict[str, Any]:
+    """Query Google AI Studio (models.list) for supported generation and embedding models."""
+    clean_key = str(api_key or "").strip()
+    default_gen = list_gemini_models()
+    default_emb = list(DEFAULT_GEMINI_EMBED_MODELS)
+    if not clean_key or "••" in clean_key:
+        return {
+            "models": [{"id": m} for m in default_gen],
+            "embed_models": [{"id": m} for m in default_emb],
+            "source": "default",
+            "error": None,
+        }
+
+    cache_key = clean_key[:12] + ":" + str(len(clean_key))
+    now = time.time()
+    if not force_refresh and cache_key in _GEMINI_MODELS_CACHE:
+        ts, cached = _GEMINI_MODELS_CACHE[cache_key]
+        if now - ts < _GEMINI_CACHE_TTL:
+            return copy.deepcopy(cached)
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=clean_key)
+        gen_ids: list[str] = []
+        emb_ids: list[str] = []
+        for item in client.models.list():
+            raw_name = str(getattr(item, "name", "") or "").strip()
+            mid = raw_name.removeprefix("models/").strip()
+            if not mid:
+                continue
+            actions = [str(a) for a in (getattr(item, "supported_actions", None) or getattr(item, "supported_generation_methods", None) or [])]
+            low = mid.lower()
+            if "embedContent" in actions or "embedding" in low:
+                if mid.startswith(("gemini-embedding", "text-embedding")) and mid not in emb_ids:
+                    emb_ids.append(mid)
+            elif "generateContent" in actions and mid.startswith("gemini-"):
+                if not any(skip in low for skip in ("embedding", "imagen", "veo", "aqa", "tts", "audio")) and mid not in gen_ids:
+                    gen_ids.append(mid)
+
+        for m in default_gen:
+            if m not in gen_ids:
+                gen_ids.append(m)
+        for em in default_emb:
+            if em not in emb_ids:
+                emb_ids.append(em)
+
+        res = {
+            "models": [{"id": m} for m in gen_ids],
+            "embed_models": [{"id": m} for m in emb_ids],
+            "source": "api",
+            "error": None,
+        }
+        _GEMINI_MODELS_CACHE[cache_key] = (now, res)
+        return copy.deepcopy(res)
+    except Exception as exc:
+        return {
+            "models": [{"id": m} for m in default_gen],
+            "embed_models": [{"id": m} for m in default_emb],
+            "source": "default",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def comment_out_env_file(file_path: Path, keys_to_comment: set[str]) -> int:
@@ -434,6 +544,22 @@ class ProviderManager:
                     if prov_name not in cfg["providers"] and isinstance(prov_val, dict):
                         cfg["providers"][prov_name] = prov_val
 
+            if "feature_routing" in raw:
+                cfg["feature_routing"] = self._normalize_feature_routing(raw.get("feature_routing"))
+
+            if "personal_cli" in raw and isinstance(raw.get("personal_cli"), dict):
+                raw_pcli = raw["personal_cli"]
+                pcli_out = copy.deepcopy(cfg["personal_cli"])
+                if "enabled" in raw_pcli:
+                    pcli_out["enabled"] = bool(raw_pcli["enabled"])
+                if "active_cli" in raw_pcli:
+                    ac = str(raw_pcli.get("active_cli") or "none").strip().lower()
+                    if ac in ALLOWED_PERSONAL_CLI_PROVIDERS:
+                        pcli_out["active_cli"] = ac
+                if "feature_routing" in raw_pcli:
+                    pcli_out["feature_routing"] = self._normalize_feature_routing(raw_pcli.get("feature_routing"))
+                cfg["personal_cli"] = pcli_out
+
             return cfg
         except Exception as exc:
             log.warning("Failed to load %s: %s. Using default config.", self.registry_path, exc)
@@ -456,14 +582,18 @@ class ProviderManager:
         out = copy.deepcopy(cfg)
         providers = out.get("providers", {})
 
-        # Gemini
+        # Google AI Studio (Gemini)
         if "gemini" in providers:
             g = providers["gemini"]
             key = str(g.get("api_key") or "")
             g["has_api_key"] = bool(key.strip())
             g["api_key"] = "••••••••" if g["has_api_key"] else ""
-            g["available_models"] = [{"id": m} for m in list_gemini_models()]
-            g["available_embed_models"] = [{"id": m} for m in DEFAULT_GEMINI_EMBED_MODELS]
+            gem_disc = discover_gemini_models(key)
+            g["available_models"] = gem_disc["models"]
+            g["available_embed_models"] = gem_disc["embed_models"]
+            g["models_source"] = gem_disc["source"]
+            if gem_disc.get("error"):
+                g["models_error"] = gem_disc["error"]
 
         disc_agy: dict[str, Any] | None = None
 
@@ -505,7 +635,173 @@ class ProviderManager:
             jev["api_key"] = "••••••••" if jev["has_api_key"] else ""
 
         out["capabilities"] = self._evaluate_capabilities(cfg, agy_discovery=disc_agy)
+        out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
+        raw_pcli = cfg.get("personal_cli") if isinstance(cfg.get("personal_cli"), dict) else {}
+        out["personal_cli"] = {
+            "enabled": bool(raw_pcli.get("enabled", False)),
+            "active_cli": str(raw_pcli.get("active_cli") or "none").strip().lower(),
+            "feature_routing": self._normalize_feature_routing(raw_pcli.get("feature_routing")),
+        }
+        out["feature_slots"] = list(FEATURE_SLOTS)
+        out["server_active_providers"] = list(SUPPORTED_SERVER_ACTIVE_PROVIDERS)
+        out["server_route_providers"] = list(ALLOWED_SERVER_ROUTE_PROVIDERS)
+        out["model_ranks"] = dict(MODEL_CAPABILITY_RANKS)
+        out["embed_task_types"] = list(ALLOWED_EMBED_TASK_TYPES)
+        out["jev_modes"] = list(ALLOWED_JEV_MODES)
+        out["lineage_summary"] = self.get_lineage_summary(cfg)
         return out
+
+    @staticmethod
+    def _normalize_feature_routing(raw_routing: Any) -> dict[str, dict[str, str]]:
+        """Normalize per-feature routing configuration onto all known feature slots."""
+        out = copy.deepcopy(DEFAULT_FEATURE_ROUTING)
+        if not isinstance(raw_routing, dict):
+            return out
+        for slot in FEATURE_SLOTS:
+            entry = raw_routing.get(slot)
+            if not isinstance(entry, dict):
+                continue
+            prov = str(entry.get("provider") or "inherit").strip().lower() or "inherit"
+            model = str(entry.get("model") or "").strip()
+            effort = str(entry.get("effort") or "").strip().lower()
+            out[slot] = {"provider": prov, "model": model, "effort": effort}
+        return out
+
+    def get_lineage_summary(self, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Compute effective pipeline stages, JEV telemetry, and recent document model lineage."""
+        import sqlite3
+
+        snap = cfg if cfg is not None else self.get_config()
+        providers = snap.get("providers", {})
+        active = str(snap.get("active_provider") or "mock").strip().lower()
+        routing = self._normalize_feature_routing(snap.get("feature_routing"))
+        jev_cfg = providers.get("jev", {})
+
+        def _base_model(prov_name: str, slot: str) -> tuple[str, str]:
+            if prov_name == "gemini":
+                if slot == "embed":
+                    return str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-001"), ""
+                return str(providers.get("gemini", {}).get("model") or ""), str(providers.get("gemini", {}).get("effort") or "")
+            if prov_name == "antigravity":
+                return str(providers.get("antigravity", {}).get("model") or ""), str(providers.get("antigravity", {}).get("effort") or "")
+            if prov_name == "codex":
+                return str(providers.get("codex", {}).get("model") or "codex-default"), str(providers.get("codex", {}).get("effort") or "")
+            if prov_name == "mock":
+                return "mock", ""
+            return "", ""
+
+        effective_slots: dict[str, dict[str, str]] = {}
+        for slot in FEATURE_SLOTS:
+            r = routing[slot]
+            eff_prov = active if r["provider"] == "inherit" else r["provider"]
+            if slot == "embed" and eff_prov in ("antigravity", "codex"):
+                eff_prov = "gemini" if providers.get("gemini", {}).get("api_key") else "fts-only"
+            base_m, base_e = _base_model(eff_prov, slot)
+            effective_slots[slot] = {
+                "provider": eff_prov,
+                "model": r["model"] or base_m,
+                "effort": r["effort"] or base_e,
+                "inherited": str(r["provider"] == "inherit").lower(),
+            }
+
+        recent_docs: list[dict[str, Any]] = []
+        extraction_models: list[dict[str, Any]] = []
+        decision_gates: list[dict[str, Any]] = []
+        jev_stats: dict[str, Any] = {
+            "enabled": bool(jev_cfg.get("enabled", False)),
+            "mode": str(jev_cfg.get("mode") or "filter"),
+            "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
+            "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+            "model": str(jev_cfg.get("model") or "jev-latest"),
+            "shadow_pairs": 0,
+            "ok_calls": 0,
+            "avg_latency_ms": None,
+            "below_filter_threshold": 0,
+        }
+
+        db_candidates = []
+        env_db = os.environ.get("CLAIRE_DB_PATH")
+        if env_db:
+            db_candidates.append(Path(env_db))
+        db_candidates.append(self.data_dir / "claire.db")
+        db_path = next((p for p in db_candidates if p.is_file()), None)
+
+        if db_path is not None:
+            try:
+                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+                conn.row_factory = sqlite3.Row
+                try:
+                    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)").fetchall()}
+                    if "meta_json" in cols:
+                        rows = conn.execute("SELECT id, title, meta_json, created_at FROM documents ORDER BY created_at DESC LIMIT 20").fetchall()
+                        for row in rows:
+                            try:
+                                meta = json.loads(row["meta_json"] or "{}")
+                            except Exception:
+                                meta = {}
+                            if isinstance(meta, dict) and isinstance(meta.get("model_lineage"), dict):
+                                recent_docs.append({
+                                    "id": row["id"],
+                                    "title": row["title"],
+                                    "created_at": row["created_at"],
+                                    "lineage": meta["model_lineage"],
+                                })
+                    tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                    if "extractions" in tbls:
+                        for er in conn.execute("SELECT provider, model, COUNT(*) AS cnt FROM extractions GROUP BY provider, model ORDER BY cnt DESC LIMIT 12").fetchall():
+                            extraction_models.append({"provider": er["provider"], "model": er["model"], "count": int(er["cnt"])})
+                    if "resolution_decisions" in tbls:
+                        for gr in conn.execute("SELECT gate, outcome, COUNT(*) AS cnt FROM resolution_decisions GROUP BY gate, outcome ORDER BY cnt DESC").fetchall():
+                            decision_gates.append({"gate": gr["gate"], "outcome": gr["outcome"], "count": int(gr["cnt"])})
+                    if "review_shadow_pairs" in tbls:
+                        jr = conn.execute(
+                            "SELECT COUNT(*) AS total, SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_cnt, AVG(CASE WHEN status='ok' THEN latency_ms END) AS avg_ms, SUM(CASE WHEN status='ok' AND jev_noul < ? THEN 1 ELSE 0 END) AS below_thr FROM review_shadow_pairs",
+                            (jev_stats["filter_threshold"],),
+                        ).fetchone()
+                        if jr is not None:
+                            jev_stats["shadow_pairs"] = int(jr["total"] or 0)
+                            jev_stats["ok_calls"] = int(jr["ok_cnt"] or 0)
+                            jev_stats["avg_latency_ms"] = round(float(jr["avg_ms"]), 1) if jr["avg_ms"] is not None else None
+                            jev_stats["below_filter_threshold"] = int(jr["below_thr"] or 0)
+                finally:
+                    conn.close()
+            except Exception as exc:
+                log.debug("lineage summary db read skipped: %s", exc)
+
+        return {
+            "effective_slots": effective_slots,
+            "jev": jev_stats,
+            "fallbacks": list(REMOVED_FALLBACK_CATALOG),
+            "architecture_specs": [
+                {
+                    "stage": "임베딩 Task Type (문서 색인)",
+                    "fixed_value": "RETRIEVAL_DOCUMENT",
+                    "scope": "extract/gemini_provider.py, ingest/pipeline.py",
+                    "rationale": "엔티티·문서 벡터 DB 색인 시 비대칭 검색(문서 측) 용도로 코드에서 고정 적용합니다.",
+                },
+                {
+                    "stage": "임베딩 Task Type (검색 질의)",
+                    "fixed_value": "RETRIEVAL_QUERY",
+                    "scope": "retrieval/query.py",
+                    "rationale": "사용자 질의 임베딩 시 검색 질문 전용 좌표계로 코드에서 고정 적용합니다.",
+                },
+                {
+                    "stage": "임베딩 -> JEV 데이터 전달",
+                    "fixed_value": "Gate 2·3 통과 후보만 자연어 JSON 스냅샷 전달 (Cosine >= 0.72)",
+                    "scope": "extract/resolver.py, extract/jev.py",
+                    "rationale": "벡터 좌표를 직접 JEV에 넣지 않고 규칙/초고신뢰 자동 병합 후 남은 경계선 후보의 이름·타입·별칭·관찰만 전달합니다.",
+                },
+                {
+                    "stage": "JEV Hybrid 단독 1위 가드",
+                    "fixed_value": "1위 >= 0.90, 2위 < 0.50, 격차 >= 0.40",
+                    "scope": "extract/resolver.py",
+                    "rationale": "복수 후보가 동시에 고득점(noul)일 때 오병합을 막기 위해 System 2 LLM 판정으로 위임합니다.",
+                },
+            ],
+            "recent_documents": recent_docs,
+            "extraction_models": extraction_models,
+            "decision_gates": decision_gates,
+        }
 
     def _merge_payload(self, base: dict[str, Any], payload: dict[str, Any], *, validate_models: bool = True) -> dict[str, Any]:
         """Merge an incoming provider update payload onto a config snapshot."""
@@ -537,10 +833,18 @@ class ProviderManager:
 
                 if validate_models:
                     if name == "gemini":
+                        gem_key_for_check = str(inc_data.get("api_key") or target.get("api_key") or "").strip()
+                        if "••" in gem_key_for_check:
+                            gem_key_for_check = str(target.get("api_key") or "").strip()
+                        gem_disc_check = discover_gemini_models(gem_key_for_check)
                         if "model" in inc_data:
-                            _validate_provider_model("gemini", "모델", str(inc_data["model"]).strip(), set(list_gemini_models()))
+                            allowed_gem = {m["id"] for m in gem_disc_check["models"]} | set(list_gemini_models())
+                            _validate_provider_model("gemini", "모델", str(inc_data["model"]).strip(), allowed_gem)
                         if "embed_model" in inc_data:
-                            _validate_provider_model("gemini", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_GEMINI_EMBED_MODELS))
+                            allowed_emb = {m["id"] for m in gem_disc_check["embed_models"]} | set(DEFAULT_GEMINI_EMBED_MODELS)
+                            _validate_provider_model("gemini", "임베딩 모델", str(inc_data["embed_model"]).strip(), allowed_emb)
+                        if "embed_task_type" in inc_data:
+                            _validate_provider_model("gemini", "임베딩 task_type", str(inc_data["embed_task_type"]).strip(), set(ALLOWED_EMBED_TASK_TYPES))
                     elif name == "antigravity" and "model" in inc_data:
                         bin_for_check = str(inc_data.get("bin") or target.get("bin") or "agy").strip()
                         allowed_agy = {m["id"] for m in list_agy_models(bin_for_check)}
@@ -552,6 +856,14 @@ class ProviderManager:
                             _validate_provider_model("openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS))
                         if "embed_model" in inc_data:
                             _validate_provider_model("openai", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_OPENAI_EMBED_MODELS))
+                    elif name == "jev":
+                        if "mode" in inc_data:
+                            _validate_provider_model("jev", "판정 모드", str(inc_data["mode"]).strip().lower(), set(ALLOWED_JEV_MODES))
+                        for thr_key in ("filter_threshold", "auto_merge_threshold"):
+                            if thr_key in inc_data:
+                                thr_val = float(inc_data[thr_key])
+                                if not (0.0 <= thr_val <= 1.0):
+                                    raise ValueError(f"jev {thr_key} 값은 0.0~1.0 범위여야 합니다.")
 
                 for k, v in inc_data.items():
                     if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models", "available_embed_models", "models_source", "cli_version", "models_error"):
@@ -562,6 +874,34 @@ class ProviderManager:
                     inferred_effort = infer_agy_effort_from_model(str(inc_data["model"]))
                     if inferred_effort:
                         target["effort"] = inferred_effort
+
+        if "feature_routing" in payload and isinstance(payload["feature_routing"], dict):
+            curr_routing = self._normalize_feature_routing(merged.get("feature_routing"))
+            for slot, raw_slot in payload["feature_routing"].items():
+                if slot not in FEATURE_SLOTS:
+                    raise ValueError(f"지원되지 않는 feature_routing 슬롯입니다: '{slot}'")
+                if not isinstance(raw_slot, dict):
+                    raise ValueError(f"feature_routing['{slot}'] 값은 객체여야 합니다.")
+                prov = str(raw_slot.get("provider") or curr_routing[slot].get("provider") or "inherit").strip().lower()
+                if prov not in ALLOWED_ROUTE_PROVIDERS:
+                    raise ValueError(f"feature_routing['{slot}'] 프로바이더 '{prov}'는 지원되지 않습니다.")
+                model = str(raw_slot.get("model") if "model" in raw_slot else curr_routing[slot].get("model", "")).strip()
+                effort = str(raw_slot.get("effort") if "effort" in raw_slot else curr_routing[slot].get("effort", "")).strip().lower()
+                if validate_models and model:
+                    eff_prov = merged.get("active_provider", "mock") if prov == "inherit" else prov
+                    if eff_prov == "gemini":
+                        gem_key_slot = str(curr_providers.get("gemini", {}).get("api_key") or "").strip()
+                        gem_disc_slot = discover_gemini_models(gem_key_slot)
+                        allowed = ({m["id"] for m in gem_disc_slot["embed_models"]} | set(DEFAULT_GEMINI_EMBED_MODELS)) if slot == "embed" else ({m["id"] for m in gem_disc_slot["models"]} | set(list_gemini_models()))
+                        _validate_provider_model("gemini", f"{slot} 모델", model, allowed)
+                    elif eff_prov == "codex":
+                        _validate_provider_model("codex", f"{slot} 모델", model, set(DEFAULT_CODEX_MODELS))
+                    elif eff_prov == "antigravity":
+                        bin_name = str(curr_providers.get("antigravity", {}).get("bin") or "agy").strip()
+                        allowed_agy = {m["id"] for m in list_agy_models(bin_name)}
+                        _validate_provider_model("antigravity", f"{slot} 모델", model, allowed_agy)
+                curr_routing[slot] = {"provider": prov, "model": model, "effort": effort}
+            merged["feature_routing"] = curr_routing
 
         return merged
 
@@ -579,21 +919,24 @@ class ProviderManager:
         gem_has_key = bool(gem_key)
         gem_model = str(gemini.get("model") or "").strip()
         gem_embed = str(gemini.get("embed_model") or "").strip()
+        gem_disc = discover_gemini_models(gem_key, force_refresh=live)
+        gem_model_ids = [m["id"] for m in gem_disc["models"]]
+        gem_embed_ids = [m["id"] for m in gem_disc["embed_models"]]
 
-        # Gemini capability evaluation
+        # Google AI Studio (Gemini) capability evaluation
         gem_lock: str | None = None
         gem_live_ok: bool | None = None
         if not gem_has_key:
-            gem_lock = "Gemini API Key가 설정되지 않아 활성화할 수 없습니다."
-        elif gem_model not in set(list_gemini_models()):
-            gem_lock = f"선택한 Gemini 모델('{gem_model}')이 지원 목록에 없습니다."
-        elif gem_embed not in set(DEFAULT_GEMINI_EMBED_MODELS):
-            gem_lock = f"선택한 Gemini 임베딩 모델('{gem_embed}')이 지원 목록에 없습니다."
+            gem_lock = "Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다."
+        elif gem_model not in set(gem_model_ids):
+            gem_lock = f"선택한 Google AI Studio 모델('{gem_model}')이 지원 목록에 없습니다."
+        elif gem_embed not in set(gem_embed_ids):
+            gem_lock = f"선택한 Google AI Studio 임베딩 모델('{gem_embed}')이 지원 목록에 없습니다."
         elif live:
             ok, _tok, err = _probe_gemini_model(gem_key, gem_model)
             gem_live_ok = ok
             if not ok:
-                gem_lock = f"Gemini 모델('{gem_model}') 실행 확인 실패: {err}"
+                gem_lock = f"Google AI Studio 모델('{gem_model}') 실행 확인 실패: {err}"
 
         # Antigravity CLI capability evaluation
         agy_bin = str(agy.get("bin") or "agy").strip() or "agy"
@@ -625,7 +968,7 @@ class ProviderManager:
         # OpenAI capability evaluation (always locked until backend exists)
         oai_lock = "OpenAI 호환 LLM/임베딩 백엔드가 아직 구현되어 있지 않아 프로바이더로 사용할 수 없습니다."
 
-        cli_embed_warning = None if gem_has_key else "CLI 프로바이더는 자체 임베딩이 없어 Gemini API Key 없이는 운영 환경에서 벡터 검색 없이 FTS만 동작합니다."
+        cli_embed_warning = None if gem_has_key else "CLI 프로바이더는 자체 임베딩이 없어 Google AI Studio API Key 없이는 운영 환경에서 벡터 검색 없이 FTS만 동작합니다."
 
         provider_caps: dict[str, dict[str, Any]] = {
             "gemini": {
@@ -633,8 +976,10 @@ class ProviderManager:
                 "locked_reason": gem_lock,
                 "live_checked": gem_live_ok is not None,
                 "features": {"extract": True, "research": True, "embedding": True, "stt_vlm": True},
-                "available_models": [{"id": m} for m in list_gemini_models()],
-                "available_embed_models": [{"id": m} for m in DEFAULT_GEMINI_EMBED_MODELS],
+                "models_source": gem_disc["source"],
+                "models_error": gem_disc.get("error"),
+                "available_models": gem_disc["models"],
+                "available_embed_models": gem_disc["embed_models"],
             },
             "antigravity": {
                 "selectable": agy_lock is None,
@@ -683,8 +1028,9 @@ class ProviderManager:
         stt_prov = str(stt.get("provider") or "gemini").strip().lower()
         stt_ready = (not stt_enabled) or stt_prov == "mock" or (stt_prov == "gemini" and gem_has_key)
         if stt_enabled and stt_prov == "gemini" and not gem_has_key:
-            warnings.append("STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.")
+            warnings.append("STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.")
 
+        jev_cfg = providers.get("jev", {})
         return {
             "active_provider": active,
             "in_container": in_container,
@@ -692,6 +1038,12 @@ class ProviderManager:
             "lock_reasons": lock_reasons,
             "warnings": warnings,
             "stt": {"enabled": stt_enabled, "provider": stt_prov, "ready": stt_ready},
+            "jev": {
+                "enabled": bool(jev_cfg.get("enabled", False)),
+                "mode": str(jev_cfg.get("mode") or "filter"),
+                "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
+                "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+            },
             "providers": provider_caps,
         }
 
@@ -701,8 +1053,17 @@ class ProviderManager:
         merged = self._merge_payload(base, candidate, validate_models=False) if candidate else base
         return self._evaluate_capabilities(merged, live=live, refresh_agy=refresh_agy)
 
-    def update_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def update_config(self, payload: dict[str, Any], *, server_scope: bool = False) -> dict[str, Any]:
         """Validate candidate provider settings against runtime capabilities, persist, and return sanitized config."""
+        if server_scope:
+            cand_active = str(payload.get("active_provider") or "").strip().lower()
+            if cand_active in ("antigravity", "codex"):
+                raise ValueError("CLI 클라이언트(Antigravity/Codex)는 서버 공용 프로바이더 메뉴에서 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)에서 구성하세요.")
+            fr_in = payload.get("feature_routing")
+            if isinstance(fr_in, dict):
+                for slot_key, item in fr_in.items():
+                    if isinstance(item, dict) and str(item.get("provider") or "").strip().lower() in ("antigravity", "codex"):
+                        raise ValueError(f"서버 공용 Feature Routing('{slot_key}')에서는 CLI 클라이언트를 선택할 수 없습니다. 관리자 개인 계정 설정(/settings/keys)을 이용하세요.")
         current = self.get_config()
         merged = self._merge_payload(current, payload, validate_models=True)
         caps = self._evaluate_capabilities(merged)
@@ -713,6 +1074,70 @@ class ProviderManager:
 
         self.save_config(merged)
         return self.get_sanitized_config()
+
+    def get_personal_cli_config(self) -> dict[str, Any]:
+        """Return sanitized personal CLI settings for the administrator's own account scope."""
+        san = self.get_sanitized_config()
+        pcli = copy.deepcopy(san.get("personal_cli") or DEFAULT_PROVIDERS_CONFIG["personal_cli"])
+        return {
+            "personal_cli": pcli,
+            "providers": {
+                "antigravity": san["providers"]["antigravity"],
+                "codex": san["providers"]["codex"],
+            },
+            "capabilities": {
+                "in_container": san["capabilities"]["in_container"],
+                "providers": {
+                    "antigravity": san["capabilities"]["providers"]["antigravity"],
+                    "codex": san["capabilities"]["providers"]["codex"],
+                },
+            },
+        }
+
+    def update_personal_cli_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate and persist administrator personal CLI settings and return sanitized personal CLI state."""
+        current = self.get_config()
+        prov_patch: dict[str, Any] = {}
+        if isinstance(payload.get("providers"), dict):
+            for k in ("antigravity", "codex"):
+                if isinstance(payload["providers"].get(k), dict):
+                    prov_patch[k] = payload["providers"][k]
+        merged = self._merge_payload(current, {"providers": prov_patch}, validate_models=True) if prov_patch else copy.deepcopy(current)
+
+        pcli_cur = copy.deepcopy(merged.get("personal_cli") or DEFAULT_PROVIDERS_CONFIG["personal_cli"])
+        pcli_in = payload.get("personal_cli") if isinstance(payload.get("personal_cli"), dict) else payload
+        if "enabled" in pcli_in:
+            pcli_cur["enabled"] = bool(pcli_in["enabled"])
+        if "active_cli" in pcli_in:
+            act_cli = str(pcli_in.get("active_cli") or "none").strip().lower()
+            if act_cli not in ALLOWED_PERSONAL_CLI_PROVIDERS:
+                raise ValueError(f"지원하지 않는 개인 CLI 클라이언트입니다: {act_cli}")
+            pcli_cur["active_cli"] = act_cli
+        if isinstance(pcli_in.get("feature_routing"), dict):
+            fr_cur = copy.deepcopy(pcli_cur.get("feature_routing") or DEFAULT_FEATURE_ROUTING)
+            for slot_key in FEATURE_SLOTS:
+                raw_slot = pcli_in["feature_routing"].get(slot_key)
+                if isinstance(raw_slot, dict):
+                    sp = str(raw_slot.get("provider") or "inherit").strip().lower()
+                    if sp not in ALLOWED_ROUTE_PROVIDERS:
+                        raise ValueError(f"지원하지 않는 개인 CLI 라우팅 프로바이더입니다: {sp}")
+                    fr_cur[slot_key] = {
+                        "provider": sp,
+                        "model": str(raw_slot.get("model") or "").strip(),
+                        "effort": str(raw_slot.get("effort") or "").strip().lower(),
+                    }
+            pcli_cur["feature_routing"] = fr_cur
+
+        merged["personal_cli"] = pcli_cur
+        caps = self._evaluate_capabilities(merged)
+        if pcli_cur.get("enabled") and pcli_cur.get("active_cli") in ("antigravity", "codex"):
+            cli_name = pcli_cur["active_cli"]
+            cli_cap = caps["providers"].get(cli_name, {})
+            if not cli_cap.get("selectable", False):
+                raise ValueError(cli_cap.get("locked_reason") or f"개인 CLI '{cli_name}'를 현재 환경에서 활성화할 수 없습니다.")
+
+        self.save_config(merged)
+        return self.get_personal_cli_config()
 
     def get_settings_dict(self) -> dict[str, Any]:
         """Pydantic Settings 소스에서 주입할 수 있는 필드 딕셔너리를 생성한다."""
@@ -737,6 +1162,8 @@ class ProviderManager:
             out["gemini_effort"] = gemini["effort"]
         if gemini.get("embed_model"):
             out["gemini_embed_model"] = gemini["embed_model"]
+        if gemini.get("embed_task_type"):
+            out["embed_task_type"] = str(gemini["embed_task_type"])
         if gemini.get("min_interval") is not None:
             out["gemini_min_interval"] = float(gemini["min_interval"])
         if gemini.get("max_retries") is not None:
@@ -779,6 +1206,20 @@ class ProviderManager:
             out["jev_timeout"] = float(jev["timeout"])
         if jev.get("model"):
             out["jev_model"] = jev["model"]
+        if jev.get("mode"):
+            out["jev_mode"] = str(jev["mode"]).strip().lower()
+        if jev.get("filter_threshold") is not None:
+            out["jev_filter_threshold"] = float(jev["filter_threshold"])
+        if jev.get("auto_merge_threshold") is not None:
+            out["jev_auto_merge_threshold"] = float(jev["auto_merge_threshold"])
+
+        out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
+        raw_pcli = cfg.get("personal_cli") if isinstance(cfg.get("personal_cli"), dict) else {}
+        out["personal_cli"] = {
+            "enabled": bool(raw_pcli.get("enabled", False)),
+            "active_cli": str(raw_pcli.get("active_cli") or "none").strip().lower(),
+            "feature_routing": self._normalize_feature_routing(raw_pcli.get("feature_routing")),
+        }
 
         # STT
         if stt.get("enabled") is not None:
@@ -949,21 +1390,33 @@ class ProviderManager:
                 return {
                     "ok": False,
                     "provider": "gemini",
-                    "error": "Gemini API 키가 입력되지 않았습니다.",
+                    "error": "Google AI Studio API 키가 입력되지 않았습니다.",
                 }
-            model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.1-flash-lite"
+            model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.8-flash"
+            disc = discover_gemini_models(api_key, force_refresh=True)
             ok, total_tokens, err = _probe_gemini_model(api_key, model_name)
             if ok:
                 return {
                     "ok": True,
                     "provider": "gemini",
-                    "message": f"Gemini API 연결 확인 성공 (모델: {model_name}, 토큰 검증 통과)",
-                    "details": {"total_tokens": total_tokens},
+                    "message": f"Google AI Studio API 확인 성공 (모델: {model_name}, 조회 모델 {len(disc['models'])}개)",
+                    "details": {
+                        "total_tokens": total_tokens,
+                        "models": disc["models"],
+                        "embed_models": disc["embed_models"],
+                        "models_source": disc["source"],
+                        "models_error": disc.get("error"),
+                    },
                 }
             return {
                 "ok": False,
                 "provider": "gemini",
-                "error": f"Gemini API 연결 실패: {err}",
+                "error": f"Google AI Studio API 연결 실패: {err}",
+                "details": {
+                    "models": disc["models"],
+                    "embed_models": disc["embed_models"],
+                    "models_source": disc["source"],
+                },
             }
 
         if p_name == "antigravity":

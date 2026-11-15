@@ -227,7 +227,7 @@
         cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/support-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadSupport);
-        }, "trash", "삭제"));
+        }, "trash", tr("common.action.delete")));
       }, "활성 서포트 번들이 없습니다.");
     });
   }
@@ -249,7 +249,7 @@
         cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/data-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadData);
-        }, "trash", "삭제"));
+        }, "trash", tr("common.action.delete")));
       }, "활성 데이터 번들이 없습니다.");
     });
   }
@@ -367,7 +367,7 @@
             if (!res.ok) show(section, errorText(res.status, res.body), true);
             return loadBackups();
           });
-        }, "trash", "삭제"));
+        }, "trash", tr("common.action.delete")));
       }, "백업이 없습니다.");
     });
   }

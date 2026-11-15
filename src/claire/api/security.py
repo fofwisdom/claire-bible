@@ -585,6 +585,10 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("PUT", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
     ("DELETE", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
     ("POST", "/api/me/keys/verify"): _any("owner", modes=NETWORK_ONLY),
+    ("GET", "/api/me/personal-cli"): _any("admin"),
+    ("HEAD", "/api/me/personal-cli"): _any("admin"),
+    ("PATCH", "/api/me/personal-cli"): _any("admin"),
+    ("POST", "/api/me/personal-cli/test"): _any("admin"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).
     ("GET", "/api/me/telegram"): _any("owner"),
     ("HEAD", "/api/me/telegram"): _any("owner"),
@@ -2112,7 +2116,15 @@ class AuthenticationMiddleware:
         if auth_scope == "anonymous":
             state[PRINCIPAL_STATE_KEY] = ANONYMOUS
         elif credential is not None and auth_channel in ("cookie", "bearer", "x-session"):
-            state[PRINCIPAL_STATE_KEY] = credential.principal(auth_channel)
+            resolved_principal = credential.principal(auth_channel)
+            state[PRINCIPAL_STATE_KEY] = resolved_principal
+            if resolved_principal.account_id is not None and cookie_present:
+                from ..store.secrets import BYOK_SEAL_COOKIE, register_volatile_user_seal
+
+                decoded_cookies = [value.decode("latin-1") for value in _raw_headers(scope, b"cookie")]
+                seal_cookie = _cookie_value(decoded_cookies, BYOK_SEAL_COOKIE)
+                if seal_cookie:
+                    register_volatile_user_seal(resolved_principal.account_id, seal_cookie)
         else:
             # 허용 판정을 통과했는데 자격증명이 없으면 배선 결함이다(C1).
             raise RuntimeError("authenticated request without a resolved credential")

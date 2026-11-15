@@ -27,6 +27,7 @@ SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespa
 ROOT = {"/"}
 ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
        "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
+       "/api/me/personal-cli", "/api/me/personal-cli/test",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
        "/api/me/telegram", "/api/me/support-bundles", "/api/me/support-bundles/download",
@@ -73,6 +74,8 @@ ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/providers/test"),
     ("POST", "/providers/check"),
+    *((m, "/api/me/personal-cli") for m in ("GET", "HEAD", "PATCH")),
+    ("POST", "/api/me/personal-cli/test"),
     ("POST", "/support/bundle"),
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/instance", "/api/admin/instance") for m in ("GET", "HEAD")),
     ("PATCH", "/api/admin/accounts"),

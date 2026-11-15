@@ -20,9 +20,11 @@ ExtractionResult 스키마 (provider 가 채워야 할 계약):
 from __future__ import annotations
 
 import hashlib
+import inspect
 import re
 import threading
-from typing import Protocol
+import time
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -185,6 +187,8 @@ class Provider(Protocol):
     ) -> RelationJudgement: ...
 
     def summarize_search(self, query: str, context: str) -> str: ...
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str: ...
 
     def classify_paper(
         self, doc: Document, *, effort: str | None = None
@@ -367,6 +371,10 @@ class MockProvider:
 
         실제 종합 품질은 실 Gemini 로 검증한다. 여기선 query·context 가 흘러들어가 답으로 나오는지(파이프라인 연결)만 결정론적으로 보장한다."""
         return f"[mock] {query} :: {context[:120]}"
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+        """Return a deterministic plain-text executive summary for a document."""
+        return self.extract(doc).summary
 
     def render_detail(
         self, doc: Document, format: str = "adoc", focus: str | None = None
@@ -637,12 +645,395 @@ def member_policy_unavailable(ctx, kind: str) -> Exception | None:
     return None
 
 
-def get_provider(settings) -> Provider:
-    """effective_provider 에 따라 provider 인스턴스 반환.
+def _accepts_kwarg(fn: Any, kw: str) -> bool:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    return kw in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
 
-    멤버 컨텍스트(``provider_policy.context_of``)는 host-cli 분류(codex·antigravity)를 만들지 않고, 프로바이더가 ``none``이면
-    ``ProviderNotConfigured``를 내는 자리표시자를 돌려준다(설계 §10.2).
-    """
+
+def _provider_default_model(settings: Any, provider_name: str, slot: str) -> str:
+    if provider_name == "gemini":
+        if slot == "embed":
+            return str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
+        return str(getattr(settings, "gemini_model", "") or "")
+    if provider_name == "antigravity":
+        return str(getattr(settings, "antigravity_model", "") or "")
+    if provider_name == "codex":
+        return str(getattr(settings, "codex_model", "") or "")
+    if provider_name == "mock":
+        return "mock-embed-64d" if slot == "embed" else "mock"
+    return ""
+
+
+def _provider_default_effort(settings: Any, provider_name: str) -> str:
+    if provider_name == "gemini":
+        return str(getattr(settings, "gemini_effort", "") or "")
+    if provider_name == "antigravity":
+        return str(getattr(settings, "antigravity_effort", "") or "")
+    if provider_name == "codex":
+        return str(getattr(settings, "codex_effort", "") or "")
+    return ""
+
+
+def _resolve_slot_spec(settings: Any, slot: str) -> tuple[str, str, str]:
+    from ..accounts.provider_policy import HOST_CLI, classify_provider, context_of
+
+    routes = getattr(settings, "feature_routing", None) or {}
+    entry = dict(routes.get(slot) or {}) if isinstance(routes, dict) else {}
+    ctx = context_of(settings)
+    is_admin_scope = ctx is None or bool(ctx.is_admin)
+    pcli = getattr(settings, "personal_cli", None) if is_admin_scope else None
+    pcli_enabled = isinstance(pcli, dict) and bool(pcli.get("enabled"))
+    pcli_active = str(pcli.get("active_cli") or "").strip().lower() if pcli_enabled else ""
+    if pcli_enabled:
+        pcli_routes = pcli.get("feature_routing") if isinstance(pcli.get("feature_routing"), dict) else {}
+        pcli_slot = pcli_routes.get(slot) if isinstance(pcli_routes.get(slot), dict) else {}
+        for k, v in pcli_slot.items():
+            if v is not None and v != "" and not (k == "provider" and str(v).strip().lower() == "inherit"):
+                entry[k] = v
+    member_explicit_provider = False
+    if ctx is not None and not ctx.is_admin:
+        fm = getattr(ctx, "feature_models", None) or {}
+        if isinstance(fm, dict) and isinstance(fm.get(slot), dict):
+            m_slot = fm[slot]
+            if str(m_slot.get("provider") or "").strip():
+                member_explicit_provider = True
+            for k, v in m_slot.items():
+                if v is not None and v != "":
+                    entry[k] = v
+    raw_prov = str(entry.get("provider") or "inherit").strip().lower()
+    if raw_prov in ("", "inherit"):
+        if pcli_enabled and pcli_active in ("antigravity", "codex") and slot not in ("embed", "stt", "vlm"):
+            target_prov = pcli_active
+        else:
+            target_prov = str(getattr(settings, "effective_provider", "") or getattr(settings, "provider", "") or "mock").strip().lower()
+    else:
+        target_prov = raw_prov
+    if ctx is not None and not ctx.is_admin and not member_explicit_provider:
+        ctx_prov = str(getattr(ctx, "provider", "") or "").strip().lower()
+        if ctx_prov and ctx_prov != "none" and classify_provider(ctx_prov) != HOST_CLI and (classify_provider(target_prov) == HOST_CLI or target_prov == "mock"):
+            target_prov = ctx_prov
+    target_model = str(entry.get("model") or "").strip() or _provider_default_model(settings, target_prov, slot)
+    target_effort = str(entry.get("effort") or "").strip() or _provider_default_effort(settings, target_prov)
+    return target_prov, target_model, target_effort
+
+
+def _has_feature_routing_override(settings: Any) -> bool:
+    from ..accounts.provider_policy import FEATURE_SLOTS, context_of
+
+    routes = getattr(settings, "feature_routing", None) or {}
+    if isinstance(routes, dict):
+        for slot in FEATURE_SLOTS:
+            entry = routes.get(slot)
+            if not isinstance(entry, dict):
+                continue
+            prov = str(entry.get("provider") or "inherit").strip().lower()
+            mod = str(entry.get("model") or "").strip()
+            eff = str(entry.get("effort") or "").strip()
+            if prov not in ("", "inherit") or mod or eff:
+                return True
+    ctx = context_of(settings)
+    if ctx is None or ctx.is_admin:
+        pcli = getattr(settings, "personal_cli", None)
+        if isinstance(pcli, dict) and pcli.get("enabled"):
+            p_act = str(pcli.get("active_cli") or "").strip().lower()
+            if p_act in ("antigravity", "codex"):
+                return True
+            p_routes = pcli.get("feature_routing") if isinstance(pcli.get("feature_routing"), dict) else {}
+            if any(isinstance(v, dict) and (str(v.get("provider") or "inherit").strip().lower() != "inherit" or v.get("model") or v.get("effort")) for v in p_routes.values()):
+                return True
+    if ctx is not None and not ctx.is_admin:
+        fm = getattr(ctx, "feature_models", None) or {}
+        if isinstance(fm, dict) and any(isinstance(v, dict) and any(v.get(k) for k in ("provider", "model", "effort")) for v in fm.values()):
+            return True
+    return False
+
+
+def _clone_settings_for_slot(settings: Any, *, slot: str, target_provider: str, target_model: str, target_effort: str) -> Any:
+    updates: dict[str, Any] = {"feature_routing": {}, "personal_cli": {}}
+    if target_provider and target_provider not in ("unavailable", "none"):
+        updates["provider"] = target_provider
+    if target_model:
+        if target_provider == "gemini":
+            if slot == "embed":
+                updates["gemini_embed_model"] = target_model
+            else:
+                updates["gemini_model"] = target_model
+        elif target_provider == "antigravity":
+            updates["antigravity_model"] = target_model
+        elif target_provider == "codex":
+            updates["codex_model"] = target_model
+    if target_effort:
+        if target_provider == "gemini":
+            updates["gemini_effort"] = target_effort
+        elif target_provider == "antigravity":
+            updates["antigravity_effort"] = target_effort
+        elif target_provider == "codex":
+            updates["codex_effort"] = target_effort
+    from ..accounts.provider_policy import context_of
+
+    ctx = context_of(settings)
+    if hasattr(settings, "model_copy"):
+        cloned = settings.model_copy(update=updates)
+        if ctx is not None:
+            setattr(cloned, "provider_context", ctx)
+        return cloned
+    from types import SimpleNamespace
+
+    data = dict(vars(settings))
+    data.update(updates)
+    if hasattr(settings, "effective_provider"):
+        data["effective_provider"] = target_provider or getattr(settings, "effective_provider", "mock")
+    if ctx is not None:
+        data["provider_context"] = ctx
+    return SimpleNamespace(**data)
+
+
+class LineageCollector:
+    """Thread-safe collector tracking per-stage provider/model/effort execution and latency."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.events: list[dict[str, Any]] = []
+        self.jev: dict[str, Any] = {}
+
+    def record_stage(
+        self,
+        *,
+        stage: str,
+        requested_provider: str,
+        requested_model: str,
+        requested_effort: str,
+        final_provider: str,
+        final_model: str,
+        status: str = "ok",
+        duration_ms: float | None = None,
+        fallback_occurred: bool = False,
+        fallback_reason: str = "",
+        detail: str = "",
+    ) -> None:
+        dur = round(float(duration_ms), 2) if duration_ms is not None else None
+        with self._lock:
+            for existing in self.events:
+                if existing["stage"] == stage and existing["final_provider"] == final_provider and existing["final_model"] == final_model and existing["status"] == status and existing["requested_effort"] == requested_effort:
+                    existing["calls"] = int(existing.get("calls", 1)) + 1
+                    if dur is not None:
+                        prev = existing.get("duration_ms") or 0.0
+                        existing["duration_ms"] = round(float(prev) + dur, 2)
+                    if detail:
+                        existing["detail"] = detail
+                    return
+            self.events.append({
+                "stage": stage,
+                "requested_provider": requested_provider,
+                "requested_model": requested_model,
+                "requested_effort": requested_effort,
+                "final_provider": final_provider,
+                "final_model": final_model,
+                "status": status,
+                "duration_ms": dur,
+                "calls": 1,
+                "fallback_occurred": bool(fallback_occurred),
+                "fallback_reason": fallback_reason,
+                "detail": detail,
+            })
+
+    def set_jev(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self.jev = dict(payload)
+
+    def summarize(self) -> dict[str, Any]:
+        with self._lock:
+            events = [dict(ev) for ev in self.events]
+            jev = dict(self.jev)
+        final_models: dict[str, dict[str, Any]] = {}
+        fallbacks: list[dict[str, Any]] = []
+        for ev in events:
+            final_models[ev["stage"]] = {
+                "provider": ev["final_provider"],
+                "model": ev["final_model"],
+                "effort": ev["requested_effort"],
+                "status": ev["status"],
+                "calls": ev.get("calls", 1),
+            }
+            if ev.get("fallback_occurred"):
+                fallbacks.append(ev)
+        return {
+            "stages": events,
+            "jev": jev,
+            "final_output_models": final_models,
+            "fallbacks_triggered": fallbacks,
+        }
+
+
+class FeatureRoutedProvider:
+    """Provider facade dispatching each pipeline stage to its configured slot provider."""
+
+    def __init__(self, settings: Any) -> None:
+        from ..accounts.provider_policy import context_of
+
+        self.settings = settings
+        self.lineage = LineageCollector()
+        self.provider_context = context_of(settings)
+        self.credential_key = getattr(self.provider_context, "credential_key", "admin") if self.provider_context else "admin"
+        self.usage_hooks = None
+        self._lock = threading.Lock()
+        self._slots: dict[str, Provider] = {}
+        self._specs: dict[str, tuple[str, str, str]] = {}
+        eg_prov, eg_model, eg_effort = self.slot_spec("extract_graph")
+        self.name = eg_prov
+        self.model = eg_model
+        self.effort = eg_effort
+
+    def slot_spec(self, slot: str) -> tuple[str, str, str]:
+        with self._lock:
+            spec = self._specs.get(slot)
+            if spec is None:
+                spec = _resolve_slot_spec(self.settings, slot)
+                self._specs[slot] = spec
+            return spec
+
+    def slot_provider(self, slot: str) -> Provider:
+        with self._lock:
+            cached = self._slots.get(slot)
+            if cached is not None:
+                if self.usage_hooks is not None:
+                    setattr(cached, "usage_hooks", self.usage_hooks)
+                return cached
+            target_prov, target_model, target_effort = self._specs.get(slot) or _resolve_slot_spec(self.settings, slot)
+            self._specs[slot] = (target_prov, target_model, target_effort)
+            slot_settings = _clone_settings_for_slot(self.settings, slot=slot, target_provider=target_prov, target_model=target_model, target_effort=target_effort)
+            prov = _build_direct_provider(slot_settings)
+            if self.usage_hooks is not None:
+                setattr(prov, "usage_hooks", self.usage_hooks)
+            self._slots[slot] = prov
+            return prov
+
+    @property
+    def embed_model(self) -> str:
+        _, target_model, _ = self.slot_spec("embed")
+        return target_model
+
+    @property
+    def embed_provider(self) -> str:
+        target_prov, _, _ = self.slot_spec("embed")
+        if target_prov in ("codex", "antigravity") and getattr(self.settings, "gemini_api_key", ""):
+            return "gemini"
+        return target_prov
+
+    def has_embed_capability(self) -> bool:
+        prov = self.slot_provider("embed")
+        if hasattr(prov, "has_embed_capability"):
+            return bool(prov.has_embed_capability())
+        pname = getattr(prov, "name", "")
+        if pname == "unavailable":
+            return False
+        return pname not in ("codex", "antigravity") or bool(getattr(self.settings, "gemini_api_key", ""))
+
+    def _call_stage(self, stage: str, fn: Any, *, effort_override: str | None = None, result_model_attr: str | None = None) -> Any:
+        req_prov, req_model, req_effort = self.slot_spec(stage)
+        eff_label = effort_override if effort_override is not None else req_effort
+        prov = self.slot_provider(stage)
+        actual_prov = str(getattr(prov, "name", req_prov) or req_prov)
+        started = time.perf_counter()
+        try:
+            out = fn(prov)
+        except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000.0
+            self.lineage.record_stage(stage=stage, requested_provider=req_prov, requested_model=req_model, requested_effort=eff_label, final_provider=actual_prov, final_model=req_model, status="error", duration_ms=elapsed, detail=str(exc)[:240])
+            raise
+        elapsed = (time.perf_counter() - started) * 1000.0
+        final_model = (getattr(out, result_model_attr, None) if result_model_attr else None) or getattr(prov, "model", None) or req_model
+        self.lineage.record_stage(stage=stage, requested_provider=req_prov, requested_model=req_model, requested_effort=eff_label, final_provider=actual_prov, final_model=str(final_model or ""), status="ok", duration_ms=elapsed)
+        return out
+
+    def extract(self, doc: Document, ontology_block: str = "", *, effort: str | None = None) -> ExtractionResult:
+        def _invoke(p: Provider) -> ExtractionResult:
+            if effort is not None and _accepts_kwarg(p.extract, "effort"):
+                return p.extract(doc, ontology_block, effort=effort)
+            return p.extract(doc, ontology_block)
+
+        return self._call_stage("extract_graph", _invoke, effort_override=effort, result_model_attr="model")
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+        def _invoke(p: Provider) -> str:
+            if hasattr(p, "summarize_document"):
+                if effort is not None and _accepts_kwarg(p.summarize_document, "effort"):
+                    return p.summarize_document(doc, effort=effort)
+                return p.summarize_document(doc)
+            return p.extract(doc, "").summary
+
+        return self._call_stage("summarize", _invoke, effort_override=effort)
+
+    def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+        def _invoke(p: Provider) -> str:
+            if effort is not None and _accepts_kwarg(p.render_detail, "effort"):
+                return p.render_detail(doc, format=format, focus=focus, effort=effort)
+            return p.render_detail(doc, format=format, focus=focus)
+
+        return self._call_stage("summarize", _invoke, effort_override=effort)
+
+    def compose_presentation(self, doc: Document, **kwargs: Any) -> str:
+        return self._call_stage("summarize", lambda p: p.compose_presentation(doc, **kwargs), effort_override=kwargs.get("effort"))
+
+    def embed(self, text: str, *, task_type: str | None = None, title: str | None = None) -> list[float]:
+        req_prov, req_model, _ = self.slot_spec("embed")
+        prov = self.slot_provider("embed")
+        actual_prov = self.embed_provider or str(getattr(prov, "name", req_prov) or req_prov)
+        started = time.perf_counter()
+        try:
+            out = prov.embed(text, task_type=task_type, title=title)
+        except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000.0
+            self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=req_model, requested_effort="", final_provider=actual_prov, final_model=req_model, status="error", duration_ms=elapsed, detail=str(exc)[:240])
+            raise
+        elapsed = (time.perf_counter() - started) * 1000.0
+        self.lineage.record_stage(stage="embed", requested_provider=req_prov, requested_model=req_model, requested_effort="", final_provider=actual_prov, final_model=req_model, status="ok", duration_ms=elapsed)
+        return out
+
+    def judge_same_entity(self, mc: MergeCandidate, *, document_id: str | None = None) -> bool:
+        def _invoke(p: Provider) -> bool:
+            if document_id is not None and _accepts_kwarg(p.judge_same_entity, "document_id"):
+                return p.judge_same_entity(mc, document_id=document_id)
+            return p.judge_same_entity(mc)
+
+        return self._call_stage("entity_judge", _invoke)
+
+    def judge_relationship(self, rc: RelationCandidate, *, document_id: str | None = None) -> RelationJudgement:
+        def _invoke(p: Provider) -> RelationJudgement:
+            if document_id is not None and _accepts_kwarg(p.judge_relationship, "document_id"):
+                return p.judge_relationship(rc, document_id=document_id)
+            return p.judge_relationship(rc)
+
+        return self._call_stage("relation_judge", _invoke)
+
+    def classify_paper(self, doc: Document, *, effort: str | None = None):
+        def _invoke(p: Provider):
+            if effort is not None and _accepts_kwarg(p.classify_paper, "effort"):
+                return p.classify_paper(doc, effort=effort)
+            return p.classify_paper(doc)
+
+        return self._call_stage("classify", _invoke, effort_override=effort)
+
+    def classify_watch(self, doc: Document) -> dict:
+        return self._call_stage("classify", lambda p: p.classify_watch(doc))
+
+    def research(self, query: str, context: str) -> dict:
+        return self._call_stage("research", lambda p: p.research(query, context))
+
+    def judge_research(self, query: str, context: str, report: str) -> dict:
+        return self._call_stage("research", lambda p: p.judge_research(query, context, report))
+
+    def select_followups(self, context: str, candidates: list[dict]) -> list[int]:
+        return self._call_stage("research", lambda p: p.select_followups(context, candidates))
+
+    def summarize_search(self, query: str, context: str) -> str:
+        return self._call_stage("research", lambda p: p.summarize_search(query, context))
+
+
+def _build_direct_provider(settings) -> Provider:
     from ..accounts.provider_policy import context_of, require_provider_allowed
 
     ctx = context_of(settings)
@@ -670,3 +1061,14 @@ def get_provider(settings) -> Provider:
 
         return GeminiProvider(settings)
     return MockProvider()
+
+
+def get_provider(settings, *, feature: str | None = None) -> Provider:
+    """Return a Provider instance or FeatureRoutedProvider based on settings and optional feature slot."""
+    if feature is not None:
+        target_prov, target_model, target_effort = _resolve_slot_spec(settings, feature)
+        slot_settings = _clone_settings_for_slot(settings, slot=feature, target_provider=target_prov, target_model=target_model, target_effort=target_effort)
+        return _build_direct_provider(slot_settings)
+    if _has_feature_routing_override(settings):
+        return FeatureRoutedProvider(settings)
+    return _build_direct_provider(settings)

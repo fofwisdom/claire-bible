@@ -1206,6 +1206,41 @@ def create_app(
             _log_operation_failure(request, "theme delete", exc)
             raise HTTPException(status_code=500, detail="failed to delete theme") from exc
 
+    def _load_server_tier_payload() -> dict[str, Any]:
+        """Read current ServerTier configuration for /providers responses."""
+        try:
+            db_path = Path(s.db_file)
+            if db_path.is_file():
+                conn = dbm.connect_existing(db_path, readonly=True)
+                try:
+                    raw = server_tier.read_stored_server_tier(conn)
+                    return {
+                        "configured": raw is not None,
+                        "tier": server_tier.load_server_tier(conn).to_dict(),
+                    }
+                finally:
+                    conn.close()
+        except Exception as exc:
+            log.debug("providers server_tier read skipped: %s", exc)
+        return {"configured": False, "tier": policy.ServerTier().to_dict()}
+
+    def _save_server_tier_patch(patch: dict[str, Any]) -> dict[str, Any]:
+        """Merge provider/model/max_effort/features fields from /providers PATCH onto ServerTier."""
+        db_path = Path(s.db_file)
+        if not db_path.is_file():
+            return {"configured": False, "tier": policy.ServerTier().to_dict()}
+        conn = dbm.connect_existing(db_path)
+        try:
+            current = server_tier.load_server_tier(conn).to_dict()
+            for key in ("provider", "model", "max_effort", "features"):
+                if key in patch:
+                    current[key] = patch[key]
+            validated = policy.ServerTier.from_dict(current)
+            server_tier.save_server_tier(conn, validated, updated_by=dbm.ADMIN_ACCOUNT_ID)
+            return {"configured": True, "tier": validated.to_dict()}
+        finally:
+            conn.close()
+
     async def providers_get_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
         if scope != "owner":
@@ -1219,6 +1254,9 @@ def create_app(
         cfg = pm.get_sanitized_config()
         cfg["effective_provider"] = s.effective_provider
         cfg["effective_stt_provider"] = s.effective_stt_provider
+        tier_payload = _load_server_tier_payload()
+        cfg["server_tier"] = tier_payload["tier"]
+        cfg["server_tier_configured"] = tier_payload["configured"]
         return JSONResponse(cfg)
 
     async def providers_update_route(request: Request) -> JSONResponse:
@@ -1234,7 +1272,8 @@ def create_app(
 
         pm = get_provider_manager(s.data_dir)
         try:
-            updated = pm.update_config(body)
+            updated = pm.update_config(body, server_scope=True)
+            tier_payload = _save_server_tier_patch(body["server_tier"]) if isinstance(body.get("server_tier"), dict) else _load_server_tier_payload()
             get_settings.cache_clear()
             s = get_settings()
             if hasattr(request, "app") and hasattr(request.app, "state"):
@@ -1243,6 +1282,8 @@ def create_app(
             service_pool.clear(s)
             updated["effective_provider"] = s.effective_provider
             updated["effective_stt_provider"] = s.effective_stt_provider
+            updated["server_tier"] = tier_payload["tier"]
+            updated["server_tier_configured"] = tier_payload["configured"]
             return JSONResponse({"ok": True, "config": updated})
         except ValueError as val_err:
             raise HTTPException(status_code=400, detail=str(val_err)) from val_err

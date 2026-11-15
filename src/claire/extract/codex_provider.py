@@ -34,6 +34,7 @@ from .prompts import (
     render_detail_prompt,
     research_prompt,
     select_followups_prompt,
+    summarize_document_prompt,
     summarize_search_prompt,
 )
 from .provider import (
@@ -356,10 +357,6 @@ class CodexProvider:
             result.summary = clean_plain_summary(result.summary)
         if not result.summary or not result.summary.strip():
             result.summary = ""
-        elif is_preface_summary(result.summary) and result.key_claims:
-            claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-            if claims_summary and len(claims_summary) >= 30:
-                result.summary = claims_summary
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION
@@ -389,6 +386,11 @@ class CodexProvider:
 
     def summarize_search(self, query: str, context: str) -> str:
         return str(self._run_cli(summarize_search_prompt(query, context))).strip()
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+        """Generate a concise plain-text Korean executive summary for a document."""
+        res = self._run_cli(summarize_document_prompt(doc), effort=effort)
+        return clean_plain_summary(str(res).strip()).strip()
 
     def render_detail(
         self,
@@ -498,21 +500,18 @@ class CodexProvider:
         selected_effort = effort or getattr(
             self.settings, "pdf_classifier_effort", "low"
         )
-        try:
-            data = self._run_cli(
-                prompt,
-                schema=_PaperClassification.model_json_schema(),
-                effort=selected_effort,
-            )
-            result = _PaperClassification.model_validate(data)
-            return PaperClassificationResult(
-                result.is_paper,
-                result.reason,
-                author=result.author,
-                title=result.title,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return PaperClassificationResult(False, f"classify_paper failed: {exc}")
+        data = self._run_cli(
+            prompt,
+            schema=_PaperClassification.model_json_schema(),
+            effort=selected_effort,
+        )
+        result = _PaperClassification.model_validate(data)
+        return PaperClassificationResult(
+            result.is_paper,
+            result.reason,
+            author=result.author,
+            title=result.title,
+        )
 
     def classify_watch(self, doc: Document) -> dict:
         prompt = classify_watch_prompt(doc_to_prompt(doc)[:4000])

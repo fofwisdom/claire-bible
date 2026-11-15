@@ -43,8 +43,98 @@ TIER_FEATURES: Final[tuple[Feature, ...]] = ("expand", "stt", "vlm", "presentati
 # research(allow_tools=True), Jev 평가, 텔레그램 봇은 관리자 전용이다(§10.1).
 ADMIN_ONLY_FEATURES: Final[tuple[str, ...]] = ("research", "jev", "telegram")
 EFFORT_ORDER: Final[tuple[str, ...]] = ("none", "minimal", "low", "medium", "high")
+EFFORT_RANKS: Final[dict[str, int]] = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5}
+FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
+MODEL_CAPABILITY_RANKS: Final[dict[str, int]] = {
+    "mock": 0,
+    "gemini-embedding-001": 10,
+    "text-embedding-3-small": 10,
+    "text-embedding-ada-002": 10,
+    "gemini-embedding-2": 20,
+    "gemini-embedding-2-preview": 20,
+    "text-embedding-3-large": 20,
+    "jev-1.14.0": 10,
+    "jev-latest": 10,
+    "gemini-3.5-flash-lite": 10,
+    "gemini-3.1-flash-lite": 10,
+    "gemini-2.5-flash-lite": 10,
+    "gpt-4o-mini": 15,
+    "gemini-2.5-flash": 18,
+    "gemini-3-flash-preview": 19,
+    "gemini-3.6-flash": 19,
+    "gemini-3.8-flash": 20,
+    "gpt-4.1-mini": 22,
+    "o4-mini": 24,
+    "gpt-4o": 25,
+    "o3-mini": 25,
+    "gpt-4.1": 28,
+    "gpt-5-mini": 28,
+    "gemini-2.5-pro": 30,
+    "claude-sonnet-4.6": 30,
+    "codex-default": 30,
+    "o3": 32,
+    "gemini-3.1-pro": 35,
+    "gemini-3.1-pro-preview": 35,
+    "gpt-5": 35,
+    "gpt-5-codex": 35,
+    "gpt-5.1-codex": 36,
+    "gpt-5.2-codex": 37,
+    "gpt-5.3-codex": 38,
+    "gpt-5.4": 40,
+    "gemini-4-argon": 40,
+    "claude-opus-5.5": 40,
+    "gemini-4-hydrogen": 50,
+}
 
 SERVER_TIER_SETTING_KEY: Final = "server_tier"  # claire.db instance_settings 키, 값은 ServerTier.to_dict() JSON
+
+
+def normalize_model_and_effort(model: str | None, effort: str | None = None) -> tuple[str, str]:
+    """Normalize a model identifier and separate any embedded effort suffix."""
+    raw_model = str(model or "").strip().lower()
+    raw_effort = str(effort or "").strip().lower()
+    inferred_effort = ""
+    if raw_model not in MODEL_CAPABILITY_RANKS:
+        for suf in ("xhigh", "high", "medium", "low", "minimal", "none"):
+            token = f"-{suf}"
+            if raw_model.endswith(token):
+                base = raw_model[: -len(token)]
+                if base in MODEL_CAPABILITY_RANKS:
+                    raw_model = base
+                    inferred_effort = suf
+                    break
+    resolved_effort = raw_effort or inferred_effort or "medium"
+    return raw_model, resolved_effort
+
+
+def get_model_rank(model: str | None, effort: str | None = None) -> tuple[int, int]:
+    """Return a comparable (capability_tier, effort_rank) tuple for a model and effort."""
+    base_model, resolved_effort = normalize_model_and_effort(model, effort)
+    if base_model == "":
+        return (0, EFFORT_RANKS.get(resolved_effort, 3))
+    tier_rank = MODEL_CAPABILITY_RANKS.get(base_model, 0)
+    eff_rank = EFFORT_RANKS.get(resolved_effort, 3)
+    return (tier_rank, eff_rank)
+
+
+def is_model_equal_or_higher(user_model: str | None, user_effort: str | None, admin_model: str | None, admin_effort: str | None = None) -> bool:
+    """Return True when the member BYOK model and effort meet or exceed the admin baseline."""
+    user_clean = str(user_model or "").strip().lower()
+    if not user_clean or user_clean == "mock":
+        return False
+    admin_clean = str(admin_model or "").strip().lower()
+    if not admin_clean or admin_clean == "mock":
+        return True
+    return get_model_rank(user_clean, user_effort) >= get_model_rank(admin_clean, admin_effort)
+
+
+def clamp_byok_model_for_feature(user_model: str | None, user_effort: str | None, admin_model: str | None, admin_effort: str | None = None) -> tuple[str, str]:
+    """Return the user model and effort if >= admin baseline, else return the admin baseline."""
+    if is_model_equal_or_higher(user_model, user_effort, admin_model, admin_effort):
+        _, eff = normalize_model_and_effort(user_model, user_effort)
+        return str(user_model or "").strip(), eff
+    _, adm_eff = normalize_model_and_effort(admin_model, admin_effort)
+    return str(admin_model or "").strip(), adm_eff
 
 
 def classify_provider(name: str | None) -> ProviderClass:
@@ -182,6 +272,7 @@ class ProviderContext:
     credential_key: str             # 호출 락·백오프 분리 단위. "admin" 또는 "byok:<fingerprint>" 또는 "tier"
     tier: ServerTier = field(default_factory=ServerTier)
     api_key: str = field(default="", repr=False, compare=False)
+    feature_models: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @property
     def allows_host_cli(self) -> bool:
@@ -224,8 +315,13 @@ _EFFORT_ALIASES: Final[dict[str, str]] = {"off": "none", "0": "none"}
 
 
 def admin_context(settings: "Settings") -> ProviderContext:
-    """관리자(또는 호스트 운영자) 컨텍스트. 지금과 같이 ``providers.json``을 쓴다(§10.2-1)."""
+    """Admin or host operator context using providers.json and optional personal CLI settings."""
     provider = str(getattr(settings, "provider", "") or "").strip().lower()
+    pcli = getattr(settings, "personal_cli", None)
+    if isinstance(pcli, dict) and pcli.get("enabled"):
+        p_act = str(pcli.get("active_cli") or "").strip().lower()
+        if p_act in ("antigravity", "codex"):
+            provider = p_act
     model_field, effort_field = _ADMIN_MODEL_FIELDS.get(provider, ("gemini_model", "gemini_effort"))
     return ProviderContext(
         account_id=None,
@@ -294,17 +390,43 @@ def resolve_provider_context(
                 f"account {account_id}: provider {key_provider!r} is not available for member keys",
                 remedy="지원하는 프로바이더(gemini)의 키를 다시 등록한다.",
             )
+        prefs = _load_member_model_prefs(int(account_id), settings=settings, auth_db_path=auth_db_path, provider=key_provider)
+        admin_base_model = str(getattr(settings, "gemini_model", "") or "")
+        admin_base_effort = str(getattr(settings, "gemini_effort", "medium") or "medium")
+        admin_base_embed = str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
+        resolved_model, resolved_effort = clamp_byok_model_for_feature(prefs.get("model") or admin_base_model, prefs.get("effort") or admin_base_effort, admin_base_model, admin_base_effort)
+        feature_models: dict[str, dict[str, str]] = {}
+        raw_fm = prefs.get("feature_models") if isinstance(prefs.get("feature_models"), dict) else {}
+        admin_routing = getattr(settings, "feature_routing", None) or {}
+        resolved_embed = admin_base_embed
+        for slot in FEATURE_SLOTS:
+            if slot in ADMIN_ONLY_FEATURES:
+                continue
+            slot_admin = admin_routing.get(slot, {}) if isinstance(admin_routing, dict) else {}
+            s_admin_m = str(slot_admin.get("model") or (admin_base_embed if slot == "embed" else admin_base_model) or "")
+            s_admin_e = str(slot_admin.get("effort") or ("" if slot == "embed" else admin_base_effort) or "")
+            slot_user = raw_fm.get(slot, {}) if isinstance(raw_fm.get(slot), dict) else {}
+            u_m = str(slot_user.get("model") or (resolved_embed if slot == "embed" else resolved_model) or s_admin_m)
+            u_e = str(slot_user.get("effort") or ("" if slot == "embed" else resolved_effort) or s_admin_e)
+            cm, ce = clamp_byok_model_for_feature(u_m, u_e, s_admin_m, s_admin_e)
+            if slot == "embed":
+                resolved_embed = cm or admin_base_embed
+                if slot_user:
+                    feature_models[slot] = {"provider": key_provider, "model": resolved_embed, "effort": ""}
+            elif slot_user:
+                feature_models[slot] = {"provider": key_provider, "model": cm, "effort": ce}
         return ProviderContext(
             account_id=int(account_id),
             is_admin=False,
             source="byok",
             provider=key_provider,
-            model=str(getattr(settings, "gemini_model", "") or ""),
-            embed_model=str(getattr(settings, "gemini_embed_model", "") or ""),
-            effort=str(getattr(settings, "gemini_effort", "") or ""),
+            model=resolved_model or admin_base_model,
+            embed_model=resolved_embed or admin_base_embed,
+            effort=resolved_effort or admin_base_effort,
             credential_key=f"byok:{active.fingerprint}",
             tier=tier,
             api_key=active.api_key,
+            feature_models=feature_models,
         )
 
     tier_provider = str(tier.provider or "none").strip().lower()
@@ -340,6 +462,30 @@ def resolve_provider_context(
         api_key=server_key,
     )
     return replace(tier_ctx, effort=clamp_effort(tier_ctx, tier_ctx.effort))
+
+
+def _load_member_model_prefs(
+    account_id: int,
+    *,
+    settings: "Settings",
+    auth_db_path: Path | str | None,
+    provider: str = "gemini",
+) -> dict[str, Any]:
+    """Load member BYOK model preferences from auth.db if present."""
+    from claire.store import auth_db as _auth_db
+    from claire.store import provider_keys as _provider_keys
+
+    path = Path(auth_db_path) if auth_db_path is not None else _auth_db.auth_db_path(settings.data_dir)
+    if not path.is_file():
+        return {}
+    conn = _auth_db.connect_auth_db(path)
+    try:
+        fn = getattr(_provider_keys, "get_key_model_prefs", None)
+        return fn(conn, account_id=account_id, provider=provider) if fn is not None else {}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
 
 
 def _load_member_key(
@@ -413,6 +559,14 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
         "presentation_enabled": bool(getattr(settings, "presentation_enabled", False))
         and ctx.feature_allowed("presentation"),
     }
+    if ctx.source == "byok" and ctx.feature_models:
+        update["feature_routing"] = {
+            slot: dict(spec)
+            for slot, spec in ctx.feature_models.items()
+            if slot not in ADMIN_ONLY_FEATURES and classify_provider(spec.get("provider")) == API_KEY
+        }
+    else:
+        update["feature_routing"] = {}
     for name in ("pdf_paper_effort", "pdf_default_effort", "pdf_classifier_effort"):
         current = str(getattr(settings, name, "") or "")
         if current:

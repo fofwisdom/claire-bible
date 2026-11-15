@@ -1,6 +1,9 @@
 {
   "common.action.save": "저장",
   "common.action.cancel": "취소",
+  "common.action.close": "닫기",
+  "common.action.delete": "삭제",
+  "console.providers.toggle_key": "키 표시/숨김",
   "common.action.logout": "로그아웃",
   "common.status.loading": "불러오는 중…",
   "nav.topbar.graph": "← 지식 그래프",

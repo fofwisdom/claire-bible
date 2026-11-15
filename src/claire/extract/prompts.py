@@ -520,6 +520,17 @@ def extract_fallback_prompt(sys: str, body: str) -> str:
     )
 
 
+def summarize_document_prompt(doc: Document) -> str:
+    """Build a prompt that generates a concise Korean plain-text executive summary for a document."""
+    body = doc_to_prompt(doc)
+    return (
+        "Summarize the entire document below into a cohesive 3 to 5 sentence executive summary in Korean (한국어) written style (문어체: ~한다/~이다, no conversational honorifics). "
+        "Keep proper nouns, product names, and technical terms in their original form without transliteration. "
+        "Output ONLY pure plain text without Markdown, AsciiDoc, prefaces, or bullet lists.\n\n"
+        f"{body}\n\nSUMMARY:"
+    )
+
+
 def summarize_search_prompt(query: str, context: str) -> str:
     """검색된 컨텍스트만 사용해 질의에 답하는 프롬프트(인용 포함, 환각 억제, 문어체)."""
     return (

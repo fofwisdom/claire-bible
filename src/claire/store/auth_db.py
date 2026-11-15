@@ -131,6 +131,7 @@ def init_auth_db(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
         _migrate_v2_account_usage_daily(conn)
         _migrate_v3_oidc_states_account_id(conn)
+        _migrate_v6_provider_key_model_prefs(conn)
         conn.execute(
             "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
             (str(AUTH_DB_SCHEMA_VERSION),),
@@ -154,6 +155,13 @@ def _migrate_v2_account_usage_daily(conn: sqlite3.Connection) -> None:
     for name, decl in _ACCOUNT_USAGE_V2_COLUMNS:
         if name not in existing:
             conn.execute(f"ALTER TABLE account_usage ADD COLUMN {name} {decl}")
+
+
+def _migrate_v6_provider_key_model_prefs(conn: sqlite3.Connection) -> None:
+    """Add model_prefs_json column to account_provider_keys if absent."""
+    existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(account_provider_keys)")}
+    if existing and "model_prefs_json" not in existing:
+        conn.execute("ALTER TABLE account_provider_keys ADD COLUMN model_prefs_json TEXT NOT NULL DEFAULT '{}'")
 
 
 _OIDC_STATES_V3_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -461,6 +469,7 @@ CREATE TABLE IF NOT EXISTS account_provider_keys (
     ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, key_version INTEGER NOT NULL,
     fingerprint TEXT NOT NULL, status TEXT NOT NULL,
     created_at REAL NOT NULL, last_verified_at REAL, last_used_at REAL,
+    model_prefs_json TEXT NOT NULL DEFAULT '{}',
     UNIQUE (account_id, provider)
 );
 CREATE TABLE IF NOT EXISTS invitations (

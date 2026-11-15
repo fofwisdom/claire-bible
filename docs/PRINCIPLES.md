@@ -88,6 +88,12 @@
 
 **E4. 에이전트는 운영 서버에 접근하거나 배포하지 않는다.** 검증은 개발 모드와 그래프 번들로 한다. 운영 상태를 알아야 하면 소유자에게 묻는다.
 
+## G. 웹 UI
+
+**G1. 웹 UI의 아이콘은 한 색 선 아이콘이다. 이모지를 쓰지 않는다.** 아이콘은 [`src/claire/static/js/icons.js`](../src/claire/static/js/icons.js)의 인라인 SVG이며 획 색은 `currentColor`라서 글자색을 따른다. 마크업은 빈 요소 `<span data-icon="이름"></span>`, 스크립트는 `ClaireIcons.svg("이름")`, 콘솔 렌더러(`api/accounts_routes`)는 `icon_html("이름")`을 쓴다. 맞는 아이콘이 없으면 `icons.js`에 16×16 선 아이콘을 추가한다. `textContent`, `<option>`, 브라우저 확인창처럼 SVG를 넣을 수 없는 곳은 이모지 없이 글자만 쓴다. 아이콘만 있는 단추는 카탈로그 키로 `aria-label`을 붙인다. 화살표, ✓, ✕, ★, ☆, ▾ 같은 글자 기호는 이모지가 아니다.
+- 집행: `tests/test_ui_line_icons.py`
+- 현황: 예외는 테마 아이콘(소유자가 고르는 데이터, 기본값 📚·📁), 발행 글 인용 템플릿 기본값, 설계 시각 프로토타입(`templates/prototype/`)이다. OAuth 승인 화면(`api/oauth.py`)과 텔레그램 봇 메시지는 검사 범위 밖이다. 근거 설계: [`design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) HD4
+
 ## F. 문서
 
 **F1. 현재 상태를 말하는 문장은 검증할 수 있는 문서에만 쓴다.** 현재 구현은 `implementation/` 문서에 쓰고 확인 기준 커밋을 적는다. 근거는 `[코드]`(소스 확인), `[실측]`(측정, 조건 포함), `[결정]`(소유자 방침), `[미검증]`으로 구분한다. 견본: [`GRAPH_ENGINE.md`](implementation/GRAPH_ENGINE.md)

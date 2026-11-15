@@ -28,6 +28,7 @@ from .prompts import (
     render_detail_prompt,
     research_prompt,
     select_followups_prompt,
+    summarize_document_prompt,
     summarize_search_prompt,
 )
 from .prompts import (
@@ -394,36 +395,11 @@ class GeminiProvider:
             "mime_type": "application/json",
             "schema": ExtractionResult.extraction_json_schema(),
         }
-        try:
-            interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
-                input=body,
-                system_instruction=sys,
-                response_format=response_format,
-                generation_config=self._build_generation_config(effort=effort),
-                store=False,
-            ))
-            raw_text = _extract_output_text(interaction)
-            result = _coerce(raw_text)
-            result.raw_response = raw_text
-            result.model = self.model
-            result.prompt_version = PROMPT_VERSION
-            return result
-        except Exception as e:
-            # rate limit/서버오류는 재시도 후에도 실패 → 올려서 raw_inbox 에 error 로
-            # 남기고 나중에 replay-failed 로 재적재. 그 외(schema 거부 등)는 폴백.
-            # 정책 오류(키 거부·예산 소진)는 폴백하지 않는다(C2).
-            if _is_retryable(e) or _is_policy_error(e):
-                raise
-            return self._extract_json_fallback(sys, body, effort=effort)
-
-    def _extract_json_fallback(
-        self, sys: str, body: str, *, effort: str | None = None
-    ) -> ExtractionResult:
-        prompt = extract_fallback_prompt(sys, body)
         interaction = self._call(lambda: self.client.interactions.create(
             model=self.model,
-            input=prompt,
+            input=body,
+            system_instruction=sys,
+            response_format=response_format,
             generation_config=self._build_generation_config(effort=effort),
             store=False,
         ))
@@ -437,37 +413,29 @@ class GeminiProvider:
     def embed(
         self, text: str, *, task_type: str | None = None, title: str | None = None
     ) -> list[float]:
-        """임베딩. LLM 호출과 같은 키·throttle·``usage_hooks``를 쓴다. 설정은 이 프로바이더의 ``settings``(계정 사본)다."""
+        """Generate embedding using configured task_type without silent config strip fallback."""
         settings = getattr(self, "settings", None)
-        if settings is None:  # __new__로 만든 레거시·테스트 객체
+        if settings is None:
             from ..config import get_settings
 
             settings = get_settings()
         limit = getattr(settings, "embed_char_budget", 8000)
-        tt = task_type or getattr(settings, "embed_task_type", "SEMANTIC_SIMILARITY")
+        tt = task_type or "RETRIEVAL_DOCUMENT"
 
-        try:
-            from google.genai import types
+        from google.genai import types
 
-            config = types.EmbedContentConfig(task_type=tt, title=title)
-            resp = self._call(
-                lambda: self.client.models.embed_content(
-                    model=self.embed_model,
-                    contents=text[:limit] or " ",
-                    config=config,
-                )
+        embed_cfg_kwargs: dict[str, Any] = {"task_type": tt}
+        if title and tt == "RETRIEVAL_DOCUMENT":
+            embed_cfg_kwargs["title"] = title
+        config = types.EmbedContentConfig(**embed_cfg_kwargs)
+        resp = self._call(
+            lambda: self.client.models.embed_content(
+                model=self.embed_model,
+                contents=text[:limit] or " ",
+                config=config,
             )
-            return list(resp.embeddings[0].values)
-        except Exception as e:
-            if _is_policy_error(e):
-                raise
-            # Fallback for SDK/API environments where EmbedContentConfig is omitted
-            resp = self._call(
-                lambda: self.client.models.embed_content(
-                    model=self.embed_model, contents=text[:limit] or " "
-                )
-            )
-            return list(resp.embeddings[0].values)
+        )
+        return list(resp.embeddings[0].values)
 
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
@@ -478,6 +446,17 @@ class GeminiProvider:
             store=False,
         ))
         return _extract_output_text(interaction).strip()
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+        """Generate a concise plain-text Korean executive summary for a document."""
+        prompt = summarize_document_prompt(doc)
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            generation_config=self._build_generation_config(effort=effort),
+            store=False,
+        ))
+        return clean_plain_summary(_extract_output_text(interaction).strip()).strip()
 
     def render_detail(
         self,
@@ -585,29 +564,24 @@ class GeminiProvider:
         author_hint = doc.author if doc.author else None
         prompt = classify_paper_prompt(doc.title or "", doc.raw_text or "", author_hint=author_hint)
         eff = effort or getattr(self.settings, "pdf_classifier_effort", "low")
-        try:
-            interaction = self._call(lambda: self.client.interactions.create(
-                model=self.model,
-                input=prompt,
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                },
-                generation_config=self._build_generation_config(effort=eff),
-                store=False,
-            ))
-            raw_text = _extract_output_text(interaction)
-            parsed = json.loads(raw_text)
-            return PaperClassificationResult(
-                bool(parsed.get("is_paper", False)),
-                str(parsed.get("reason", "")),
-                author=parsed.get("author"),
-                title=parsed.get("title"),
-            )
-        except Exception as e:  # noqa: BLE001
-            if _is_policy_error(e):
-                raise
-            return PaperClassificationResult(False, f"classify_paper failed: {e}")
+        interaction = self._call(lambda: self.client.interactions.create(
+            model=self.model,
+            input=prompt,
+            response_format={
+                "type": "text",
+                "mime_type": "application/json",
+            },
+            generation_config=self._build_generation_config(effort=eff),
+            store=False,
+        ))
+        raw_text = _extract_output_text(interaction)
+        parsed = json.loads(raw_text)
+        return PaperClassificationResult(
+            bool(parsed.get("is_paper", False)),
+            str(parsed.get("reason", "")),
+            author=parsed.get("author"),
+            title=parsed.get("title"),
+        )
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단(별도 경량 호출).
@@ -831,8 +805,4 @@ def _coerce(text: str | None) -> ExtractionResult:
 
     if not result.summary or not result.summary.strip():
         result.summary = ""
-    elif is_preface_summary(result.summary) and result.key_claims:
-        claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-        if claims_summary and len(claims_summary) >= 30:
-            result.summary = claims_summary
     return result

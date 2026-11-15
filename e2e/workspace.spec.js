@@ -743,34 +743,33 @@ test('provider management lives in the admin console and the root topbar shows o
   const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();
 
-  // 5. Verify provider manager UI components render
+  // 5. Verify provider manager UI components render (Lineage at top, Google AI Studio, Feature Routing, ServerTier)
   await expect(detailPane.locator('h2')).toContainText('LLM & 프로바이더 관리');
+  await expect(page.locator('#prov-lineage-visualizer-card')).toBeVisible();
+  const lineageTop = await page.locator('#prov-lineage-visualizer-card').evaluate(el => el.getBoundingClientRect().top);
+  const activeTop = await page.locator('#prov-active-select').evaluate(el => el.getBoundingClientRect().top);
+  expect(lineageTop).toBeLessThan(activeTop);
+
   const activeSelect = page.locator('#prov-active-select');
   await expect(activeSelect).toBeVisible();
+  await expect(page.locator('#prov-active-select option[value="antigravity"]')).toHaveCount(0);
+  await expect(page.locator('#prov-active-select option[value="codex"]')).toHaveCount(0);
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
   expect(await page.locator('#prov-gemini-embed').evaluate(el => el.tagName)).toBe('SELECT');
-  await expect(page.locator('#prov-agy-bin')).toBeVisible();
-  const agyModelSelect = page.locator('#prov-agy-model');
-  await expect(agyModelSelect).toBeVisible();
-  expect(await agyModelSelect.evaluate(el => el.tagName)).toBe('SELECT');
-  await expect(page.locator('#prov-agy-effort')).toHaveCount(0);
+  await expect(page.locator('#prov-gemini-embed-task-type')).toHaveCount(0);
+  await expect(page.locator('#prov-agy-bin')).toHaveCount(0);
+  await expect(page.locator('#prov-cdx-bin')).toHaveCount(0);
   await expect(page.locator('#prov-feat-gemini')).toContainText('적재·요약');
-  await expect(page.locator('#prov-feat-antigravity')).toContainText('벡터 임베딩');
-  await expect(page.locator('#prov-active-select option[value="openai"]')).toBeDisabled();
-  await expect(page.locator('#prov-cdx-bin')).toBeVisible();
-  expect(await page.locator('#prov-cdx-model').evaluate(el => el.tagName)).toBe('SELECT');
-  await expect(page.locator('#prov-oai-url')).toBeVisible();
-  expect(await page.locator('#prov-oai-model').evaluate(el => el.tagName)).toBe('SELECT');
-  expect(await page.locator('#prov-oai-embed').evaluate(el => el.tagName)).toBe('SELECT');
+  await expect(page.locator('#prov-member-tier-card')).toBeVisible();
 
-  // 6. Test connection button for antigravity
-  const agyTestBtn = detailPane.locator('button:has-text("CLI 확인")').first();
-  await expect(agyTestBtn).toBeVisible();
-  await agyTestBtn.click();
-  const agyResult = page.locator('#prov-test-res-antigravity');
-  await expect(agyResult).toBeVisible();
-  await expect(agyResult).toContainText(/감지됨|바이너리|호스트|성공|실패|조회/);
+  // 6. Test API connection / model discovery button for Google AI Studio
+  const gemTestBtn = detailPane.locator('button:has-text("API 확인")').first();
+  await expect(gemTestBtn).toBeVisible();
+  await gemTestBtn.click();
+  const gemResult = page.locator('#prov-test-res-gemini');
+  await expect(gemResult).toBeVisible();
+  await expect(gemResult).toContainText(/성공|실패|API|키/);
 
   // 7. Save settings and verify notification alert
   const saveBtn = detailPane.locator('#prov-save-btn');
@@ -804,36 +803,24 @@ test('admin providers checks capabilities, guides features, and locks invalid se
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        active_provider: 'antigravity',
-        effective_provider: 'antigravity',
+        active_provider: 'gemini',
+        effective_provider: 'gemini',
         effective_stt_provider: 'mock',
+        server_tier: { provider: 'none', model: '', max_effort: 'medium', features: [] },
         providers: {
-          gemini: { has_api_key: false, api_key: '', model: 'gemini-3.1-flash-lite', embed_model: 'gemini-embedding-001' },
-          antigravity: {
-            installed: true,
-            bin: 'agy',
-            model: 'gemini-4-hydrogen-medium',
-            cli_version: '1.1.14',
-            models_source: 'unavailable',
-            available_models: []
-          },
-          codex: { installed: false, bin: 'codex', model: '' },
-          openai: { has_api_key: false, api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', embed_model: 'text-embedding-3-small' },
+          gemini: { has_api_key: false, api_key: '', model: 'gemini-3.8-flash', embed_model: 'gemini-embedding-001' },
           jev: { enabled: false, has_api_key: false, api_key: '' },
           stt: { enabled: true, provider: 'gemini', model: '', language: 'ko', timeout: 600 }
         },
         capabilities: {
-          active_provider: 'antigravity',
+          active_provider: 'gemini',
           can_save: false,
-          lock_reasons: ['Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.'],
-          warnings: ['STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.'],
+          lock_reasons: ['Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.'],
+          warnings: ['STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.'],
           stt: { enabled: true, provider: 'gemini', ready: false },
           providers: {
-            gemini: { selectable: false, locked_reason: 'Gemini API Key가 설정되지 않았습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-            antigravity: { selectable: false, locked_reason: 'Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.', available_models: [], features: { extract: true, research: true, embedding: false, stt_vlm: false }, embedding_note: '임베딩은 GEMINI_API_KEY가 필요합니다.' },
-            codex: { selectable: false, locked_reason: 'Codex CLI 바이너리를 찾을 수 없습니다.', features: { extract: true, research: true, embedding: false, stt_vlm: false } },
-            openai: { selectable: false, locked_reason: 'OpenAI 백엔드는 아직 구현되지 않아 선택할 수 없습니다.', features: { extract: false, research: false, embedding: false, stt_vlm: false } },
-            mock: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } }
+            gemini: { selectable: false, locked_reason: 'Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
+            mock: { selectable: true, locked_reason: '', features: { extract: false, research: false, embedding: false, stt_vlm: false }, advisory: '가상 테스트 프로바이더입니다.' }
           }
         }
       })
@@ -850,15 +837,12 @@ test('admin providers checks capabilities, guides features, and locks invalid se
       body: JSON.stringify({
         active_provider: act,
         can_save: isMock,
-        lock_reasons: isMock ? [] : ['선택한 프로바이더가 잠금 상태입니다.'],
-        warnings: ['STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.'],
+        lock_reasons: isMock ? [] : ['Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.'],
+        warnings: ['STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.'],
         stt: { enabled: true, provider: 'gemini', ready: false },
         providers: {
-          gemini: { selectable: false, locked_reason: 'Gemini API Key가 설정되지 않았습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
-          antigravity: { selectable: false, locked_reason: 'Antigravity CLI v1.1.14에서 지원 모델 목록을 조회할 수 없어 잠겼습니다.', available_models: [], features: { extract: true, research: true, embedding: false, stt_vlm: false } },
-          codex: { selectable: false, locked_reason: 'Codex CLI 바이너리를 찾을 수 없습니다.', features: { extract: true, research: true, embedding: false, stt_vlm: false } },
-          openai: { selectable: false, locked_reason: 'OpenAI 백엔드는 아직 구현되지 않아 선택할 수 없습니다.', features: { extract: false, research: false, embedding: false, stt_vlm: false } },
-          mock: { selectable: true, locked_reason: '', features: { extract: true, research: true, embedding: true, stt_vlm: true } }
+          gemini: { selectable: false, locked_reason: 'Google AI Studio API Key가 설정되지 않아 활성화할 수 없습니다.', features: { extract: true, research: true, embedding: true, stt_vlm: true } },
+          mock: { selectable: true, locked_reason: '', features: { extract: false, research: false, embedding: false, stt_vlm: false }, advisory: '가상 테스트 프로바이더입니다.' }
         }
       })
     });
@@ -867,11 +851,7 @@ test('admin providers checks capabilities, guides features, and locks invalid se
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
   const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();
-  await expect(detailPane).toContainText('(v1.1.14)');
-  await expect(page.locator('#prov-agy-model')).toBeDisabled();
-  await expect(page.locator('#prov-agy-model option[value="gemini-3.8-flash-medium"]')).toHaveCount(0);
-  await expect(page.locator('#prov-cap-antigravity')).toContainText('잠금:');
-  await expect(page.locator('#prov-cap-openai')).toContainText('구현되지 않아');
+  await expect(page.locator('#prov-cap-gemini')).toContainText('잠금:');
   await expect(page.locator('#prov-cap-stt')).toContainText('음성 전사가 동작하지 않습니다');
   await expect(page.locator('#prov-cap-summary')).toContainText('저장 잠금');
   await expect(page.locator('#prov-save-btn')).toBeDisabled();

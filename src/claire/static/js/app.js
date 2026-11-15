@@ -3958,7 +3958,7 @@ function applyView(){
   if(typeof renderHome === 'function' && centerView === 'home') renderHome();
 }
 
-// --- 2노드 경로 하이라이트(전용 모드): 🔗 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
+// --- 2노드 경로 하이라이트(전용 모드): 경로 → 시작/끝 노드 클릭 → 최단경로(BFS) 강조 ---
 function togglePathMode(){
   pathMode=!pathMode; pathPicks=[];
   const b=document.getElementById('pathbtn'); if(b) b.classList.toggle('on', pathMode);
@@ -4029,7 +4029,7 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
-// 클릭=문서 열기, 제목 좌측의 별표(⭐/☆)는 stopPropagation으로 즐겨찾기 토글.
+// 클릭=문서 열기, 제목 좌측의 별표 단추는 stopPropagation으로 즐겨찾기 토글.
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   const pinBtn = canWrite()
@@ -6072,7 +6072,7 @@ const ClaireStatusBanner = (function(){
     },
     format_missing: {
       level: 'info',
-      icon: 'ℹ️',
+      icon: 'info',
       title: '가독 렌더링 미생성',
       render: function(data){
         const count = data.missing_detail_docs || 0;
@@ -6216,7 +6216,7 @@ const ClaireStatusBanner = (function(){
 })();
 
 // documents와 /whoami를 병렬로 읽되, scope가 확정되기 전 렌더는 항상 read-only다.
-syncThemeBtn();   // 저장된 테마에 맞춰 🌙/🌞 라벨 동기화(테마 자체는 head 인라인에서 선적용)
+syncThemeBtn();   // 저장된 테마에 맞춰 달/해 아이콘 동기화(테마 자체는 head 인라인에서 선적용)
 fetchThemes();    // 지식 관리자가 정의한 테마 목록을 조회하여 셀렉터 구성
 if(initialDefaultToReader && typeof setCenterView === 'function'){
   setCenterView('reader');

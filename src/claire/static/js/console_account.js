@@ -19,13 +19,14 @@
     invalid_api_key: "API 키 형식이 맞지 않습니다. 공백 없이 붙여 넣으세요.",
     key_not_found: "등록한 키가 없습니다.",
     key_unreadable: "저장한 키를 읽지 못했습니다. 키를 다시 등록하세요.",
+    model_below_admin_baseline: "관리자가 제공하는 기준 모델·추론 수준보다 낮은 설정은 선택할 수 없습니다.",
     follower_not_found: "이미 목록에 없는 팔로워입니다.",
     cannot_unlink_last_credential: "마지막 로그인 수단은 해제할 수 없습니다. 먼저 비밀번호를 설정하거나 다른 외부 로그인을 연결하세요.",
     unauthorized: "로그인이 필요합니다."
   };
 
   var KEY_STATUS_TEXT = { active: "사용 중", rejected: "거부됨", unverified: "확인 전" };
-  var KEY_PROVIDER_TEXT = { gemini: "Gemini" };
+  var KEY_PROVIDER_TEXT = { gemini: "Google AI Studio" };
 
   function parseBootstrap() {
     var el = document.getElementById("console-bootstrap");
@@ -123,9 +124,60 @@
     });
   }
 
+  function renderModelPolicy(policy) {
+    if (!policy) return;
+    var baseline = policy.admin_baseline || {};
+    var ranks = policy.model_ranks || {};
+    var effortOrder = Array.isArray(policy.effort_order) ? policy.effort_order : ["none", "minimal", "low", "medium", "high"];
+    var prefs = policy.model_prefs || {};
+    var summaryEl = document.querySelector("[data-byok-policy-summary]");
+    if (summaryEl) {
+      var bMod = baseline.model || "기본";
+      var bEff = baseline.effort || "medium";
+      var sealText = policy.has_cookie_seal ? "브라우저 봉인 쿠키 활성" : "키 저장 시 봉인 쿠키 자동 발급";
+      summaryEl.textContent = "관리자 기준선: " + bMod + " (" + bEff + ") 이상만 허용 · Split-Key 상태: " + sealText;
+    }
+    var modelSel = document.querySelector("[data-byok-model-select]");
+    if (modelSel) {
+      while (modelSel.firstChild) modelSel.removeChild(modelSel.firstChild);
+      var defOpt = document.createElement("option");
+      defOpt.value = "";
+      defOpt.textContent = "관리자 기본 모델 이상 자동 적용 (" + (baseline.model || "-") + ")";
+      modelSel.appendChild(defOpt);
+      var baseRank = typeof ranks[baseline.model] === "number" ? ranks[baseline.model] : 0;
+      (Array.isArray(policy.allowed_models) ? policy.allowed_models : []).forEach(function (m) {
+        if (!m || m === "mock") return;
+        var opt = document.createElement("option");
+        opt.value = String(m);
+        var mRank = typeof ranks[m] === "number" ? ranks[m] : 0;
+        var allowed = mRank >= baseRank || baseRank === 0;
+        opt.textContent = allowed ? String(m) : String(m) + " (기준선 미만 · 잠금)";
+        if (!allowed) opt.disabled = true;
+        if (prefs.model && prefs.model === m && allowed) opt.selected = true;
+        modelSel.appendChild(opt);
+      });
+    }
+    var effortSel = document.querySelector("[data-byok-effort-select]");
+    if (effortSel) {
+      var baseEffIdx = effortOrder.indexOf(String(baseline.effort || "medium").toLowerCase());
+      Array.prototype.forEach.call(effortSel.options, function (opt) {
+        if (!opt.value) {
+          opt.disabled = false;
+          return;
+        }
+        var idx = effortOrder.indexOf(opt.value.toLowerCase());
+        opt.disabled = baseEffIdx >= 0 && idx >= 0 && idx < baseEffIdx;
+      });
+      if (prefs.effort) effortSel.value = prefs.effort;
+    }
+  }
+
   function refreshKeys() {
-    return request("GET", "/api/me/keys").then(function (r) {
-      if (r.ok && r.body && Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
+    return request("GET", "/api/me/keys?include_policy=1").then(function (r) {
+      if (r.ok && r.body) {
+        if (Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
+        if (r.body.model_policy) renderModelPolicy(r.body.model_policy);
+      }
     });
   }
 
@@ -506,9 +558,14 @@
     "provider-key-put": function (form) {
       var provider = form.elements.namedItem("provider").value;
       var field = form.elements.namedItem("api_key");
+      var modelEl = form.elements.namedItem("model");
+      var effortEl = form.elements.namedItem("effort");
       var value = field.value;
       field.value = "";
-      return request("PUT", "/api/me/keys", { provider: provider, api_key: value }).then(function (r) {
+      var payload = { provider: provider, api_key: value };
+      if (modelEl && modelEl.value) payload.model = modelEl.value;
+      if (effortEl && effortEl.value) payload.effort = effortEl.value;
+      return request("PUT", "/api/me/keys", payload).then(function (r) {
         value = "";
         show(form, r.ok ? "키를 확인하고 저장했습니다." : errorText(r.status, r.body), !r.ok);
         if (r.ok) return refreshKeys();
@@ -708,6 +765,259 @@
     }
   }
 
+  function renderPersonalCliCard(host, data) {
+    while (host.firstChild) host.removeChild(host.firstChild);
+    var pcli = (data && data.personal_cli) || { enabled: false, active_cli: "none", feature_routing: {} };
+    var provs = (data && data.providers) || {};
+    var caps = ((data && data.capabilities) || {}).providers || {};
+    var inContainer = Boolean((data && data.capabilities) && data.capabilities.in_container);
+    var agy = provs.antigravity || {};
+    var cdx = provs.codex || {};
+    var agyCap = caps.antigravity || {};
+    var cdxCap = caps.codex || {};
+
+    var header = document.createElement("h2");
+    var iconSpan = document.createElement("span");
+    iconSpan.setAttribute("data-icon", "terminal");
+    header.appendChild(iconSpan);
+    header.appendChild(document.createTextNode(" 관리자 개인 CLI 클라이언트"));
+    host.appendChild(header);
+
+    var intro = document.createElement("p");
+    intro.className = "hint";
+    intro.textContent = "개인 CLI 약관 준수를 위해 Antigravity CLI 및 Codex CLI는 관리자 개인 계정 작업에만 적용되며 서버 공용 프로바이더·ServerTier에는 노출되지 않습니다.";
+    host.appendChild(intro);
+
+    var form = document.createElement("form");
+    form.setAttribute("data-personal-cli-form", "");
+    form.style.display = "flex";
+    form.style.flexDirection = "column";
+    form.style.gap = "12px";
+
+    // Enable & Active CLI
+    var toggleLabel = document.createElement("label");
+    toggleLabel.style.display = "flex";
+    toggleLabel.style.alignItems = "center";
+    toggleLabel.style.gap = "8px";
+    toggleLabel.style.fontWeight = "600";
+    var enabledCb = document.createElement("input");
+    enabledCb.type = "checkbox";
+    enabledCb.id = "pcli-enabled";
+    enabledCb.checked = Boolean(pcli.enabled);
+    toggleLabel.appendChild(enabledCb);
+    toggleLabel.appendChild(document.createTextNode("관리자 개인 작업에 개인 CLI 클라이언트 사용"));
+    form.appendChild(toggleLabel);
+
+    var activeRow = document.createElement("label");
+    activeRow.style.display = "flex";
+    activeRow.style.flexDirection = "column";
+    activeRow.style.gap = "4px";
+    activeRow.style.fontWeight = "600";
+    activeRow.appendChild(document.createTextNode("기본 개인 CLI 클라이언트"));
+    var activeSel = document.createElement("select");
+    activeSel.id = "pcli-active";
+    activeSel.className = "pref-select";
+    [
+      ["none", "선택 안 함 (서버 기본 Google AI Studio 사용)"],
+      ["antigravity", agyCap.selectable ? "Antigravity CLI (agy)" : "Antigravity CLI (사용 불가 - 점검 필요)"],
+      ["codex", cdxCap.selectable ? "Codex CLI (codex)" : "Codex CLI (사용 불가 - 점검 필요)"]
+    ].forEach(function (pair) {
+      var opt = document.createElement("option");
+      opt.value = pair[0];
+      opt.textContent = pair[1];
+      if (pair[0] === "antigravity" && !agyCap.selectable) opt.disabled = true;
+      if (pair[0] === "codex" && !cdxCap.selectable) opt.disabled = true;
+      if ((pcli.active_cli || "none") === pair[0]) opt.selected = true;
+      activeSel.appendChild(opt);
+    });
+    activeRow.appendChild(activeSel);
+    form.appendChild(activeRow);
+
+    function makeField(labelText, inputEl) {
+      var wrap = document.createElement("label");
+      wrap.style.display = "flex";
+      wrap.style.flexDirection = "column";
+      wrap.style.gap = "4px";
+      wrap.style.fontSize = "12.5px";
+      wrap.style.fontWeight = "600";
+      wrap.appendChild(document.createTextNode(labelText));
+      wrap.appendChild(inputEl);
+      return wrap;
+    }
+
+    // Antigravity CLI subsection
+    var agyBox = document.createElement("fieldset");
+    agyBox.style.border = "1px solid var(--border)";
+    agyBox.style.borderRadius = "6px";
+    agyBox.style.padding = "10px 12px";
+    var agyLegend = document.createElement("legend");
+    agyLegend.textContent = "Antigravity CLI (agy)" + (agy.cli_version ? " v" + agy.cli_version : "");
+    agyBox.appendChild(agyLegend);
+    if (agyCap.locked_reason) {
+      var agyLock = document.createElement("p");
+      agyLock.className = "hint";
+      agyLock.style.color = "var(--error)";
+      agyLock.textContent = agyCap.locked_reason;
+      agyBox.appendChild(agyLock);
+    }
+    var agyBin = document.createElement("input");
+    agyBin.type = "text";
+    agyBin.id = "pcli-agy-bin";
+    agyBin.className = "pref-input";
+    agyBin.value = agy.bin || "agy";
+    agyBox.appendChild(makeField("실행 경로 (Binary)", agyBin));
+
+    var agyModel = document.createElement("select");
+    agyModel.id = "pcli-agy-model";
+    agyModel.className = "pref-select";
+    var agyModels = Array.isArray(agy.available_models) ? agy.available_models : [];
+    if (!agyModels.length) {
+      var emptyAgy = document.createElement("option");
+      emptyAgy.value = agy.model || "";
+      emptyAgy.textContent = agy.model ? agy.model + " (agy models 조회 필요)" : "CLI 확인 후 모델 목록을 조회하세요";
+      agyModel.appendChild(emptyAgy);
+    } else {
+      agyModels.forEach(function (m) {
+        var mid = typeof m === "string" ? m : (m.id || "");
+        var opt = document.createElement("option");
+        opt.value = mid;
+        opt.textContent = (typeof m === "object" && m.label && m.label !== mid) ? mid + " (" + m.label + ")" : mid;
+        if (agy.model === mid) opt.selected = true;
+        agyModel.appendChild(opt);
+      });
+    }
+    agyBox.appendChild(makeField("지원 모델 (agy models 동적 조회)", agyModel));
+
+    var agyTestBtn = document.createElement("button");
+    agyTestBtn.type = "button";
+    agyTestBtn.className = "pref-btn";
+    agyTestBtn.style.marginTop = "6px";
+    agyTestBtn.textContent = "Antigravity CLI 확인 및 모델 조회";
+    agyTestBtn.setAttribute("data-pcli-test", "antigravity");
+    agyBox.appendChild(agyTestBtn);
+    form.appendChild(agyBox);
+
+    // Codex CLI subsection
+    var cdxBox = document.createElement("fieldset");
+    cdxBox.style.border = "1px solid var(--border)";
+    cdxBox.style.borderRadius = "6px";
+    cdxBox.style.padding = "10px 12px";
+    var cdxLegend = document.createElement("legend");
+    cdxLegend.textContent = "Codex CLI (codex)" + (inContainer ? " - 컨테이너 미지원" : "");
+    cdxBox.appendChild(cdxLegend);
+    if (cdxCap.locked_reason) {
+      var cdxLock = document.createElement("p");
+      cdxLock.className = "hint";
+      cdxLock.style.color = "var(--error)";
+      cdxLock.textContent = cdxCap.locked_reason;
+      cdxBox.appendChild(cdxLock);
+    }
+    var cdxBin = document.createElement("input");
+    cdxBin.type = "text";
+    cdxBin.id = "pcli-codex-bin";
+    cdxBin.className = "pref-input";
+    cdxBin.value = cdx.bin || "codex";
+    cdxBox.appendChild(makeField("실행 경로 (Binary)", cdxBin));
+
+    var cdxModel = document.createElement("select");
+    cdxModel.id = "pcli-codex-model";
+    cdxModel.className = "pref-select";
+    (Array.isArray(cdx.available_models) ? cdx.available_models : []).forEach(function (m) {
+      var mid = typeof m === "string" ? m : (m.id || "");
+      var opt = document.createElement("option");
+      opt.value = mid;
+      opt.textContent = (typeof m === "object" && m.label) ? m.label : (mid || "계정 기본");
+      if ((cdx.model || "") === mid) opt.selected = true;
+      cdxModel.appendChild(opt);
+    });
+    cdxBox.appendChild(makeField("지원 모델", cdxModel));
+
+    var cdxTestBtn = document.createElement("button");
+    cdxTestBtn.type = "button";
+    cdxTestBtn.className = "pref-btn";
+    cdxTestBtn.style.marginTop = "6px";
+    cdxTestBtn.textContent = "Codex CLI 확인";
+    cdxTestBtn.setAttribute("data-pcli-test", "codex");
+    cdxBox.appendChild(cdxTestBtn);
+    form.appendChild(cdxBox);
+
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "submit";
+    saveBtn.className = "pref-btn pref-btn-accent";
+    saveBtn.textContent = "개인 CLI 설정 저장";
+    form.appendChild(saveBtn);
+
+    var result = document.createElement("p");
+    result.className = "result";
+    result.setAttribute("data-settings-result", "");
+    result.setAttribute("role", "status");
+    result.setAttribute("aria-live", "polite");
+    form.appendChild(result);
+
+    host.appendChild(form);
+
+    form.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("[data-pcli-test]");
+      if (!btn) return;
+      var pname = btn.getAttribute("data-pcli-test");
+      btn.disabled = true;
+      var payload = {
+        provider: pname,
+        config: pname === "antigravity" ? { bin: agyBin.value.trim() || "agy" } : { bin: cdxBin.value.trim() || "codex" }
+      };
+      request("POST", "/api/me/personal-cli/test", payload).then(function (r) {
+        if (r.ok && r.body && r.body.ok) {
+          show(form, r.body.message || "CLI 확인 완료", false);
+          return initAdminPersonalCli();
+        }
+        show(form, (r.body && (r.body.error || r.body.detail)) || "CLI 확인 실패", true);
+      }).catch(function () {
+        show(form, "서버에 연결하지 못했습니다.", true);
+      }).then(function () {
+        btn.disabled = false;
+      });
+    });
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var payload = {
+        enabled: enabledCb.checked,
+        active_cli: activeSel.value,
+        providers: {
+          antigravity: { bin: agyBin.value.trim() || "agy", model: agyModel.value },
+          codex: { bin: cdxBin.value.trim() || "codex", model: cdxModel.value }
+        }
+      };
+      request("PATCH", "/api/me/personal-cli", payload).then(function (r) {
+        if (r.ok && r.body) {
+          renderPersonalCliCard(host, r.body);
+          var newForm = host.querySelector("[data-personal-cli-form]");
+          if (newForm) show(newForm, "개인 CLI 설정을 저장했습니다.", false);
+        } else {
+          show(form, errorText(r.status, r.body), true);
+        }
+      }).catch(function () {
+        show(form, "서버에 연결하지 못했습니다.", true);
+      });
+    });
+  }
+
+  function initAdminPersonalCli() {
+    var host = document.getElementById("admin-personal-cli-host");
+    if (!host) return Promise.resolve();
+    return request("GET", "/api/me/personal-cli").then(function (r) {
+      if (r.ok && r.body) {
+        renderPersonalCliCard(host, r.body);
+      } else {
+        var msg = host.querySelector("[data-personal-cli-loading]");
+        if (msg) msg.textContent = "개인 CLI 정보를 불러오지 못했습니다. (" + errorText(r.status, r.body) + ")";
+      }
+    }).catch(function () {
+      var msg = host.querySelector("[data-personal-cli-loading]");
+      if (msg) msg.textContent = "서버에 연결하지 못했습니다.";
+    });
+  }
+
   function init() {
     var bootstrap = parseBootstrap();
     if (!bootstrap || bootstrap.area !== "settings") return;
@@ -721,6 +1031,12 @@
       bindLocaleSelect();
     } else if (section === "federation") {
       bindFederation();
+    } else if (section === "keys") {
+      if (extra.keys_mode === "admin") {
+        initAdminPersonalCli();
+      } else {
+        refreshKeys();
+      }
     }
     initManagers(section);
   }

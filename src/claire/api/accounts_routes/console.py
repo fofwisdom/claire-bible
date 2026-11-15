@@ -1149,13 +1149,18 @@ def _settings_keys_body(
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
     if admin_viewer:
-        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
-        notice = "싱글 모드에서는 인스턴스 프로바이더 설정이 모든 LLM·STT·VLM 작업에 쓰입니다." if mode == "single" else "관리자 계정은 BYOK 키 대신 인스턴스 프로바이더 설정을 씁니다."
+        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
+        notice = "서버 공용 프로바이더(Google AI Studio · ServerTier · Feature Routing)는 프로바이더 관리 화면에서 설정합니다. 개인 CLI 클라이언트(Antigravity · Codex)는 약관 분리 정책에 따라 이 관리자 개인 계정 화면에서만 선택·관리할 수 있습니다."
         body = (
             '<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="프로바이더 설정 안내">'
-            "<h2><span data-icon='bolt'></span> 인스턴스 프로바이더 설정</h2>"
+            "<h2><span data-icon='bolt'></span> 서버 공용 프로바이더 설정</h2>"
             f'<p class="hint">{escape(notice)}</p>'
             '<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> 프로바이더 설정 열기</a>'
+            "</section>"
+            '<section class="console-subcard" id="admin-personal-cli-host" data-admin-personal-cli aria-label="관리자 개인 CLI 클라이언트 설정">'
+            "<h2><span data-icon='terminal'></span> 관리자 개인 CLI 클라이언트</h2>"
+            '<p class="hint">호스트에 설치된 Antigravity CLI(agy) 또는 Codex CLI는 최상위 관리자 개인 계정 범위에서만 선택하여 사용할 수 있습니다. 일반 멤버와 ServerTier에는 노출되지 않습니다.</p>'
+            '<p class="hint" data-personal-cli-loading>CLI 상태와 지원 모델 목록을 불러오는 중입니다...</p>'
             "</section>"
         )
         return body, {"keys_mode": "admin"}
@@ -1181,15 +1186,18 @@ def _settings_keys_body(
     )
     body = (
         '<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="등록한 API 키">'
-        "<h2><span data-icon='lock'></span> 내 API 키 (쓰기 전용)</h2>"
+        "<h2><span data-icon='lock'></span> 내 API 키 (쓰기 전용 · Split-Key 봉인)</h2>"
         '<p class="hint">LLM 작업에 쓸 본인 API 키입니다. 등록한 키는 암호화해 저장하고, 다시 보거나 복사할 수 없습니다. 화면과 API에는 키에서 파생한 fingerprint만 나옵니다. 키가 거부되거나 할당량이 다 되면 작업은 실패하며, 서버 등급이나 다른 키로 바꿔 쓰지 않습니다.</p>'
-        '<p class="hint">한계: 이 보호는 애플리케이션 경로로 키를 읽는 일을 막습니다. 서버가 키로 API를 호출하려면 복호화할 수밖에 없으므로, 서버 호스트의 root 권한자는 막지 못합니다.</p>'
+        '<p class="hint" data-split-key-notice>분할 키 암호화(Split-Key Envelope): 저장 키는 서버 마스터 키와 이용자 브라우저의 휘발성 봉인(seal) 쿠키를 결합해 암호화하므로, 서버 관리자나 유지보수 담당자라도 디스크·DB만으로는 키를 복호화할 수 없습니다. (호스트 메모리 실행 시점 복호화는 root 권한을 막지 못합니다.)</p>'
         f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
         "</section>"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"
         '<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="키 등록·교체">'
         "<h2><span data-icon='plus'></span> 키 등록·교체</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
+        '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
+        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">모델 선택 (관리자 기준선 이상 · mock 제외)<select name="model" class="pref-select" data-byok-model-select><option value="">관리자 기본 모델 이상 자동 적용</option></select></label>'
+        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">추론 수준 (Effort)<select name="effort" class="pref-select" data-byok-effort-select><option value="">관리자 기본 추론 수준 이상 자동 적용</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">API 키<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
         '<p class="hint">저장하기 전에 시험 호출로 키를 확인하고, 실패하면 저장하지 않습니다. 이미 등록한 키가 있으면 새 키로 바꿉니다.</p>'
         '<button type="submit" class="pref-btn pref-btn-accent">확인 후 저장</button>'

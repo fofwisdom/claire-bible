@@ -120,23 +120,32 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
             f'value="{value}" required>{hint_html}</label>'
         )
 
+    feat_summary = ", ".join(_FEATURE_LABELS.get(f, f) for f in tier.features) if tier.features else "(없음)"
+    prov_summary = "Google AI Studio (gemini)" if tier.provider == "gemini" else "미제공 (none)"
+
     return f"""
       <section class="card" aria-label="서버 등급" id="server-tier">
-        <h2>서버 등급 (§10.3)</h2>
+        <h2>서버 등급 할당량 (§10.3)</h2>
         <p class="hint">상태: {status}</p>
-        <p class="hint">자기 API 키가 없는 멤버가 쓰는 프로바이더와 한도입니다. 테마·문서·저장 용량·일 적재 한도는 자기 키가 있는 멤버에게도 적용합니다. 사용량은 UTC 기준으로 셉니다. 관리자는 한도를 받지 않습니다.</p>
+        <p class="hint">멤버의 자원 상한(토큰·적재·테마·문서·용량)을 관리합니다. 서버 등급이 제공하는 프로바이더·기준 모델·effort·허용 기능은 <a href="/admin/providers"><strong>프로바이더 설정</strong></a>에서 통합 관리합니다.</p>
+        <dl>
+          <dt>제공 프로바이더 / 모델</dt><dd>{escape(prov_summary)}{f" · {escape(tier.model)}" if tier.model else ""} (최대 effort: {escape(tier.max_effort)})</dd>
+          <dt>허용 기능</dt><dd>{escape(feat_summary)}</dd>
+        </dl>
         <form class="tier-form" data-server-tier-form>
-          <label>프로바이더<select name="provider">{provider_options}</select></label>
-          <label>모델<input type="text" name="model" value="{escape(tier.model)}" maxlength="128" autocomplete="off"><span class="hint">provider가 none이면 무시합니다</span></label>
+          <div hidden>
+            <label>프로바이더<select name="provider">{provider_options}</select></label>
+            <label>모델<input type="text" name="model" value="{escape(tier.model)}" maxlength="128" autocomplete="off"></label>
+            <label>최대 effort<select name="max_effort">{effort_options}</select></label>
+            <fieldset><legend>허용 기능</legend>{feature_boxes}</fieldset>
+          </div>
           {num("monthly_tokens", "월 토큰 상한 (UTC 달)", tier.monthly_tokens, 0, "서버 등급 사용 멤버에게만 적용")}
           {num("daily_ingests", "일 적재 건수 (UTC 날)", tier.daily_ingests, 0)}
-          <label>최대 effort<select name="max_effort">{effort_options}</select></label>
           {num("storage_mb", "저장 용량 (MB)", tier.storage_mb, 0)}
           {num("max_themes", "최대 테마 수", tier.max_themes, 1)}
           {num("max_documents", "최대 문서 수", tier.max_documents, 0)}
           {num("byok_max_concurrency", "자기 키 동시 작업 수", tier.byok_max_concurrency, 1)}
-          <fieldset><legend>허용 기능</legend>{feature_boxes}</fieldset>
-          <button type="submit">서버 등급 저장</button>
+          <button type="submit">할당량 저장</button>
           <p class="result" role="status" aria-live="polite" data-server-tier-result></p>
         </form>
         <form class="tier-form" data-server-tier-reauth hidden>
