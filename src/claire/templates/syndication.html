@@ -113,6 +113,7 @@
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="dispatch"><span data-i18n="synd.kb.menu.publish">Publish or dispatch…</span></button>
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="toggle-star"><span data-i18n="synd.kb.menu.toggle_star">Toggle star</span></button>
+    <button type="button" class="tt-pop-item" role="menuitem" id="menu-doc-quote-policy" data-doc-quote-policy hidden><span data-i18n="synd.quote.menu_policy">Quote policy…</span></button>
   </div>
 
   <main class="tt-app-main">
@@ -122,6 +123,11 @@
         <details class="tt-folder" open id="client-streams-folder">
           <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.client.streams">Streams</span></span></summary>
           <div id="client-streams" class="tt-tree-children"></div>
+        </details>
+        <!-- Quote requests of remote actors for own objects (design Section 6.6 rule 5, FP4-9Q): the requests that wait for the owner, and the approved ones that the owner can revoke. -->
+        <details class="tt-folder" open id="client-quotes-folder" hidden>
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.quote.folder">Quote requests</span></span><span class="tt-count-pill fresh" id="client-quotes-count"></span></summary>
+          <div id="client-quotes" class="tt-tree-children"></div>
         </details>
         <details class="tt-folder" open id="client-following-folder">
           <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.client.following">Following</span></span></summary>
@@ -254,7 +260,7 @@
     </form>
   </dialog>
 
-  <!-- New note, reply, and edit of an own note (design Section 5.4, FP4-9). The owner gives plain text; the server makes the HTML. -->
+  <!-- New note, reply, quote (FP4-9Q), and edit of an own note (design Section 5.4, FP4-9). The owner gives plain text; the server makes the HTML. -->
   <dialog id="modal-note-compose" closedby="any" aria-labelledby="modal-note-compose-title" class="synd-dialog">
     <form id="form-note-compose" class="synd-dialog-form">
       <div class="synd-dialog-head">
@@ -275,11 +281,45 @@
         <label for="note-compose-language" data-i18n="synd.compose.language_label">Language (optional)</label>
         <input id="note-compose-language" type="text" class="tt-search" maxlength="35" autocomplete="off" spellcheck="false" data-i18n-placeholder="synd.compose.language_placeholder"/>
       </div>
+      <div>
+        <label for="note-compose-quote-policy" data-i18n="synd.quote.policy_label">Who can quote this note</label>
+        <select id="note-compose-quote-policy" class="tt-search">
+          <option value="public" data-i18n="synd.quote.policy.public">All (automatic approval)</option>
+          <option value="followers" data-i18n="synd.quote.policy.followers">Followers only</option>
+          <option value="manual" data-i18n="synd.quote.policy.manual">I approve each request</option>
+          <option value="nobody" data-i18n="synd.quote.policy.nobody">Nobody</option>
+        </select>
+      </div>
       <p class="synd-note" data-i18n="synd.compose.note">A note is public. Your followers and the accounts that you mention get it.</p>
       <div id="note-compose-msg" class="synd-note" role="status"></div>
       <div class="synd-dialog-foot">
         <button type="button" data-close-dialog="modal-note-compose" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
         <button type="submit" id="btn-note-compose" class="tt-btn tt-btn-pri" data-i18n="synd.compose.submit">Publish</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Quote policy of a published document (design Section 5.4 rule 6, FP4-9Q). -->
+  <dialog id="modal-quote-policy" closedby="any" aria-labelledby="modal-quote-policy-title" class="synd-dialog">
+    <form id="form-quote-policy" class="synd-dialog-form">
+      <div class="synd-dialog-head">
+        <h2 id="modal-quote-policy-title" data-i18n="synd.quote.policy_title">Quote policy of the published document</h2>
+        <button type="button" data-close-dialog="modal-quote-policy" class="tt-btn" data-i18n-aria-label="common.action.cancel"><span data-icon="close"></span></button>
+      </div>
+      <p id="quote-policy-doc" class="synd-note"></p>
+      <div>
+        <label for="quote-policy-value" data-i18n="synd.quote.policy_doc_label">Who can quote this document</label>
+        <select id="quote-policy-value" class="tt-search">
+          <option value="public" data-i18n="synd.quote.policy.public">All (automatic approval)</option>
+          <option value="followers" data-i18n="synd.quote.policy.followers">Followers only</option>
+          <option value="manual" data-i18n="synd.quote.policy.manual">I approve each request</option>
+          <option value="nobody" data-i18n="synd.quote.policy.nobody">Nobody</option>
+        </select>
+      </div>
+      <div id="quote-policy-msg" class="synd-note" role="status"></div>
+      <div class="synd-dialog-foot">
+        <button type="button" data-close-dialog="modal-quote-policy" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
+        <button type="submit" id="btn-quote-policy" class="tt-btn tt-btn-pri" data-i18n="synd.quote.policy_save">Save</button>
       </div>
     </form>
   </dialog>

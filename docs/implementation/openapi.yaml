@@ -2065,6 +2065,8 @@ paths:
                 summary: {type: [string, 'null'], description: Content warning, 500 characters at most.}
                 sensitive: {type: boolean}
                 language: {type: [string, 'null'], description: 'Language tag, for example `en`. Default: the locale of the account.'}
+                quote_of: {type: [string, 'null'], description: 'ID of an item of the own timeline that the note quotes (FEP-044f). The quote is `pending` until the author of the quoted object approves it.'}
+                quote_policy: {type: string, enum: [public, followers, manual, nobody], description: 'Who can quote this note. Default: `public`.'}
       responses:
         '201':
           description: The note is stored and its task waits for the sidecar.
@@ -2076,7 +2078,7 @@ paths:
                   note: {$ref: '#/components/schemas/FederationNote'}
                   item_id: {type: string, description: ID of the item of the own timeline for this note.}
         '400':
-          description: '`invalid_request`, `empty_content`, `content_too_long`, `summary_too_long`, `too_many_mentions`, `too_many_tags`, `invalid_language`, `invalid_mention`, or `blocked_domain`.'
+          description: '`invalid_request`, `empty_content`, `content_too_long`, `summary_too_long`, `too_many_mentions`, `too_many_tags`, `invalid_language`, `invalid_mention`, `invalid_quote_policy`, or `blocked_domain`.'
           content:
             application/json:
               schema:
@@ -2084,7 +2086,7 @@ paths:
         '404':
           description: '`item_not_found`. Also single mode, or not an owner-scope credential.'
         '409':
-          description: '`not_actor`.'
+          description: '`not_actor`, or `own_item` for a quote of an own note.'
           content:
             application/json:
               schema:
@@ -2095,7 +2097,7 @@ paths:
       - {name: note_id, in: path, required: true, schema: {type: string}, description: Note number as a decimal string.}
     patch:
       summary: Edit an own note (network mode)
-      description: Changes the text, the content warning, or the language. The sidecar sends `Update(Note)` with `updated`.
+      description: Changes the text, the content warning, the language, or the quote policy. The sidecar sends `Update(Note)`; a change of the quote policy alone does not set `updated`.
       operationId: updateFederationNote
       x-claire-access: owner
       security:
@@ -2115,6 +2117,7 @@ paths:
                 summary: {type: [string, 'null']}
                 sensitive: {type: boolean}
                 language: {type: [string, 'null']}
+                quote_policy: {type: string, enum: [public, followers, manual, nobody]}
       responses:
         '200':
           description: The changed note.
@@ -2239,6 +2242,122 @@ paths:
           description: '`item_not_found`. Also single mode.'
         '409':
           description: '`not_actor` or `own_item`.'
+
+  /api/federation/quotes:
+    get:
+      summary: List the quote requests for own objects (network mode)
+      description: >-
+        Requests of remote actors to quote an own note or a published document
+        (FEP-044f): those that wait for the owner, and the approved ones. The
+        view has addresses of the remote server only; the server does not fetch
+        the quoting object.
+      operationId: listFederationQuotes
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: The requests, newest first, 100 of each group at most.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests: {type: array, items: {$ref: '#/components/schemas/FederationQuoteRequest'}}
+                  authorizations: {type: array, items: {$ref: '#/components/schemas/FederationQuoteRequest'}}
+                  counts:
+                    type: object
+                    properties:
+                      pending: {type: integer}
+                      approved: {type: integer}
+        '404':
+          description: Single mode, or not an owner-scope credential.
+
+  /api/federation/quotes/{quote_id}:
+    parameters:
+      - {name: quote_id, in: path, required: true, schema: {type: string}}
+    patch:
+      summary: Approve, refuse, or revoke a quote request (network mode)
+      description: >-
+        `approved` or `refused` for a request that waits (a refused request can
+        be approved later), `revoked` for an approved request. The sidecar sends
+        `Accept` with a `QuoteAuthorization`, `Reject`, or `Delete` of the
+        authorization. The public path of a revoked authorization returns 410.
+      operationId: decideFederationQuote
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties:
+                state: {type: string, enum: [approved, refused, revoked]}
+      responses:
+        '200':
+          description: The request with its new state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quote: {$ref: '#/components/schemas/FederationQuoteRequest'}
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`quote_not_found`. Also single mode.'
+        '409':
+          description: '`invalid_state` (with the `state` of the request), or `not_actor`.'
+
+  /api/federation/objects/{object_id}:
+    parameters:
+      - {name: object_id, in: path, required: true, schema: {type: string}, description: Object number of a published document as a decimal string.}
+    patch:
+      summary: Set the quote policy of a published document (network mode)
+      description: A change makes an `update` task; the sidecar sends `Update` of the object with the new `canQuote`. The default of a published document is `manual`.
+      operationId: updateFederationObject
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [quote_policy]
+              properties:
+                quote_policy: {type: string, enum: [public, followers, manual, nobody]}
+      responses:
+        '200':
+          description: The object with its quote policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: object
+                    properties:
+                      id: {type: string}
+                      theme_id: {type: integer}
+                      document_id: {type: string}
+                      quote_policy: {type: string}
+        '400':
+          description: '`invalid_request` or `invalid_quote_policy`.'
+        '404':
+          description: '`object_not_found`. Also single mode.'
 
   /api/feeds:
     get:
@@ -2846,6 +2965,32 @@ components:
         edited_at: {type: [number, 'null']}
         likes: {type: integer}
         announces: {type: integer}
+        quotes: {type: integer, description: Number of approved quotes of the note.}
+        quote_policy: {type: string, enum: [public, followers, manual, nobody]}
+        quote:
+          type: [object, 'null']
+          description: The object that the note quotes (FEDERATION.md Section 26).
+          properties:
+            iri: {type: string}
+            state: {type: string, enum: [pending, approved, refused, revoked]}
+    FederationQuoteRequest:
+      type: object
+      description: A request of a remote actor to quote an own object (FEDERATION.md Section 26).
+      properties:
+        id: {type: string}
+        state: {type: string, enum: [pending, approved, refused, revoked]}
+        object:
+          type: object
+          properties:
+            id: {type: string}
+            url: {type: string}
+            kind: {type: string, enum: [note, document, gone]}
+            text: {type: string}
+        quoting_object: {type: string, description: Address of the quoting object on its server.}
+        quoting_actor: {type: string}
+        authorization: {type: [string, 'null'], description: 'Public address of the authorization of an approved request: `{origin}/ap/quote-authorizations/{id}`.'}
+        created_at: {type: number}
+        updated_at: {type: number}
     FederationItemInteraction:
       type: object
       properties:

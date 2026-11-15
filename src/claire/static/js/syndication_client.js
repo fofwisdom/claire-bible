@@ -160,18 +160,22 @@
     const keys = new Set();
     // The counters of each published document (FP4-8), as a text for the knowledge base view.
     const reactions = {};
+    // The object number and the quote policy of each published document (FP4-9Q).
+    const objects = {};
     let maxId = null;
     for (let page = 0; page < 10; page++) {
       const result = await api("GET", `/api/federation/objects?limit=80${maxId ? `&max_id=${encodeURIComponent(maxId)}` : ""}`);
       if (!result.ok || !Array.isArray(result.data.items)) break;
       result.data.items.forEach((item) => {
         keys.add(`${item.theme_id}:${item.document_id}`);
-        reactions[`${item.theme_id}:${item.document_id}`] = tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 });
+        reactions[`${item.theme_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
+        objects[`${item.theme_id}:${item.document_id}`] = { id: item.id, quote_policy: item.quote_policy };
       });
       maxId = result.data.next_max_id;
       if (!maxId) break;
     }
     bridge.state.publishedKeys = keys;
+    C.publishedObjects = objects;
     C.publishedLoaded = true;
     bridge.state.reactionLabels = reactions;
     if (keys.size) bridge.setPublishFilter(bridge.state.pubFilter);
@@ -215,6 +219,8 @@
     const result = await api("GET", `/api/federation/timeline?limit=${PAGE}${filter ? `&${filter}` : ""}`);
     if (seq !== C.seq || !result.ok) return;
     C.counts = result.data.counts;
+    // The quote requests of remote actors (FP4-9Q) come with the same poll.
+    if (Compose) Compose.loadQuotes();
     if (C.stage === "collect" && C.loaded) {
       const known = new Set(C.items.map((item) => item.id));
       const fresh = result.data.items.filter((item) => !known.has(item.id));
@@ -241,6 +247,7 @@
   function itemBadges(item) {
     const badges = [];
     if (item.mention) badges.push(`<span class="tt-link-dot cl-inbox">${esc(tr("synd.client.badge.mention"))}</span>`);
+    if (item.quote) badges.push(`<span class="tt-link-dot unlinked">${ic("quote")} ${esc(tr("synd.quote.badge"))}</span>`);
     if (item.in_reply_to) badges.push(`<span class="tt-link-dot unlinked">↩ ${esc(tr("synd.client.badge.reply"))}</span>`);
     if (item.linked) badges.push(`<span class="tt-link-dot linked">${ic("book")} ${esc(tr("synd.client.badge.ingested"))}</span>`);
     if (item.attachments) badges.push(`<span class="tt-link-dot unlinked">${ic("paperclip")} ${esc(item.attachments)}</span>`);
@@ -315,7 +322,7 @@
         <div class="synd-entry-tools"><span class="synd-post-time">${esc(timeAgo(entry.published_at || entry.received_at))}</span><a class="tt-ext-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer nofollow">${esc(tr("synd.client.action.open_original"))} ↗</a></div>
       </header>
       ${entry.name ? `<h3 class="synd-entry-title">${esc(entry.name)}</h3>` : ""}
-      ${Compose ? `<div class="synd-entry-actions">${Compose.actionsHtml(entry, false)}</div>` : ""}
+      ${Compose ? `<div class="synd-entry-actions">${Compose.actionsHtml(entry, false)}</div>${Compose.quoteHtml(entry)}` : ""}
       ${warned && open ? `<div class="synd-cw is-open">${ic("warning")} ${esc(entry.summary || tr("synd.client.sensitive"))}</div>` : ""}
       ${body}
     </section>`;
@@ -597,6 +604,38 @@
     }
   });
 
+  // Quote policy of a published document (design Section 5.4 rule 6, FP4-9Q): a command of the context menu of the knowledge base view.
+  function publishedObject(docId) {
+    const theme = bridge.curTheme();
+    return (theme && docId && C.publishedObjects && C.publishedObjects[`${theme.id}:${docId}`]) || null;
+  }
+
+  function openQuotePolicy(docId) {
+    const object = publishedObject(docId);
+    const dialog = $("modal-quote-policy");
+    if (!object || !dialog) return;
+    const theme = bridge.curTheme();
+    const doc = ((theme && theme.documents) || []).find((d) => String(d.id) === String(docId));
+    C.quotePolicyDoc = docId;
+    $("quote-policy-doc").textContent = doc ? doc.title || "" : "";
+    $("quote-policy-value").value = object.quote_policy || "manual";
+    $("quote-policy-msg").textContent = "";
+    dialog.showModal();
+  }
+
+  async function submitQuotePolicy() {
+    const object = publishedObject(C.quotePolicyDoc);
+    if (!object) return;
+    const value = $("quote-policy-value").value;
+    const result = await api("PATCH", `/api/federation/objects/${encodeURIComponent(object.id)}`, { quote_policy: value });
+    if (!result.ok) { $("quote-policy-msg").textContent = errorText(result); return; }
+    object.quote_policy = value;
+    $("modal-quote-policy").close();
+    bridge.ticker(tr("synd.quote.policy_saved"));
+  }
+
+  if ($("form-quote-policy")) $("form-quote-policy").addEventListener("submit", (e) => { e.preventDefault(); submitQuotePolicy(); });
+
   // Context menu (right click) of one document of the knowledge base view. The commands are those of the article menu in syndication_live.js.
   // The popover is "manual": the pointer release of the same right click would close an "auto" popover at once. This file closes it on a press outside, on Escape, and after a command.
   const contextMenu = $("pop-doc-context");
@@ -606,6 +645,9 @@
     if (!row || !contextMenu || typeof contextMenu.showPopover !== "function") return;
     e.preventDefault();
     bridge.state.activeArticleMenuDocId = row.getAttribute("data-row-id") || row.getAttribute("data-card-id");
+    // The quote policy is a command of a published document of the owner only (FP4-9Q).
+    const policyItem = $("menu-doc-quote-policy");
+    if (policyItem) policyItem.hidden = !publishedObject(bridge.state.activeArticleMenuDocId);
     closeContextMenu();
     contextMenu.showPopover();
     const box = contextMenu.getBoundingClientRect();
@@ -617,7 +659,10 @@
   if (contextMenu) {
     document.addEventListener("pointerdown", (e) => { if (!contextMenu.contains(e.target)) closeContextMenu(); });
     window.addEventListener("blur", closeContextMenu);
-    contextMenu.addEventListener("click", (e) => { if (e.target.closest("[data-art-cmd]")) closeContextMenu(); });
+    contextMenu.addEventListener("click", (e) => {
+      if (e.target.closest("[data-doc-quote-policy]")) { closeContextMenu(); openQuotePolicy(bridge.state.activeArticleMenuDocId); return; }
+      if (e.target.closest("[data-art-cmd]")) closeContextMenu();
+    });
     contextMenu.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { e.preventDefault(); closeContextMenu(); return; }
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -659,6 +704,8 @@
       applyItem,
       renderClient,
       ticker: bridge.ticker,
+      // The quoted post of a post, when the account has it as an item.
+      selectItem: (id) => selectItem(id),
       // A new note or an edit: the list and the open thread read again.
       refresh: () => { loadTimeline(true); if (C.selectedId) selectItem(C.selectedId); },
       // A deleted own note: its item is gone.
