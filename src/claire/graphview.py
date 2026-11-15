@@ -57,7 +57,9 @@ def _build_standalone_graph_html() -> str:
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     index_tmpl = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
-    css_bundle = f"<style>\n{theme_css}\n{ws_css}\n{reader_css}\n</style>"
+    # The rules of the application bar (static/css/appbar.css) are the same for the workspace, /syndication, and the console.
+    appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{ws_css}\n{reader_css}\n</style>"
     html = re.sub(r"<link rel=stylesheet href=/static/css/[^>]+>\s*", "", index_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>")
 
@@ -107,7 +109,8 @@ def _build_standalone_syndication_html() -> str:
     synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
     synd_live_js = (_STATIC_DIR / "js" / "syndication_live.js").read_text(encoding="utf-8")
     syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n{synd_css}\n</style>"
+    appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     # The i18n runtime, the shared command palette (HW-7), and the federation client view (FP4-5) are in the same bundle. The inline catalog element of the template comes before the bundle.

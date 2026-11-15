@@ -62,7 +62,26 @@
 6. 좁은 화면(≤720px)에서 뷰 전환은 하단 바(`#botnav`)에 있고, 명령 팔레트 단추는 상단 바의 둘째 줄에 남는다. 목록 필터(`#q`)는 목록 서랍 안에 있다. 하단 바에는 프레젠테이션과 의사결정 스트림 단추가 없다.
 7. 본문 상단의 태그는 모두 `.prov.det` 모양이다. 원문이 잘린 문서는 원문 배지 하나만 보이고(글자 수 포함), 잘린 이유는 배지의 툴팁과 `data-trunc`에 있다. 적재 모델 배지(`.model-badge`)는 원문 배지 오른쪽에 있고 값은 `GET /document`의 `extraction_model`(없으면 `extraction_provider`)이다. 공유 페이지는 원문 배지가 없어 기존 절단 태그를 유지한다.
 
-### 1.5 보류 결정 [결정]
+### 1.5 Application bar of all pages [code]
+
+Design: [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](../design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) Section 4.8 (2026-11-16).
+
+| Item | Position |
+| :--- | :--- |
+| Rules of the bar | `src/claire/static/css/appbar.css` (`.appbar`, `.bar-brand-group`, `.appbar-center`, `.appbar-end`, `.bar-icon-btn`, `.bar-ingest-btn`, `.bar-auth`, `.palette-trigger`, theme picker). `graphview.py` puts the file in the bundles of the workspace and of `/syndication`; the console loads it as a link. |
+| Workspace | `<header id="bar" class="appbar">` (`src/claire/templates/index.html`) |
+| `/syndication` | `<header id="synd-bar" class="appbar">` and the view toolbar `.synd-toolbar` (`src/claire/templates/syndication.html`, `src/claire/static/css/syndication.css`). `renderTopBar()` (`src/claire/static/js/syndication_live.js`) hides the theme picker when there is one theme. |
+| Console | `<header class="appbar console-topbar">` and the script of the light and dark switch (`src/claire/templates/console_shell.html`), `_build_theme_selector_html()` (`src/claire/api/accounts_routes/console.py`) |
+| Tests | `e2e/app_bar.spec.js` (same structure, height, and background on the three pages; the switch applies to the other pages; narrow screen). `_assert_workspace_syndication_rule()` in `tests/test_pwa_mobile_view.py`, `tests/test_pwa_restoration.py`, and `tests/test_pwa_mobile_view_adversarial_challenger1.py`. |
+
+Limits:
+
+1. The workspace links to `/syndication` only from the bar (`#syndlink`, for the owner) and from the stage strip. `/syndication` is not in the manifests and is not a view of the workspace.
+2. `/syndication` and the console do not show the authentication state. The console link of the workspace goes to `/admin` for an administrator and to `/settings` for other accounts; the link of `/syndication` goes to `/settings/reader`.
+3. The text of the view toolbar of `/syndication` and the text of the console body are not in the catalogs (units IP2-2 and IP2-3 of [`I18N_DESIGN.md`](../design/I18N_DESIGN.md)).
+4. The login and setup pages, the shared document page, and the public pages have no application bar.
+
+### 1.6 보류 결정 [결정]
 
 | 항목 | 결정 (2026-11-13) |
 | :--- | :--- |
@@ -88,6 +107,7 @@
 | `accessing Claire Bible during active ingest boots directly into heatmap …`, `provider management lives in the admin console …` | 전체 실행에서만 간헐 실패하고 단독 실행은 통과한다. 앞 테스트의 상태가 넘어오는 것으로 보인다 [미검증] |
 
 - 모바일 테스트 5개(`mobile primary view …` 등)는 하단 바(`#botnav`) 기준으로 고쳤고 통과한다. 좁은 화면으로 시작하면 첫 화면이 본문 뷰다(`initialCenterView()`).
+- 2026-11-16: `e2e/provider_routing_lineage.spec.js`, `node aliases render …`, and `admin providers checks capabilities …` use the same owner token (`e2e-owner-token-…`). In a full run only the first of them gets the owner session; the other two fail. Each of them passes when it runs first.
 - 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
 - 실행: `cd e2e && npx playwright test`. Playwright가 `e2e/seed_db.py`로 시드 DB를 만들고 포트 8766에 서버를 띄운다(시작 제한 30초).
 - 전체 `pytest`는 모두 통과한다. 시간이 약 9분 걸리고, 임시 파일이 `/tmp/pytest-of-<user>`에 실행마다 1GB 가까이 쌓인다. `/tmp`가 작은 환경에서는 `TMPDIR`과 `--basetemp`를 다른 볼륨으로 준다(`--basetemp`는 `TMPDIR` 안에 두어야 asciidoctor 테스트가 통과한다).

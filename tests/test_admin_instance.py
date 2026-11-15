@@ -103,8 +103,8 @@ def test_admin_instance_renders_inside_console_shell(settings: Settings) -> None
         assert '<script src="/static/js/console_admin.js" defer></script>' in body
         # 싱글 모드에서는 상단 복귀 링크에 /@username 네임스페이스가 노출되지 않는다 (S9).
         assert f"/@{ADMIN_USERNAME}" not in body
-        assert 'href="/" class="console-btn" id="console-back-graph"' in body
-        assert 'href="/syndication" class="console-btn" id="console-back-syndication"' in body
+        assert '<a class="brand" href="/" id="console-back-graph"' in body
+        assert '<a href="/syndication" class="bar-icon-btn" id="console-back-syndication"' in body
         # 통합 사이드바에 /admin/* 8개 경로가 모두 포함된다.
         for path in (
             "/admin/instance",

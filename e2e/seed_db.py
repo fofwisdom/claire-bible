@@ -167,6 +167,10 @@ def seed(db_path: Path) -> None:
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-fedcompose-nonce", "e2e-fedcompose-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-fedquote-nonce", "e2e-fedquote-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-feedview-nonce", "e2e-feedview-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
+        # Application bar specs (e2e/app_bar.spec.js): one token for each test.
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar1-nonce", "e2e-appbar1-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar2-nonce", "e2e-appbar2-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar3-nonce", "e2e-appbar3-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
 
         e1 = Entity(
             id="ent-1",

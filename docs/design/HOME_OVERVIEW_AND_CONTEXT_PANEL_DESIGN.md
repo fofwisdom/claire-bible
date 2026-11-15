@@ -166,6 +166,26 @@ From 721px to 1100px (`compactMQ`): the context panel is an overlay above the ce
 - `HOME_TITLE` comes from the catalog key `home.title`. The history state keeps the `pane` field and gets the view name `home`.
 - A deep link (`?doc=`) opens the reader as today.
 
+### 4.8 One Application Bar for All Pages (owner, 2026-11-16), Implemented
+
+The header of Section 4.1 is the application bar of all pages with an owner session: the workspace (`index.html`), `/syndication` (`syndication.html`), and the console (`console_shell.html`). The rule is the same on wide screens and on narrow screens.
+
+| Part | Workspace | `/syndication` | Console |
+| :--- | :--- | :--- | :--- |
+| Start (`.bar-brand-group`) | Brand link, theme picker, list toggle | Brand link, theme picker | Brand link, theme picker of the sections that have a theme |
+| Center (`.appbar-center`) | View navigation, palette button | Title of the stream, palette button | Title of the console, scope badge |
+| End (`.appbar-end`) | Ingest, manage menu, authentication state, link to `/syndication`, console link, light and dark switch, context panel toggle | Ingest or new note, link to `/syndication`, console link, light and dark switch, page menu | Link to `/syndication`, console link, light and dark switch, sign out |
+
+Rules:
+
+- One stylesheet, `static/css/appbar.css`, has the rules of the bar. The three pages use the same class names. The stylesheet of a page has only the rules of that page.
+- The brand link opens the home view of the workspace from each page.
+- The link of the page that shows has `aria-current="page"`.
+- The bar has no input field (Section 4.1 item 3). The controls of the list of `/syndication` (search, sort, refresh, mark as read, list style, layout) are in a view toolbar (`.synd-toolbar`) below the stage bar.
+- The theme picker shows only when there is more than one theme. The console shows it for a section that has a target theme.
+- The light and dark switch uses one storage key (`claireTheme`) on the three pages.
+- Up to 720px the center part is the second row of the bar. The link to `/syndication` shows also on a narrow screen. The rule that `/syndication` is not a start address of the PWA and not a view of the workspace stays.
+
 ---
 
 ## 5. Overview (Home View)

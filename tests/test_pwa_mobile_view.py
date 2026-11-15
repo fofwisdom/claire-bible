@@ -297,10 +297,25 @@ def test_syndication_excluded_from_manifests():
             assert "syndication" not in sc.get("name", "").lower()
 
 
+def _assert_workspace_syndication_rule(html: str) -> None:
+    """Rule of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8: the workspace links to /syndication only from the application bar (one link, hidden until the script shows it to the owner) and from the stage strip of the home view. The workspace has no syndication view."""
+    links = re.findall(r'<a\b[^>]*href="/syndication[^"]*"[^>]*>', html)
+    bar_links = [tag for tag in links if 'id="syndlink"' in tag]
+    assert len(bar_links) == 1
+    assert " hidden" in bar_links[0]
+    assert all('id="syndlink"' in tag or 'class="home-flow-stage"' in tag for tag in links)
+    assert 'id="centertab-syndication"' not in html
+    assert 'id="syndication-tab"' not in html
+    assert 'class="syndication"' not in html
+    bottom_bar = re.search(r'<nav id="botnav".*?</nav>', html, re.S)
+    assert bottom_bar is not None
+    assert "syndication" not in bottom_bar.group(0).lower()
+
+
 def test_syndication_excluded_from_mobile_workspace_templates():
-    """Verify index.html has 0 references to syndication in mobile UI, tabs, or drawers."""
+    """The workspace has no syndication view, tab, or drawer. It links to /syndication from the application bar and the stage strip only."""
     index_html = INDEX_HTML_PATH.read_text(encoding="utf-8")
-    assert "syndication" not in index_html.lower()
+    _assert_workspace_syndication_rule(index_html)
 
 
 def test_syndication_excluded_from_app_js():

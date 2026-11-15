@@ -13,6 +13,7 @@ Empirically stress-tests:
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -290,8 +291,24 @@ def test_auto_select_fallback_and_missing_dom():
 # Adversarial Test 6: Desktop Exclusivity of Syndication Endpoints
 # ==============================================================================
 
+
+def _assert_workspace_syndication_rule(html: str) -> None:
+    """Rule of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8: the workspace links to /syndication only from the application bar (one link, hidden until the script shows it to the owner) and from the stage strip of the home view. The workspace has no syndication view."""
+    links = re.findall(r'<a\b[^>]*href="/syndication[^"]*"[^>]*>', html)
+    bar_links = [tag for tag in links if 'id="syndlink"' in tag]
+    assert len(bar_links) == 1
+    assert " hidden" in bar_links[0]
+    assert all('id="syndlink"' in tag or 'class="home-flow-stage"' in tag for tag in links)
+    assert 'id="centertab-syndication"' not in html
+    assert 'id="syndication-tab"' not in html
+    assert 'class="syndication"' not in html
+    bottom_bar = re.search(r'<nav id="botnav".*?</nav>', html, re.S)
+    assert bottom_bar is not None
+    assert "syndication" not in bottom_bar.group(0).lower()
+
+
 def test_syndication_strictly_absent_from_rendered_mobile_html(tmp_path: Path):
-    """Verify that HTML rendered for mobile/tablet requests does NOT link or default to syndication."""
+    """The page for a mobile request has no syndication view. It links to /syndication from the application bar and the stage strip only, the same as on a wide screen."""
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -322,7 +339,4 @@ def test_syndication_strictly_absent_from_rendered_mobile_html(tmp_path: Path):
     }
     resp = client.get("/@alice/?pwa=1", headers=mobile_headers)
     assert resp.status_code == 200
-    # Syndication should not be in navigation links or buttons
-    assert 'href="/syndication"' not in resp.text
-    assert 'id="syndication-tab"' not in resp.text
-    assert 'class="syndication"' not in resp.text
+    _assert_workspace_syndication_rule(resp.text)

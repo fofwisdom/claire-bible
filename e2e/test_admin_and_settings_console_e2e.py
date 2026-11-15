@@ -206,7 +206,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     for gone in ("providermanagebtn", "limitmanagebtn", "thememanagebtn", "tokenmanagebtn", "openProviderManager", "openLimitManager", "openThemeManager", "openTokenManager", "ClaireManagePanels"):
         assert gone not in html, gone
     # 콘솔 단추는 상단바에서 라이트/다크 전환(#themebtn) 바로 왼쪽의 아이콘이다.
-    topbar = html[html.index('<div id="viewoptions">'):html.index('</header>')]
+    topbar = html[html.index('<div id="viewoptions" class="appbar-end">'):html.index('</header>')]
     assert re.search(r'<a id="consolelinkbtn"[^>]*data-icon="settings"></a>\s*<button id="themebtn"', topbar)
 
     who = _get(env, "/whoami", env.admin)

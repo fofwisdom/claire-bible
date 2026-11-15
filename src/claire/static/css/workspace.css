@@ -1,8 +1,6 @@
 /* --- Claire Bible: Workspace Layout & Knowledge Graph CSS --- */
 
-#bar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;
-    min-height:48px;background:var(--bar-bg);border-bottom:1px solid var(--border);
-    font-size:13px;white-space:nowrap}
+/* The rules of the header bar are in appbar.css (shared with /syndication and the console). */
   /* 상태 및 안내 배너 시스템 (ClaireStatusBanner) */
   #format-warn-banner{display:none;position:relative;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;
     font-size:12.5px;line-height:1.45;z-index:20;border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.08)}
@@ -30,39 +28,14 @@
   #format-warn-banner .close-btn{background:transparent;border:0;color:inherit;font-size:15px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px;opacity:.75}
   #format-warn-banner .close-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
   [data-theme="dark"] #format-warn-banner .close-btn:hover{background:rgba(255,255,255,.1)}
-  #bar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px}
-  #bar .brand img{display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))}
-  #bar .brand:hover{opacity:.85}
-  #bar b{color:var(--accent2)}
-  .bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
-  .theme-picker-wrap{display:inline-flex;align-items:center;position:relative}
-  .theme-select-control{display:inline-flex;align-items:center;gap:5px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px 2px 8px;height:28px;box-sizing:border-box;font-size:12.5px;color:var(--fg);cursor:pointer;transition:border-color .15s ease, background-color .15s ease}
-  .theme-select-control:hover{border-color:var(--accent);background:var(--hover)}
-  .theme-select-control:focus-within{outline:2px solid var(--accent);outline-offset:1px}
-  .theme-icon{font-size:13px;line-height:1;display:inline-flex;align-items:center}
-  .theme-select{appearance:none;-webkit-appearance:none;background:transparent;border:none;color:inherit;font-family:inherit;font-size:12px;font-weight:500;padding-right:14px;cursor:pointer;outline:none;max-width:140px;text-overflow:ellipsis;white-space:nowrap}
-  .theme-select option{background:var(--panel-bg);color:var(--fg)}
-  .theme-caret{font-size:10px;opacity:.7;pointer-events:none;margin-left:-12px}
-  .theme-plain-display{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--fg);user-select:none;padding:0 2px}
-  .theme-plain-display .theme-icon{font-size:14px;line-height:1}
-  .theme-plain-label{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ingest-theme-select{width:100%;height:32px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--fg);font-family:inherit;font-size:13px;outline:none}
   .ingest-theme-select:focus{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}
   #netsearch{padding:8px 18px;border-bottom:1px solid var(--border);background:var(--panel-bg);flex-shrink:0;min-height:48px;box-sizing:border-box;display:flex;align-items:center}
   #barsearch{display:flex;align-items:center;gap:6px;width:100%}
   #barsearch input{flex:1;min-width:0}
-  #viewoptions{display:flex;align-items:center;gap:6px}
-  #authstate{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;padding:0 8px;
-    font-size:12px;color:var(--muted);background:var(--sec-bg);border:1px solid var(--border);
-    border-radius:4px;white-space:nowrap;user-select:none;box-sizing:border-box}
   #morebtn{display:none;background:var(--sec-bg);color:var(--sec-fg);border:1px solid var(--border);
     border-radius:6px;cursor:pointer;font-size:18px;line-height:1}
   #morebtn:hover{background:var(--hover)}
-  #themebtn,#consolelinkbtn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;
-    background:transparent;color:var(--fg);border:1px solid var(--border);padding:0 8px;font-size:14px;
-    border-radius:4px;cursor:pointer;box-sizing:border-box;transition:background .15s ease}
-  #consolelinkbtn{text-decoration:none}
-  #themebtn:hover,#consolelinkbtn:hover{background:var(--hover)}
   #worktabs{display:none}
   #botnav{display:none}
   #drawerbackdrop{display:none;position:fixed;inset:0;z-index:52;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s ease}
@@ -415,15 +388,8 @@
      - 기본 보기: 목록
   */
   @media (max-width:720px){
-    #bar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;justify-content:space-between}
-    #bar .brand{font-size:14px}
-    .bar-brand-group{gap:6px}
-    .theme-select{max-width:85px}
-    .theme-select-control{height:34px;padding:2px 4px 2px 6px}
     #morebtn{display:inline-flex!important;min-width:38px;min-height:38px;height:38px;padding:4px 8px;align-items:center;justify-content:center}
     #viewoptions select{font-size:13px;padding:4px 6px}
-    #viewoptions #authstate{min-height:38px;height:38px;padding:0 8px;font-size:12px}
-    #viewoptions #themebtn,#viewoptions #consolelinkbtn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
 
     #wrap{display:grid;grid-template-columns:1fr;grid-template-rows:1fr;overflow:hidden;
       padding-bottom:calc(52px + env(safe-area-inset-bottom))}
@@ -635,16 +601,8 @@
   .matrix-placeholder-wave .wave-sub { font-size: 11.5px; color: var(--muted); }
 
 /* --- Header view navigation, home view, list switch, and context panel on demand (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, unit HW-1) --- */
-  .lineicon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
-  .bar-icon-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:30px;padding:0 6px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:background .15s ease}
-  .bar-icon-btn[hidden]{display:none}
-  .bar-icon-btn:hover{background:var(--hover)}
-  .bar-icon-btn[aria-expanded="true"]{background:var(--sec-bg)}
-  .bar-icon-btn:disabled{opacity:.4;cursor:default}
-  .bar-ingest-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;box-sizing:border-box;background:var(--btn-bg);color:var(--btn-fg);border:1px solid transparent;border-radius:4px;font-weight:700;font-size:12.5px;cursor:pointer}
   #morebtn{align-items:center;justify-content:center}
   /* The center head (view navigation and the search field of the view) is in the header bar. */
-  #bar{gap:10px}
   #bar #centerhead{flex:1;min-width:0;height:auto;min-height:0;padding:0;border:0;background:transparent;z-index:auto}
   #bar #centerhead #centertab-group{order:1}
   #bar #centerhead #netsearch{order:2}
@@ -807,7 +765,6 @@
   /* Narrow screens: view navigation moves to #botnav at the bottom. */
   @media (max-width:720px){
     /* The view buttons are in the bottom bar. The button of the command palette stays, as the second row of the header. */
-    #bar{flex-wrap:wrap}
     #bar #centerhead{order:10;flex:1 0 100%}
     #bar #centerhead #centertab-group,#listtoggle,#ctxbtn{display:none}
     #bar #centerhead #netsearch{max-width:none;width:100%}

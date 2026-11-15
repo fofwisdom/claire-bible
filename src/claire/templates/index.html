@@ -75,11 +75,12 @@
   }, 2500);
 </script>
 <link rel=stylesheet href=/static/css/theme.css/>
+<link rel=stylesheet href=/static/css/appbar.css/>
 <link rel=stylesheet href=/static/css/workspace.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
 <body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">
-<header id="bar">
+<header id="bar" class="appbar">
   <div class="bar-brand-group">
     <a class="brand" href="./" onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}" title="Claire Bible 홈 (지식 그래프)">
       <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
@@ -134,13 +135,13 @@
         </nav>
       </div>
   </div>
-  <div id="viewoptions">
+  <div id="viewoptions" class="appbar-end">
     <button id="addbtn" type="button" class="pri bar-ingest-btn" onclick="openIngest()" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
     <button id="managebtn" type="button" class="bar-icon-btn" popovertarget="moremenu" aria-haspopup="menu" data-i18n-title="nav.manage" data-i18n-aria-label="nav.manage"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></svg></button>
-    <span id="authstate">권한 확인 중</span>
+    <span id="authstate" class="bar-auth">권한 확인 중</span>
     <a id="syndlink" class="bar-icon-btn" href="/syndication" hidden data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/></svg></a>
-    <a id="consolelinkbtn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none" data-icon="settings"></a>
-    <button id="themebtn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()" data-icon="moon"></button>
+    <a id="consolelinkbtn" class="bar-icon-btn" href="/settings" title="내 설정" aria-label="내 설정" style="display:none" data-icon="settings"></a>
+    <button id="themebtn" type="button" class="bar-icon-btn" title="라이트/다크 전환" aria-label="라이트/다크 전환" onclick="toggleTheme()" data-icon="moon"></button>
     <button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
     <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
       data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>

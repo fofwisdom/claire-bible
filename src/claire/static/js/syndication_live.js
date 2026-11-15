@@ -294,6 +294,9 @@
     const sel = document.getElementById("theme-selector");
     if (sel) {
       sel.innerHTML = Object.values(THEMES).map((t) => `<option value="${esc(t.id)}" ${String(t.id) === String(state.themeId) ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
+      // The same rule as in the workspace: the picker shows only when there is more than one theme.
+      const wrap = sel.closest(".theme-picker-wrap");
+      if (wrap) wrap.hidden = Object.keys(THEMES).length <= 1;
     }
     const streamTitle = document.getElementById("active-stream-title");
     if (streamTitle) streamTitle.textContent = state.treeSel.label;

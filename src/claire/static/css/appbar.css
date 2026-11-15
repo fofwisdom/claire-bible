@@ -1,0 +1,62 @@
+/* --- Claire Bible: application bar (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, Section 4.1 and Section 4.8) ---
+ * One set of rules for the header of the workspace (index.html), of /syndication (syndication.html), and of the console (console_shell.html).
+ * Structure: <header class="appbar"> with .bar-brand-group (brand link, theme picker, list toggle), .appbar-center (view navigation or page title, palette button), and .appbar-end (actions, page links, light and dark switch).
+ * Rules for one page only stay in the stylesheet of that page.
+ */
+.appbar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 12px;min-height:48px;box-sizing:border-box;flex-shrink:0;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
+.appbar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px}
+.appbar .brand img{display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))}
+.appbar .brand:hover{opacity:.85}
+.appbar b{color:var(--accent2)}
+.bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
+.appbar-center{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:34px}
+.appbar-end{display:flex;align-items:center;gap:6px}
+.appbar-title{display:inline-block;flex:0 1 auto;min-width:0;font-size:13.5px;font-weight:700;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.appbar-title[hidden]{display:none}
+
+/* Theme picker */
+.theme-picker-wrap{display:inline-flex;align-items:center;position:relative}
+.theme-picker-wrap[hidden]{display:none}
+.theme-select-control{display:inline-flex;align-items:center;gap:5px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px 2px 8px;height:28px;box-sizing:border-box;font-size:12.5px;color:var(--fg);cursor:pointer;transition:border-color .15s ease, background-color .15s ease}
+.theme-select-control:hover{border-color:var(--accent);background:var(--hover)}
+.theme-select-control:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.theme-icon{font-size:13px;line-height:1;display:inline-flex;align-items:center}
+.theme-select{appearance:none;-webkit-appearance:none;background:transparent;border:none;color:inherit;font-family:inherit;font-size:12px;font-weight:500;padding-right:14px;cursor:pointer;outline:none;max-width:140px;text-overflow:ellipsis;white-space:nowrap}
+.theme-select option{background:var(--panel-bg);color:var(--fg)}
+.theme-caret{font-size:10px;opacity:.7;pointer-events:none;margin-left:-12px}
+.theme-plain-display{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--fg);user-select:none;padding:0 2px}
+.theme-plain-display .theme-icon{font-size:14px;line-height:1}
+.theme-plain-label{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Buttons and links of the bar */
+.bar-icon-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:28px;min-width:30px;padding:0 6px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;font-size:12.5px;line-height:1;text-decoration:none;cursor:pointer;transition:background .15s ease}
+.bar-icon-btn[hidden]{display:none}
+.bar-icon-btn:hover{background:var(--hover)}
+.bar-icon-btn[aria-expanded="true"]{background:var(--sec-bg)}
+.bar-icon-btn[aria-current="page"]{background:var(--sec-bg);border-color:var(--accent);color:var(--accent)}
+.bar-icon-btn:disabled{opacity:.4;cursor:default}
+.bar-ingest-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;box-sizing:border-box;background:var(--btn-bg);color:var(--btn-fg);border:1px solid transparent;border-radius:4px;font-weight:700;font-size:12.5px;cursor:pointer}
+.bar-ingest-btn[hidden]{display:none}
+.bar-auth{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;padding:0 8px;font-size:12px;color:var(--muted);background:var(--sec-bg);border:1px solid var(--border);border-radius:4px;white-space:nowrap;user-select:none;box-sizing:border-box}
+.bar-form{margin:0;display:inline-flex}
+
+/* Button of the command palette */
+.palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 200px;min-width:140px;width:100%;max-width:380px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;padding:0 8px 0 10px;gap:8px;color:var(--muted);font-size:12.5px;text-align:left;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.palette-trigger:hover{border-color:var(--accent,#0284c7);background:var(--card-bg,var(--panel-bg));filter:none}
+.palette-trigger-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.palette-trigger kbd{flex:none;min-width:18px;padding:0 5px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font:inherit;font-size:11px;line-height:18px;text-align:center}
+
+@media (forced-colors:active){.bar-icon-btn[aria-current="page"]{outline:2px solid}}
+
+/* Narrow screens (Section 4.6): larger targets, and the center part is the second row of the bar. */
+@media (max-width:720px){
+  .appbar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;flex-wrap:wrap}
+  .appbar .brand{font-size:14px}
+  .bar-brand-group{gap:6px}
+  .theme-select{max-width:85px}
+  .theme-select-control{height:34px;padding:2px 4px 2px 6px}
+  .appbar-center{order:10;flex:1 0 100%}
+  .appbar-center .palette-trigger{max-width:none}
+  .appbar-end .bar-icon-btn,.appbar-end .bar-auth,.appbar-end .bar-ingest-btn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
+  .appbar-end .bar-auth{font-size:12px}
+}

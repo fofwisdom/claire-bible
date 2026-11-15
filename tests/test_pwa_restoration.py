@@ -418,8 +418,23 @@ def test_m4_app_js_mobile_reader_first_and_auto_select_contracts():
     assert "allDocs[0].id" in content
 
 
+def _assert_workspace_syndication_rule(html: str) -> None:
+    """Rule of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8: the workspace links to /syndication only from the application bar (one link, hidden until the script shows it to the owner) and from the stage strip of the home view. The workspace has no syndication view."""
+    links = re.findall(r'<a\b[^>]*href="/syndication[^"]*"[^>]*>', html)
+    bar_links = [tag for tag in links if 'id="syndlink"' in tag]
+    assert len(bar_links) == 1
+    assert " hidden" in bar_links[0]
+    assert all('id="syndlink"' in tag or 'class="home-flow-stage"' in tag for tag in links)
+    assert 'id="centertab-syndication"' not in html
+    assert 'id="syndication-tab"' not in html
+    assert 'class="syndication"' not in html
+    bottom_bar = re.search(r'<nav id="botnav".*?</nav>', html, re.S)
+    assert bottom_bar is not None
+    assert "syndication" not in bottom_bar.group(0).lower()
+
+
 def test_m4_syndication_strictly_excluded_from_pwa_and_mobile():
-    """Verify syndication is excluded from manifests, index.html, and app.js defaults."""
+    """Syndication is not in the manifests and not a view of the workspace. The workspace links to it from the application bar and the stage strip only."""
     # Manifest
     for p in [MANIFEST_PATH, WEBMANIFEST_PATH]:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -429,7 +444,7 @@ def test_m4_syndication_strictly_excluded_from_pwa_and_mobile():
 
     # index.html
     index_html = INDEX_HTML_PATH.read_text(encoding="utf-8")
-    assert "syndication" not in index_html.lower()
+    _assert_workspace_syndication_rule(index_html)
 
     # app.js
     app_js = APP_JS_PATH.read_text(encoding="utf-8")

@@ -561,13 +561,19 @@ def _build_theme_selector_html(
         return ""
     options: list[str] = []
     selected_id = selected_theme.id if selected_theme is not None else None
-    for t in owned_themes:
-        ref = ids.format_public_id(t.number) if t.number is not None else str(t.id)
-        sel = " selected" if t.id == selected_id else ""
-        options.append(f'<option value="{escape(ref)}"{sel}>{escape(t.icon)} {escape(t.label)}</option>')
+    for theme in owned_themes:
+        ref = ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
+        sel = " selected" if theme.id == selected_id else ""
+        options.append(f'<option value="{escape(ref)}"{sel}>{escape(theme.icon)} {escape(theme.label)}</option>')
+    # The same theme picker as in the application bar of the workspace (static/css/appbar.css).
+    label = escape(t("nav.theme_select"))
     return (
-        '<label for="console-theme-select" style="font-size:12px;font-weight:700;color:var(--muted)">대상 테마</label>'
-        f'<select id="console-theme-select" class="console-select" aria-label="대상 테마 선택">{"".join(options)}</select>'
+        '<div class="theme-picker-wrap">'
+        f'<label for="console-theme-select" class="sr-only">{label}</label>'
+        '<div class="theme-select-control">'
+        f'<select id="console-theme-select" class="theme-select" aria-label="{label}">{"".join(options)}</select>'
+        '<span class="theme-caret" aria-hidden="true">▾</span>'
+        "</div></div>"
     )
 
 

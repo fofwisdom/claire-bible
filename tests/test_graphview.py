@@ -916,7 +916,8 @@ def test_common_header_height_and_component_synchronization():
     assert "#detailhead{display:flex;align-items:center;justify-content:space-between;height:48px;min-height:48px;" in GRAPH_HTML
 
     # 2. 중앙 헤더 내 검색창(#barsearch)과 탭 컨트롤(.center-tabs)이 34px 높이와 6px 반경으로 상호 동기화됨
-    assert "#centerhead .palette-trigger{\n    display:flex;align-items:center;position:relative;width:100%;\n    height:34px;box-sizing:border-box;\n    background:var(--panel-bg);border:1px solid var(--border);\n    border-radius:6px;" in GRAPH_HTML
+    # The rule of the palette button is in appbar.css (one application bar for all pages).
+    assert ".palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 200px;min-width:140px;width:100%;max-width:380px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;" in GRAPH_HTML
     assert ".center-tabs{\n    display:inline-flex;align-items:center;gap:2px;\n    height:34px;box-sizing:border-box;\n    background:var(--sec-bg);padding:2px;border-radius:6px;" in GRAPH_HTML
 
     # 3. 우측 상세 닫기 버튼(#detailclose)도 34px 정사각 및 6px 반경으로 일치함
@@ -1003,7 +1004,7 @@ def test_default_graph_view_and_stream_tabs_separation():
 
     # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
     s_start = GRAPH_HTML.index('<nav id="streamtabs"')
-    s_end = GRAPH_HTML.index('  <div id="viewoptions">')
+    s_end = GRAPH_HTML.index('  <div id="viewoptions" class="appbar-end">')
     streamtabs_content = GRAPH_HTML[s_start:s_end]
     assert 'id="centertab-stream"' in streamtabs_content
 
@@ -1078,7 +1079,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
     # 1. 센터 탭 그룹은 한 줄에 모두 담김 (mobile-doclist-btn, centertabs[reader, graph, presentation], streamtabs[stream])
     g_start = GRAPH_HTML.index('<div class="center-tab-group"')
-    g_end = GRAPH_HTML.index('  <div id="viewoptions">')
+    g_end = GRAPH_HTML.index('  <div id="viewoptions" class="appbar-end">')
     g_tabs = GRAPH_HTML[g_start:g_end]
     assert 'id="mobile-doclist-btn"' in g_tabs
     assert 'id="centertab-reader"' in g_tabs

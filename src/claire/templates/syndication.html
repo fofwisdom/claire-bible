@@ -17,37 +17,42 @@
   (function(){ try{ var t=localStorage.getItem('claireTheme')||'light'; document.documentElement.setAttribute('data-theme', t); }catch(e){ document.documentElement.setAttribute('data-theme','light'); } })();
 </script>
 <link rel="stylesheet" href="/static/css/theme.css"/>
+<link rel="stylesheet" href="/static/css/appbar.css"/>
 <link rel="stylesheet" href="/static/css/syndication.css"/>
 </head>
 <body data-auth-scope="__AUTH_SCOPE__" data-app-tab="kb" data-stage="ingest" data-layout="three-panel" data-list-style="list">
 
-  <!-- TT-RSS Minimal Top Action Bar -->
-  <header class="tt-topbar">
-    <div class="tt-top-left">
-      <a class="tt-btn" href="/" title="Claire Bible 지식 그래프 홈으로 이동"><img src="/favicon.svg" width="15" height="15" alt="" aria-hidden="true"/><span>Claire</span></a>
-      <label for="theme-selector" class="sr-only">지식 테마 선택</label>
-      <select id="theme-selector" class="tt-btn kb-only" aria-label="지식 테마 선택"></select>
-      <span id="active-stream-title" class="tt-stream-title kb-only">전체 적재 문서 (All documents)</span>
-      <span id="client-stream-title" class="tt-stream-title client-only"></span>
+  <!-- Application bar: the same structure and rules as the header of the workspace (static/css/appbar.css; HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8). -->
+  <header class="appbar" id="synd-bar">
+    <div class="bar-brand-group">
+      <a class="brand" href="/" data-i18n-title="nav.brand_home">
+        <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
+        Claire Bible
+      </a>
+      <div class="theme-picker-wrap kb-only">
+        <label for="theme-selector" class="sr-only" data-i18n="nav.theme_select">Select knowledge theme</label>
+        <div class="theme-select-control">
+          <select id="theme-selector" class="theme-select" data-i18n-aria-label="nav.theme_select"></select>
+          <span class="theme-caret" aria-hidden="true">▾</span>
+        </div>
+      </div>
     </div>
-
-    <div class="tt-top-right">
-      <span id="selected-count-label" class="tt-sel-count kb-only" aria-live="polite"></span>
-      <button type="button" class="tt-btn kb-only" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
-      <input id="stream-search" type="search" class="tt-search kb-only" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="문서 검색"/>
-      <button type="button" id="btn-refresh" class="tt-btn kb-only" title="현재 테마 DB 문서 및 엔티티 새로고침 (r)">↻ 새로고침</button>
-      <button type="button" id="btn-mark-read" class="tt-btn kb-only" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
-      <button type="button" id="btn-open-ingest" class="tt-btn tt-btn-pri kb-only" title="현재 테마 지식베이스에 URL 또는 원문 적재">+ 문서 적재</button>
-      <button type="button" id="btn-client-refresh" class="tt-btn client-only" data-i18n="synd.client.refresh" data-i18n-title="synd.client.refresh_title">Refresh</button>
-      <button type="button" id="btn-note-new" class="tt-btn tt-btn-pri client-only" data-i18n-title="synd.compose.new_note_title" hidden><span data-icon="edit"></span> <span data-i18n="synd.compose.new_note">New note</span></button>
-      <button type="button" id="btn-palette" class="tt-btn" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open" aria-keyshortcuts="/">/</button>
-
-      <!-- 공통 컨트롤 -->
-      <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
-      <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
-      <a id="top-pref-link" class="tt-btn" href="/settings/reader" data-settings-path="/settings/reader" title="설정 콘솔(/settings) 열기"><span data-icon="settings"></span> 환경설정</a>
-      <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환" data-icon="moon"></button>
-      <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기"><span data-icon="menu"></span></button>
+    <div class="appbar-center">
+      <span id="active-stream-title" class="appbar-title kb-only">전체 적재 문서 (All documents)</span>
+      <span id="client-stream-title" class="appbar-title client-only"></span>
+      <button type="button" id="btn-palette" class="palette-trigger" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title">
+        <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
+        <span class="palette-trigger-label" data-i18n="nav.palette.trigger">Search · Go · Commands</span>
+        <kbd aria-hidden="true">/</kbd>
+      </button>
+    </div>
+    <div class="appbar-end">
+      <button type="button" id="btn-open-ingest" class="bar-ingest-btn kb-only" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
+      <button type="button" id="btn-note-new" class="bar-ingest-btn client-only" data-i18n-title="synd.compose.new_note_title" hidden><span data-icon="edit"></span> <span class="btn-label" data-i18n="synd.compose.new_note">New note</span></button>
+      <a id="syndlink" class="bar-icon-btn" href="/syndication" aria-current="page" data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/></svg></a>
+      <a id="top-pref-link" class="bar-icon-btn" href="/settings/reader" data-settings-path="/settings/reader" data-i18n-title="nav.settings" data-i18n-aria-label="nav.settings"><span data-icon="settings"></span></a>
+      <button type="button" id="themebtn" class="bar-icon-btn" onclick="toggleClaireTheme()" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" data-icon="moon"></button>
+      <button type="button" class="bar-icon-btn" popovertarget="pop-main-menu" aria-haspopup="menu" data-i18n-title="nav.menu" data-i18n-aria-label="nav.menu"><span data-icon="menu"></span></button>
     </div>
   </header>
 
@@ -57,6 +62,19 @@
     <button type="button" class="synd-stage" data-stage-btn="ingest" style="--stage:var(--stage-ingest)"><b data-i18n="home.flow.ingest">2 · Ingestion</b> <small data-i18n="synd.stage.ingest_sub">Knowledge base · theme</small><span class="synd-stage-counts" id="stage-ingest-counts"></span></button>
     <button type="button" class="synd-stage" data-stage-btn="publish" style="--stage:var(--stage-publish)"><b data-i18n="home.flow.publish">3 · Publication</b> <small data-i18n="synd.stage.publish_sub">Sent by the federation client</small><span class="synd-stage-counts" id="stage-publish-counts"></span></button>
   </nav>
+
+  <!-- View toolbar: the controls of the list of this page. The application bar has no input field (Section 4.1 item 3). -->
+  <div class="synd-toolbar" role="toolbar" data-i18n-aria-label="synd.toolbar.label">
+    <span id="selected-count-label" class="tt-sel-count kb-only" aria-live="polite"></span>
+    <input id="stream-search" type="search" class="tt-search kb-only" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="문서 검색"/>
+    <button type="button" class="tt-btn kb-only" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
+    <button type="button" id="btn-refresh" class="tt-btn kb-only" title="현재 테마 DB 문서 및 엔티티 새로고침 (r)">↻ 새로고침</button>
+    <button type="button" id="btn-mark-read" class="tt-btn kb-only" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
+    <button type="button" id="btn-client-refresh" class="tt-btn client-only" data-i18n="synd.client.refresh" data-i18n-title="synd.client.refresh_title">Refresh</button>
+    <span class="synd-toolbar-gap"></span>
+    <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
+    <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
+  </div>
 
   <!-- Viewport-Aware Popovers -->
   <div id="pop-list-style" popover="auto" class="tt-popover tt-popover-end" role="menu" aria-label="목록 스타일">
