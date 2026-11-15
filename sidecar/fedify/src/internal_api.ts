@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.6";
+export const CONTRACT_VERSION = "1.8";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -29,6 +29,8 @@ export interface InstanceConfig {
   limits: { inbox_body_bytes: number };
   // Entity tag of the domain-blocks response. Read the list again when this value changes.
   domain_blocks_etag: string;
+  // Development only (contract 1.8): Fedify can read documents at private addresses. Claire gives true only in the development environment with CLAIRE_ALLOW_PRIVATE_NETWORKS on.
+  allow_private_addresses: boolean;
 }
 
 export interface ActorRecord {
@@ -158,6 +160,8 @@ export interface TimelineObject {
   attachments: { url: string; media_type: string | null; name: string | null; width: number | null; height: number | null; blurhash: string | null }[];
   context: string | null;
   in_reply_to: string | null;
+  // Contract 1.7 (unit FP4-9Q): the object that this object quotes (FEP-044f quote, else quoteUrl with its other keys), or null.
+  quote: string | null;
 }
 
 // One inbound activity for the timelines of the accounts (unit FP4-4). Undo is an Undo(Announce): object_iri is the object of the Announce.
@@ -230,7 +234,12 @@ export interface ObjectRecord {
   url: string | null;
   published_at: number;
   updated_at: number;
+  // Contract 1.7 (unit FP4-9Q): the quote policy of the document. canQuote of the interaction policy comes from it (RT9).
+  quote_policy: QuotePolicy;
 }
+
+// The quote policy of an own object (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6).
+export type QuotePolicy = "public" | "followers" | "manual" | "nobody";
 
 // The result of an object read: the record, the time of removal of a deleted object (410), or null (404).
 export type ObjectResult = { state: "found"; record: ObjectRecord } | { state: "gone"; gone_at: number } | null;
@@ -252,6 +261,10 @@ export interface NoteRecord {
   published_at: number;
   updated_at: number;
   edited_at: number | null;
+  // Contract 1.7 (unit FP4-9Q). quote: the quoted object while the quote waits or is approved, else null. quote_authorization: the QuoteAuthorization of an approved quote.
+  quote_policy: QuotePolicy;
+  quote: string | null;
+  quote_authorization: string | null;
 }
 
 // The result of a note read: the record, the time of removal of a deleted note (410), or null (404).
@@ -260,16 +273,48 @@ export type NoteResult = { state: "found"; record: NoteRecord } | { state: "gone
 // One task of the outbound interactions (contract 1.6, unit FP4-9).
 // note, update_note: ref_id is the number of the note. delete_note: ref_id is the number of the deleted note, recipients are the actors that got the note in addition to the followers.
 // like, announce: object_iri is the remote object, recipients has its author, ref_id is the number in the activity ID. undo_like, undo_announce: ref_id is the number of the activity that is undone.
+// Quotes (contract 1.7, unit FP4-9Q). quote_request: ref_id is the number of the quoting note, object_iri is the quoted object (null: send the Create only), recipients has its author. quote_authorize, quote_reject, quote_revoke: ref_id is the number of the authorization, object_iri is the own object that is quoted, recipients has the quoting actor, and quote has the request and the quoting object.
 export interface InteractionTask {
   id: number;
-  kind: "note" | "update_note" | "delete_note" | "like" | "undo_like" | "announce" | "undo_announce";
+  kind: "note" | "update_note" | "delete_note" | "like" | "undo_like" | "announce" | "undo_announce" | "quote_request" | "quote_authorize" | "quote_reject" | "quote_revoke";
   actor_public_id: string;
   ref_id: string;
   object_iri: string | null;
   recipients: string[];
+  quote: { request_iri: string; quoting_object_iri: string } | null;
   created_at: number;
   lease_until: number;
 }
+
+// One verified inbound activity of the quote protocol (contract 1.7, unit FP4-9Q).
+// QuoteRequest: object_iri is the quoted object of this instance, instrument_iri is the quoting object. Accept, Reject: object_iri is the ID of the quote request (objectId of the activity, RT9), and authorization is the QuoteAuthorization in result of an Accept.
+export interface QuoteEvent {
+  event_id: string;
+  type: "QuoteRequest" | "Accept" | "Reject";
+  recipient_public_id: string | null;
+  actor: { iri: string; inbox: string; shared_inbox: string | null };
+  object_iri: string;
+  instrument_iri: string | null;
+  authorization: { iri: string; interacting_object: string | null; interaction_target: string | null; attributed_to: string | null } | null;
+  verified_by: "http-signature" | "ld-signature" | "object-integrity-proof";
+}
+
+export interface QuoteDecision {
+  decision: "accepted" | "rejected" | "ignored";
+  reason: "federation_off" | "invalid_actor" | "blocked_domain" | "no_object" | "invalid_object" | "recipient_mismatch" | "rate_limited" | "quote_refused" | "no_quote" | "not_the_author" | "invalid_authorization" | "unsupported_type" | null;
+  state: "pending" | "approved" | "refused" | "revoked" | null;
+}
+
+// The canonical form of one approved quote request (contract 1.7). The QuoteAuthorization of the public path comes from it.
+export interface QuoteAuthorizationRecord {
+  id: string;
+  actor_public_id: string;
+  object_public_id: string;
+  quoting_object_iri: string;
+}
+
+// The result of a read of an authorization: the record, the time of the revoke (410), or null (404).
+export type QuoteAuthorizationResult = { state: "found"; record: QuoteAuthorizationRecord } | { state: "gone"; gone_at: number } | null;
 
 // A handle of a note that the sidecar resolved to an actor.
 export interface ResolvedMention {
@@ -373,6 +418,7 @@ const configShape = sealed({
   federated_actors: int,
   limits: sealed({ inbox_body_bytes: int }),
   domain_blocks_etag: str,
+  allow_private_addresses: bool,
 });
 const actorShape = sealed({ public_id: str, username: str, display_name: str, activated_at: nullable(num), updated_at: num, profile_url: str });
 const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa2048", "ed25519"), public_jwk: stringMap, private_jwk: stringMap })) });
@@ -387,7 +433,8 @@ const outboxTasksShape = sealed({
   tasks: list(sealed({ id: int, kind: oneOf("create", "update", "delete", "update_actor", "delete_actor"), actor_public_id: str, object_public_id: nullable(str), created_at: num, lease_until: num })),
 });
 const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejected") });
-const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num });
+const quotePolicy = oneOf("public", "followers", "manual", "nobody");
+const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num, quote_policy: quotePolicy });
 const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
 const clientTasksShape = sealed({
@@ -408,10 +455,29 @@ const noteShape = sealed({
   published_at: num,
   updated_at: num,
   edited_at: nullable(num),
+  quote_policy: quotePolicy,
+  quote: nullable(str),
+  quote_authorization: nullable(str),
 });
 const interactionTasksShape = sealed({
-  tasks: list(sealed({ id: int, kind: oneOf("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce"), actor_public_id: str, ref_id: str, object_iri: nullable(str), recipients: list(str), created_at: num, lease_until: num })),
+  tasks: list(sealed({
+    id: int,
+    kind: oneOf("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce", "quote_request", "quote_authorize", "quote_reject", "quote_revoke"),
+    actor_public_id: str,
+    ref_id: str,
+    object_iri: nullable(str),
+    recipients: list(str),
+    quote: nullable(sealed({ request_iri: str, quoting_object_iri: str })),
+    created_at: num,
+    lease_until: num,
+  })),
 });
+const quoteDecisionShape = sealed({
+  decision: oneOf("accepted", "rejected", "ignored"),
+  reason: nullable(oneOf("federation_off", "invalid_actor", "blocked_domain", "no_object", "invalid_object", "recipient_mismatch", "rate_limited", "quote_refused", "no_quote", "not_the_author", "invalid_authorization", "unsupported_type")),
+  state: nullable(oneOf("pending", "approved", "refused", "revoked")),
+});
+const quoteAuthorizationShape = sealed({ id: str, actor_public_id: str, object_public_id: str, quoting_object_iri: str });
 const followingShape = sealed({ public_id: str, total: int });
 const timelineDecisionShape = sealed({
   decision: oneOf("accepted", "rejected", "ignored"),
@@ -661,6 +727,29 @@ export class InternalApi {
     if (value === null) return null;
     ackShape(value, "ack");
     return (value as { status: "pending" | "handed_off" | "rejected" }).status;
+  }
+
+  // Sends one verified inbound activity of the quote protocol (contract 1.7). An error means no decision: the caller must fail, and the Fedify inbox queue tries again.
+  async quoteEvent(event: QuoteEvent): Promise<QuoteDecision> {
+    const value = await this.#call("POST", "/quote-events", event);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    quoteDecisionShape(value, "quote_decision");
+    return value as QuoteDecision;
+  }
+
+  // An approved quote request (contract 1.7): the record, the time of the revoke (410), or null (404).
+  async quoteAuthorization(id: string): Promise<QuoteAuthorizationResult> {
+    let value: unknown | null;
+    try {
+      value = await this.#call("GET", `/quote-authorizations/${encodeURIComponent(id)}`);
+    } catch (error) {
+      if (!(error instanceof InternalApiError) || error.status !== 410) throw error;
+      goneShape(error.detail, "gone");
+      return { state: "gone", gone_at: (error.detail as { gone_at: number }).gone_at };
+    }
+    if (value === null) return null;
+    quoteAuthorizationShape(value, "quote_authorization");
+    return { state: "found", record: value as QuoteAuthorizationRecord };
   }
 
   // One cursor page of the published objects of an actor, or null when the account is not an actor.

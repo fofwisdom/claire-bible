@@ -15,6 +15,7 @@ Versions:
 - 3 (FP4-7, 2026-11-15): ``federation_media_cache`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.2).
 - 4 (FP4-8, 2026-11-15): ``federation_object_reactions`` and ``federation_auto_replies`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 - 5 (FP4-9, 2026-11-15): ``federation_notes`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 and 7.1). The quote columns of the design come with unit FP4-9Q (``ALTER TABLE ... ADD COLUMN``, no rebuild).
+- 6 (FP4-9Q, 2026-11-15): the quote columns of ``federation_notes`` and ``federation_quote_authorizations`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rules 5 and 6, 6.6 rule 5, and 7.1).
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ __all__ = [
     "CLIENT_OUTBOX_KINDS",
     "CLIENT_SCHEMA_LINEAGE",
     "CLIENT_SCHEMA_VERSION",
+    "QUOTE_POLICIES",
+    "QUOTE_STATES",
     "client_db_path",
     "connect_client_db",
     "connect_client_existing",
@@ -38,7 +41,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 5
+CLIENT_SCHEMA_VERSION = 6
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -47,6 +50,9 @@ CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
     "like", "undo_like", "announce", "undo_announce",
     "quote_request", "quote_authorize", "quote_reject", "quote_revoke",
 )
+# FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rules 5 and 6: the states of a quote and the quote policies of an own object.
+QUOTE_STATES: tuple[str, ...] = ("pending", "approved", "refused", "revoked")
+QUOTE_POLICIES: tuple[str, ...] = ("public", "followers", "manual", "nobody")
 
 
 def client_db_path(claire_db_file: Path | str) -> Path:
@@ -103,6 +109,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v3(conn)
     _migrate_v4(conn)
     _migrate_v5(conn)
+    _migrate_v6(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -331,6 +338,42 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_notes_account ON federation_notes(account_id, public_id)")
 
 
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    # Quotes (FEP-044f, Section 5.4 rules 5 and 6, unit FP4-9Q). Each column is added only when it is absent, so that a second run changes nothing (A3). The rows of version 5 get no quote and the policy ``public``.
+    # quote_of_iri, quote_author_iri: the quoted object and its author (the only actor whose answer changes quote_state). quote_authorization_iri: the QuoteAuthorization of an approved quote; a Delete of it by the author makes the quote ``revoked``.
+    states = ", ".join(f"'{s}'" for s in QUOTE_STATES)
+    policies = ", ".join(f"'{p}'" for p in QUOTE_POLICIES)
+    present = {row[1] for row in conn.execute("PRAGMA table_info(federation_notes)")}
+    for column, definition in (
+        ("quote_of_iri", "TEXT"),
+        ("quote_author_iri", "TEXT"),
+        ("quote_state", f"TEXT CHECK (quote_state IS NULL OR quote_state IN ({states}))"),
+        ("quote_authorization_iri", "TEXT"),
+        ("quote_policy", f"TEXT NOT NULL DEFAULT 'public' CHECK (quote_policy IN ({policies}))"),
+    ):
+        if column not in present:
+            conn.execute(f"ALTER TABLE federation_notes ADD COLUMN {column} {definition}")
+    # Requests of remote actors to quote an own object (a note or a published document), and their results (Section 6.6 rule 5). The row of an approved request is the QuoteAuthorization at /ap/quote-authorizations/{id}.
+    # account_id is the owner of the object: the account purge deletes by it. request_iri is the ID of the QuoteRequest: the Accept or the Reject refers to it.
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS federation_quote_authorizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            object_public_id INTEGER NOT NULL,
+            quoting_object_iri TEXT NOT NULL,
+            quoting_actor_iri TEXT NOT NULL,
+            request_iri TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ({states})),
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE (object_public_id, quoting_object_iri)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_quote_authorizations_account ON federation_quote_authorizations(account_id, state, id)")
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits.
 
@@ -345,6 +388,7 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM federation_object_reactions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_notes WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_quote_authorizations WHERE account_id=?", (account_id,))
 
 
 def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int) -> bool:

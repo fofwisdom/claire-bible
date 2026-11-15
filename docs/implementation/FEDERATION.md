@@ -33,8 +33,10 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
 | Thread fetch: route `POST /api/federation/timeline/{item_id}/context`, task `fetch_context` of the client outbox, internal endpoints `context-tasks` and `context-objects`, contract 1.5, sidecar fetch with `@fedify/backfill` (Section 24) | Implemented (FP4-6) |
 | Outbound interactions: `client.db` version 5 (`federation_notes`), contract 1.6, reply, new note, edit, delete (410), content warning, language, hashtags, favourite and boost with their undo, counters of own notes, compose controls of the client (Section 25) | Implemented (FP4-9). No quote before FP4-9Q. |
+| Quotes (FEP-044f): `client.db` version 6 (quote columns of `federation_notes`, `federation_quote_authorizations`), `claire.db` version 24 (`federation_objects.quote_policy`), contract 1.7, outbound `QuoteRequest` with the quote states, inbound requests with the quote policy, the authorization path `/ap/quote-authorizations/{id}` with 410 after a revoke, quote controls of the client (Section 26) | Implemented (FP4-9Q) |
+| End-to-end with a remote server and retention: the DrFed 0.1.0 test stack in Docker with scenarios of a real Claire process and its sidecar, the development switch `allow_private_addresses` (contract 1.8), the retention run of the timeline items in the daily cleanup and in `claire federation prune` | Unit FP4-10 complete. See Section 27. |
 
-The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), and deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25).
+The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25), and deliveries of the quote activities with the fetch of the authorization of an `Accept` (Section 26).
 
 ## 2. Architecture
 
@@ -274,7 +276,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.6"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.8"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
@@ -283,6 +285,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
 - Unit FP4-6 added `GET /context-tasks` and `POST /context-objects` (Section 24.1). The version is 1.5. No shape that existed changed.
 - Unit FP4-9 added `GET /notes/{public_id}`, `GET /interaction-tasks`, and `POST /interaction-tasks/{id}/ack` (Section 25.1). The version is 1.6. No shape that existed changed.
+- Unit FP4-9Q added `POST /quote-events` and `GET /quote-authorizations/{id}`, and changed four shapes (Section 26.1): `quote` in the normal form of an object, `quote_policy` in the object record, `quote_policy`, `quote`, and `quote_authorization` in the note record, and the quote kinds with `quote` in an interaction task. The version is 1.7.
+- Version 1.8 added `allow_private_addresses` to the config. It is true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (`federation_routes.allow_private_addresses`); the sidecar then makes Fedify with `allowPrivateAddress`, so that it can read the documents of a test server at a private address (Section 27). In production the value is always false, and Fedify refuses each address that is not public.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -700,7 +704,7 @@ These statements are true for the code now.
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
 11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
-13. A development instance on a private address cannot follow: Fedify refuses private and loopback addresses for the key fetch (FS1).
+13. A development instance on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
 16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.
@@ -1095,7 +1099,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 - `Cross-Origin-Resource-Policy` is `cross-origin`, not `same-site` (design Section 9.1 rule 5). The body is in a sandbox frame with an opaque origin, and Chromium refuses a `same-site` resource for an opaque origin (confirmed with a test in a real browser). The media token is the access control.
 - The token has the account ID in its text (`{account_id}.{exp}.{signature}`), because the media host has no session.
-- `claire federation prune` does the media cleanup only. The retention run of the items (design Section 10 rule 2) is part of unit FP4-10.
+- `claire federation prune` also does the retention run of the items from unit FP4-10 (Section 27.4).
 - An `Update` that changes the media of an item leaves the old entries until the next cleanup.
 - The table has no column for the reason of a failed fetch. The log of the process has the reason.
 - The timeline list has no thumbnail: media shows in the body only.
@@ -1282,7 +1286,7 @@ The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17),
 - An object that comes in an earlier request than the object that links it to the thread is not stored, when it has no `context` of the thread.
 - A task of an account that stops being an actor waits until the account is an actor again. While it waits, no new task of that thread is made.
 - The thread view shows 200 items at most (Section 19), also when the fetch stored more.
-- A fetched item has no part in the retention rules of this unit: the retention run is unit FP4-10.
+- A fetched item has `in_timeline` = 0. The retention run deletes it when it is older than the retention, unless it is the parent of an item that stays (Section 27.4).
 - The Deno tests have no network permission. The remote servers of the tests are in the test process (a replaced `fetch`), as in the other sidecar tests, not a listener on a local port.
 
 Tests: `tests/test_e2e_federation_thread_fetch.py` (a real app and the signed internal API: task, no second task in the refetch time, lease, storage rules, limits, the switch, the actor rule), `tests/test_federation_routes.py` (contract 1.5 fixtures `context_tasks.json` and `context_objects.json`), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`, `sidecar/fedify/tests/context_test.ts` (context collection with pages, reply tree, limits, blocked domain, objects of other origins, parts), `sidecar/fedify/tests/internal_api_test.ts` (fixtures), `e2e/federation_client.spec.js` (the note and the new thread in a browser).
@@ -1369,7 +1373,7 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 
 - The tombstone of a deleted note is the note row (`deleted_at`) in `client.db`, not a row of `federation_tombstones` (design Section 5.4 rule 7). Reason: the delete, the item, and the task are in one transaction, and no transaction crosses files. Only the account purge writes tombstones of notes to `claire.db`.
 - No table `federation_object_numbers` (RT7 proposal) and no change of `claire.db`. A note checks the numbers of the published documents; the publish of a document does not check the numbers of the notes. A collision needs the same millisecond and the same low 16 bits; then the object path gives the document.
-- `federation_notes` has no `quote_of_iri`, `quote_state`, and `quote_policy` (design Section 7.1). Unit FP4-9Q adds them with `ALTER TABLE ... ADD COLUMN`; no rebuild is necessary. It has `deleted_at`, which the design does not have.
+- `federation_notes` of version 5 has no `quote_of_iri`, `quote_state`, and `quote_policy` (design Section 7.1). Unit FP4-9Q added them in version 6 with `ALTER TABLE ... ADD COLUMN` (Section 26.2). The table has `deleted_at`, which the design does not have.
 - The tasks of this unit have their own internal endpoint and acknowledgement path, not `client-tasks`. Reason: the shape of a client task of contract 1.3 stays sealed, and the acknowledgement carries the resolved mentions.
 - The `audience` of a reply is the group that announced the parent item, not the `audience` property of the parent object: the normal form of an item has no such field.
 - A mention by a handle that Claire does not know has no link in the HTML of the first `Create`. The `Mention` tag has the actor. The object path and a later `Update` have the link.
@@ -1379,6 +1383,169 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 - The view has no input for hashtags: a `#tag` in the text is the hashtag. `tags` is not a field of the routes.
 - `DELETE /api/federation/notes/{id}` needs no actor (the design table says so too); the favourite and boost routes need one for `POST` and `DELETE`.
 - No media in a note and no poll (RD11). No retry state in the view: a task that the sidecar rejects (for example `actor_not_found` for a note) is visible in `federation_client_outbox` only.
-- The display of a reply on a Mastodon-compatible server is not covered (RT8); it needs a real server (FP4-10).
+- The display of a reply on a remote server is outside the range that the DrFed test stack confirms: DrFed records the delivery and its JSON-LD body and shows no post (RT8). Fedify is responsible for the interoperation with other server software.
 
 Tests: `tests/test_e2e_federation_outbound.py` (reply, mentions, edit, delete with 410, group audience, favourite and boost with undo, counters, refusals), `tests/test_federation_note_routes.py` (contract 1.6 fixtures, the union of the outbox collection, `client.db` version 5, purge), `sidecar/fedify/tests/notes_test.ts` (the `Create` at a local test inbox with `inReplyTo` and a `Mention`, `Update`, `Delete`, `Like`, `Announce`, `Undo`, the object path, 410 with the `Tombstone`), `sidecar/fedify/tests/internal_api_test.ts`, `e2e/federation_compose.spec.js` (the controls in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
+
+## 26. Quotes (Unit FP4-9Q)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 (`quote_request`, `quote_authorize`, `quote_reject`, `quote_revoke`), 5.4 rules 5 and 6, 6.6 rule 5, 7.1, 8, and 11, and the result RT9. Protocol: FEP-044f. Data: `client.db` version 6 and `claire.db` version 24. Contract: 1.7.
+
+Code: `src/claire/store/federation_quotes.py` (store), `src/claire/api/accounts_routes/federation_quotes.py` (routes of the owner), `src/claire/api/federation_quote_routes.py` (internal routes), `sidecar/fedify/src/quotes.ts` (the activities and the authorization), `src/claire/static/js/syndication_compose.js` (view).
+
+### 26.1 Routes
+
+All routes of the owner are in network mode only (`ROUTE_POLICY`). A request or an object of another account gives 404.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `POST` | `/api/federation/notes` | Two more fields. `quote_of`: the ID of an item of the timeline that the note quotes. `quote_policy`: `public` (default), `followers`, `manual`, or `nobody`. New errors: 400 `invalid_quote_policy`; 409 `own_item` (a quote of an own note); 404 `item_not_found` and 400 `blocked_domain` also apply to `quote_of`. |
+| `PATCH` | `/api/federation/notes/{note_id}` | One more field: `quote_policy`. A request with `quote_policy` only does not set `edited_at`. |
+| `GET` | `/api/federation/quotes` | `{"requests", "authorizations", "counts"}`. `requests`: the requests that wait for the owner. `authorizations`: the approved requests. 100 of each at most, newest first. `counts`: `pending` and `approved`, the numbers of all rows. |
+| `PATCH` | `/api/federation/quotes/{quote_id}` | Body `{"state"}`: `approved` (from `pending` or `refused`), `refused` (from `pending`), or `revoked` (from `approved`). 200 `{"quote"}`. 404 `quote_not_found`, 409 `invalid_state` (with `state`), 409 `not_actor`, 400 `invalid_request`. |
+| `PATCH` | `/api/federation/objects/{object_id}` | Body `{"quote_policy"}`. 200 `{"object": {"id", "theme_id", "document_id", "quote_policy"}}`. 404 `object_not_found`, 400 `invalid_quote_policy`. |
+
+- One request of the list: `id`, `state`, `object` (`id`, `url`, `kind`: `note`, `document`, or `gone`; `text`: the start of the note or the title of the document; a document has `theme_id` and `document_id`), `quoting_object` and `quoting_actor` (addresses of the remote server), `authorization` (the public address of an approved request, else null), `created_at`, `updated_at`.
+- `note` of an item has three more keys: `quote_policy`, `quotes` (the number of approved quotes of the note), and `quote` (`iri`, `state`, or null).
+- Each item of the timeline has `quote`: null, or `iri` (the quoted object), `item_id` (the item of the account with that object, or null), and `state` (the quote state of an own note; null for a post of a remote actor).
+- Each item of `GET /api/federation/objects` has `quote_policy` and `quotes`.
+
+Internal API (contract 1.7, prefix `/internal/federation/v1`):
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `POST` | `/quote-events` | Request: `event_id`, `type` (`QuoteRequest`, `Accept`, `Reject`), `recipient_public_id`, `actor` (`iri`, `inbox`, `shared_inbox`), `object_iri`, `instrument_iri`, `authorization` (`iri`, `interacting_object`, `interaction_target`, `attributed_to`, or null), `verified_by`. Response: `decision`, `reason`, `state`. |
+| `GET` | `/quote-authorizations/{id}` | `id`, `actor_public_id`, `object_public_id`, `quoting_object_iri`. 404, or 410 `{"error": "gone", "gone_at"}` for a revoked authorization. |
+
+- Changed shapes: the normal form of an object (`timeline-events`, `context-objects`) has `quote`; the record of `/objects/{id}` has `quote_policy`; the record of `/notes/{id}` has `quote_policy`, `quote` (the quoted object while the quote is `pending` or `approved`, else null), and `quote_authorization` (for an `approved` quote); a task of `/interaction-tasks` has `quote` (`request_iri`, `quoting_object_iri`, or null) and four more kinds.
+- Public path of the sidecar: `GET /ap/quote-authorizations/{id}` gives the `QuoteAuthorization` (`attributedTo`, `interactingObject`, `interactionTarget` as IDs). A revoked authorization gives 410 with a `Tombstone` whose `formerType` is `QuoteAuthorization`. A request that waits or that is refused gives 404. The reverse proxy rule for `/ap/` (Section 10) applies.
+
+### 26.2 Tables
+
+- `federation_notes` (`client.db` version 6, `ALTER TABLE ... ADD COLUMN`): `quote_of_iri`, `quote_author_iri` (the author of the quoted object), `quote_state` (`pending`, `approved`, `refused`, `revoked`, or NULL for a note without a quote), `quote_authorization_iri`, `quote_policy` (default `public`).
+- `federation_quote_authorizations` (`client.db` version 6): `id`, `account_id` (the owner of the quoted object), `object_public_id`, `quoting_object_iri`, `quoting_actor_iri`, `request_iri` (the ID of the `QuoteRequest`), `state`, `created_at`, `updated_at`; unique `(object_public_id, quoting_object_iri)`. The account purge deletes the rows of the account.
+- `federation_objects.quote_policy` (`claire.db` version 24): default `manual`. The column is in `claire.db` so that a change of the policy and its `update` task (`federation_outbox`) are in one transaction. The policy of a note and its `update_note` task are in one transaction of `client.db`.
+- `federation_timeline_items.quote_of_iri` (version 2) now has the quoted object of an inbound post and of an own note.
+- The migrations run at the start of the process, add only what is absent, and keep unknown tables and rows.
+
+### 26.3 Outbound Quote (Section 5.4 Rule 5)
+
+1. `POST /api/federation/notes` with `quote_of` stores the note with the quoted object, its author, and the state `pending`, and makes one `quote_request` task (not a `note` task), in one transaction. The HTML of the note gets a last paragraph `RE:` with a link to the quoted object (class `quote-inline`), in all quote states.
+2. Sidecar, task `quote_request`: it sends `QuoteRequest` (ID `{note}#quote-request`, `object` = the quoted object, `instrument` = the `Note`) to the author, and then `Create` of the note to the followers, the mentioned actors, and the author. The `Note` has `quote` and `quoteUrl` (Fedify writes `quoteUrl` also as `_misskey_quote` and `quoteUri`, RT9). When the author is not available, only the `Create` goes out, and the quote stays `pending`.
+3. `Accept`: the sidecar sends a quote event when `objectId` of the activity is `{note}#quote-request` on this instance. It never calls `getObject()` for the request (RT9). It reads the `QuoteAuthorization` in `result` with the loader of Fedify: an embedded object of another origin is fetched again. When the authorization is not available, the inbox run fails, and the sender tries again.
+4. Claire makes the quote `approved` only when all these are true: the actor of the `Accept` is the stored author of the quoted object; the authorization is on the origin of that actor; `interactingObject` is the note; `interactionTarget` is the quoted object; `attributedTo` is absent or is that actor. If not, the decision is `rejected` (`not_the_author`, `invalid_authorization`), and the state does not change.
+5. `Reject` of the request by the author makes the quote `refused`.
+6. Revoke: a `Delete` whose object is the stored authorization, from the author, makes the quote `revoked` (the `Delete` comes as a timeline event). Claire never changes a quote state from a lookup (RT9).
+7. Each change of the state makes an `update_note` task: the followers get `Update(Note)`. An `approved` quote has `quoteAuthorization`. A `refused` or `revoked` quote has no `quote` property; the link in the HTML stays. `edited_at` does not change.
+8. A server that does not answer leaves the quote `pending`.
+
+### 26.4 Inbound Requests (Section 6.6 Rule 5) and the Quote Policy (Section 5.4 Rule 6)
+
+1. The sidecar sends a `QuoteRequest` whose object is on this instance as a quote event, with the IDs of the object and of the quoting object (`instrument`). It fetches nothing.
+2. Claire applies these checks in sequence: federation is active; the addresses of the actor are permitted and not blocked; the object is a published document or a note that is public now (if not: `ignored`, `no_object`, and no answer goes out); the quoting object is on the host of the actor (`invalid_object`); the inbox is that of the owner or the shared inbox (`recipient_mismatch`); the rate limit (rule 6).
+3. Policy: `public` → `approved`. `followers` → `approved` for a follower of the owner (`federation_followers`), else `refused`. `manual` → `pending`. `nobody` → `refused`. The default is `public` for a note and `manual` for a published document.
+4. `approved` makes a `quote_authorize` task: the sidecar sends `Accept` (ID `{actor}#quote-accepts/{id}`) with the request by its ID and the `QuoteAuthorization` in `result`. `refused` makes a `quote_reject` task: `Reject` (ID `{actor}#quote-rejects/{id}`). `pending` makes no task: the request is in `GET /api/federation/quotes`.
+5. A repeated request for the same quoting object keeps the decision and gets the answer again. A `refused` request becomes `approved` when the policy of now approves it; it does not become `pending` again. A request for a revoked authorization gets a `Reject`.
+6. Rate limit: for a new request, Claire counts the requests of the account from the domain of the actor in the last hour. At `mention_rate_per_hour` (reading settings) the decision is `ignored` with `rate_limited`.
+7. The owner approves or refuses a request that waits, and can approve a refused request later (`PATCH /api/federation/quotes/{id}`). The state and the task of the answer are in one transaction.
+8. Revoke: `revoked` makes a `quote_revoke` task: `Delete` of the authorization (ID `{actor}#quote-revokes/{id}`) to the quoting actor. The authorization path gives 410 from the time of the change.
+9. The authorization path gives the record only while the request is `approved`, the owner is an actor, and the quoted object is public.
+10. When the quoting actor deletes its object, Claire deletes its requests and authorizations.
+11. A change of the policy sends `Update` of the object: an `update_note` task for a note, an `update` task for a published document. A request that has no change makes no task. `canQuote` of the interaction policy (RT9): `public` → automatic approval for the public collection; `followers` → automatic approval for the followers collection; `manual` → automatic approval for the author and manual approval for the public collection; `nobody` → automatic approval for the author.
+
+### 26.5 Quotes of Inbound Posts (RT9)
+
+- The sidecar reads the quoted object of a `Note`, an `Article`, or a `Question` from the object document only: `quote` first, then `quoteUrl` (Fedify reads the keys `quoteUrl`, `_misskey_quote`, and `quoteUri` as that property). Only an HTTP address is used.
+- Claire stores the address in `quote_of_iri` of the item. The view shows a link: it opens the item of the account with that object, or the address on its server.
+
+### 26.6 View
+
+- An item of a remote actor has the control "Quote" (line icon `quote`). The dialog of a note has the mode "Quote" and a list for the quote policy of the note (new note, reply, quote, and edit).
+- An item that quotes has the badge "Quote". The reader shows the quoted post as a link, and for an own note the state of the quote. An own note shows the number of its approved quotes.
+- The tree has the folder "Quote requests" when the account has requests that wait or approved requests: each request has the quoting actor, the text of the own object, a link to the quoting post, and "Approve" and "Refuse"; an approved request has "Revoke". The folder shows the number of requests that wait. The list loads with the poll of the timeline.
+- The context menu of a published document in the knowledge base view has "Quote policy…" with a dialog. The list of the knowledge base shows the number of approved quotes with the other counters.
+- The view puts no content of a remote server into the page: an address is text or a link (HTTP only), and the body of a post stays in the sandbox frame.
+- The texts are the catalog keys `synd.quote.*` and `synd.compose.*` in English and Korean.
+
+### 26.7 Differences from the Design and Limits
+
+- `federation_notes` has two columns that design Section 7.1 does not have: `quote_author_iri` (only this actor can answer the request) and `quote_authorization_iri` (the revoke is the `Delete` of this address).
+- `federation_quote_authorizations` has `account_id` (the account purge needs it, as in Section 22.7) and `request_iri` (the `Accept` and the `Reject` refer to the request by its ID), which the design does not have.
+- No row of the kind `quote` in `federation_object_reactions`. The number of quotes of an object is the number of its approved rows in `federation_quote_authorizations`. Reason: the key of the reactions table has one row for each actor, and one actor can quote an object in more than one post. The `CHECK` of that table still permits the value.
+- A note with a quote has one task (`quote_request`) for the request and the `Create`, as design Section 5.2 says; it has no separate `note` task.
+- The quote events have their own internal endpoint (`quote-events`), not `inbox-events`. Reason: the event carries the quoting object and the authorization, and the shape of an inbox event stays sealed.
+- An `update_note` task follows each change of a quote state, so that remote servers get the authorization or lose the quote. The design does not name this `Update`.
+- A `Reject` from the author after an `Accept` also makes the quote `refused`. An `Accept` after a `Reject` makes it `approved`.
+- The owner can approve a refused request later. The owner cannot change a revoked authorization; the quoting actor must delete its post and ask again with a new one.
+- The quoting object of a request must be on the host of its actor. A server that keeps objects on another host than its actors gets `invalid_object` and no answer.
+- A quote of an own note is refused (409 `own_item`): this unit has no approval inside one instance.
+- Claire does not fetch the quoting object. The owner sees its address and its actor, not its text.
+- Claire does not verify the authorization of a quote in an inbound post: the view shows a link to the quoted object for each inbound quote.
+- The rate limit of quote requests uses `mention_rate_per_hour`; there is no separate setting.
+- When a domain block applies to the quoted object at the time of the handoff, no `QuoteRequest` goes out, the quote becomes `refused`, and the note is sent with the link only.
+- The rows of a deleted note or of a retracted document stay in `federation_quote_authorizations` until the account purge; their authorization path gives 404.
+- The `Tombstone` of a revoked authorization has `formerType` as the short name `QuoteAuthorization`.
+- No retry state in the view: a task that the sidecar rejects (for example `actor_not_found` for a `quote_authorize` task) is visible in `federation_client_outbox` only. The request stays `approved`, and the authorization path serves it.
+- The Deno tests have no network permission. The remote servers of the tests are in the test process (a replaced `fetch`), as in the other sidecar tests.
+- The DrFed test stack confirms the outbound request and the note with the quote (Section 27.2). The approval, the refusal, and the revoke need a remote server that sends activities; DrFed 0.1.0 sends none, thus these are outside the range that the stack confirms. The tests with the signed internal API and the sidecar tests cover them.
+
+Tests: `tests/test_e2e_federation_quotes.py` (a real app and the signed internal API: the quote states `pending`, `approved`, `refused`, and `revoked`; the four policies; the decisions of the owner; 410 after a revoke; the policy of a published document; untrusted input), `tests/test_federation_quotes.py` (contract 1.7 fixtures `quote_*.json`, the checks of an authorization, `client.db` version 6, `claire.db` version 24), `tests/test_federation_routes.py` and `tests/test_federation_note_routes.py` (the changed fixtures), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`, `sidecar/fedify/tests/quotes_test.ts` (`QuoteRequest` and `Create` at a local test inbox, `Accept` with the `QuoteAuthorization`, `Reject` for a `nobody` object, `Delete`, the inbound activities as quote events, an authorization of another origin, the authorization path with 410, `canQuote`, the keys of an inbound quote), `sidecar/fedify/tests/internal_api_test.ts`, `e2e/federation_compose.spec.js` (the quote controls in a browser).
+
+## 27. DrFed Test Stack, Retention Run, and Contract 1.8 (Unit FP4-10)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 10 (rules 1, 2, and 4) and 14 (unit FP4-10). Owner decisions of 2026-11-16: Fedify is responsible for the interoperation with other server software; the check with a real remote server is DrFed; a limit of this document says "outside the range that the DrFed test stack confirms", and names no server software.
+
+### 27.1 DrFed Test Stack (Development Test Only)
+
+DrFed 0.1.0 (`@drfed/drfed`, license AGPL-3.0-only) is a test server for ActivityPub implementations: it makes test instances and actors, makes `Note` and `Article` objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). It sends no activity to a remote inbox. It runs only as a separate program in a test container; no Claire Bible code links to it, and no Claire Bible image has it.
+
+`tests/drfed/docker-compose.yml` and `tests/drfed_stack.py` start the stack. It is not a part of a deployment.
+
+| Part | Rule |
+| :--- | :--- |
+| Image | `tests/drfed/Dockerfile`: `node:26-slim` with the npm package (DrFed needs Node.js 26 or later and has no official image). The account is made before the server starts (`drfed-account create --migrate`, then `drfed-server`), because PGlite gives the data directory to one process. |
+| Networks | DrFed listens only on its address of the internal network `backend` and has no published port. A TLS gateway (nginx) is on `backend` and on `edge`. A client on `edge` reaches only port 443 of the gateway. DrFed is also on `edge` for its own requests (it reads the actor of a sender to check a signature). |
+| Names | The root origin is `https://drfed.test`; each DrFed instance is a subdomain. The service `dns` (dnsmasq) answers the root name and each name below it with the address of the gateway (`--address=/drfed.test/{gateway}`, with `--local` for an empty IPv6 answer). A container uses it with `dns:`. A Docker network alias cannot be a wildcard, and the name of an instance is made at run time, thus a DNS service is the method. A test process on the host connects each such name to the gateway and keeps the name in the Host header and in the TLS server name. |
+| TLS | Each start makes a private certificate authority and one certificate for `drfed.test` and `*.drfed.test`. The gateway sends the Host header as it came: DrFed selects the instance from it and ignores the forwarded headers. |
+| Automation | The helper does all steps with GraphQL (`/graphql` of the root origin), without the web UI: it asks for a login mail, reads the login link in the log of DrFed (`--mail-log-content`), completes the challenge, and makes one instance with actors. |
+| Claire side | The profile `claire` adds the Fedify sidecar of a Claire process as a container (image of `sidecar/fedify`, with the DNS service and the certificate authority as `DENO_CERT`). The Claire process runs on the host in the development environment; the sidecar reaches it through the Unix socket of its data directory. The public origin of Claire is `http://{gateway}:8080` (the development rule of `WebRuntimeConfig`: http and an IPv4 address); the gateway sends that port to the sidecar. |
+
+Manual work: `python -m tests.drfed_stack up` shows the root origin, the instance, the actors, the certificate authority, and the access token; `info` shows them again; `down` removes the containers, the networks, and the run directory (`.dev/drfed-test`, which Git ignores). The automatic scenarios run only with `CB_DRFED_TEST=1` (`CB_DRFED_TEST=1 pytest tests/test_drfed_docker.py`).
+
+### 27.2 Scenarios (`tests/test_drfed_docker.py`)
+
+| Group | Scenario |
+| :--- | :--- |
+| Stack | The helper signs in and makes an instance with actors. Each name below the root resolves to the gateway, and only port 443 is open. An unknown certificate authority stops the connection. The gateway keeps the Host header. The actor, the WebFinger answer, and a public note are readable. |
+| Follow | `POST /api/federation/following` with a handle of DrFed: the sidecar reads the WebFinger answer and the actor (TLS with the private authority, a private address), and the `Follow` arrives at the inbox with a verified signature. DrFed sends no `Accept`: the follow stays `pending`. |
+| Published document | `Create` with the `Article` (title, share link, no body) and `Update` at a second publish arrive with a verified signature. The object is readable at its address. |
+| Notes | A reply arrives as `Create(Note)` with `inReplyTo`, a `Mention` of the author of the parent, a `Hashtag`, the content warning, and `contentMap`. An edit arrives as `Update(Note)` with `updated`. A delete arrives as `Delete` with a `Tombstone`, and the object address gives 410. |
+| Favourite and boost | `Like`, `Announce` (public), and `Undo(Like)` with the ID of the `Like` arrive with a verified signature. |
+| Quote | `QuoteRequest` (the quoted object and the note as `instrument`) and the `Create(Note)` with `quote` arrive. DrFed sends no answer: the quote stays `pending`. |
+| Thread fetch | The sidecar reads a note of DrFed for a `fetch_context` task. DrFed gives no `context` and no `replies` collection: the task ends and stores nothing. |
+
+Each delivery is checked in the record of DrFed: status `received`, verification result `verified`, the key of the Claire actor, and the JSON-LD body.
+
+Because DrFed sends no activity, a note of DrFed becomes an item of the timeline through a direct row in `client.db`, and the DrFed actor is a follower of the Claire account through a direct row in `claire.db`. All requests after that are real.
+
+Outside the range that the stack confirms (DrFed 0.1.0 sends no activity to a remote inbox): the `Accept` of a follow, inbound posts of followed actors, inbound mentions, favourites, and boosts, the automatic notice, inbound quote requests, and the approval, the refusal, and the revoke of an outbound quote. The tests with the signed internal API (`tests/test_e2e_federation_*.py`) and the sidecar tests cover these paths. The display of a post on a remote server is also outside the range: DrFed shows no post.
+
+### 27.3 Development Switch for Private Addresses (Contract 1.8)
+
+Fedify refuses each document address that is not public (`UrlError: Invalid or private address`), also an address of a documentation range. The sidecar had no option for it (FS1), thus a Claire instance could not read an actor of a server on the same host or network. Contract 1.8 adds `allow_private_addresses` to the config: true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (the setting that the media proxy and the feed fetcher use). The sidecar then makes Fedify with `allowPrivateAddress`. In production the value is always false. A sidecar test fails when the option has a constant value or is in a second place.
+
+### 27.4 Retention Run
+
+- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of its account by `received_at` (the lower of the account value and the instance value), is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
+- The daily cleanup of the `api` process (`media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
+- `claire federation prune` shows `retention_days` and `expired_items` with the media numbers; `--apply` deletes.
+- An ingested document is never deleted (RD17). Feed items have no retention run.
+
+### 27.5 Differences from the Design and Limits
+
+- The end-to-end test of the design row (one test for all functions in the two directions) is the group of the DrFed scenarios for the outbound direction and the fetches, and the unit end-to-end tests with the signed internal API for the inbound direction, the render, the media proxy, and the ingest of an item. DrFed 0.1.0 cannot do the inbound direction.
+- The Claire side of the stack uses http for the public origin of Claire, because the development environment of Claire permits only http with an IPv4 address. The direction from Claire to DrFed uses TLS.
+- The stack needs the two address ranges `172.31.251.0/24` and `172.31.252.0/24`; `CB_DRFED_EDGE_PREFIX` and `CB_DRFED_BACKEND_PREFIX` select other ranges.
+- The first build of the stack reads the npm registry and the image registry.
+
+Tests: `tests/test_drfed_docker.py` (10 scenarios, only with `CB_DRFED_TEST=1`), `tests/test_federation_retention.py` (the retention rules and the command), `tests/test_federation_routes.py` (the development switch), `sidecar/fedify/tests/sidecar_test.ts` (FS1).

@@ -53,6 +53,7 @@ from ...store import auth_db
 from ...store import db as dbm
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
+from ...store import federation_quotes as federation_quotes_store
 from ...store import feeds as feeds_store
 from .. import federation_routes
 from .. import usercontent
@@ -973,11 +974,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
             client = open_client_db(ctx)
             try:
                 reactions = federation_client_store.count_object_reactions(client, [row.public_id for row in rows])
+                # The approved quotes of each document (unit FP4-9Q).
+                quotes = federation_quotes_store.count_approved_quotes(client, [row.public_id for row in rows])
             finally:
                 client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"]} for row in rows],
+                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

@@ -157,8 +157,22 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 | Method | Path | 성공 | 그 밖의 응답 |
 |---|---|---|---|
-| `POST` | `/api/federation/notes` | 본문 `{"content", "in_reply_to"?, "summary"?, "sensitive"?, "language"?}`. `content`는 일반 텍스트이고 HTML은 서버가 만든다. 201 `{"note", "item_id"}` | 400 `invalid_request`, 400 `empty_content`, 400 `content_too_long`(`limit`), 400 `summary_too_long`, 400 `too_many_mentions`, 400 `too_many_tags`, 400 `invalid_language`, 400 `invalid_mention`, 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor` |
-| `PATCH` | `/api/federation/notes/{note_id}` | 본문은 `content`, `summary`, `sensitive`, `language` 중 하나 이상. 200 `{"note"}` | `POST`의 400 응답, 404 `note_not_found`, 409 `not_actor` |
+| `POST` | `/api/federation/notes` | 본문 `{"content", "in_reply_to"?, "summary"?, "sensitive"?, "language"?, "quote_of"?, "quote_policy"?}`. `content`는 일반 텍스트이고 HTML은 서버가 만든다. `quote_of`는 인용할 타임라인 항목 ID, `quote_policy`는 `public`·`followers`·`manual`·`nobody`다(FP4-9Q, §9). 201 `{"note", "item_id"}` | 400 `invalid_quote_policy`, 409 `own_item`(자기 노트 인용), 400 `invalid_request`, 400 `empty_content`, 400 `content_too_long`(`limit`), 400 `summary_too_long`, 400 `too_many_mentions`, 400 `too_many_tags`, 400 `invalid_language`, 400 `invalid_mention`, 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor` |
+| `PATCH` | `/api/federation/notes/{note_id}` | 본문은 `content`, `summary`, `sensitive`, `language`, `quote_policy` 중 하나 이상. 200 `{"note"}` | `POST`의 400 응답, 404 `note_not_found`, 409 `not_actor` |
 | `DELETE` | `/api/federation/notes/{note_id}` | 200 `{"deleted": true, "id"}`. 객체 경로는 그 뒤로 410이다 | 404 `note_not_found` |
 | `POST`, `DELETE` | `/api/federation/timeline/{item_id}/favourite` | 200 `{"item_id", "favourited", "boosted"}` | 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor`, 409 `own_item` |
 | `POST`, `DELETE` | `/api/federation/timeline/{item_id}/boost` | 200 `{"item_id", "favourited", "boosted"}` | 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor`, 409 `own_item` |
+
+## 9. 연합 클라이언트 인용 경로 (FP4-9Q)
+
+확인 기준: FP4-9Q 구현 (2026-11-15). 동작의 정본은 [FEDERATION.md](FEDERATION.md) §26이다. 모든 경로는 `owner`(`_any`)이고 네트워크 모드에서만 열린다. owner가 아니거나 싱글 모드이면 404다. 쿠키 채널의 상태 변경 요청은 같은 origin이어야 하고, 아니면 403이다. 응답은 `Cache-Control: no-store`다. 다른 계정의 요청·객체 ID는 없는 ID와 같게 다룬다.
+
+| Method | Path | 성공 | 그 밖의 응답 |
+|---|---|---|---|
+| `GET` | `/api/federation/quotes` | 200 `{"requests": [...], "authorizations": [...], "counts": {"pending", "approved"}}`. `requests`는 소유자의 결정을 기다리는 인용 요청, `authorizations`는 승인한 요청이다. 각각 최신 100개까지. 요청 키: `id`, `state`, `object`(`id`, `url`, `kind`, `text`), `quoting_object`, `quoting_actor`, `authorization`, `created_at`, `updated_at` | 404 |
+| `PATCH` | `/api/federation/quotes/{quote_id}` | 본문 `{"state"}`: `approved`·`refused`(기다리는 요청), `revoked`(승인한 요청). 200 `{"quote"}`. 사이드카가 `Accept`(`QuoteAuthorization` 포함), `Reject`, 또는 승인의 `Delete`를 보낸다 | 400 `invalid_request`, 404 `quote_not_found`, 409 `invalid_state`(`state`), 409 `not_actor` |
+| `PATCH` | `/api/federation/objects/{object_id}` | 본문 `{"quote_policy"}`: `public`·`followers`·`manual`·`nobody`. 200 `{"object": {"id", "theme_id", "document_id", "quote_policy"}}`. 값이 바뀌면 객체의 `Update`를 보낸다 | 400 `invalid_request`, 400 `invalid_quote_policy`, 404 `object_not_found` |
+
+- 타임라인 항목(`GET /api/federation/timeline`, `GET /api/federation/timeline/{item_id}`)에는 `quote` 키가 있다: `null`, 또는 `{"iri", "item_id", "state"}`. `state`는 자기 노트의 인용 상태(`pending`, `approved`, `refused`, `revoked`)이고, 원격 게시물이면 `null`이다.
+- `note`에는 `quote_policy`, `quotes`(승인한 인용 수), `quote`(`{"iri", "state"}` 또는 `null`)가 있다. `GET /api/federation/objects`의 항목에는 `quote_policy`와 `quotes`가 있다.
+- 승인의 공개 경로 `GET /ap/quote-authorizations/{id}`는 사이드카가 응답한다([FEDERATION.md](FEDERATION.md) §26.1). 철회한 승인은 410이다.

@@ -30,6 +30,7 @@ __all__ = [
     "add_following",
     "count_following",
     "effective_retention_days",
+    "expired_item_ids",
     "get_account_retention",
     "get_following",
     "get_reading_settings",
@@ -45,6 +46,7 @@ __all__ = [
     "lease_client_tasks",
     "resolve_following",
     "remove_following",
+    "retention_run",
     "set_account_retention",
     "set_following_state",
     "set_reading_settings",
@@ -274,6 +276,45 @@ def effective_retention_days(conn: sqlite3.Connection, account_id: int, *, insta
     return instance_value if own is None else min(own, instance_value)
 
 
+# --- Retention run (Section 10 rules 1, 2, and 4) ---------------------------
+
+
+def expired_item_ids(conn: sqlite3.Connection, *, instance_days: int, now: float) -> list[int]:
+    """The timeline items that the retention run deletes (``client.db``).
+
+    An item goes when it is older than the retention of its account by ``received_at``, is not starred, and has no ingested document. An own note that is not deleted keeps its item (the item has the controls of the note). An item with ``in_timeline`` = 0 that is the parent of an item that stays also stays (rule 2), through all levels.
+    """
+    own = {int(account): int(days) for account, days in conn.execute("SELECT account_id, retention_days FROM federation_account_settings WHERE retention_days IS NOT NULL")}
+    has_notes = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='federation_notes'").fetchone() is not None
+    own_note = "AND NOT EXISTS (SELECT 1 FROM federation_notes n WHERE n.account_id=i.account_id AND n.deleted_at IS NULL AND i.object_iri LIKE '%/ap/objects/' || n.public_id)" if has_notes else ""
+    expired: list[int] = []
+    for (account_id,) in conn.execute("SELECT DISTINCT account_id FROM federation_timeline_items").fetchall():
+        days = min(own.get(int(account_id), instance_days), instance_days)
+        rows = conn.execute(f"SELECT i.id, i.object_iri, i.in_timeline FROM federation_timeline_items i WHERE i.account_id=? AND i.received_at < ? AND i.starred=0 AND i.linked_doc_id IS NULL {own_note}", (account_id, now - days * 86400.0)).fetchall()
+        candidates = {int(item_id): (str(object_iri), int(in_timeline)) for item_id, object_iri, in_timeline in rows}
+        while True:
+            # The parents (``in_timeline`` = 0) of the items that stay.
+            marks = ",".join("?" * len(candidates)) or "NULL"
+            parents = {str(row[0]) for row in conn.execute(f"SELECT DISTINCT in_reply_to_iri FROM federation_timeline_items WHERE account_id=? AND in_reply_to_iri IS NOT NULL AND id NOT IN ({marks})", (account_id, *candidates))}
+            kept = [item_id for item_id, (object_iri, in_timeline) in candidates.items() if in_timeline == 0 and object_iri in parents]
+            if not kept:
+                break
+            for item_id in kept:
+                del candidates[item_id]
+        expired.extend(sorted(candidates))
+    return expired
+
+
+def retention_run(conn: sqlite3.Connection, *, instance_days: int, now: float, apply: bool) -> dict[str, int]:
+    """Count, and with ``apply`` delete, the timeline items that are older than the retention. The caller commits. The media cleanup deletes the media entries that no item uses after this run."""
+    ids = expired_item_ids(conn, instance_days=instance_days, now=now)
+    if apply:
+        for start in range(0, len(ids), 500):
+            part = ids[start : start + 500]
+            conn.execute(f"DELETE FROM federation_timeline_items WHERE id IN ({','.join('?' * len(part))})", part)
+    return {"retention_days": instance_days, "expired_items": len(ids)}
+
+
 # --- Client outbox (Section 5.2) -------------------------------------------
 
 
@@ -429,6 +470,8 @@ def _item_values(item: dict[str, Any]) -> dict[str, Any]:
         "attachments_json": json.dumps(item.get("attachments") or [], ensure_ascii=False, sort_keys=True),
         "context_iri": item.get("context"),
         "in_reply_to_iri": item.get("in_reply_to"),
+        # The object that this object quotes (FEP-044f, unit FP4-9Q), or None.
+        "quote_of_iri": item.get("quote"),
         "published_at": item.get("published_at"),
         "updated_at": item.get("updated_at"),
     }
@@ -527,7 +570,7 @@ def count_private_messages(conn: sqlite3.Connection, account_id: int) -> int:
 
 # --- Timeline of the owner (Sections 5.3 and 8, unit FP4-5) ----------------
 
-_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_theme_id, linked_doc_id, mention"
+_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_theme_id, linked_doc_id, mention, quote_of_iri"
 TimelineFilter = Literal["unread", "starred", "mention"]
 # The thread view shows this number of items at most. The thread fetch of FP4-6 has its own limit (``context_max_items``).
 TIMELINE_THREAD_MAX = 200
@@ -561,6 +604,7 @@ class TimelineItem:
     linked_theme_id: int | None
     linked_doc_id: str | None
     mention: bool
+    quote_of_iri: str | None = None
 
 
 def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
@@ -568,7 +612,7 @@ def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
     return TimelineItem(
         id=int(v[0]), account_id=int(v[1]), object_iri=str(v[2]), url=v[3], object_type=str(v[4]), author_iri=str(v[5]), author=json.loads(v[6]), announced_by_iri=v[7], announced_by=None if v[8] is None else json.loads(v[8]),
         name=v[9], summary=v[10], sensitive=bool(v[11]), content_html=str(v[12]), language=v[13], attachments=json.loads(v[14]), context_iri=v[15], in_reply_to_iri=v[16], in_timeline=bool(v[17]),
-        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_theme_id=v[23], linked_doc_id=v[24], mention=bool(v[25]),
+        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_theme_id=v[23], linked_doc_id=v[24], mention=bool(v[25]), quote_of_iri=v[26],
     )
 
 

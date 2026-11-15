@@ -3539,7 +3539,7 @@ def cmd_instance(args) -> int:
 
 
 def _cmd_federation_prune(args) -> int:
-    """The media cleanup of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1 rule 6 and Section 10 rule 4): delete the media cache entries without an access in ``media_evict_days``, and the entries that no timeline item uses. The ``api`` process does the same one time each day."""
+    """The retention run and the media cleanup of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1 rule 6 and Section 10 rules 2 and 4): delete the timeline items that are older than the retention (not starred, not ingested), then the media cache entries without an access in ``media_evict_days`` and the entries that no timeline item uses. The ``api`` process does the same one time each day."""
     import asyncio
     import json
     import sqlite3
@@ -3554,6 +3554,8 @@ def _cmd_federation_prune(args) -> int:
         print("federation prune: no client database. There is nothing to delete.", file=sys.stderr)
         return 1
     try:
+        # The retention run comes first: with --apply the media cleanup then also deletes the media of the items that went.
+        retention = media_proxy.run_retention(s, apply=bool(args.apply))
         if args.apply:
             result = asyncio.run(media_proxy.cleanup_proxy(s).evict())
         else:
@@ -3577,12 +3579,14 @@ def _cmd_federation_prune(args) -> int:
     except sqlite3.Error as e:
         print(f"federation prune: cannot read the database: {e}", file=sys.stderr)
         return 1
-    result = {"applied": bool(args.apply), **result}
+    result = {"applied": bool(args.apply), **retention, **result}
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.apply:
+        print(f"federation prune: {result['expired_items']} timeline item(s) older than the retention deleted (instance value: {result['retention_days']} day(s)).")
         print(f"federation prune: {result['evicted']} media entry(ies) without an access in {result['evict_days']} day(s) and {result['orphans']} media entry(ies) without an item deleted.")
     else:
+        print(f"federation prune: {result['expired_items']} timeline item(s) are older than the retention (instance value: {result['retention_days']} day(s)).")
         print(f"federation prune: {result['evicted']} media entry(ies) had no access in {result['evict_days']} day(s), and {result['orphans']} media entry(ies) have no item. Use --apply to delete them.")
     return 0
 

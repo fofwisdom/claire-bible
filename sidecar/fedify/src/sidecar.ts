@@ -20,6 +20,7 @@
 // - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this instance or is a reply to an object of this instance; nothing is fetched for it. A Like or an Announce of an object of this instance, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
 // - A thread fetch task (contract 1.5, unit FP4-6) has no activity: the sidecar fetches the objects of a thread and gives them to Claire (context.ts).
 // - An own note (contract 1.6, unit FP4-9) has the object path of the published documents: one dispatcher for the two (RT7). A deleted note gets 410 with a Tombstone whose formerType is Note. The outbox collection has the notes too. An interaction task becomes Create, Update, or Delete of a Note, or Like, Announce, and their Undo (notes.ts).
+// - Quotes (contract 1.7, unit FP4-9Q, quotes.ts): an Article and a Note have canQuote from the quote policy that Claire gives. A QuoteRequest for an object of this instance, and an Accept or a Reject of the quote request of an own note, go to Claire as quote events. An approved request is a QuoteAuthorization at /ap/quote-authorizations/{id}; a revoked one gets 410 with a Tombstone.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
@@ -30,6 +31,9 @@ import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMenti
 // Outbound interactions (contract 1.6, unit FP4-9).
 import { Object as ASObject } from "@fedify/fedify/vocab";
 import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
+// Quotes (contract 1.7, unit FP4-9Q).
+import { QuoteAuthorization } from "@fedify/fedify/vocab";
+import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -39,8 +43,8 @@ export const SIDECAR_HEADER = "x-claire-fedify-instance";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox)$/;
-// The paths that can give 410 with a Tombstone: a deleted object and a purged actor.
-const TOMBSTONE_PATH = /^\/ap\/(objects|actors)\/([1-9][0-9]{0,18})$/;
+// The paths that can give 410 with a Tombstone: a deleted object, a purged actor, and a revoked quote authorization.
+const TOMBSTONE_PATH = /^\/ap\/(objects|actors|quote-authorizations)\/([1-9][0-9]{0,18})$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
 const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
 // The largest page of the internal followers endpoint.
@@ -129,7 +133,7 @@ export class Sidecar {
   readonly #queue: MessageQueue | undefined;
   readonly #now: () => number;
   #config: { value: InstanceConfig; expires: number } | null = null;
-  #federation: { origin: string; value: Federation<void> } | null = null;
+  #federation: { origin: string; allowPrivate: boolean; value: Federation<void> } | null = null;
   readonly #keys = new Map<string, { pairs: CryptoKeyPair[]; expires: number }>();
   #blocks: { etag: string; domains: Set<string> } | null = null;
   readonly counters: InboxCounters = { accepted: 0, rejected: 0, ignored: 0, blocked: 0, dropped: 0 };
@@ -224,7 +228,7 @@ export class Sidecar {
       this.#gone.delete(path);
       if (response.status === 404 && goneAt !== undefined) {
         await response.body?.cancel();
-        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: tombstonePath[1] === "objects" ? (this.#goneNotes.delete(path) ? "Note" : "Article") : "Person", deleted: instant(goneAt).toString() };
+        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: tombstonePath[1] === "objects" ? (this.#goneNotes.delete(path) ? "Note" : "Article") : tombstonePath[1] === "actors" ? "Person" : "QuoteAuthorization", deleted: instant(goneAt).toString() };
         return new Response(JSON.stringify(tombstone), { status: 410, headers: { "content-type": "application/activity+json" } });
       }
     }
@@ -305,6 +309,8 @@ export class Sidecar {
       updated: instant(record.updated_at),
       to: PUBLIC_COLLECTION,
       cc: ctx.getFollowersUri(record.actor_public_id),
+      // The quote policy of the document (unit FP4-9Q).
+      interactionPolicy: quoteInteractionPolicy(ctx, record.actor_public_id, record.quote_policy),
     });
   }
 
@@ -499,6 +505,14 @@ export class Sidecar {
     const remote = { iri: actor.id.href, inbox: actor.inboxId.href, shared_inbox: actor.endpoints?.sharedInbox?.href ?? null };
     // Fedify verified the activity with one of the mechanisms that the activity has. The value names the strongest one that is present.
     const verifiedBy = "proof" in document ? "object-integrity-proof" : "signature" in document ? "ld-signature" : "http-signature";
+    // Quotes (unit FP4-9Q): a QuoteRequest for an object of this instance, and the answer to the quote request of an own note. Claire applies the quote policy and checks the authorization.
+    const quote = await quoteEventOf(activity, (await this.config()).canonical_origin, { event_id: activity.id.href, recipient_public_id: recipient, actor: remote, verified_by: verifiedBy }, { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader });
+    if (quote !== null) {
+      const result = await this.#api.quoteEvent(quote);
+      this.counters[result.decision] += 1;
+      if (result.decision !== "accepted") console.warn(`inbox activity ${type} ${result.decision}: ${result.reason}`);
+      return;
+    }
     const timeline = await this.#timelineEvent(ctx, activity, actor, objectType, objectIri, { event_id: activity.id.href, recipient_public_id: recipient, actor: remote, verified_by: verifiedBy });
     if (timeline === "dropped") return;
     if (timeline !== null) {
@@ -639,8 +653,8 @@ export class Sidecar {
   }
 
   #federationFor(config: InstanceConfig): Federation<void> {
-    if (this.#federation === null || this.#federation.origin !== config.canonical_origin) {
-      this.#federation = { origin: config.canonical_origin, value: this.#build(config.canonical_origin) };
+    if (this.#federation === null || this.#federation.origin !== config.canonical_origin || this.#federation.allowPrivate !== config.allow_private_addresses) {
+      this.#federation = { origin: config.canonical_origin, allowPrivate: config.allow_private_addresses, value: this.#build(config.canonical_origin, config.allow_private_addresses) };
     }
     return this.#federation.value;
   }
@@ -663,8 +677,9 @@ export class Sidecar {
     return pairs;
   }
 
-  #build(origin: string): Federation<void> {
-    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin });
+  #build(origin: string, allowPrivateAddress: boolean): Federation<void> {
+    // allowPrivateAddress is false in production: Fedify then refuses each document address that is not public. The development switch of Claire (contract 1.8) permits a test server at a private address.
+    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, allowPrivateAddress });
     const inbox = (identifier: string) => new URL(`/ap/actors/${identifier}/inbox`, origin);
     const sharedInbox = new URL("/ap/inbox", origin);
 
@@ -749,6 +764,18 @@ export class Sidecar {
         return null;
       }
       return this.#article(ctx, result.record);
+    });
+
+    // The authorization of an approved quote request (FEP-044f, unit FP4-9Q). It does not embed the quoting object. A revoked authorization gets 410 (the wrapper in #respond, as for /ap/objects/).
+    federation.setObjectDispatcher(QuoteAuthorization, "/ap/quote-authorizations/{id}", async (ctx, values) => {
+      if (!PUBLIC_ID.test(values.id)) return null;
+      const result = await this.#api.quoteAuthorization(values.id);
+      if (result === null) return null;
+      if (result.state === "gone") {
+        this.#gone.set(`/ap/quote-authorizations/${values.id}`, result.gone_at);
+        return null;
+      }
+      return buildQuoteAuthorization(ctx, result.record);
     });
 
     federation

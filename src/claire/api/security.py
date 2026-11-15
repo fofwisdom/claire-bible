@@ -539,6 +539,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("DELETE", "/api/federation/timeline/{item_id}/favourite"): _any("owner", modes=NETWORK_ONLY),
     ("POST", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
     ("DELETE", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
+    # Quotes (FEP-044f, FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rule 6 and 6.6 rule 5, unit FP4-9Q): the quote requests for own objects, and the quote policy of a published document.
+    ("GET", "/api/federation/quotes"): _any("owner", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/quotes"): _any("owner", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/quotes/{quote_id}"): _any("owner", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/objects/{object_id}"): _any("owner", modes=NETWORK_ONLY),
     ("GET", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     ("HEAD", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     # Both modes (unit FP4-F3): the body of a feed item has media too, and feeds work in single mode (RD15).

@@ -112,8 +112,8 @@ def _write_private(path: Path, data: bytes) -> None:
     path.chmod(0o600)
 
 
-def _write_certificates(tls_dir: Path) -> None:
-    """Make a private certificate authority and a server certificate for the host name and the loopback addresses. The address of the gateway on the Docker network is not in the certificate."""
+def _write_certificates(tls_dir: Path, dns_names: tuple[str, ...] = (HOST_NAME, "localhost"), ca_common_name: str = "Claire Garage Test CA") -> None:
+    """Make a private certificate authority and a server certificate for ``dns_names`` (a name can be a wildcard) and the loopback address. The address of the gateway on the Docker network is not in the certificate."""
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -122,7 +122,7 @@ def _write_certificates(tls_dir: Path) -> None:
     now = datetime.datetime.now(datetime.timezone.utc)
     start, end = now - datetime.timedelta(minutes=5), now + datetime.timedelta(days=30)
     ca_key = ec.generate_private_key(ec.SECP256R1())
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Claire Garage Test CA")])
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, ca_common_name)])
     ca_cert = (
         x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(start).not_valid_after(end)
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
@@ -131,9 +131,9 @@ def _write_certificates(tls_dir: Path) -> None:
         .sign(ca_key, hashes.SHA256())
     )
     server_key = ec.generate_private_key(ec.SECP256R1())
-    names = [x509.DNSName(HOST_NAME), x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    names = [*(x509.DNSName(name) for name in dns_names), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
     server_cert = (
-        x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, HOST_NAME)])).issuer_name(ca_name).public_key(server_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(start).not_valid_after(end)
+        x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, dns_names[0])])).issuer_name(ca_name).public_key(server_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(start).not_valid_after(end)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(x509.SubjectAlternativeName(names), critical=False)
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)

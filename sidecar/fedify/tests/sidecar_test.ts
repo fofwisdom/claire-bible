@@ -256,10 +256,17 @@ Deno.test("a method that is not GET or HEAD gets 405 on each federation path tha
   assert.equal(head.status, 200);
 });
 
-Deno.test("the source never permits private network addresses (FS1)", () => {
-  const forbidden = "allow" + "PrivateAddress";
+Deno.test("the source permits private network addresses only through the development switch of the config (FS1)", () => {
+  // The option of Fedify is in one place only, and its value is the config field of Claire (contract 1.8), never a constant. Claire gives true only in the development environment with CLAIRE_ALLOW_PRIVATE_NETWORKS on.
+  const option = "allow" + "PrivateAddress";
+  const found: string[] = [];
   for (const entry of Deno.readDirSync(new URL("../src/", import.meta.url))) {
     const text = Deno.readTextFileSync(new URL(`../src/${entry.name}`, import.meta.url));
-    assert.ok(!text.includes(forbidden), entry.name);
+    assert.ok(!new RegExp(`${option}\\s*:\\s*true`).test(text), entry.name);
+    if (text.includes(option)) found.push(entry.name);
   }
+  assert.deepEqual(found, ["sidecar.ts"]);
+  const sidecar = Deno.readTextFileSync(new URL("../src/sidecar.ts", import.meta.url));
+  assert.ok(sidecar.includes(`this.#build(config.canonical_origin, config.allow_private_addresses)`));
+  assert.ok(sidecar.includes(`createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, ${option} })`));
 });

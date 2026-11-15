@@ -495,7 +495,7 @@ The admin can set `federation` to `on` only when all checks pass. `claire instan
 
 | ID | Risk | Control | Phase |
 | :--- | :--- | :--- | :--- |
-| FS1 | Server-side request forgery through sidecar fetches and deliveries | The sidecar refuses private and loopback addresses (PRINCIPLES B2). **[code]** Fedify refuses them by default for fetches and deliveries (FT4). The sidecar must never set `allowPrivateAddress`. A sidecar test fails if the option is set. | FP1 |
+| FS1 | Server-side request forgery through sidecar fetches and deliveries | The sidecar refuses private and loopback addresses (PRINCIPLES B2). **[code]** Fedify refuses them by default for fetches and deliveries (FT4). The sidecar sets `allowPrivateAddress` only from the config field `allow_private_addresses` of Claire (contract 1.8, owner decision 2026-11-16): true only in the development environment with `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, for a test server at a private address; always false in production. A sidecar test fails if the option has a constant value or is in a second place. | FP1 |
 | FS2 | Forged or replayed inbound activity | Fedify signature verification, activity ID deduplication, idempotent events in Claire | FP2 |
 | FS3 | Exposure of the internal API | Unix socket, listener binding, signed requests, dedicated route table | FP1 |
 | FS4 | Private key leak through the queue file, logs, or bundles | Section 7 items 4 and 5. A canary key test searches logs and bundles. | FP1 |

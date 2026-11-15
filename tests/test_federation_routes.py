@@ -42,6 +42,8 @@ FP46_FIXTURES = ["context_tasks", "context_objects"]
 FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found", "actor_gone"]
 # Contract 1.6 (unit FP4-9). The tests of these fixtures are in ``tests/test_federation_note_routes.py``: they need notes that change the outbox collection of the other fixtures.
 FP49_FIXTURES = ["note", "note_gone", "interaction_tasks", "interaction_task_ack"]
+# Contract 1.7 (unit FP4-9Q): quotes. The tests of these fixtures are in ``tests/test_federation_quotes.py``.
+FP49Q_FIXTURES = ["quote_tasks", "quote_note", "quote_authorization", "quote_authorization_gone", "quote_event_request", "quote_event_nobody", "quote_event_accept"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
 GONE_OBJECT_ID = 816412345678901239
@@ -285,7 +287,7 @@ def test_thread_fetch_agrees_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}
@@ -703,7 +705,7 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
     assert (second["name"], second["url"]) == ("Second", None)
     # RD21: the object has the summary (here the title, because the document has no extraction) and the share link, never the body. The second document has no share, so it has no link.
     assert second["content"] == "<p>Second</p>" and "body" not in second["content"]
-    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at"}
+    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "quote_policy"}
 
 
 @pytest.mark.parametrize(
@@ -1025,3 +1027,13 @@ def test_route_table_is_wired_into_the_application(tmp_path):
     assert json.loads(body)["mode"] == "single" and json.loads(body)["federation"] == "off"
     status, _body = asyncio.run(call(("127.0.0.1", 8765)))
     assert status == 404
+
+
+@pytest.mark.parametrize(
+    ("environment", "allow_private_networks", "expected"),
+    [("development", True, True), ("development", False, False), ("production", True, False), ("", True, False)],
+)
+def test_private_address_switch_is_for_development_only(environment, allow_private_networks, expected):
+    """Contract 1.8: the sidecar reads documents at private addresses only in the development environment with CLAIRE_ALLOW_PRIVATE_NETWORKS on."""
+    settings = SimpleNamespace(environment=environment, allow_private_networks=allow_private_networks)
+    assert federation_routes.allow_private_addresses(settings) is expected

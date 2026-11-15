@@ -36,7 +36,8 @@
         "updated_at": null,
         "attachments": [],
         "context": null,
-        "in_reply_to": null
+        "in_reply_to": null,
+        "quote": null
       },
       "parents": [],
       "actor_type": "Person",

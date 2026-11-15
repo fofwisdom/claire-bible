@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/quote-events",
+    "body": {
+      "event_id": "https://remote.example/users/carol#accepts/quotes/1",
+      "type": "Accept",
+      "recipient_public_id": "116412345678901234",
+      "actor": {
+        "iri": "https://remote.example/users/carol",
+        "inbox": "https://remote.example/users/carol/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "object_iri": "https://claire.example.com/ap/objects/816412345678901242#quote-request",
+      "instrument_iri": null,
+      "authorization": {
+        "iri": "https://remote.example/users/carol/quote-authorizations/1",
+        "interacting_object": "https://claire.example.com/ap/objects/816412345678901242",
+        "interaction_target": "https://remote.example/users/carol/notes/1",
+        "attributed_to": "https://remote.example/users/carol"
+      },
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "reason": null,
+    "state": "approved"
+  }
+}

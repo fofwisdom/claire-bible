@@ -177,7 +177,7 @@ def test_e2e_media_arrives_through_the_proxy(env, monkeypatch, capsys):
     conn.close()
     capsys.readouterr()
     args = cli.build_parser().parse_args(["federation", "prune", "--json"])
-    assert args.func(args) == 0 and json.loads(capsys.readouterr().out) == {"applied": False, "evict_days": 30, "evicted": 1, "orphans": 0}
+    assert args.func(args) == 0 and json.loads(capsys.readouterr().out) == {"applied": False, "retention_days": 90, "expired_items": 0, "evict_days": 30, "evicted": 1, "orphans": 0}
     assert _client_rows(env.settings, "SELECT COUNT(*) FROM federation_media_cache")[0][0] == 1
     args = cli.build_parser().parse_args(["federation", "prune", "--apply", "--json"])
     assert args.func(args) == 0 and json.loads(capsys.readouterr().out)["evicted"] == 1
