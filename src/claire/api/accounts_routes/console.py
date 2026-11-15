@@ -62,18 +62,38 @@ ADMIN_MCP_TELEMETRY_API_PATH = "/api/admin/mcp/telemetry"
 
 @dataclass(frozen=True, slots=True)
 class ConsoleSectionSpec:
+    """One section of the console. The text comes from the catalogs (static/locales/{en,ko}.json): the keys ``console.section.<area>.<slug>.{nav,title,badge,desc}`` and ``console.group.<group_id>``. The properties give the text of the active locale."""
+
     slug: str
     path: str
     area: str  # "settings" | "admin"
     group_id: str
-    group_label: str
-    nav_label: str
-    title: str
-    badge: str
-    description: str
     theme_scoped: bool = False
     # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
     icon: str = ""
+
+    def _text(self, field: str) -> str:
+        return t(f"console.section.{self.area}.{self.slug}.{field}")
+
+    @property
+    def group_label(self) -> str:
+        return t(f"console.group.{self.group_id}")
+
+    @property
+    def nav_label(self) -> str:
+        return self._text("nav")
+
+    @property
+    def title(self) -> str:
+        return self._text("title")
+
+    @property
+    def badge(self) -> str:
+        return self._text("badge")
+
+    @property
+    def description(self) -> str:
+        return self._text("desc")
 
 
 SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -82,96 +102,56 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/account",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="내 계정 · 프로필 · 보안",
         icon="user",
-        title="내 계정 · 프로필 · 보안",
-        badge="계정 전역",
-        description="프로필 표시 이름, 비밀번호 및 단계 인증, 외부 IdP 연결, 할당량 현황 및 계정 수명주기를 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="federation",
         path="/settings/federation",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="연합 · 팔로워",
         icon="globe",
-        title="연합 (ActivityPub) · 팔로워",
-        badge="계정 전역",
-        description="내 계정의 연합 핸들과 액터 상태, 팔로워 수를 확인하고 팔로워를 제거합니다.",
     ),
     ConsoleSectionSpec(
         slug="keys",
         path="/settings/keys",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="BYOK 외부 API 키",
         icon="lock",
-        title="BYOK 외부 API 키 및 서버 등급",
-        badge="계정 전역",
-        description="네트워크 모드 멤버 계정의 쓰기 전용 외부 프로바이더 API 키와 서버 등급 허용량을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="themes",
         path="/settings/themes",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="지식 테마 관리",
         icon="folder",
-        title="내 지식 테마 관리",
-        badge="계정 전역",
-        description="내 계정이 소유한 지식 테마의 생성, 공개 범위 및 메타데이터를 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="tokens",
         path="/settings/tokens",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="API · MCP 상시 키",
         icon="key",
-        title="내 API · MCP 상시 이용 토큰",
-        badge="계정 전역",
-        description="내 계정에 귀속된 API · MCP 상시 이용 토큰 발급·폐기 및 OAuth 2.1 승인 클라이언트를 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="telegram",
         path="/settings/telegram",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="텔레그램 봇",
         icon="bot",
-        title="내 텔레그램 봇",
-        badge="계정 전역",
-        description="내 계정 전용 텔레그램 봇 토큰 등록, 허용 사용자, 켜기·끄기와 실행 상태를 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="bundles",
         path="/settings/bundles",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="서포트 · 데이터 번들",
         icon="package",
-        title="서포트 번들 · 데이터 번들",
-        badge="계정 전역",
-        description="내 계정 범위의 진단 서포트 번들과 테마 데이터 번들을 만들고 내려받고 지웁니다.",
     ),
     ConsoleSectionSpec(
         slug="backups",
         path="/settings/backups",
         area="settings",
         group_id="workspace",
-        group_label="내 계정 · 워크스페이스",
-        nav_label="백업",
         icon="save",
-        title="내 계정 백업",
-        badge="계정 전역",
-        description="내 계정 데이터 백업을 만들고 내려받고 지우며, 자동 백업 주기와 보존 개수를 설정합니다.",
     ),
 )
 
@@ -181,12 +161,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/reader",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="리더 · 목록 스타일",
         icon="book",
-        title="리더 및 목록 스타일 환경설정",
-        badge="선택 테마",
-        description="작업 공간 기본 탭, 목록 밀도, 3단/2단 화면 분할, 수집 원문 ⇄ 적재 본문 전환 및 본문 서체를 설정합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -194,12 +169,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/connections",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="연결 서버 계정 (AP · AT)",
         icon="plug",
-        title="연결 서버 계정 (ActivityPub · AT Protocol)",
-        badge="선택 테마",
-        description="선택한 테마에서 클라이언트로 접속할 ActivityPub(Mastodon 5.0+) 및 AT Protocol 서버 계정을 관리합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -207,12 +177,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/feeds",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="정기 수집 대상 · 폴더",
         icon="broadcast",
-        title="정기 수집 대상 및 카테고리 폴더 관리",
-        badge="선택 테마",
-        description="선택한 테마의 RSS/Atom 피드와 연결 계정 경유 ActivityPub · AT 수집 대상 및 주기를 관리합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -220,12 +185,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/tags",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="태그=엔티티 적재 정책",
         icon="tag",
-        title="수집 태그 → 적재 시 엔티티 승격 정책",
-        badge="선택 테마",
-        description="수집 원문 태그의 [태그] 파이프라인 전달, 잠정 엔티티 승격, 해시태그 역변환 및 노이즈 태그 필터를 설정합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -233,12 +193,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/rules",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="오거나이즈 · 자동 적재",
         icon="bolt",
-        title="테마 DB 기반 오거나이즈 · 자동 적재 규칙",
-        badge="선택 테마",
-        description="엔티티 연관도(Affinity Score) 임계 점수와 자동 적재 전달 규칙을 관리합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -246,12 +201,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/outbound",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="부스트 · 적재 발행",
         icon="repeat",
-        title="연결 계정 부스트·인용 발행 및 적재 본문 공유 정책",
-        badge="선택 테마",
-        description="프로토콜별 기본 발행 모드, 공개 열람 링크 첨부 및 사용자 간 발행 본문 공유 정책(peerSharePolicy)을 설정합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -259,12 +209,7 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/opml",
         area="settings",
         group_id="syndication",
-        group_label="신디케이션 · 리더 (테마별)",
-        nav_label="OPML · 툼스톤 진단",
         icon="package",
-        title="OPML 구독 목록 입출력 및 소각 툼스톤 진단",
-        badge="선택 테마",
-        description="선택한 테마의 OPML 2.0 구독 목록 입출력과 purged_tombstones 재수집 차단 상태를 점검합니다.",
         theme_scoped=True,
     ),
 )
@@ -275,12 +220,7 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/mcp",
         area="settings",
         group_id="agents",
-        group_label="AI 에이전트 연동",
-        nav_label="MCP 클라이언트 연결",
         icon="puzzle",
-        title="MCP 서버 (/mcp) 클라이언트 연결 및 도구 안내",
-        badge="계정 · 테마",
-        description="외부 AI 하네스용 /mcp 엔드포인트, 테마 인자 예시, 연결 스니펫 및 읽기 전용 도구 목록을 확인합니다.",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
@@ -288,12 +228,7 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/settings/webmcp",
         area="settings",
         group_id="agents",
-        group_label="AI 에이전트 연동",
-        nav_label="WebMCP 페이지 도구",
         icon="graph",
-        title="WebMCP 페이지 도구 설정 및 시뮬레이터",
-        badge="선택 테마",
-        description="브라우저 내장 에이전트용 document.modelContext 페이지 도구 노출 여부, 사용자 확인 정책 및 호출 시뮬레이터를 제공합니다.",
         theme_scoped=True,
     ),
 )
@@ -304,48 +239,28 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/admin/instance",
         area="admin",
         group_id="admin_instance",
-        group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="인스턴스 모드 · 서버 등급",
         icon="server",
-        title="인스턴스 설정 · 모드 전환 및 서버 등급",
-        badge="서버 전역 · 관리자",
-        description="싱글 ↔ 네트워크 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰 시계 및 기본 서버 등급을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="federation",
         path="/admin/federation",
         area="admin",
         group_id="admin_instance",
-        group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="연합 · 도메인 차단",
         icon="globe",
-        title="연합 (ActivityPub) 스위치 · 사이드카 · 도메인 차단",
-        badge="서버 전역 · 관리자",
-        description="연합 스위치와 GF1–GF7 준비 검사, Fedify 사이드카 상태, 차단 도메인 목록을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="accounts",
         path="/admin/accounts",
         area="admin",
         group_id="admin_instance",
-        group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="계정 · 초대 · 퇴역 이름",
         icon="users",
-        title="사용자 계정 · 가입 초대 · 퇴역 USERNAME 관리",
-        badge="서버 전역 · 관리자",
-        description="계정 상태 전환, 초대 코드 발급·비활성화, 퇴역 USERNAME 정보 초기화 및 운영자 워크스페이스 현황을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="idp",
         path="/admin/idp",
         area="admin",
         group_id="admin_instance",
-        group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="외부 IdP 로그인 정책",
         icon="id",
-        title="외부 IdP 관리 · OIDC 공급자 및 가입 정책",
-        badge="서버 전역 · 관리자",
-        description="외부 IdP 공급자 등록, Discovery 검증, 이메일 도메인 제한 및 로그인 흐름 시뮬레이터를 관리합니다.",
     ),
 )
 
@@ -355,84 +270,49 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         path="/admin/providers",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="프로바이더",
         icon="bolt",
-        title="LLM · STT · VLM 및 하이퍼스케일러 프로바이더 설정",
-        badge="서버 전역 · 관리자",
-        description="서비스 루트 '관리 및 설정'의 인스턴스 전역 프로바이더 설정(data/providers.json) 및 연결 테스트를 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="limits",
         path="/admin/limits",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="적재 제한",
         icon="ruler",
-        title="상황별 적재 제한 및 슬라이싱 예산 설정",
-        badge="서버 전역 · 관리자",
-        description="서비스 루트 '관리 및 설정'의 인스턴스 전역 적재 제한 및 예산(data/ingest_limits.json)을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="themes",
         path="/admin/themes",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="테마 관리",
         icon="folder",
-        title="관리자 지식 테마 관리 및 인스턴스 슬롯 현황",
-        badge="관리자 워크스페이스",
-        description="관리자 계정의 지식 테마를 관리하고 인스턴스 전체 테마 슬롯 수 집계를 확인합니다(멤버 비공개 콘텐츠 비접근).",
     ),
     ConsoleSectionSpec(
         slug="tokens",
         path="/admin/tokens",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="API/MCP 키",
         icon="key",
-        title="관리자 API · MCP 상시 이용 토큰 관리",
-        badge="관리자 워크스페이스",
-        description="관리자 계정의 API · MCP 상시 이용 토큰 발급·폐기 및 OAuth 클라이언트 현황을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="mcp",
         path="/admin/mcp",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="MCP 감사 · 진단 번들",
         icon="pulse",
-        title="MCP 호출 감사 기록(mcp_telemetry) 및 진단 번들",
-        badge="서버 전역 · 관리자",
-        description="인스턴스 전역 MCP 호출 기록 조회, RBAC 대조 진단, 전역 WebMCP 헤더 정책 및 지원 번들 생성을 관리합니다.",
     ),
     ConsoleSectionSpec(
         slug="backups",
         path="/admin/backups",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="계정 백업 복원",
         icon="restore",
-        title="계정 백업 복원",
-        badge="서버 전역 · 관리자",
-        description="계정 소유자가 만든 계정 백업을 그 계정에 복원합니다(운영자 전용).",
     ),
     ConsoleSectionSpec(
         slug="storage",
         path="/admin/storage",
         area="admin",
         group_id="admin_system",
-        group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="미디어 저장소",
         icon="database",
-        title="미디어 저장소 (로컬 · 오브젝트 스토리지)",
-        badge="서버 전역 · 관리자",
-        description="미디어 저장 방식(로컬 또는 S3 호환 오브젝트 스토리지)과 연결 설정, 연결 시험, 마지막 이관 결과를 관리합니다.",
     ),
 )
 
@@ -524,7 +404,7 @@ def _build_sidebar_html(
 ) -> str:
     groups: list[tuple[str, list[ConsoleSectionSpec]]] = [
         (
-            "내 계정 · 워크스페이스",
+            t("console.group.workspace"),
             [
                 spec
                 for spec in SETTINGS_GROUP_1_SPECS
@@ -532,12 +412,12 @@ def _build_sidebar_html(
                 if not (admin_viewer and spec.slug in {"themes", "tokens"})
             ],
         ),
-        ("신디케이션 · 리더 (테마별)", list(SETTINGS_GROUP_2_SPECS)),
-        ("AI 에이전트 연동", list(SETTINGS_GROUP_3_SPECS)),
+        (t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
+        (t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
     ]
     if admin_viewer:
-        groups.append(("인스턴스 · 계정 · 인증 (관리자)", list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
-        groups.append(("시스템 관리 및 설정 (관리자)", list(ADMIN_CONSOLE_GROUP_5_SPECS)))
+        groups.append((t("console.group.admin_instance"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
+        groups.append((t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
 
     parts: list[str] = []
     for group_label, specs in groups:
@@ -1343,9 +1223,7 @@ def _render_console_section(
     if validated_theme_query:
         syndication_href = _append_theme_query(syndication_href, validated_theme_query)
 
-    scope_badge = "관리자 · 싱글 모드" if (admin_viewer and mode == "single") else (
-        "관리자 · 네트워크 모드" if admin_viewer else "내 계정 설정"
-    )
+    scope_badge = t("console.scope.admin_single") if (admin_viewer and mode == "single") else (t("console.scope.admin_network") if admin_viewer else t("console.scope.account"))
     sidebar_html = _build_sidebar_html(
         active_path=spec.path,
         admin_viewer=admin_viewer,

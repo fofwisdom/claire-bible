@@ -161,7 +161,7 @@
     </div>
   </header>
   <div class="console-body">
-    <nav class="console-sidebar" aria-label="통합 콘솔 메뉴">
+    <nav class="console-sidebar" aria-label="${t:console.sidebar.label}">
       $sidebar_nav_html
     </nav>
     <main class="console-main" id="console-main">
@@ -177,16 +177,16 @@
 </div>
 <div id="console-reauth-modal" class="console-modal" role="dialog" aria-modal="true" aria-labelledby="console-reauth-title" hidden>
   <div class="console-modal-box">
-    <h2 id="console-reauth-title" style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px"><span data-icon="lock"></span> 단계 인증 (본인 확인)</h2>
-    <p class="console-desc">민감한 작업을 계속하려면 현재 계정 비밀번호를 입력해 주세요 (유효 시간 15분).</p>
+    <h2 id="console-reauth-title" style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px"><span data-icon="lock"></span> ${t:console.reauth.title}</h2>
+    <p class="console-desc">${t:console.reauth.desc}</p>
     <form id="console-reauth-form" data-console-reauth-form style="display:flex;flex-direction:column;gap:10px">
-      <label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">비밀번호
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">${t:console.reauth.password}
         <input type="password" name="password" id="console-reauth-password" class="pref-input" autocomplete="current-password" required/>
       </label>
       <p class="result" role="status" aria-live="polite" id="console-reauth-result" data-console-reauth-result></p>
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" class="pref-btn" id="console-reauth-cancel" data-console-reauth-cancel>취소</button>
-        <button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>
+        <button type="button" class="pref-btn" id="console-reauth-cancel" data-console-reauth-cancel>${t:common.action.cancel}</button>
+        <button type="submit" class="pref-btn pref-btn-accent">${t:console.reauth.submit}</button>
       </div>
     </form>
   </div>
