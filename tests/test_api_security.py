@@ -440,6 +440,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/feeds/poll"),
         *((method, "/api/feeds/opml") for method in ("GET", "HEAD", "POST")),
         *((method, "/api/feeds/items") for method in ("GET", "HEAD", "PATCH")),
+        # Feed view (FP4-F3)
+        *((method, "/api/feeds/items/{item_id}") for method in ("GET", "HEAD")),
+        ("POST", "/api/feeds/items/{item_id}/ingest"),
+        ("POST", "/api/feeds/discover"),
+        *((method, "/render/feed/{item_id}") for method in ("GET", "HEAD")),
     }
     # §9.1: owner 범위 + 관리자 계정만. 그 밖에는 404.
     admin_methods = {
@@ -546,7 +551,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/api/federation/timeline/{item_id}") for m in ("GET", "HEAD", "PATCH")),
         ("POST", "/api/federation/timeline/{item_id}/ingest"),
         *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
-        *((m, "/media/remote/{url_hash}") for m in ("GET", "HEAD")),
         *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
         ("POST", "/api/federation/publish"),
         ("POST", "/api/federation/retract"),

@@ -1485,6 +1485,7 @@ def create_app(
         """
         from ..store import client_db
         from ..store import federation_client as federation_client_store
+        from ..store import feeds as feeds_store
 
         principal = request_principal(request)
         if principal.scope != "owner" or principal.account_id is None:
@@ -1538,6 +1539,80 @@ def create_app(
                 client = client_db.connect_client_existing(client_path)
                 try:
                     federation_client_store.link_timeline_item(client, account_id, item.id, theme_id=theme.id, doc_id=str(document_id))
+                    # Merge by URL (unit FP4-F3): a feed item with the address of this post gets the link too.
+                    feeds_store.link_by_url(client, account_id, [item.url, item.object_iri], theme_id=theme.id, doc_id=str(document_id), timeline=False)
+                    client.commit()
+                finally:
+                    client.close()
+
+            await asyncio.to_thread(_link)
+            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+        else:
+            rep_dict["linked"] = None
+        return JSONResponse(rep_dict)
+
+    async def feed_item_ingest_route(request: Request) -> JSONResponse:
+        """``POST /api/feeds/items/{item_id}/ingest`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 1.3 rule 7 and 4.4, unit FP4-F3).
+
+        Start the existing URL ingest for one feed item of the caller, into a theme of the caller. The rules are those of ``federation_timeline_ingest_route``. The route works in single mode and in network mode. The item stays in the feed and gets the link to the new document; a timeline item with the same address gets the link too (merge by URL).
+        """
+        from ..store import client_db
+        from ..store import feeds as feeds_store
+
+        principal = request_principal(request)
+        if principal.scope != "owner" or principal.account_id is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        account_id = principal.account_id
+        raw_id = request.path_params["item_id"]
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            return JSONResponse({"error": "item_not_found"}, status_code=404)
+        body = await _json_object(request)
+        if body.get("theme") is None and body.get("theme_id") is not None:
+            body["theme"] = body["theme_id"]
+        if body.get("theme") is None or not str(body["theme"]).strip():
+            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
+        theme, _, theme_svc = _get_theme_ctx(request, body)
+        if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
+            raise HTTPException(status_code=404, detail="theme not found")
+        client_path = client_db.client_db_path(s.db_file)
+
+        def _load() -> Any:
+            client = client_db.connect_client_existing(client_path, readonly=True)
+            try:
+                return feeds_store.get_item(client, account_id, int(raw_id))
+            finally:
+                client.close()
+
+        item = await asyncio.to_thread(_load)
+        if item is None:
+            return JSONResponse({"error": "item_not_found"}, status_code=404)
+        # The URL ingest needs an address. An item without a link stays in the feed only.
+        if not item["url"]:
+            return JSONResponse({"error": "item_without_url"}, status_code=409)
+        focus = str(body.get("focus") or "").strip() or None
+        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
+            focus = theme.default_focus.strip() or None
+        ingest_kwargs: dict[str, Any] = {"source": "feed"}
+        if focus is not None:
+            ingest_kwargs["focus"] = focus
+        try:
+            report = await _run_expensive(theme_svc.ingest, item["url"], **ingest_kwargs)
+        except (HTTPException, policy.ProviderPolicyError):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _log_operation_failure(request, "feed_item_ingest", exc)
+            return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
+        rep_dict = report_to_dict(report)
+        rep_dict["theme_id"] = theme.id
+        rep_dict["theme_label"] = theme.label
+        document_id = getattr(report, "document_id", None)
+        if document_id and not getattr(report, "error", None):
+
+            def _link() -> None:
+                client = client_db.connect_client_existing(client_path)
+                try:
+                    feeds_store.link_item(client, account_id, item["id"], theme_id=theme.id, doc_id=str(document_id))
+                    feeds_store.link_by_url(client, account_id, [item["url"]], theme_id=theme.id, doc_id=str(document_id), timeline=True)
                     client.commit()
                 finally:
                     client.close()
@@ -4833,6 +4908,7 @@ def create_app(
         Route("/ingest-limits", limits_update_route, methods=["PATCH", "POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/api/federation/timeline/{item_id}/ingest", federation_timeline_ingest_route, methods=["POST"]),
+        Route("/api/feeds/items/{item_id}/ingest", feed_item_ingest_route, methods=["POST"]),
         Route("/ingest-stream", ingest_stream_route, methods=["POST"]),
         Route("/reingest", do_reingest, methods=["POST"]),
         Route("/reingest-stream", reingest_stream_route, methods=["POST"]),

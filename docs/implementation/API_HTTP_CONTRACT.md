@@ -146,3 +146,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/api/feeds/opml` | 본문 `{"opml": "<문서>"}`. 200 `{"counts": {"added", "skipped", "duplicate", "failed"}, "added", "skipped", "duplicate", "failed"}` | 400 `invalid_request`, 400 `invalid_opml`(`reason`: `invalid_xml`, `not_opml`, `too_large`, `too_many_outlines`), 413 본문 1MB 초과 |
 | `GET` | `/api/feeds/items` | 200 `{"items": [...], "next_before_id"}`. 쿼리: `feed_id`, `folder`, `unread`·`starred`(`0`·`1`), `before_id`, `limit`(1–200, 기본 50), `content=1`(HTML 본문 포함). 최신 행부터 | 400 `invalid_request` |
 | `PATCH` | `/api/feeds/items` | 본문 `{"item_ids": [...], "unread"?, "starred"?}`(1–500개) 또는 `{"feed_id", "unread"}`. 200 `{"changed": n}` | 400 `invalid_request`, 404 `feed_not_found` |
+| `GET` | `/api/feeds/items/{item_id}` | 200 `{"item"}`: the keys of the list, `has_body`, `render_url` (FP4-F3, [FEDERATION.md](FEDERATION.md) §23) | 404 `item_not_found` |
+| `POST` | `/api/feeds/discover` | Body `{"url"}`. 200 `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}` | 400 `invalid_request`, 400 `invalid_url` |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"theme", "focus"?}`. 200: the ingest report with `linked` (`{"theme_id", "document_id"}` or `null`) | 400 `invalid_request`, 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
+| `GET` | `/render/feed/{item_id}?t={token}` | 200 HTML for a sandbox `iframe`. On the app origin only without a `usercontent` host | 404 |

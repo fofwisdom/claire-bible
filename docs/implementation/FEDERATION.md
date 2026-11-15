@@ -24,7 +24,8 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
 | Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
-| Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
+| Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2) |
+| Feed view in `/syndication`: tree of folders and feeds, list, reader in the sandbox frame, link share, star, read state, feed discovery, ingest of one item, merge by URL with the timeline (Section 23). It works in single mode. | Implemented (FP4-F3) |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
 | Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No reply, favourite, or boost before FP4-9. |
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
@@ -791,7 +792,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 2. Each hop (the first request and each redirect, at most 5) gets the private address check of the other fetchers (`check_ip_safety` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST`). Cloud metadata and link-local addresses are always refused. The body limit is 5 MiB, the timeout 20 seconds.
 3. Success: next poll in 1 hour, failure count 0. Failure (`429`, `5xx`, other HTTP status, network error, blocked address, body that is not a feed): failure count + 1, next poll in `1 hour × 2^failures`, at most 24 hours, and not before `Retry-After` (at most 7 days).
 4. An item has a stable key in its feed: the GUID or `id` of the feed, else the item URL, else a SHA-256 hash of title, time, and summary. A known key is not stored again; its changed fields are updated, and its read and star state stays. At most 500 items are read from one body.
-5. HTML of an item is stored as it is. A client must render it on the `usercontent` origin only (K10, unit FP4-F3). `<category>` values (Atom `term`, JSON Feed `tags`) stay raw tags in `categories`.
+5. HTML of an item is stored as it is. A client must render it on the `usercontent` origin only (K10, Section 23.2). `<category>` values (Atom `term`, JSON Feed `tags`) stay raw tags in `categories`.
 6. WebSub: the poll stores the hub (`websub_hub`) and the topic (`websub_topic`, the `self` link). This unit does not subscribe to the hub; the poll schedule applies to all feeds.
 7. The `api` process polls the due feeds (at most 100 for each cycle, 4 in parallel) every 5 minutes, the first time 2 minutes after the start. The command `claire feeds poll` does the same on demand ([`COMMANDS.md`](COMMANDS.md)).
 8. Each account has at most 1000 feeds.
@@ -823,7 +824,7 @@ The account purge (`AccountStore.purge`) deletes the client data of the account 
 
 ### 15.6 Known Limits
 
-- No feed view, no subscribe dialog with feed discovery (`<link rel="alternate">`), no ingest of one item, and no merge with the timeline by URL: unit FP4-F3.
+- The feed view, the feed discovery, the ingest of one item, and the merge with the timeline by URL are in Section 23 (unit FP4-F3).
 - No WebSub subscription, no auto-ingest rule, no retention run for feed items.
 - No route to rename a feed or to move it to a different folder.
 - A permanent redirect does not change the stored feed URL.
@@ -962,7 +963,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 ### 19.4 Differences from the Design and Limits
 
-- The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty), and no feed view (FP4-F3).
+- The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty).
 - `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
 
@@ -1067,7 +1068,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 | Host | Path | Rule |
 | :--- | :--- | :--- |
 | `media` | `GET /media/remote/{url_hash}?t={token}` | No cookie. A token that is absent, expired, or of another URL gets 404, as a URL without an entry. |
-| app (only without a `media` host) | `GET /media/remote/{url_hash}?t={token}` | The caller is the owner of the account of the token, in network mode. With a `media` host this path gives 404. |
+| app (only without a `media` host) | `GET /media/remote/{url_hash}?t={token}` | The caller is the owner of the account of the token, in the two modes (Section 23.1). With a `media` host this path gives 404. |
 
 - The first request fetches the URL, puts the file in the media store, and records the result. Later requests read the store. One fetch runs at a time for one URL in a process.
 - Fetch rules: each hop gets the private address check of the other fetchers (`allow_private_networks`, `private_network_allowlist`); 3 redirects at most; timeout 15 seconds; no cookie (each hop has a new client) and no credential; `User-Agent: ClaireBible-MediaProxy/1.0 (+{public URL})`.
@@ -1093,3 +1094,61 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 - The timeline list has no thumbnail: media shows in the body only.
 
 Tests: `tests/test_media_proxy.py` (fetch rules with a local HTTP server, token, records, migration of `client.db`), `tests/test_e2e_federation_media.py` (the proxy on the app origin and on the role hosts, limits, token, delete, cleanup command), `tests/test_federation_media_browser.py` (a real Chromium over three local hosts; skipped without a Playwright Chromium).
+
+## 23. Feed View (Unit FP4-F3)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/claire/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_theme_id`, and `linked_doc_id`.
+
+### 23.1 Routes
+
+All routes are for the owner of the account, in single mode and in network mode (`_any("owner")`). An item of another account gives 404.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/api/feeds/items/{item_id}` | `{"item"}`: the keys of the list, `has_body`, and `render_url`. |
+| `POST` | `/api/feeds/discover` | Body: `url`. `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}`. The address is a feed (one entry), or a page whose `<link rel="alternate">` elements with a feed type give the entries (20 at most). `error` is the reason when the address gave no body (for example `http_404`, `blocked_address`). 400 `invalid_url`. |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
+| `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the instance has no `usercontent` host. |
+
+Changes of the routes of Section 15.3:
+
+- An item of `GET /api/feeds/items` has three more keys: `text` (plain text of the summary, else of the content; the tags are removed on the server, 400 characters at most), `linked` (`{"theme_id", "document_id"}` or `null`), and `timeline_item_id`.
+- `PATCH /api/feeds/items` also sets the state of the timeline items with the same address (Section 23.3).
+- `GET /media/remote/{url_hash}` on the app origin (Section 21.3) is open in single mode too, because the body of a feed item has media.
+
+### 23.2 Rendering
+
+1. Feed HTML is not trusted. No route puts it into a page of the app origin, and the view never puts it into the DOM: the list shows `text` and the title as characters.
+2. The body is `content`, or `summary` when the item has no content. The render makes each relative `href` and `src` absolute (base: the item address, else the site address, else the feed address) and then uses the same functions as a remote post (Section 19.2): `sanitize_remote_html`, the media proxy addresses for `img`, and `remote_item_response` with the same policy and `sandbox`. The view puts the page in an `iframe` with the same `sandbox` value.
+3. The viewing token has the kind `feed` and binds `(account_id, item_id, exp)` (one hour). A token of the kind `remote` is not valid for a feed item, and the reverse. A token that is absent, expired, or of another item gets 404.
+4. With a `usercontent` host the path on the app origin gives 404. Without one, the path on the app origin needs the session of the owner of the item and the token.
+
+### 23.3 Merge by URL with the Timeline
+
+A feed item and a timeline item of the same account are the same post when the `url` of the feed item is the `url` or the `object_iri` of the timeline item.
+
+- The feed item has `timeline_item_id`. The view shows the mark "in timeline" and the action "open in timeline" (network mode).
+- The read state and the star are one state: a change of the feed item changes the timeline item, and `PATCH /api/federation/timeline/{item_id}` changes the feed item. "Mark all as read" of a feed does the same.
+- The ingest of one of the two gives the document link to the other, when the other has no document.
+
+### 23.4 View
+
+- The client view (stage 1) has the folder "Feeds" in its tree: "all feed items", "starred feed items", each folder with its feeds, then the feeds without a folder, each with its unread count. A feed whose last poll failed has the warning icon and the reason as its title.
+- Subscribe: the form takes the address of a feed or of a site (without a scheme, `https://` is added) and an optional folder. One found feed is added at once; for more feeds the owner selects one. A new feed is polled at once. The tools are "poll all feeds now", OPML import (a file, 1 MiB at most), and OPML export.
+- The list pane and the reader pane are those of the timeline. A feed scope takes them; a stream of the timeline gives them back. The list has "unread only", "mark all as read", and older items by a cursor.
+- Actions of an item: star, read or unread, "share link", "take into knowledge base" (the dialog of Section 19.3 with the feed route), and, for an item with a document, "open document" and (network mode) "publish". Opening an item marks it as read. The keys `j`, `k`, and `s` work as in the timeline list.
+- Single mode: the client view shows the feeds, the notice that follows and the timeline need network mode, and no stream tree and no follow tree. The stage bar shows the unread count of the feeds. In network mode the stage bar adds that count only when it is above 0.
+- The texts are the catalog keys `synd.feeds.*` in English and Korean.
+
+### 23.5 Differences from the Design and Limits
+
+- "Share" is the share sheet of the device (a touch device) or a copy of the address to the clipboard. The design says a new note with the link; the client has no route to publish a note before unit FP4-9.
+- The merge keeps the two rows. The post shows in the feed list and in the timeline, with one state and one document link. The lists are not one list, thus no row is hidden.
+- The merge is by exact address. Two addresses of the same post that differ (a redirect, a query part) do not merge.
+- The discovery finds feeds only. It does not look for an ActivityPub actor of the same site and does not offer a follow in place of the feed.
+- No route to rename a feed or to move it to a different folder, no WebSub subscription, no auto-ingest rule, no retention run for feed items (as in Section 15.6).
+- The media cleanup (Section 21.4) counts only timeline items as users of an entry. An entry of a feed item goes at the daily cleanup and comes back at the next render.
+- An instance with a `usercontent` host and no `media` host shows no image in the body of a feed item (Section 21.2 rule 5).
+- `GET /api/feeds/items/{item_id}` and `POST /api/feeds/discover` are not in the design. The reader and the subscribe form need them.
+
+Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, subscribe, poll, read with the render on the two origins, star, ingest; network mode: merge by URL and account isolation), `e2e/feed_view.spec.js` (the view in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
