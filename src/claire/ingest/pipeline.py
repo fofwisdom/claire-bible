@@ -119,6 +119,7 @@ class IngestReport:
     vlm_language: str | None = None
     stt_language: str | None = None
     caption_language: str | None = None
+    model_lineage: dict[str, Any] = field(default_factory=dict)
 
     def telegram_summary(self) -> str:
         if self.error:
@@ -242,6 +243,12 @@ class IngestReport:
             parts.append(f"새 타입 제안 {self.proposals}건 기록")
         if self.candidates:
             parts.append(f"🔗 관련 링크 {len(self.candidates)}개 발견 — 가져올까요?")
+        final_models = (self.model_lineage or {}).get("final_output_models") or {}
+        if final_models:
+            non_mock = [f"{k}:{v.get('provider')}/{v.get('model')}" for k, v in final_models.items() if v.get("provider") and v.get("provider") != "mock" and v.get("model")]
+            distinct_models = {v.get("model") for v in final_models.values() if v.get("model")}
+            if non_mock and len(distinct_models) > 1:
+                parts.append("🧬 모델 계보: " + " · ".join(non_mock[:5]))
         return "\n".join(parts)
 
 
@@ -905,19 +912,59 @@ def extract_resolve_store(
         except Exception:
             pass
 
+    from ..extract.provider import LineageCollector, _accepts_kwarg
+
+    provider_lineage = getattr(provider, "lineage", None)
+    has_provider_lineage = isinstance(provider_lineage, LineageCollector)
+    lineage = provider_lineage if has_provider_lineage else LineageCollector()
+    if doc.meta.get("vlm_transcribed") and doc.meta.get("vlm_model"):
+        lineage.record_stage(stage="vlm", requested_provider=str(doc.meta.get("vlm_provider") or "gemini"), requested_model=str(doc.meta.get("vlm_model") or ""), requested_effort="", final_provider=str(doc.meta.get("vlm_provider") or "gemini"), final_model=str(doc.meta.get("vlm_model") or ""), status="ok")
+
     if on_progress:
         pname = getattr(provider, "name", "?")
         on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
     eff_badge = f" ({eff})" if eff else ""
     emit_progress(f"LLM 요약 및 엔티티/관계 구조화 추출{eff_badge}")
 
+    extract_started = time.perf_counter()
     try:
-        try:
+        if _accepts_kwarg(provider.extract, "effort"):
             result = provider.extract(doc, None, effort=eff)  # type: ignore[arg-type]
-        except TypeError:
+        else:
             result = provider.extract(doc, None)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
         return False, error_text(e, prefix="extract failed: ")
+    extract_ms = (time.perf_counter() - extract_started) * 1000.0
+    if not has_provider_lineage:
+        p_name = str(getattr(provider, "name", "?") or "?")
+        p_model = str(getattr(result, "model", "") or getattr(provider, "model", "") or p_name)
+        lineage.record_stage(stage="extract_graph", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=extract_ms)
+
+    # Decouple summary generation when the summarize slot overrides extract_graph.
+    separate_summarize = False
+    sum_effort = eff
+    if hasattr(provider, "slot_spec"):
+        eg_spec = provider.slot_spec("extract_graph")
+        sum_spec = provider.slot_spec("summarize")
+        separate_summarize = eg_spec != sum_spec
+        sum_effort = sum_spec[2] or eff
+    if separate_summarize:
+        if on_progress:
+            on_progress("LLM 요약 별도 생성", f"provider={sum_spec[0]}, model={sum_spec[1]}")
+        sum_started = time.perf_counter()
+        try:
+            if _accepts_kwarg(provider.summarize_document, "effort"):
+                sum_text = provider.summarize_document(doc, effort=sum_effort)  # type: ignore[attr-defined]
+            else:
+                sum_text = provider.summarize_document(doc)  # type: ignore[attr-defined]
+        except Exception as e:  # noqa: BLE001
+            return False, error_text(e, prefix="summarize failed: ")
+        result.summary = (sum_text or "").strip()
+    elif not has_provider_lineage:
+        p_name = str(getattr(provider, "name", "?") or "?")
+        p_model = str(getattr(result, "model", "") or getattr(provider, "model", "") or p_name)
+        lineage.record_stage(stage="summarize", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok" if (result.summary and result.summary.strip()) else "empty", duration_ms=extract_ms)
+
     report.summary = result.summary
     if not (result.summary and result.summary.strip()):
         report.summary_rendered = False
@@ -981,6 +1028,7 @@ def extract_resolve_store(
     # Jev 는 도입 검토 단계: 판정 권한 없이 같은 후보를 동시 평가해 기록만 남긴다 (JEV_SHADOW_EVALUATION_DESIGN.md)
     jev_shadow = make_jev_shadow(settings)
     embed_pin = resolve_embed_identity(provider, settings)
+    has_embed = provider.has_embed_capability() if hasattr(provider, "has_embed_capability") else (getattr(provider, "name", "") not in ("codex", "antigravity") or bool(getattr(getattr(provider, "settings", settings), "gemini_api_key", "")))
 
     name_to_id: dict[str, str] = {}
     touched_entities = []
@@ -998,8 +1046,9 @@ def extract_resolve_store(
                              context=ee.name, document_id=doc.id, theme_id=tid)
             report.proposals += 1
 
-        def _embed(ee=ee):
-            try:
+        embed_callable = None
+        if has_embed:
+            def _embed(ee=ee):
                 from ..extract.frame import format_entity_frame
 
                 frame_text = format_entity_frame(ee)
@@ -1008,22 +1057,28 @@ def extract_resolve_store(
                     task_type="RETRIEVAL_DOCUMENT",
                     title=ee.name,
                 )
-            except Exception:  # noqa: BLE001
-                return None
+
+            embed_callable = _embed
 
         def _on_judge_candidate(name1: str, name2: str):
             if on_progress:
                 on_progress("엔티티 LLM 동일체 판정", f"[{idx_e}/{total_entities}] '{name1}' ↔ '{name2}'")
 
+        jev_mode = str(getattr(settings, "jev_mode", "shadow") or "shadow").strip().lower()
+        jev_filter_th = float(getattr(settings, "jev_filter_threshold", 0.20) or 0.20)
+        jev_auto_th = float(getattr(settings, "jev_auto_merge_threshold", 0.90) or 0.90)
         res = resolve_or_create(
             conn, vstore,
             name=ee.name, etype=etype, aliases=ee.aliases,
             observations=ee.observations, document_id=doc.id,
-            embed_fn=_embed, judge_fn=_judge_fn, provisional=prov,
+            embed_fn=embed_callable, judge_fn=_judge_fn, provisional=prov,
             on_judge=_on_judge_candidate, shadow=jev_shadow,
             theme_id=tid,
             embed_model=embed_pin.model,
             embed_provider=embed_pin.provider,
+            jev_mode=jev_mode,
+            jev_filter_threshold=jev_filter_th,
+            jev_auto_merge_threshold=jev_auto_th,
         )
         ent, created = res.entity, res.created
         resolution_results.append(res)
@@ -1242,6 +1297,39 @@ def extract_resolve_store(
                                 confidence=judgement.confidence,
                                 sources=[doc.id],
                             )
+
+    if not has_provider_lineage:
+        p_name = str(getattr(provider, "name", "?") or "?")
+        p_model = str(getattr(provider, "model", "") or p_name)
+        if has_embed:
+            lineage.record_stage(stage="embed", requested_provider=embed_pin.provider or p_name, requested_model=embed_pin.model or p_model, requested_effort="", final_provider=embed_pin.provider or p_name, final_model=embed_pin.model or p_model, status="ok")
+        if decisions:
+            all_cands = [c for d in decisions for c in (getattr(d, "candidates", None) or [])]
+            judge_cands = [c for c in all_cands if c.get("outcome") in ("judge_same", "judge_different")]
+            if judge_cands:
+                lineage.record_stage(stage="entity_judge", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=sum(float(c.get("judge_ms") or 0.0) for c in judge_cands))
+    if decisions:
+        all_cands = [c for d in decisions for c in (getattr(d, "candidates", None) or [])]
+        filtered_cnt = sum(1 for c in all_cands if c.get("outcome") == "jev_filtered")
+        auto_cnt = sum(1 for c in all_cands if c.get("outcome") == "jev_hybrid_auto_merge")
+        shadows = [getattr(d, "shadow", None) for d in decisions if getattr(d, "shadow", None)]
+        last_shadow = shadows[-1] if shadows else {}
+        lineage.set_jev({
+            "enabled": bool(jev_shadow is not None),
+            "mode": str(getattr(settings, "jev_mode", "shadow") or "shadow"),
+            "filter_threshold": float(getattr(settings, "jev_filter_threshold", 0.20) or 0.20),
+            "auto_merge_threshold": float(getattr(settings, "jev_auto_merge_threshold", 0.90) or 0.90),
+            "evaluated": len(shadows),
+            "filtered_count": filtered_cnt,
+            "hybrid_auto_merged_count": auto_cnt,
+            "status": last_shadow.get("status", "disabled" if jev_shadow is None else "idle"),
+            "model": last_shadow.get("model", getattr(settings, "jev_model", "")),
+        })
+    model_lineage = lineage.summarize()
+    doc.meta["model_lineage"] = model_lineage
+    report.model_lineage = model_lineage
+    if getattr(doc, "id", None):
+        dbm.update_document_meta(conn, doc.id, doc.meta, theme_id=tid)
 
     return True, None
 

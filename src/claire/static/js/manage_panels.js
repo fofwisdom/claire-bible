@@ -158,6 +158,8 @@
     const gemModel = document.getElementById('prov-gemini-model').value.trim();
     const gemEffort = document.getElementById('prov-gemini-effort').value;
     const gemEmbed = document.getElementById('prov-gemini-embed').value.trim();
+    const gemTaskTypeEl = document.getElementById('prov-gemini-embed-task-type');
+    const gemTaskType = gemTaskTypeEl ? gemTaskTypeEl.value : 'SEMANTIC_SIMILARITY';
     const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
     const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
 
@@ -180,19 +182,43 @@
     const jevEnabled = document.getElementById('prov-jev-enabled').checked;
     const jevKey = document.getElementById('prov-jev-key');
     const jevUrl = document.getElementById('prov-jev-url').value.trim();
+    const jevModeEl = document.getElementById('prov-jev-mode');
+    const jevMode = jevModeEl ? jevModeEl.value : 'filter';
+    const jevFilterEl = document.getElementById('prov-jev-filter-threshold');
+    const jevFilterRaw = jevFilterEl ? parseFloat(jevFilterEl.value) : 0.20;
+    const jevFilterThr = Number.isFinite(jevFilterRaw) ? jevFilterRaw : 0.20;
+    const jevAutoEl = document.getElementById('prov-jev-auto-merge-threshold');
+    const jevAutoRaw = jevAutoEl ? parseFloat(jevAutoEl.value) : 0.90;
+    const jevAutoThr = Number.isFinite(jevAutoRaw) ? jevAutoRaw : 0.90;
 
     const sttEnabled = document.getElementById('prov-stt-enabled').checked;
     const sttProv = document.getElementById('prov-stt-prov').value;
     const sttLang = document.getElementById('prov-stt-lang').value.trim();
 
+    const featureRouting = {};
+    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'embed', 'stt', 'vlm'];
+    for (const slot of slotNames) {
+      const pEl = document.getElementById(`prov-route-${slot}-provider`);
+      const mEl = document.getElementById(`prov-route-${slot}-model`);
+      const eEl = document.getElementById(`prov-route-${slot}-effort`);
+      if (pEl || mEl || eEl) {
+        featureRouting[slot] = {
+          provider: pEl ? String(pEl.value || 'inherit') : 'inherit',
+          model: mEl ? String(mEl.value || '').trim() : '',
+          effort: (eEl && slot !== 'embed') ? String(eEl.value || '').trim().toLowerCase() : ''
+        };
+      }
+    }
+
     const payload = {
       active_provider: activeProv,
+      feature_routing: featureRouting,
       providers: {
-        gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, min_interval: gemInterval, max_retries: gemRetries },
+        gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, embed_task_type: gemTaskType, min_interval: gemInterval, max_retries: gemRetries },
         antigravity: { bin: agyBin, model: agyModel, timeout: agyTimeout, max_concurrency: agyConc },
         codex: { bin: cdxBin, model: cdxModel, effort: cdxEffort, timeout: cdxTimeout, max_concurrency: cdxConc },
         openai: { base_url: oaiUrl, model: oaiModel, embed_model: oaiEmbed },
-        jev: { enabled: jevEnabled, base_url: jevUrl },
+        jev: { enabled: jevEnabled, base_url: jevUrl, mode: jevMode, filter_threshold: jevFilterThr, auto_merge_threshold: jevAutoThr },
         stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
       }
     };
@@ -377,6 +403,7 @@
       'prov-gemini-key',
       'prov-gemini-model',
       'prov-gemini-embed',
+      'prov-gemini-embed-task-type',
       'prov-gemini-effort',
       'prov-agy-model',
       'prov-cdx-bin',
@@ -385,6 +412,10 @@
       'prov-oai-model',
       'prov-oai-embed',
       'prov-oai-url',
+      'prov-jev-enabled',
+      'prov-jev-mode',
+      'prov-jev-filter-threshold',
+      'prov-jev-auto-merge-threshold',
       'prov-stt-enabled',
       'prov-stt-prov',
       'prov-stt-lang'
@@ -394,12 +425,38 @@
       if (!el) continue;
       el.addEventListener('change', () => {
         if (el.type === 'password' && el.value) delete el.dataset.cleared;
+        refreshLineageVisualizerPreview();
         runProviderCapabilityCheck();
       });
     }
     const agyBinEl = document.getElementById('prov-agy-bin');
     if (agyBinEl) {
       agyBinEl.addEventListener('change', () => runProviderCapabilityCheck({ refreshAgy: true }));
+    }
+    const slotNames = ['extract_graph', 'summarize', 'entity_judge', 'relation_judge', 'classify', 'research', 'embed', 'stt', 'vlm'];
+    for (const slot of slotNames) {
+      const pEl = document.getElementById(`prov-route-${slot}-provider`);
+      const mEl = document.getElementById(`prov-route-${slot}-model`);
+      const eEl = document.getElementById(`prov-route-${slot}-effort`);
+      if (pEl) {
+        pEl.addEventListener('change', () => {
+          updateRouteSlotModelOptions(slot);
+          refreshLineageVisualizerPreview();
+          runProviderCapabilityCheck();
+        });
+      }
+      if (mEl) {
+        mEl.addEventListener('change', () => {
+          refreshLineageVisualizerPreview();
+          runProviderCapabilityCheck();
+        });
+      }
+      if (eEl) {
+        eEl.addEventListener('change', () => {
+          refreshLineageVisualizerPreview();
+          runProviderCapabilityCheck();
+        });
+      }
     }
   }
 
@@ -479,6 +536,259 @@
     } catch (e) {
       renderProviderManagerDOM('오류 발생: ' + (e.message || e), false);
     }
+  }
+
+  const FEATURE_SLOT_DEFS = [
+    { slot: 'extract_graph', label: '지식 추출 · 적재', note: '엔티티·관계 구조화 추출' },
+    { slot: 'summarize', label: '요약 · 가독 상세', note: '적재와 분리해 별도 요약 모델 지정 가능' },
+    { slot: 'entity_judge', label: '엔티티 병합 판정', note: 'System 2 LLM 병합 심사 (JEV 이후)' },
+    { slot: 'relation_judge', label: '관계 연결 판정', note: 'Phase 2 교차 관계 방향·타입 판정' },
+    { slot: 'classify', label: '문서 · 논문 분류', note: 'PDF 논문 및 감시 정책 판정' },
+    { slot: 'research', label: '웹 리서치 · 종합', note: '검색 질의 종합 및 후속 링크 평가' },
+    { slot: 'embed', label: '벡터 임베딩', note: '엔티티·문서 임베딩 (CLI는 gemini 키 사용)' },
+    { slot: 'stt', label: '음성 전사 (STT)', note: '영상·오디오 자막 생성' },
+    { slot: 'vlm', label: '시각 전사 (VLM)', note: '이미지 내용 텍스트 변환' }
+  ];
+
+  function resolveEffectiveRouteProvider(cfg, selectedRouteProv) {
+    if (!selectedRouteProv || selectedRouteProv === 'inherit') {
+      const actEl = document.getElementById('prov-active-select');
+      return actEl ? actEl.value : (cfg.active_provider || 'mock');
+    }
+    return selectedRouteProv;
+  }
+
+  function modelsForRouteProvider(cfg, effProv, slot) {
+    const provs = (cfg && cfg.providers) || {};
+    if (slot === 'embed') {
+      if (effProv === 'openai') {
+        const list = normalizeModelOptions((provs.openai || {}).available_embed_models, ['text-embedding-3-small', 'text-embedding-3-large']);
+        return [{ id: '', label: '기본 임베딩 모델 상속' }, ...list];
+      }
+      if (effProv === 'mock') return [{ id: '', label: 'mock-embed-64d (기본)' }];
+      const gemList = normalizeModelOptions((provs.gemini || {}).available_embed_models, ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview']);
+      return [{ id: '', label: '기본 임베딩 모델 상속' }, ...gemList];
+    }
+    if (effProv === 'gemini') {
+      const list = normalizeModelOptions((provs.gemini || {}).available_models, ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash']);
+      return [{ id: '', label: '기본 모델 상속' }, ...list];
+    }
+    if (effProv === 'antigravity') {
+      const list = normalizeModelOptions((provs.antigravity || {}).available_models, []);
+      return [{ id: '', label: '기본 모델 상속' }, ...list];
+    }
+    if (effProv === 'codex') {
+      const list = normalizeModelOptions((provs.codex || {}).available_models, ['gpt-5.4', 'gpt-5.3-codex', 'o3', 'o4-mini']);
+      return [{ id: '', label: '기본 모델 상속' }, ...list];
+    }
+    if (effProv === 'openai') {
+      const list = normalizeModelOptions((provs.openai || {}).available_models, ['gpt-4o-mini', 'gpt-4o', 'gpt-5']);
+      return [{ id: '', label: '기본 모델 상속' }, ...list];
+    }
+    return [{ id: '', label: 'mock (기본)' }];
+  }
+
+  function updateRouteSlotModelOptions(slot) {
+    const cfg = _provState.config || {};
+    const pEl = document.getElementById(`prov-route-${slot}-provider`);
+    const mEl = document.getElementById(`prov-route-${slot}-model`);
+    const eEl = document.getElementById(`prov-route-${slot}-effort`);
+    if (!pEl || !mEl) return;
+    const effProv = resolveEffectiveRouteProvider(cfg, pEl.value);
+    const items = modelsForRouteProvider(cfg, effProv, slot);
+    const prev = mEl.value;
+    let html = '';
+    let hasPrev = false;
+    for (const item of items) {
+      if (item.id === prev) hasPrev = true;
+      const text = item.id === '' ? (item.label || '기본 모델 상속') : item.id;
+      html += `<option value="${esc(item.id)}" ${item.id === prev ? 'selected' : ''}>${esc(text)}</option>`;
+    }
+    if (prev && !hasPrev) {
+      html += `<option value="${esc(prev)}" selected>${esc(prev)} (현재 값)</option>`;
+    }
+    mEl.innerHTML = html;
+    if (eEl) eEl.disabled = (slot === 'embed' || effProv === 'mock');
+  }
+
+  function computeEffectiveSlotsFromDom(cfg) {
+    const payload = document.getElementById('prov-active-select') ? collectProviderFormPayload() : null;
+    const summarySlots = (cfg.lineage_summary && cfg.lineage_summary.effective_slots) || {};
+    if (!payload) return summarySlots;
+    const active = payload.active_provider || cfg.active_provider || 'mock';
+    const provs = payload.providers || {};
+    const out = {};
+    for (const def of FEATURE_SLOT_DEFS) {
+      const slot = def.slot;
+      const r = (payload.feature_routing && payload.feature_routing[slot]) || { provider: 'inherit', model: '', effort: '' };
+      let effProv = (!r.provider || r.provider === 'inherit') ? active : r.provider;
+      let baseModel = '';
+      let baseEffort = '';
+      if (effProv === 'gemini') {
+        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.gemini.model || '');
+        baseEffort = slot === 'embed' ? '' : (provs.gemini.effort || '');
+      } else if (effProv === 'antigravity') {
+        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.antigravity.model || '');
+        baseEffort = slot === 'embed' ? '' : (provs.antigravity.effort || '');
+      } else if (effProv === 'codex') {
+        baseModel = slot === 'embed' ? (provs.gemini.embed_model || 'gemini-embedding-001') : (provs.codex.model || 'codex-default');
+        baseEffort = slot === 'embed' ? '' : (provs.codex.effort || '');
+      } else if (effProv === 'openai') {
+        baseModel = slot === 'embed' ? (provs.openai.embed_model || '') : (provs.openai.model || '');
+      } else if (effProv === 'mock') {
+        baseModel = slot === 'embed' ? 'mock-embed-64d' : 'mock';
+      }
+      out[slot] = { provider: effProv, model: r.model || baseModel, effort: r.effort || baseEffort };
+    }
+    return out;
+  }
+
+  function renderLineageSvg(effectiveSlots, jevCfg) {
+    const slotText = (slot) => {
+      const s = effectiveSlots[slot] || {};
+      const p = s.provider || '-';
+      const m = (s.model || '-').slice(0, 22);
+      const e = s.effort ? ` (${s.effort})` : '';
+      return { line1: `${p}`, line2: `${m}${e}` };
+    };
+    const eg = slotText('extract_graph');
+    const sm = slotText('summarize');
+    const em = slotText('embed');
+    const ej = slotText('entity_judge');
+    const rj = slotText('relation_judge');
+    const jevLabel = jevCfg && jevCfg.enabled ? `jev:${jevCfg.mode || 'filter'}` : 'jev:off';
+    const jevSub = jevCfg && jevCfg.enabled ? `<${jevCfg.filter_threshold ?? 0.2} / >=${jevCfg.auto_merge_threshold ?? 0.9}` : 'LLM 판정 직접 실행';
+    const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
+    const arrow = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6e7781" stroke-width="1.4" marker-end="url(#prov-lineage-arrow)"/>`;
+    let svg = '<svg id="prov-lineage-svg" viewBox="0 0 860 190" width="100%" style="max-width:860px;height:auto;display:block;border:1px solid var(--border);border-radius:6px;background:var(--card-bg,#fff);color:var(--fg,#1f2328);">';
+    svg += '<defs><marker id="prov-lineage-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#6e7781"/></marker></defs>';
+    svg += box(12, 62, 118, 62, '1. 입력·파싱', 'F10 비-LLM', 'PDF/Web/STT/VLM', '#6e7781');
+    svg += arrow(130, 82, 154, 46);
+    svg += arrow(130, 104, 154, 138);
+    svg += box(156, 14, 156, 62, '2A. 지식 추출', eg.line1, eg.line2, '#0969da');
+    svg += box(156, 108, 156, 62, '2B. 요약·상세', sm.line1, sm.line2, '#8250df');
+    svg += arrow(312, 45, 344, 72);
+    svg += arrow(312, 139, 344, 105);
+    svg += box(346, 56, 142, 62, '3. 벡터 임베딩', em.line1, em.line2, '#1a7f37');
+    svg += arrow(488, 87, 514, 87);
+    svg += box(516, 56, 148, 62, '4. JEV System 1', jevLabel, jevSub, '#9a6700');
+    svg += arrow(664, 76, 690, 46);
+    svg += arrow(664, 98, 690, 136);
+    svg += box(692, 14, 156, 62, '5A. 병합·관계 판정', `${ej.line1} / ${rj.line1}`, `${ej.line2}`, '#bf3989');
+    svg += box(692, 108, 156, 62, '5B. 최종 지식 그래프', 'doc.meta.model_lineage', 'LLM 폴백 0건 (엄격 실패)', '#1f883d');
+    svg += '</svg>';
+    return svg;
+  }
+
+  function refreshLineageVisualizerPreview() {
+    const cfg = _provState.config;
+    const host = document.getElementById('prov-lineage-svg-host');
+    if (!cfg || !host) return;
+    const jevEnabledEl = document.getElementById('prov-jev-enabled');
+    const jevModeEl = document.getElementById('prov-jev-mode');
+    const jevFilterEl = document.getElementById('prov-jev-filter-threshold');
+    const jevAutoEl = document.getElementById('prov-jev-auto-merge-threshold');
+    const jevSnap = {
+      enabled: jevEnabledEl ? jevEnabledEl.checked : Boolean(((cfg.providers || {}).jev || {}).enabled),
+      mode: jevModeEl ? jevModeEl.value : (((cfg.providers || {}).jev || {}).mode || 'filter'),
+      filter_threshold: jevFilterEl ? jevFilterEl.value : (((cfg.providers || {}).jev || {}).filter_threshold ?? 0.20),
+      auto_merge_threshold: jevAutoEl ? jevAutoEl.value : (((cfg.providers || {}).jev || {}).auto_merge_threshold ?? 0.90)
+    };
+    host.innerHTML = renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jevSnap);
+  }
+
+  function renderFeatureRoutingAndLineageHtml(cfg) {
+    const routing = cfg.feature_routing || {};
+    const provs = cfg.providers || {};
+    const jev = provs.jev || {};
+    const lineage = cfg.lineage_summary || {};
+    const routeProvChoices = [
+      { id: 'inherit', label: '메인 프로바이더 상속' },
+      { id: 'gemini', label: 'gemini' },
+      { id: 'antigravity', label: 'antigravity' },
+      { id: 'codex', label: 'codex' },
+      { id: 'openai', label: 'openai' },
+      { id: 'mock', label: 'mock' }
+    ];
+
+    let h = '<div id="prov-feature-routing-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="layers"></span> 기능별 모델 라우팅 (Feature Routing)</strong>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">적재(extract_graph)와 요약(summarize), 판정(judge), 임베딩을 기능별로 다른 모델에 배정합니다. 멤버 BYOK 사용자는 여기서 관리자가 지정한 기준선 동등 이상 모델만 선택할 수 있습니다.</p>';
+    h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11.5px;">';
+    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">기능 슬롯</th><th style="padding:4px 6px;">프로바이더</th><th style="padding:4px 6px;">모델</th><th style="padding:4px 6px;">추론 수준</th></tr></thead><tbody>';
+    for (const def of FEATURE_SLOT_DEFS) {
+      const r = routing[def.slot] || { provider: 'inherit', model: '', effort: '' };
+      const rProv = r.provider || 'inherit';
+      const effProv = resolveEffectiveRouteProvider(cfg, rProv);
+      const modelOpts = modelsForRouteProvider(cfg, effProv, def.slot);
+      h += `<tr style="border-bottom:1px solid var(--border);" data-route-slot="${esc(def.slot)}">`;
+      h += `<td style="padding:5px 6px;"><div style="font-weight:600;">${esc(def.label)}</div><div style="font-size:10px;opacity:0.7;"><code>${esc(def.slot)}</code> · ${esc(def.note)}</div></td>`;
+      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-provider" style="width:100%;box-sizing:border-box;">`;
+      for (const opt of routeProvChoices) {
+        h += `<option value="${esc(opt.id)}" ${rProv === opt.id ? 'selected' : ''}>${esc(opt.label)}</option>`;
+      }
+      h += '</select></td>';
+      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-model" style="width:100%;box-sizing:border-box;">`;
+      let matchedModel = false;
+      for (const m of modelOpts) {
+        if (m.id === (r.model || '')) matchedModel = true;
+        const mLabel = m.id === '' ? (m.label || '기본 모델 상속') : m.id;
+        h += `<option value="${esc(m.id)}" ${(r.model || '') === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
+      }
+      if (r.model && !matchedModel) {
+        h += `<option value="${esc(r.model)}" selected>${esc(r.model)} (현재 값)</option>`;
+      }
+      h += '</select></td>';
+      const effortDis = (def.slot === 'embed' || effProv === 'mock') ? ' disabled' : '';
+      h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-effort"${effortDis} style="width:100%;box-sizing:border-box;">`;
+      for (const eOpt of [['', '기본 상속'], ['low', 'low'], ['medium', 'medium'], ['high', 'high']]) {
+        h += `<option value="${esc(eOpt[0])}" ${(r.effort || '') === eOpt[0] ? 'selected' : ''}>${esc(eOpt[1])}</option>`;
+      }
+      h += '</select></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></div></div>';
+
+    h += '<div id="prov-lineage-visualizer-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="git-branch"></span> 파이프라인 모델 계보 및 폴백 정책 시각화 (Pipeline Lineage)</strong>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">문서 적재·요약·임베딩·JEV 판정에서 최종 산출까지 실제로 어떤 모델이 관여하는지 시각화합니다.</p>';
+    h += `<div id="prov-lineage-svg-host" style="margin-bottom:10px;">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
+
+    const jevStats = lineage.jev || {};
+    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">JEV 텔레메트리: 누적 쌍 <b>${Number(jevStats.shadow_pairs || 0)}</b> · 정상 응답 <b>${Number(jevStats.ok_calls || 0)}</b> · 평균 지연 <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b> · 필터 임계값 미만 <b>${Number(jevStats.below_filter_threshold || 0)}</b></div>`;
+
+    const fallbacks = Array.isArray(lineage.fallbacks) ? lineage.fallbacks : [];
+    if (fallbacks.length > 0) {
+      h += '<details style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">폴백 감사 카탈로그 (F1–F10 현황)</summary>';
+      h += '<table id="prov-fallback-catalog-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
+      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">ID</th><th style="padding:3px 5px;">위치</th><th style="padding:3px 5px;">상태</th><th style="padding:3px 5px;">설명</th></tr></thead><tbody>';
+      for (const fb of fallbacks) {
+        const badge = fb.status === 'REMOVED' ? '제거됨 (엄격 실패)' : '대상 제외 (비-LLM)';
+        h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;"><code>${esc(fb.id)}</code></td><td style="padding:3px 5px;"><code>${esc(fb.location)}</code></td><td style="padding:3px 5px;">${esc(badge)}</td><td style="padding:3px 5px;">${esc(fb.description)}</td></tr>`;
+      }
+      h += '</tbody></table></details>';
+    }
+
+    const recDocs = Array.isArray(lineage.recent_documents) ? lineage.recent_documents : [];
+    h += '<details style="font-size:11px;"' + (recDocs.length > 0 ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600;">최근 적재 문서 모델 계보 (' + recDocs.length + '건)</summary>';
+    if (recDocs.length === 0) {
+      h += '<p style="margin:6px 0 0;opacity:0.75;">아직 <code>model_lineage</code>가 기록된 최근 문서가 없습니다. 문서를 적재하면 단계별 실제 실행 모델이 이곳에 표시됩니다.</p>';
+    } else {
+      h += '<table id="prov-recent-lineage-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
+      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">문서</th><th style="padding:3px 5px;">최종 단계별 모델</th><th style="padding:3px 5px;">JEV</th><th style="padding:3px 5px;">폴백</th></tr></thead><tbody>';
+      for (const d of recDocs.slice(0, 8)) {
+        const lin = d.lineage || {};
+        const finals = lin.final_output_models || {};
+        const modelTags = Object.entries(finals).map(([st, info]) => `${st}=${(info && info.provider) || '?'}:${(info && info.model) || '?'}`).join(', ');
+        const jevD = lin.jev || {};
+        const jevSummary = jevD.enabled ? `${jevD.mode || 'filter'} (filtered:${Number(jevD.filtered_count || 0)}, auto:${Number(jevD.hybrid_auto_merged_count || 0)})` : 'off';
+        const fbCount = Array.isArray(lin.fallbacks_triggered) ? lin.fallbacks_triggered.length : 0;
+        h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;">${esc(d.title || d.id)}</td><td style="padding:3px 5px;"><code>${esc(modelTags || '-')}</code></td><td style="padding:3px 5px;">${esc(jevSummary)}</td><td style="padding:3px 5px;">${fbCount}</td></tr>`;
+      }
+      h += '</tbody></table>';
+    }
+    h += '</details></div>';
+    return h;
   }
 
   function renderProviderManagerDOM(msg, isSuccess) {
@@ -567,6 +877,14 @@
     h += renderModelSelectField('prov-gemini-embed', gemini.available_embed_models, geminiEmbedFallback, gemini.embed_model || 'gemini-embedding-001', 'gemini-embedding-001');
     h += '</div>';
     h += '</div>';
+    const embedTaskTypes = Array.isArray(cfg.embed_task_types) && cfg.embed_task_types.length ? cfg.embed_task_types : ['SEMANTIC_SIMILARITY', 'RETRIEVAL_DOCUMENT', 'RETRIEVAL_QUERY', 'CLASSIFICATION', 'CLUSTERING'];
+    const curTaskType = gemini.embed_task_type || 'SEMANTIC_SIMILARITY';
+    h += '<div><label style="font-size:11px;opacity:0.8;">임베딩 Task Type (F8 정책 선택)</label>';
+    h += '<select id="prov-gemini-embed-task-type" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    for (const tt of embedTaskTypes) {
+      h += `<option value="${esc(tt)}" ${curTaskType===tt?'selected':''}>${esc(tt)}</option>`;
+    }
+    h += '</select></div>';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최소 간격 (초)</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최대 재시도 (회)</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
@@ -676,12 +994,24 @@
     h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> 보조 엔진 (Jev &amp; 음성 전사)</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
     h += '<div>';
-    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (엔티티 해소 shadow 평가 · 판정 비관여)</label>`;
+    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (System 1 엔티티 판정 가속 · Filter / Hybrid / Shadow)</label>`;
     h += '<div style="margin-top:6px;display:flex;gap:4px;">';
     h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
     h += '</div>';
     h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
+    const curJevMode = jev.mode || 'filter';
+    const curFilterThr = jev.filter_threshold != null ? jev.filter_threshold : 0.20;
+    const curAutoThr = jev.auto_merge_threshold != null ? jev.auto_merge_threshold : 0.90;
+    h += '<div style="display:flex;gap:8px;margin-top:6px;">';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">JEV 판정 모드</label><select id="prov-jev-mode" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    h += `<option value="filter" ${curJevMode==='filter'?'selected':''}>filter (임계값 미만 LLM 생략 · 권장)</option>`;
+    h += `<option value="hybrid" ${curJevMode==='hybrid'?'selected':''}>hybrid (필터 + 고신뢰 자동 병합)</option>`;
+    h += `<option value="shadow" ${curJevMode==='shadow'?'selected':''}>shadow (평가 기록만 · 비관여)</option>`;
+    h += '</select></div>';
+    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">필터 임계값 (&lt; 생략)</label><input id="prov-jev-filter-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curFilterThr))}"/></div>`;
+    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">자동 병합 임계값 (&gt;=)</label><input id="prov-jev-auto-merge-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curAutoThr))}"/></div>`;
+    h += '</div>';
     h += '</div>';
     h += '<div style="border-top:1px dashed var(--border);padding-top:8px;">';
     h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>비디오 &amp; 오디오 음성 전사 (STT)</label>`;
@@ -697,6 +1027,8 @@
     h += '</div>';
     h += '</div>';
     h += '</div>';
+
+    h += renderFeatureRoutingAndLineageHtml(cfg);
 
     const optsState = _provState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');

@@ -469,6 +469,7 @@ class Settings(BaseSettings):
     embed_task_type: str = Field(
         default="SEMANTIC_SIMILARITY", alias="CLAIRE_EMBED_TASK_TYPE"
     )
+    feature_routing: dict[str, dict[str, str]] = Field(default_factory=dict)
     sim_tier_auto_merge: float = Field(
         default=0.93, alias="CLAIRE_SIM_TIER_AUTO_MERGE"
     )
@@ -498,15 +499,17 @@ class Settings(BaseSettings):
     gemini_min_interval: float = Field(default=4.0, alias="CLAIRE_GEMINI_MIN_INTERVAL")
     gemini_max_retries: int = Field(default=5, alias="CLAIRE_GEMINI_MAX_RETRIES")
 
-    # --- TypeSafe AI Jev (System 1, 도입 검토용 shadow 평가 전용 — 판정에 관여하지 않음) ---
+    # --- TypeSafe AI Jev (System 1 entity resolution filter / hybrid / shadow) ---
     enable_jev: bool = Field(default=False, alias="CLAIRE_ENABLE_JEV")
     jev_api_key: str | None = Field(default=None, alias="CLAIRE_JEV_API_KEY")
     jev_base_url: str = Field(
         default="https://api.typesafe.ai/v1", alias="CLAIRE_JEV_BASE_URL"
     )
     jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
-    # 버전 고정(jev-1.14.0 등) 시 shadow 평가 도중 jev-latest 별칭 이동을 막는다. 응답의 실제 모델명은 판정 기록에 남는다
     jev_model: str = Field(default="jev-latest")
+    jev_mode: str = Field(default="shadow")
+    jev_filter_threshold: float = Field(default=0.20)
+    jev_auto_merge_threshold: float = Field(default=0.90)
 
     # --- Antigravity CLI (agy) ---
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")

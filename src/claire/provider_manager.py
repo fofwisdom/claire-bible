@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, get_model_rank, is_model_equal_or_higher
 from .config import (
     ROOT,
     diagnose_agy_environment,
@@ -216,15 +217,46 @@ def _probe_gemini_model(api_key: str, model_name: str) -> tuple[bool, int | None
     except Exception as exc:
         return False, None, str(exc)
 
+ALLOWED_EMBED_TASK_TYPES: tuple[str, ...] = (
+    "SEMANTIC_SIMILARITY",
+    "RETRIEVAL_DOCUMENT",
+    "RETRIEVAL_QUERY",
+    "CLASSIFICATION",
+    "CLUSTERING",
+)
+
+ALLOWED_JEV_MODES: tuple[str, ...] = ("shadow", "filter", "hybrid")
+
+ALLOWED_ROUTE_PROVIDERS: tuple[str, ...] = ("inherit", "gemini", "antigravity", "codex", "mock")
+
+REMOVED_FALLBACK_CATALOG: tuple[dict[str, str], ...] = (
+    {"id": "F1", "location": "antigravity_provider.extract", "behavior": "Structured JSON failure fell back to plain text JSON prompt", "status": "REMOVED"},
+    {"id": "F2", "location": "gemini_provider.extract", "behavior": "Interactions schema failure fell back to plain text _extract_json_fallback", "status": "REMOVED"},
+    {"id": "F3", "location": "antigravity/gemini/codex extract", "behavior": "Preface summary was silently overwritten with key_claims", "status": "REMOVED"},
+    {"id": "F4", "location": "antigravity_provider.render_detail", "behavior": "high effort failure silently retried with medium effort", "status": "REMOVED"},
+    {"id": "F5", "location": "antigravity_provider.render_detail", "behavior": "Body > 30k timeout silently retried with condensed context", "status": "REMOVED"},
+    {"id": "F6", "location": "ingest/pipeline._embed", "behavior": "Embedding API error was swallowed and saved without vector", "status": "REMOVED"},
+    {"id": "F7", "location": "antigravity_provider.embed", "behavior": "Missing key or error in dev fell back to SHA-256 hash vector", "status": "REMOVED"},
+    {"id": "F8", "location": "gemini/antigravity.embed", "behavior": "Error stripped EmbedContentConfig (dropped task_type and projection space)", "status": "REMOVED"},
+    {"id": "F9", "location": "classifier.py & classify_paper", "behavior": "Cross-provider CLI scan and regex heuristic fallback on error", "status": "REMOVED"},
+    {"id": "F10", "location": "ingest/pdf & youtube", "behavior": "Non-LLM PDF/transcript parser fallback", "status": "OUT_OF_SCOPE"},
+)
+
+DEFAULT_FEATURE_ROUTING: dict[str, dict[str, str]] = {
+    slot: {"provider": "inherit", "model": "", "effort": ""} for slot in FEATURE_SLOTS
+}
+
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "version": 1,
     "active_provider": "mock",
+    "feature_routing": copy.deepcopy(DEFAULT_FEATURE_ROUTING),
     "providers": {
         "gemini": {
             "api_key": "",
             "model": "gemini-3.1-flash-lite",
             "effort": "medium",
             "embed_model": "gemini-embedding-001",
+            "embed_task_type": "SEMANTIC_SIMILARITY",
             "min_interval": 4.0,
             "max_retries": 5,
         },
@@ -256,6 +288,9 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "base_url": "https://api.typesafe.ai/v1",
             "timeout": 15.0,
             "model": "jev-latest",
+            "mode": "filter",
+            "filter_threshold": 0.20,
+            "auto_merge_threshold": 0.90,
         },
         "stt": {
             "enabled": True,
@@ -434,6 +469,9 @@ class ProviderManager:
                     if prov_name not in cfg["providers"] and isinstance(prov_val, dict):
                         cfg["providers"][prov_name] = prov_val
 
+            if "feature_routing" in raw:
+                cfg["feature_routing"] = self._normalize_feature_routing(raw.get("feature_routing"))
+
             return cfg
         except Exception as exc:
             log.warning("Failed to load %s: %s. Using default config.", self.registry_path, exc)
@@ -505,7 +543,139 @@ class ProviderManager:
             jev["api_key"] = "••••••••" if jev["has_api_key"] else ""
 
         out["capabilities"] = self._evaluate_capabilities(cfg, agy_discovery=disc_agy)
+        out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
+        out["feature_slots"] = list(FEATURE_SLOTS)
+        out["model_ranks"] = dict(MODEL_CAPABILITY_RANKS)
+        out["embed_task_types"] = list(ALLOWED_EMBED_TASK_TYPES)
+        out["jev_modes"] = list(ALLOWED_JEV_MODES)
+        out["lineage_summary"] = self.get_lineage_summary(cfg)
         return out
+
+    @staticmethod
+    def _normalize_feature_routing(raw_routing: Any) -> dict[str, dict[str, str]]:
+        """Normalize per-feature routing configuration onto all known feature slots."""
+        out = copy.deepcopy(DEFAULT_FEATURE_ROUTING)
+        if not isinstance(raw_routing, dict):
+            return out
+        for slot in FEATURE_SLOTS:
+            entry = raw_routing.get(slot)
+            if not isinstance(entry, dict):
+                continue
+            prov = str(entry.get("provider") or "inherit").strip().lower() or "inherit"
+            model = str(entry.get("model") or "").strip()
+            effort = str(entry.get("effort") or "").strip().lower()
+            out[slot] = {"provider": prov, "model": model, "effort": effort}
+        return out
+
+    def get_lineage_summary(self, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Compute effective pipeline stages, JEV telemetry, and recent document model lineage."""
+        import sqlite3
+
+        snap = cfg if cfg is not None else self.get_config()
+        providers = snap.get("providers", {})
+        active = str(snap.get("active_provider") or "mock").strip().lower()
+        routing = self._normalize_feature_routing(snap.get("feature_routing"))
+        jev_cfg = providers.get("jev", {})
+
+        def _base_model(prov_name: str, slot: str) -> tuple[str, str]:
+            if prov_name == "gemini":
+                if slot == "embed":
+                    return str(providers.get("gemini", {}).get("embed_model") or "gemini-embedding-001"), ""
+                return str(providers.get("gemini", {}).get("model") or ""), str(providers.get("gemini", {}).get("effort") or "")
+            if prov_name == "antigravity":
+                return str(providers.get("antigravity", {}).get("model") or ""), str(providers.get("antigravity", {}).get("effort") or "")
+            if prov_name == "codex":
+                return str(providers.get("codex", {}).get("model") or "codex-default"), str(providers.get("codex", {}).get("effort") or "")
+            if prov_name == "mock":
+                return "mock", ""
+            return "", ""
+
+        effective_slots: dict[str, dict[str, str]] = {}
+        for slot in FEATURE_SLOTS:
+            r = routing[slot]
+            eff_prov = active if r["provider"] == "inherit" else r["provider"]
+            if slot == "embed" and eff_prov in ("antigravity", "codex"):
+                eff_prov = "gemini" if providers.get("gemini", {}).get("api_key") else "fts-only"
+            base_m, base_e = _base_model(eff_prov, slot)
+            effective_slots[slot] = {
+                "provider": eff_prov,
+                "model": r["model"] or base_m,
+                "effort": r["effort"] or base_e,
+                "inherited": str(r["provider"] == "inherit").lower(),
+            }
+
+        recent_docs: list[dict[str, Any]] = []
+        extraction_models: list[dict[str, Any]] = []
+        decision_gates: list[dict[str, Any]] = []
+        jev_stats: dict[str, Any] = {
+            "enabled": bool(jev_cfg.get("enabled", False)),
+            "mode": str(jev_cfg.get("mode") or "filter"),
+            "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
+            "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+            "model": str(jev_cfg.get("model") or "jev-latest"),
+            "shadow_pairs": 0,
+            "ok_calls": 0,
+            "avg_latency_ms": None,
+            "below_filter_threshold": 0,
+        }
+
+        db_candidates = []
+        env_db = os.environ.get("CLAIRE_DB_PATH")
+        if env_db:
+            db_candidates.append(Path(env_db))
+        db_candidates.append(self.data_dir / "claire.db")
+        db_path = next((p for p in db_candidates if p.is_file()), None)
+
+        if db_path is not None:
+            try:
+                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+                conn.row_factory = sqlite3.Row
+                try:
+                    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)").fetchall()}
+                    if "meta_json" in cols:
+                        rows = conn.execute("SELECT id, title, meta_json, created_at FROM documents ORDER BY created_at DESC LIMIT 20").fetchall()
+                        for row in rows:
+                            try:
+                                meta = json.loads(row["meta_json"] or "{}")
+                            except Exception:
+                                meta = {}
+                            if isinstance(meta, dict) and isinstance(meta.get("model_lineage"), dict):
+                                recent_docs.append({
+                                    "id": row["id"],
+                                    "title": row["title"],
+                                    "created_at": row["created_at"],
+                                    "lineage": meta["model_lineage"],
+                                })
+                    tbls = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+                    if "extractions" in tbls:
+                        for er in conn.execute("SELECT provider, model, COUNT(*) AS cnt FROM extractions GROUP BY provider, model ORDER BY cnt DESC LIMIT 12").fetchall():
+                            extraction_models.append({"provider": er["provider"], "model": er["model"], "count": int(er["cnt"])})
+                    if "resolution_decisions" in tbls:
+                        for gr in conn.execute("SELECT gate, outcome, COUNT(*) AS cnt FROM resolution_decisions GROUP BY gate, outcome ORDER BY cnt DESC").fetchall():
+                            decision_gates.append({"gate": gr["gate"], "outcome": gr["outcome"], "count": int(gr["cnt"])})
+                    if "review_shadow_pairs" in tbls:
+                        jr = conn.execute(
+                            "SELECT COUNT(*) AS total, SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_cnt, AVG(CASE WHEN status='ok' THEN latency_ms END) AS avg_ms, SUM(CASE WHEN status='ok' AND jev_noul < ? THEN 1 ELSE 0 END) AS below_thr FROM review_shadow_pairs",
+                            (jev_stats["filter_threshold"],),
+                        ).fetchone()
+                        if jr is not None:
+                            jev_stats["shadow_pairs"] = int(jr["total"] or 0)
+                            jev_stats["ok_calls"] = int(jr["ok_cnt"] or 0)
+                            jev_stats["avg_latency_ms"] = round(float(jr["avg_ms"]), 1) if jr["avg_ms"] is not None else None
+                            jev_stats["below_filter_threshold"] = int(jr["below_thr"] or 0)
+                finally:
+                    conn.close()
+            except Exception as exc:
+                log.debug("lineage summary db read skipped: %s", exc)
+
+        return {
+            "effective_slots": effective_slots,
+            "jev": jev_stats,
+            "fallbacks": list(REMOVED_FALLBACK_CATALOG),
+            "recent_documents": recent_docs,
+            "extraction_models": extraction_models,
+            "decision_gates": decision_gates,
+        }
 
     def _merge_payload(self, base: dict[str, Any], payload: dict[str, Any], *, validate_models: bool = True) -> dict[str, Any]:
         """Merge an incoming provider update payload onto a config snapshot."""
@@ -541,6 +711,8 @@ class ProviderManager:
                             _validate_provider_model("gemini", "모델", str(inc_data["model"]).strip(), set(list_gemini_models()))
                         if "embed_model" in inc_data:
                             _validate_provider_model("gemini", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_GEMINI_EMBED_MODELS))
+                        if "embed_task_type" in inc_data:
+                            _validate_provider_model("gemini", "임베딩 task_type", str(inc_data["embed_task_type"]).strip(), set(ALLOWED_EMBED_TASK_TYPES))
                     elif name == "antigravity" and "model" in inc_data:
                         bin_for_check = str(inc_data.get("bin") or target.get("bin") or "agy").strip()
                         allowed_agy = {m["id"] for m in list_agy_models(bin_for_check)}
@@ -552,6 +724,14 @@ class ProviderManager:
                             _validate_provider_model("openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS))
                         if "embed_model" in inc_data:
                             _validate_provider_model("openai", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_OPENAI_EMBED_MODELS))
+                    elif name == "jev":
+                        if "mode" in inc_data:
+                            _validate_provider_model("jev", "판정 모드", str(inc_data["mode"]).strip().lower(), set(ALLOWED_JEV_MODES))
+                        for thr_key in ("filter_threshold", "auto_merge_threshold"):
+                            if thr_key in inc_data:
+                                thr_val = float(inc_data[thr_key])
+                                if not (0.0 <= thr_val <= 1.0):
+                                    raise ValueError(f"jev {thr_key} 값은 0.0~1.0 범위여야 합니다.")
 
                 for k, v in inc_data.items():
                     if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models", "available_embed_models", "models_source", "cli_version", "models_error"):
@@ -562,6 +742,32 @@ class ProviderManager:
                     inferred_effort = infer_agy_effort_from_model(str(inc_data["model"]))
                     if inferred_effort:
                         target["effort"] = inferred_effort
+
+        if "feature_routing" in payload and isinstance(payload["feature_routing"], dict):
+            curr_routing = self._normalize_feature_routing(merged.get("feature_routing"))
+            for slot, raw_slot in payload["feature_routing"].items():
+                if slot not in FEATURE_SLOTS:
+                    raise ValueError(f"지원되지 않는 feature_routing 슬롯입니다: '{slot}'")
+                if not isinstance(raw_slot, dict):
+                    raise ValueError(f"feature_routing['{slot}'] 값은 객체여야 합니다.")
+                prov = str(raw_slot.get("provider") or curr_routing[slot].get("provider") or "inherit").strip().lower()
+                if prov not in ALLOWED_ROUTE_PROVIDERS:
+                    raise ValueError(f"feature_routing['{slot}'] 프로바이더 '{prov}'는 지원되지 않습니다.")
+                model = str(raw_slot.get("model") if "model" in raw_slot else curr_routing[slot].get("model", "")).strip()
+                effort = str(raw_slot.get("effort") if "effort" in raw_slot else curr_routing[slot].get("effort", "")).strip().lower()
+                if validate_models and model:
+                    eff_prov = merged.get("active_provider", "mock") if prov == "inherit" else prov
+                    if eff_prov == "gemini":
+                        allowed = set(DEFAULT_GEMINI_EMBED_MODELS) if slot == "embed" else set(list_gemini_models())
+                        _validate_provider_model("gemini", f"{slot} 모델", model, allowed)
+                    elif eff_prov == "codex":
+                        _validate_provider_model("codex", f"{slot} 모델", model, set(DEFAULT_CODEX_MODELS))
+                    elif eff_prov == "antigravity":
+                        bin_name = str(curr_providers.get("antigravity", {}).get("bin") or "agy").strip()
+                        allowed_agy = {m["id"] for m in list_agy_models(bin_name)}
+                        _validate_provider_model("antigravity", f"{slot} 모델", model, allowed_agy)
+                curr_routing[slot] = {"provider": prov, "model": model, "effort": effort}
+            merged["feature_routing"] = curr_routing
 
         return merged
 
@@ -685,6 +891,7 @@ class ProviderManager:
         if stt_enabled and stt_prov == "gemini" and not gem_has_key:
             warnings.append("STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.")
 
+        jev_cfg = providers.get("jev", {})
         return {
             "active_provider": active,
             "in_container": in_container,
@@ -692,6 +899,12 @@ class ProviderManager:
             "lock_reasons": lock_reasons,
             "warnings": warnings,
             "stt": {"enabled": stt_enabled, "provider": stt_prov, "ready": stt_ready},
+            "jev": {
+                "enabled": bool(jev_cfg.get("enabled", False)),
+                "mode": str(jev_cfg.get("mode") or "filter"),
+                "filter_threshold": float(jev_cfg.get("filter_threshold", 0.20)),
+                "auto_merge_threshold": float(jev_cfg.get("auto_merge_threshold", 0.90)),
+            },
             "providers": provider_caps,
         }
 
@@ -737,6 +950,8 @@ class ProviderManager:
             out["gemini_effort"] = gemini["effort"]
         if gemini.get("embed_model"):
             out["gemini_embed_model"] = gemini["embed_model"]
+        if gemini.get("embed_task_type"):
+            out["embed_task_type"] = str(gemini["embed_task_type"])
         if gemini.get("min_interval") is not None:
             out["gemini_min_interval"] = float(gemini["min_interval"])
         if gemini.get("max_retries") is not None:
@@ -779,6 +994,14 @@ class ProviderManager:
             out["jev_timeout"] = float(jev["timeout"])
         if jev.get("model"):
             out["jev_model"] = jev["model"]
+        if jev.get("mode"):
+            out["jev_mode"] = str(jev["mode"]).strip().lower()
+        if jev.get("filter_threshold") is not None:
+            out["jev_filter_threshold"] = float(jev["filter_threshold"])
+        if jev.get("auto_merge_threshold") is not None:
+            out["jev_auto_merge_threshold"] = float(jev["auto_merge_threshold"])
+
+        out["feature_routing"] = self._normalize_feature_routing(cfg.get("feature_routing"))
 
         # STT
         if stt.get("enabled") is not None:

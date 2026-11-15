@@ -19,6 +19,7 @@
     invalid_api_key: "API 키 형식이 맞지 않습니다. 공백 없이 붙여 넣으세요.",
     key_not_found: "등록한 키가 없습니다.",
     key_unreadable: "저장한 키를 읽지 못했습니다. 키를 다시 등록하세요.",
+    model_below_admin_baseline: "관리자가 제공하는 기준 모델·추론 수준보다 낮은 설정은 선택할 수 없습니다.",
     follower_not_found: "이미 목록에 없는 팔로워입니다.",
     cannot_unlink_last_credential: "마지막 로그인 수단은 해제할 수 없습니다. 먼저 비밀번호를 설정하거나 다른 외부 로그인을 연결하세요.",
     unauthorized: "로그인이 필요합니다."
@@ -123,9 +124,60 @@
     });
   }
 
+  function renderModelPolicy(policy) {
+    if (!policy) return;
+    var baseline = policy.admin_baseline || {};
+    var ranks = policy.model_ranks || {};
+    var effortOrder = Array.isArray(policy.effort_order) ? policy.effort_order : ["none", "minimal", "low", "medium", "high"];
+    var prefs = policy.model_prefs || {};
+    var summaryEl = document.querySelector("[data-byok-policy-summary]");
+    if (summaryEl) {
+      var bMod = baseline.model || "기본";
+      var bEff = baseline.effort || "medium";
+      var sealText = policy.has_cookie_seal ? "브라우저 봉인 쿠키 활성" : "키 저장 시 봉인 쿠키 자동 발급";
+      summaryEl.textContent = "관리자 기준선: " + bMod + " (" + bEff + ") 이상만 허용 · Split-Key 상태: " + sealText;
+    }
+    var modelSel = document.querySelector("[data-byok-model-select]");
+    if (modelSel) {
+      while (modelSel.firstChild) modelSel.removeChild(modelSel.firstChild);
+      var defOpt = document.createElement("option");
+      defOpt.value = "";
+      defOpt.textContent = "관리자 기본 모델 이상 자동 적용 (" + (baseline.model || "-") + ")";
+      modelSel.appendChild(defOpt);
+      var baseRank = typeof ranks[baseline.model] === "number" ? ranks[baseline.model] : 0;
+      (Array.isArray(policy.allowed_models) ? policy.allowed_models : []).forEach(function (m) {
+        if (!m || m === "mock") return;
+        var opt = document.createElement("option");
+        opt.value = String(m);
+        var mRank = typeof ranks[m] === "number" ? ranks[m] : 0;
+        var allowed = mRank >= baseRank || baseRank === 0;
+        opt.textContent = allowed ? String(m) : String(m) + " (기준선 미만 · 잠금)";
+        if (!allowed) opt.disabled = true;
+        if (prefs.model && prefs.model === m && allowed) opt.selected = true;
+        modelSel.appendChild(opt);
+      });
+    }
+    var effortSel = document.querySelector("[data-byok-effort-select]");
+    if (effortSel) {
+      var baseEffIdx = effortOrder.indexOf(String(baseline.effort || "medium").toLowerCase());
+      Array.prototype.forEach.call(effortSel.options, function (opt) {
+        if (!opt.value) {
+          opt.disabled = false;
+          return;
+        }
+        var idx = effortOrder.indexOf(opt.value.toLowerCase());
+        opt.disabled = baseEffIdx >= 0 && idx >= 0 && idx < baseEffIdx;
+      });
+      if (prefs.effort) effortSel.value = prefs.effort;
+    }
+  }
+
   function refreshKeys() {
-    return request("GET", "/api/me/keys").then(function (r) {
-      if (r.ok && r.body && Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
+    return request("GET", "/api/me/keys?include_policy=1").then(function (r) {
+      if (r.ok && r.body) {
+        if (Array.isArray(r.body.keys)) renderKeyMeta(r.body.keys);
+        if (r.body.model_policy) renderModelPolicy(r.body.model_policy);
+      }
     });
   }
 
@@ -506,9 +558,14 @@
     "provider-key-put": function (form) {
       var provider = form.elements.namedItem("provider").value;
       var field = form.elements.namedItem("api_key");
+      var modelEl = form.elements.namedItem("model");
+      var effortEl = form.elements.namedItem("effort");
       var value = field.value;
       field.value = "";
-      return request("PUT", "/api/me/keys", { provider: provider, api_key: value }).then(function (r) {
+      var payload = { provider: provider, api_key: value };
+      if (modelEl && modelEl.value) payload.model = modelEl.value;
+      if (effortEl && effortEl.value) payload.effort = effortEl.value;
+      return request("PUT", "/api/me/keys", payload).then(function (r) {
         value = "";
         show(form, r.ok ? "키를 확인하고 저장했습니다." : errorText(r.status, r.body), !r.ok);
         if (r.ok) return refreshKeys();
@@ -721,6 +778,8 @@
       bindLocaleSelect();
     } else if (section === "federation") {
       bindFederation();
+    } else if (section === "keys") {
+      refreshKeys();
     }
     initManagers(section);
   }

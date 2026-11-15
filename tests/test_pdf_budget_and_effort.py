@@ -214,75 +214,25 @@ def test_truncation_scan_pdf_budget(monkeypatch: pytest.MonkeyPatch):
     conn.close()
 
 
-def test_lowest_effort_provider_selection(monkeypatch: pytest.MonkeyPatch):
-    """여러 프로바이더 선언 시 effort 레벨이 가장 낮은 프로바이더를 선택하는지 검증."""
-    # Case 1: agy effort=high, gemini effort=low -> Gemini 선택
-    s1 = Settings(provider="gemini", gemini_api_key="dummy-key", agy_effort="high", gemini_effort="low")
-    with patch("claire.extract.classifier.find_agy_executable", return_value="/usr/local/bin/agy"):
-        prov1 = get_lowest_effort_provider(s1)
-        assert prov1.name == "gemini"
+def test_lowest_effort_provider_uses_configured_provider():
+    """Verify get_lowest_effort_provider returns the configured provider without cross-provider scanning."""
+    s1 = Settings(provider="gemini", gemini_api_key="dummy-key", agy_effort="low", gemini_effort="high")
+    prov1 = get_lowest_effort_provider(s1)
+    assert prov1.name == "gemini"
 
-    # Case 2: agy effort=low, gemini effort=high -> Antigravity 선택
-    s2 = Settings(provider="gemini", gemini_api_key="dummy-key", agy_effort="low", gemini_effort="high")
-    with patch("claire.extract.classifier.find_agy_executable", return_value="/usr/local/bin/agy"):
+    s2 = Settings(provider="antigravity", gemini_api_key="dummy-key", agy_effort="high", gemini_effort="low")
+    with patch("claire.config.find_agy_executable", return_value="/usr/local/bin/agy"):
         prov2 = get_lowest_effort_provider(s2)
         assert prov2.name == "antigravity"
 
-    # Case 3: 동점 (둘 다 medium) -> Antigravity 우선 선택 (무료/로컬 어댑터)
-    s3 = Settings(provider="gemini", gemini_api_key="dummy-key", agy_effort="medium", gemini_effort="medium")
-    with patch("claire.extract.classifier.find_agy_executable", return_value="/usr/local/bin/agy"):
-        prov3 = get_lowest_effort_provider(s3)
-        assert prov3.name == "antigravity"
+    s3 = Settings(provider="mock")
+    prov3 = get_lowest_effort_provider(s3)
+    assert prov3.name == "mock"
 
-    # Case 4: agy 없음, Gemini만 선언됨 -> Gemini 선택
-    s4 = Settings(provider="gemini", gemini_api_key="dummy-key", gemini_effort="high")
-    with patch("claire.extract.classifier.find_agy_executable", return_value=None):
+    s4 = Settings(provider="codex", codex_effort="high", agy_effort="low", gemini_api_key="dummy-key", gemini_effort="low")
+    with patch("claire.config.find_codex_executable", return_value="/usr/local/bin/codex"):
         prov4 = get_lowest_effort_provider(s4)
-        assert prov4.name == "gemini"
-
-    # Case 5: provider="mock" -> MockProvider 선택
-    s5 = Settings(provider="mock")
-    prov5 = get_lowest_effort_provider(s5)
-    assert prov5.name == "mock"
-
-    # Case 6: Codex는 명시 선택+바이너리 존재 시에만 후보가 되고, 동점이면 선택된다.
-    s6 = Settings(
-        provider="codex",
-        codex_effort="medium",
-        agy_effort="medium",
-        gemini_api_key="dummy-key",
-        gemini_effort="medium",
-    )
-    with (
-        patch(
-            "claire.extract.classifier.find_codex_executable",
-            return_value="/usr/local/bin/codex",
-        ),
-        patch(
-            "claire.extract.classifier.find_agy_executable",
-            return_value="/usr/local/bin/agy",
-        ),
-    ):
-        prov6 = get_lowest_effort_provider(s6)
-        assert prov6.name == "codex"
-
-    # Case 7: 다른 provider를 선택한 경우 Codex 바이너리가 있어도 후보로 끼어들지 않는다.
-    s7 = Settings(
-        provider="gemini",
-        gemini_api_key="dummy-key",
-        gemini_effort="medium",
-        agy_effort="high",
-        codex_effort="low",
-    )
-    with (
-        patch(
-            "claire.extract.classifier.find_codex_executable",
-            return_value="/usr/local/bin/codex",
-        ),
-        patch("claire.extract.classifier.find_agy_executable", return_value=None),
-    ):
-        prov7 = get_lowest_effort_provider(s7)
-        assert prov7.name == "gemini"
+        assert prov4.name == "codex"
 
 
 def test_classify_paper_logic():

@@ -87,12 +87,13 @@ def test_disabled_features_report_no_unavailable_reason():
     assert s.provider_unavailable_reason("vlm") is None
 
 
-def test_antigravity_embedding_does_not_fake_vectors_in_production():
+def test_antigravity_embedding_does_not_fake_vectors():
     from claire.extract.antigravity_provider import AntigravityProvider
 
     dev = AntigravityProvider(_settings("development", provider="antigravity"))
-    assert len(dev.embed("text")) == dev.EMBED_DIM
+    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY"):
+        dev.embed("text")
 
     prod = AntigravityProvider(_settings("production", provider="antigravity"))
-    with pytest.raises(ProviderUnavailableError, match="embedding"):
+    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY"):
         prod.embed("text")

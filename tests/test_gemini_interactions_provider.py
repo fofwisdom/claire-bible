@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import claire.extract.gemini_provider as gp
 from claire.ontology.base import Document
 
@@ -50,22 +52,15 @@ def test_extract_interactions_success():
     assert kwargs["response_format"]["mime_type"] == "application/json"
 
 
-def test_extract_interactions_fallback():
+def test_extract_interactions_raises_without_fallback():
     p = _make_provider()
-    # First call raises schema validation rejection (non-retryable)
-    json_payload = '{"summary":"폴백 요약","key_claims":[],"entities":[],"relations":[]}'
-    fallback_interaction = SimpleNamespace(output_text=json_payload)
-
-    p.client.interactions.create.side_effect = [
-        ValueError("Invalid schema argument"),
-        fallback_interaction,
-    ]
+    p.client.interactions.create.side_effect = ValueError("Invalid schema argument")
 
     doc = Document(id="doc1", title="Test", raw_text="Content", source_type="text")
-    result = p.extract(doc)
+    with pytest.raises(ValueError, match="Invalid schema argument"):
+        p.extract(doc)
 
-    assert result.summary == "폴백 요약"
-    assert p.client.interactions.create.call_count == 2
+    assert p.client.interactions.create.call_count == 1
 
 
 def test_summarize_search():

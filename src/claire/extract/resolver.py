@@ -287,6 +287,9 @@ def resolve_or_create(
     theme_id: int = 0,
     embed_model: str | None = None,
     embed_provider: str | None = None,
+    jev_mode: str = "shadow",
+    jev_filter_threshold: float = 0.20,
+    jev_auto_merge_threshold: float = 0.90,
 ) -> ResolutionResult:
     """기존 엔티티에 머지하거나 신규 생성 (5단계 Multi-Tier Safe Gating 적용). (entity, created?) 반환.
 
@@ -387,6 +390,14 @@ def resolve_or_create(
             [(oid, snapshot_of(c)) for oid, c in loaded.items() if c is not None],
         )
 
+    pre_shadow: dict[str, Any] | None = None
+    pre_noul: dict[str, float] = {}
+    if jev_mode in ("filter", "hybrid") and shadow is not None and shadow_call is not None:
+        pre_shadow, pre_noul = shadow.collect(shadow_call)
+        shadow_call = None
+        if pre_shadow.get("status") == "ok" and pre_noul:
+            ordered = sorted(ordered, key=lambda kv: (0 if kv[1] >= tier_auto else 1, -float(pre_noul.get(kv[0], -1.0)), -kv[1], kv[0]))
+
     def _finish(dec: ResolutionDecision, rest: list[tuple[str, float]]) -> ResolutionDecision:
         trace.extend(_trace_entry(oid, sc, oid in vector_ids, "not_reached") for oid, sc in rest)
         if trace:
@@ -407,11 +418,17 @@ def resolve_or_create(
                 "embedding_dim": len(embedding) if embedding else 0,
                 "embedding_hash_fallback": looks_like_hash_fallback(embedding),
             }
+        # Collect shadow scores at finish and attach them to candidate trace entries.
         if shadow is not None and shadow_call is not None:
             dec.shadow, noul = shadow.collect(shadow_call)
             for entry in trace:
                 if entry["id"] in noul:
                     entry["jev_noul"] = noul[entry["id"]]
+        elif pre_shadow is not None:
+            dec.shadow = pre_shadow
+            for entry in trace:
+                if entry["id"] in pre_noul:
+                    entry["jev_noul"] = pre_noul[entry["id"]]
         return dec
 
     for idx, (owner_id, score) in enumerate(ordered):
@@ -442,6 +459,20 @@ def resolve_or_create(
                 cand_m, False, relational_candidates, multihop_candidates,
                 decision=_finish(dec, ordered[idx + 1:]),
             )
+
+        # Gate 4: borderline -> apply JEV filter/hybrid rules before System 2 LLM judge.
+        jev_score = pre_noul.get(owner_id) if pre_shadow is not None and pre_shadow.get("status") == "ok" else None
+        if jev_mode == "hybrid" and jev_score is not None and jev_score >= jev_auto_merge_threshold:
+            trace.append(_trace_entry(owner_id, score, from_vector, "jev_hybrid_auto_merge", cand))
+            cand_m, dec = _execute_reversible_merge(conn, cand, name, aliases + [name], observations, document_id, new_type=etype, stage="jev_hybrid_auto_merge", score=jev_score, reason=f"JEV noul {jev_score:.4f} >= auto-merge threshold {jev_auto_merge_threshold}", theme_id=theme_id)
+            return ResolutionResult(cand_m, False, relational_candidates, multihop_candidates, decision=_finish(dec, ordered[idx + 1:]))
+        if jev_mode in ("filter", "hybrid") and jev_score is not None and jev_score < jev_filter_threshold:
+            trace.append(_trace_entry(owner_id, score, from_vector, "jev_filtered", cand))
+            if score >= tier_relational:
+                relational_candidates.append((owner_id, score))
+            elif score >= tier_multihop:
+                multihop_candidates.append((owner_id, score))
+            continue
 
         # Gate 4: 경계선(borderline) → System 2 LLM judge (게이팅)
         if judge_fn is not None and judged < MAX_JUDGE:
