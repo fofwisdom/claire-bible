@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
+
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
 
 
 async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
@@ -1875,6 +1880,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     from claire.store.telegram_bots import TelegramBotProfile
     from claire.store.theme import ThemeManager
     from claire import telegram_bot
+    from claire.i18n import t
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1920,7 +1926,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     for name in ("on_web", "on_webco", "on_webro", "on_token", "on_status"):
         update, msg = _update(42)
         await handlers[name](update, ctx)
-        assert msg.reply_text.call_args[0][0] == telegram_bot.MEMBER_REFUSAL_TEXT
+        assert msg.reply_text.call_args[0][0] == t("bot.error.member_refusal", locale="ko")
     # 도움말에 운영자 전용 명령이 없다.
     update, msg = _update(42)
     await handlers["on_help"](update, ctx)

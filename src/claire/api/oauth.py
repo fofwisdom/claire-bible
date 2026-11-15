@@ -25,6 +25,8 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from ..config import get_settings
+from ..i18n import t
+from ..notify import push_locale
 from ..presentation.favicon import render_favicon_head_tags
 from ..store import accounts as accounts_store
 from ..store import db as dbm
@@ -641,17 +643,18 @@ async def handle_telegram_push(request: Request) -> Response:
             return JSONResponse({"ok": False, "error": "temporarily_unavailable"}, status_code=503)
 
         nonce = secrets.token_urlsafe(24)
-        msg_text = (
-            "🤖 <b>Claire MCP 연결 승인 요청</b>\n\n"
-            f"• 클라이언트: <b>{_html.escape(str(client_name), quote=False)}</b>\n"
-            "• 권한: <b>readonly</b> (지식 검색 및 조회)\n\n"
-            "외부 에이전트의 연결을 승인하시겠습니까?"
-        )
+        # The push goes to the administrator account (I18N design Section 7.2): accounts.locale, then CLAIRE_LANG, then the default.
+        try:
+            admin_locale = accounts_store.AccountStore(conn).admin().locale
+        except Exception:  # noqa: BLE001
+            admin_locale = None
+        target_locale = push_locale(admin_locale, settings)
+        msg_text = t("notify.oauth.request", locale=target_locale, client=_html.escape(str(client_name), quote=False))
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "✅ 승인 (Approve)", "callback_data": f"oauth_appr:{nonce}"},
-                    {"text": "❌ 거절 (Deny)", "callback_data": f"oauth_deny:{nonce}"},
+                    {"text": t("notify.oauth.approve", locale=target_locale), "callback_data": f"oauth_appr:{nonce}"},
+                    {"text": t("notify.oauth.deny", locale=target_locale), "callback_data": f"oauth_deny:{nonce}"},
                 ]
             ]
         }

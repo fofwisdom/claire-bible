@@ -18,6 +18,9 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.telegram_bot import build_app, parse_caption_composite
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
 
 def test_parse_caption_composite_variations():
     # 1. URL 단독
@@ -609,11 +612,13 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
     for handler in app.handlers[0]:
         if getattr(handler, "callback", None) and handler.callback.__name__ == "on_document":
             # on_document 클로저에서 _prompt_theme_selection 함수 추출
+            # The registered callback is the locale wrapper of the handler (I18N design Section 7.1); the handler itself is __wrapped__.
+            on_document_fn = handler.callback.__wrapped__
             closure_dict = {
                 var: cell.cell_contents
                 for var, cell in zip(
-                    handler.callback.__code__.co_freevars,
-                    handler.callback.__closure__,
+                    on_document_fn.__code__.co_freevars,
+                    on_document_fn.__closure__,
                 )
             }
             prompt_fn = closure_dict["_prompt_theme_selection"]

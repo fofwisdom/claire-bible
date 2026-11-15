@@ -30,6 +30,10 @@ from claire.ingest.service import IngestService, IngestServicePool
 from claire.store import db as dbm
 from claire.store.theme import ThemeManager, ThemeNotFound
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
+
 OWNER_TOKEN = "owner-" + ("o" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 
@@ -433,7 +437,10 @@ def test_telegram_resolve_selected_theme_clears_stale_selection(tmp_path):
 
 
 async def test_telegram_stale_selection_refuses_ingest_and_search(tmp_path, monkeypatch):
-    from claire.telegram_bot import STALE_THEME_MESSAGE, build_app
+    from claire.i18n import t
+    from claire.telegram_bot import build_app
+
+    STALE_THEME_MESSAGE = t("bot.theme.stale", locale="ko")
 
     settings = _settings(tmp_path).model_copy(
         update={"telegram_bot_token": "12345:fake_token_for_test", "allowed_user_ids": []}

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -23,6 +24,8 @@ def _plain(html_text: str) -> str:
     return _html.unescape(_re.sub(r"<[^>]+>", "", html_text))
 
 from .config import get_settings
+from .i18n import SUPPORTED_LOCALES, resolve_bot_locale, use_locale
+from .i18n import t as _t
 from .store import db as dbm
 
 log = logging.getLogger("claire.telegram")
@@ -86,7 +89,20 @@ AdminThemeScope = AccountThemeScope
 ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webco", "webro", "token", "status"})
 # 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
 ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
-MEMBER_REFUSAL_TEXT = "이 명령은 운영자 봇에서만 쓸 수 있습니다. 웹 설정(/settings)을 쓰세요."
+# The commands of the Telegram command menu, in menu order. The description of each command is the catalog key ``bot.command.<name>``.
+COMMAND_MENU: tuple[str, ...] = ("theme", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webco", "webro", "failed", "retry", "start")
+
+
+def resolve_update_locale(update: Any, *, owner_locale: str | None, settings: Any) -> str:
+    """Locale of one Telegram update (I18N design Section 7.1): the ``accounts.locale`` of the bot owner account, the ``language_code`` of the Telegram user, ``settings.ui_lang`` (``CLAIRE_LANG``), then the default."""
+    user = getattr(update, "effective_user", None)
+    language_code = getattr(user, "language_code", None)
+    settings_lang = getattr(settings, "ui_lang", None)
+    return resolve_bot_locale(
+        owner_locale=owner_locale if isinstance(owner_locale, str) else None,
+        language_code=language_code if isinstance(language_code, str) else None,
+        settings_lang=settings_lang if isinstance(settings_lang, str) else None,
+    )
 
 
 def instance_bot_profile(settings: Any) -> Any:
@@ -329,13 +345,13 @@ async def _settle_status(
 
             kb = []
             if is_summary_failed:
-                kb.append([InlineKeyboardButton("🔄 요약 재생성", callback_data=f"rg:summ:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton(_t("bot.button.regen_summary"), callback_data=f"rg:summ:{retry_doc_id}")])
             if is_detail_failed:
-                kb.append([InlineKeyboardButton("🔄 본문 재생성 (기존 원문 기준)", callback_data=f"rg:det:{retry_doc_id}")])
-                kb.append([InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton(_t("bot.button.regen_detail_source"), callback_data=f"rg:det:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton(_t("bot.button.refetch_full_regen"), callback_data=f"rg:full:{retry_doc_id}")])
             elif is_stt_failed:
-                kb.append([InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{retry_doc_id}")])
-                kb.append([InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton(_t("bot.button.refetch_subtitles"), callback_data=f"rg:full:{retry_doc_id}")])
+                kb.append([InlineKeyboardButton(_t("bot.button.regen_detail_text"), callback_data=f"rg:det:{retry_doc_id}")])
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
             markup = None
@@ -346,8 +362,8 @@ async def _settle_status(
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
             kb = [
-                [InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트)", callback_data=f"rg:det:{retry_doc_id}")],
-                [InlineKeyboardButton("🌐 전체 원문 재수집 및 재생성", callback_data=f"rg:full:{retry_doc_id}")],
+                [InlineKeyboardButton(_t("bot.button.regen_detail_existing"), callback_data=f"rg:det:{retry_doc_id}")],
+                [InlineKeyboardButton(_t("bot.button.refetch_full_regen"), callback_data=f"rg:full:{retry_doc_id}")],
             ]
             markup = InlineKeyboardMarkup(kb)
         except Exception:  # noqa: BLE001
@@ -406,7 +422,7 @@ async def _settle_status(
                     if share_tok:
                         share_url = f"{base_url}/p?s={share_tok}"
                         markup = InlineKeyboardMarkup(
-                            [[InlineKeyboardButton("📖 문서 열람 (Reader)", url=share_url)]]
+                            [[InlineKeyboardButton(_t("bot.button.open_reader"), url=share_url)]]
                         )
             except Exception:  # noqa: BLE001
                 markup = None
@@ -431,7 +447,7 @@ _FOCUS_FLAG_RE = re.compile(
     re.IGNORECASE,
 )
 _FOCUS_PREFIX_RE = re.compile(
-    r"^(?:\[(?:초점|focus)\]|#(?:초점|focus)|(?:초점|focus)\s*[:：])\s*(.+)$",
+    r"^(?:\[(?:\ucd08\uc810|focus)\]|#(?:\ucd08\uc810|focus)|(?:\ucd08\uc810|focus)\s*[:：])\s*(.+)$",
     re.IGNORECASE,
 )
 # 파이프(|, ｜, ¦) 또는 대시(--, —, –) 구분자 지원 (파이프 중심 통일)
@@ -597,7 +613,7 @@ def parse_caption_composite(
 
 
 _THEME_TAG_RE = re.compile(
-    r"(?:^|\s)#(?:테마[::\-_]?)?([0-9]+|[a-zA-Z가-힣_]+)(?=\s|$)",
+    r"(?:^|\s)#(?:\ud14c\ub9c8[::\-_]?)?([0-9]+|[a-zA-Z\uac00-\ud7a3_]+)(?=\s|$)",
     re.IGNORECASE,
 )
 
@@ -621,7 +637,7 @@ def parse_message_theme(
     matches = list(_THEME_TAG_RE.finditer(t))
     for m in matches:
         cand = m.group(1).strip()
-        if cand.lower() in ("초점", "focus"):
+        if cand.lower() in ("\ucd08\uc810", "focus"):
             continue
         try:
             found = tm.get_theme(cand, label_match="partial")
@@ -636,13 +652,10 @@ def parse_message_theme(
     return t, None
 
 
-STALE_THEME_MESSAGE = "⚠️ 선택했던 테마가 더 이상 없습니다. /theme 으로 테마를 다시 선택하세요."
-
-
 def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: int) -> Any | None:
     """사용자가 /theme 으로 고른 테마를 엄격하게 찾는다.
 
-    고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 STALE_THEME_MESSAGE로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
+    고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 ``bot.theme.stale`` 메시지로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
     """
     from .store.theme import ThemeNotFound
 
@@ -793,7 +806,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     if profile is None:
         profile = instance_bot_profile(s)
         if profile is None:
-            raise ValueError("TELEGRAM_BOT_TOKEN 이 없습니다. .env 에 설정하세요.")
+            raise ValueError("TELEGRAM_BOT_TOKEN is not set. Set it in .env.")
     setup_telegram_logging(s.data_dir)
     bot_account_id = int(profile.account_id)
     is_admin_bot = bot_account_id == dbm.ADMIN_ACCOUNT_ID
@@ -817,7 +830,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             filters,
         )
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"python-telegram-bot 미설치: {e}\n  uv sync 후 다시 시도하세요.") from e
+        raise RuntimeError(f"python-telegram-bot is not installed: {e}\n  Run uv sync, then try again.") from e
 
     import asyncio
     import tempfile
@@ -865,13 +878,36 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             account_id=bot_account_id,
         )
 
+    def _owner_locale() -> str | None:
+        """The ``accounts.locale`` of the bot owner account. ``None`` when the value is not set or when the database is not readable."""
+        try:
+            from .store.accounts import AccountStore
+
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return AccountStore(conn).get(bot_account_id).locale
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _localized(handler: Any) -> Any:
+        """Run the handler of one update in the locale of that update (I18N design Section 7.1)."""
+
+        @functools.wraps(handler)
+        async def _wrapper(update: Any, ctx: Any) -> Any:
+            with use_locale(resolve_update_locale(update, owner_locale=_owner_locale(), settings=s)):
+                return await handler(update, ctx)
+
+        return _wrapper
+
     async def _refuse_member(update: Any) -> bool:
         """멤버 계정 봇이면 거부 응답을 보내고 True."""
         if is_admin_bot:
             return False
         msg = getattr(update, "effective_message", None)
         if msg is not None:
-            await msg.reply_text(MEMBER_REFUSAL_TEXT)
+            await msg.reply_text(_t("bot.error.member_refusal"))
         return True
     user_active_themes: dict[int, int] = {}
     pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, theme_id))
@@ -893,14 +929,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         conn.close()
                     if share_tok:
                         share_url = f"{base_url}/p?s={share_tok}"
-                        kb.append([InlineKeyboardButton("📖 문서 열람 (Reader)", url=share_url)])
+                        kb.append([InlineKeyboardButton(_t("bot.button.open_reader"), url=share_url)])
             except Exception:  # noqa: BLE001
                 pass
         kb.extend([
             [InlineKeyboardButton(
-                f"🔗 관련 링크 {len(candidates)}개 가져오기",
+                _t("bot.button.expand", count=len(candidates)),
                 callback_data=f"exp:{token}")],
-            [InlineKeyboardButton("아니요", callback_data=f"no:{token}")],
+            [InlineKeyboardButton(_t("bot.button.no"), callback_data=f"no:{token}")],
         ])
         return InlineKeyboardMarkup(kb)
 
@@ -942,7 +978,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         for t in themes:
             pub_mark = "" if getattr(t, "is_public", True) else " 🔒"
             kb.append([InlineKeyboardButton(f"{t.icon} {t.label} (#{t.id}){pub_mark}", callback_data=f"igt:{token}:{t.id}")])
-        kb.append([InlineKeyboardButton("❌ 취소", callback_data=f"igc:{token}")])
+        kb.append([InlineKeyboardButton(_t("bot.button.cancel"), callback_data=f"igc:{token}")])
         return InlineKeyboardMarkup(kb)
 
     async def _prompt_theme_selection(
@@ -956,14 +992,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     ):
         # RD24: bot messages use Telegram HTML, not Markdown. Each value is escaped.
         prompt_lines = [
-            "🎯 <b>적재할 테마(지식베이스)를 선택하세요</b>",
+            "🎯 <b>" + _t("bot.ingest.select_theme.title") + "</b>",
             "",
-            f"• 대상: <code>{_h(target_desc)}</code>" + (f" (<code>{_h(kind_label)}</code>)" if kind_label else ""),
+            f"• {_t('bot.label.target')}: <code>{_h(target_desc)}</code>" + (f" (<code>{_h(kind_label)}</code>)" if kind_label else ""),
         ]
         if focus:
-            prompt_lines.append(f"• 초점: <code>{_h(focus)}</code>")
+            prompt_lines.append(f"• {_t('bot.label.focus')}: <code>{_h(focus)}</code>")
         prompt_lines.append("")
-        prompt_lines.append("원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다.")
+        prompt_lines.append(_t("bot.ingest.select_theme.hint"))
         prompt_text = "\n".join(prompt_lines)
         markup = _theme_selection_markup(token, themes)
         try:
@@ -971,14 +1007,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         except Exception as e:
             log.warning("HTML entity parsing failed in _prompt_theme_selection, falling back to plain text: %s", e)
             plain_lines = [
-                "🎯 적재할 테마(지식베이스)를 선택하세요",
+                "🎯 " + _t("bot.ingest.select_theme.title"),
                 "",
-                f"• 대상: {target_desc}" + (f" ({kind_label})" if kind_label else ""),
+                f"• {_t('bot.label.target')}: {target_desc}" + (f" ({kind_label})" if kind_label else ""),
             ]
             if focus:
-                plain_lines.append(f"• 초점: {focus}")
+                plain_lines.append(f"• {_t('bot.label.focus')}: {focus}")
             plain_lines.append("")
-            plain_lines.append("원하는 테마 버튼을 누르면 즉시 적재가 시작됩니다.")
+            plain_lines.append(_t("bot.ingest.select_theme.hint"))
             return await msg.reply_text("\n".join(plain_lines), reply_markup=markup)
 
     async def _execute_ingest(
@@ -998,15 +1034,15 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     ) -> None:
         if not focus and not target_theme.is_default and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
             focus = target_theme.default_focus.strip() or None
-        label = f"처리 중… ({kind_label})" if kind_label else "처리 중…"
+        label = _t("bot.progress.processing_kind", kind=kind_label) if kind_label else _t("bot.progress.processing")
         if target_theme.id != 0:
             label = f"[{target_theme.icon} {target_theme.label}] " + label
         if has_refetch_full:
-            label += " [원문 전체]"
+            label += " " + _t("bot.progress.tag.full_source")
         if has_effort:
-            label += f" [추론: {has_effort}]"
+            label += " " + _t("bot.progress.tag.effort", effort=has_effort)
         if focus:
-            label += f" [초점: {focus[:20]}]"
+            label += " " + _t("bot.progress.tag.focus", focus=focus[:20])
 
         try:
             await status_msg.edit_text(f"⏳ {label}")
@@ -1050,7 +1086,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 report.duplicate,
                 stt_error=report.stt_error,
                 detail_error=report.detail_error if is_detail_failed else None,
-                summary_error="요약 누락" if is_summary_failed else None,
+                summary_error="summary missing" if is_summary_failed else None,
             )
             did = report.document_id
             log.info(
@@ -1065,7 +1101,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         except Exception as e:  # noqa: BLE001
             log.exception("Unhandled error in _execute_ingest: %s", e)
             summary, cands, emoji, is_stt_failed, is_detail_failed, is_summary_failed, has_error, is_duplicate, did = (
-                f"❌ 처리 오류: {e}",
+                _t("bot.error.processing", error=e),
                 [],
                 "👎",
                 False,
@@ -1092,64 +1128,22 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             theme_id=target_theme.id,
         )
 
-    HELP = (
-        "📚 Claire Bible — 개인 지식베이스 봇\n"
-        f"  (리포지토리: {s.effective_source_base_url})\n"
-        "\n"
-        "그냥 보내면 적재됩니다:\n"
-        "  • 링크(웹/유튜브/x.com/google share)\n"
-        "  • PDF·텍스트 파일 (캡션에 초점 작성 가능)\n"
-        "  • 키워드/메모 등 자유 텍스트\n"
-        "→ 스크랩 → Gemini 구조화 → 그래프로 저장, 기존 항목과 자동 연결.\n"
-        "  관련 링크가 보이면 '가져오기' 버튼으로 1홉 확장.\n"
-        "\n"
-        "💡 다중 테마 모드:\n"
-        "  • 자료 적재 시 어느 테마에 적재할지 대화형 버튼으로 물어봅니다.\n"
-        "  • 메시지에 `#1` 또는 `#{테마명}`을 포함하면 해당 테마로 즉시 적재됩니다.\n"
-        "\n"
-        "💡 공유 URL 관리 (원터치 액션 & 플래그):\n"
-        "  • 보관된 문서의 공유 URL(/p?s=...) 또는 문서ID를 전송하면\n"
-        "    본문 재생성 및 원문 재수집(길이 제한 / 전체 길이) 버튼이 제공됩니다.\n"
-        "  • 옵션과 함께 전송하면 즉시 실행됩니다:\n"
-        "    예: https://.../p?s=token --refetch-full --effort high | 새 초점\n"
-        "\n"
-        "💡 본문 작성 초점(Focus) 및 옵션 지정 방법:\n"
-        "  • 파이프 구분: https://example.com/doc | 시스템 아키텍처 중심\n"
-        "  • 무절단/추론 레벨 옵션: https://example.com/doc --full --effort high | 아키텍처 중심\n"
-        "  • 빈 줄(두 번 줄바꿈) 구분:\n"
-        "    https://example.com/doc\n\n"
-        "    초보자 튜토리얼 관점으로 작성해줘\n"
-        "  • 파일/PDF 전송 시 캡션에 원하는 초점 및 옵션(--full, --effort high)을 적어서 전송\n"
-        "\n"
-        "명령어:\n"
-        "  /theme [번호|이름] — 기본 검색 테마 선택 및 테마 목록 확인\n"
-        "  /search <키워드> — 하이브리드 검색 + 요약(인용)\n"
-        "  /ingest <URL|텍스트> [| <초점>] — 초점 지정 적재\n"
-        "  /support bundle [일수] [대상] — 진단 Support Bundle 생성 (기본 1일, 6시간 자동 파기)\n"
-        "  /web — 1회용 웹 로그인 링크 발급(로그인 쿠키 7일, 적재/수정 가능)\n"
-        "  /webco — 협력자 웹 링크 발급(추가 테마 적재·열람, 기본 테마 보호)\n"
-        "  /webro — 읽기전용 웹 링크 발급(그래프·검색·문서만, 공유해도 안전)\n"
-        "  /repo — 소스 리포지토리 접근 링크\n"
-        "  /status — 현황(그래프 규모·수렴·최근 수신)\n"
-        "  /failed — 실패/영구실패 항목 점검\n"
-        "  /retry <번호> — 특정 실패 항목 재시도\n"
-        "  /help — 이 도움말\n"
-        "  /start — 시작 안내"
-    )
-
-    if not is_admin_bot:
-        # 멤버 계정 봇 도움말에서 운영자 전용 명령 줄을 뺀다.
-        HELP = "\n".join(
+    def _help_text() -> str:
+        text = _t("bot.help.text", repo=s.effective_source_base_url)
+        if is_admin_bot:
+            return text
+        # The help of a member account bot does not show the lines of the operator commands.
+        return "\n".join(
             line
-            for line in HELP.splitlines()
+            for line in text.splitlines()
             if not any(line.strip().startswith(f"/{cmd} ") or line.strip() == f"/{cmd}" for cmd in ADMIN_ONLY_COMMANDS)
         )
 
     async def on_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        await update.message.reply_text(HELP)
+        await update.message.reply_text(_help_text())
 
     async def on_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        await update.message.reply_text(HELP)
+        await update.message.reply_text(_help_text())
 
     async def on_theme(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
@@ -1157,8 +1151,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         if not getattr(s, "multi_theme", False):
             await update.message.reply_text(
-                "ℹ️ <b>현재 싱글 테마 모드로 동작 중입니다 (기본 테마).</b>\n\n"
-                "다중 데이터베이스 테마 기능을 활성화하려면 서버 환경변수에 <code>CLAIRE_MULTI_THEME=1</code>을 설정해야 합니다.",
+                _t("bot.theme.single_mode"),
                 parse_mode="HTML",
             )
             return
@@ -1173,8 +1166,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 target = theme_mgr.get_theme(arg, label_match="partial")
                 user_active_themes[uid] = target.id
                 msg_text = (
-                    f"✅ 기본 검색 테마가 {_h(target.icon)} <b>{_h(target.label)}</b> (#{target.id})로 설정되었습니다.\n\n"
-                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
+                    _t("bot.theme.selected", icon=_h(target.icon), label=_h(target.label), id=target.id)
                 )
                 try:
                     await update.message.reply_text(msg_text, parse_mode="HTML")
@@ -1182,21 +1174,21 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     await update.message.reply_text(_plain(msg_text))
                 return
             except KeyError:
-                await update.message.reply_text(f"❌ 테마를 찾을 수 없습니다: '{arg}'")
+                await update.message.reply_text(_t("bot.theme.not_found", name=arg))
                 return
 
         current_theme = resolve_selected_theme(theme_mgr, user_active_themes, uid)
         stale_lines = []
         if current_theme is None:
             # 삭제된 선택은 지웠으므로 선택 없음(기본 테마 0)으로 보여 주고 그 사실을 알린다
-            stale_lines = ["⚠️ 선택했던 테마가 더 이상 없어 선택을 지웠습니다.", ""]
+            stale_lines = [_t("bot.theme.stale_cleared"), ""]
             current_theme = theme_mgr.get_theme(0)
         current_tid = current_theme.id
         lines = stale_lines + [
-            f"🎯 <b>현재 선택된 검색 테마</b>: {_h(current_theme.icon)} <b>{_h(current_theme.label)}</b> (#{current_theme.id})",
+            _t("bot.theme.current", icon=_h(current_theme.icon), label=_h(current_theme.label), id=current_theme.id),
             "",
-            "지식 관리자가 등록한 테마 목록 중 원하는 테마를 선택하세요:",
-            "(자료 적재 시에는 적재 명령 시에 테마를 직접 선택합니다)",
+            _t("bot.theme.choose"),
+            _t("bot.theme.choose_note"),
         ]
         kb = []
         for t in themes:
@@ -1218,7 +1210,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     async def on_message(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            await update.message.reply_text(_t("bot.error.not_allowed"))
             return
         raw_text = (update.message.text or "").strip()
         if not raw_text:
@@ -1237,7 +1229,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             else:
                 active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
                 if active_theme is None:
-                    await update.message.reply_text(STALE_THEME_MESSAGE)
+                    await update.message.reply_text(_t("bot.theme.stale"))
                     return
             active_theme_id = active_theme.id
             active_svc = service_pool.get_service(active_theme_id)
@@ -1261,7 +1253,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     active_theme = theme_mgr.get_theme(res_tid)
                 except ThemeNotFound:
                     # 삭제된 테마의 공유 링크를 테마 0에서 처리하지 않는다
-                    await update.message.reply_text("⚠️ 이 공유 링크의 문서가 속한 테마가 더 이상 없습니다.")
+                    await update.message.reply_text(_t("bot.share.theme_gone"))
                     return
                 active_theme_id = res_tid
                 active_svc = service_pool.get_service(res_tid)
@@ -1307,15 +1299,15 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if target_doc_id:
             # 1. 초점 또는 재수집 플래그가 함께 전달된 경우 -> 즉시 실행
             if has_refetch or has_refetch_full or has_effort or focus:
-                label = f"본문 재생성 중… ({target_doc_id})"
+                label = _t("bot.regen.progress", doc_id=target_doc_id)
                 if has_refetch_full:
-                    label += " [원문 전체 재수집]"
+                    label += " " + _t("bot.progress.tag.refetch_full")
                 elif has_refetch:
-                    label += " [원문 재수집]"
+                    label += " " + _t("bot.progress.tag.refetch")
                 if focus:
-                    label += f" [초점: {focus[:20]}]"
+                    label += " " + _t("bot.progress.tag.focus", focus=focus[:20])
                 if has_effort:
-                    label += f" [추론: {has_effort}]"
+                    label += " " + _t("bot.progress.tag.effort", effort=has_effort)
                 status = await msg.reply_text(f"⏳ {label}")
                 try:
                     res = await _run_with_ticker(
@@ -1331,35 +1323,35 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         ),
                     )
                     if res.get("error"):
-                        ans = f"❌ 재생성 실패: {res['error']}"
+                        ans = _t("bot.regen.failed", error=res["error"])
                         emoji = "👎"
                     elif res.get("count", 0) > 0:
                         tinfo = res["targets"][0]
-                        focus_msg = f"\n초점: {focus}" if focus else ""
+                        focus_msg = f"\n{_t('bot.label.focus')}: {focus}" if focus else ""
                         if tinfo.get("refetch_error"):
-                            ans = f"⚠️ 원문 재수집 오류: {tinfo['refetch_error']}"
+                            ans = _t("bot.regen.refetch_error", error=tinfo["refetch_error"])
                             emoji = "👎"
                         elif tinfo.get("error"):
-                            ans = f"⚠️ 지식 생성 오류: {tinfo['error']}"
+                            ans = _t("bot.regen.knowledge_error", error=tinfo["error"])
                             emoji = "👎"
                         elif (has_refetch or has_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
                             stt_err = tinfo.get("stt_error")
-                            err_detail = f" (오류: {stt_err})" if stt_err else ""
-                            ans = f"⚠️ 비디오 자막 수집/전사 실패: 자막이 본문에 반영되지 못했습니다.{err_detail}"
+                            err_detail = f" ({_t('bot.label.error')}: {stt_err})" if stt_err else ""
+                            ans = _t("bot.regen.subtitle_failed", detail=err_detail)
                             emoji = "👎"
                         else:
                             ref_msg = ""
                             if tinfo.get("refetched_full"):
-                                ref_msg = f" (원문 전체 재수집 {tinfo.get('new_len', 0):,}자)"
+                                ref_msg = " (" + _t("bot.regen.note.refetched_full", chars=f"{tinfo.get('new_len', 0):,}") + ")"
                             elif tinfo.get("refetched"):
-                                ref_msg = f" (원문 재수집 {tinfo.get('new_len', 0):,}자)"
-                            ans = f"✅ 본문 재생성 완료: {tinfo.get('title', target_doc_id)}{ref_msg}{focus_msg}"
+                                ref_msg = " (" + _t("bot.regen.note.refetched", chars=f"{tinfo.get('new_len', 0):,}") + ")"
+                            ans = _t("bot.regen.done", title=str(tinfo.get("title", target_doc_id)), detail=ref_msg + focus_msg)
                             emoji = "👍"
                     else:
-                        ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {target_doc_id}"
+                        ans = _t("bot.regen.doc_not_found", doc_id=target_doc_id)
                         emoji = "🤔"
                 except Exception as e:
-                    ans = f"❌ 재생성 오류: {e}"
+                    ans = _t("bot.regen.error", error=e)
                     emoji = "👎"
                 await _react(msg, emoji)
                 await status.edit_text(ans)
@@ -1379,15 +1371,15 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if doc and ((doc.meta or {}).get("stt_truncated") or (doc.meta or {}).get("raw_truncated")):
                 orig = (doc.meta or {}).get("stt_orig_chars") or (doc.meta or {}).get("orig_chars", raw_len)
                 if (doc.meta or {}).get("stt_truncated"):
-                    trunc_info = f"\n✂️ 음성 전사(STT)가 일부 절단된 상태로 적재됨 ({raw_len:,}자 / 원본 {orig:,}자)"
+                    trunc_info = "\n" + _t("bot.doc.trunc.stt", chars=f"{raw_len:,}", orig=f"{orig:,}")
                 elif (doc.meta or {}).get("appendix_truncated") and (doc.meta or {}).get("references_truncated"):
-                    trunc_info = f"\n✂️ 부록 및 참고문헌 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+                    trunc_info = "\n" + _t("bot.doc.trunc.appendix_references", chars=f"{raw_len:,}", orig=f"{orig:,}")
                 elif (doc.meta or {}).get("references_truncated"):
-                    trunc_info = f"\n✂️ 참고문헌(References) 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+                    trunc_info = "\n" + _t("bot.doc.trunc.references", chars=f"{raw_len:,}", orig=f"{orig:,}")
                 elif (doc.meta or {}).get("appendix_truncated"):
-                    trunc_info = f"\n✂️ 부록(Appendix) 제외 정책으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+                    trunc_info = "\n" + _t("bot.doc.trunc.appendix", chars=f"{raw_len:,}", orig=f"{orig:,}")
                 else:
-                    trunc_info = f"\n⚠️ 환경변수 상한으로 원문 일부 절단함 ({raw_len:,}자 / 원본 {orig:,}자)"
+                    trunc_info = "\n" + _t("bot.doc.trunc.limit", chars=f"{raw_len:,}", orig=f"{orig:,}")
 
             if doc and (doc.meta or {}).get("pdf_parser_fallback"):
                 meta_p = doc.meta or {}
@@ -1401,48 +1393,46 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     used = "PyPDFium2"
                 elif used == "Pypdf":
                     used = "PyPDF"
-                reason = meta_p.get("pdf_parser_fallback_reason") or f"{req} 런타임 오류"
-                trunc_info += f"\n⚠️ PDF 파서 대체: {req} 실패로 {used} 적용 ({reason})"
+                reason = meta_p.get("pdf_parser_fallback_reason") or _t("bot.doc.pdf.runtime_error", parser=req)
+                trunc_info += "\n" + _t("bot.doc.pdf.fallback", requested=req, used=used, reason=reason)
 
             if doc and (doc.meta or {}).get("pdf_encoding_flaw_detected"):
                 flaws = (doc.meta or {}).get("pdf_encoding_flaws") or []
-                flaw_txt = ", ".join(flaws) if flaws else "텍스트 레이어 결함"
-                trunc_info += f"\n⚠️ PDF 인코딩 결함 감지: {flaw_txt}"
+                flaw_txt = ", ".join(flaws) if flaws else _t("bot.doc.pdf.text_layer_flaw")
+                trunc_info += "\n" + _t("bot.doc.pdf.encoding_flaw", flaws=flaw_txt)
 
             if doc and (doc.meta or {}).get("pdf_is_scanned"):
-                trunc_info += "\n📷 스캔본(이미지 위주) PDF: 텍스트 레이어가 부족하여 OCR 변환이 권장됩니다."
+                trunc_info += "\n" + _t("bot.doc.pdf.scanned")
 
             is_video = bool(doc and doc.source_type == "video")
             has_ts = bool((doc.meta or {}).get("has_transcript")) if doc else False
             video_info = ""
             if is_video and not has_ts:
-                video_info = "\n🎙️ 영상 자막(CC/STT) 미추출 상태 — 아래 버튼으로 재수집을 권장합니다."
+                video_info = "\n" + _t("bot.doc.video.no_transcript")
 
             if is_video and not has_ts:
                 kb = [
-                    [InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{target_doc_id}")],
+                    [InlineKeyboardButton(_t("bot.button.refetch_subtitles"), callback_data=f"rg:full:{target_doc_id}")],
                     [
-                        InlineKeyboardButton("🔄 본문 재생성 (기존 텍스트 기준)", callback_data=f"rg:det:{target_doc_id}"),
+                        InlineKeyboardButton(_t("bot.button.regen_detail_text"), callback_data=f"rg:det:{target_doc_id}"),
                     ],
-                    [InlineKeyboardButton("📦 Support Bundle 생성", callback_data=f"sb:{target_doc_id}")],
+                    [InlineKeyboardButton(_t("bot.button.support_bundle"), callback_data=f"sb:{target_doc_id}")],
                 ]
             else:
                 kb = [
                     [
-                        InlineKeyboardButton("🔄 요약 재생성", callback_data=f"rg:summ:{target_doc_id}"),
-                        InlineKeyboardButton("🔄 본문 재생성", callback_data=f"rg:det:{target_doc_id}"),
+                        InlineKeyboardButton(_t("bot.button.regen_summary"), callback_data=f"rg:summ:{target_doc_id}"),
+                        InlineKeyboardButton(_t("bot.button.regen_detail"), callback_data=f"rg:det:{target_doc_id}"),
                     ],
                     [
-                        InlineKeyboardButton("📥 원문 재수집 (길이 제한)", callback_data=f"rg:ref:{target_doc_id}"),
-                        InlineKeyboardButton("🌐 전체 원문 재수집 (전체 길이)", callback_data=f"rg:full:{target_doc_id}"),
+                        InlineKeyboardButton(_t("bot.button.refetch_limited"), callback_data=f"rg:ref:{target_doc_id}"),
+                        InlineKeyboardButton(_t("bot.button.refetch_full"), callback_data=f"rg:full:{target_doc_id}"),
                     ],
-                    [InlineKeyboardButton("📦 Support Bundle 생성", callback_data=f"sb:{target_doc_id}")],
+                    [InlineKeyboardButton(_t("bot.button.support_bundle"), callback_data=f"sb:{target_doc_id}")],
                 ]
             markup = InlineKeyboardMarkup(kb)
             await msg.reply_text(
-                f"📄 {doc_title}\n"
-                f"• 보관 본문: {raw_len:,}자{trunc_info}{video_info}\n\n"
-                "수행할 작업을 선택하세요:",
+                _t("bot.doc.actions", title=str(doc_title), chars=f"{raw_len:,}", info=trunc_info + video_info),
                 reply_markup=markup,
             )
             return
@@ -1485,7 +1475,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         active_tid = explicit_theme_id if explicit_theme_id is not None else 0
         active_theme = theme_mgr.get_theme(active_tid)
-        status = await msg.reply_text("⏳ 처리 중…")
+        status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,
             msg,
@@ -1503,7 +1493,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     async def on_document(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            await update.message.reply_text(_t("bot.error.not_allowed"))
             return
         doc = update.message.document or update.message.video or update.message.audio
         if not doc:
@@ -1538,11 +1528,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             tmp_path = await _download()
         except Exception as e:  # noqa: BLE001
             await _react(msg, "👎")
-            await msg.reply_text(f"❌ 다운로드 실패: {e}")
+            await msg.reply_text(_t("bot.error.download", error=e))
             return
 
         is_composite = bool(composite_url)
-        kind_label = "복합" if is_composite else "파일"
+        kind_label = _t("bot.kind.composite") if is_composite else _t("bot.kind.file")
 
         themes = theme_mgr.list_themes() if is_multi else []
         if is_multi and len(themes) > 1 and explicit_tid is None:
@@ -1599,9 +1589,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         active_tid = explicit_tid if explicit_tid is not None else 0
         active_theme = theme_mgr.get_theme(active_tid)
         status_text = (
-            f"⏳ 복합 적재 처리 중… ({name} + 링크)"
+            _t("bot.progress.composite", name=name)
             if is_composite
-            else f"⏳ 파일 처리 중… ({name})"
+            else _t("bot.progress.file", name=name)
         )
         status = await msg.reply_text(status_text)
         def _work(target_svc):
@@ -1647,17 +1637,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     async def on_ingest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            await update.message.reply_text(_t("bot.error.not_allowed"))
             return
         raw = " ".join(ctx.args) if ctx.args else ""
         if not raw:
             await update.message.reply_text(
-                "사용법:\n"
-                "  /ingest <URL 또는 텍스트>\n"
-                "  /ingest <URL 또는 텍스트> | <초점>\n"
-                "  /ingest <URL 또는 텍스트> --full --effort high | <초점>\n"
-                "  /ingest <URL 또는 텍스트> #테마 [| <초점>]\n"
-                "  예: /ingest https://example.com/doc --full --effort high | 시스템 아키텍처 중심"
+                _t("bot.ingest.usage")
             )
             return
 
@@ -1705,7 +1690,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         active_tid = explicit_tid if explicit_tid is not None else 0
         active_theme = theme_mgr.get_theme(active_tid)
-        status = await msg.reply_text("⏳ 처리 중…")
+        status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,
             msg,
@@ -1741,9 +1726,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             try:
                 code = dbm.approve_oauth_auth_request(conn, nonce)
                 if code:
-                    await query.edit_message_text("✅ Gemini MCP 연결 요청이 승인되었습니다.\n브라우저로 돌아가 연동을 완료하세요.")
+                    await query.edit_message_text(_t("bot.oauth.approved"))
                 else:
-                    await query.edit_message_text("⚠️ 이미 처리되었거나 만료된 요청입니다.")
+                    await query.edit_message_text(_t("bot.oauth.expired"))
             finally:
                 conn.close()
             return
@@ -1756,7 +1741,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             conn = dbm.connect_existing(s.db_file)
             try:
                 dbm.deny_oauth_auth_request(conn, nonce)
-                await query.edit_message_text("❌ Gemini MCP 연결 요청이 거부되었습니다.")
+                await query.edit_message_text(_t("bot.oauth.denied"))
             finally:
                 conn.close()
             return
@@ -1771,9 +1756,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             token, tid_str = parts[1], parts[2]
             item = pending_ingest.pop(token, None)
             if not item:
-                await query.answer("만료되었거나 이미 처리된 요청입니다.")
+                await query.answer(_t("bot.ingest.expired_toast"))
                 try:
-                    await query.edit_message_text("⚠️ 만료되었거나 이미 처리된 적재 요청입니다.")
+                    await query.edit_message_text(_t("bot.ingest.expired"))
                 except Exception:
                     pass
                 return
@@ -1782,10 +1767,10 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 target_tid = int(tid_str)
                 target_theme = theme_mgr.get_theme(target_tid)
             except Exception as e:
-                await query.answer(f"테마 확인 실패: {e}")
+                await query.answer(_t("bot.theme.check_failed", error=e))
                 return
 
-            await query.answer(f"테마 선택: {target_theme.icon} {target_theme.label}")
+            await query.answer(_t("bot.theme.picked", icon=target_theme.icon, label=target_theme.label))
             status_msg = query.message
             await _execute_ingest(
                 status_msg,
@@ -1812,9 +1797,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             item = pending_ingest.pop(token, None)
             if item and item.get("tmp_path"):
                 Path(item["tmp_path"]).unlink(missing_ok=True)
-            await query.answer("적재가 취소되었습니다.")
+            await query.answer(_t("bot.ingest.cancelled"))
             try:
-                await query.edit_message_text("❌ 적재가 취소되었습니다.")
+                await query.edit_message_text("❌ " + _t("bot.ingest.cancelled"))
             except Exception:
                 pass
             return
@@ -1832,12 +1817,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             do_refetch_full = (mode == "full")
             do_summary = (mode == "summ")
             do_detail = (mode == "det" or do_refetch or do_refetch_full)
-            mode_name = "전체 재수집 및 재생성" if do_refetch_full else ("재수집 및 재생성" if do_refetch else ("요약 재생성" if do_summary else "본문 재생성"))
+            mode_name = _t("bot.regen.mode.refetch_full") if do_refetch_full else (_t("bot.regen.mode.refetch") if do_refetch else (_t("bot.regen.mode.summary") if do_summary else _t("bot.regen.mode.detail")))
             try:
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception:
                 pass
-            status_msg = await query.message.reply_text(f"⏳ {mode_name} 처리 중… ({did})")
+            status_msg = await query.message.reply_text(_t("bot.regen.mode_progress", mode=mode_name, doc_id=did))
 
             # Determine the document's theme: check active theme first, then theme_mgr.resolve_document_targets
             user_id = user.id if user else 0
@@ -1845,7 +1830,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if is_multi:
                 active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
                 if active_theme is None:
-                    await status_msg.edit_text(STALE_THEME_MESSAGE)
+                    await status_msg.edit_text(_t("bot.theme.stale"))
                     return
                 target_svc = service_pool.get_service(active_theme.id)
             else:
@@ -1885,27 +1870,27 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     ),
                 )
                 if res.get("error"):
-                    ans = f"❌ {mode_name} 실패: {res['error']}"
+                    ans = _t("bot.regen.mode_failed", mode=mode_name, error=res["error"])
                 elif res.get("count", 0) > 0:
                     tinfo = res["targets"][0]
                     if tinfo.get("refetch_error"):
-                        ans = f"⚠️ 원문 재수집 오류: {tinfo['refetch_error']}"
+                        ans = _t("bot.regen.refetch_error", error=tinfo["refetch_error"])
                     elif tinfo.get("error"):
-                        ans = f"⚠️ 지식 생성 오류: {tinfo['error']}"
+                        ans = _t("bot.regen.knowledge_error", error=tinfo["error"])
                     elif (do_refetch or do_refetch_full) and tinfo.get("source_type") == "video" and tinfo.get("has_transcript") is False:
                         stt_err = tinfo.get("stt_error")
-                        err_detail = f" (오류: {stt_err})" if stt_err else ""
-                        ans = f"⚠️ {mode_name} 실패: CC 수집 또는 오디오 STT에 실패하여 자막이 포함되지 않았습니다.{err_detail}"
-                        kb = [[InlineKeyboardButton("🎙️ 비디오 자막 재수집 및 적재", callback_data=f"rg:full:{did}")]]
+                        err_detail = f" ({_t('bot.label.error')}: {stt_err})" if stt_err else ""
+                        ans = _t("bot.regen.mode_subtitle_failed", mode=mode_name, detail=err_detail)
+                        kb = [[InlineKeyboardButton(_t("bot.button.refetch_subtitles"), callback_data=f"rg:full:{did}")]]
                         await status_msg.edit_text(ans, reply_markup=InlineKeyboardMarkup(kb))
                         return
                     else:
-                        len_info = f" ({tinfo.get('new_len', 0):,}자)" if (do_refetch or do_refetch_full) else ""
-                        ans = f"✅ {mode_name} 완료: {tinfo.get('title', did)}{len_info}"
+                        len_info = " (" + _t("bot.count.chars", chars=f"{tinfo.get('new_len', 0):,}") + ")" if (do_refetch or do_refetch_full) else ""
+                        ans = _t("bot.regen.mode_done", mode=mode_name, title=str(tinfo.get("title", did)), detail=len_info)
                 else:
-                    ans = f"⚠️ 대상 문서를 찾을 수 없습니다: {did}"
+                    ans = _t("bot.regen.doc_not_found", doc_id=did)
             except Exception as e:
-                ans = f"❌ {mode_name} 오류: {e}"
+                ans = _t("bot.regen.mode_error", mode=mode_name, error=e)
             await status_msg.edit_text(ans)
             return
         if data.startswith("sb:"):
@@ -1917,7 +1902,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 await query.edit_message_reply_markup(reply_markup=None)
             except Exception:
                 pass
-            status_msg = await query.message.reply_text(f"⏳ 문서 `{did}` 대상 Support Bundle 생성 중…")
+            status_msg = await query.message.reply_text(_t("bot.support.doc_progress", doc_id=did))
             try:
                 info = await _deliver_support_bundle(
                     days=1,
@@ -1925,13 +1910,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     channel="telegram_callback",
                 )
                 reply_text = (
-                    f"📦 문서 `{did}` Support Bundle 생성 완료\n\n"
-                    f"• 번들 ID: `{info.bundle_id}`\n"
-                    f"• 파일 크기: {info.size_bytes / 1024:.1f} KB (zstd 압축)\n"
-                    f"• 수집 기간: 최근 {info.days_covered}일\n"
-                    f"• 유효 기한: 6시간 후 자동 파기\n"
-                    f"• 다운로드 링크 (6시간 유효):\n{info.download_url}\n\n"
-                    "⚠️ 6시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+                    _t("bot.support.doc_done_title", doc_id=did) + "\n\n" + _t("bot.support.done_body", bundle_id=info.bundle_id, size_kb=f"{info.size_bytes / 1024:.1f}", days=info.days_covered, target_line="", url=info.download_url)
                 )
                 await status_msg.edit_text(reply_text, disable_web_page_preview=True)
                 if info.filepath.is_file() and info.size_bytes < 45 * 1024 * 1024:
@@ -1945,7 +1924,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     except Exception as doc_err:
                         log.warning("Failed to send support bundle as telegram document: %s", doc_err)
             except Exception as exc:
-                await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
+                await status_msg.edit_text(_t("bot.support.error", error=exc))
             return
         if data.startswith("set_theme:"):
             user = update.effective_user
@@ -1957,17 +1936,16 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 theme = theme_mgr.get_theme(target_tid)
                 uid = user.id if user else 0
                 user_active_themes[uid] = theme.id
-                await query.answer(f"테마: {theme.icon} {theme.label}")
+                await query.answer(_t("bot.theme.toast", icon=theme.icon, label=theme.label))
                 msg_text = (
-                    f"✅ 기본 검색 테마가 {_h(theme.icon)} <b>{_h(theme.label)}</b> (#{theme.id})로 설정되었습니다.\n\n"
-                    f"/search 시 이 테마를 기본 검색합니다. (자료 적재 시에는 명령 시에 테마를 선택합니다)"
+                    _t("bot.theme.selected", icon=_h(theme.icon), label=_h(theme.label), id=theme.id)
                 )
                 try:
                     await query.edit_message_text(msg_text, parse_mode="HTML")
                 except Exception:
                     await query.edit_message_text(_plain(msg_text))
             except Exception as e:
-                await query.answer(f"테마 변경 실패: {e}")
+                await query.answer(_t("bot.theme.change_failed", error=e))
             return
         if data.startswith("auth:"):
             # 웹 UI 접속 승인 — 소유자만. DB 에 세션 토큰 발급(웹이 poll 로 수령).
@@ -1983,8 +1961,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 conn.close()
             # 메시지 편집 = 버튼 제거(reply_markup 미지정 → 제거).
             await query.edit_message_text(
-                "✅ 웹 접속이 승인되었습니다. 브라우저로 돌아가세요."
-                if tok else "⚠️ 만료되었거나 이미 처리된 요청입니다.")
+                _t("bot.web.approved")
+                if tok else _t("bot.web.approval_expired"))
             return
         if data.startswith("no:"):
             # 거절: 진행/결과 메시지를 아예 삭제(스팸 감소 — 적재 결과는 원본 reaction 으로
@@ -2008,7 +1986,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 exp_svc = service_pool.get_service(exp_tid)
             except ThemeNotFound:
                 # 적재 뒤 테마가 삭제됐으면 테마 0으로 확장 적재하지 않는다
-                await query.edit_message_text("⚠️ 이 문서의 테마가 더 이상 없어 확장 적재를 하지 않습니다.")
+                await query.edit_message_text(_t("bot.expand.theme_gone"))
                 return
             # 같은 메시지를 in-place 편집해 진행→결과로 갱신(새 메시지 2개 더 안 만든다).
             async def _edit(text: str) -> None:
@@ -2016,7 +1994,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     await query.edit_message_text(text)
                 except Exception:  # noqa: BLE001
                     pass
-            await _edit(f"⏳ {len(urls)}개 확장 적재 중…")
+            await _edit(_t("bot.expand.progress", count=len(urls)))
             lines = []
             for url in urls:
                 try:
@@ -2025,14 +2003,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     lines.append(f"• {sub.telegram_summary().splitlines()[0]}")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"• ❌ {url}: {e}")
-            await _edit("🔗 확장 적재 결과\n" + "\n".join(lines))
+            await _edit(_t("bot.expand.result") + "\n" + "\n".join(lines))
 
     async def on_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
         q = " ".join(ctx.args) if ctx.args else ""
         if not q:
-            await update.message.reply_text("사용법: /search <키워드>")
+            await update.message.reply_text(_t("bot.search.usage"))
             return
         theme_mgr.reload()
         clean_q, explicit_tid = parse_message_theme(q, theme_mgr)
@@ -2042,19 +2020,19 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         else:
             active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
             if active_theme is None:
-                await update.message.reply_text(STALE_THEME_MESSAGE)
+                await update.message.reply_text(_t("bot.theme.stale"))
                 return
         active_tid = active_theme.id
         active_svc = service_pool.get_service(active_tid)
 
-        await update.message.reply_text(f"🔎 [{active_theme.icon} {active_theme.label}] 검색 중…")
+        await update.message.reply_text(_t("bot.search.progress", icon=active_theme.icon, label=active_theme.label))
         try:
             result = await asyncio.to_thread(active_svc.search, clean_q)
             text = result.telegram_text()
             if active_theme.id != 0:
                 text = f"🎯 *[{active_theme.icon} {active_theme.label}]*\n\n" + text
         except Exception as e:  # noqa: BLE001
-            text = f"❌ 검색 오류: {e}"
+            text = _t("bot.search.error", error=e)
         await update.message.reply_text(text)
 
     async def on_web(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2067,7 +2045,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
+                _t("bot.web.no_fqdn"))
             return
 
         def _mint() -> str:
@@ -2081,9 +2059,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         tok = await asyncio.to_thread(_mint)
         url = f"{s.public_url.rstrip('/')}/?t={tok}"
         await update.message.reply_text(
-            "🔗 1회용 웹 로그인 링크:\n" + url +
-            "\n\n첫 접속 뒤 URL은 무효가 되고 로그인 쿠키가 7일간 자동 연장됩니다. "
-            "공유하지 마세요.",
+            _t("bot.web.link", url=url),
             disable_web_page_preview=True,
         )
 
@@ -2100,7 +2076,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
+                _t("bot.web.no_fqdn"))
             return
 
         def _mint() -> str:
@@ -2114,9 +2090,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         tok = await asyncio.to_thread(_mint)
         url = f"{s.public_url.rstrip('/')}/?t={tok}"
         await update.message.reply_text(
-            "🔗 읽기전용 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
-            "\n\n그래프·검색·문서만 볼 수 있고 적재/수정은 안 됩니다. 다른 사람과 공유해도 "
-            "안전합니다(다시 /webro 하면 이전 읽기전용 링크만 무효화 — /web 세션은 안 건드림).",
+            _t("bot.web.link_readonly", url=url),
             disable_web_page_preview=True,
         )
 
@@ -2130,7 +2104,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         if not s.public_url:
             await update.message.reply_text(
-                "CLAIRE_FQDN 이 설정되지 않았습니다(.env). 외부 도메인(FQDN)을 먼저 지정하세요.")
+                _t("bot.web.no_fqdn"))
             return
 
         def _mint() -> str:
@@ -2144,9 +2118,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         tok = await asyncio.to_thread(_mint)
         url = f"{s.public_url.rstrip('/')}/?t={tok}"
         await update.message.reply_text(
-            "🔗 협력자(Collaborator) 웹 링크 (7일 · 접속 시 자동 연장):\n" + url +
-            "\n\n공개된 추가 지식 테마에 자료를 적재하고 그래프를 탐색할 수 있습니다. "
-            "기본 지식베이스 및 관리 기능은 제한됩니다.",
+            _t("bot.web.link_collab", url=url),
             disable_web_page_preview=True,
         )
 
@@ -2171,18 +2143,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 return ("list", store.list_api_tokens(include_revoked=False))
             elif subcmd in ("create", "new", "add"):
                 if len(args) < 2:
-                    return ("error", "사용법: /token create <이름> [scope]\n예: /token create ClaudeDesktop readonly")
+                    return ("error", _t("bot.token.usage_create"))
                 name = args[1].strip()
                 scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
                 if scope == "collab":
                     scope = "collaborator"
                 if scope not in ("owner", "collaborator", "readonly"):
-                    return ("error", f"유효하지 않은 scope: {scope}\n(owner, collaborator, readonly 중 선택)")
+                    return ("error", _t("bot.token.invalid_scope", scope=scope))
                 created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
                 return ("created", created)
             elif subcmd in ("revoke", "delete", "rm"):
                 if len(args) < 2:
-                    return ("error", "사용법: /token revoke <ID 또는 토큰값>\n예: /token revoke 1")
+                    return ("error", _t("bot.token.usage_revoke"))
                 target = args[1].strip()
                 revoked = store.revoke_api_token(target)
                 return ("revoked", revoked, target)
@@ -2196,22 +2168,20 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             tokens = res[1]
             if not tokens:
                 await msg.reply_text(
-                    "🔑 등록된 활성 API/MCP 토큰이 없습니다.\n\n"
-                    "• 토큰 생성: <code>/token create &lt;이름&gt; [scope]</code>\n"
-                    "  예: <code>/token create ClaudeDesktop readonly</code>",
+                    _t("bot.token.none"),
                     parse_mode="HTML",
                 )
                 return
 
-            lines = [f"🔑 <b>API &amp; MCP 상시 이용 토큰 목록</b> ({len(tokens)}개)\n"]
+            lines = [_t("bot.token.list_title", count=len(tokens)) + "\n"]
             for t in tokens:
                 raw_t = t["token"]
                 prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
                 suffix = raw_t[-4:] if len(raw_t) >= 8 else ""
                 masked = f"<code>{_h(prefix)}...{_h(suffix)}</code>"
-                lines.append(f"• <b>#{t['id']}</b> <code>{_h(t['name'])}</code> [{_h(t['scope'])}]\n  토큰: {masked} (만료: 무기한)")
-            lines.append("\n• 토큰 생성: <code>/token create &lt;이름&gt; [scope]</code>")
-            lines.append("• 토큰 폐기: <code>/token revoke &lt;ID&gt;</code>")
+                lines.append(_t("bot.token.list_item", id=t["id"], name=_h(t["name"]), scope=_h(t["scope"]), masked=masked))
+            lines.append("\n" + _t("bot.token.hint_create"))
+            lines.append(_t("bot.token.hint_revoke"))
             await msg.reply_text("\n".join(lines), parse_mode="HTML")
 
         elif action_type == "created":
@@ -2220,33 +2190,23 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
             mcp_url = f"{base_url}/mcp"
             text = (
-                f"🔑 <b>새 API &amp; MCP 상시 이용 토큰 발급 완료</b>\n\n"
-                f"• ID: <code>#{created['id']}</code>\n"
-                f"• 이름: <code>{_h(created['name'])}</code>\n"
-                f"• 권한: <code>{_h(created['scope'])}</code>\n"
-                f"• 만료: 무기한 (상시 이용 가능)\n\n"
-                f"📋 <b>시크릿 토큰:</b>\n<code>{_h(raw_token)}</code>\n\n"
-                f"🌐 <b>MCP 엔드포인트:</b>\n<code>{_h(mcp_url)}</code>\n\n"
-                f"※ 이 토큰은 안전한 곳에 즉시 복사하세요."
+                _t("bot.token.created", id=created["id"], name=_h(created["name"]), scope=_h(created["scope"]), token=_h(raw_token), mcp_url=_h(mcp_url))
             )
             await msg.reply_text(text, parse_mode="HTML")
 
         elif action_type == "revoked":
             revoked, target = res[1], res[2]
             if revoked:
-                await msg.reply_text(f"✅ 토큰 <code>{_h(target)}</code>이(가) 즉시 성공적으로 폐기되었습니다.", parse_mode="HTML")
+                await msg.reply_text(_t("bot.token.revoked", target=_h(target)), parse_mode="HTML")
             else:
-                await msg.reply_text(f"❌ 토큰 <code>{_h(target)}</code>을(를) 찾을 수 없거나 이미 폐기되었습니다.", parse_mode="HTML")
+                await msg.reply_text(_t("bot.token.revoke_not_found", target=_h(target)), parse_mode="HTML")
 
         elif action_type == "error":
             await msg.reply_text(f"⚠️ {res[1]}")
 
         else:
             await msg.reply_text(
-                "🔑 <b>API &amp; MCP 토큰 관리 명령어:</b>\n\n"
-                "• 목록 조회: <code>/token</code> 또는 <code>/token list</code>\n"
-                "• 토큰 생성: <code>/token create &lt;이름&gt; [owner|collab|readonly]</code>\n"
-                "• 토큰 폐기: <code>/token revoke &lt;ID 또는 토큰값&gt;</code>",
+                _t("bot.token.help"),
                 parse_mode="HTML",
             )
 
@@ -2264,13 +2224,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         try:
             text = await asyncio.to_thread(build_status_text, s, full=False)
         except Exception as e:  # noqa: BLE001
-            text = f"❌ status 오류: {e}"
+            text = _t("bot.status.error", error=e)
         await msg.reply_text(text)
 
     async def on_support(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            await update.message.reply_text(_t("bot.error.not_allowed"))
             return
         msg = update.effective_message
         if not msg:
@@ -2279,22 +2239,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         args = list(ctx.args) if ctx.args else []
         if not args or args[0].lower() in ("help", "-h", "--help"):
             await msg.reply_text(
-                "📦 Claire Support Bundle 사용법:\n"
-                "  /support bundle              — 최근 1일 Support Bundle 생성 (zstd 압축)\n"
-                "  /support bundle <일수>        — 지정 일수(최대 30일) 번들 생성\n"
-                "  /support bundle <공유링크|문서ID> — 특정 문서 추적 번들 생성\n"
-                "  /support bundle <일수> <대상> — 기간 및 대상 지정 생성\n"
-                "  /support bundle list         — 활성 Support Bundle 목록 조회\n"
-                "  /support bundle purge        — 6시간 초과 만료 번들 즉시 파기"
+                _t("bot.support.usage")
             )
             return
 
         subcmd = args[0].lower()
         if subcmd != "bundle":
             await msg.reply_text(
-                f"알 수 없는 하위 명령: '{subcmd}'\n"
-                "Support Bundle은 '/support bundle' 명령을 사용하세요.\n"
-                "도움말: /support help"
+                _t("bot.support.unknown_subcommand", subcommand=subcmd)
             )
             return
 
@@ -2318,24 +2270,24 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     lambda: list_active_support_bundles(s.data_dir, account_id=bot_account_id)
                 )
             if not bundles:
-                await msg.reply_text("현재 활성화된 유효 Support Bundle이 없습니다.")
+                await msg.reply_text(_t("bot.support.list_empty"))
                 return
             import datetime
-            lines = ["📦 활성 Support Bundle 목록 (최대 6시간 보존):"]
+            lines = [_t("bot.support.list_title")]
             for b in bundles:
                 e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%H:%M")
                 size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
-                tgt = f" (문서: {b['target_doc_id']})" if b.get("target_doc_id") else ""
-                lines.append(f"• `{b['bundle_id']}` ({size_kb}, {b['days_covered']}일) ~{e_str} 만료{tgt}")
+                tgt = f" ({_t('bot.label.document')}: {b['target_doc_id']})" if b.get("target_doc_id") else ""
+                lines.append(_t("bot.support.list_item", bundle_id=b["bundle_id"], size=size_kb, days=b["days_covered"], expires=e_str, target=tgt))
                 pub_url = s.public_url.rstrip('/') if s.public_url else ""
                 dl = f"{pub_url}/support/bundle?token={b['token']}" if pub_url else f"/support/bundle?token={b['token']}"
-                lines.append(f"  ↳ 링크: {dl}")
+                lines.append(f"  ↳ {_t('bot.label.link')}: {dl}")
             await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
             return
 
         if sub_args and sub_args[0].lower() == "purge":
             purged = await asyncio.to_thread(purge_expired_bundles, s.data_dir)
-            await msg.reply_text(f"🧹 만료(6시간 초과) Support Bundle {purged}건을 파기했습니다.")
+            await msg.reply_text(_t("bot.support.purged", count=purged))
             return
 
         # Parse days and target from sub_args
@@ -2365,8 +2317,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await msg.reply_text(f"⚠️ {exc}")
             return
 
-        target_info = f" (대상: {target})" if target else ""
-        status_msg = await msg.reply_text(f"⏳ Support Bundle 생성 중… (최근 {days}일){target_info}")
+        target_info = f" ({_t('bot.label.target')}: {target})" if target else ""
+        status_msg = await msg.reply_text(_t("bot.support.progress", days=days, target=target_info))
 
         try:
             info = await _deliver_support_bundle(
@@ -2374,22 +2326,15 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 target=target,
                 channel="telegram_command",
             )
-            theme_str = f", 테마 #{info.target_theme_id}" if info.target_theme_id else ""
+            theme_str = f", {_t('bot.label.theme')} #{info.target_theme_id}" if info.target_theme_id else ""
             if info.target_doc_id:
-                tgt_line = f"• 추적 대상: `{info.target_doc_id}` ({info.target_matched_by}{theme_str})\n"
+                tgt_line = _t("bot.support.target_line", doc_id=info.target_doc_id, matched=f"{info.target_matched_by}{theme_str}") + "\n"
             elif info.target_resolution_status:
-                tgt_line = f"• 타깃 해석 상태: `{info.target_resolution_status}`\n"
+                tgt_line = _t("bot.support.target_status_line", status=info.target_resolution_status) + "\n"
             else:
                 tgt_line = ""
             reply_text = (
-                "📦 Support Bundle 생성 완료\n\n"
-                f"• 번들 ID: `{info.bundle_id}`\n"
-                f"• 파일 크기: {info.size_bytes / 1024:.1f} KB (zstd 압축)\n"
-                f"• 수집 기간: 최근 {info.days_covered}일\n"
-                f"{tgt_line}"
-                f"• 유효 기한: 6시간 후 자동 파기\n"
-                f"• 다운로드 링크 (6시간 유효):\n{info.download_url}\n\n"
-                "⚠️ 6시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+                _t("bot.support.done_title") + "\n\n" + _t("bot.support.done_body", bundle_id=info.bundle_id, size_kb=f"{info.size_bytes / 1024:.1f}", days=info.days_covered, target_line=tgt_line, url=info.download_url)
             )
             await status_msg.edit_text(reply_text, disable_web_page_preview=True)
 
@@ -2404,12 +2349,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 except Exception as doc_err:
                     log.warning("Failed to send support bundle as telegram document: %s", doc_err)
         except Exception as exc:
-            await status_msg.edit_text(f"❌ Support Bundle 생성 오류: {exc}")
+            await status_msg.edit_text(_t("bot.support.error", error=exc))
 
     async def on_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
-            await update.message.reply_text("허용되지 않은 사용자입니다.")
+            await update.message.reply_text(_t("bot.error.not_allowed"))
             return
         msg = update.effective_message
         if not msg:
@@ -2418,20 +2363,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         args = list(ctx.args) if ctx.args else []
         if not args or args[0].lower() in ("help", "-h", "--help"):
             await msg.reply_text(
-                "📦 Claire Export 사용법:\n"
-                "  /export graph              — 기본 지식베이스(테마 0) 그래프 데이터 번들 내보내기 (.tar.zst)\n"
-                "  /export graph <테마ID>      — 지정된 테마 그래프 데이터 번들 내보내기\n"
-                "  /export graph list         — 활성 그래프 번들 목록 조회\n"
-                "  /export graph purge        — 24시간 초과 만료 번들 즉시 파기"
+                _t("bot.export.usage")
             )
             return
 
         subcmd = args[0].lower()
         if subcmd != "graph":
             await msg.reply_text(
-                f"알 수 없는 하위 명령: '{subcmd}'\n"
-                "그래프 데이터 내보내기는 '/export graph [theme_id]' 명령을 사용하세요.\n"
-                "도움말: /export help"
+                _t("bot.export.unknown_subcommand", subcommand=subcmd)
             )
             return
 
@@ -2449,24 +2388,24 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
                 bundles = await asyncio.to_thread(list_account_graph_bundles, s.data_dir, bot_account_id)
             if not bundles:
-                await msg.reply_text("현재 활성화된 유효 Graph Bundle이 없습니다.")
+                await msg.reply_text(_t("bot.export.list_empty"))
                 return
             import datetime
             pub_url = s.public_url.rstrip('/') if s.public_url else ""
-            lines = ["📦 활성 Graph Data Bundle 목록 (최대 24시간 보존):"]
+            lines = [_t("bot.export.list_title")]
             for b in bundles:
                 e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M")
                 size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
-                theme_str = f"테마 #{b.get('theme_id', 0)}"
+                theme_str = f"{_t('bot.label.theme')} #{b.get('theme_id', 0)}"
                 token_val = b.get("token")
-                token_part = f"\n  ↳ 링크: {pub_url}/graph/bundle?token={token_val}" if token_val and pub_url else ""
-                lines.append(f"• `{b['bundle_id']}` ({theme_str}, {size_kb}, 엔티티 {b.get('entities_count', 0)}, 관계 {b.get('relations_count', 0)}) ~{e_str} 만료{token_part}")
+                token_part = f"\n  ↳ {_t('bot.label.link')}: {pub_url}/graph/bundle?token={token_val}" if token_val and pub_url else ""
+                lines.append(_t("bot.export.list_item", bundle_id=b["bundle_id"], theme=theme_str, size=size_kb, entities=b.get("entities_count", 0), relations=b.get("relations_count", 0), expires=e_str, link=token_part))
             await msg.reply_text("\n".join(lines), disable_web_page_preview=True)
             return
 
         if sub_args and sub_args[0].lower() == "purge":
             purged = await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
-            await msg.reply_text(f"🧹 만료(24시간 초과) Graph Bundle {purged}건을 파기했습니다.")
+            await msg.reply_text(_t("bot.export.purged", count=purged))
             return
 
         theme_id = 0
@@ -2476,8 +2415,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 theme_id = int(first_arg)
             else:
                 await msg.reply_text(
-                    f"⚠️ 유효하지 않은 테마 ID입니다: '{first_arg}' (정수여야 합니다)\n"
-                    "사용법: /export graph [theme_id]"
+                    _t("bot.export.invalid_theme", value=first_arg)
                 )
                 return
         if not is_admin_bot:
@@ -2485,27 +2423,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             try:
                 theme_id = theme_mgr.get_theme(theme_id if sub_args else None).id
             except ThemeNotFound:
-                await msg.reply_text("⚠️ 내 계정의 테마가 아닙니다. /theme 으로 테마 번호를 확인하세요.")
+                await msg.reply_text(_t("bot.export.not_own_theme"))
                 return
 
-        status_msg = await msg.reply_text("⏳ 그래프 데이터 번들 생성 중…")
+        status_msg = await msg.reply_text(_t("bot.export.progress"))
         try:
             info = await _deliver_graph_bundle(
                 theme_id=theme_id,
                 channel="telegram_command",
             )
-            theme_line = f"• 테마: #{info.theme_id}\n" if info.theme_id else ""
+            theme_line = _t("bot.export.theme_line", id=info.theme_id) + "\n" if info.theme_id else ""
             reply_text = (
-                "📦 Graph Data Bundle 생성 완료\n\n"
-                f"• 번들 ID: `{info.bundle_id}`\n"
-                f"{theme_line}"
-                f"• 엔티티: {info.entities_count:,}개\n"
-                f"• 관계: {info.relations_count:,}개\n"
-                f"• 문서 메타데이터: {info.documents_count:,}개\n"
-                f"• 파일 크기: {info.size_bytes / (1024 * 1024):.2f} MB ({info.size_bytes / 1024:.1f} KB, zstd 압축)\n"
-                f"• 유효 기한: 24시간 후 자동 파기\n"
-                f"• 다운로드 링크 (24시간 유효):\n{info.download_url}\n\n"
-                "⚠️ 24시간 경과 시 다운로드 링크 및 디스크 아카이브는 자동 파기됩니다."
+                _t("bot.export.done", bundle_id=info.bundle_id, theme_line=theme_line, entities=f"{info.entities_count:,}", relations=f"{info.relations_count:,}", documents=f"{info.documents_count:,}", size_mb=f"{info.size_bytes / (1024 * 1024):.2f}", size_kb=f"{info.size_bytes / 1024:.1f}", url=info.download_url)
             )
             await status_msg.edit_text(reply_text, disable_web_page_preview=True)
 
@@ -2513,9 +2442,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if info.filepath.is_file() and info.size_bytes <= 45 * 1024 * 1024:
                 try:
                     caption = (
-                        f"Graph Bundle: {info.bundle_id}\n"
-                        f"엔티티: {info.entities_count:,} | 관계: {info.relations_count:,}\n"
-                        f"크기: {info.size_bytes / 1024:.1f} KB | 24시간 후 자동 파기"
+                        _t("bot.export.caption", bundle_id=info.bundle_id, entities=f"{info.entities_count:,}", relations=f"{info.relations_count:,}", size_kb=f"{info.size_bytes / 1024:.1f}")
                     )
                     with open(info.filepath, "rb") as doc_file:
                         await msg.reply_document(
@@ -2529,11 +2456,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
             if not sent_document:
                 await msg.reply_text(
-                    f"🔗 Graph Bundle 다운로드 링크 (24시간 유효):\n{info.download_url}",
+                    _t("bot.export.link", url=info.download_url),
                     disable_web_page_preview=True,
                 )
         except Exception as exc:
-            await status_msg.edit_text(f"❌ Graph Bundle 생성 오류: {exc}")
+            await status_msg.edit_text(_t("bot.export.error", error=exc))
 
     async def on_repo(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
@@ -2542,8 +2469,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if not msg:
             return
         await msg.reply_text(
-            f"🐙 Claire Bible 소스 리포지토리:\n{s.effective_source_base_url}\n"
-            f"(저장소: {s.effective_github_repository})",
+            _t("bot.repo.text", url=s.effective_source_base_url, repository=s.effective_github_repository),
             disable_web_page_preview=False,
         )
 
@@ -2561,7 +2487,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if is_multi:
             active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
             if active_theme is None:
-                await msg.reply_text(STALE_THEME_MESSAGE)
+                await msg.reply_text(_t("bot.theme.stale"))
                 return
             active_theme_id = active_theme.id
             active_svc = service_pool.get_service(active_theme_id)
@@ -2584,19 +2510,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 if all_items:
                     items = all_items[:10]
         except Exception as e:  # noqa: BLE001
-            await msg.reply_text(f"❌ 조회 오류: {e}")
+            await msg.reply_text(_t("bot.failed.query_error", error=e))
             return
         if not items:
-            await msg.reply_text("✅ 실패 항목 없음.")
+            await msg.reply_text(_t("bot.failed.none"))
             return
-        lines = ["⚠️ 최근 실패 항목 (최대 10건):"]
+        lines = [_t("bot.failed.title")]
         for it in items:
-            mark = "⛔영구" if it["status"] == "failed" else "🔁재시도대기"
+            mark = _t("bot.failed.mark_permanent") if it["status"] == "failed" else _t("bot.failed.mark_retry")
             tlabel = f"[{it['theme_label']}] " if it.get("theme_label") else ""
             lines.append(
-                f"#{it['id']} {tlabel}{mark} (시도 {it['attempts']}) "
-                f"{it['payload']}\n   └ {it['error']}")
-        lines.append("\n특정 건 재시도: /retry <번호>  (예: /retry " + str(items[0]["id"]) + ")")
+                _t("bot.failed.item", id=it["id"], theme=tlabel, mark=mark, attempts=it["attempts"], payload=str(it["payload"]), error=str(it["error"])))
+        lines.append("\n" + _t("bot.failed.retry_hint", id=items[0]["id"]))
         await msg.reply_text("\n".join(lines))
 
     async def on_retry(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2607,7 +2532,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         arg = ctx.args[0] if ctx.args else ""
         if not arg.isdigit():
-            await msg.reply_text("사용법: /retry <inbox 번호>  (/failed 로 번호 확인)")
+            await msg.reply_text(_t("bot.retry.usage"))
             return
         inbox_id = int(arg)
 
@@ -2617,7 +2542,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if is_multi:
             active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
             if active_theme is None:
-                await msg.reply_text(STALE_THEME_MESSAGE)
+                await msg.reply_text(_t("bot.theme.stale"))
                 return
             active_theme_id = active_theme.id
             target_svc = service_pool.get_service(active_theme_id)
@@ -2657,77 +2582,70 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     except Exception:
                         continue
 
-        status = await msg.reply_text(f"⏳ inbox#{inbox_id} 재시도 중…")
+        status = await msg.reply_text(_t("bot.retry.progress", id=inbox_id))
         try:
             report = await _run_with_ticker(
-                status, f"inbox#{inbox_id} 재시도",
+                status, _t("bot.retry.label", id=inbox_id),
                 lambda: target_svc.retry_inbox(inbox_id))
             await status.edit_text(report.telegram_summary())
         except Exception as e:  # noqa: BLE001
-            await status.edit_text(f"❌ 재시도 오류: {e}")
+            await status.edit_text(_t("bot.retry.error", error=e))
 
     app = Application.builder().token(profile.token).build()
-    app.add_handler(CommandHandler("start", on_start))
-    app.add_handler(CommandHandler("help", on_help))
-    app.add_handler(CommandHandler("status", on_status))
-    app.add_handler(CommandHandler("support", on_support))
-    app.add_handler(CommandHandler("export", on_export))
-    app.add_handler(CommandHandler("repo", on_repo))
-    app.add_handler(CommandHandler("theme", on_theme))
-    app.add_handler(CommandHandler("search", on_search))
-    app.add_handler(CommandHandler("ingest", on_ingest))
-    app.add_handler(CommandHandler("web", on_web))
-    app.add_handler(CommandHandler(["webco", "webcollab"], on_webco))
-    app.add_handler(CommandHandler("webro", on_webro))
-    app.add_handler(CommandHandler(["token", "tokens", "key"], on_token))
-    app.add_handler(CommandHandler("failed", on_failed))
-    app.add_handler(CommandHandler("retry", on_retry))
-    app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO, on_document))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(CommandHandler("start", _localized(on_start)))
+    app.add_handler(CommandHandler("help", _localized(on_help)))
+    app.add_handler(CommandHandler("status", _localized(on_status)))
+    app.add_handler(CommandHandler("support", _localized(on_support)))
+    app.add_handler(CommandHandler("export", _localized(on_export)))
+    app.add_handler(CommandHandler("repo", _localized(on_repo)))
+    app.add_handler(CommandHandler("theme", _localized(on_theme)))
+    app.add_handler(CommandHandler("search", _localized(on_search)))
+    app.add_handler(CommandHandler("ingest", _localized(on_ingest)))
+    app.add_handler(CommandHandler("web", _localized(on_web)))
+    app.add_handler(CommandHandler(["webco", "webcollab"], _localized(on_webco)))
+    app.add_handler(CommandHandler("webro", _localized(on_webro)))
+    app.add_handler(CommandHandler(["token", "tokens", "key"], _localized(on_token)))
+    app.add_handler(CommandHandler("failed", _localized(on_failed)))
+    app.add_handler(CommandHandler("retry", _localized(on_retry)))
+    app.add_handler(CallbackQueryHandler(_localized(on_callback)))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO, _localized(on_document)))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _localized(on_message)))
 
     async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("Unhandled exception while handling update: %s", context.error, exc_info=context.error)
         cb_query = getattr(update, "callback_query", None)
         if cb_query:
             try:
-                await cb_query.answer("⚠️ 요청 처리 중 오류가 발생했습니다.")
+                await cb_query.answer(_t("bot.error.unhandled"))
             except Exception:
                 pass
         else:
             msg = getattr(update, "effective_message", None)
             if msg and hasattr(msg, "reply_text"):
                 try:
-                    await msg.reply_text("⚠️ 요청 처리 중 오류가 발생했습니다.")
+                    await msg.reply_text(_t("bot.error.unhandled"))
                 except Exception:
                     pass
 
-    app.add_error_handler(_error_handler)
+    app.add_error_handler(_localized(_error_handler))
 
     async def _post_init(application) -> None:
         # 텔레그램 클라이언트 입력창의 '/' 명령 메뉴에 노출.
         from telegram import BotCommand
 
-        commands = [
-            BotCommand("theme", "테마(지식베이스) 선택 및 확인"),
-            BotCommand("help", "사용법"),
-            BotCommand("status", "현황(그래프/수렴/최근)"),
-            BotCommand("support", "Support Bundle 관리 (/support bundle)"),
-            BotCommand("export", "데이터 덤프 번들 내보내기 (/export graph)"),
-            BotCommand("repo", "소스 리포지토리 링크"),
-            BotCommand("search", "검색 + 요약"),
-            BotCommand("ingest", "초점 지정 적재"),
-            BotCommand("token", "API/MCP 상시 토큰 조회·생성·폐기"),
-            BotCommand("web", "웹 접속 링크 발급"),
-            BotCommand("webco", "협력자 웹 링크 발급"),
-            BotCommand("webro", "읽기전용 웹 링크 발급"),
-            BotCommand("failed", "실패/영구실패 점검"),
-            BotCommand("retry", "실패 항목 재시도"),
-            BotCommand("start", "시작 안내"),
-        ]
-        if not is_admin_bot:
-            commands = [c for c in commands if c.command not in ADMIN_ONLY_COMMANDS]
-        await application.bot.set_my_commands(commands)
+        names = [name for name in COMMAND_MENU if is_admin_bot or name not in ADMIN_ONLY_COMMANDS]
+        owner_locale = _owner_locale()
+        settings_lang = getattr(s, "ui_lang", None)
+        settings_lang = settings_lang if isinstance(settings_lang, str) else None
+
+        def _commands(language_code: str | None) -> list[Any]:
+            locale = resolve_bot_locale(owner_locale=owner_locale, language_code=language_code, settings_lang=settings_lang)
+            return [BotCommand(name, _t(f"bot.command.{name}", locale=locale)) for name in names]
+
+        # The default menu has no Telegram language. Each supported locale also gets its menu, thus a client in that language sees the same locale as the replies.
+        await application.bot.set_my_commands(_commands(None))
+        for code in SUPPORTED_LOCALES:
+            await application.bot.set_my_commands(_commands(code), language_code=code)
 
     app.post_init = _post_init
     return app
@@ -2741,7 +2659,7 @@ def run_bot() -> int:
     try:
         import telegram  # noqa: F401
     except Exception as e:  # noqa: BLE001
-        print(f"python-telegram-bot 미설치: {e}")
+        print(f"python-telegram-bot is not installed: {e}")
         return 2
     from .telegram_supervisor import run_supervisor
 
