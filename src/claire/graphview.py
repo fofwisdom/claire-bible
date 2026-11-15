@@ -53,6 +53,8 @@ def _build_standalone_graph_html() -> str:
     # The i18n runtime reads the inline catalog element that render_graph_html() puts in the head (slot __I18N_CATALOG__).
     i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
 
+    # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
+    icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     index_tmpl = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
     css_bundle = f"<style>\n{theme_css}\n{ws_css}\n{reader_css}\n</style>"
@@ -73,7 +75,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 
@@ -84,6 +86,8 @@ def _build_standalone_shared_html() -> str:
     reader_css = (_STATIC_DIR / "css" / "reader.css").read_text(encoding="utf-8")
     adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
 
+    # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
+    icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     share_tmpl = (_TEMPLATES_DIR / "share.html").read_text(encoding="utf-8")
 
     css_bundle = f"<style>\n{theme_css}\n{reader_css}\n</style>"
@@ -93,7 +97,7 @@ def _build_standalone_shared_html() -> str:
     html = html.replace("<script src=/static/js/renderers/adoc_parser.js></script>\n", "")
     idx = html.find("<script>", html.find('id="docdata"'))
     if idx != -1:
-        html = html[: idx + 8] + f"\n{adoc_js}\n" + html[idx + 8 :]
+        html = html[: idx + 8] + f"\n{icons_js}\n{adoc_js}\n" + html[idx + 8 :]
     return html
 
 
@@ -110,8 +114,10 @@ def _build_standalone_syndication_html() -> str:
     i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
     command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
     synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
+    # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
+    icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     html = re.sub(r'<script src="/static/js/[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{i18n_js}\n{command_palette_js}\n{synd_live_js}\n{synd_client_js}\n</script>"
+    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{command_palette_js}\n{synd_live_js}\n{synd_client_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 

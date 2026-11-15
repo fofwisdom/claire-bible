@@ -1,6 +1,6 @@
 <section id="panel-mcp" class="pref-panel" data-settings-panel="mcp">
   <div class="pref-card">
-    <h2>🧩 MCP 서버 (<code>/mcp</code>) <span class="pref-pill pref-pill-mcp">구현됨</span><span class="pref-pill">서버 전역</span></h2>
+    <h2><span data-icon="puzzle"></span> MCP 서버 (<code>/mcp</code>) <span class="pref-pill pref-pill-mcp">구현됨</span><span class="pref-pill">서버 전역</span></h2>
     <p class="pref-desc">외부 AI 하네스(Claude Desktop · Claude Code · Gemini · Cursor 등)가 지식베이스를 읽는 표준 엔드포인트입니다. <code>claire_api</code> 프로세스 안에서 Streamable HTTP(stateless, JSON 응답)로 동작하며, 도구 10종은 모두 SQLite · FTS5 조회만 해서 LLM 쿼터를 쓰지 않습니다. 이 화면에서 <span class="pref-pill pref-pill-mcp">구현됨</span>은 현재 코드 그대로, <span class="pref-pill pref-pill-prop">제안</span>은 아직 없는 기능입니다.</p>
 
     <div class="pref-stat-row" id="pref-mcp-stats"></div>
@@ -26,13 +26,13 @@
   </div>
 
   <div class="pref-card">
-    <h2>🔐 인증 채널 <span class="pref-pill pref-pill-mcp">구현됨</span></h2>
+    <h2><span data-icon="lock"></span> 인증 채널 <span class="pref-pill pref-pill-mcp">구현됨</span></h2>
     <p class="pref-desc">한 요청에는 인증 채널을 하나만 씁니다(Bearer · <code>X-Session</code> · 쿠키). 익명 접근은 <code>CLAIRE_ANONYMOUS_READONLY</code>와 관계없이 <code>/mcp</code>에서 항상 거부되고, Cross-Origin 요청은 Bearer만 허용됩니다.</p>
     <div class="pref-table-wrap">
       <table class="pref-table">
         <thead><tr><th>채널</th><th>발급</th><th>권한</th><th>수명</th><th>폐기</th><th>권장 클라이언트</th></tr></thead>
         <tbody>
-          <tr><td><strong>상시 이용 토큰</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · WebUI 🔑 API/MCP 키 · 텔레그램 <code>/token</code></td><td>owner · collaborator · readonly</td><td>무기한 또는 지정 일수</td><td>즉시 (<code class="pref-mono">/tokens/revoke</code>)</td><td>Claude Desktop · Cursor · Claude Code</td></tr>
+          <tr><td><strong>상시 이용 토큰</strong><br/><code class="pref-mono">cb_…</code></td><td><code class="pref-mono">claire token create</code> · WebUI API/MCP 키 · 텔레그램 <code>/token</code></td><td>owner · collaborator · readonly</td><td>무기한 또는 지정 일수</td><td>즉시 (<code class="pref-mono">/tokens/revoke</code>)</td><td>Claude Desktop · Cursor · Claude Code</td></tr>
           <tr><td><strong>텔레그램 세션</strong></td><td><code>/web</code> · <code>/webco</code> · <code>/webro</code></td><td>발급 명령에 따름</td><td>7일 슬라이딩</td><td>재발급 시 교체</td><td>일시 테스트</td></tr>
           <tr><td><strong>OAuth 2.1</strong></td><td>DCR(<code>/oauth/register</code>, 공개) → <code>/oauth/authorize</code>에서 승인 (브라우저 1클릭 또는 텔레그램)</td><td><code>readonly</code> 고정</td><td>access 30일 · refresh 1년 (회전)</td><td>경로 없음</td><td>Gemini 맞춤형 연결 앱 등 원격 커넥터</td></tr>
         </tbody>
@@ -50,14 +50,14 @@
         <div style="font-size:12px;font-weight:700">Claude Desktop · Cursor 등 — <code>mcpServers</code> 설정</div>
         <pre id="pref-mcp-snippet-json" class="pref-code"></pre>
         <div style="font-size:12px;font-weight:700">OAuth 지원 클라이언트 (Gemini 맞춤형 연결 앱 등)</div>
-        <p class="pref-desc">엔드포인트 URL만 입력하면 Discovery → DCR → 승인 화면으로 이어집니다. 승인 화면에서 <b>✅ 바로 승인하기</b> 또는 텔레그램 승인을 누릅니다.</p>
+        <p class="pref-desc">엔드포인트 URL만 입력하면 Discovery → DCR → 승인 화면으로 이어집니다. 승인 화면에서 <b>바로 승인하기</b> 또는 텔레그램 승인을 누릅니다.</p>
         <p class="pref-desc">저장소의 기존 예시(<code>MCP_SUPPORT.md</code>의 <code>server-fetch</code>, <code>claire token create</code> 출력의 <code>server-everything</code>)는 원격 HTTP 서버 연결 방식이 아니어서 위 형식으로 교체를 제안합니다.</p>
       </div>
     </details>
   </div>
 
   <div class="pref-card">
-    <h2>🛠️ 도구 (<code>tools/list</code>)</h2>
+    <h2><span data-icon="wrench"></span> 도구 (<code>tools/list</code>)</h2>
     <p class="pref-desc">구현된 10종은 모두 읽기 전용이고 도구별로 끌 수 없습니다. 아래 Syndication 도구는 제안이며, 스위치는 미리보기 응답에 포함할지만 정합니다.</p>
     <div class="pref-table-wrap">
       <table class="pref-table">

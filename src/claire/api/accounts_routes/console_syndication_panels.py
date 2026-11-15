@@ -104,7 +104,7 @@ def build_syndication_section(
 
     client_href = f"{_syndication_base_href(mode, account)}?tab=client&theme={ref}"
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
-    tokens_label = "🛠️ 관리자 콘솔 → 🔑 API/MCP 키" if admin_viewer else "⚙️ 내 설정 → 🔑 API · MCP 상시 이용 토큰"
+    tokens_label = "관리자 콘솔 → API/MCP 키" if admin_viewer else "내 설정 → API · MCP 상시 이용 토큰"
     values = {
         "client_href": escape(client_href),
         "tokens_href": escape(tokens_href),

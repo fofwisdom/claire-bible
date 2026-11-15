@@ -7915,11 +7915,11 @@ if(window.ClaireCommandPalette){
   window.ClaireCommandPalette.init({
     dialogId: 'cmdpalette',
     getCommands: () => [
-      {id: 'home', icon: '⌂', label: tr('nav.palette.cmd_home'), keywords: 'home overview', run: () => enterHome({reason: 'nav'})},
-      {id: 'graph', icon: '🕸', label: tr('nav.palette.cmd_graph'), keywords: 'graph map', run: () => setCenterView('graph')},
-      {id: 'ingest', icon: '+', label: tr('nav.palette.cmd_ingest'), keywords: 'ingest add url text', run: () => openIngest()},
-      {id: 'light', icon: '🌞', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
-      {id: 'dark', icon: '🌙', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
+      {id: 'home', icon: '⌂', iconName: 'home', label: tr('nav.palette.cmd_home'), keywords: 'home overview', run: () => enterHome({reason: 'nav'})},
+      {id: 'graph', icon: '›', iconName: 'graph', label: tr('nav.palette.cmd_graph'), keywords: 'graph map', run: () => setCenterView('graph')},
+      {id: 'ingest', icon: '+', iconName: 'plus', label: tr('nav.palette.cmd_ingest'), keywords: 'ingest add url text', run: () => openIngest()},
+      {id: 'light', icon: '›', iconName: 'sun', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
+      {id: 'dark', icon: '›', iconName: 'moon', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
     ],
     getQueryActions: q => [{id: 'fulltext', icon: '›', iconName: 'search', label: tr('nav.palette.cmd_fulltext', {query: q}), run: () => runFullTextSearch(q)}],
     getListFilter: () => {

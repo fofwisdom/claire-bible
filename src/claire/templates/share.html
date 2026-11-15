@@ -47,13 +47,13 @@ body.shared-page.stt-modal-open{overflow:hidden}
   <div class="sttsheet" tabindex="-1">
     <div class="stthead">
       <div class="sttheading">
-        <h2 id="stttitle">🎙️ 음성 전사</h2>
+        <h2 id="stttitle">음성 전사</h2>
         <p class="sttdoctitle" id="sttdoctitle"></p>
         <p class="sttmeta" id="sttmeta"></p>
       </div>
       <div class="stttools">
-        <button onclick="copySttText(false)" title="전사 텍스트만 복사">📋 텍스트 복사</button>
-        <button onclick="copySttText(true)" title="타임스탬프 포함 복사">⏱️ 타임스탬프 복사</button>
+        <button onclick="copySttText(false)" title="전사 텍스트만 복사"><span data-icon="clipboard"></span> 텍스트 복사</button>
+        <button onclick="copySttText(true)" title="타임스탬프 포함 복사"><span data-icon="clock"></span> 타임스탬프 복사</button>
       </div>
       <button class="rclose sttclose" onclick="closeSttReader()" title="닫기(ESC)" aria-label="전사 닫기">✕</button>
     </div>
@@ -105,7 +105,7 @@ function docMetaHtml(dc){
   if(hasUrl){
     h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
     if(canAccessRaw && dc.has_raw_file){
-      h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+      h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
     }
     if(isStt){
       h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
@@ -115,7 +115,7 @@ function docMetaHtml(dc){
     }
   } else {
     if(canAccessRaw && dc.has_raw_file){
-      h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+      h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
       if(isStt){
         h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
       }
@@ -137,21 +137,21 @@ function docMetaHtml(dc){
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = '⚠️ ' + reqName + ' 폴백 (' + usedName + ')';
-    tags.push('<span class="trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'">'+esc(fallbackTitle)+'</span>');
+    const fallbackTitle = reqName + ' 폴백 (' + usedName + ')';
+    tags.push('<span class="trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'"><span data-icon="warning"></span> '+esc(fallbackTitle)+'</span>');
   }
   if(isEncodingFlaw){
     const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : '인코딩 결함';
-    tags.push('<span class="trunc-tag encoding-flaw-tag" title="인코딩 결함 상세: '+esc(flawTxt)+'">⚠️ PDF 인코딩 결함</span>');
+    tags.push('<span class="trunc-tag encoding-flaw-tag" title="인코딩 결함 상세: '+esc(flawTxt)+'"><span data-icon="warning"></span> PDF 인코딩 결함</span>');
   }
   if(isScanned){
-    tags.push('<span class="trunc-tag scanned-tag" title="텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다.">📷 스캔본 PDF</span>');
+    tags.push('<span class="trunc-tag scanned-tag" title="텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다."><span data-icon="camera"></span> 스캔본 PDF</span>');
   }
   if(hasPresentation){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const bundleIcon = isStt ? '🎙️⚡📄' : '🔤⚡📄';
+    const bundleIcon = isStt ? '<span data-icon="mic"></span><span data-icon="doc"></span>' : '<span data-icon="captions"></span><span data-icon="doc"></span>';
     const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
     const pdfLabel = bundleIcon+' '+bundleType;
     const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
@@ -166,23 +166,23 @@ function docMetaHtml(dc){
   }
   if(focus){
     const dispFocus = focus.length > 25 ? focus.slice(0, 25) + '…' : focus;
-    tags.push('<span class="focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'">🎯 '+esc(dispFocus)+'</span>');
+    tags.push('<span class="focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
     const tip = sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서';
-    tags.push('<span class="focus-tag stt-tag" title="'+esc(tip)+'">🎙️ STT</span>');
+    tags.push('<span class="focus-tag stt-tag" title="'+esc(tip)+'"><span data-icon="mic"></span> STT</span>');
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
     const tip = capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서';
-    tags.push('<span class="focus-tag cc-tag" title="'+esc(tip)+'">🔤 CC</span>');
+    tags.push('<span class="focus-tag cc-tag" title="'+esc(tip)+'"><span data-icon="captions"></span> CC</span>');
   }
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
     const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
-    let vlmLabel = '🖼️ 이미지 전사';
+    let vlmLabel = '이미지 전사';
     if(vlmCount > 0){
       vlmLabel += ' (' + vlmCount.toLocaleString() + '장)';
     }
@@ -193,61 +193,61 @@ function docMetaHtml(dc){
     if(vlmModel){
       vlmTip += ' · 모델: ' + vlmModel;
     }
-    tags.push('<span class="focus-tag vlm-tag" title="'+esc(vlmTip)+'">'+esc(vlmLabel)+'</span>');
+    tags.push('<span class="focus-tag vlm-tag" title="'+esc(vlmTip)+'"><span data-icon="image"></span> '+esc(vlmLabel)+'</span>');
   }
   if(isAppTrunc && isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
-    let label='✂️ 부록·참고문헌 제외';
+    let label='부록·참고문헌 제외';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
       label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'"><span data-icon="scissors"></span> '+esc(label)+'</span>');
   } else if(isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
-    let label='✂️ 참고문헌 제외';
+    let label='참고문헌 제외';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
       label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    tags.push('<span class="trunc-tag trunc-references" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-references" title="'+esc(tip)+'"><span data-icon="scissors"></span> '+esc(label)+'</span>');
   } else if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
-    let label='✂️ 원문 일부 절단';
+    let label='원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
       label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
     } else if(raw > 0){
       label+=' ('+raw.toLocaleString()+'자)';
     }
-    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-appendix" title="'+esc(tip)+'"><span data-icon="scissors"></span> '+esc(label)+'</span>');
   } else if(isSttTrunc){
     const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
-    let label = '✂️ STT 일부 절단';
+    let label = 'STT 일부 절단';
     if(orig > 0 && raw > 0){
       tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
       label += ' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
     } else if(raw > 0){
       label += ' ('+raw.toLocaleString()+'자)';
     }
-    tags.push('<span class="trunc-tag trunc-stt" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="trunc-tag trunc-stt" title="'+esc(tip)+'"><span data-icon="scissors"></span> '+esc(label)+'</span>');
   } else if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
     let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
-    let label='✂️ 원문 일부 절단';
+    let label='원문 일부 절단';
     if(orig > 0 && raw > 0){
       tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
       label+=' ('+raw.toLocaleString()+' / '+orig.toLocaleString()+'자)';
@@ -255,7 +255,7 @@ function docMetaHtml(dc){
       label+=' ('+raw.toLocaleString()+'자)';
     }
     const tagClass = isAppTrunc ? 'trunc-tag trunc-appendix' : 'trunc-tag';
-    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+esc(label)+'</span>');
+    tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'"><span data-icon="scissors"></span> '+esc(label)+'</span>');
   }
   if(tags.length){
     h+='<span class="docmeta-tags">'+tags.join(' ')+'</span>';
@@ -273,7 +273,7 @@ const presUrl = presToken ? ('/p/presentation?s=' + encodeURIComponent(presToken
 let h='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
 h+='<div class=brand>Claire Bible · 공유 문서</div>';
 if(dc && dc.has_presentation && presUrl){
-  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기">📊 프레젠테이션 보기</a>';
+  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="Asciidoctor reveal.js 프레젠테이션 보기"><span data-icon="screen"></span> 프레젠테이션 보기</a>';
 }
 h+='</div>';
 h+='<h1>'+esc(dc.title||'(제목 없음)')+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
@@ -281,7 +281,7 @@ h+=docMetaHtml(dc);
 const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
 const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
 if(isSttTrunc){
-  h+='<div class="stt-trunc-banner">⚠️ <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+  h+='<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
 }
 if((dc.extra_sources||[]).length){
   h+='<div class=sec>병합된 출처 ('+dc.extra_sources.length+')</div><ul class=srclist>'+
@@ -290,12 +290,12 @@ if((dc.extra_sources||[]).length){
 }
 const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
 if(focus){
-  h+='<div class=sec>초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(focus)+'</strong></div>';
+  h+='<div class=sec>초점</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
 }
 if(dc.summary){
   h+='<div class=sec>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
 }else if(dc.detail || dc.detail_html){
-  h+='<div class=sec>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.</div>';
+  h+='<div class=sec>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.</div>';
 }
 if(dc.detail_html){
   const purifier=window.DOMPurify;
@@ -304,10 +304,10 @@ if(dc.detail_html){
 }else if(dc.detail){
   h+='<div class=sec>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
 }else if(dc.summary){
-  h+='<div class=sec>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.</div>';
+  h+='<div class=sec>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.</div>';
 }
 if(!dc.summary && !dc.detail && !dc.detail_html){
-  h+='<div class=sec>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.</div>';
+  h+='<div class=sec>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.</div>';
 }
 h+='<div class=foot>이 링크는 이 문서 하나만 읽기 전용으로 공유합니다.</div>';
 document.getElementById('wrap').innerHTML=h;
@@ -612,7 +612,7 @@ function renderSttLines(){
   let h = '';
   const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
   if(isTrunc){
-    h += '<div class="stt-trunc-banner">⚠️ <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+    h += '<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
   }
 
   const q = (curSttFilter || '').toLowerCase().trim();

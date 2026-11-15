@@ -305,6 +305,7 @@ def test_console_shell_and_share_pwa_head_tags() -> None:
             "section_desc": "",
         },
         markup={
+            "section_icon_html": "",
             "theme_selector_html": "",
             "sidebar_nav_html": "",
             "section_body_html": "<div>console content</div>",

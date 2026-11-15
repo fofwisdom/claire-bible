@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -348,6 +349,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 "size_bytes": info.size_bytes,
                 "target_doc_id": info.target_doc_id,
                 "target_resolution_status": info.target_resolution_status,
+                "expires_at": datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat(),
+                "download_url": info.download_url,
             }
 
         try:
@@ -425,6 +428,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 "relations_count": info.relations_count,
                 "documents_count": info.documents_count,
                 "size_bytes": info.size_bytes,
+                "expires_at": datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat(),
+                "download_url": info.download_url,
             }
 
         try:
@@ -621,13 +626,13 @@ def _reauth_html(ctx: AccountsContext, account_id: int) -> str:
     if not has_pw:
         return (
             '<section class="console-subcard" data-feature-reauth="none" aria-label="본인 확인">'
-            "<h2>🔐 본인 확인</h2>"
+            "<h2><span data-icon='lock'></span> 본인 확인</h2>"
             '<p class="hint">이 계정에는 비밀번호가 없습니다. 로그인한 뒤 15분 동안은 본인 확인을 대신합니다. 시간이 지났으면 다시 로그인하세요.</p>'
             "</section>"
         )
     return (
         '<form class="console-subcard" data-feature-form="reauth" aria-label="본인 확인">'
-        "<h2>🔐 본인 확인 (단계 인증)</h2>"
+        "<h2><span data-icon='lock'></span> 본인 확인 (단계 인증)</h2>"
         '<p class="hint">봇 등록·삭제, 허용 사용자 변경, 백업 삭제, 복원은 15분 안에 본인 확인을 해야 합니다.</p>'
         '<label class="feature-field">현재 비밀번호<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
         '<button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>'
@@ -661,7 +666,7 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
         '<div class="settings-features" data-feature-section="telegram">'
         f"{_reauth_html(ctx, account.id)}"
         '<section class="card" aria-label="내 텔레그램 봇 상태">'
-        "<h2>🤖 내 텔레그램 봇</h2>"
+        "<h2><span data-icon='bot'></span> 내 텔레그램 봇</h2>"
         '<p class="hint">이 봇은 내 계정의 테마에만 적재·검색합니다. 봇 러너가 15초 안에 설정 변경을 반영합니다. 토큰은 암호화해 저장하고 다시 보여 주지 않습니다.</p>'
         f'<div data-telegram-status>{status_html}</div>'
         '<div class="pref-row"><div class="pref-row-label"><strong>봇 켜기</strong><span>끄면 봇이 메시지를 받지 않습니다.</span></div>'
@@ -684,7 +689,7 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
         f'<section class="card" aria-label="봇 삭제"{" hidden" if bot is None else ""}>'
         "<h2>봇 삭제</h2>"
         '<p class="hint">저장한 토큰과 설정을 지웁니다. 봇은 다음 주기에 멈춥니다.</p>'
-        '<button type="button" class="pref-btn" data-feature-action="telegram-delete">🗑 봇 삭제</button>'
+        '<button type="button" class="pref-btn" data-feature-action="telegram-delete"><span data-icon="trash"></span> 봇 삭제</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</section>"
         "</div>"
@@ -700,7 +705,7 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
     data_form = (
         '<form class="feature-inline" data-feature-form="data-bundle-create">'
         f'<label class="feature-field">테마<select name="theme" class="pref-select" required>{options}</select></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">⬇ 데이터 번들 만들기</button>'
+        '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> 데이터 번들 만들기</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
         if options
@@ -709,19 +714,19 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
     return (
         '<div class="settings-features" data-feature-section="bundles">'
         '<section class="card" aria-label="서포트 번들">'
-        "<h2>🩺 서포트 번들 (내 계정 범위)</h2>"
+        "<h2><span data-icon='pulse'></span> 서포트 번들 (내 계정 범위)</h2>"
         '<p class="hint">내 테마의 적재 실패 기록, 프로바이더 호출 기록, 계정 상태 요약을 묶습니다. 문서 본문, 비밀, 다른 계정 정보, 서버 진단은 넣지 않습니다. '
         f"6시간 뒤 자동으로 지워지며 동시에 {MAX_ACTIVE_ACCOUNT_BUNDLES}개까지 둘 수 있습니다.</p>"
         '<form class="feature-inline" data-feature-form="support-bundle-create">'
         '<label class="feature-field">수집 기간 (일)<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/></label>'
         '<label class="feature-field">추적 대상 (선택: 문서 ID·URL·공유 토큰)<input name="target" class="pref-input" maxlength="2048"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">🩺 서포트 번들 만들기</button>'
+        '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> 서포트 번들 만들기</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
         '<div data-feature-list="support-bundles" aria-live="polite"></div>'
         "</section>"
         '<section class="card" aria-label="데이터 번들">'
-        "<h2>📦 데이터 번들 (테마 그래프 내보내기)</h2>"
+        "<h2><span data-icon='package'></span> 데이터 번들 (테마 그래프 내보내기)</h2>"
         '<p class="hint">내 테마의 엔티티·관계·문서 메타데이터를 묶습니다. 임베딩과 비밀은 넣지 않습니다. 24시간 뒤 자동으로 지워집니다.</p>'
         f"{data_form}"
         '<div data-feature-list="data-bundles" aria-live="polite"></div>'
@@ -741,15 +746,15 @@ def settings_backups_body(ctx: AccountsContext, *, account: accounts_store.Accou
         '<div class="settings-features" data-feature-section="backups">'
         f"{_reauth_html(ctx, account.id)}"
         '<section class="card" aria-label="계정 백업">'
-        "<h2>💾 내 계정 백업</h2>"
+        "<h2><span data-icon='save'></span> 내 계정 백업</h2>"
         '<p class="hint">내 계정이 소유한 모든 테마의 지식 데이터(문서·엔티티·관계·임베딩·공유 링크 등)를 한 파일로 백업합니다. 비밀번호·API 키·봇 토큰은 넣지 않습니다. '
         "복원은 운영자에게 요청하세요(운영자 전용 메뉴에서만 복원할 수 있습니다).</p>"
-        '<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create">💾 지금 백업</button>'
+        '<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create"><span data-icon="save"></span> 지금 백업</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         '<div data-feature-list="backups" aria-live="polite"></div>'
         "</section>"
         '<form class="card" data-feature-form="backup-policy" aria-label="자동 백업">'
-        "<h2>⏱ 자동 백업</h2>"
+        "<h2><span data-icon='clock'></span> 자동 백업</h2>"
         '<p class="hint" data-backup-policy-status></p>'
         f'<label class="feature-field">주기<select name="schedule" class="pref-select">{schedule_options}</select></label>'
         f'<label class="feature-field">보존 개수 ({MIN_KEEP}–{MAX_KEEP}, 넘으면 오래된 백업부터 지움)<input type="number" name="keep" class="pref-input" min="{MIN_KEEP}" max="{MAX_KEEP}" value="{policy.keep}" required/></label>'
@@ -766,7 +771,7 @@ def admin_backups_body(ctx: AccountsContext, *, principal: Principal) -> str:
         '<div class="settings-features" data-feature-section="admin-backups">'
         f"{_reauth_html(ctx, principal.account_id)}"
         '<section class="card" aria-label="계정 백업 복원">'
-        "<h2>♻️ 계정 백업 복원 (운영자 전용)</h2>"
+        "<h2><span data-icon='restore'></span> 계정 백업 복원 (운영자 전용)</h2>"
         '<p class="hint">계정 소유자가 만든 백업을 그 계정에 되돌립니다. 백업에 있는 테마만 백업 시점으로 바꾸고, 그 뒤에 만든 테마는 그대로 둡니다. '
         "복원 전에 지식 DB 전체 checkpoint를 <code>data/checkpoints/</code>에 만듭니다. 인스턴스 전체 복원은 <code>./cb-manuscript restore</code>를 쓰세요.</p>"
         '<div data-feature-list="admin-backups" aria-live="polite"><p class="hint">목록을 불러오는 중입니다...</p></div>'

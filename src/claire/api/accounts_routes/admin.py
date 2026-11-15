@@ -160,7 +160,7 @@ def _render_admin_accounts_html(
     if mode == "network":
         invites_section = (
             '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
-            '<h2>✉️ 가입 초대 코드 관리 (<code>/api/invites</code>)</h2>'
+            '<h2><span data-icon="mail"></span> 가입 초대 코드 관리 (<code>/api/invites</code>)</h2>'
             '<p class="hint">네트워크 모드에서 신규 멤버 가입을 위한 일회용·다회용 초대 코드를 발급하고 비활성화합니다.</p>'
             '<form id="admin-invite-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
             '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">최대 사용 횟수 (1~5)'
@@ -186,7 +186,7 @@ def _render_admin_accounts_html(
     else:
         invites_section = (
             '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
-            '<h2>✉️ 가입 초대 코드 관리</h2>'
+            '<h2><span data-icon="mail"></span> 가입 초대 코드 관리</h2>'
             '<div class="notice">싱글 모드에서는 가입 초대 경로(<code>/api/invites</code>)가 비활성화(404)되어 있습니다. 네트워크 모드로 전환한 뒤 초대를 발급할 수 있습니다.</div>'
             "</section>"
         )
@@ -225,7 +225,7 @@ def _render_admin_accounts_html(
     return f"""
       {cards}
       <section class="card" id="admin-members-section" aria-label="멤버 계정 목록 및 수명주기">
-        <h2>👥 멤버 계정 디렉터리 및 수명주기 관리 (<code>/api/admin/accounts</code>)</h2>
+        <h2><span data-icon="users"></span> 멤버 계정 디렉터리 및 수명주기 관리 (<code>/api/admin/accounts</code>)</h2>
         <p class="hint">계정 상태 전환(정지·재개·삭제 예약·즉시 소각) 및 비밀번호 재설정 링크 발급은 관리자 단계 인증(15분)을 거칩니다. 멤버의 비공개 콘텐츠는 조회하지 않습니다(D5, K5).</p>
         <p class="result" id="admin-accounts-result" data-accounts-result role="status" aria-live="polite"></p>
         <div class="pref-table-wrap">
@@ -239,7 +239,7 @@ def _render_admin_accounts_html(
       </section>
       {invites_section}
       <section class="card" id="admin-retired-usernames-section" aria-label="퇴역 USERNAME 관리">
-        <h2>♻️ 퇴역 USERNAME 조회 및 해제 (<code>/api/admin/usernames/*</code>)</h2>
+        <h2><span data-icon="restore"></span> 퇴역 USERNAME 조회 및 해제 (<code>/api/admin/usernames/*</code>)</h2>
         <p class="hint">삭제된 계정의 USERNAME은 사칭 방지를 위해 퇴역 목록에 잠깁니다. 미리보기 확인 후 단계 인증을 거쳐 잠금을 해제할 수 있습니다.</p>
         <form id="admin-retired-release-form" data-retired-release-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
           <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">대상 USERNAME
@@ -259,8 +259,8 @@ def _render_admin_accounts_html(
         </div>
       </section>
       <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="사용자별 워크스페이스 운영자 보기">
-        <h2>🗄️ 사용자별 워크스페이스 · 디렉터리 격리 구조 (운영자 보기)</h2>
-        <p class="hint">계정별 테마 레지스트리와 데이터베이스 격리 구조 및 기본 할당량 요약입니다. 세부 할당량 수정은 <a href="/admin/instance">🖥️ 인스턴스 모드 · 서버 등급</a>에서 수행합니다.</p>
+        <h2><span data-icon="database"></span> 사용자별 워크스페이스 · 디렉터리 격리 구조 (운영자 보기)</h2>
+        <p class="hint">계정별 테마 레지스트리와 데이터베이스 격리 구조 및 기본 할당량 요약입니다. 세부 할당량 수정은 <a href="/admin/instance"><span data-icon="server"></span> 인스턴스 모드 · 서버 등급</a>에서 수행합니다.</p>
         <div class="pref-stat-row" id="pref-userdb-stats">
           <div class="pref-stat"><b>{active_count}</b><span>활성 계정</span></div>
           <div class="pref-stat"><b>{suspended_count}</b><span>정지 · 삭제 예약</span></div>

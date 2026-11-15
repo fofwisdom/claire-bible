@@ -296,6 +296,7 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
             "section_desc": "",
         },
         markup={
+            "section_icon_html": "",
             "theme_selector_html": "",
             "sidebar_nav_html": "",
             "section_body_html": "<div>test</div>",

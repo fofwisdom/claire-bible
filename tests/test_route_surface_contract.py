@@ -112,7 +112,13 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
 }
 
 
-def _expected_surface(path: str) -> str:
+# The download of a data bundle uses only the token. Thus the address at the root works in each mode. POST /graph/bundle stays namespaced.
+ANY_KEYS = {("GET", "/graph/bundle"), ("HEAD", "/graph/bundle")}
+
+
+def _expected_surface(path: str, method: str = "") -> str:
+    if (method, path) in ANY_KEYS:
+        return "any"
     if path in ROOT:
         return "root"
     if path in ANY:
@@ -159,7 +165,7 @@ def test_surface_helpers_pass_surface_and_modes_explicitly(helper):
 
 def test_surfaces_modes_and_admin_access_match_design_table():
     surfaces = {key: rule.surface for key, rule in security.ROUTE_POLICY.items()}
-    assert surfaces == {key: _expected_surface(key[1]) for key in security.ROUTE_POLICY}
+    assert surfaces == {key: _expected_surface(key[1], key[0]) for key in security.ROUTE_POLICY}
     assert {key for key, rule in security.ROUTE_POLICY.items() if rule.modes != security.ALL_MODES} == NETWORK_ONLY_KEYS
     assert all(rule.modes <= security.ALL_MODES and rule.modes for rule in security.ROUTE_POLICY.values())
     assert {key for key, rule in security.ROUTE_POLICY.items() if rule.access == "admin"} == ADMIN_KEYS

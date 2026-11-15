@@ -120,15 +120,25 @@
     host.appendChild(wrap);
   }
 
-  function downloadLink(href, label) {
-    var a = el("a", label, { "class": "pref-btn", href: href, download: "" });
-    return a;
+  /* Put a line icon (static/js/icons.js) before the text of a control. */
+  function withIcon(node, icon) {
+    if (!icon) return node;
+    var mark = el("span", null, { "data-icon": icon });
+    if (node.firstChild) { node.insertBefore(document.createTextNode(" "), node.firstChild); node.insertBefore(mark, node.firstChild); }
+    else node.appendChild(mark);
+    return node;
   }
 
-  function actionButton(label, onClick) {
+  function downloadLink(href, label, icon) {
+    var a = el("a", label, { "class": "pref-btn", href: href, download: "" });
+    return withIcon(a, icon);
+  }
+
+  function actionButton(label, onClick, icon, title) {
     var b = el("button", label, { type: "button", "class": "pref-btn" });
+    if (title) { b.setAttribute("title", title); b.setAttribute("aria-label", title); }
     b.addEventListener("click", function () { onClick(b); });
-    return b;
+    return withIcon(b, icon);
   }
 
   // --- reauth ---
@@ -214,10 +224,10 @@
         ["크기", function (b) { return formatSize(b.size_bytes); }],
         ["만료", function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "⬇ 받기"));
-        cell.appendChild(actionButton("🗑", function () {
+        cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
+        cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/support-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadSupport);
-        }));
+        }, "trash", "삭제"));
       }, "활성 서포트 번들이 없습니다.");
     });
   }
@@ -236,12 +246,59 @@
         ["크기", function (b) { return formatSize(b.size_bytes); }],
         ["만료", function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "⬇ 받기"));
-        cell.appendChild(actionButton("🗑", function () {
+        cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
+        cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/data-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadData);
-        }));
+        }, "trash", "삭제"));
       }, "활성 데이터 번들이 없습니다.");
     });
+  }
+
+  function tr(key, params) {
+    return window.ClaireI18n ? window.ClaireI18n.t(key, params) : key;
+  }
+
+  function copyText(text, field) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      field.focus();
+      field.select();
+      if (document.execCommand("copy")) resolve(); else reject(new Error("copy"));
+    });
+  }
+
+  /* Show the token address of a new bundle below its form. The list API does not return the token, thus this panel is the only place that has the address. */
+  function showShare(form, bundle) {
+    var panel = form.parentNode.querySelector("[data-bundle-share]");
+    if (!panel) {
+      panel = el("div", null, { "class": "feature-share", "data-bundle-share": "" });
+      form.parentNode.insertBefore(panel, form.nextSibling);
+    }
+    clear(panel);
+    if (!bundle || !bundle.download_url) { panel.hidden = true; return; }
+    panel.hidden = false;
+    var row = el("div", null, { "class": "feature-inline" });
+    var label = el("label", tr("console.bundles.share.label"), { "class": "feature-field" });
+    var field = el("input", null, { type: "text", readonly: "", "class": "pref-input", "data-bundle-share-url": "" });
+    field.value = bundle.download_url;
+    field.addEventListener("focus", function () { field.select(); });
+    label.appendChild(field);
+    row.appendChild(label);
+    var status = el("p", null, { "class": "result", role: "status", "aria-live": "polite", "data-bundle-share-status": "" });
+    row.appendChild(actionButton(tr("console.bundles.share.copy"), function () {
+      copyText(bundle.download_url, field).then(function () {
+        status.textContent = tr("console.bundles.share.copied");
+        status.setAttribute("data-state", "ok");
+      }).catch(function () {
+        field.select();
+        status.textContent = tr("console.bundles.share.copy_failed");
+        status.setAttribute("data-state", "error");
+      });
+    }, "clipboard"));
+    row.appendChild(downloadLink(bundle.download_url, tr("console.bundles.share.download"), "download"));
+    panel.appendChild(row);
+    panel.appendChild(status);
+    panel.appendChild(el("p", tr("console.bundles.share.hint", { expires: formatIso(bundle.expires_at) }), { "class": "hint" }));
   }
 
   function initBundles() {
@@ -256,6 +313,7 @@
         show(sForm, "번들을 만드는 중입니다...", false);
         request("POST", "/api/me/support-bundles", payload).then(function (r) {
           show(sForm, r.ok ? "서포트 번들을 만들었습니다." : errorText(r.status, r.body), !r.ok);
+          showShare(sForm, r.ok ? r.body.bundle : null);
           return loadSupport();
         }).catch(function () { show(sForm, "서버에 연결하지 못했습니다.", true); });
       });
@@ -268,6 +326,7 @@
         show(dForm, "번들을 만드는 중입니다...", false);
         request("POST", "/api/me/data-bundles", { theme: theme }).then(function (r) {
           show(dForm, r.ok ? "데이터 번들을 만들었습니다." : errorText(r.status, r.body), !r.ok);
+          showShare(dForm, r.ok ? r.body.bundle : null);
           return loadData();
         }).catch(function () { show(dForm, "서버에 연결하지 못했습니다.", true); });
       });
@@ -300,15 +359,15 @@
         ["테마", function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
         ["크기", function (b) { return formatSize(b.size_bytes); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/backups/download?backup_id=" + encodeURIComponent(b.backup_id), "⬇ 받기"));
-        cell.appendChild(actionButton("🗑", function () {
+        cell.appendChild(downloadLink("/api/me/backups/download?backup_id=" + encodeURIComponent(b.backup_id), "받기", "download"));
+        cell.appendChild(actionButton("", function () {
           if (!window.confirm("이 백업을 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) return;
           var section = host.closest("section");
           request("DELETE", "/api/me/backups?backup_id=" + encodeURIComponent(b.backup_id)).then(function (res) {
             if (!res.ok) show(section, errorText(res.status, res.body), true);
             return loadBackups();
           });
-        }));
+        }, "trash", "삭제"));
       }, "백업이 없습니다.");
     });
   }
@@ -364,7 +423,7 @@
           ["테마", function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
           ["크기", function (b) { return formatSize(b.size_bytes); }]
         ], function (b, cell) {
-          cell.appendChild(actionButton("♻️ 복원", function (btn) {
+          cell.appendChild(actionButton("복원", function (btn) {
             if (!window.confirm(title + " 계정에 백업 " + b.backup_id + "을(를) 복원합니다. 백업에 있는 테마의 현재 데이터를 백업 시점으로 바꿉니다. 계속할까요?")) return;
             btn.disabled = true;
             show(section, "복원하는 중입니다...", false);
@@ -373,7 +432,7 @@
               var names = (res.body.restored_themes || []).map(function (t) { return t.label; }).join(", ");
               show(section, "복원했습니다: " + names + " (checkpoint: " + res.body.checkpoint + ")", false);
             }).catch(function () { show(section, "서버에 연결하지 못했습니다.", true); }).then(function () { btn.disabled = false; });
-          }));
+          }, "restore"));
         }, "백업이 없습니다.");
       });
     });

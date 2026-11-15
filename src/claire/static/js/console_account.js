@@ -432,7 +432,10 @@
       a.className = "pref-btn pref-btn-accent";
       a.href = info.download_url;
       a.rel = "noopener";
-      a.textContent = "⬇ 번들 내려받기";
+      var mark = document.createElement("span");
+      mark.setAttribute("data-icon", "download");
+      a.appendChild(mark);
+      a.appendChild(document.createTextNode(" 번들 내려받기"));
       out.appendChild(a);
     }
   }

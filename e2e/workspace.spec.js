@@ -598,12 +598,12 @@ test('pdf parser fallback, encoding flaw, and scanned tags render in reader and 
 
   const flawTag = reader.locator('.encoding-flaw-tag');
   await expect(flawTag).toBeVisible();
-  await expect(flawTag).toContainText('⚠️ PDF 인코딩 결함');
+  await expect(flawTag).toContainText('PDF 인코딩 결함');
   await expect(flawTag).toHaveAttribute('title', /unmapped_cid_fonts/);
 
   const scannedTag = reader.locator('.scanned-tag');
   await expect(scannedTag).toBeVisible();
-  await expect(scannedTag).toContainText('📷 스캔본 PDF');
+  await expect(scannedTag).toContainText('스캔본 PDF');
 
   // 3. Verify public share page (/p?s=34567892abcdefgh) also renders these tags
   const sharedPage = await context.newPage();
@@ -616,11 +616,11 @@ test('pdf parser fallback, encoding flaw, and scanned tags render in reader and 
 
   const shareFlawTag = sharedPage.locator('.encoding-flaw-tag');
   await expect(shareFlawTag).toBeVisible();
-  await expect(shareFlawTag).toContainText('⚠️ PDF 인코딩 결함');
+  await expect(shareFlawTag).toContainText('PDF 인코딩 결함');
 
   const shareScannedTag = sharedPage.locator('.scanned-tag');
   await expect(shareScannedTag).toBeVisible();
-  await expect(shareScannedTag).toContainText('📷 스캔본 PDF');
+  await expect(shareScannedTag).toContainText('스캔본 PDF');
 
   await sharedPage.close();
   expect(pageErrors).toEqual([]);
@@ -743,7 +743,7 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(detailPane).toBeVisible();
 
   // 5. Verify provider manager UI components render
-  await expect(detailPane.locator('h2')).toContainText('⚡ LLM & 프로바이더 관리');
+  await expect(detailPane.locator('h2')).toContainText('LLM & 프로바이더 관리');
   const activeSelect = page.locator('#prov-active-select');
   await expect(activeSelect).toBeVisible();
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
@@ -764,7 +764,7 @@ test('provider management lives in the admin console and the root topbar shows o
   await expect(agyResult).toContainText(/감지됨|바이너리|호스트|성공/);
 
   // 7. Save settings and verify notification alert
-  const saveBtn = detailPane.locator('button:has-text("💾 설정 저장")');
+  const saveBtn = detailPane.locator('button:has-text("설정 저장")');
   await expect(saveBtn).toBeVisible();
   await saveBtn.click();
   await expect(page.getByText('프로바이더 설정이 성공적으로 저장되었습니다')).toBeVisible();

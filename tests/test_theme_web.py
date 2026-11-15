@@ -145,13 +145,13 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     assert "editthemep-desc-" in html
     assert "editthemep-icon-" in html
     assert "editthemep-pub-" in html
-    assert "✏️ 수정" in html
+    assert '<span data-icon="edit"></span> 수정' in html
 
     # 3. 기본 지식베이스(ID 0) 제외 추가 테마 삭제 UI(삭제 버튼 및 deleteThemeFromUI 함수) 탑재 확인
     assert "deleteThemeFromUI" in html
     assert "기본 지식베이스(기본 테마)는 삭제할 수 없습니다" in html
-    assert "🗑️ 삭제" in html
-    assert "🗑️ 테마 완전 삭제" in html
+    assert '<span data-icon="trash"></span> 삭제' in html
+    assert '<span data-icon="trash"></span> 테마 완전 삭제' in html
 
 
 def test_theme_web_default_focus(tmp_path: Path):
@@ -171,7 +171,7 @@ def test_theme_web_default_focus(tmp_path: Path):
     assert 'editthemep-focus-' in html
 
     # 3. 테마 카드에 기본 초점 표시 템플릿 확인
-    assert "🎯 기본 초점:" in html
+    assert '<span data-icon="target"></span> 기본 초점:' in html
 
     # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
     assert "updateFocusPlaceholder" in graph_html

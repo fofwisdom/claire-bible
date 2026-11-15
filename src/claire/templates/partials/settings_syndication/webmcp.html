@@ -1,6 +1,6 @@
 <section id="panel-webmcp" class="pref-panel" data-settings-panel="webmcp">
   <div class="pref-card">
-    <h2>🕸️ WebMCP — <code>/syndication</code> 페이지 도구 <span class="pref-pill pref-pill-prop">제안 · 미구현</span></h2>
+    <h2><span data-icon="graph"></span> WebMCP — <code>/syndication</code> 페이지 도구 <span class="pref-pill pref-pill-prop">제안 · 미구현</span></h2>
     <p class="pref-desc">WebMCP(W3C Web Machine Learning CG, <b>Draft Community Group Report 2026-10-27</b>)는 페이지가 <code>document.modelContext.registerTool()</code>로 도구를 등록하고, 브라우저 내장 · 확장 에이전트가 <b>사용자가 열어 둔 탭 안에서</b> 호출하는 방식입니다. 추가 토큰 없이 현재 세션으로 동작하고, 같은 출처(same-origin) 문서에만 보이며, 탭을 닫거나 등록 신호를 abort하면 사라집니다. 저장소에는 아직 관련 코드가 없습니다.</p>
 
     <div id="pref-webmcp-support" class="pref-notice"></div>
@@ -47,7 +47,7 @@
     <div class="pref-row">
       <div class="pref-row-label">
         <strong>에이전트 활동 표시</strong>
-        <span><code>toolactivated</code> · <code>toolcancel</code> 이벤트를 받아 리더 하단 상태 표시줄에 <code>🕸️ 에이전트: kb_ingest_item 실행 중</code>처럼 표시하고 작업 기록에 남깁니다.</span>
+        <span><code>toolactivated</code> · <code>toolcancel</code> 이벤트를 받아 리더 하단 상태 표시줄에 <code>에이전트: kb_ingest_item 실행 중</code>처럼 표시하고 작업 기록에 남깁니다.</span>
       </div>
       <input id="pref-webmcp-activity" type="checkbox" switch aria-label="에이전트 활동 표시"/>
     </div>
@@ -71,7 +71,7 @@
   </div>
 
   <div class="pref-card">
-    <h2>🧰 페이지 도구 목록</h2>
+    <h2><span data-icon="wrench"></span> 페이지 도구 목록</h2>
     <p class="pref-desc">작업 공간 탭 범위가 맞는 도구만 등록됩니다(예: <code>client_*</code>는 연합 클라이언트 탭이 열려 있을 때). 연합 게시물이나 수집 원문처럼 제3자 콘텐츠를 돌려주는 도구에는 <code>untrustedContentHint</code>를 붙입니다. 비공개 테마에서는 외부 서버에 반영되는 도구가 등록되지 않습니다.</p>
     <div class="pref-table-wrap">
       <table class="pref-table">
@@ -82,12 +82,12 @@
   </div>
 
   <div class="pref-card">
-    <h2>🔍 등록 코드 미리보기 · 호출 시뮬레이터</h2>
+    <h2><span data-icon="search"></span> 등록 코드 미리보기 · 호출 시뮬레이터</h2>
     <p class="pref-desc">선택한 도구가 사양 형식으로 등록되는 코드와, 에이전트가 호출했을 때 사용자에게 보이는 흐름을 확인합니다. 시뮬레이션은 실제 상태를 바꾸지 않습니다.</p>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <label for="pref-webmcp-sim-tool" style="font-size:12.5px;font-weight:700">도구</label>
       <select id="pref-webmcp-sim-tool" class="pref-select"></select>
-      <button type="button" id="btn-webmcp-sim-run" class="pref-btn pref-btn-accent">▶ 에이전트 호출 시뮬레이션</button>
+      <button type="button" id="btn-webmcp-sim-run" class="pref-btn pref-btn-accent"><span data-icon="play"></span> 에이전트 호출 시뮬레이션</button>
     </div>
     <div class="pref-sim">
       <div style="display:flex;flex-direction:column;gap:6px">

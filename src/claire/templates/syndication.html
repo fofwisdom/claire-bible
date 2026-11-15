@@ -44,9 +44,9 @@
       <!-- 공통 컨트롤 -->
       <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
       <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
-      <a id="top-pref-link" class="tt-btn" href="/settings/reader" data-settings-path="/settings/reader" title="설정 콘솔(/settings) 열기">⚙️ 환경설정</a>
-      <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환">🌙</button>
-      <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기">☰</button>
+      <a id="top-pref-link" class="tt-btn" href="/settings/reader" data-settings-path="/settings/reader" title="설정 콘솔(/settings) 열기"><span data-icon="settings"></span> 환경설정</a>
+      <button type="button" id="themebtn" class="tt-btn" onclick="toggleClaireTheme()" title="라이트/다크 전환" aria-label="라이트/다크 전환" data-icon="moon"></button>
+      <button type="button" class="tt-btn" popovertarget="pop-main-menu" aria-label="전체 메뉴 열기"><span data-icon="menu"></span></button>
     </div>
   </header>
 
@@ -76,13 +76,13 @@
   </div>
 
   <div id="pop-main-menu" popover="auto" class="tt-popover tt-popover-end">
-    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span>⚙️ 환경설정... (Preferences...)</span></a>
+    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span><span data-icon="settings"></span> 환경설정... (Preferences...)</span></a>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">지식베이스 및 적재 관리</div>
     <button type="button" id="menu-open-ingest" class="tt-pop-item"><span>+ 새 문서 적재...</span></button>
-    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span>🔐 연결 계정 · 권한 관리...</span></a>
-    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span>🏷️ 수집 태그 → 엔티티 생성 정책...</span></a>
-    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span>🔁 부스트·적재 발행 설정...</span></a>
+    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span><span data-icon="lock"></span> 연결 계정 · 권한 관리...</span></a>
+    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span><span data-icon="tag"></span> 수집 태그 → 엔티티 생성 정책...</span></a>
+    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span><span data-icon="repeat"></span> 부스트·적재 발행 설정...</span></a>
     <div class="tt-pop-sep"></div>
     <div class="tt-pop-sec">목록 스타일</div>
     <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><kbd>l</kbd></button>
@@ -102,7 +102,7 @@
     <button type="button" class="tt-pop-item" data-art-cmd="show-url"><span>원문 URL 표시 및 복사</span></button>
     <button type="button" class="tt-pop-item" data-art-cmd="toggle-unread"><span>읽음 표시 처리</span><kbd>u</kbd></button>
     <button type="button" class="tt-pop-item" data-art-cmd="toggle-star"><span>별표(고정) 토글</span><kbd>f</kbd></button>
-    <button type="button" class="tt-pop-item" data-art-cmd="dispatch"><span>📡 다른 테마로 적재 전달 (Cross-Theme Dispatch)...</span><kbd>d</kbd></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="dispatch"><span><span data-icon="broadcast"></span> 다른 테마로 적재 전달 (Cross-Theme Dispatch)...</span><kbd>d</kbd></button>
     <button type="button" class="tt-pop-item" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
   </div>
 
@@ -190,7 +190,7 @@
     <form id="form-ingest" style="padding:18px;display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h2 id="modal-ingest-title" style="margin:0;font-size:16px;font-weight:700">현재 테마 지식베이스에 문서 적재 (POST /ingest)</h2>
-        <button type="button" data-close-dialog="modal-ingest" class="tt-btn">✕</button>
+        <button type="button" data-close-dialog="modal-ingest" class="tt-btn" aria-label="닫기"><span data-icon="close"></span></button>
       </div>
       <div>
         <label for="ingest-payload" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">URL 또는 수집 원문 텍스트</label>
@@ -202,7 +202,7 @@
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
         <button type="button" data-close-dialog="modal-ingest" class="tt-btn">취소</button>
-        <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri">📥 적재 실행</button>
+        <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri"><span data-icon="download"></span> 적재 실행</button>
       </div>
     </form>
   </dialog>
@@ -212,7 +212,7 @@
     <form id="form-item-ingest" class="synd-dialog-form">
       <div class="synd-dialog-head">
         <h2 id="modal-item-ingest-title" data-i18n="synd.ingest.title">Take this post into the knowledge base</h2>
-        <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n-aria-label="common.action.cancel">✕</button>
+        <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n-aria-label="common.action.cancel"><span data-icon="close"></span></button>
       </div>
       <p id="item-ingest-source" class="synd-note"></p>
       <div>
@@ -270,13 +270,14 @@
       document.documentElement.setAttribute("data-theme", next);
       try { localStorage.setItem("claireTheme", next); } catch (_) {}
       const btn = document.getElementById("themebtn");
-      if (btn) btn.textContent = next === "dark" ? "☀️" : "🌙";
+      if (btn) btn.setAttribute("data-icon", next === "dark" ? "sun" : "moon");
     }
-    (function(){ const btn=document.getElementById("themebtn"); if(btn) btn.textContent=(document.documentElement.getAttribute("data-theme")==="dark"?"☀️":"🌙"); })();
+    (function(){ const btn=document.getElementById("themebtn"); if(btn) btn.setAttribute("data-icon", document.documentElement.getAttribute("data-theme")==="dark"?"sun":"moon"); })();
   </script>
   <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
   <!-- __I18N_CATALOG__ -->
   <script src="/static/js/i18n.js"></script>
+  <script src="/static/js/icons.js"></script>
   <script src="/static/js/command_palette.js"></script>
   <script src="/static/js/syndication_live.js"></script>
   <script src="/static/js/syndication_client.js"></script>

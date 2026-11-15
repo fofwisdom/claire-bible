@@ -50,7 +50,7 @@ from ...store import usage_ledger
 from . import features as feature_routes
 from . import keys as keys_routes
 from .admin import ROLE_TEXT, STATUS_TEXT
-from .common import open_auth_db
+from .common import icon_html, open_auth_db
 
 # 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
 FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})
@@ -72,6 +72,8 @@ class ConsoleSectionSpec:
     badge: str
     description: str
     theme_scoped: bool = False
+    # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
+    icon: str = ""
 
 
 SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -81,8 +83,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="👤 내 계정 · 프로필 · 보안",
-        title="👤 내 계정 · 프로필 · 보안",
+        nav_label="내 계정 · 프로필 · 보안",
+        icon="user",
+        title="내 계정 · 프로필 · 보안",
         badge="계정 전역",
         description="프로필 표시 이름, 비밀번호 및 단계 인증, 외부 IdP 연결, 할당량 현황 및 계정 수명주기를 관리합니다.",
     ),
@@ -92,8 +95,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="🌐 연합 · 팔로워",
-        title="🌐 연합 (ActivityPub) · 팔로워",
+        nav_label="연합 · 팔로워",
+        icon="globe",
+        title="연합 (ActivityPub) · 팔로워",
         badge="계정 전역",
         description="내 계정의 연합 핸들과 액터 상태, 팔로워 수를 확인하고 팔로워를 제거합니다.",
     ),
@@ -103,8 +107,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="🔐 BYOK 외부 API 키",
-        title="🔐 BYOK 외부 API 키 및 서버 등급",
+        nav_label="BYOK 외부 API 키",
+        icon="lock",
+        title="BYOK 외부 API 키 및 서버 등급",
         badge="계정 전역",
         description="네트워크 모드 멤버 계정의 쓰기 전용 외부 프로바이더 API 키와 서버 등급 허용량을 관리합니다.",
     ),
@@ -114,8 +119,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="📁 지식 테마 관리",
-        title="📁 내 지식 테마 관리",
+        nav_label="지식 테마 관리",
+        icon="folder",
+        title="내 지식 테마 관리",
         badge="계정 전역",
         description="내 계정이 소유한 지식 테마의 생성, 공개 범위 및 메타데이터를 관리합니다.",
     ),
@@ -125,8 +131,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="🔑 API · MCP 상시 키",
-        title="🔑 내 API · MCP 상시 이용 토큰",
+        nav_label="API · MCP 상시 키",
+        icon="key",
+        title="내 API · MCP 상시 이용 토큰",
         badge="계정 전역",
         description="내 계정에 귀속된 API · MCP 상시 이용 토큰 발급·폐기 및 OAuth 2.1 승인 클라이언트를 관리합니다.",
     ),
@@ -136,8 +143,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="🤖 텔레그램 봇",
-        title="🤖 내 텔레그램 봇",
+        nav_label="텔레그램 봇",
+        icon="bot",
+        title="내 텔레그램 봇",
         badge="계정 전역",
         description="내 계정 전용 텔레그램 봇 토큰 등록, 허용 사용자, 켜기·끄기와 실행 상태를 관리합니다.",
     ),
@@ -147,8 +155,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="📦 서포트 · 데이터 번들",
-        title="📦 서포트 번들 · 데이터 번들",
+        nav_label="서포트 · 데이터 번들",
+        icon="package",
+        title="서포트 번들 · 데이터 번들",
         badge="계정 전역",
         description="내 계정 범위의 진단 서포트 번들과 테마 데이터 번들을 만들고 내려받고 지웁니다.",
     ),
@@ -158,8 +167,9 @@ SETTINGS_GROUP_1_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="workspace",
         group_label="내 계정 · 워크스페이스",
-        nav_label="💾 백업",
-        title="💾 내 계정 백업",
+        nav_label="백업",
+        icon="save",
+        title="내 계정 백업",
         badge="계정 전역",
         description="내 계정 데이터 백업을 만들고 내려받고 지우며, 자동 백업 주기와 보존 개수를 설정합니다.",
     ),
@@ -172,8 +182,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="📖 리더 · 목록 스타일",
-        title="📖 리더 및 목록 스타일 환경설정",
+        nav_label="리더 · 목록 스타일",
+        icon="book",
+        title="리더 및 목록 스타일 환경설정",
         badge="선택 테마",
         description="작업 공간 기본 탭, 목록 밀도, 3단/2단 화면 분할, 수집 원문 ⇄ 적재 본문 전환 및 본문 서체를 설정합니다.",
         theme_scoped=True,
@@ -184,8 +195,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="🔌 연결 서버 계정 (AP · AT)",
-        title="🔌 연결 서버 계정 (ActivityPub · AT Protocol)",
+        nav_label="연결 서버 계정 (AP · AT)",
+        icon="plug",
+        title="연결 서버 계정 (ActivityPub · AT Protocol)",
         badge="선택 테마",
         description="선택한 테마에서 클라이언트로 접속할 ActivityPub(Mastodon 5.0+) 및 AT Protocol 서버 계정을 관리합니다.",
         theme_scoped=True,
@@ -196,8 +208,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="📡 정기 수집 대상 · 폴더",
-        title="📡 정기 수집 대상 및 카테고리 폴더 관리",
+        nav_label="정기 수집 대상 · 폴더",
+        icon="broadcast",
+        title="정기 수집 대상 및 카테고리 폴더 관리",
         badge="선택 테마",
         description="선택한 테마의 RSS/Atom 피드와 연결 계정 경유 ActivityPub · AT 수집 대상 및 주기를 관리합니다.",
         theme_scoped=True,
@@ -208,8 +221,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="🏷️ 태그=엔티티 적재 정책",
-        title="🏷️ 수집 태그 → 적재 시 엔티티 승격 정책",
+        nav_label="태그=엔티티 적재 정책",
+        icon="tag",
+        title="수집 태그 → 적재 시 엔티티 승격 정책",
         badge="선택 테마",
         description="수집 원문 태그의 [태그] 파이프라인 전달, 잠정 엔티티 승격, 해시태그 역변환 및 노이즈 태그 필터를 설정합니다.",
         theme_scoped=True,
@@ -220,8 +234,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="⚡ 오거나이즈 · 자동 적재",
-        title="⚡ 테마 DB 기반 오거나이즈 · 자동 적재 규칙",
+        nav_label="오거나이즈 · 자동 적재",
+        icon="bolt",
+        title="테마 DB 기반 오거나이즈 · 자동 적재 규칙",
         badge="선택 테마",
         description="엔티티 연관도(Affinity Score) 임계 점수와 자동 적재 전달 규칙을 관리합니다.",
         theme_scoped=True,
@@ -232,8 +247,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="🔁 부스트 · 적재 발행",
-        title="🔁 연결 계정 부스트·인용 발행 및 적재 본문 공유 정책",
+        nav_label="부스트 · 적재 발행",
+        icon="repeat",
+        title="연결 계정 부스트·인용 발행 및 적재 본문 공유 정책",
         badge="선택 테마",
         description="프로토콜별 기본 발행 모드, 공개 열람 링크 첨부 및 사용자 간 발행 본문 공유 정책(peerSharePolicy)을 설정합니다.",
         theme_scoped=True,
@@ -244,8 +260,9 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         group_label="신디케이션 · 리더 (테마별)",
-        nav_label="📦 OPML · 툼스톤 진단",
-        title="📦 OPML 구독 목록 입출력 및 소각 툼스톤 진단",
+        nav_label="OPML · 툼스톤 진단",
+        icon="package",
+        title="OPML 구독 목록 입출력 및 소각 툼스톤 진단",
         badge="선택 테마",
         description="선택한 테마의 OPML 2.0 구독 목록 입출력과 purged_tombstones 재수집 차단 상태를 점검합니다.",
         theme_scoped=True,
@@ -259,8 +276,9 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="agents",
         group_label="AI 에이전트 연동",
-        nav_label="🧩 MCP 클라이언트 연결",
-        title="🧩 MCP 서버 (/mcp) 클라이언트 연결 및 도구 안내",
+        nav_label="MCP 클라이언트 연결",
+        icon="puzzle",
+        title="MCP 서버 (/mcp) 클라이언트 연결 및 도구 안내",
         badge="계정 · 테마",
         description="외부 AI 하네스용 /mcp 엔드포인트, 테마 인자 예시, 연결 스니펫 및 읽기 전용 도구 목록을 확인합니다.",
         theme_scoped=True,
@@ -271,8 +289,9 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="agents",
         group_label="AI 에이전트 연동",
-        nav_label="🕸️ WebMCP 페이지 도구",
-        title="🕸️ WebMCP 페이지 도구 설정 및 시뮬레이터",
+        nav_label="WebMCP 페이지 도구",
+        icon="graph",
+        title="WebMCP 페이지 도구 설정 및 시뮬레이터",
         badge="선택 테마",
         description="브라우저 내장 에이전트용 document.modelContext 페이지 도구 노출 여부, 사용자 확인 정책 및 호출 시뮬레이터를 제공합니다.",
         theme_scoped=True,
@@ -286,8 +305,9 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="🖥️ 인스턴스 모드 · 서버 등급",
-        title="🖥️ 인스턴스 설정 · 모드 전환 및 서버 등급",
+        nav_label="인스턴스 모드 · 서버 등급",
+        icon="server",
+        title="인스턴스 설정 · 모드 전환 및 서버 등급",
         badge="서버 전역 · 관리자",
         description="싱글 ↔ 네트워크 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰 시계 및 기본 서버 등급을 관리합니다.",
     ),
@@ -297,8 +317,9 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="🌐 연합 · 도메인 차단",
-        title="🌐 연합 (ActivityPub) 스위치 · 사이드카 · 도메인 차단",
+        nav_label="연합 · 도메인 차단",
+        icon="globe",
+        title="연합 (ActivityPub) 스위치 · 사이드카 · 도메인 차단",
         badge="서버 전역 · 관리자",
         description="연합 스위치와 GF1–GF7 준비 검사, Fedify 사이드카 상태, 차단 도메인 목록을 관리합니다.",
     ),
@@ -308,8 +329,9 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="👥 계정 · 초대 · 퇴역 이름",
-        title="👥 사용자 계정 · 가입 초대 · 퇴역 USERNAME 관리",
+        nav_label="계정 · 초대 · 퇴역 이름",
+        icon="users",
+        title="사용자 계정 · 가입 초대 · 퇴역 USERNAME 관리",
         badge="서버 전역 · 관리자",
         description="계정 상태 전환, 초대 코드 발급·비활성화, 퇴역 USERNAME 정보 초기화 및 운영자 워크스페이스 현황을 관리합니다.",
     ),
@@ -319,8 +341,9 @@ ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_instance",
         group_label="인스턴스 · 계정 · 인증 (관리자)",
-        nav_label="🪪 외부 IdP 로그인 정책",
-        title="🪪 외부 IdP 관리 · OIDC 공급자 및 가입 정책",
+        nav_label="외부 IdP 로그인 정책",
+        icon="id",
+        title="외부 IdP 관리 · OIDC 공급자 및 가입 정책",
         badge="서버 전역 · 관리자",
         description="외부 IdP 공급자 등록, Discovery 검증, 이메일 도메인 제한 및 로그인 흐름 시뮬레이터를 관리합니다.",
     ),
@@ -333,8 +356,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="⚡ 프로바이더",
-        title="⚡ LLM · STT · VLM 및 하이퍼스케일러 프로바이더 설정",
+        nav_label="프로바이더",
+        icon="bolt",
+        title="LLM · STT · VLM 및 하이퍼스케일러 프로바이더 설정",
         badge="서버 전역 · 관리자",
         description="서비스 루트 '관리 및 설정'의 인스턴스 전역 프로바이더 설정(data/providers.json) 및 연결 테스트를 관리합니다.",
     ),
@@ -344,8 +368,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="📏 적재 제한",
-        title="📏 상황별 적재 제한 및 슬라이싱 예산 설정",
+        nav_label="적재 제한",
+        icon="ruler",
+        title="상황별 적재 제한 및 슬라이싱 예산 설정",
         badge="서버 전역 · 관리자",
         description="서비스 루트 '관리 및 설정'의 인스턴스 전역 적재 제한 및 예산(data/ingest_limits.json)을 관리합니다.",
     ),
@@ -355,8 +380,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="📁 테마 관리",
-        title="📁 관리자 지식 테마 관리 및 인스턴스 슬롯 현황",
+        nav_label="테마 관리",
+        icon="folder",
+        title="관리자 지식 테마 관리 및 인스턴스 슬롯 현황",
         badge="관리자 워크스페이스",
         description="관리자 계정의 지식 테마를 관리하고 인스턴스 전체 테마 슬롯 수 집계를 확인합니다(멤버 비공개 콘텐츠 비접근).",
     ),
@@ -366,8 +392,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="🔑 API/MCP 키",
-        title="🔑 관리자 API · MCP 상시 이용 토큰 관리",
+        nav_label="API/MCP 키",
+        icon="key",
+        title="관리자 API · MCP 상시 이용 토큰 관리",
         badge="관리자 워크스페이스",
         description="관리자 계정의 API · MCP 상시 이용 토큰 발급·폐기 및 OAuth 클라이언트 현황을 관리합니다.",
     ),
@@ -377,8 +404,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="🩺 MCP 감사 · 진단 번들",
-        title="🩺 MCP 호출 감사 기록(mcp_telemetry) 및 진단 번들",
+        nav_label="MCP 감사 · 진단 번들",
+        icon="pulse",
+        title="MCP 호출 감사 기록(mcp_telemetry) 및 진단 번들",
         badge="서버 전역 · 관리자",
         description="인스턴스 전역 MCP 호출 기록 조회, RBAC 대조 진단, 전역 WebMCP 헤더 정책 및 지원 번들 생성을 관리합니다.",
     ),
@@ -388,8 +416,9 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="admin",
         group_id="admin_system",
         group_label="시스템 관리 및 설정 (관리자)",
-        nav_label="♻️ 계정 백업 복원",
-        title="♻️ 계정 백업 복원",
+        nav_label="계정 백업 복원",
+        icon="restore",
+        title="계정 백업 복원",
         badge="서버 전역 · 관리자",
         description="계정 소유자가 만든 계정 백업을 그 계정에 복원합니다(운영자 전용).",
     ),
@@ -505,7 +534,7 @@ def _build_sidebar_html(
             href = _append_theme_query(spec.path, theme_query) if spec.theme_scoped else spec.path
             current = ' aria-current="page"' if spec.path == active_path else ""
             parts.append(
-                f'<a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{escape(spec.nav_label)}</a>'
+                f'<a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}{escape(spec.nav_label)}</a>'
             )
     return "\n      ".join(parts)
 
@@ -564,7 +593,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             conn.close()
         body = (
             '<section class="card" id="admin-themes-summary" aria-label="인스턴스 테마 슬롯 현황">'
-            '<h2>📊 인스턴스 전체 테마 슬롯 현황 <span class="badge">집계 전용 · 비공개 콘텐츠 비접근 (D5/K5)</span></h2>'
+            '<h2><span data-icon="chart"></span> 인스턴스 전체 테마 슬롯 현황 <span class="badge">집계 전용 · 비공개 콘텐츠 비접근 (D5/K5)</span></h2>'
             '<p class="hint">운영자는 인스턴스 전체 계정 수와 테마 슬롯 개수만 확인하며, 일반 멤버의 테마 이름·설명·문서 본문은 절대 열람하지 않습니다.</p>'
             '<div class="pref-stat-row" id="admin-themes-stats">'
             f'<div class="pref-stat"><b data-stat="total_accounts">{total_accounts}</b><span>활성·등록 계정 수 (total_accounts)</span></div>'
@@ -638,7 +667,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             "</div>"
             "</section>"
             '<section class="card" id="admin-oauth-clients-card" aria-label="OAuth 2.1 등록 클라이언트">'
-            '<h2>🔐 OAuth 2.1 등록 및 승인 클라이언트 현황</h2>'
+            '<h2><span data-icon="lock"></span> OAuth 2.1 등록 및 승인 클라이언트 현황</h2>'
             '<p class="hint"><code>/oauth/register</code>(DCR) 및 <code>/oauth/authorize</code>로 등록된 원격 MCP 클라이언트 목록입니다. 토큰 원문은 저장·표시하지 않습니다.</p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
@@ -648,7 +677,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             "</div>"
             "</section>"
             '<section class="card" id="admin-token-policy-card" aria-label="인스턴스 토큰 정책 요약">'
-            f'<h2>🛡️ 인스턴스 인증 채널 및 토큰 정책 {prototype_badge("admin-token-policy-summary", "static")}</h2>'
+            f'<h2><span data-icon="shield"></span> 인스턴스 인증 채널 및 토큰 정책 {prototype_badge("admin-token-policy-summary", "static")}</h2>'
             f'{prototype_note("admin-token-policy-summary", "코드 기본값을 옮겨 적은 고정 안내문입니다. 실행 중인 설정을 읽어 오지 않으며, 여기서 정책을 바꿀 수 없습니다.")}'
             '<dl>'
             '<dt>상시 이용 토큰 (<code>cb_…</code>)</dt><dd>계정별 격리 발급 · <code>owner</code> / <code>collaborator</code> / <code>readonly</code> 권한 · 즉시 폐기(<code>/tokens/revoke</code>)</dd>'
@@ -663,7 +692,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         body = (
             '<section class="card" id="admin-mcp-telemetry-card" aria-label="MCP 호출 감사 기록">'
             '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-            '<h2>📜 실시간 MCP 호출 감사 기록 (<code>mcp_telemetry</code>)</h2>'
+            '<h2><span data-icon="list"></span> 실시간 MCP 호출 감사 기록 (<code>mcp_telemetry</code>)</h2>'
             '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
             '<label style="font-size:12px;font-weight:600">상태 <select id="admin-mcp-filter-status" class="pref-select">'
             '<option value="">전체 상태</option>'
@@ -693,7 +722,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             "</div>"
             "</section>"
             '<section class="card" id="admin-mcp-rbac-card" aria-label="RBAC 설계 대조 진단">'
-            f'<h2>🧭 RBAC 설계 vs 현재 MCP 접근 판정 대조 {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
+            f'<h2><span data-icon="compass"></span> RBAC 설계 vs 현재 MCP 접근 판정 대조 {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
             f'{prototype_note("admin-mcp-rbac-table", "고정 문구로 그린 설계 대조표입니다. 실제 권한 판정을 실행하거나 서버 정책을 읽어 오지 않으며, 판정 칸도 고정값입니다.")}'
             '<p class="hint">권한 범위별 REST RBAC 정책과 <code>/mcp</code> 엔드포인트 도구 호출 권한 대조표입니다.</p>'
             '<div class="pref-table-wrap">'
@@ -709,7 +738,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             "</div>"
             "</section>"
             '<section class="card" id="admin-webmcp-policy-card" aria-label="전역 WebMCP 정책">'
-            f'<h2>🕸️ 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>) {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
+            f'<h2><span data-icon="graph"></span> 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>) {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
             f'{prototype_note("admin-webmcp-global-switch", "이 스위치는 지금 보고 있는 브라우저(localStorage)에만 기억됩니다. 서버 설정을 바꾸지 않고 Permissions-Policy 헤더도 보내지 않으며, 다른 운영자·멤버 화면에 적용되지 않습니다.")}'
             '<div class="pref-row">'
             '<div class="pref-row-label">'
@@ -721,13 +750,13 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             '<p class="hint" id="admin-webmcp-policy-hint">현재 상태: 활성 (테마별 상세 노출 설정은 <code>/settings/webmcp</code>에서 구성합니다).</p>'
             "</section>"
             '<section class="card" id="admin-support-bundle-card" aria-label="진단 지원 번들 생성">'
-            '<h2>📦 진단 지원 번들 (<code>POST /support/bundle</code>) 내보내기</h2>'
+            '<h2><span data-icon="package"></span> 진단 지원 번들 (<code>POST /support/bundle</code>) 내보내기</h2>'
             '<p class="hint">최근 텔레메트리, 스키마 상태, 환경 구성을 비밀정보 마스킹 후 압축 번들로 생성합니다.</p>'
             '<form id="admin-support-bundle-form" data-support-bundle-form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
             '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">수집 기간 (일)'
             '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>'
             "</label>"
-            '<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn">🩺 지원 번들 생성</button>'
+            '<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> 지원 번들 생성</button>'
             "</form>"
             '<p class="result" id="admin-support-bundle-result" data-support-bundle-result role="status" aria-live="polite"></p>'
             "</section>"
@@ -882,13 +911,13 @@ def _settings_reauth_form_html(*, has_password: bool, form_id: str) -> str:
     if not has_password:
         return (
             f'<section class="console-subcard" id="{escape(form_id)}" data-settings-reauth="none" aria-label="본인 확인">'
-            "<h2>🔐 본인 확인</h2>"
+            "<h2><span data-icon='lock'></span> 본인 확인</h2>"
             '<p class="hint">이 계정에는 아직 비밀번호가 없습니다. 로그인 링크로 방금 들어온 세션은 15분 동안 본인 확인을 대신합니다. 시간이 지났으면 새 로그인 링크로 다시 로그인하세요.</p>'
             "</section>"
         )
     return (
         f'<form class="console-subcard" id="{escape(form_id)}" data-settings-form="reauth" aria-label="본인 확인">'
-        "<h2>🔐 본인 확인 (단계 인증)</h2>"
+        "<h2><span data-icon='lock'></span> 본인 확인 (단계 인증)</h2>"
         '<p class="hint">비밀번호 변경, 외부 계정 연결·해제, API 키 등록·삭제는 15분 안에 본인 확인을 해야 합니다.</p>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">현재 비밀번호<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
         '<button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>'
@@ -989,7 +1018,7 @@ def _settings_account_body(
         bundle_html = (
             '<form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap" data-settings-form="bundle-export">'
             f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">내보낼 테마<select name="theme" class="pref-select" required>{bundle_options}</select></label>'
-            '<button type="submit" class="pref-btn pref-btn-accent">⬇ 그래프 번들 만들기</button>'
+            '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> 그래프 번들 만들기</button>'
             "</form>"
             '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
             '<div data-bundle-output aria-live="polite"></div>'
@@ -1022,12 +1051,12 @@ def _settings_account_body(
     body = (
         f"{notice_html}"
         '<section class="console-subcard" id="settings-account-info" aria-label="계정 정보">'
-        "<h2>🪪 계정 정보</h2>"
+        "<h2><span data-icon='id'></span> 계정 정보</h2>"
         f"<dl>{info_html}</dl>"
         f"{profile_toggle_html}"
         "</section>"
         '<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="표시 이름">'
-        "<h2>🏷️ 표시 이름</h2>"
+        "<h2><span data-icon='tag'></span> 표시 이름</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">표시 이름<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'
         '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
@@ -1035,7 +1064,7 @@ def _settings_account_body(
         f"{_settings_locale_html(account)}"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
         f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="비밀번호">'
-        f"<h2>🔑 {'비밀번호 변경' if has_password else '비밀번호 설정'}</h2>"
+        f"<h2><span data-icon='key'></span> {'비밀번호 변경' if has_password else '비밀번호 설정'}</h2>"
         f"{current_pw_html}"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호 확인<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
@@ -1044,7 +1073,7 @@ def _settings_account_body(
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         '<section class="console-subcard" id="settings-identities" data-settings-identities aria-label="연결된 외부 로그인">'
-        "<h2>🔗 연결된 외부 로그인 (OIDC · GitHub)</h2>"
+        "<h2><span data-icon='link'></span> 연결된 외부 로그인 (OIDC · GitHub)</h2>"
         '<p class="hint">연결과 해제는 본인 확인을 먼저 해야 합니다. 비밀번호가 없으면 마지막 외부 로그인은 해제할 수 없습니다.</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
         "<thead><tr><th>공급자</th><th>연결 시각</th><th>마지막 로그인</th><th></th></tr></thead>"
@@ -1054,17 +1083,17 @@ def _settings_account_body(
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
         '<section class="console-subcard" id="settings-quota" aria-label="할당량 및 사용량">'
-        "<h2>📏 할당량 및 사용량</h2>"
+        "<h2><span data-icon='ruler'></span> 할당량 및 사용량</h2>"
         f'<p class="hint">{escape(quota_hint)}</p>'
         f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=admin_viewer)}</div>'
         "</section>"
         '<section class="console-subcard" id="settings-bundle" aria-label="테마 그래프 번들 내보내기">'
-        "<h2>📦 내 테마 그래프 번들 내보내기</h2>"
+        "<h2><span data-icon='package'></span> 내 테마 그래프 번들 내보내기</h2>"
         '<p class="hint">선택한 내 테마의 엔티티·관계·문서를 그래프 번들(<code>POST /graph/bundle</code>)로 묶고 본인 전용 내려받기 링크를 만듭니다. 링크는 만료 시각까지만 유효합니다.</p>'
         f"{bundle_html}"
         "</section>"
         '<section class="console-subcard" id="settings-account-lifecycle" aria-label="계정 삭제">'
-        "<h2>🗑️ 계정 삭제</h2>"
+        "<h2><span data-icon='trash'></span> 계정 삭제</h2>"
         f"{lifecycle_html}"
         "</section>"
     )
@@ -1077,7 +1106,7 @@ def _settings_account_body(
 
 def _settings_locale_html(account: accounts_store.Account) -> str:
     """The interface language selector ``#pref-account-locale`` (I18N design Section 6.2). The empty value is automatic negotiation. ``console_account.js`` sends the change with ``PATCH /api/me`` and loads the page again."""
-    title = escape(t("console.account.locale_title"))
+    title = icon_html("globe") + " " + escape(t("console.account.locale_title"))
     label = escape(t("console.account.locale_label"))
     options = f'<option value=""{"" if account.locale else " selected"}>{escape(t("console.account.locale_auto"))}</option>' + "".join(
         f'<option value="{code}"{" selected" if account.locale == code else ""}>{escape(t(f"locale.name.{code}"))}</option>' for code in SUPPORTED_LOCALES
@@ -1106,9 +1135,9 @@ def _settings_keys_body(
         notice = "싱글 모드에서는 인스턴스 프로바이더 설정이 모든 LLM·STT·VLM 작업에 쓰입니다." if mode == "single" else "관리자 계정은 BYOK 키 대신 인스턴스 프로바이더 설정을 씁니다."
         body = (
             '<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="프로바이더 설정 안내">'
-            "<h2>⚡ 인스턴스 프로바이더 설정</h2>"
+            "<h2><span data-icon='bolt'></span> 인스턴스 프로바이더 설정</h2>"
             f'<p class="hint">{escape(notice)}</p>'
-            '<a class="pref-btn pref-btn-accent" href="/admin/providers">⚡ 프로바이더 설정 열기</a>'
+            '<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> 프로바이더 설정 열기</a>'
             "</section>"
         )
         return body, {"keys_mode": "admin"}
@@ -1116,7 +1145,7 @@ def _settings_keys_body(
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
             '<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="API 키 안내">'
-            "<h2>🔐 외부 API 키</h2>"
+            "<h2><span data-icon='lock'></span> 외부 API 키</h2>"
             '<p class="hint">이 인스턴스는 싱글 모드로 운영 중이므로 개인 API 키(BYOK)를 등록할 수 없습니다. LLM·STT·VLM 프로바이더는 인스턴스 운영자가 관리합니다.</p>'
             "</section>"
         )
@@ -1134,14 +1163,14 @@ def _settings_keys_body(
     )
     body = (
         '<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="등록한 API 키">'
-        "<h2>🔐 내 API 키 (쓰기 전용)</h2>"
+        "<h2><span data-icon='lock'></span> 내 API 키 (쓰기 전용)</h2>"
         '<p class="hint">LLM 작업에 쓸 본인 API 키입니다. 등록한 키는 암호화해 저장하고, 다시 보거나 복사할 수 없습니다. 화면과 API에는 키에서 파생한 fingerprint만 나옵니다. 키가 거부되거나 할당량이 다 되면 작업은 실패하며, 서버 등급이나 다른 키로 바꿔 쓰지 않습니다.</p>'
         '<p class="hint">한계: 이 보호는 애플리케이션 경로로 키를 읽는 일을 막습니다. 서버가 키로 API를 호출하려면 복호화할 수밖에 없으므로, 서버 호스트의 root 권한자는 막지 못합니다.</p>'
         f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
         "</section>"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"
         '<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="키 등록·교체">'
-        "<h2>➕ 키 등록·교체</h2>"
+        "<h2><span data-icon='plus'></span> 키 등록·교체</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">API 키<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
         '<p class="hint">저장하기 전에 시험 호출로 키를 확인하고, 실패하면 저장하지 않습니다. 이미 등록한 키가 있으면 새 키로 바꿉니다.</p>'
@@ -1149,21 +1178,21 @@ def _settings_keys_body(
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         '<form class="console-subcard" id="settings-keys-verify" data-settings-form="provider-key-verify" aria-label="키 다시 확인">'
-        "<h2>🔁 키 다시 확인</h2>"
+        "<h2><span data-icon='repeat'></span> 키 다시 확인</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
         '<p class="hint">저장한 키로 시험 호출을 다시 해서 상태를 갱신합니다.</p>'
         '<button type="submit" class="pref-btn">다시 확인</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         '<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="키 삭제">'
-        "<h2>🗑️ 키 삭제</h2>"
+        "<h2><span data-icon='trash'></span> 키 삭제</h2>"
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
         '<p class="hint">삭제하면 서버 등급이 허용하는 범위에서만 LLM 작업을 합니다.</p>'
         '<button type="submit" class="pref-btn pref-btn-danger">삭제</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         '<section class="console-subcard" id="settings-keys-tier" aria-label="서버 등급 허용량">'
-        "<h2>📊 현재 서버 등급 허용량 (ServerTier)</h2>"
+        "<h2><span data-icon='chart'></span> 현재 서버 등급 허용량 (ServerTier)</h2>"
         '<p class="hint">키를 등록하지 않으면 아래 서버 등급으로 작업합니다. 자원 한도는 키를 등록해도 적용됩니다.</p>'
         f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
         f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
@@ -1246,7 +1275,7 @@ def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Accou
         "</div>"
         "</section>"
         '<section class="console-subcard" id="settings-oauth-clients" aria-label="내가 승인한 OAuth 클라이언트">'
-        "<h2>🔐 내가 승인한 OAuth 2.1 클라이언트</h2>"
+        "<h2><span data-icon='lock'></span> 내가 승인한 OAuth 2.1 클라이언트</h2>"
         '<p class="hint">내 계정으로 <code>/oauth/authorize</code> 승인을 받아 토큰을 발급받은 원격 MCP 클라이언트입니다. 토큰 원문은 표시하지 않습니다.</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
         "<thead><tr><th>클라이언트 이름</th><th>client_id · redirect_uris</th><th>첫 발급 시각</th><th>마지막 만료 시각</th><th>토큰 수</th></tr></thead>"
@@ -1361,6 +1390,7 @@ def _render_console_section(
             "section_desc": spec.description,
         },
         markup={
+            "section_icon_html": icon_html(spec.icon),
             "theme_selector_html": theme_selector_html,
             "sidebar_nav_html": sidebar_html,
             "section_body_html": section_body_html,

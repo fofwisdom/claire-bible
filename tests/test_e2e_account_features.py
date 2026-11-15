@@ -173,10 +173,18 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     r = _call(env, "POST", "/api/me/support-bundles", alice, json={"days": 2})
     assert r.status_code == 200, r.text
     support_id = r.json()["bundle"]["bundle_id"]
+    support_url = r.json()["bundle"]["download_url"]
     r = _call(env, "POST", "/api/me/data-bundles", alice, json={})
     assert r.status_code == 200, r.text
     data_id = r.json()["bundle"]["bundle_id"]
     assert r.json()["bundle"]["entities_count"] == 1
+    data_url = r.json()["bundle"]["download_url"]
+    # The address from the create response has an unpredictable token and works without a session. The address with bundle_id does not.
+    for url, kind, bundle_id in ((support_url, "support-bundles", support_id), (data_url, "data-bundles", data_id)):
+        assert url.startswith(PUBLIC_URL + "/") and "?token=" in url and bundle_id not in url
+        shared = env.client.get(url[len(PUBLIC_URL):])
+        assert shared.status_code == 200 and shared.content[:4] == b"\x28\xb5\x2f\xfd", (kind, url, shared.text[:200])
+        assert env.client.get(f"/api/me/{kind}/download?bundle_id={bundle_id}").status_code in (401, 404)
     for kind, bundle_id in (("support-bundles", support_id), ("data-bundles", data_id)):
         listed = _call(env, "GET", f"/api/me/{kind}", alice).json()["bundles"]
         assert [b["bundle_id"] for b in listed] == [bundle_id]

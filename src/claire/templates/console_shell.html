@@ -70,6 +70,8 @@
   .feature-field{display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600}
   .feature-inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
   .feature-inline .result{flex-basis:100%}
+  .feature-share{margin:10px 0}
+  .feature-share .feature-field{flex:1 1 320px}
   .result:empty{display:none}
   .result{margin:4px 0 0;font-size:12.5px;font-weight:600}
   .result[data-state=error]{color:#cf222e}
@@ -136,9 +138,9 @@
 <div class="console-shell">
   <header class="console-topbar">
     <a href="$graph_href" class="console-btn" id="console-back-graph">← 지식 그래프</a>
-    <a href="$syndication_href" class="console-btn" id="console-back-syndication">📡 신디케이션</a>
+    <a href="$syndication_href" class="console-btn" id="console-back-syndication"><span data-icon="inbox"></span> 신디케이션</a>
     <span class="console-sep"></span>
-    <span class="console-brand">⚙️ 통합 설정 및 관리 콘솔</span>
+    <span class="console-brand"><span data-icon="settings"></span> 통합 설정 및 관리 콘솔</span>
     <span class="console-badge" id="console-scope-badge">$scope_badge</span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       $theme_selector_html
@@ -154,7 +156,7 @@
     <main class="console-main" id="console-main">
       <div class="console-container" id="console-container">
         <section class="console-card" id="console-section-$active_section" data-section="$active_section">
-          <h1><span>$section_title</span> <span class="console-badge">$section_badge</span></h1>
+          <h1>$section_icon_html<span>$section_title</span> <span class="console-badge">$section_badge</span></h1>
           <p class="console-desc">$section_desc</p>
           <div id="console-section-body">$section_body_html</div>
         </section>
@@ -164,7 +166,7 @@
 </div>
 <div id="console-reauth-modal" class="console-modal" role="dialog" aria-modal="true" aria-labelledby="console-reauth-title" hidden>
   <div class="console-modal-box">
-    <h2 id="console-reauth-title" style="margin:0;font-size:15px">🔐 단계 인증 (본인 확인)</h2>
+    <h2 id="console-reauth-title" style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px"><span data-icon="lock"></span> 단계 인증 (본인 확인)</h2>
     <p class="console-desc">민감한 작업을 계속하려면 현재 계정 비밀번호를 입력해 주세요 (유효 시간 15분).</p>
     <form id="console-reauth-form" data-console-reauth-form style="display:flex;flex-direction:column;gap:10px">
       <label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">비밀번호
@@ -180,6 +182,7 @@
 </div>
 <script id="console-bootstrap" type="application/json">$bootstrap_json</script>
 $i18n_bootstrap_html
+<script src="/static/js/icons.js"></script>
 <script src="/static/js/manage_panels.js" defer></script>
 $admin_scripts_html
 $extra_scripts_html

@@ -378,7 +378,7 @@ def test_settings_account_has_the_language_selector_and_the_inline_catalog(clien
 
     client.request("PATCH", "/api/me", session=token, json={"locale": "ko"})
     page = client.request("GET", "/settings/account", session=token, headers={"Accept-Language": "en"})
-    assert '<html lang="ko">' in page.text and "<h2>🌐 인터페이스 언어</h2>" in page.text
+    assert '<html lang="ko">' in page.text and '<h2><span data-icon="globe"></span> 인터페이스 언어</h2>' in page.text
     assert '<option value="">자동 (브라우저 / 시스템)</option><option value="en">English (en)</option><option value="ko" selected>한국어 (ko)</option>' in page.text
     bootstrap = _bootstrap_json(page.text, "console-bootstrap")
     assert bootstrap["locale"] == "ko" and bootstrap["effective_locale"] == "ko"

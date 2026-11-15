@@ -127,7 +127,7 @@ def test_language_switch_on_login_and_in_account_settings(live_server, browser) 
         page.select_option("#pref-account-locale", "en")
     assert lang() == "en" and page.input_value("#pref-account-locale") == "en"
     assert _stored_locale(settings) == "en" and locale_cookie() == "en"
-    assert page.inner_text("#settings-locale h2") == "🌐 Interface language"
+    assert page.inner_text("#settings-locale h2") == "Interface language"
     assert page.evaluate("ClaireI18n.tn('doc.count', 1)") == "1 document"
 
     # 4. A second browser with a Korean language setting and no cookie gets the account preference.

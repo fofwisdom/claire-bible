@@ -892,8 +892,8 @@ def test_graphview_exposes_presentation_metadata():
     assert "↗ Presentation PDF" in GRAPH_HTML
     assert "CC×PDF" in GRAPH_HTML
     assert "STT×PDF" in GRAPH_HTML
-    assert "🔤⚡📄" in GRAPH_HTML
-    assert "🎙️⚡📄" in GRAPH_HTML
+    assert '<span data-icon="captions"></span><span data-icon="doc"></span>' in GRAPH_HTML
+    assert '<span data-icon="mic"></span><span data-icon="doc"></span>' in GRAPH_HTML
     assert "📎 Presentation PDF" not in GRAPH_HTML
 
 
@@ -944,7 +944,7 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     out = json.loads(res.stdout)
 
     # CC 검증: '🔤⚡📄 CC×PDF' 라벨, 호버 툴팁(자막 선언급, 적재, 파서 접두사 제거)
-    assert ">🔤⚡📄 CC×PDF<" in out["cc"]
+    assert '><span data-icon="captions"></span><span data-icon="doc"></span> CC×PDF<' in out["cc"]
     assert "25,183자" in out["cc"]
     assert "pypdf" in out["cc"]
     assert "파서: " not in out["cc"]
@@ -954,7 +954,7 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     assert "stt-tag" not in out["cc"]
 
     # STT 검증: '🎙️⚡📄 STT×PDF' 라벨, 호버 툴팁(음성 전사 선언급, (STT) 제거, 적재)
-    assert ">🎙️⚡📄 STT×PDF<" in out["stt"]
+    assert '><span data-icon="mic"></span><span data-icon="doc"></span> STT×PDF<' in out["stt"]
     assert "25,183자" in out["stt"]
     assert "pypdf" in out["stt"]
     assert "파서: " not in out["stt"]
@@ -964,7 +964,7 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
     assert "적재됨" not in out["stt"]
     assert "stt-tag" in out["stt"]
     assert "↗ 전사 열기" in out["stt"]
-    assert "🎙️ STT" not in out["stt"]  # 중복 분리 태그 방지
+    assert '<span data-icon="mic"></span> STT' not in out["stt"]  # 중복 분리 태그 방지
 
 
 def test_purge_removes_presentation_attachment(tmp_path: Path):

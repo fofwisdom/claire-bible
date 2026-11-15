@@ -358,5 +358,5 @@ def test_collaborator_theme_management_view_options(tmp_path: Path):
     # 공유 모듈(renderThemeManager)은 협업자 읽기 보기 옵션을 그대로 갖는다.
     manage_js = (Path(__file__).resolve().parents[1] / "src" / "claire" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
     assert "toggleThemeOptionsView" in manage_js
-    assert "⚙️ 테마 설정 옵션" in manage_js
+    assert '<span data-icon="settings"></span> 테마 설정 옵션' in manage_js
 

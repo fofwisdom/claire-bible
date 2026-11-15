@@ -90,7 +90,7 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
     if mode != "network":
         body = (
             '<section class="console-subcard" id="settings-federation-unavailable" data-federation-mode="unavailable" aria-label="연합 안내">'
-            "<h2>🌐 연합 (ActivityPub)</h2>"
+            "<h2><span data-icon='globe'></span> 연합 (ActivityPub)</h2>"
             '<p class="hint">이 인스턴스는 싱글 모드로 운영 중이므로 연합을 쓸 수 없습니다. 연합은 네트워크 모드에서만 동작합니다.</p>'
             "</section>"
         )
@@ -111,12 +111,12 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-federation-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in rows)
     body = (
         f'<section class="console-subcard" id="settings-federation-status" data-federation-mode="network" data-actor-state="{escape(state)}" aria-label="연합 상태">'
-        "<h2>🌐 내 연합 액터</h2>"
+        "<h2><span data-icon='globe'></span> 내 연합 액터</h2>"
         '<p class="hint">연합이 켜져 있고 프로필이 공개이면 다른 서버(Mastodon 등)에서 아래 핸들로 이 계정을 찾고 팔로우할 수 있습니다. 프로필 공개 여부는 <a href="/settings/account">내 계정</a>에서 바꿉니다. 비공개로 바꾸면 연합이 일시 중지되지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.</p>'
         f"<dl>{info_html}</dl>"
         "</section>"
         '<section class="console-subcard" id="settings-federation-followers" data-federation-followers aria-label="팔로워">'
-        "<h2>👥 팔로워</h2>"
+        "<h2><span data-icon='users'></span> 팔로워</h2>"
         '<p class="hint">이 계정을 팔로우하는 다른 서버의 계정입니다. 제거하면 이 서버의 팔로워 목록에서 지웁니다. 상대 서버에 알림(<code>Reject</code>)을 보내는 기능은 아직 없으므로, 상대 서버 화면에는 팔로우 상태가 남을 수 있습니다.</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
         "<thead><tr><th>액터</th><th>팔로우 시각</th><th></th></tr></thead>"
@@ -127,7 +127,7 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
         "</section>"
         # FP4-5 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the retention of the received posts of this account. console_account.js reads and saves the value with /api/federation/settings.
         f'<section class="console-subcard" id="settings-federation-reading" data-federation-reading aria-label="{escape(t("console.federation.retention.title"))}">'
-        f'<h2>🗂️ {escape(t("console.federation.retention.title"))}</h2>'
+        f'<h2><span data-icon="folder"></span> {escape(t("console.federation.retention.title"))}</h2>'
         f'<p class="hint">{escape(t("console.federation.retention.hint"))}</p>'
         f'<form data-retention-form data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}" data-msg-instance="{escape(t("console.federation.retention.use_instance"))}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">'
         '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" name="use_instance"/> <span data-retention-instance-label></span></label>'
@@ -181,7 +181,7 @@ def _reading_settings_html(values: dict[str, Any]) -> str:
         )
     return (
         f'<section class="card" id="admin-federation-reading" aria-label="{escape(t("console.federation.reading.title"))}">'
-        f'<h2>📥 {escape(t("console.federation.reading.title"))}</h2>'
+        f'<h2><span data-icon="inbox"></span> {escape(t("console.federation.reading.title"))}</h2>'
         f'<p class="hint">{escape(t("console.federation.reading.hint"))}</p>'
         f'<form id="admin-federation-reading-form" data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-nochange="{escape(t("console.federation.reading.nochange"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}">'
         f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px 16px;margin-bottom:12px;align-items:start">{"".join(fields)}</div>'
@@ -212,7 +212,7 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
     body = (
         f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="연합 스위치">'
-        "<h2>🌐 연합 스위치</h2>"
+        "<h2><span data-icon='globe'></span> 연합 스위치</h2>"
         "<dl>"
         f'<dt>현재 상태</dt><dd><span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{"켜짐 (on)" if federation == "on" else "꺼짐 (off)"}</span></dd>'
         f'<dt>인스턴스 모드</dt><dd data-federation-field="mode">{"네트워크 모드" if mode == "network" else "싱글 모드"}</dd>'
@@ -223,7 +223,7 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</section>"
         '<section class="card" id="admin-federation-readiness" aria-label="연합 준비 검사">'
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-        "<h2>✅ 연합 준비 검사 (GF1–GF7)</h2>"
+        "<h2><span data-icon='check-circle'></span> 연합 준비 검사 (GF1–GF7)</h2>"
         '<button type="button" class="pref-btn" id="admin-federation-refresh">↻ 다시 검사</button>'
         "</div>"
         '<p class="result" id="admin-federation-readiness-result" role="status" aria-live="polite"></p>'
@@ -233,12 +233,12 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         "</table></div>"
         "</section>"
         '<section class="card" id="admin-federation-sidecar" aria-label="사이드카 상태">'
-        "<h2>🩺 사이드카 상태 (Fedify)</h2>"
+        "<h2><span data-icon='pulse'></span> 사이드카 상태 (Fedify)</h2>"
         '<p class="hint">사이드카가 30초마다 보내는 마지막 하트비트입니다.</p>'
         '<dl id="admin-federation-heartbeat"><dt>하트비트</dt><dd>불러오는 중입니다...</dd></dl>'
         "</section>"
         '<section class="card" id="admin-federation-domain-blocks" aria-label="차단 도메인">'
-        "<h2>⛔ 차단 도메인</h2>"
+        "<h2><span data-icon='block'></span> 차단 도메인</h2>"
         '<p class="hint">차단한 도메인과 그 하위 도메인에서 오는 활동은 거부합니다. 추가와 해제는 본인 확인이 필요합니다. 이미 있는 팔로워는 차단해도 자동으로 지워지지 않습니다.</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
         "<thead><tr><th>도메인</th><th>메모</th><th>차단 시각</th><th></th></tr></thead>"

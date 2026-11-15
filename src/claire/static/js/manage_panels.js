@@ -99,7 +99,7 @@
     if (resEl) {
       resEl.style.display = 'block';
       resEl.style.color = 'var(--muted,#888)';
-      resEl.textContent = '⏳ 테스트 실행 중…';
+      resEl.textContent = '테스트 실행 중…';
     }
     const payload = { provider: provName, config: {} };
     if (provName === 'gemini') {
@@ -124,7 +124,7 @@
       if (resEl) {
         if (d.ok) {
           resEl.style.color = 'var(--accent2,#1a7f37)';
-          resEl.textContent = '✅ ' + (d.message || '연결 성공');
+          resEl.textContent = '' + (d.message || '연결 성공');
           if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
             const sel = document.getElementById('prov-agy-model');
             if (sel) {
@@ -144,13 +144,13 @@
           }
         } else {
           resEl.style.color = 'var(--err,#cf222e)';
-          resEl.textContent = '❌ ' + (d.error || '연결 실패');
+          resEl.textContent = '' + (d.error || '연결 실패');
         }
       }
     } catch (e) {
       if (resEl) {
         resEl.style.color = 'var(--err,#cf222e)';
-        resEl.textContent = '❌ 통신 오류: ' + (e.message || e);
+        resEl.textContent = '통신 오류: ' + (e.message || e);
       }
     }
   }
@@ -246,11 +246,11 @@
     if (msg) {
       const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
       const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '✅' : '⚠️';
+      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2>⚡ LLM &amp; 프로바이더 관리</h2>';
+    let h = '<h2><span data-icon="bolt"></span> LLM &amp; 프로바이더 관리</h2>';
     h += '<p class="al">지식 추출, 요약, 임베딩, 전사에 사용할 하이퍼스케일러 및 LLM 프로바이더를 설정합니다. 변경 사항은 <code>data/providers.json</code>에 즉시 영구 저장됩니다.</p>';
     h += alertHtml;
 
@@ -273,14 +273,14 @@
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-    h += '<strong style="font-size:13px;">🌐 Google Gemini</strong>';
+    h += '<strong style="font-size:13px;"><span data-icon="globe"></span> Google Gemini</strong>';
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">연결 테스트</button>';
     h += '</div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div><label style="font-size:11px;opacity:0.8;">Gemini API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
     h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '설정됨 (••••••••)' : 'Gemini API Key 입력'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')">👁️</button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
     if (gemini.has_api_key) {
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">삭제</button>';
     }
@@ -309,7 +309,7 @@
     const agyBadge = agy.installed ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>' : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">바이너리 없음</span>';
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-    h += `<strong style="font-size:13px;">🚀 Antigravity CLI (agy) ${agyBadge}</strong>`;
+    h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Antigravity CLI (agy) ${agyBadge}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
     h += '</div>';
     const agyModels = Array.isArray(agy.available_models) && agy.available_models.length ? agy.available_models : [
@@ -351,7 +351,7 @@
     const cdxBadge = cdx.installed ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>' : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">미설치</span>';
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
-    h += `<strong style="font-size:13px;">💻 Codex CLI ${cdxBadge}</strong>`;
+    h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Codex CLI ${cdxBadge}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'codex\')">CLI 확인</button>';
     h += '</div>';
     h += '<p style="margin:0 0 8px;font-size:11px;color:var(--muted,#888);">네이티브 호스트 전용 (Docker 환경에서는 자동 거부됩니다)</p>';
@@ -376,14 +376,14 @@
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-    h += '<strong style="font-size:13px;">⚡ OpenAI / 하이퍼스케일러 호환</strong>';
+    h += '<strong style="font-size:13px;"><span data-icon="bolt"></span> OpenAI / 하이퍼스케일러 호환</strong>';
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'openai\')">설정 검증</button>';
     h += '</div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div><label style="font-size:11px;opacity:0.8;">API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
     h += `<input id="prov-oai-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${oai.has_api_key ? '설정됨 (••••••••)' : 'API Key 입력'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-oai-key\')">👁️</button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-oai-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
     if (oai.has_api_key) {
       h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-oai-key\', \'openai\')">삭제</button>';
     }
@@ -399,13 +399,13 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧩 보조 엔진 (Jev &amp; 음성 전사)</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> 보조 엔진 (Jev &amp; 음성 전사)</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
     h += '<div>';
     h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (엔티티 해소 shadow 평가 · 판정 비관여)</label>`;
     h += '<div style="margin-top:6px;display:flex;gap:4px;">';
     h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')">👁️</button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="키 표시/숨김" aria-label="키 표시/숨김"><span data-icon="eye"></span></button>';
     h += '</div>';
     h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
     h += '</div>';
@@ -426,7 +426,7 @@
     const optsState = _provState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     h += '<div style="display:flex;gap:8px;margin-top:16px;">';
-    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()">💾 설정 저장</button>';
+    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> 설정 저장</button>';
     if (canClose) {
       h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeProviderManager()">닫기</button>';
     }
@@ -447,7 +447,7 @@
     }
     const target = _provState.container;
     if (!target) return;
-    target.innerHTML = '<h2>⚡ 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
+    target.innerHTML = '<h2><span data-icon="bolt"></span> 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
     try {
       const url = resolveRootUrl(_provState.opts, 'providers');
       const r = await fetch(url);
@@ -455,7 +455,7 @@
       _provState.config = await r.json();
       renderProviderManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2>⚡ 프로바이더 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="bolt"></span> 프로바이더 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
     }
   }
 
@@ -599,16 +599,16 @@
     if (msg) {
       const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
       const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '✅' : '⚠️';
+      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2>📏 상황 별 적재 제한 관리</h2>';
+    let h = '<h2><span data-icon="ruler"></span> 상황 별 적재 제한 관리</h2>';
     h += '<p class="al">수집 경로 및 문서 유형(웹, PDF, 슬라이싱, 벡터 임베딩, 확장, 미디어 등)별 적재 제한과 글자 수 예산을 단독 기능으로 설정합니다. 저장된 설정은 <code>data/ingest_limits.json</code>에 즉시 영구 저장됩니다.</p>';
     h += alertHtml;
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🌐 일반 웹 / 텍스트 수집 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="globe"></span> 일반 웹 / 텍스트 수집 제한</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div>';
     h += '<label style="font-size:11px;opacity:0.8;display:block;">원문 수집 본문 상한 (raw_char_budget, 글자 수)</label>';
@@ -619,7 +619,7 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">📄 PDF 문서 수집 및 논문 판정 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="doc"></span> PDF 문서 수집 및 논문 판정 제한</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">PDF 최대 추출 분량 (글자 수)</label><input id="limit-pdf-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_max_extract_chars ?? 50000}"/></div>`;
@@ -659,7 +659,7 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧩 지식 그래프(KG) 추출 및 슬라이싱 예산</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> 지식 그래프(KG) 추출 및 슬라이싱 예산</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">단일 문서 추출 투입 상한 (글자 수)</label><input id="limit-extract-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.extract_char_budget ?? 20000}"/></div>`;
@@ -674,7 +674,7 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🧭 임베딩·1홉 확장·리서치 맥락 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="compass"></span> 임베딩·1홉 확장·리서치 맥락 제한</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 벡터 본문 상한 (글자 수)</label><input id="limit-embed-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.embed_char_budget ?? 8000}"/></div>`;
@@ -688,7 +688,7 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;">🎬 미디어 및 첨부파일 적재 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="film"></span> 미디어 및 첨부파일 적재 제한</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div>';
     h += '<label style="font-size:11px;opacity:0.8;display:block;">프레젠테이션 PDF 첨부파일 용량 상한 (bytes, 기본 64MiB = 67,108,864)</label>';
@@ -708,7 +708,7 @@
     const optsState = _limitState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     h += '<div style="display:flex;gap:8px;margin-top:16px;">';
-    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()">💾 설정 저장</button>';
+    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()"><span data-icon="save"></span> 설정 저장</button>';
     h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()">↩️ 기본값 복원</button>';
     if (canClose) {
       h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeLimitManager()">닫기</button>';
@@ -730,7 +730,7 @@
     }
     const target = _limitState.container;
     if (!target) return;
-    target.innerHTML = '<h2>📏 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
+    target.innerHTML = '<h2><span data-icon="ruler"></span> 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
     try {
       const url = resolveRootUrl(_limitState.opts, 'limits');
       const r = await fetch(url);
@@ -738,7 +738,7 @@
       _limitState.config = await r.json();
       renderLimitManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2>📏 적재 제한 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="ruler"></span> 적재 제한 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
     }
   }
 
@@ -985,7 +985,7 @@
     const isCollab = evalBool(optsState.isCollaborator, false);
     const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
 
-    let h = '<h2>📁 지식 테마 관리</h2>';
+    let h = '<h2><span data-icon="folder"></span> 지식 테마 관리</h2>';
     if (isOwner) {
       h += '<p class="al">지식 관리자(owner)는 테마별로 공개 여부 및 협업자 접근을 설정할 수 있습니다. 비공개 테마는 익명 사용자에게 노출되지 않습니다.</p>';
     } else {
@@ -996,19 +996,19 @@
     for (const t of themes) {
       const themeKey = getThemeKey(t);
       const isPub = t.is_public !== false;
-      const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">공개</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">비공개 🔒</span>';
+      const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">공개</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">비공개</span>';
       const toggleBtn = isPub ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">비공개로 전환</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">공개로 전환</button>`;
       const isCollabAcc = t.is_collaborator_accessible !== false;
-      const collabBadge = isCollabAcc ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개 🤝</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단 🚫</span>';
+      const collabBadge = isCollabAcc ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단</span>';
       const toggleCollabBtn = isCollabAcc ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, false)">협업자 차단</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, true)">협업자 공개</button>`;
       const isPres = t.presentation_enabled === true;
-      const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 활성화됨">📊 발표 ON</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 비활성화됨">🚫 발표 OFF</span>';
+      const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 활성화됨"><span data-icon="screen"></span> 발표 ON</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 비활성화됨"><span data-icon="block"></span> 발표 OFF</span>';
       const togglePresBtn = isPres ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">발표 끄기</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">발표 켜기</button>`;
       const canIngestHere = themeKey !== '0' && isCollabAcc;
       const idLabel = themeKey === '0' ? '기본 (ID 0)' : (t.number ? `테마 ${t.number}` : `테마 #${t.id}`);
       const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
-      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="구 도메인 리다이렉트">🌐 구 도메인 ${t.legacy_hosts.length}개</span>` : '';
+      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="구 도메인 리다이렉트"><span data-icon="globe"></span> 구 도메인 ${t.legacy_hosts.length}개</span>` : '';
 
       h += '<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">';
       h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">';
@@ -1016,7 +1016,7 @@
       h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
       h += legacyHostsBadge;
       if (t.ga_measurement_id) {
-        h += `<span style="color:#fbbf24;font-weight:600;font-size:12px;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px" title="Google Analytics 4">📊 ${esc(t.ga_measurement_id)}</span>`;
+        h += `<span style="color:#fbbf24;font-weight:600;font-size:12px;background:rgba(251,191,36,0.15);padding:2px 6px;border-radius:4px" title="Google Analytics 4"><span data-icon="chart"></span> ${esc(t.ga_measurement_id)}</span>`;
       }
       h += pubBadge;
       if (isOwner) h += toggleBtn;
@@ -1024,20 +1024,20 @@
       if (isOwner && themeKey !== '0') h += toggleCollabBtn;
       h += presBadge;
       if (isOwner) h += togglePresBtn;
-      if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})">✏️ 수정</button>`;
-      h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})">⚙️ 옵션 보기</button>`;
+      if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> 수정</button>`;
+      h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})"><span data-icon="settings"></span> 옵션 보기</button>`;
       if (isOwner && themeKey !== '0') {
-        h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})">🗑️ 삭제</button>`;
+        h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> 삭제</button>`;
       }
       h += '</div></div>';
       if (t.description) h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>`;
       h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">지식 관리자: ${esc(effMgr)}</p>`;
       if (themeKey !== '0' && t.default_focus) {
-        h += `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;">🎯 기본 초점: ${esc(t.default_focus)}</p>`;
+        h += `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;"><span data-icon="target"></span> 기본 초점: ${esc(t.default_focus)}</p>`;
       }
 
       h += `<div id="theme-options-view-${themeKey}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
-      h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;">⚙️ 테마 설정 옵션</div>';
+      h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> 테마 설정 옵션</div>';
       h += `<div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>`;
       h += `<div>• <b>지식 관리자</b>: ${esc(effMgr)}</div>`;
       h += `<div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>`;
@@ -1045,10 +1045,10 @@
       h += `<div>• <b>구 도메인 리다이렉트 (legacy_hosts)</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => `${esc(lh.host)} (활성: ${esc(lh.activated_at || '-')}, 일몰: ${esc(lh.sunset_at || '-')})`).join(', ') : '(없음)'}</div>`;
       h += `<div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 비활성)')}</div>`;
       if (themeKey !== '0') h += `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>`;
-      h += `<div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개 🔒'}</div>`;
+      h += `<div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개'}</div>`;
       if (themeKey !== '0') h += `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>`;
-      h += `<div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능 ✍️)</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>`;
-      h += `<div>• <b>프레젠테이션 기능</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">활성화됨 (발표 기능 사용 가능 📊)</span>' : '<span style="color:var(--muted);font-weight:600;">비활성화됨 (발표 기능 숨김 🚫)</span>'}</div>`;
+      h += `<div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능)</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>`;
+      h += `<div>• <b>프레젠테이션 기능</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">활성화됨 (발표 기능 사용 가능)</span>' : '<span style="color:var(--muted);font-weight:600;">비활성화됨 (발표 기능 숨김)</span>'}</div>`;
       if (t.stats) h += `<div>• <b>지식 현황</b>: 문서 ${t.stats.documents || 0}건 · 엔티티 ${t.stats.entities || 0}개 · 관계 ${t.stats.relations || 0}개</div>`;
       h += '</div>';
 
@@ -1058,7 +1058,7 @@
         h += `<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="editthemep-sorcerer-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="지식 관리자" value="${esc(rawMgr)}"/></div>`;
         h += `<div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>`;
         if (t.legacy_hosts && t.legacy_hosts.length) {
-          h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;">🌐 구 도메인(FQDN)은 폐지되었으며 읽기 전용 리다이렉트로 관리됩니다: ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
+          h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;"><span data-icon="globe"></span> 구 도메인(FQDN)은 폐지되었으며 읽기 전용 리다이렉트로 관리됩니다: ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
         }
         h += `<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>`;
         if (themeKey !== '0') {
@@ -1076,7 +1076,7 @@
         h += `<button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">저장</button>`;
         h += `<button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">취소</button>`;
         if (themeKey !== '0') {
-          h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})">🗑️ 테마 완전 삭제</button>`;
+          h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> 테마 완전 삭제</button>`;
         }
         h += '</div></div>';
       }
@@ -1085,7 +1085,7 @@
     h += '</div>';
 
     if (isOwner) {
-      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;">➕ 새 테마 추가</summary>';
+      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;"><span data-icon="plus"></span> 새 테마 추가</summary>';
       h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
       h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="지식 관리자"/></div>';
@@ -1099,7 +1099,7 @@
       h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
       h += '</div></details>';
     } else {
-      h += '<p class="hint" style="margin-top:14px;font-size:12px;">💡 새로운 지식 테마 생성 또는 설정 변경이 필요한 경우 지식 관리자(owner)에게 요청하세요.</p>';
+      h += '<p class="hint" style="margin-top:14px;font-size:12px;"><span data-icon="info"></span> 새로운 지식 테마 생성 또는 설정 변경이 필요한 경우 지식 관리자(owner)에게 요청하세요.</p>';
     }
 
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
@@ -1119,7 +1119,7 @@
     }
     const target = _themeState.container;
     if (!target) return;
-    target.innerHTML = '<h2>📁 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
+    target.innerHTML = '<h2><span data-icon="folder"></span> 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
     try {
       const url = resolveApiUrl(_themeState.opts, 'themes');
       const r = await fetch(url);
@@ -1229,11 +1229,11 @@
     if (msg) {
       const color = isSuccess ? 'var(--accent2,#1a7f37)' : 'var(--err,#cf222e)';
       const bg = isSuccess ? 'rgba(26,127,55,0.1)' : 'rgba(207,34,46,0.1)';
-      const icon = isSuccess ? '✅' : '⚠️';
+      const icon = isSuccess ? '<span data-icon="check-circle"></span>' : '<span data-icon="warning"></span>';
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2>';
+    let h = '<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2>';
     h += '<p class="al">Claude Desktop, Cursor, 백그라운드 데몬 및 외부 API 연동을 위한 상시 이용(24/7) 토큰을 관리합니다. 환경변수 의존 없이 즉시 생성 및 폐기됩니다.</p>';
     h += alertHtml;
 
@@ -1243,19 +1243,19 @@
       const mcpUrl = `${mcpOrigin}/mcp`;
       const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-everything'], env: { CLAIRE_URL: mcpUrl, CLAIRE_TOKEN: rawVal } } } }, null, 2);
       h += '<div style="background:rgba(26,127,55,0.08);border:2px solid var(--accent2,#1a7f37);border-radius:8px;padding:12px;margin-bottom:16px;">';
-      h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);">🎉 새 토큰이 발급되었습니다</h3>';
+      h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);"><span data-icon="check-circle"></span> 새 토큰이 발급되었습니다</h3>';
       h += '<p style="margin:0 0 8px 0;font-size:12px;">이 토큰은 다시 전체 문자열로 표시되지 않습니다. 지금 복사하여 보관하세요.</p>';
       h += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
       h += `<input type="text" id="newly-minted-token" readonly value="${esc(rawVal)}" style="flex:1;font-family:monospace;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);" onclick="this.select();"/>`;
-      h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="copyMintedToken()">📋 복사</button>';
+      h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="copyMintedToken()"><span data-icon="clipboard"></span> 복사</button>';
       h += '</div>';
-      h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;">📋 Claude Desktop / Cursor MCP 연동 JSON 보기</summary>';
+      h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;"><span data-icon="clipboard"></span> Claude Desktop / Cursor MCP 연동 JSON 보기</summary>';
       h += `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:11px;border:1px solid var(--border);">${esc(mcpSnippet)}</pre></details>`;
       h += '</div>';
     }
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;">';
-    h += '<h3 style="margin:0 0 10px 0;font-size:13px;">➕ 새 API &amp; MCP 토큰 발급</h3>';
+    h += '<h3 style="margin:0 0 10px 0;font-size:13px;"><span data-icon="plus"></span> 새 API &amp; MCP 토큰 발급</h3>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;">';
     h += '<div>';
     h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">토큰 이름 (용도 / 클라이언트 명칭)</label>';
@@ -1283,11 +1283,11 @@
     h += '</div>';
     h += '</div>';
 
-    h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()">✨ 토큰 발급</button>';
+    h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()"><span data-icon="key"></span> 토큰 발급</button>';
     h += '</div>';
     h += '</div>';
 
-    h += '<h3 style="margin:0 0 8px 0;font-size:13px;">📋 발급된 토큰 목록 (' + tokens.length + '개)</h3>';
+    h += '<h3 style="margin:0 0 8px 0;font-size:13px;"><span data-icon="clipboard"></span> 발급된 토큰 목록 (' + tokens.length + '개)</h3>';
     if (!tokens.length) {
       h += '<p class="hint">등록된 토큰이 없습니다.</p>';
     } else {
@@ -1361,7 +1361,7 @@
     }
     const target = _tokenState.container;
     if (!target) return;
-    target.innerHTML = '<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
+    target.innerHTML = '<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
     try {
       const url = resolveRootUrl(_tokenState.opts, 'tokens');
       const r = await fetch(url);
@@ -1372,7 +1372,7 @@
       const initialSuccess = (_tokenState.opts && _tokenState.opts.initialSuccess) || false;
       renderTokenManagerDOM(initialMsg, initialSuccess, _tokenState.newCreatedToken);
     } catch (e) {
-      target.innerHTML = `<h2>🔑 API &amp; MCP 상시 이용 키 관리</h2><p class="hint" style="color:var(--err,#cf222e)">토큰 목록을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2><p class="hint" style="color:var(--err,#cf222e)">토큰 목록을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
     }
   }
 

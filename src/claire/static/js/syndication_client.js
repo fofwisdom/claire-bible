@@ -9,6 +9,9 @@
 (function () {
   "use strict";
 
+  // Line icon as inline SVG (static/js/icons.js).
+  const ic = (name) => (window.ClaireIcons ? window.ClaireIcons.svg(name) : "");
+
   const bridge = window.ClaireSyndication;
   const cfg = window.__CLAIRE_CONFIG || {};
   const I18n = window.ClaireI18n;
@@ -21,8 +24,8 @@
   const IS_NETWORK = cfg.instanceMode === "network";
   const STAGES = ["collect", "ingest", "publish"];
   const STREAMS = [
-    { key: "home", icon: "🏠", label: "synd.client.stream.home", filter: "" },
-    { key: "unread", icon: "🌱", label: "synd.client.stream.unread", filter: "unread=1" },
+    { key: "home", icon: ic("home"), label: "synd.client.stream.home", filter: "" },
+    { key: "unread", icon: ic("dot"), label: "synd.client.stream.unread", filter: "unread=1" },
     { key: "mentions", icon: "＠", label: "synd.client.stream.mentions", filter: "mention=1" },
     { key: "starred", icon: "★", label: "synd.client.stream.starred", filter: "starred=1" }
   ];
@@ -225,8 +228,8 @@
     const badges = [];
     if (item.mention) badges.push(`<span class="tt-link-dot cl-inbox">${esc(tr("synd.client.badge.mention"))}</span>`);
     if (item.in_reply_to) badges.push(`<span class="tt-link-dot unlinked">↩ ${esc(tr("synd.client.badge.reply"))}</span>`);
-    if (item.linked) badges.push(`<span class="tt-link-dot linked">📚 ${esc(tr("synd.client.badge.ingested"))}</span>`);
-    if (item.attachments) badges.push(`<span class="tt-link-dot unlinked">📎 ${esc(item.attachments)}</span>`);
+    if (item.linked) badges.push(`<span class="tt-link-dot linked">${ic("book")} ${esc(tr("synd.client.badge.ingested"))}</span>`);
+    if (item.attachments) badges.push(`<span class="tt-link-dot unlinked">${ic("paperclip")} ${esc(item.attachments)}</span>`);
     return badges.join("");
   }
 
@@ -253,9 +256,9 @@
     }
     const rows = C.items.map((item) => {
       const author = item.author || {};
-      const boosted = item.announced_by ? `<div class="synd-post-boost">🔁 ${esc(tr("synd.client.boosted_by", { name: authorName(item.announced_by) }))}</div>` : "";
+      const boosted = item.announced_by ? `<div class="synd-post-boost">${ic("repeat")} ${esc(tr("synd.client.boosted_by", { name: authorName(item.announced_by) }))}</div>` : "";
       const body = item.summary
-        ? `<div class="synd-post-text synd-post-cw">⚠️ ${esc(item.summary)}</div>`
+        ? `<div class="synd-post-text synd-post-cw">${ic("warning")} ${esc(item.summary)}</div>`
         : `${item.name ? `<div class="synd-post-title">${esc(item.name)}</div>` : ""}<div class="synd-post-text">${esc(item.text)}</div>`;
       return `<article class="synd-post ${item.unread ? "is-unread" : ""} ${String(C.selectedId) === String(item.id) ? "is-selected" : ""}" data-item-id="${esc(item.id)}" tabindex="0">
         ${boosted}
@@ -265,8 +268,8 @@
           <button type="button" class="tt-icon-btn ${item.starred ? "starred" : ""}" data-item-star="${esc(item.id)}" title="${esc(tr(item.starred ? "synd.client.action.unstar" : "synd.client.action.star"))}" aria-label="${esc(tr(item.starred ? "synd.client.action.unstar" : "synd.client.action.star"))}" aria-pressed="${item.starred ? "true" : "false"}">${item.starred ? "★" : "☆"}</button>
           <button type="button" class="tt-btn synd-mini" data-item-read="${esc(item.id)}">${esc(tr(item.unread ? "synd.client.action.mark_read" : "synd.client.action.mark_unread"))}</button>
           ${item.linked
-            ? `<button type="button" class="tt-btn synd-mini" data-item-doc="${esc(item.id)}">📚 ${esc(tr("synd.client.action.open_document"))}</button>`
-            : `<button type="button" class="tt-btn synd-mini" data-item-ingest="${esc(item.id)}">📚 ${esc(tr("synd.client.action.ingest"))}</button>`}
+            ? `<button type="button" class="tt-btn synd-mini" data-item-doc="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.open_document"))}</button>`
+            : `<button type="button" class="tt-btn synd-mini" data-item-ingest="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.ingest"))}</button>`}
         </div>
       </article>`;
     }).join("");
@@ -288,15 +291,15 @@
     // Section 8 rule 4: an item with a content warning shows the summary first. The body loads after a click.
     const body = open
       ? frameHtml(entry)
-      : `<div class="synd-cw"><span>⚠️ ${esc(entry.summary || tr("synd.client.sensitive"))}</span><button type="button" class="tt-btn" data-open-warning="${esc(entry.id)}">${esc(tr("synd.client.action.show_content"))}</button></div>`;
+      : `<div class="synd-cw"><span>${ic("warning")} ${esc(entry.summary || tr("synd.client.sensitive"))}</span><button type="button" class="tt-btn" data-open-warning="${esc(entry.id)}">${esc(tr("synd.client.action.show_content"))}</button></div>`;
     const link = entry.url || entry.object_iri;
     return `<section class="synd-entry ${main ? "is-main" : ""}" data-entry-id="${esc(entry.id)}">
       <header class="synd-entry-head">
-        <div><b>${esc(authorName(author))}</b> <span class="synd-post-handle">${esc(author.handle || "")}</span>${entry.announced_by ? ` <span class="synd-post-boost">🔁 ${esc(tr("synd.client.boosted_by", { name: authorName(entry.announced_by) }))}</span>` : ""}</div>
+        <div><b>${esc(authorName(author))}</b> <span class="synd-post-handle">${esc(author.handle || "")}</span>${entry.announced_by ? ` <span class="synd-post-boost">${ic("repeat")} ${esc(tr("synd.client.boosted_by", { name: authorName(entry.announced_by) }))}</span>` : ""}</div>
         <div class="synd-entry-tools"><span class="synd-post-time">${esc(timeAgo(entry.published_at || entry.received_at))}</span><a class="tt-ext-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer nofollow">${esc(tr("synd.client.action.open_original"))} ↗</a></div>
       </header>
       ${entry.name ? `<h3 class="synd-entry-title">${esc(entry.name)}</h3>` : ""}
-      ${warned && open ? `<div class="synd-cw is-open">⚠️ ${esc(entry.summary || tr("synd.client.sensitive"))}</div>` : ""}
+      ${warned && open ? `<div class="synd-cw is-open">${ic("warning")} ${esc(entry.summary || tr("synd.client.sensitive"))}</div>` : ""}
       ${body}
     </section>`;
   }
@@ -314,8 +317,8 @@
     const actions = `<div class="synd-reader-actions">
       <button type="button" class="tt-btn" data-item-star="${esc(item.id)}" aria-pressed="${item.starred ? "true" : "false"}">${item.starred ? "★" : "☆"} ${esc(tr(item.starred ? "synd.client.action.unstar" : "synd.client.action.star"))}</button>
       ${item.linked
-        ? `<button type="button" class="tt-btn" data-item-doc="${esc(item.id)}">📚 ${esc(tr("synd.client.action.open_document"))}</button><button type="button" class="tt-btn tt-btn-pri" data-item-publish="${esc(item.id)}">📣 ${esc(tr("synd.client.action.publish"))}</button>`
-        : `<button type="button" class="tt-btn tt-btn-pri" data-item-ingest="${esc(item.id)}">📚 ${esc(tr("synd.client.action.ingest"))}</button>`}
+        ? `<button type="button" class="tt-btn" data-item-doc="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.open_document"))}</button><button type="button" class="tt-btn tt-btn-pri" data-item-publish="${esc(item.id)}">${ic("megaphone")} ${esc(tr("synd.client.action.publish"))}</button>`
+        : `<button type="button" class="tt-btn tt-btn-pri" data-item-ingest="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.ingest"))}</button>`}
     </div>`;
     const thread = detail.thread.length > 1
       ? `<h2 class="synd-thread-title">${esc(tr("synd.client.thread_title", { count: detail.thread.length }))}</h2>${detail.thread.map((entry) => entryHtml(entry, String(entry.id) === String(item.id))).join("")}`
@@ -394,7 +397,7 @@
     if (!IS_NETWORK || C.following === null) { el.innerHTML = ""; return; }
     const items = C.following.items || [];
     el.innerHTML = items.length
-      ? items.map((f) => `<div class="synd-follow-row"><span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? "👥" : "👤"} ${esc(f.display_name || f.request)}</span><span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
+      ? items.map((f) => `<div class="synd-follow-row"><span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span><span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
       : `<div class="synd-note">${esc(tr("synd.client.following_empty"))}</div>`;
   }
 
@@ -568,7 +571,7 @@
   if (window.ClaireCommandPalette) {
     window.ClaireCommandPalette.init({
       getCommands: () => {
-        const commands = [{ icon: "🕸️", label: tr("nav.palette.cmd_graph"), run: () => { window.location.href = "/"; } }];
+        const commands = [{ iconName: "graph", label: tr("nav.palette.cmd_graph"), run: () => { window.location.href = "/"; } }];
         if (IS_OWNER) {
           commands.unshift(
             { icon: "1", label: tr("synd.palette.stage_collect"), keywords: "collect timeline client", run: () => setStage("collect") },

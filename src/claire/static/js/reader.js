@@ -468,7 +468,7 @@ function docMetaHtml(dc){
     if(hasUrl){
       h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
       if(canAccessRaw && dc.has_raw_file){
-        h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+        h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
       }
       if(isStt){
         h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
@@ -478,7 +478,7 @@ function docMetaHtml(dc){
       }
     } else {
       if(canAccessRaw && dc.has_raw_file){
-        h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener>📄 원본 열기</a>';
+        h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
         if(isStt){
           h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
         }
@@ -501,21 +501,21 @@ function docMetaHtml(dc){
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = '⚠️ ' + reqName + ' 폴백 (' + usedName + ')';
-    tags.push('<span class="prov det trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'">'+esc(fallbackTitle)+'</span>');
+    const fallbackTitle = reqName + ' 폴백 (' + usedName + ')';
+    tags.push('<span class="prov det trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'"><span data-icon="warning"></span> '+esc(fallbackTitle)+'</span>');
   }
   if(isEncodingFlaw){
     const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : '인코딩 결함';
-    tags.push('<span class="prov det trunc-tag encoding-flaw-tag" title="인코딩 결함 상세: '+esc(flawTxt)+'">⚠️ PDF 인코딩 결함</span>');
+    tags.push('<span class="prov det trunc-tag encoding-flaw-tag" title="인코딩 결함 상세: '+esc(flawTxt)+'"><span data-icon="warning"></span> PDF 인코딩 결함</span>');
   }
   if(isScanned){
-    tags.push('<span class="prov det trunc-tag scanned-tag" title="텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다.">📷 스캔본 PDF</span>');
+    tags.push('<span class="prov det trunc-tag scanned-tag" title="텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다."><span data-icon="camera"></span> 스캔본 PDF</span>');
   }
   if(hasPresentation){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
     const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const bundleIcon = isStt ? '🎙️⚡📄' : '🔤⚡📄';
+    const bundleIcon = isStt ? '<span data-icon="mic"></span><span data-icon="doc"></span>' : '<span data-icon="captions"></span><span data-icon="doc"></span>';
     const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
     const pdfLabel = bundleIcon+' '+bundleType;
     const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
@@ -530,23 +530,23 @@ function docMetaHtml(dc){
   }
   if(focus){
     const dispFocus = focus.length > 25 ? focus.slice(0, 25) + '…' : focus;
-    tags.push('<span class="prov det focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'">🎯 '+esc(dispFocus)+'</span>');
+    tags.push('<span class="prov det focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
     const tip = sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서';
-    tags.push('<span class="prov det focus-tag stt-tag" title="'+esc(tip)+'">🎙️ STT</span>');
+    tags.push('<span class="prov det focus-tag stt-tag" title="'+esc(tip)+'"><span data-icon="mic"></span> STT</span>');
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
     const tip = capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서';
-    tags.push('<span class="prov det focus-tag cc-tag" title="'+esc(tip)+'">🔤 CC</span>');
+    tags.push('<span class="prov det focus-tag cc-tag" title="'+esc(tip)+'"><span data-icon="captions"></span> CC</span>');
   }
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
     const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
-    let vlmLabel = '🖼️ 이미지 전사';
+    let vlmLabel = '이미지 전사';
     if(vlmCount > 0){
       vlmLabel += ' (' + vlmCount.toLocaleString() + '장)';
     }
@@ -557,7 +557,7 @@ function docMetaHtml(dc){
     if(vlmModel){
       vlmTip += ' · 모델: ' + vlmModel;
     }
-    tags.push('<span class="prov det focus-tag vlm-tag" title="'+esc(vlmTip)+'">'+esc(vlmLabel)+'</span>');
+    tags.push('<span class="prov det focus-tag vlm-tag" title="'+esc(vlmTip)+'"><span data-icon="image"></span> '+esc(vlmLabel)+'</span>');
   }
   // The reason of a cut source text. It is the hover text of the source badge; the badge has the two character counts (one notice, not two).
   let truncTip = '';
@@ -624,7 +624,7 @@ function getDocMetaMessages(dc){
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = '⚠️ ' + reqName + ' 폴백 (' + usedName + ')';
+    const fallbackTitle = reqName + ' 폴백 (' + usedName + ')';
     messages.push('파서 대체 사유: ' + fallbackReason + ' (' + fallbackTitle + ')');
   }
   if(isEncodingFlaw){
@@ -762,18 +762,18 @@ function renderReader(dc){
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   if(isSttTrunc){
-    h+='<div class="stt-trunc-banner">⚠️ <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+    h+='<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
   }
   h+=extraSourcesHtml(dc);
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
-    h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em">🎯 <strong>'+esc(focus)+'</strong></div>';
+    h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
   }
   if(dc.summary){
     h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   }else if(dc.detail || dc.detail_html){
-    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')">🔁 웹에서 요약 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>🔄 요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')"><span data-icon="repeat"></span> 웹에서 요약 재생성</button></div>' : '')+'</div>';
   }
   if(dc.detail_html){
     const purifier=window.DOMPurify;
@@ -782,12 +782,12 @@ function renderReader(dc){
   }else if(dc.detail){
     h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }else if(dc.summary){
-    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')">🔁 웹에서 본문 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>🔄 본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')"><span data-icon="repeat"></span> 웹에서 본문 재생성</button></div>' : '')+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html){
-    h+='<div class=rsection>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em">⚠️ <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'all\')">🔁 웹에서 전체 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.'+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'all\')"><span data-icon="repeat"></span> 웹에서 전체 재생성</button></div>' : '')+'</div>';
   }
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;
   applyMathRendering(body);
@@ -1046,7 +1046,7 @@ function openSttReader(docId){
     }
 
     const titleEl = document.getElementById('stttitle');
-    if(titleEl) titleEl.textContent = '🎙️ 음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
+    if(titleEl) titleEl.textContent = '음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
 
     const metaEl = document.getElementById('sttmeta');
     let metaTxt = '';
@@ -1104,7 +1104,7 @@ function renderSttLines(){
   let h = '';
   const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
   if(isTrunc){
-    h += '<div class="stt-trunc-banner">⚠️ <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+    h += '<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
   }
 
   const q = (curSttFilter || '').toLowerCase().trim();
@@ -1704,7 +1704,7 @@ async function generatePresentationForCurrentDoc(){
   const emptyMsg = document.getElementById('presentation-empty-msg');
   if(genBtn){
     genBtn.disabled = true;
-    genBtn.textContent = '프레젠테이션 생성 중… ⏳';
+    genBtn.textContent = '프레젠테이션 생성 중…';
   }
   if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표 작성을 요청하는 중입니다…';
 

@@ -134,10 +134,10 @@ def test_graph_html_contains_truncation_ui_and_css():
     # The cut of the source text is one notice in the reader: the source badge has the counts, and its hover text has the reason.
     assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
     assert 'data-source-badge="partial"' in html
-    assert "🎯" in html
-    assert "🎙️ STT" in html
-    assert "🔤 CC" in html
-    assert "🖼️ 이미지 전사" in html
+    assert '<span data-icon="target"></span>' in html
+    assert '<span data-icon="mic"></span> STT' in html
+    assert '<span data-icon="captions"></span> CC' in html
+    assert "이미지 전사" in html
     assert "음성 인식(STT)을 적용하여 작성한 문서" in html
     assert "영상 자막(CC)을 적용하여 작성한 문서" in html
     assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
@@ -174,9 +174,9 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".cc-tag" in html
     assert ".vlm-tag" in html
     assert "docMetaHtml" in html
-    assert "✂️ 원문 일부 절단" in html
-    assert "🎯" in html
-    assert "🎙️ STT" in html
+    assert "원문 일부 절단" in html
+    assert '<span data-icon="target"></span>' in html
+    assert '<span data-icon="mic"></span> STT' in html
     assert "음성 인식(STT)을 적용하여 작성한 문서" in html
     assert "적재 시 지정한 초점: " in html
     assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
@@ -217,7 +217,7 @@ def test_document_detail_and_ui_with_vlm():
 
     html = shared_html(detail)
     assert ".vlm-tag" in html
-    assert "🖼️ 이미지 전사" in html
+    assert "이미지 전사" in html
     assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
 
     # Node.js 런타임 평가 검증
@@ -235,7 +235,7 @@ def test_document_detail_and_ui_with_vlm():
     """
     res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
     out = res.stdout
-    assert "🖼️ 이미지 전사 (5장)" in out
+    assert '<span data-icon="image"></span> 이미지 전사 (5장)' in out
     assert "vlm-tag" in out
     assert "이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in out
 
@@ -364,7 +364,7 @@ def test_shared_html_contains_cc_docmeta_badge():
     }
     html = shared_html(doc)
     assert ".cc-tag" in html
-    assert "🔤 CC" in html
+    assert '<span data-icon="captions"></span> CC' in html
     assert "영상 자막(CC)을 적용하여 작성한 문서" in html
     assert "영상 자막(CC: " in html
 
@@ -380,10 +380,10 @@ def test_shared_html_contains_cc_docmeta_badge():
     """
     res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
     out = res.stdout
-    assert "🔤 CC" in out
+    assert '<span data-icon="captions"></span> CC' in out
     assert "cc-tag" in out
     assert "영상 자막(CC: ko_KR)을 적용하여 작성한 문서" in out
-    assert "🎙️ STT" not in out
+    assert '<span data-icon="mic"></span> STT' not in out
 
 
 def test_document_detail_and_ui_with_cc():

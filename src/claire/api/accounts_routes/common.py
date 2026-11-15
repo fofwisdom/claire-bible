@@ -244,12 +244,17 @@ PROTOTYPE_KIND_LABELS = {
 }
 
 
+def icon_html(name: str) -> str:
+    """An empty element that ``static/js/icons.js`` fills with an inline SVG line icon (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md). An empty name gives no element."""
+    return f'<span data-icon="{escape(name)}"></span>' if name else ""
+
+
 def prototype_badge(marker: str, kind: str) -> str:
     return f'<span class="proto-badge" data-prototype="{escape(marker)}" data-prototype-kind="{escape(kind)}">{escape(PROTOTYPE_KIND_LABELS[kind])}</span>'
 
 
 def prototype_note(marker: str, text: str) -> str:
-    return f'<p class="proto-note" data-prototype-note="{escape(marker)}">⚠ {escape(text)}</p>'
+    return f'<p class="proto-note" data-prototype-note="{escape(marker)}"><span data-icon="warning"></span> {escape(text)}</p>'
 
 
 # 계정 양식 화면의 ``Referrer-Policy``. 전역 기본값 ``no-referrer``(`security.SafeAccessLogMiddleware`)이면

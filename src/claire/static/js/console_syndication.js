@@ -509,7 +509,7 @@
 
   var MCP_PROPOSED_TOOLS = [
     { name: "synd_targets", scope: "syndication:read", args: [["folder", "string"]], desc: "수집 대상 · 폴더 · 경유 계정 (토큰 제외)" },
-    { name: "synd_stream", scope: "syndication:read", args: [["stream", "string"], ["cursor", "string"], ["limit", "integer"]], desc: "스트림 항목 (unread · starred · 🔗 적재 필터, 커서)" },
+    { name: "synd_stream", scope: "syndication:read", args: [["stream", "string"], ["cursor", "string"], ["limit", "integer"]], desc: "스트림 항목 (unread · starred · 적재 필터, 커서)" },
     { name: "synd_item", scope: "syndication:read", args: [["item_id", "string", true]], desc: "항목 1건: 수집 원문 · 수집 태그 · 연결 문서 id" },
     { name: "synd_timeline", scope: "syndication:read", args: [["account_id", "string", true], ["timeline", "string"], ["cursor", "string"]], desc: "연결 계정 타임라인 프록시 조회 (home · local · list · tag)" },
     { name: "synd_draft_publish", scope: "syndication:draft", write: true, args: [["item_id", "string", true], ["mode", "string", true], ["account_ids", "array"]], desc: "부스트 · 인용 · 적재 발행 초안 → 소유자 승인 큐 (직접 발행 없음)" }
@@ -653,7 +653,7 @@
   }
   function webmcpKindLabel(kind) { return { read: "읽기", ui: "화면 조작", write: "쓰기", publish: "외부 발행" }[kind] || kind; }
   function webmcpKindPill(kind) { return { read: "pref-pill-mcp", ui: "pref-pill-at", write: "pref-pill-web", publish: "pref-pill-warn" }[kind] || ""; }
-  function webmcpTabLabel(tab) { return { any: "두 탭", client: "🌐 연합 클라이언트", kb: "📚 지식베이스" }[tab] || tab; }
+  function webmcpTabLabel(tab) { return { any: "두 탭", client: "연합 클라이언트", kb: "지식베이스" }[tab] || tab; }
   function webmcpSchema(t) {
     var schema = { type: "object", properties: t.input || {} };
     if (t.required) schema.required = t.required;
@@ -722,17 +722,17 @@
     support.dataset.tone = hasDoc || hasNav ? "ok" : "";
     var insecure = window.isSecureContext ? "" : " 이 페이지는 보안 컨텍스트(HTTPS)가 아니어서 지원 브라우저에서도 API가 노출되지 않습니다.";
     support.innerHTML = hasDoc
-      ? "✅ 이 브라우저에서 <code>document.modelContext</code>(사양 이름)를 감지했습니다." + insecure
+      ? "<span data-icon='check-circle'></span> 이 브라우저에서 <code>document.modelContext</code>(사양 이름)를 감지했습니다." + insecure
       : (hasNav
-        ? "✅ 이 브라우저는 이전 초안 이름인 <code>navigator.modelContext</code>를 제공합니다. 등록 코드는 두 이름을 모두 시도합니다." + insecure
-        : "⚪ 이 브라우저는 <code>document.modelContext</code>를 제공하지 않습니다. 설정은 저장되며, WebMCP를 지원하는 브라우저에서 <code>/syndication</code>을 열면 적용됩니다." + insecure);
+        ? "<span data-icon='check-circle'></span> 이 브라우저는 이전 초안 이름인 <code>navigator.modelContext</code>를 제공합니다. 등록 코드는 두 이름을 모두 시도합니다." + insecure
+        : "<span data-icon='circle'></span> 이 브라우저는 <code>document.modelContext</code>를 제공하지 않습니다. 설정은 저장되며, WebMCP를 지원하는 브라우저에서 <code>/syndication</code>을 열면 적용됩니다." + insecure);
 
     byId("pref-webmcp-enabled").checked = enabled;
     byId("pref-webmcp-exposed").checked = exposed;
     byId("pref-webmcp-exposed").disabled = !enabled;
     byId("pref-webmcp-exposed-desc").innerHTML = THEME.isPublic
       ? "테마를 바꾸면 이전 등록 신호를 <code>abort()</code>하고 새 테마의 도구를 다시 등록합니다."
-      : "🔒 비공개 테마: 조회 · 화면 조작 · 내부 적재 도구만 등록되고, 외부 서버에 반영되는 도구(상호작용 · 발행)는 등록되지 않습니다.";
+      : "<span data-icon='lock'></span> 비공개 테마: 조회 · 화면 조작 · 내부 적재 도구만 등록되고, 외부 서버에 반영되는 도구(상호작용 · 발행)는 등록되지 않습니다.";
     byId("pref-webmcp-mode").value = prefs.webmcpPolicy.registration === "both" ? "both" : "imperative";
     byId("pref-webmcp-confirm").value = prefs.webmcpPolicy.confirm;
     byId("pref-webmcp-activity").checked = !!prefs.webmcpPolicy.showAgentActivity;
@@ -746,11 +746,11 @@
       var hints = Object.keys(ann).filter(function (k) { return ann[k]; }).map(function (k) { return k.replace("Hint", ""); }).join(" · ") || "—";
       return '<tr data-off="' + (on && live ? "false" : "true") + '">'
         + '<td><input type="checkbox" switch data-webmcp-tool="' + escapeHtml(t.name) + '" ' + (on ? "checked" : "") + " " + (blocked || !live ? "disabled" : "") + ' aria-label="' + escapeHtml(t.name) + ' 등록"/></td>'
-        + '<td><code class="pref-mono">' + escapeHtml(t.name) + '</code><br/><span style="color:var(--muted);font-size:11px">' + escapeHtml(t.title) + "</span>" + (blocked ? '<br/><span style="color:var(--muted);font-size:11px">⛔ ' + escapeHtml(blocked) + "</span>" : "") + "</td>"
+        + '<td><code class="pref-mono">' + escapeHtml(t.name) + '</code><br/><span style="color:var(--muted);font-size:11px">' + escapeHtml(t.title) + "</span>" + (blocked ? '<br/><span style="color:var(--muted);font-size:11px"><span data-icon="block"></span> ' + escapeHtml(blocked) + "</span>" : "") + "</td>"
         + '<td style="font-size:12px;white-space:nowrap">' + webmcpTabLabel(t.tab) + "</td>"
         + '<td><span class="pref-pill ' + webmcpKindPill(t.kind) + '">' + webmcpKindLabel(t.kind) + "</span></td>"
         + '<td class="pref-mono">' + escapeHtml(hints) + "</td>"
-        + '<td style="font-size:12px;white-space:nowrap">' + (webmcpNeedsConfirm(t) ? (lockedConfirm ? "🔒 항상" : "✋ 확인") : "—") + "</td>"
+        + '<td style="font-size:12px;white-space:nowrap">' + (webmcpNeedsConfirm(t) ? (lockedConfirm ? "<span data-icon='lock'></span> 항상" : "<span data-icon='alert'></span> 확인") : "—") + "</td>"
         + '<td style="font-size:12px">' + escapeHtml(t.desc) + "</td></tr>";
     }).join("");
 
@@ -805,7 +805,7 @@
       return;
     }
     setSimOutput('<div class="pref-confirm" role="alertdialog" aria-label="에이전트 요청 확인">'
-      + '<div>🕸️ <b>브라우저 에이전트</b>가 <code class="pref-mono">' + escapeHtml(t.name) + "</code> (" + escapeHtml(t.title) + ") 실행을 요청합니다.</div>"
+      + '<div><span data-icon="graph"></span> <b>브라우저 에이전트</b>가 <code class="pref-mono">' + escapeHtml(t.name) + "</code> (" + escapeHtml(t.title) + ") 실행을 요청합니다.</div>"
       + '<pre class="pref-code" style="max-height:120px">' + escapeHtml(JSON.stringify(input, null, 2)) + "</pre>"
       + (t.external ? '<div style="font-size:12px;color:var(--muted)">연결 계정으로 외부 서버에 반영됩니다.</div>' : "")
       + '<div style="font-size:12px;color:var(--muted)">이 창은 페이지가 직접 띄웁니다. 에이전트가 호출을 취소하면 <code>signal</code>이 abort되어 창이 닫힙니다.</div>'

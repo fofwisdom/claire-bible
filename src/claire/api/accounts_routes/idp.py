@@ -227,7 +227,7 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
       </section>
       <div id="admin-idp-cards">{cards}</div>
       <section class="card" aria-label="공급자 레지스트리 및 CRUD">
-        <h2>🔗 IdP 공급자 레지스트리 (<code>/api/admin/idp</code>)</h2>
+        <h2><span data-icon="link"></span> IdP 공급자 레지스트리 (<code>/api/admin/idp</code>)</h2>
         <div class="pref-table-wrap">
           <table class="pref-table">
             <thead>
@@ -261,7 +261,7 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
         <pre id="pref-idp-discovery" class="pref-code" hidden></pre>
       </section>
       <section class="card" aria-label="계정 매핑 및 가입 정책">
-        <h2>🧾 로그인 방식 · 계정 매핑 · 가입 정책 {prototype_badge("admin-idp-login-policy", "prototype")}</h2>
+        <h2><span data-icon="clipboard"></span> 로그인 방식 · 계정 매핑 · 가입 정책 {prototype_badge("admin-idp-login-policy", "prototype")}</h2>
         {prototype_note("admin-idp-login-policy", "이 카드의 선택지·스위치·도메인 값은 고정 예시이며 저장되지 않습니다. 서버 설정을 바꾸지 않고, 실제 로그인·가입 처리와 다를 수 있습니다.")}
         <div class="pref-row">
           <div class="pref-row-label">
@@ -307,7 +307,7 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
         </div>
       </section>
       <section class="card" aria-label="로그인 흐름 시뮬레이터">
-        <h2>▶ 로그인 화면 · 흐름 시뮬레이터 {prototype_badge("admin-idp-login-simulator", "simulation")}</h2>
+        <h2><span data-icon="play"></span> 로그인 화면 · 흐름 시뮬레이터 {prototype_badge("admin-idp-login-simulator", "simulation")}</h2>
         {prototype_note("admin-idp-login-simulator", "시뮬레이션 실행은 선택값을 문장으로 보여 줄 뿐 실제 IdP 로그인·클레임 검증을 수행하지 않으며 서버 설정을 바꾸지 않습니다. 단, 왼쪽 미리보기의 공급자 버튼은 실제 로그인 시작 링크입니다.")}
         <p class="hint">현재 설정된 공급자 및 정책에 따른 로그인 화면 미리보기와 클레임 검증 시뮬레이터입니다.</p>
         <div class="pref-sim">
@@ -315,7 +315,7 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
           <div style="display:flex;flex-direction:column;gap:8px">
             <label for="pref-idp-persona" style="font-size:12px;font-weight:700">가상 사용자 시나리오</label>
             <select id="pref-idp-persona" class="pref-select"></select>
-            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start">▶ 로그인 시뮬레이션 실행</button>
+            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start"><span data-icon="play"></span> 로그인 시뮬레이션 실행</button>
             <div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
           </div>
         </div>

@@ -80,7 +80,10 @@
         const id = 'cmdpalette-opt-' + rowIdx;
         items.push(row);
         html += '<button type="button" id="' + id + '" class="cmd-palette-row" role="option" aria-selected="false" data-cmd-idx="' + rowIdx + '">';
-        if(row.icon) html += '<span class="cmd-palette-icon" aria-hidden="true">' + esc(row.icon) + '</span>';
+        // `iconName` is a line icon of static/js/icons.js. `icon` is a short text mark.
+        const lineIcon = (row.iconName && window.ClaireIcons) ? window.ClaireIcons.svg(row.iconName) : '';
+        if(lineIcon) html += '<span class="cmd-palette-icon" aria-hidden="true">' + lineIcon + '</span>';
+        else if(row.icon) html += '<span class="cmd-palette-icon" aria-hidden="true">' + esc(row.icon) + '</span>';
         html += '<span class="cmd-palette-label">' + esc(row.label) + '</span>';
         if(row.meta) html += '<span class="cmd-palette-meta">' + esc(row.meta) + '</span>';
         html += '</button>';
@@ -104,6 +107,7 @@
       return hay.includes(q);
     }).map(cmd => ({
       icon: cmd.icon || '›',
+      iconName: cmd.iconName || '',
       label: cmd.label,
       meta: cmd.meta || '',
       run: cmd.run
@@ -142,7 +146,8 @@
 
   function mapDocRows(docs){
     return (docs || []).slice(0, 10).map(d => ({
-      icon: '📄',
+      icon: '›',
+      iconName: 'doc',
       label: d.title || tr('home.recent.untitled'),
       meta: d.source_type || '',
       run: () => { if(config && typeof config.onSelectDocument === 'function') config.onSelectDocument(d); }
