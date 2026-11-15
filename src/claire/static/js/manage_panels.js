@@ -84,6 +84,7 @@
       el.placeholder = 'API Key 입력 (비어있음)';
       el.dataset.cleared = 'true';
     }
+    runProviderCapabilityCheck();
   }
 
   function closeProviderManager() {
@@ -95,7 +96,7 @@
   }
 
   function normalizeModelOptions(rawList, fallbackList) {
-    const src = Array.isArray(rawList) && rawList.length ? rawList : fallbackList;
+    const src = Array.isArray(rawList) ? (rawList.length ? rawList : []) : (Array.isArray(fallbackList) ? fallbackList : []);
     return src.map(item => (typeof item === 'string' ? { id: item, label: '' } : { id: String(item.id || ''), label: String(item.label || '') }));
   }
 
@@ -103,27 +104,303 @@
     const items = normalizeModelOptions(rawList, fallbackList);
     const ids = new Set(items.map(m => m.id));
     const cur = currentVal == null ? '' : String(currentVal);
+    if (items.length === 0) {
+      let optionsHtml = '';
+      if (cur !== '') {
+        optionsHtml += `<option value="${esc(cur)}" selected disabled>${esc(cur)} (미검증 · 실행 불가)</option>`;
+      }
+      optionsHtml += `<option value="" ${cur === '' ? 'selected ' : ''}disabled>지원 모델 조회 불가 (잠금)</option>`;
+      return { optionsHtml, selected: cur, unsupportedCurrent: cur !== '', locked: true, previousVal: cur };
+    }
     let selected = cur;
-    let replacedUnsupported = false;
+    let unsupportedCurrent = false;
     if (!ids.has(cur)) {
-      selected = defaultId && ids.has(defaultId) ? defaultId : (items[0] ? items[0].id : '');
-      replacedUnsupported = cur !== '';
+      if (cur !== '') {
+        unsupportedCurrent = true;
+        selected = cur;
+      } else {
+        selected = defaultId && ids.has(defaultId) ? defaultId : items[0].id;
+      }
     }
     let optionsHtml = '';
+    if (unsupportedCurrent) {
+      optionsHtml += `<option value="${esc(cur)}" selected>${esc(cur)} (미지원 · 교체 필요)</option>`;
+    }
     for (const m of items) {
       const text = m.id === '' ? (m.label || '계정 기본') : m.id;
       optionsHtml += `<option value="${esc(m.id)}" ${selected === m.id ? 'selected' : ''}>${esc(text)}</option>`;
     }
-    return { optionsHtml, selected, replacedUnsupported, previousVal: cur };
+    return { optionsHtml, selected, unsupportedCurrent, locked: false, previousVal: cur };
   }
 
   function renderModelSelectField(id, rawList, fallbackList, currentVal, defaultId) {
     const res = buildModelSelectResult(rawList, fallbackList, currentVal, defaultId);
-    let html = `<select id="${esc(id)}" style="width:100%;box-sizing:border-box;margin-top:2px;">${res.optionsHtml}</select>`;
-    if (res.replacedUnsupported) {
-      html += `<div style="margin-top:3px;font-size:10px;color:var(--warn,#9a6700);">기존 값(<code>${esc(res.previousVal)}</code>)이 지원 목록에 없어 <code>${esc(res.selected)}</code>(으)로 선택됨</div>`;
+    const disabledAttr = res.locked ? ' disabled' : '';
+    let html = `<select id="${esc(id)}"${disabledAttr} style="width:100%;box-sizing:border-box;margin-top:2px;">${res.optionsHtml}</select>`;
+    if (res.unsupportedCurrent) {
+      html += `<div style="margin-top:3px;font-size:10px;color:var(--err,#cf222e);">현재 값(<code>${esc(res.previousVal)}</code>)은 지원 목록에 없어 실행할 수 없습니다. 지원되는 모델을 선택해 주세요.</div>`;
     }
     return html;
+  }
+
+  let _capAbortCtrl = null;
+  const PROVIDER_LABELS = {
+    gemini: 'Google Gemini (권장 - 고품질 LLM 및 임베딩)',
+    antigravity: 'Google Antigravity CLI (agy 바이너리)',
+    codex: 'Codex CLI (codex - 호스트 네이티브 전용)',
+    openai: 'OpenAI / Azure / 호환 엔드포인트',
+    mock: 'Mock (가상 테스트 프로바이더 - 외부 호출 없음)'
+  };
+
+  function collectProviderFormPayload() {
+    const activeProv = document.getElementById('prov-active-select').value;
+    const gemKey = document.getElementById('prov-gemini-key');
+    const gemModel = document.getElementById('prov-gemini-model').value.trim();
+    const gemEffort = document.getElementById('prov-gemini-effort').value;
+    const gemEmbed = document.getElementById('prov-gemini-embed').value.trim();
+    const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
+    const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
+
+    const agyBin = document.getElementById('prov-agy-bin').value.trim();
+    const agyModel = document.getElementById('prov-agy-model').value.trim();
+    const agyTimeout = parseFloat(document.getElementById('prov-agy-timeout').value) || 120.0;
+    const agyConc = parseInt(document.getElementById('prov-agy-concurrency').value, 10) || 2;
+
+    const cdxBin = document.getElementById('prov-cdx-bin').value.trim();
+    const cdxModel = document.getElementById('prov-cdx-model').value.trim();
+    const cdxEffort = document.getElementById('prov-cdx-effort').value;
+    const cdxTimeout = parseFloat(document.getElementById('prov-cdx-timeout').value) || 300.0;
+    const cdxConc = parseInt(document.getElementById('prov-cdx-concurrency').value, 10) || 1;
+
+    const oaiKey = document.getElementById('prov-oai-key');
+    const oaiUrl = document.getElementById('prov-oai-url').value.trim();
+    const oaiModel = document.getElementById('prov-oai-model').value.trim();
+    const oaiEmbed = document.getElementById('prov-oai-embed').value.trim();
+
+    const jevEnabled = document.getElementById('prov-jev-enabled').checked;
+    const jevKey = document.getElementById('prov-jev-key');
+    const jevUrl = document.getElementById('prov-jev-url').value.trim();
+
+    const sttEnabled = document.getElementById('prov-stt-enabled').checked;
+    const sttProv = document.getElementById('prov-stt-prov').value;
+    const sttLang = document.getElementById('prov-stt-lang').value.trim();
+
+    const payload = {
+      active_provider: activeProv,
+      providers: {
+        gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, min_interval: gemInterval, max_retries: gemRetries },
+        antigravity: { bin: agyBin, model: agyModel, timeout: agyTimeout, max_concurrency: agyConc },
+        codex: { bin: cdxBin, model: cdxModel, effort: cdxEffort, timeout: cdxTimeout, max_concurrency: cdxConc },
+        openai: { base_url: oaiUrl, model: oaiModel, embed_model: oaiEmbed },
+        jev: { enabled: jevEnabled, base_url: jevUrl },
+        stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
+      }
+    };
+
+    if (gemKey && gemKey.value) payload.providers.gemini.api_key = gemKey.value;
+    else if (gemKey && gemKey.dataset.cleared === 'true') payload.providers.gemini.clear_api_key = true;
+
+    if (oaiKey && oaiKey.value) payload.providers.openai.api_key = oaiKey.value;
+    else if (oaiKey && oaiKey.dataset.cleared === 'true') payload.providers.openai.clear_api_key = true;
+
+    if (jevKey && jevKey.value) payload.providers.jev.api_key = jevKey.value;
+    else if (jevKey && jevKey.dataset.cleared === 'true') payload.providers.jev.clear_api_key = true;
+
+    return payload;
+  }
+
+  function renderFeatureBadgesHtml(cap) {
+    if (!cap || !cap.features) return '';
+    const f = cap.features;
+    const chip = (label, ok, note) => {
+      const color = ok ? 'var(--accent2,#1a7f37)' : 'var(--muted,#6e7781)';
+      const bg = ok ? 'rgba(26,127,55,0.1)' : 'rgba(136,136,136,0.1)';
+      return `<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:${bg};color:${color};margin-right:4px;margin-bottom:3px;" title="${esc(note || '')}">${ok ? '지원' : '미지원'} · ${esc(label)}</span>`;
+    };
+    let out = '<div style="margin:4px 0 6px;">';
+    out += chip('적재·요약', Boolean(f.extract));
+    out += chip('웹 리서치', Boolean(f.research));
+    out += chip('벡터 임베딩', Boolean(f.embedding), cap.embedding_note || '');
+    out += chip('STT·VLM', Boolean(f.stt_vlm));
+    out += '</div>';
+    return out;
+  }
+
+  function applyProviderCapabilities(caps) {
+    if (!caps || !caps.providers) return;
+    _provState.capabilities = caps;
+    const activeSelect = document.getElementById('prov-active-select');
+    if (activeSelect) {
+      const currentVal = activeSelect.value;
+      for (const opt of Array.from(activeSelect.options)) {
+        const cap = caps.providers[opt.value];
+        const baseLabel = PROVIDER_LABELS[opt.value] || opt.value;
+        if (cap && cap.selectable === false) {
+          opt.disabled = opt.value !== currentVal;
+          opt.textContent = `${baseLabel} [사용 불가 · 잠금]`;
+        } else {
+          opt.disabled = false;
+          opt.textContent = baseLabel;
+        }
+      }
+    }
+
+    for (const [name, cap] of Object.entries(caps.providers)) {
+      const featEl = document.getElementById('prov-feat-' + name);
+      if (featEl) featEl.innerHTML = renderFeatureBadgesHtml(cap);
+      const lockEl = document.getElementById('prov-cap-' + name);
+      if (lockEl) {
+        if (cap.locked_reason) {
+          lockEl.style.display = 'block';
+          lockEl.style.color = 'var(--err,#cf222e)';
+          lockEl.style.background = 'rgba(207,34,46,0.08)';
+          lockEl.style.borderColor = 'rgba(207,34,46,0.35)';
+          lockEl.textContent = '잠금: ' + cap.locked_reason;
+        } else if (cap.embedding_note) {
+          lockEl.style.display = 'block';
+          lockEl.style.color = 'var(--warn,#9a6700)';
+          lockEl.style.background = 'rgba(154,103,0,0.08)';
+          lockEl.style.borderColor = 'rgba(154,103,0,0.35)';
+          lockEl.textContent = '기능 안내: ' + cap.embedding_note;
+        } else if (cap.advisory) {
+          lockEl.style.display = 'block';
+          lockEl.style.color = 'var(--warn,#9a6700)';
+          lockEl.style.background = 'rgba(154,103,0,0.08)';
+          lockEl.style.borderColor = 'rgba(154,103,0,0.35)';
+          lockEl.textContent = cap.advisory;
+        } else {
+          lockEl.style.display = 'none';
+          lockEl.textContent = '';
+        }
+      }
+    }
+
+    const agyCap = caps.providers.antigravity;
+    const agySel = document.getElementById('prov-agy-model');
+    if (agySel && agyCap && Array.isArray(agyCap.available_models)) {
+      const res = buildModelSelectResult(agyCap.available_models, null, agySel.value, 'gemini-3.8-flash-medium');
+      agySel.innerHTML = res.optionsHtml;
+      agySel.value = res.selected;
+      agySel.disabled = Boolean(res.locked);
+    }
+
+    const sttEl = document.getElementById('prov-cap-stt');
+    if (sttEl && caps.stt) {
+      if (caps.stt.enabled && caps.stt.provider === 'gemini' && !caps.stt.ready) {
+        sttEl.style.display = 'block';
+        sttEl.textContent = '경고: STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.';
+      } else {
+        sttEl.style.display = 'none';
+        sttEl.textContent = '';
+      }
+    }
+
+    const sumEl = document.getElementById('prov-cap-summary');
+    if (sumEl) {
+      const locks = Array.isArray(caps.lock_reasons) ? caps.lock_reasons : [];
+      const warns = Array.isArray(caps.warnings) ? caps.warnings : [];
+      if (locks.length > 0) {
+        sumEl.style.display = 'block';
+        sumEl.style.color = 'var(--err,#cf222e)';
+        sumEl.style.background = 'rgba(207,34,46,0.08)';
+        sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
+        sumEl.innerHTML = `<strong>저장 잠금 (기능성 미충족):</strong><ul style="margin:4px 0 0;padding-left:18px;">${locks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`;
+      } else if (warns.length > 0) {
+        sumEl.style.display = 'block';
+        sumEl.style.color = 'var(--warn,#9a6700)';
+        sumEl.style.background = 'rgba(154,103,0,0.08)';
+        sumEl.style.borderColor = 'rgba(154,103,0,0.35)';
+        sumEl.innerHTML = `<strong>기능 안내:</strong><ul style="margin:4px 0 0;padding-left:18px;">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>`;
+      } else {
+        sumEl.style.display = 'block';
+        sumEl.style.color = 'var(--accent2,#1a7f37)';
+        sumEl.style.background = 'rgba(26,127,55,0.08)';
+        sumEl.style.borderColor = 'rgba(26,127,55,0.35)';
+        sumEl.textContent = '기능성 체크 통과: 선택한 프로바이더와 모델을 저장할 수 있습니다.';
+      }
+    }
+
+    const saveBtn = document.getElementById('prov-save-btn');
+    if (saveBtn) {
+      const canSave = Boolean(caps.can_save);
+      saveBtn.disabled = !canSave;
+      saveBtn.style.opacity = canSave ? '1' : '0.45';
+      saveBtn.style.cursor = canSave ? 'pointer' : 'not-allowed';
+      saveBtn.title = canSave ? '' : (caps.lock_reasons || []).join(' / ');
+    }
+  }
+
+  async function runProviderCapabilityCheck(options) {
+    if (!_provState.config) return;
+    const opts = options || {};
+    if (_capAbortCtrl) _capAbortCtrl.abort();
+    _capAbortCtrl = new AbortController();
+    const saveBtn = document.getElementById('prov-save-btn');
+    const sumEl = document.getElementById('prov-cap-summary');
+    if (saveBtn) saveBtn.disabled = true;
+    if (sumEl) {
+      sumEl.style.display = 'block';
+      sumEl.style.color = 'var(--muted,#6e7781)';
+      sumEl.style.background = 'rgba(136,136,136,0.08)';
+      sumEl.style.borderColor = 'var(--border)';
+      sumEl.textContent = '기능성 체크 진행 중…';
+    }
+    const payload = collectProviderFormPayload();
+    if (opts.live) payload.live = true;
+    if (opts.refreshAgy) payload.refresh_agy = true;
+    try {
+      const url = resolveRootUrl(_provState.opts, 'providers/check');
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: _capAbortCtrl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const caps = await r.json();
+      applyProviderCapabilities(caps);
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      if (sumEl) {
+        sumEl.style.display = 'block';
+        sumEl.style.color = 'var(--err,#cf222e)';
+        sumEl.style.background = 'rgba(207,34,46,0.08)';
+        sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
+        sumEl.textContent = '기능성 체크 실패로 저장이 잠겼습니다: ' + (e.message || e);
+      }
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.45';
+        saveBtn.style.cursor = 'not-allowed';
+      }
+    }
+  }
+
+  function bindProviderCapabilityEvents() {
+    const standardIds = [
+      'prov-active-select',
+      'prov-gemini-key',
+      'prov-gemini-model',
+      'prov-gemini-embed',
+      'prov-gemini-effort',
+      'prov-agy-model',
+      'prov-cdx-bin',
+      'prov-cdx-model',
+      'prov-oai-key',
+      'prov-oai-model',
+      'prov-oai-embed',
+      'prov-oai-url',
+      'prov-stt-enabled',
+      'prov-stt-prov',
+      'prov-stt-lang'
+    ];
+    for (const id of standardIds) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.addEventListener('change', () => {
+        if (el.type === 'password' && el.value) delete el.dataset.cleared;
+        runProviderCapabilityCheck();
+      });
+    }
+    const agyBinEl = document.getElementById('prov-agy-bin');
+    if (agyBinEl) {
+      agyBinEl.addEventListener('change', () => runProviderCapabilityCheck({ refreshAgy: true }));
+    }
   }
 
   async function testProviderConnection(provName) {
@@ -160,9 +437,10 @@
           if (provName === 'antigravity' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
             const sel = document.getElementById('prov-agy-model');
             if (sel) {
-              const res = buildModelSelectResult(d.details.models, d.details.models, sel.value, 'gemini-3.8-flash-medium');
+              const res = buildModelSelectResult(d.details.models, null, sel.value, 'gemini-3.8-flash-medium');
               sel.innerHTML = res.optionsHtml;
               sel.value = res.selected;
+              sel.disabled = Boolean(res.locked);
             }
           }
         } else {
@@ -170,6 +448,7 @@
           resEl.textContent = '' + (d.error || '연결 실패');
         }
       }
+      await runProviderCapabilityCheck({ live: provName === 'gemini', refreshAgy: provName === 'antigravity' });
     } catch (e) {
       if (resEl) {
         resEl.style.color = 'var(--err,#cf222e)';
@@ -180,58 +459,8 @@
 
   async function saveProviderSettings() {
     if (!_provState.config) return;
-    const activeProv = document.getElementById('prov-active-select').value;
-    const gemKey = document.getElementById('prov-gemini-key');
-    const gemModel = document.getElementById('prov-gemini-model').value.trim();
-    const gemEffort = document.getElementById('prov-gemini-effort').value;
-    const gemEmbed = document.getElementById('prov-gemini-embed').value.trim();
-    const gemInterval = parseFloat(document.getElementById('prov-gemini-interval').value) || 4.0;
-    const gemRetries = parseInt(document.getElementById('prov-gemini-retries').value, 10) || 5;
-
-    const agyBin = document.getElementById('prov-agy-bin').value.trim();
-    const agyModel = document.getElementById('prov-agy-model').value.trim();
-    const agyTimeout = parseFloat(document.getElementById('prov-agy-timeout').value) || 120.0;
-    const agyConc = parseInt(document.getElementById('prov-agy-concurrency').value, 10) || 2;
-
-    const cdxBin = document.getElementById('prov-cdx-bin').value.trim();
-    const cdxModel = document.getElementById('prov-cdx-model').value.trim();
-    const cdxEffort = document.getElementById('prov-cdx-effort').value;
-    const cdxTimeout = parseFloat(document.getElementById('prov-cdx-timeout').value) || 300.0;
-    const cdxConc = parseInt(document.getElementById('prov-cdx-concurrency').value, 10) || 1;
-
-    const oaiKey = document.getElementById('prov-oai-key');
-    const oaiUrl = document.getElementById('prov-oai-url').value.trim();
-    const oaiModel = document.getElementById('prov-oai-model').value.trim();
-    const oaiEmbed = document.getElementById('prov-oai-embed').value.trim();
-
-    const jevEnabled = document.getElementById('prov-jev-enabled').checked;
-    const jevKey = document.getElementById('prov-jev-key');
-    const jevUrl = document.getElementById('prov-jev-url').value.trim();
-
-    const sttEnabled = document.getElementById('prov-stt-enabled').checked;
-    const sttProv = document.getElementById('prov-stt-prov').value;
-    const sttLang = document.getElementById('prov-stt-lang').value.trim();
-
-    const updatePayload = {
-      active_provider: activeProv,
-      providers: {
-        gemini: { model: gemModel, effort: gemEffort, embed_model: gemEmbed, min_interval: gemInterval, max_retries: gemRetries },
-        antigravity: { bin: agyBin, model: agyModel, timeout: agyTimeout, max_concurrency: agyConc },
-        codex: { bin: cdxBin, model: cdxModel, effort: cdxEffort, timeout: cdxTimeout, max_concurrency: cdxConc },
-        openai: { base_url: oaiUrl, model: oaiModel, embed_model: oaiEmbed },
-        jev: { enabled: jevEnabled, base_url: jevUrl },
-        stt: { enabled: sttEnabled, provider: sttProv, language: sttLang }
-      }
-    };
-
-    if (gemKey && gemKey.value) updatePayload.providers.gemini.api_key = gemKey.value;
-    else if (gemKey && gemKey.dataset.cleared === 'true') updatePayload.providers.gemini.clear_api_key = true;
-
-    if (oaiKey && oaiKey.value) updatePayload.providers.openai.api_key = oaiKey.value;
-    else if (oaiKey && oaiKey.dataset.cleared === 'true') updatePayload.providers.openai.clear_api_key = true;
-
-    if (jevKey && jevKey.value) updatePayload.providers.jev.api_key = jevKey.value;
-    else if (jevKey && jevKey.dataset.cleared === 'true') updatePayload.providers.jev.clear_api_key = true;
+    if (_provState.capabilities && _provState.capabilities.can_save === false) return;
+    const updatePayload = collectProviderFormPayload();
 
     try {
       const url = resolveRootUrl(_provState.opts, 'providers');
@@ -292,13 +521,16 @@
     }
     h += '</select>';
     h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">현재 동작 중: <b>${esc(cfg.effective_provider || active)}</b> · STT 동작: <b>${esc(cfg.effective_stt_provider || 'mock')}</b></div>`;
+    h += '<div id="prov-feat-mock" style="margin-top:6px;"></div>';
+    h += '<div id="prov-cap-mock" style="display:none;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
     h += '<strong style="font-size:13px;"><span data-icon="globe"></span> Google Gemini</strong>';
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">연결 테스트</button>';
     h += '</div>';
+    h += '<div id="prov-feat-gemini"></div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div><label style="font-size:11px;opacity:0.8;">Gemini API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
@@ -340,37 +572,23 @@
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최대 재시도 (회)</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
     h += '</div>';
     h += '</div>';
+    h += '<div id="prov-cap-gemini" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '<div id="prov-test-res-gemini" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
 
     const agyVerTag = agy.cli_version ? ` <span style="font-size:11px;opacity:0.75;">(v${esc(agy.cli_version)})</span>` : '';
     const agyBadge = agy.installed ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>' : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">바이너리 없음</span>';
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
     h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Antigravity CLI (agy) ${agyBadge}${agyVerTag}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
     h += '</div>';
-    const agyFallbackModels = [
-      'gemini-3.8-flash-high',
-      'gemini-3.8-flash-medium',
-      'gemini-3.8-flash-low',
-      'claude-opus-5-5-low',
-      'claude-opus-5-5-medium',
-      'claude-opus-5-5-high',
-      'claude-sonnet-5-5-low',
-      'claude-sonnet-5-5-medium',
-      'claude-sonnet-5-5-high',
-      'gpt-oss-120b-medium'
-    ];
+    h += '<div id="prov-feat-antigravity"></div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-agy-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.bin||'agy')}"/></div>`;
     h += '<div style="flex:1.5;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
-    h += renderModelSelectField('prov-agy-model', agy.available_models, agyFallbackModels, agy.model || 'gemini-3.8-flash-medium', 'gemini-3.8-flash-medium');
-    if (agy.installed && agy.models_source === 'fallback') {
-      const verNote = agy.cli_version ? `CLI v${esc(agy.cli_version)}` : '설치된 CLI';
-      h += `<div style="margin-top:3px;font-size:10px;color:var(--warn,#9a6700);">${verNote}에서 동적 모델 조회에 실패하여 기본 호환 모델만 표시합니다. Gemini 4 모델은 호스트 agy CLI 업데이트 후 사용할 수 있습니다.</div>`;
-    }
+    h += renderModelSelectField('prov-agy-model', agy.available_models, null, agy.model || '', '');
     h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
@@ -378,15 +596,17 @@
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">동시성</label><input id="prov-agy-concurrency" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${agy.max_concurrency||2}"/></div>`;
     h += '</div>';
     h += '</div>';
+    h += '<div id="prov-cap-antigravity" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '<div id="prov-test-res-antigravity" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
 
     const cdxBadge = cdx.installed ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>' : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">미설치</span>';
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
     h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Codex CLI ${cdxBadge}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'codex\')">CLI 확인</button>';
     h += '</div>';
+    h += '<div id="prov-feat-codex"></div>';
     h += '<p style="margin:0 0 8px;font-size:11px;color:var(--muted,#888);">네이티브 호스트 전용 (Docker 환경에서는 자동 거부됩니다)</p>';
     const cdxFallbackModels = [
       { id: '', label: '계정 기본' },
@@ -417,14 +637,16 @@
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">동시성</label><input id="prov-cdx-concurrency" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${cdx.max_concurrency||1}"/></div>`;
     h += '</div>';
     h += '</div>';
+    h += '<div id="prov-cap-codex" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '<div id="prov-test-res-codex" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
     h += '<strong style="font-size:13px;"><span data-icon="bolt"></span> OpenAI / 하이퍼스케일러 호환</strong>';
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'openai\')">설정 검증</button>';
     h += '</div>';
+    h += '<div id="prov-feat-openai"></div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div><label style="font-size:11px;opacity:0.8;">API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
@@ -446,6 +668,7 @@
     h += renderModelSelectField('prov-oai-embed', oai.available_embed_models, oaiEmbedFallback, oai.embed_model || 'text-embedding-3-small', 'text-embedding-3-small');
     h += '</div>';
     h += '</div>';
+    h += '<div id="prov-cap-openai" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '<div id="prov-test-res-openai" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
 
@@ -470,20 +693,24 @@
     h += '</select></div>';
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">언어 코드</label><input id="prov-stt-lang" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(stt.language||'ko')}"/></div>`;
     h += '</div>';
+    h += '<div id="prov-cap-stt" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid rgba(154,103,0,0.35);background:rgba(154,103,0,0.08);color:var(--warn,#9a6700);border-radius:4px;font-size:11px;"></div>';
     h += '</div>';
     h += '</div>';
     h += '</div>';
 
     const optsState = _provState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
-    h += '<div style="display:flex;gap:8px;margin-top:16px;">';
-    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> 설정 저장</button>';
+    h += '<div id="prov-cap-summary" style="display:none;margin-top:12px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>';
+    h += '<div style="display:flex;gap:8px;margin-top:12px;">';
+    h += '<button id="prov-save-btn" type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> 설정 저장</button>';
     if (canClose) {
       h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeProviderManager()">닫기</button>';
     }
     h += '</div>';
 
     target.innerHTML = h;
+    if (cfg.capabilities) applyProviderCapabilities(cfg.capabilities);
+    bindProviderCapabilityEvents();
   }
 
   async function renderProviderManager(container, opts) {

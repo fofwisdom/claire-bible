@@ -29,19 +29,6 @@ log = logging.getLogger("claire.provider")
 
 PROVIDERS_CONFIG_FILENAME = "providers.json"
 
-DEFAULT_AGY_MODELS: list[dict[str, str]] = [
-    {"id": "gemini-3.8-flash-high", "label": "Gemini 3.8 Flash (High)"},
-    {"id": "gemini-3.8-flash-medium", "label": "Gemini 3.8 Flash (Medium)"},
-    {"id": "gemini-3.8-flash-low", "label": "Gemini 3.8 Flash (Low)"},
-    {"id": "claude-opus-5-5-low", "label": "Claude Opus 5.5 (Low)"},
-    {"id": "claude-opus-5-5-medium", "label": "Claude Opus 5.5 (Medium)"},
-    {"id": "claude-opus-5-5-high", "label": "Claude Opus 5.5 (High)"},
-    {"id": "claude-sonnet-5-5-low", "label": "Claude Sonnet 5.5 (Low)"},
-    {"id": "claude-sonnet-5-5-medium", "label": "Claude Sonnet 5.5 (Medium)"},
-    {"id": "claude-sonnet-5-5-high", "label": "Claude Sonnet 5.5 (High)"},
-    {"id": "gpt-oss-120b-medium", "label": "GPT-OSS 120B (Medium)"},
-]
-
 DEFAULT_GEMINI_MODELS: tuple[str, ...] = (
     "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
@@ -91,10 +78,15 @@ DEFAULT_OPENAI_EMBED_MODELS: tuple[str, ...] = (
 )
 
 _AGY_MODELS_CACHE_TTL_SEC = 300.0
-_AGY_FALLBACK_CACHE_TTL_SEC = 60.0
+_AGY_UNAVAILABLE_CACHE_TTL_SEC = 30.0
 _AGY_MODELS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _AGY_VERSION_CACHE: dict[str, tuple[float, str | None]] = {}
 _GEMINI_DISCOVERED_MODELS: list[str] = []
+
+
+def is_running_in_container() -> bool:
+    """Return True when the current process runs inside a container runtime."""
+    return Path("/.dockerenv").is_file() or os.environ.get("CLAIRE_APP_ROOT") == "/app"
 
 
 def infer_agy_effort_from_model(model_name: str) -> str | None:
@@ -158,14 +150,14 @@ def _parse_agy_models_output(raw: str) -> list[dict[str, str]]:
 
 
 def discover_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False) -> dict[str, Any]:
-    """Query the installed agy CLI for supported models and report discovery metadata."""
+    """Query the installed agy CLI for supported models without any fallback list."""
     exe = find_agy_executable(bin_name)
     if not exe:
-        return {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": None, "error": "agy binary not found"}
+        return {"models": [], "source": "unavailable", "cli_version": None, "error": f"agy binary '{bin_name}' was not found"}
     now = time.monotonic()
     if not force_refresh and exe in _AGY_MODELS_CACHE:
         cached_at, cached = _AGY_MODELS_CACHE[exe]
-        ttl = _AGY_MODELS_CACHE_TTL_SEC if cached["source"] == "cli" else _AGY_FALLBACK_CACHE_TTL_SEC
+        ttl = _AGY_MODELS_CACHE_TTL_SEC if cached["source"] == "cli" else _AGY_UNAVAILABLE_CACHE_TTL_SEC
         if (now - cached_at) < ttl:
             return {"models": [dict(item) for item in cached["models"]], "source": cached["source"], "cli_version": cached["cli_version"], "error": cached["error"]}
     cli_version = get_agy_cli_version(exe, force_refresh=force_refresh)
@@ -182,13 +174,13 @@ def discover_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_r
     except Exception as exc:
         err_detail = str(exc)[:200]
         log.debug("Failed to list agy models via %s: %s", exe, exc)
-    fallback = {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": cli_version, "error": err_detail}
-    _AGY_MODELS_CACHE[exe] = (now, fallback)
-    return {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": cli_version, "error": err_detail}
+    unavailable = {"models": [], "source": "unavailable", "cli_version": cli_version, "error": err_detail or "model discovery failed"}
+    _AGY_MODELS_CACHE[exe] = (now, unavailable)
+    return {"models": [], "source": "unavailable", "cli_version": cli_version, "error": unavailable["error"]}
 
 
 def list_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False) -> list[dict[str, str]]:
-    """설치된 agy CLI에서 사용 가능한 모델 목록을 조회한다(실패 시 기본 목록 폴백)."""
+    """Return models dynamically verified by the installed agy CLI."""
     return discover_agy_models(bin_name, timeout=timeout, force_refresh=force_refresh)["models"]
 
 
@@ -205,10 +197,24 @@ def _validate_provider_model(
     provider_name: str, field_name: str, value: str, allowed: set[str]
 ) -> None:
     if value not in allowed:
+        if not allowed:
+            raise ValueError(f"{provider_name} {field_name}('{value}')의 지원 여부를 확인할 수 없어 변경할 수 없습니다.")
         raise ValueError(
             f"지원되지 않는 {provider_name} {field_name} 입니다: '{value}'. "
             f"지원 목록: {', '.join(sorted(m or '(계정 기본)' for m in allowed))}"
         )
+
+
+def _probe_gemini_model(api_key: str, model_name: str) -> tuple[bool, int | None, str | None]:
+    """Check whether a Gemini API key and model respond to token counting."""
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        res = client.models.count_tokens(model=model_name, contents="ping")
+        return True, getattr(res, "total_tokens", None), None
+    except Exception as exc:
+        return False, None, str(exc)
 
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "version": 1,
@@ -459,17 +465,19 @@ class ProviderManager:
             g["available_models"] = [{"id": m} for m in list_gemini_models()]
             g["available_embed_models"] = [{"id": m} for m in DEFAULT_GEMINI_EMBED_MODELS]
 
+        disc_agy: dict[str, Any] | None = None
+
         # Antigravity CLI
         if "antigravity" in providers:
             agy = providers["antigravity"]
             bin_name = str(agy.get("bin") or "agy")
             agy["installed"] = find_agy_executable(bin_name) is not None
-            disc = discover_agy_models(bin_name)
-            agy["available_models"] = disc["models"]
-            agy["models_source"] = disc["source"]
-            agy["cli_version"] = disc["cli_version"]
-            if disc["error"]:
-                agy["models_error"] = disc["error"]
+            disc_agy = discover_agy_models(bin_name)
+            agy["available_models"] = disc_agy["models"]
+            agy["models_source"] = disc_agy["source"]
+            agy["cli_version"] = disc_agy["cli_version"]
+            if disc_agy["error"]:
+                agy["models_error"] = disc_agy["error"]
 
         # Codex CLI
         if "codex" in providers:
@@ -496,17 +504,14 @@ class ProviderManager:
             jev["has_api_key"] = bool(key.strip())
             jev["api_key"] = "••••••••" if jev["has_api_key"] else ""
 
+        out["capabilities"] = self._evaluate_capabilities(cfg, agy_discovery=disc_agy)
         return out
 
-    def update_config(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """WebUI 입력 정보를 바탕으로 설정을 갱신하고 저장한다.
+    def _merge_payload(self, base: dict[str, Any], payload: dict[str, Any], *, validate_models: bool = True) -> dict[str, Any]:
+        """Merge an incoming provider update payload onto a config snapshot."""
+        merged = copy.deepcopy(base)
+        curr_providers = merged.setdefault("providers", {})
 
-        마스킹 문자열('••••••••')이나 빈 값으로 들어온 기존 비밀키는 기존 값을 보존한다.
-        """
-        current = self.get_config()
-        curr_providers = current.setdefault("providers", {})
-
-        # active_provider 갱신
         if "active_provider" in payload:
             act = str(payload["active_provider"]).strip().lower()
             if act not in SUPPORTED_ACTIVE_PROVIDERS:
@@ -514,7 +519,7 @@ class ProviderManager:
                     f"지원되지 않는 active_provider 입니다: '{act}'. "
                     f"지원 목록: {', '.join(SUPPORTED_ACTIVE_PROVIDERS)}"
                 )
-            current["active_provider"] = act
+            merged["active_provider"] = act
 
         incoming_providers = payload.get("providers", {})
         if isinstance(incoming_providers, dict):
@@ -523,77 +528,190 @@ class ProviderManager:
                     continue
                 target = curr_providers.setdefault(name, {})
 
-                # 비밀키 보존 처리 (api_key)
                 if "api_key" in inc_data:
                     raw_key = str(inc_data["api_key"]).strip()
                     if raw_key and raw_key != "••••••••":
                         target["api_key"] = raw_key
                     elif not raw_key and "api_key" in target and inc_data.get("clear_api_key"):
                         target["api_key"] = ""
-                
-                # 모델 화이트리스트 검증 (선택형 통제)
-                if name == "gemini":
-                    if "model" in inc_data:
-                        _validate_provider_model(
-                            "gemini", "모델", str(inc_data["model"]).strip(), set(list_gemini_models())
-                        )
-                    if "embed_model" in inc_data:
-                        _validate_provider_model(
-                            "gemini",
-                            "임베딩 모델",
-                            str(inc_data["embed_model"]).strip(),
-                            set(DEFAULT_GEMINI_EMBED_MODELS),
-                        )
-                elif name == "antigravity":
-                    if "model" in inc_data:
-                        bin_for_check = str(
-                            inc_data.get("bin") or target.get("bin") or "agy"
-                        ).strip()
-                        allowed_agy = {m["id"] for m in list_agy_models(bin_for_check)}
-                        _validate_provider_model(
-                            "antigravity", "모델", str(inc_data["model"]).strip(), allowed_agy
-                        )
-                elif name == "codex":
-                    if "model" in inc_data:
-                        _validate_provider_model(
-                            "codex", "모델", str(inc_data["model"]).strip(), set(DEFAULT_CODEX_MODELS)
-                        )
-                elif name == "openai":
-                    if "model" in inc_data:
-                        _validate_provider_model(
-                            "openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS)
-                        )
-                    if "embed_model" in inc_data:
-                        _validate_provider_model(
-                            "openai",
-                            "임베딩 모델",
-                            str(inc_data["embed_model"]).strip(),
-                            set(DEFAULT_OPENAI_EMBED_MODELS),
-                        )
 
-                # 나머지 일반 필드 갱신
+                if validate_models:
+                    if name == "gemini":
+                        if "model" in inc_data:
+                            _validate_provider_model("gemini", "모델", str(inc_data["model"]).strip(), set(list_gemini_models()))
+                        if "embed_model" in inc_data:
+                            _validate_provider_model("gemini", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_GEMINI_EMBED_MODELS))
+                    elif name == "antigravity" and "model" in inc_data:
+                        bin_for_check = str(inc_data.get("bin") or target.get("bin") or "agy").strip()
+                        allowed_agy = {m["id"] for m in list_agy_models(bin_for_check)}
+                        _validate_provider_model("antigravity", "모델", str(inc_data["model"]).strip(), allowed_agy)
+                    elif name == "codex" and "model" in inc_data:
+                        _validate_provider_model("codex", "모델", str(inc_data["model"]).strip(), set(DEFAULT_CODEX_MODELS))
+                    elif name == "openai":
+                        if "model" in inc_data:
+                            _validate_provider_model("openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS))
+                        if "embed_model" in inc_data:
+                            _validate_provider_model("openai", "임베딩 모델", str(inc_data["embed_model"]).strip(), set(DEFAULT_OPENAI_EMBED_MODELS))
+
                 for k, v in inc_data.items():
-                    if k in (
-                        "api_key",
-                        "has_api_key",
-                        "clear_api_key",
-                        "installed",
-                        "available_models",
-                        "available_embed_models",
-                        "models_source",
-                        "cli_version",
-                        "models_error",
-                    ):
+                    if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models", "available_embed_models", "models_source", "cli_version", "models_error"):
                         continue
                     target[k] = v
 
-                # Antigravity CLI 모델명의 접미사에서 추론 수준 자동 동기화
                 if name == "antigravity" and "model" in inc_data and "effort" not in inc_data:
                     inferred_effort = infer_agy_effort_from_model(str(inc_data["model"]))
                     if inferred_effort:
                         target["effort"] = inferred_effort
 
-        self.save_config(current)
+        return merged
+
+    def _evaluate_capabilities(self, cfg: dict[str, Any], *, live: bool = False, refresh_agy: bool = False, agy_discovery: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Evaluate runtime capabilities, feature support, and UI/save lock status per provider."""
+        providers = cfg.get("providers", {})
+        gemini = providers.get("gemini", {})
+        agy = providers.get("antigravity", {})
+        cdx = providers.get("codex", {})
+        stt = providers.get("stt", {})
+        active = str(cfg.get("active_provider") or "mock").strip().lower()
+        in_container = is_running_in_container()
+
+        gem_key = str(gemini.get("api_key") or "").strip()
+        gem_has_key = bool(gem_key)
+        gem_model = str(gemini.get("model") or "").strip()
+        gem_embed = str(gemini.get("embed_model") or "").strip()
+
+        # Gemini capability evaluation
+        gem_lock: str | None = None
+        gem_live_ok: bool | None = None
+        if not gem_has_key:
+            gem_lock = "Gemini API Key가 설정되지 않아 활성화할 수 없습니다."
+        elif gem_model not in set(list_gemini_models()):
+            gem_lock = f"선택한 Gemini 모델('{gem_model}')이 지원 목록에 없습니다."
+        elif gem_embed not in set(DEFAULT_GEMINI_EMBED_MODELS):
+            gem_lock = f"선택한 Gemini 임베딩 모델('{gem_embed}')이 지원 목록에 없습니다."
+        elif live:
+            ok, _tok, err = _probe_gemini_model(gem_key, gem_model)
+            gem_live_ok = ok
+            if not ok:
+                gem_lock = f"Gemini 모델('{gem_model}') 실행 확인 실패: {err}"
+
+        # Antigravity CLI capability evaluation
+        agy_bin = str(agy.get("bin") or "agy").strip() or "agy"
+        agy_model = str(agy.get("model") or "").strip()
+        disc = agy_discovery if agy_discovery is not None else discover_agy_models(agy_bin, force_refresh=refresh_agy)
+        agy_ids = [m["id"] for m in disc["models"]]
+        agy_ver = disc.get("cli_version")
+        ver_label = f"v{agy_ver}" if agy_ver else "버전 확인 불가"
+        agy_lock: str | None = None
+        if find_agy_executable(agy_bin) is None:
+            agy_lock = f"Antigravity CLI 바이너리('{agy_bin}')를 찾을 수 없습니다."
+        elif disc["source"] != "cli" or not agy_ids:
+            err_note = f" ({disc['error']})" if disc.get("error") else ""
+            agy_lock = f"Antigravity CLI ({ver_label})에서 지원 모델 조회(agy models)에 실패하여 기능성을 확인할 수 없습니다{err_note}. 호스트 agy를 업데이트하거나 상태를 점검하세요."
+        elif agy_model not in set(agy_ids):
+            agy_lock = f"선택한 모델('{agy_model}')은 설치된 Antigravity CLI ({ver_label})의 지원 모델 목록에 없습니다."
+
+        # Codex CLI capability evaluation
+        cdx_bin = str(cdx.get("bin") or "codex").strip() or "codex"
+        cdx_model = str(cdx.get("model") or "").strip()
+        cdx_lock: str | None = None
+        if in_container:
+            cdx_lock = "Codex CLI는 호스트 네이티브 전용이므로 Docker/컨테이너 환경에서는 사용할 수 없습니다."
+        elif find_codex_executable(cdx_bin) is None:
+            cdx_lock = f"Codex CLI 바이너리('{cdx_bin}')를 찾을 수 없습니다."
+        elif cdx_model not in set(DEFAULT_CODEX_MODELS):
+            cdx_lock = f"선택한 Codex 모델('{cdx_model}')이 지원 목록에 없습니다."
+
+        # OpenAI capability evaluation (always locked until backend exists)
+        oai_lock = "OpenAI 호환 LLM/임베딩 백엔드가 아직 구현되어 있지 않아 프로바이더로 사용할 수 없습니다."
+
+        cli_embed_warning = None if gem_has_key else "CLI 프로바이더는 자체 임베딩이 없어 Gemini API Key 없이는 운영 환경에서 벡터 검색 없이 FTS만 동작합니다."
+
+        provider_caps: dict[str, dict[str, Any]] = {
+            "gemini": {
+                "selectable": gem_lock is None,
+                "locked_reason": gem_lock,
+                "live_checked": gem_live_ok is not None,
+                "features": {"extract": True, "research": True, "embedding": True, "stt_vlm": True},
+                "available_models": [{"id": m} for m in list_gemini_models()],
+                "available_embed_models": [{"id": m} for m in DEFAULT_GEMINI_EMBED_MODELS],
+            },
+            "antigravity": {
+                "selectable": agy_lock is None,
+                "locked_reason": agy_lock,
+                "features": {"extract": True, "research": True, "embedding": gem_has_key, "stt_vlm": False},
+                "embedding_note": cli_embed_warning,
+                "cli_version": agy_ver,
+                "models_source": disc["source"],
+                "models_error": disc.get("error"),
+                "available_models": disc["models"],
+            },
+            "codex": {
+                "selectable": cdx_lock is None,
+                "locked_reason": cdx_lock,
+                "features": {"extract": True, "research": True, "embedding": gem_has_key, "stt_vlm": False},
+                "embedding_note": cli_embed_warning,
+                "available_models": [{"id": m, "label": m or "계정 기본"} for m in DEFAULT_CODEX_MODELS],
+            },
+            "openai": {
+                "selectable": False,
+                "locked_reason": oai_lock,
+                "features": {"extract": False, "research": False, "embedding": False, "stt_vlm": False},
+            },
+            "mock": {
+                "selectable": True,
+                "locked_reason": None,
+                "features": {"extract": False, "research": False, "embedding": False, "stt_vlm": False},
+                "advisory": "가상 테스트 프로바이더입니다. 실제 AI 추출·요약·임베딩을 수행하지 않습니다.",
+            },
+        }
+
+        lock_reasons: list[str] = []
+        active_cap = provider_caps.get(active)
+        if active_cap is None:
+            lock_reasons.append(f"알 수 없는 active_provider: '{active}'")
+        elif not active_cap["selectable"] and active_cap.get("locked_reason"):
+            lock_reasons.append(active_cap["locked_reason"])
+
+        warnings: list[str] = []
+        if active in ("antigravity", "codex") and cli_embed_warning:
+            warnings.append(cli_embed_warning)
+        if active == "mock":
+            warnings.append(provider_caps["mock"]["advisory"])
+
+        stt_enabled = stt.get("enabled", True) is not False
+        stt_prov = str(stt.get("provider") or "gemini").strip().lower()
+        stt_ready = (not stt_enabled) or stt_prov == "mock" or (stt_prov == "gemini" and gem_has_key)
+        if stt_enabled and stt_prov == "gemini" and not gem_has_key:
+            warnings.append("STT가 Gemini로 설정되어 있으나 Gemini API Key가 없어 음성 전사가 동작하지 않습니다.")
+
+        return {
+            "active_provider": active,
+            "in_container": in_container,
+            "can_save": len(lock_reasons) == 0,
+            "lock_reasons": lock_reasons,
+            "warnings": warnings,
+            "stt": {"enabled": stt_enabled, "provider": stt_prov, "ready": stt_ready},
+            "providers": provider_caps,
+        }
+
+    def check_capabilities(self, candidate: dict[str, Any] | None = None, *, live: bool = False, refresh_agy: bool = False) -> dict[str, Any]:
+        """Evaluate capability and lock state for a stored or unsaved candidate configuration."""
+        base = self.get_config()
+        merged = self._merge_payload(base, candidate, validate_models=False) if candidate else base
+        return self._evaluate_capabilities(merged, live=live, refresh_agy=refresh_agy)
+
+    def update_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate candidate provider settings against runtime capabilities, persist, and return sanitized config."""
+        current = self.get_config()
+        merged = self._merge_payload(current, payload, validate_models=True)
+        caps = self._evaluate_capabilities(merged)
+        act = merged.get("active_provider", "mock")
+        act_cap = caps["providers"].get(act, {})
+        if not act_cap.get("selectable", False):
+            raise ValueError(act_cap.get("locked_reason") or f"프로바이더 '{act}'는 현재 환경에서 활성화할 수 없습니다.")
+
+        self.save_config(merged)
         return self.get_sanitized_config()
 
     def get_settings_dict(self) -> dict[str, Any]:
@@ -833,29 +951,20 @@ class ProviderManager:
                     "provider": "gemini",
                     "error": "Gemini API 키가 입력되지 않았습니다.",
                 }
-            try:
-                from google import genai
-                from google.genai import types
-
-                client = genai.Client(api_key=api_key)
-                model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.1-flash-lite"
-                # 간단한 토큰 카운트 또는 텍스트 확인으로 키 유효성 검증
-                res = client.models.count_tokens(
-                    model=model_name,
-                    contents="ping",
-                )
+            model_name = override.get("model") or gem_cfg.get("model") or "gemini-3.1-flash-lite"
+            ok, total_tokens, err = _probe_gemini_model(api_key, model_name)
+            if ok:
                 return {
                     "ok": True,
                     "provider": "gemini",
                     "message": f"Gemini API 연결 확인 성공 (모델: {model_name}, 토큰 검증 통과)",
-                    "details": {"total_tokens": res.total_tokens},
+                    "details": {"total_tokens": total_tokens},
                 }
-            except Exception as exc:
-                return {
-                    "ok": False,
-                    "provider": "gemini",
-                    "error": f"Gemini API 연결 실패: {exc}",
-                }
+            return {
+                "ok": False,
+                "provider": "gemini",
+                "error": f"Gemini API 연결 실패: {err}",
+            }
 
         if p_name == "antigravity":
             agy_cfg = provs.get("antigravity", {})
@@ -866,15 +975,18 @@ class ProviderManager:
                 disc = discover_agy_models(bin_name, force_refresh=True)
                 models = disc["models"]
                 ver_text = f"v{disc['cli_version']}" if disc.get("cli_version") else "버전 확인 불가"
-                if disc["source"] == "cli":
-                    msg = f"Antigravity CLI 감지 성공: {exe} ({ver_text}, 모델 {len(models)}개 조회)"
-                else:
-                    msg = f"Antigravity CLI 감지 성공: {exe} ({ver_text}, 동적 모델 조회 불가 → 기본 호환 모델 {len(models)}개만 허용; Gemini 4 사용 시 호스트 agy 업데이트 필요)"
+                if disc["source"] == "cli" and models:
+                    return {
+                        "ok": True,
+                        "provider": "antigravity",
+                        "message": f"Antigravity CLI 감지 성공: {exe} ({ver_text}, 모델 {len(models)}개 조회)",
+                        "details": {**diag, "models": models, "models_source": disc["source"], "cli_version": disc["cli_version"], "models_error": disc["error"]},
+                    }
                 return {
-                    "ok": True,
+                    "ok": False,
                     "provider": "antigravity",
-                    "message": msg,
-                    "details": {**diag, "models": models, "models_source": disc["source"], "cli_version": disc["cli_version"], "models_error": disc["error"]},
+                    "error": f"Antigravity CLI ({ver_text})에서 동적 모델 조회(agy models)에 실패했습니다: {disc.get('error') or '빈 응답'}",
+                    "details": {**diag, "models": [], "models_source": disc["source"], "cli_version": disc["cli_version"], "models_error": disc["error"]},
                 }
             return {
                 "ok": False,
@@ -883,6 +995,12 @@ class ProviderManager:
             }
 
         if p_name == "codex":
+            if is_running_in_container():
+                return {
+                    "ok": False,
+                    "provider": "codex",
+                    "error": "Codex CLI는 호스트 네이티브 전용이므로 Docker/컨테이너 환경에서는 사용할 수 없습니다.",
+                }
             cdx_cfg = provs.get("codex", {})
             bin_name = override.get("bin") or cdx_cfg.get("bin") or "codex"
             exe = find_codex_executable(bin_name)
@@ -899,20 +1017,10 @@ class ProviderManager:
             }
 
         if p_name == "openai":
-            oai_cfg = provs.get("openai", {})
-            api_key = override.get("api_key") or oai_cfg.get("api_key") or ""
-            if api_key == "••••••••":
-                api_key = oai_cfg.get("api_key", "")
-            if not api_key:
-                return {
-                    "ok": False,
-                    "provider": "openai",
-                    "error": "OpenAI API 키가 입력되지 않았습니다.",
-                }
             return {
-                "ok": True,
+                "ok": False,
                 "provider": "openai",
-                "message": "OpenAI 호환 API 설정 형식이 올바릅니다.",
+                "error": "OpenAI 호환 LLM/임베딩 백엔드가 아직 구현되어 있지 않아 사용할 수 없습니다.",
             }
 
         return {

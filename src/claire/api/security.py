@@ -420,6 +420,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/providers"): _any("admin"),
     ("PATCH", "/providers"): _any("admin"),
     ("POST", "/providers/test"): _any("admin"),
+    ("POST", "/providers/check"): _any("admin"),
     ("GET", "/limits"): _any("admin"),
     ("HEAD", "/limits"): _any("admin"),
     ("POST", "/limits"): _any("admin"),

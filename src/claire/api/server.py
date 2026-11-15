@@ -1268,6 +1268,18 @@ def create_app(
         res = pm.test_connection(provider_name, config=override)
         return JSONResponse(res)
 
+    async def providers_check_route(request: Request) -> JSONResponse:
+        if request_auth_scope(request) != "owner":
+            raise HTTPException(status_code=403, detail="지식 관리자(owner) 권한이 필요합니다.")
+        body = await _json_object(request)
+        from ..provider_manager import get_provider_manager
+
+        pm = get_provider_manager(s.data_dir)
+        live = bool(body.get("live", False))
+        refresh_agy = bool(body.get("refresh_agy", False))
+        caps = pm.check_capabilities(body, live=live, refresh_agy=refresh_agy)
+        return JSONResponse(caps)
+
     async def limits_get_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
         if scope != "owner":
@@ -4807,6 +4819,7 @@ def create_app(
         Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
         Route("/providers/test", providers_test_route, methods=["POST"]),
+        Route("/providers/check", providers_check_route, methods=["POST"]),
         Route("/limits", limits_get_route, methods=["GET", "HEAD"]),
         Route("/limits", limits_update_route, methods=["PATCH", "POST"]),
         Route("/tokens", tokens_list_route, methods=["GET", "HEAD"]),
