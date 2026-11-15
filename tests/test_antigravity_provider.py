@@ -469,6 +469,24 @@ def test_effort_flag_omitted_for_gemini4_prefix_model(mock_run):
 
 
 @patch("subprocess.run")
+def test_unrecognized_model_error_includes_actionable_hint(mock_run):
+    mock_run.return_value = SimpleNamespace(
+        returncode=1,
+        stdout="",
+        stderr=(
+            'Error: invalid model selection (--model "gemini-4-hydrogen-medium" --effort ""): '
+            "model gemini-4-hydrogen-medium is not recognized as a known model or custom model in settings\n"
+            "Available models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n"
+        ),
+    )
+    s = _make_settings(agy_model="gemini-4-hydrogen-medium", agy_effort="medium")
+    prov = AntigravityProvider(s)
+    with pytest.raises(RuntimeError, match="not supported by installed agy CLI") as exc_info:
+        prov._run_cli("test prompt", output_format="text")
+    assert "Gemini 3.8 Flash (Medium)" in str(exc_info.value)
+
+
+@patch("subprocess.run")
 def test_extract_fallback_summary_when_empty(mock_run):
     payload = {
         "status": "SUCCESS",

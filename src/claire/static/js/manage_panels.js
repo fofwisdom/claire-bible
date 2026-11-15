@@ -343,21 +343,14 @@
     h += '<div id="prov-test-res-gemini" style="display:none;margin-top:8px;font-size:11px;"></div>';
     h += '</div>';
 
+    const agyVerTag = agy.cli_version ? ` <span style="font-size:11px;opacity:0.75;">(v${esc(agy.cli_version)})</span>` : '';
     const agyBadge = agy.installed ? '<span style="color:var(--accent2,#1a7f37);font-size:11px;background:rgba(26,127,55,0.1);padding:1px 6px;border-radius:4px;">감지됨</span>' : '<span style="color:var(--muted,#888);font-size:11px;background:rgba(136,136,136,0.1);padding:1px 6px;border-radius:4px;">바이너리 없음</span>';
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-    h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Antigravity CLI (agy) ${agyBadge}</strong>`;
+    h += `<strong style="font-size:13px;"><span data-icon="terminal"></span> Antigravity CLI (agy) ${agyBadge}${agyVerTag}</strong>`;
     h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'antigravity\')">CLI 확인</button>';
     h += '</div>';
     const agyFallbackModels = [
-      'gemini-4-argon-medium',
-      'gemini-4-argon-high',
-      'gemini-4-argon-low',
-      'gemini-4-hydrogen-high',
-      'gemini-4-hydrogen-xhigh',
-      'gemini-4-hydrogen-medium',
-      'gemini-4-hydrogen-low',
-      'gemini-pro-orchestrator-g1-pro',
       'gemini-3.8-flash-high',
       'gemini-3.8-flash-medium',
       'gemini-3.8-flash-low',
@@ -374,6 +367,10 @@
     h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">바이너리 (Bin)</label><input id="prov-agy-bin" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(agy.bin||'agy')}"/></div>`;
     h += '<div style="flex:1.5;"><label style="font-size:11px;opacity:0.8;">모델 (Model)</label>';
     h += renderModelSelectField('prov-agy-model', agy.available_models, agyFallbackModels, agy.model || 'gemini-3.8-flash-medium', 'gemini-3.8-flash-medium');
+    if (agy.installed && agy.models_source === 'fallback') {
+      const verNote = agy.cli_version ? `CLI v${esc(agy.cli_version)}` : '설치된 CLI';
+      h += `<div style="margin-top:3px;font-size:10px;color:var(--warn,#9a6700);">${verNote}에서 동적 모델 조회에 실패하여 기본 호환 모델만 표시합니다. Gemini 4 모델은 호스트 agy CLI 업데이트 후 사용할 수 있습니다.</div>`;
+    }
     h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
