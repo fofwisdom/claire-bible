@@ -1001,12 +1001,42 @@ The console section `/admin/storage` shows the store for new media, the state of
 
 ### 20.4 Differences from the Design and Limits
 
-- RT10: the test `test_garage_accepts_the_four_operations` starts a local Garage server and is skipped when the `garage` binary is not installed. The Garage defaults of design Section 9.1.1 rule 5 (region `garage`, port 3900) are thus confirmed only where that test runs. The other object storage tests use a local S3-compatible server in the test process that checks the SigV4 signature.
+- RT10: the Garage defaults of design Section 9.1.1 rule 5 (path-style addressing, region `garage`, port 3900) are confirmed against Garage v2.1.0 in Docker (Section 20.5). That test group runs only with `CB_GARAGE_TEST=1`. The test `test_garage_accepts_the_four_operations` starts a local Garage server and is skipped when the `garage` binary is not installed. The other object storage tests use a local S3-compatible server in the test process that checks the SigV4 signature.
 - The ingest writes document images to `data/images` with any mode. A later run of the migration command moves them into the bucket.
 - The public URL base is stored and given to `S3MediaStore`, but no route sends media of public themes to it.
 - The app route `/image` (an instance without a media host) reads the local disk only.
 
 Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command, environment lock), `tests/s3_test_server.py` (the local S3-compatible server).
+
+### 20.5 Garage Test Stack in Docker (Development Test Only)
+
+`tests/garage/docker-compose.yml` and `tests/garage_stack.py` start a Garage server as a model of object storage on an external host. The stack is not a part of a deployment.
+
+| Part | Rule |
+| :--- | :--- |
+| Networks | Garage is on the internal network `storage` and has no published port. A TLS gateway (nginx) is on `storage` and on `edge`. A client on `edge` reaches only the S3 port 3900 of the gateway; the admin API (3903) and the RPC port (3901) of Garage are not there. |
+| Address | The host name is `garage.storage.test` (an alias on `edge`). The tests on the host map this name to the address of the gateway on the Docker network. The gateway also has a loopback port on the host (`127.0.0.1`, a free port) for manual work. |
+| TLS | Each start makes a private certificate authority and a server certificate for `garage.storage.test`, `localhost`, and `127.0.0.1`. The key of the authority is not kept. `tls/ca-bundle.crt` (the public authorities and the private one) is the value of `SSL_CERT_FILE` for a process on the host. A container gets the authority as a file in `certs/` (`/extra-certs`). |
+| Secrets | The RPC secret, the admin token, and the access keys are random for each start. They are in the run directory only (mode 0700; manual work: `.dev/garage-test`, which Git ignores). |
+| Keys | `rw` (read and write on the bucket `claire-media`), `ro` (read), `none` (no bucket), `other` (owner of the bucket `other-tenant`). |
+
+Manual work: `python -m tests.garage_stack up` shows the endpoint and the `CLAIRE_MEDIA_S3_*` environment; `info` shows them again; `down` removes the containers, the networks, and the run directory.
+
+Scenarios of `tests/test_garage_docker.py` (`CB_GARAGE_TEST=1 pytest tests/test_garage_docker.py`):
+
+| Group | Scenario |
+| :--- | :--- |
+| Transport | An unknown certificate authority and a connection by address (the name is not in the certificate) stop before a request goes out. The gateway refuses a request without TLS, and the settings refuse `http` for an external host, also in development. |
+| Network | A container on `edge` reaches port 3900 only. The only published port is on the loopback address of the host. |
+| Service | The connection test with the Garage defaults; put, head, get with a byte range, a range that is not possible, a 12 MiB object, delete; a wrong region fails. |
+| Server access control | A wrong secret, a read-only key, a key without a bucket, a key of a different bucket, a different bucket, and an unknown key fail at `put` with HTTP 403, and the result has no secret. The read-only key reads only. |
+| Signature | Anonymous requests get 403. A signature is for one method, one path, and one body. A signature from two days before is refused. A presigned address gives one object; a change of the path, the method, or the time is refused. |
+| Application | The admin saves the settings and tests the connection (no trust, trust, wrong secret). No answer, audit record, log line, or database file has a secret as plain text. The migration command moves the files; the media host reads the bucket and the local directory. When the gateway stops: a local file is served, a bucket file gives 503 with `Retry-After: 60`, and the connection test fails. After the gateway starts again, the application continues without a restart. |
+| Media proxy | A remote file goes to the bucket as `remote/{url_hash}`, the second request reads the bucket, the public media route gives 404 for the object, and the cleanup deletes the object. |
+
+Results that are properties of Garage v2.1.0, not of Claire Bible: Garage accepts a header signature with a date as old as one hour and with a date two days in the future. TLS on the way to the storage host is thus the protection against a replay of a recorded request.
+
+The first run of the Garage tests found that `S3MediaStore.presign` signed a query that was not percent-encoded; Garage refused the address. The query is now percent-encoded. No route uses `presign` at this time.
 
 ## 21. Media Proxy (Unit FP4-7)
 

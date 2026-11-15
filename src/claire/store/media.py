@@ -23,7 +23,7 @@ from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from .secrets import SecretService, get_secret_service
 
@@ -535,7 +535,8 @@ class S3MediaStore(MediaStore):
             "X-Amz-SignedHeaders": "host",
         }
         canonical_uri = f"/{self.bucket}/{clean_key}"
-        canonical_querystr = "&".join(f"{k}={qp[k]}" for k in sorted(qp.keys()))
+        # SigV4 signs the percent-encoded query (the credential has slashes).
+        canonical_querystr = "&".join(f"{k}={quote(qp[k], safe='-_.~')}" for k in sorted(qp.keys()))
         canonical_headers = f"host:{self.endpoint_url.split('://')[-1]}\n"
         canonical_request = f"{method}\n{canonical_uri}\n{canonical_querystr}\n{canonical_headers}\nhost\nUNSIGNED-PAYLOAD"
 
@@ -552,7 +553,7 @@ class S3MediaStore(MediaStore):
 
         qp["X-Amz-Signature"] = signature
         base = self.public_url_base or f"{self.endpoint_url}/{self.bucket}"
-        query_string = "&".join(f"{k}={qp[k]}" for k in sorted(qp.keys()))
+        query_string = "&".join(f"{k}={quote(qp[k], safe='-_.~')}" for k in sorted(qp.keys()))
         return f"{base}/{clean_key}?{query_string}"
 
     async def invalidate(self, keys: list[str]) -> list[str]:
