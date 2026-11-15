@@ -38,6 +38,10 @@ from claire.graph_bundle import (
 from claire.store import db as dbm
 from claire.telegram_bot import build_app
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
+
 OWNER_TOKEN = "owner-" + ("o" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 

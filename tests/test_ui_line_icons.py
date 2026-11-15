@@ -40,6 +40,8 @@ def _without_theme_icon_defaults(line: str) -> str:
     for mark in THEME_ICON_DEFAULTS:
         line = line.replace(mark, "")
     return line
+# Catalog keys that only the server renders outside a browser (the Telegram bot and the push notifications) are not web UI: a Telegram message has no line icon. The prefixes are the bot and notification prefixes of ``i18n.catalog.SERVER_ONLY_KEY_PREFIXES``.
+NOT_WEB_KEY = re.compile(r'^\s*"(bot|notify)\.')
 # The default quote template of the outbound post is text of a post, not UI.
 POST_TEMPLATE = re.compile(r"quoteTemplate")
 
@@ -58,7 +60,7 @@ def _violations() -> list[str]:
             if not EMOJI.search(line):
                 continue
             rest = _without_theme_icon_defaults(line)
-            if POST_TEMPLATE.search(rest):
+            if POST_TEMPLATE.search(rest) or (path.suffix == ".json" and NOT_WEB_KEY.search(rest)):
                 continue
             hits = sorted(set(EMOJI.findall(rest)))
             if hits:

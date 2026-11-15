@@ -22,6 +22,9 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.telegram_bot import _settle_status, _status_emoji
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
 
 def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
     """E2E Scenario 1:

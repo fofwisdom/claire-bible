@@ -13,6 +13,9 @@ from claire.config import Settings
 from claire.store import db as dbm
 from claire.store.theme import ThemeManager
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 COLLAB_TOKEN = "collab-" + ("c" * 32)

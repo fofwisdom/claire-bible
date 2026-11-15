@@ -1,19 +1,35 @@
-"""소유자에게 텔레그램 DM 으로 운영 경보를 보내는 가벼운 헬퍼.
+"""Small helpers that send operation alerts to the owner as a Telegram direct message.
 
-python-telegram-bot(async/봇 런타임) 없이 httpx 로 sendMessage 만 호출한다 → recover/refresh 같은 데몬 어디서나 임포트해 쓸 수 있다(봇 프로세스가 아니어도). token 또는 chat_id 가 없으면 조용히 no-op = 개발/테스트/미설정 환경 안전.
+The helpers call the Telegram HTTP API with httpx, without python-telegram-bot (no async bot runtime). Thus all daemons (recover, refresh) can import them, also outside the bot process. When the token or the chat ID is absent, each helper does nothing: this is safe in development, in tests, and on an instance without Telegram.
+
+Interface text comes from the catalog (I18N design Section 7.2). The caller supplies ``locale``, the locale of the target account; without it the active locale of the context applies.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
+
+from .i18n import LocaleCode, resolve_bot_locale, t
+
+
+def push_locale(account_locale: str | None, settings: Any = None) -> LocaleCode:
+    """Locale of a push notification (I18N design Section 7.2): the ``accounts.locale`` of the target account, ``settings.ui_lang`` (``CLAIRE_LANG``), then the default. A push has no Telegram user, thus there is no ``language_code`` step."""
+    settings_lang = getattr(settings, "ui_lang", None)
+    return resolve_bot_locale(
+        owner_locale=account_locale if isinstance(account_locale, str) else None,
+        language_code=None,
+        settings_lang=settings_lang if isinstance(settings_lang, str) else None,
+    )
 
 
 def send_approval_button(
-    token: str, chat_id: int, text: str, nonce: str, *, timeout: float = 10.0
+    token: str, chat_id: int, text: str, nonce: str, *, timeout: float = 10.0, locale: LocaleCode | None = None
 ) -> int | None:
-    """웹 접속 승인용 inline 버튼 메시지(callback_data=auth:{nonce}). 봇 콜백이 처리.
+    """Send the message with the inline button that approves a web access (callback_data=auth:{nonce}). The bot callback processes the button.
 
-    버튼 메시지의 message_id 를 반환(만료 시 그 메시지의 버튼을 지우기 위해). 실패 시 None."""
+    Returns the message_id of the button message (the caller removes the button when the request expires). Returns None on failure."""
     if not token or not chat_id:
         return None
     try:
@@ -22,7 +38,7 @@ def send_approval_button(
             json={
                 "chat_id": chat_id, "text": text,
                 "reply_markup": {"inline_keyboard": [[
-                    {"text": "✅ 웹 접속 승인", "callback_data": f"auth:{nonce}"}]]},
+                    {"text": t("notify.approval.button", locale=locale), "callback_data": f"auth:{nonce}"}]]},
             },
             timeout=timeout,
         )
@@ -35,14 +51,16 @@ def send_approval_button(
 
 def expire_button(
     token: str, chat_id: int, message_id: int,
-    text: str = "⏱ 승인 요청이 만료되었습니다. 웹에서 다시 시도하세요.",
-    *, timeout: float = 10.0,
+    text: str | None = None,
+    *, timeout: float = 10.0, locale: LocaleCode | None = None,
 ) -> bool:
-    """승인 버튼 메시지를 만료 처리 — 텍스트 교체 + 버튼 제거(빈 inline_keyboard).
+    """Expire the approval button message: replace the text and remove the button (empty inline_keyboard). Without ``text`` the catalog text ``notify.approval.expired`` applies.
 
-    일정시간 내 응답이 없으면 호출(스팸/유효기간 지난 버튼 잔존 방지)."""
+    Call this when no answer comes in the permitted time, so that no expired button stays in the chat."""
     if not token or not chat_id or not message_id:
         return False
+    if text is None:
+        text = t("notify.approval.expired", locale=locale)
     try:
         resp = httpx.post(
             f"https://api.telegram.org/bot{token}/editMessageText",
@@ -56,9 +74,9 @@ def expire_button(
 
 
 def notify_owner(token: str, chat_id: int, text: str, *, timeout: float = 10.0) -> bool:
-    """소유자 chat 으로 텔레그램 메시지 전송. 성공 시 True, 미설정/실패 시 False.
+    """Send a Telegram message to the owner chat. Returns True on success and False when Telegram is not configured or the call fails.
 
-    알림 실패가 호출측(예: 복구 루프)을 절대 막지 않도록 모든 예외를 삼킨다.
+    All exceptions are caught, so that a failed notification never stops the caller (for example the recovery loop).
     """
     if not token or not chat_id:
         return False
