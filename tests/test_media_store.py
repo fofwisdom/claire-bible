@@ -196,6 +196,9 @@ async def test_s3_media_store_signing_and_mock_io(monkeypatch):
                 raise httpx.HTTPStatusError("err", request=None, response=self)
 
     class MockAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
         async def __aenter__(self):
             return self
 

@@ -233,6 +233,33 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 - **Support Bundle**: 저장소 진단은 `data/` 아래에서 `auth`, `fedify`, `run` 디렉터리를 건너뛴다. 그래서 `fedify.db`와 서비스 키는 이 진단에 나오지 않는다.
 - **계정 백업**(`data/account_backups/`): `auth.db`를 담지 않으므로 액터 키가 들어가지 않는다.
 
+## 미디어 저장소 (로컬 · 오브젝트 스토리지)
+
+설계: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) §9.1.1–§9.3 (FP4-1). 구현: `src/claire/store/media.py`, `src/claire/store/media_storage.py`, `src/claire/api/accounts_routes/storage.py`.
+
+- **기본값은 로컬 저장소**이고 설정이 필요 없다. 미디어는 `data/media`와 `data/images`에 있고 데이터 디렉터리 백업에 들어간다.
+- **S3 호환 오브젝트 스토리지**는 선택이다. 시험과 문서의 기준 서버는 Garage다. 쓰는 연산은 `PutObject`, `GetObject`(`Range`), `HeadObject`, `DeleteObject`이고 경로 방식 주소(`{endpoint}/{bucket}/{key}`)와 SigV4를 쓴다. 다른 S3 호환 서버는 이 연산을 주면 동작하지만 시험하지 않았다.
+- **버킷과 키는 운영자가 스토리지 서버에서 먼저 만든다.** Claire는 버킷을 만들지 않는다.
+- **설정 위치**: 관리자 콘솔 `/admin/storage`(방식, 엔드포인트, 버킷, 리전, 액세스 키, 시크릿 키, 선택 공개 URL 기준 주소). 시크릿 키는 암호화해 저장하고 다시 보여 주지 않는다. 환경 변수 `CLAIRE_MEDIA_S3_*`([`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md))가 있으면 그 값이 우선하고 콘솔은 변경을 거부한다.
+- **적용 시점**: 설정 변경은 `api` 프로세스를 다음에 시작할 때 적용된다. 스토리지 서버에 닿지 못해도 프로세스는 시작한다.
+- **연결 시험**: 콘솔의 "연결 시험"은 시험 객체 하나를 쓰고, 바이트 범위로 읽고, 메타데이터를 조회하고, 지운 뒤 처음 실패한 연산을 알려 준다. 방식이 로컬이어도 저장된 필드로 시험할 수 있으므로, 전환 전에 먼저 시험한다.
+- **읽기 순서**: 오브젝트 스토리지를 쓰는 동안 버킷에 없는 키는 로컬 저장소에서 읽는다. 그래서 이관이 끝나기 전에도 미디어가 빠지지 않는다. 스토리지 서버에 닿지 못할 때 로컬에도 없는 키는 media 호스트가 503으로 답한다.
+- **객체 키**는 `[A-Za-z0-9/_.-]`만 쓴다(`remote/{url_hash}`, `images/{doc_id}_{i}{ext}`). 다른 문자가 있는 키는 요청을 보내기 전에 거부한다.
+
+이관 순서:
+
+```bash
+claire media migrate --to object-storage            # 모의 실행: 올릴 파일 수만 센다
+claire media migrate --to object-storage --apply    # 복사: 올리고, 다시 읽어 SHA-256을 비교한다
+claire media migrate --to object-storage --apply --delete-source   # 모두 통과한 뒤 로컬 파일 삭제
+```
+
+- 명령은 다시 실행할 수 있다. 같은 해시로 버킷에 있는 파일은 건너뛴다. 콘솔 `/admin/storage`는 `--apply`로 실행한 마지막 결과를 보여 주고, 이관을 시작하지는 않는다.
+- `--delete-source`는 media 호스트(`CLAIRE_MEDIA_FQDN`)가 없으면 거부한다. media 호스트가 없으면 앱 경로 `/image`가 로컬 디스크만 읽기 때문이다.
+- **백업**: 데이터 디렉터리 백업(`./cb-manuscript backup`)은 버킷을 복사하지 않는다. 버킷은 스토리지 서버의 방법으로 따로 백업한다.
+- **되돌리기**: 방식을 로컬로 되돌릴 수 있다. 버킷의 미디어는 그대로 남고, 로컬에 없는 파일은 더 이상 읽히지 않으므로 `--delete-source`를 쓴 뒤에는 되돌리기 전에 버킷의 객체를 `data/media`·`data/images`로 내려받아야 한다.
+- **현재 한계**: 적재 과정이 받는 문서 이미지는 방식과 무관하게 계속 `data/images`에 쓴다. 오브젝트 스토리지를 쓰는 동안에는 이관 명령을 다시 실행해 버킷으로 옮긴다. 공개 URL 기준 주소는 저장만 하고, 공개 테마 미디어를 그 주소로 직접 내보내는 동작은 아직 없다.
+
 ## 백업과 복원
 
 ```bash

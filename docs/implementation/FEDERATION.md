@@ -27,6 +27,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
 | Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No media in the body before FP4-7; no reply, favourite, or boost before FP4-9. |
+| Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -967,3 +968,43 @@ All routes are for the owner of the account, in network mode only. An item of an
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
 
 Tests: `tests/test_e2e_federation_client.py` (routes, render on the two origins, ingest), `tests/test_e2e_federation_reading_settings.py` (console fields), `e2e/federation_client.spec.js` (view in a browser), `e2e/workspace.spec.js` (stage strip of the home page).
+
+## 20. Media Storage Backends (Unit FP4-1)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 7.3 and 9.1.1 to 9.3. Operation: [`OPERATIONS.md`](OPERATIONS.md) "미디어 저장소". Code: `src/claire/store/media.py`, `src/claire/store/media_storage.py`, `src/claire/api/accounts_routes/storage.py`, `src/claire/api/media.py`.
+
+### 20.1 Stores
+
+| Item | Value |
+| :--- | :--- |
+| Default | `LocalMediaStore` under `data/media`; legacy files under `data/images`. No setting is necessary. |
+| Object storage | `S3MediaStore`: `PutObject`, `GetObject` with `Range`, `HeadObject`, `DeleteObject`; SigV4 with `x-amz-content-sha256`; path-style addressing. A network failure or an answer that is not a success is a `MediaStoreError`. |
+| Store of the process | `get_media_store`: the environment variables `CLAIRE_MEDIA_S3_*` (all four necessary values), else the admin settings with the mode `s3`, else local storage. With object storage the store is `FallbackMediaStore`: writes go to the bucket, and a key that is not in the bucket is read from local storage. |
+| Keys | An object key has only `[A-Za-z0-9/_.-]` (`is_object_storage_key`). `S3MediaStore` refuses another key before a request goes out, so the signed path and the sent path are the same (RT5). |
+| Media host | A legacy image that the migration moved has the object key `images/{name}`; the media host looks for it after the key of the URL and the local file. When the object store is not available and the key is not local, the answer is 503 with `Retry-After: 60`. |
+| Settings | `claire.db` `instance_settings`: `media_storage` (the fields; the secret key as AES-256-GCM ciphertext with the additional authenticated data `media_storage:s3`), `media_storage_test` (the last test), `media_storage_migration` (the last migration run with `--apply`). A stored setting that cannot be read (for example another master key) is logged and gives local storage; the process starts. |
+
+### 20.2 Routes
+
+All routes are for the admin. A change and the test need the same origin and a recent authentication.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/api/admin/storage` | `{"storage"}`: `mode`, `endpoint`, `bucket`, `region`, `access_key`, `secret_key_set`, `public_url_base`, `env_locked`, `effective_mode`, `last_test`, `last_migration`, and `env` (endpoint, bucket, region) when the environment sets the store. The secret key is never in an answer. |
+| `PUT` | `/api/admin/storage` | A partial update: `mode` (`local`, `s3`), `endpoint`, `bucket`, `region`, `access_key`, `secret_key`, `public_url_base`, `clear_secret_key`. Answer `{"storage", "restart_required": true}`. 400 `invalid_request` with `field` and `detail`; 409 `env_locked` when the environment sets the store. The mode `s3` needs the endpoint, the bucket, the access key, and the secret key. The endpoint is `https`; `http` is possible only for a private address when `allow_private_networks` is on. The audit action is `storage.update` (the names of the changed fields, never the secret). |
+| `POST` | `/api/admin/storage/test` | `{"test": {"ok", "failed_operation", "detail", "tested_at", "source"}}`. The test uses the environment, else the stored fields with any mode. It writes, reads with a byte range, heads, and deletes one object `claire-probe/{random}.bin`. 409 `storage_not_configured` when the fields are not complete. The audit action is `storage.test`. |
+
+The console section `/admin/storage` shows the store for new media, the state of the last test, the form (Garage defaults as placeholders: region `garage`, port 3900), and the result of the last migration run. Its texts are catalog keys (`console.storage.*`) in English and Korean.
+
+### 20.3 Migration
+
+`claire media migrate --to object-storage` ([`COMMANDS.md`](COMMANDS.md)). Scope: the files of `data/media` (the relative path is the key) and of `data/images` (key `images/{name}`). For each file: when the bucket has the key with the same SHA-256, skip; else upload, read back, and compare the SHA-256. Without `--apply` the run only counts. `--delete-source` deletes the local files only when all files passed, and is refused without a media host (`CLAIRE_MEDIA_FQDN`).
+
+### 20.4 Differences from the Design and Limits
+
+- RT10: the test `test_garage_accepts_the_four_operations` starts a local Garage server and is skipped when the `garage` binary is not installed. The Garage defaults of design Section 9.1.1 rule 5 (region `garage`, port 3900) are thus confirmed only where that test runs. The other object storage tests use a local S3-compatible server in the test process that checks the SigV4 signature.
+- The ingest writes document images to `data/images` with any mode. A later run of the migration command moves them into the bucket.
+- The public URL base is stored and given to `S3MediaStore`, but no route sends media of public themes to it.
+- The app route `/image` (an instance without a media host) reads the local disk only.
+
+Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command, environment lock), `tests/s3_test_server.py` (the local S3-compatible server).

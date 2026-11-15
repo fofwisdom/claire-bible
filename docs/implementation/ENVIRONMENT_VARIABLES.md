@@ -324,6 +324,12 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
 | `CLAIRE_USERCONTENT_FQDN` | `""` | 호스트명 (운영 예: `usercontent.example.com`, 개발 예: `127.0.0.1:8767`) | 계정이 만든 HTML을 그리는 usercontent 역할 호스트. 쿠키를 읽지도 쓰지도 않는다. 개발에서는 app과 같은 IPv4의 다른 포트다. 네트워크 모드 운영 환경에서는 필수다. P2에서는 모든 경로가 404다. |
 | `CLAIRE_MEDIA_FQDN` | `""` | 호스트명 (운영 예: `media.example.com`, 개발 예: `127.0.0.1:8768`) | 캐시 미디어를 내보내는 media 역할 호스트(선택). 쿠키를 읽지도 쓰지도 않는다. P2에서는 모든 경로가 404다. |
+| `CLAIRE_MEDIA_S3_ENDPOINT` | `""` | URL (예: `https://garage.example:3900`) | 미디어 오브젝트 스토리지(S3 호환)의 엔드포인트. 이 변수와 `CLAIRE_MEDIA_S3_BUCKET`, `CLAIRE_MEDIA_S3_ACCESS_KEY`, `CLAIRE_MEDIA_S3_SECRET_KEY` 네 개가 모두 있으면 미디어 저장소는 오브젝트 스토리지가 되고, 관리자 콘솔 `/admin/storage`의 설정보다 우선하며 콘솔에서 바꿀 수 없다. 하나라도 비면 콘솔 설정(기본: 로컬 저장소)을 쓴다. [OPERATIONS.md](OPERATIONS.md) "미디어 저장소" 참고. |
+| `CLAIRE_MEDIA_S3_BUCKET` | `""` | 버킷 이름 | 미디어를 넣을 버킷. Claire는 버킷을 만들지 않는다. |
+| `CLAIRE_MEDIA_S3_ACCESS_KEY` | `""` | 문자열 | 오브젝트 스토리지 액세스 키. |
+| `CLAIRE_MEDIA_S3_SECRET_KEY` | `""` | 문자열 | 오브젝트 스토리지 시크릿 키. 응답, 감사 기록, 지원 번들에 넣지 않는다. |
+| `CLAIRE_MEDIA_S3_REGION` | `us-east-1` | 리전 이름 (Garage: `garage`) | SigV4 서명에 쓰는 리전. 스토리지 서버의 리전과 같아야 한다. |
+| `CLAIRE_MEDIA_S3_PUBLIC_URL_BASE` | `""` | URL | 선택. 사전 서명 URL의 기준 주소. 비면 엔드포인트와 버킷으로 만든다. 미디어는 기본적으로 Claire의 media 호스트를 거친다. |
 | `CLAIRE_SECRET_KEY` | `""` | 64자리 16진수 또는 32바이트 키 | 자격 비밀, 계정 API 키 및 초대 코드 암호화에 사용하는 AES-256-GCM 마스터 키. 64자리 16진수 문자열 또는 32바이트 이상 키를 사용한다. 미지정 시 `data/auth/master.key`(권한 `0600`)를 자동 생성하여 사용한다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
