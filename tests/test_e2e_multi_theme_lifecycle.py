@@ -18,6 +18,9 @@ from claire.store import db as dbm
 from claire.store.theme import get_theme_manager
 from claire.telegram_bot import _settle_status
 
+# The assertions of this module expect the Korean interface text (fixture in conftest.py).
+pytestmark = pytest.mark.usefixtures("korean_interface")
+
 
 @pytest.mark.asyncio
 async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):

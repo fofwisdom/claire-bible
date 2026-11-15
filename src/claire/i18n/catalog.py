@@ -40,8 +40,8 @@ def load_catalog(locale: str) -> dict[str, str]:
     return read_catalog_file(LOCALES_DIR / f"{locale}.json")
 
 
-# Key domains that only the server renders: the auth pages have no script, and the bot and the CLI are not in a browser. The inline catalog of a page does not contain them.
-SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.")
+# Key domains that only the server renders: the auth pages have no script, and the bot, the push notifications and the CLI are not in a browser. The inline catalog of a page does not contain them.
+SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.")
 
 
 def browser_catalog(locale: LocaleCode | None = None) -> dict[str, str]:
