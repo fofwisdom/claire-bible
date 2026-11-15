@@ -117,6 +117,7 @@ def test_version_4_file_gets_the_notes_table_and_keeps_its_rows(tmp_path: Path, 
     with monkeypatch.context() as m:
         m.setattr(client_db, "CLIENT_SCHEMA_VERSION", 4)
         m.setattr(client_db, "_migrate_v5", lambda conn: None)
+        m.setattr(client_db, "_migrate_v6", lambda conn: None)
         conn = client_db.connect_client_db(path)
         conn.execute("INSERT INTO federation_following (account_id, request, state, created_at, updated_at) VALUES (1, '@a@remote.example', 'pending', 1, 1)")
         # Data that this code does not know stays (a table of a later tool).
@@ -129,11 +130,9 @@ def test_version_4_file_gets_the_notes_table_and_keeps_its_rows(tmp_path: Path, 
     for _ in range(2):
         conn = client_db.connect_client_db(path)
         try:
-            assert client_db.stored_client_version(conn) == 5
+            assert client_db.stored_client_version(conn) == client_db.CLIENT_SCHEMA_VERSION
             columns = {r[1] for r in conn.execute("PRAGMA table_info(federation_notes)")}
             assert {"public_id", "account_id", "content_text", "content_html", "mentions_json", "tags_json", "edited_at", "deleted_at"} <= columns
-            # No quote column before unit FP4-9Q.
-            assert not {c for c in columns if c.startswith("quote")}
             assert conn.execute("SELECT COUNT(*) FROM federation_following").fetchone()[0] == 1
             assert conn.execute("SELECT x FROM unexpected_table").fetchone()[0] == 7
         finally:

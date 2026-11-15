@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -803,6 +803,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v21_account_feeds(conn)
     _migrate_v22_move_feed_tables(conn)
     _migrate_v23_object_content_digest(conn)
+    _migrate_v24_object_quote_policy(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1267,6 +1268,12 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
     """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
+
+
+def _migrate_v24_object_quote_policy(conn: sqlite3.Connection) -> None:
+    """v24 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6, unit FP4-9Q): ``federation_objects.quote_policy`` is the quote policy of a published document (FEP-044f ``canQuote``). The default is ``manual``: an object from before this version gets it. The column is in this file so that a change of the policy and its ``update`` task are in one transaction. Idempotent (A3)."""
+    if _table_exists(conn, "federation_objects") and "quote_policy" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
+        conn.execute("ALTER TABLE federation_objects ADD COLUMN quote_policy TEXT NOT NULL DEFAULT 'manual' CHECK (quote_policy IN ('public', 'followers', 'manual', 'nobody'))")
 
 
 def _migrate_v22_move_feed_tables(conn: sqlite3.Connection) -> None:

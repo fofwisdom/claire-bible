@@ -1,6 +1,6 @@
 """Store functions of the outbound interactions (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.2, 5.4, and 7.1, unit FP4-9).
 
-All tables are in ``client.db`` (``store.client_db``, version 5): ``federation_notes``, the columns ``favourited`` and ``boosted`` of ``federation_timeline_items``, and the kinds ``note``, ``update_note``, ``delete_note``, ``like``, ``undo_like``, ``announce``, ``undo_announce`` of ``federation_client_outbox``.
+All tables are in ``client.db`` (``store.client_db``, version 5; the quote columns of a note are version 6, and their functions are in ``store.federation_quotes``): ``federation_notes``, the columns ``favourited`` and ``boosted`` of ``federation_timeline_items``, and the kinds ``note``, ``update_note``, ``delete_note``, ``like``, ``undo_like``, ``announce``, ``undo_announce`` of ``federation_client_outbox``.
 
 - The number of a note is in the number space of the published documents (RT7): the caller gives ``taken``, which reads ``federation_objects`` and ``federation_tombstones`` of ``claire.db``.
 - A deleted note keeps its row without content (``deleted_at``). The row is the tombstone of the note: the object path gives 410, and the ``delete_note`` task reads the recipients from it.
@@ -44,7 +44,7 @@ __all__ = [
 INTERACTION_KINDS: tuple[str, ...] = ("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce")
 # The HMAC label of a note number. The label of a published document is ``federation_objects``: two numbers of the same millisecond differ, except for one case in 65536, and ``taken`` finds that case.
 _NUMBER_LABEL = "federation_notes"
-_NOTE_COLUMNS = "public_id, account_id, in_reply_to_iri, audience_iri, content_text, content_html, mentions_json, summary, sensitive, language, tags_json, edited_at, published_at, updated_at, deleted_at"
+_NOTE_COLUMNS = "public_id, account_id, in_reply_to_iri, audience_iri, content_text, content_html, mentions_json, summary, sensitive, language, tags_json, edited_at, published_at, updated_at, deleted_at, quote_of_iri, quote_author_iri, quote_state, quote_authorization_iri, quote_policy"
 ItemFlag = Literal["favourited", "boosted"]
 
 
@@ -67,6 +67,12 @@ class Note:
     published_at: float
     updated_at: float
     deleted_at: float | None
+    # Quote (FEP-044f, Section 5.4 rules 5 and 6, unit FP4-9Q): the quoted object and its author, the state (``None`` for a note without a quote), the QuoteAuthorization of an approved quote, and the quote policy of this note.
+    quote_of_iri: str | None = None
+    quote_author_iri: str | None = None
+    quote_state: str | None = None
+    quote_authorization_iri: str | None = None
+    quote_policy: str = "public"
 
 
 def _note(row: sqlite3.Row | tuple) -> Note:
@@ -74,6 +80,7 @@ def _note(row: sqlite3.Row | tuple) -> Note:
     return Note(
         public_id=int(v[0]), account_id=int(v[1]), in_reply_to_iri=v[2], audience_iri=v[3], content_text=str(v[4]), content_html=str(v[5]), mentions=json.loads(v[6]), summary=v[7], sensitive=bool(v[8]), language=v[9],
         tags=json.loads(v[10]), edited_at=None if v[11] is None else float(v[11]), published_at=float(v[12]), updated_at=float(v[13]), deleted_at=None if v[14] is None else float(v[14]),
+        quote_of_iri=v[15], quote_author_iri=v[16], quote_state=v[17], quote_authorization_iri=v[18], quote_policy=str(v[19]),
     )
 
 
@@ -83,16 +90,16 @@ def get_note(conn: sqlite3.Connection, public_id: int) -> Note | None:
     return None if row is None else _note(row)
 
 
-def add_note(conn: sqlite3.Connection, *, account_id: int, salt: bytes, taken: Callable[[int], bool], in_reply_to_iri: str | None, audience_iri: str | None, content_text: str, content_html: str, mentions: list[dict[str, Any]], summary: str | None, sensitive: bool, language: str | None, tags: list[str], now: float) -> Note:
-    """Store a new note and return it. ``taken(number)`` is true when a published document or a tombstone of ``claire.db`` has the number (RT7); then the next number of the same millisecond is tried."""
+def add_note(conn: sqlite3.Connection, *, account_id: int, salt: bytes, taken: Callable[[int], bool], in_reply_to_iri: str | None, audience_iri: str | None, content_text: str, content_html: str, mentions: list[dict[str, Any]], summary: str | None, sensitive: bool, language: str | None, tags: list[str], now: float, quote_of_iri: str | None = None, quote_author_iri: str | None = None, quote_policy: str = "public") -> Note:
+    """Store a new note and return it. A note with ``quote_of_iri`` starts with the quote state ``pending`` (Section 5.4 rule 5). ``taken(number)`` is true when a published document or a tombstone of ``claire.db`` has the number (RT7); then the next number of the same millisecond is tried."""
     unix_ms = int(now * 1000)
     for seq in range(ids.MAX_INSERT_ATTEMPTS):
         number = ids.timestamp_id(_NUMBER_LABEL, salt=salt, unix_ms=unix_ms, seq=seq)
         if taken(number) or conn.execute("SELECT 1 FROM federation_notes WHERE public_id=?", (number,)).fetchone() is not None:
             continue
         conn.execute(
-            "INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, audience_iri, content_text, content_html, mentions_json, summary, sensitive, language, tags_json, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (number, account_id, in_reply_to_iri, audience_iri, content_text, content_html, json.dumps(mentions, ensure_ascii=False), summary, 1 if sensitive else 0, language, json.dumps(tags, ensure_ascii=False), now, now),
+            "INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, audience_iri, content_text, content_html, mentions_json, summary, sensitive, language, tags_json, published_at, updated_at, quote_of_iri, quote_author_iri, quote_state, quote_policy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (number, account_id, in_reply_to_iri, audience_iri, content_text, content_html, json.dumps(mentions, ensure_ascii=False), summary, 1 if sensitive else 0, language, json.dumps(tags, ensure_ascii=False), now, now, quote_of_iri, quote_author_iri, None if quote_of_iri is None else "pending", quote_policy),
         )
         made = get_note(conn, number)
         assert made is not None
@@ -159,7 +166,7 @@ def note_timeline_item(note: Note, *, object_iri: str, author: dict[str, Any], c
     """The normal form of an own note for ``federation_client.upsert_timeline_item`` and ``update_timeline_items``. The render route sanitizes ``content_html`` like the HTML of a remote server (Section 8)."""
     return {
         "object_iri": object_iri, "url": object_iri, "type": "Note", "author": author, "name": None, "summary": note.summary, "sensitive": note.sensitive, "content_html": note.content_html, "language": note.language,
-        "attachments": [], "context": context_iri, "in_reply_to": note.in_reply_to_iri, "published_at": note.published_at, "updated_at": note.edited_at,
+        "attachments": [], "context": context_iri, "in_reply_to": note.in_reply_to_iri, "quote": note.quote_of_iri, "published_at": note.published_at, "updated_at": note.edited_at,
     }
 
 
