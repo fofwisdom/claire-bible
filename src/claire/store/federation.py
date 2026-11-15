@@ -378,13 +378,44 @@ def publish_document(conn: sqlite3.Connection, *, account_id: int, theme_id: int
         public_id = ids.insert_with_timestamp_id(conn, table=_OBJECTS_TABLE, column="public_id", salt=salt, insert=_insert, now_ms=lambda: int(now * 1000))
         made = get_object(conn, public_id)
         assert made is not None
+        _store_content_digest(conn, made)
         return made, add_outbox_task(conn, account_id=account_id, kind="create", object_public_id=public_id, now=now), True
     if existing.account_id != account_id:
         raise ValueError("the object is of a different account")
     conn.execute(f"UPDATE {_OBJECTS_TABLE} SET updated_at=? WHERE public_id=?", (now, existing.public_id))
     updated = get_object(conn, existing.public_id)
     assert updated is not None
+    _store_content_digest(conn, updated)
     return updated, add_outbox_task(conn, account_id=account_id, kind="update", object_public_id=existing.public_id, now=now), False
+
+
+def object_content_digest(conn: sqlite3.Connection, obj: FederationObject, *, now: float) -> str:
+    """The digest of the parts of a published document that are in its object (design Section 5.5): the summary (else the title) and the token of the share page. The body is not a part."""
+    from . import db as dbm
+
+    title = conn.execute("SELECT title FROM documents WHERE id=? AND theme_id=?", (obj.document_id, obj.theme_id)).fetchone()
+    summary = " ".join((dbm.latest_extraction_summary(conn, obj.document_id, theme_id=obj.theme_id) or "").split()) or " ".join(str((title[0] if title else "") or "").split())
+    share = conn.execute("SELECT token FROM doc_shares WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1", (obj.document_id, obj.theme_id, now)).fetchone()
+    return hashlib.sha256(f"{summary}\x00{share[0] if share else ''}".encode("utf-8")).hexdigest()
+
+
+def _store_content_digest(conn: sqlite3.Connection, obj: FederationObject) -> None:
+    conn.execute(f"UPDATE {_OBJECTS_TABLE} SET content_digest=? WHERE public_id=?", (object_content_digest(conn, obj, now=obj.updated_at), obj.public_id))
+
+
+def sync_object_content(conn: sqlite3.Connection, *, theme_id: int, document_id: str, now: float) -> OutboxTask | None:
+    """Compare the object content of a published document with the content that the followers got last. A change of the summary or of the share link makes an ``update`` task (design Section 5.5 rule 5); a change of the body alone makes none. An object without a stored digest (from before ``claire.db`` version 23) only gets its digest (rule 7). The caller commits."""
+    obj = get_object_for_document(conn, theme_id=theme_id, document_id=document_id)
+    if obj is None:
+        return None
+    digest = object_content_digest(conn, obj, now=now)
+    stored = conn.execute(f"SELECT content_digest FROM {_OBJECTS_TABLE} WHERE public_id=?", (obj.public_id,)).fetchone()[0]
+    if stored == digest:
+        return None
+    conn.execute(f"UPDATE {_OBJECTS_TABLE} SET content_digest=?, updated_at=? WHERE public_id=?", (digest, obj.updated_at if stored is None else now, obj.public_id))
+    if stored is None:
+        return None
+    return add_outbox_task(conn, account_id=obj.account_id, kind="update", object_public_id=obj.public_id, now=now)
 
 
 def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: float) -> OutboxTask:

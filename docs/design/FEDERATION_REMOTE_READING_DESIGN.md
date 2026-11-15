@@ -689,7 +689,7 @@ Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
-| FP4-P1 | **Done 2026-11-13 except rule 5 of Section 5.5** (the `update` task on a change of the summary or the share link). Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
+| FP4-P1 | **Done 2026-11-13; rule 5 of Section 5.5 done 2026-11-15 (`claire.db` version 23).** Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
 
 The Markdown units MD-1 to MD-5 (RD22 to RD24) are in [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 7.
 
