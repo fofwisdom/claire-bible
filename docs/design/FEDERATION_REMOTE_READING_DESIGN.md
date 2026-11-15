@@ -683,7 +683,7 @@ Feed units (RD13, RD15). They need no actor and no federation unit, and they wor
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-F1 | **Done 2026-11-13.** Account feed tables (`claire.db` version 21), poller with conditional `GET`, WebSub where the feed has a hub, backoff, private address check, item normal form for RSS 2.0, Atom 1.0, and JSON Feed | A feed of a local test server gives items; a second poll with the same `ETag` stores nothing. Works in single mode. | — (first unit, 2026-11-13) | M |
 | FP4-F2 | **Done 2026-11-13.** OPML import (feeds, folders, skip list, report) and OPML export | A Tiny Tiny RSS style OPML file with categories gives the same folders and feeds; a second import adds nothing. | FP4-F1 | S |
-| FP4-F3 | Feed view in the client (tree, list, reader, link share, star, ingest of one item), item merge by URL with the timeline | An end-to-end test subscribes to a local feed, reads an item, and ingests it into a theme. | FP4-F1, FP4-5 (network mode parts only) | M |
+| FP4-F3 | **Done 2026-11-15.** Feed view in the client (tree, list, reader, link share, star, ingest of one item), item merge by URL with the timeline | An end-to-end test subscribes to a local feed, reads an item, and ingests it into a theme. | FP4-F1, FP4-5 (network mode parts only) | M |
 
 Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
 

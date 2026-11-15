@@ -311,3 +311,89 @@ def _mark_sets(unread: bool | None, starred: bool | None) -> tuple[list[str], li
         sets.append("starred=?")
         params.append(1 if starred else 0)
     return sets, params
+
+
+# --- One item, its document link, and the merge with the timeline by URL (unit FP4-F3) ---
+
+
+def get_item(conn: sqlite3.Connection, account_id: int, item_id: int) -> dict[str, Any] | None:
+    """One item of the account with ``feed_title`` and ``feed_folder``, or ``None``."""
+    row = conn.execute("SELECT i.*, f.title AS feed_title, f.folder AS feed_folder FROM feed_items i JOIN feed_subscriptions f ON f.id=i.feed_id WHERE i.id=? AND i.account_id=?", (item_id, account_id)).fetchone()
+    if row is None:
+        return None
+    item = _item_dict(row)
+    item["feed_title"] = row["feed_title"]
+    item["feed_folder"] = row["feed_folder"]
+    return item
+
+
+def link_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, theme_id: int, doc_id: str) -> bool:
+    """Record the document of an ingested item. The values are not foreign keys: a purge of the document does not change the item."""
+    return conn.execute("UPDATE feed_items SET linked_theme_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (theme_id, doc_id, item_id, account_id)).rowcount == 1
+
+
+def _urls(values: Any) -> list[str]:
+    return sorted({value for value in values if isinstance(value, str) and value})
+
+
+def timeline_matches(conn: sqlite3.Connection, account_id: int, urls: Any) -> dict[str, int]:
+    """The merge by item URL (design Section 1.3 rule 7): for each URL, the ID of the timeline item of the account with that ``url`` or ``object_iri``. An item that shows in the timeline comes before a thread-only item; then the newest."""
+    wanted = _urls(urls)
+    if not wanted:
+        return {}
+    marks = ",".join("?" for _ in wanted)
+    rows = conn.execute(
+        f"SELECT id, url, object_iri FROM federation_timeline_items WHERE account_id=? AND (url IN ({marks}) OR object_iri IN ({marks})) ORDER BY in_timeline, id",
+        (account_id, *wanted, *wanted),
+    ).fetchall()
+    found: dict[str, int] = {}
+    for row in rows:
+        for value in (row[1], row[2]):
+            if value in wanted:
+                found[value] = int(row[0])
+    return found
+
+
+def item_urls(conn: sqlite3.Connection, account_id: int, item_ids: list[int]) -> list[str]:
+    """The URLs of the given items of the account."""
+    if not item_ids:
+        return []
+    marks = ",".join("?" for _ in item_ids)
+    return _urls(row[0] for row in conn.execute(f"SELECT url FROM feed_items WHERE account_id=? AND id IN ({marks})", (account_id, *item_ids)))
+
+
+def mark_timeline_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, unread: bool | None = None, starred: bool | None = None) -> int:
+    """Set the read and star state of the timeline items of the account that have one of the URLs: a merged item has one state in the two lists."""
+    sets, params = _mark_sets(unread, starred)
+    wanted = _urls(urls)
+    if not sets or not wanted:
+        return 0
+    marks = ",".join("?" for _ in wanted)
+    return int(conn.execute(f"UPDATE federation_timeline_items SET {', '.join(sets)} WHERE account_id=? AND (url IN ({marks}) OR object_iri IN ({marks}))", (*params, account_id, *wanted, *wanted)).rowcount)
+
+
+def mark_timeline_of_feed(conn: sqlite3.Connection, account_id: int, feed_id: int, *, unread: bool) -> int:
+    """``mark_timeline_by_url`` for all items of one feed ("mark all as read")."""
+    urls = "SELECT url FROM feed_items WHERE account_id=? AND feed_id=? AND url IS NOT NULL"
+    return int(conn.execute(f"UPDATE federation_timeline_items SET unread=? WHERE account_id=? AND (url IN ({urls}) OR object_iri IN ({urls}))", (1 if unread else 0, account_id, account_id, feed_id, account_id, feed_id)).rowcount)
+
+
+def mark_items_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, unread: bool | None = None, starred: bool | None = None) -> int:
+    """Set the read and star state of the feed items of the account that have one of the URLs (the reverse direction of ``mark_timeline_by_url``)."""
+    sets, params = _mark_sets(unread, starred)
+    wanted = _urls(urls)
+    if not sets or not wanted:
+        return 0
+    marks = ",".join("?" for _ in wanted)
+    return int(conn.execute(f"UPDATE feed_items SET {', '.join(sets)} WHERE account_id=? AND url IN ({marks})", (*params, account_id, *wanted)).rowcount)
+
+
+def link_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, theme_id: int, doc_id: str, timeline: bool) -> int:
+    """Give the document link of an ingested item to the rows of the other list with the same URL, where they have no document yet. ``timeline`` selects the target: the timeline items, or the feed items."""
+    wanted = _urls(urls)
+    if not wanted:
+        return 0
+    marks = ",".join("?" for _ in wanted)
+    if timeline:
+        return int(conn.execute(f"UPDATE federation_timeline_items SET linked_theme_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND (url IN ({marks}) OR object_iri IN ({marks}))", (theme_id, doc_id, account_id, *wanted, *wanted)).rowcount)
+    return int(conn.execute(f"UPDATE feed_items SET linked_theme_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND url IN ({marks})", (theme_id, doc_id, account_id, *wanted)).rowcount)

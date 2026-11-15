@@ -52,6 +52,7 @@ from ...store import auth_db
 from ...store import db as dbm
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
+from ...store import feeds as feeds_store
 from .. import federation_routes
 from .. import usercontent
 from ..collections import parse_collection_query
@@ -887,6 +888,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
             client = open_client_db(ctx)
             try:
                 item = federation_client_store.set_timeline_flags(client, account_id, item_id, unread=body.get("unread"), starred=body.get("starred"))
+                if item is not None:
+                    # Merge by URL (unit FP4-F3): a feed item with the address of this post gets the same state.
+                    feeds_store.mark_items_by_url(client, account_id, [item.url, item.object_iri], unread=body.get("unread"), starred=body.get("starred"))
                 client.commit()
                 counts = federation_client_store.count_timeline(client, account_id)
             finally:

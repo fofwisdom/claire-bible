@@ -12,6 +12,13 @@ For the owner of the account only, in single mode (the single account) and in ne
 | ``/api/feeds/opml`` | POST | OPML import (``opml``: the document as text) |
 | ``/api/feeds/items`` | GET | One page of items (filters ``feed_id``, ``folder``, ``unread``, ``starred``; cursor ``before_id``) |
 | ``/api/feeds/items`` | PATCH | Mark items read, unread, starred, or not starred (``item_ids``), or mark all items of one feed (``feed_id``) |
+| ``/api/feeds/items/{item_id}`` | GET | One item with the render URL of its body (unit FP4-F3) |
+| ``/api/feeds/discover`` | POST | Find the feeds of an address (``url``): the feed itself, or the ``<link rel="alternate">`` feeds of a page (unit FP4-F3) |
+| ``/render/feed/{item_id}`` | GET | The body of one item on the app origin, only for an instance without a ``usercontent`` host (unit FP4-F3) |
+
+``POST /api/feeds/items/{item_id}/ingest`` is in ``server``, because it uses the ingest service of a theme.
+
+Feed HTML is not trusted. The item lists have plain text only (``text``); the body renders through ``usercontent.remote_item_response`` (the sanitizer and the sandbox policy of remote posts) and never in the DOM of the app origin.
 
 The account of each query is the account of the caller. An ID of a different account gives the same result as an unknown ID.
 """
@@ -26,10 +33,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ...feeds import discover as discover_mod
 from ...feeds import opml as opml_mod
 from ...feeds import poller
 from ...feeds.fetch import FeedFetcher
 from ...store import feeds as feeds_store
+from .. import usercontent
 from ..principal import request_principal
 from ..security import read_json_body
 from .common import AccountsContext, json_error, not_found, open_client_db
@@ -38,6 +47,8 @@ FEEDS_PATH = "/api/feeds"
 FEEDS_POLL_PATH = "/api/feeds/poll"
 FEEDS_OPML_PATH = "/api/feeds/opml"
 FEEDS_ITEMS_PATH = "/api/feeds/items"
+FEEDS_DISCOVER_PATH = "/api/feeds/discover"
+FEED_RENDER_PATH = "/render/feed"
 ITEM_PAGE_DEFAULT = 50
 
 _NO_STORE = {"Cache-Control": "no-store"}
@@ -85,11 +96,23 @@ def _feed_view(feed: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
-def _item_view(item: dict[str, Any], *, with_content: bool) -> dict[str, Any]:
+def _item_view(item: dict[str, Any], *, with_content: bool, timeline: dict[str, int] | None = None) -> dict[str, Any]:
     keys = ["id", "feed_id", "feed_title", "feed_folder", "url", "title", "author", "summary", "categories", "published_at", "modified_at", "fetched_at", "unread", "starred", "linked_theme_id", "linked_doc_id"]
     if with_content:
         keys.append("content")
-    return {key: item.get(key) for key in keys}
+    view = {key: item.get(key) for key in keys}
+    # Plain text for a list: the tags are removed on the server (design Section 8 rule 1). A client puts no feed HTML into its page.
+    view["text"] = usercontent.remote_item_text(item.get("summary") or item.get("content") or "", 400)
+    view["linked"] = None if item.get("linked_doc_id") is None else {"theme_id": item.get("linked_theme_id"), "document_id": item.get("linked_doc_id")}
+    # Merge by URL (design Section 1.3 rule 7): the timeline item of the account with the address of this item.
+    match = (timeline or {}).get(item.get("url") or "")
+    view["timeline_item_id"] = None if match is None else str(match)
+    return view
+
+
+def _item_id(request: Request) -> int | None:
+    raw = request.path_params["item_id"]
+    return int(raw) if raw.isascii() and raw.isdigit() and raw[0] != "0" and len(raw) <= 18 else None
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -228,12 +251,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "invalid_request", detail=f"limit must be at most {feeds_store.ITEM_PAGE_MAX}")
         folder = query.get("folder")
 
-        def _fetch(conn: Any) -> list[dict[str, Any]]:
-            return feeds_store.list_items(conn, account_id, limit=limit, before_id=numbers["before_id"], feed_id=numbers["feed_id"], folder=folder, unread=unread, starred=starred)
+        def _fetch(conn: Any) -> tuple[list[dict[str, Any]], dict[str, int]]:
+            rows = feeds_store.list_items(conn, account_id, limit=limit, before_id=numbers["before_id"], feed_id=numbers["feed_id"], folder=folder, unread=unread, starred=starred)
+            return rows, feeds_store.timeline_matches(conn, account_id, [row["url"] for row in rows])
 
-        items = await _run(_fetch)
+        items, timeline = await _run(_fetch)
         next_before = items[-1]["id"] if len(items) == limit else None
-        return JSONResponse({"items": [_item_view(i, with_content=with_content) for i in items], "next_before_id": next_before}, headers=_NO_STORE)
+        return JSONResponse({"items": [_item_view(i, with_content=with_content, timeline=timeline) for i in items], "next_before_id": next_before}, headers=_NO_STORE)
 
     async def items_patch(request: Request) -> Response:
         account_id = _owner_account_id(request)
@@ -255,6 +279,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if feeds_store.get_feed(conn, account_id, feed_id) is None:
                     return None
                 changed = feeds_store.mark_feed_items(conn, account_id, feed_id, unread=bool(unread))
+                feeds_store.mark_timeline_of_feed(conn, account_id, feed_id, unread=bool(unread))
                 conn.commit()
                 return changed
 
@@ -268,11 +293,83 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "invalid_request", detail=f"item_ids must be 1 to {feeds_store.MARK_MAX_ITEMS} positive integers")
 
         def _items(conn: Any) -> int:
-            changed = feeds_store.mark_items(conn, account_id, [i for i in ids if i is not None], unread=unread, starred=starred)
+            item_ids = [i for i in ids if i is not None]
+            changed = feeds_store.mark_items(conn, account_id, item_ids, unread=unread, starred=starred)
+            # Merge by URL (unit FP4-F3): a timeline item with the address of a marked item gets the same state.
+            feeds_store.mark_timeline_by_url(conn, account_id, feeds_store.item_urls(conn, account_id, item_ids), unread=unread, starred=starred)
             conn.commit()
             return changed
 
         return JSONResponse({"changed": await _run(_items)}, headers=_NO_STORE)
+
+    # --- One item and its body (unit FP4-F3) ---
+
+    def _secret_service() -> Any:
+        return getattr(ctx.settings, "secret_service", None)
+
+    def _role_origin(role: str) -> str | None:
+        roles = ctx.config.host_roles
+        return None if roles is None else roles.origin(role)
+
+    def _render_url(account_id: int, item_id: int) -> str:
+        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the instance has no such host (development, design Section 8 rule 5)."""
+        token = usercontent.create_remote_token(account_id, item_id, secret_service=_secret_service(), kind=usercontent.FEED_TOKEN_KIND)
+        return f"{_role_origin('usercontent') or ''}{FEED_RENDER_PATH}/{item_id}?t={token}"
+
+    async def item_get(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        item_id = _item_id(request)
+        if item_id is None:
+            return json_error(404, "item_not_found")
+
+        def _fetch(conn: Any) -> tuple[dict[str, Any], dict[str, int]] | None:
+            item = feeds_store.get_item(conn, account_id, item_id)
+            return None if item is None else (item, feeds_store.timeline_matches(conn, account_id, [item["url"]]))
+
+        found = await _run(_fetch)
+        if found is None:
+            return json_error(404, "item_not_found")
+        view = _item_view(found[0], with_content=False, timeline=found[1])
+        view["has_body"] = bool(found[0].get("content") or found[0].get("summary"))
+        view["render_url"] = _render_url(account_id, item_id)
+        return JSONResponse({"item": view}, headers=_NO_STORE)
+
+    async def feed_render_fallback(request: Request) -> Response:
+        """The body of a feed item on the app origin (design Section 8 rule 5). With a ``usercontent`` host this path does not exist here: the body renders on that origin only."""
+        account_id = _owner_account_id(request)
+        item_id = _item_id(request)
+        if account_id is None or item_id is None or _role_origin("usercontent") is not None:
+            return not_found()
+        item = await asyncio.to_thread(usercontent.load_feed_item, ctx.db_file, item_id)
+        token = request.query_params.get("t", "")
+        if item is None or item["account_id"] != account_id or not usercontent.verify_remote_token(token, account_id, item_id, secret_service=_secret_service(), kind=usercontent.FEED_TOKEN_KIND):
+            return not_found()
+        media_origin = _role_origin("media")
+        media_url = await asyncio.to_thread(lambda: usercontent.remote_media_urls(ctx.db_file, account_id=account_id, content_html=item["content_html"], attachments=[], media_base=media_origin or "", secret_service=_secret_service()))
+        return usercontent.remote_item_response(content_html=item["content_html"], attachments=[], language=None, frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN"}, media_url=media_url, media_source=media_origin or "'self'")
+
+    async def discover_post(request: Request) -> Response:
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        body = await read_json_body(request)
+        if set(body) != {"url"}:
+            return json_error(400, "invalid_request", fields=["url"])
+        try:
+            url = feeds_store.normalize_feed_url(body["url"])
+        except ValueError:
+            return json_error(400, "invalid_url")
+        fetcher = FeedFetcher.from_settings(_settings(ctx))
+        result = await asyncio.to_thread(discover_mod.discover, fetcher, url, now=time.time())
+        known = {feed["url"] for feed in await _run(lambda conn: feeds_store.list_feeds(conn, account_id))}
+        for feed in result["feeds"]:
+            try:
+                feed["subscribed"] = feeds_store.normalize_feed_url(feed["url"]) in known
+            except ValueError:
+                feed["subscribed"] = False
+        return JSONResponse({"url": url, **result}, headers=_NO_STORE)
 
     return [
         Route(FEEDS_PATH, feeds_get, methods=["GET", "HEAD"]),
@@ -283,4 +380,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEEDS_OPML_PATH, opml_post, methods=["POST"]),
         Route(FEEDS_ITEMS_PATH, items_get, methods=["GET", "HEAD"]),
         Route(FEEDS_ITEMS_PATH, items_patch, methods=["PATCH"]),
+        Route(FEEDS_ITEMS_PATH + "/{item_id}", item_get, methods=["GET", "HEAD"]),
+        Route(FEEDS_DISCOVER_PATH, discover_post, methods=["POST"]),
+        Route(FEED_RENDER_PATH + "/{item_id}", feed_render_fallback, methods=["GET", "HEAD"]),
     ]

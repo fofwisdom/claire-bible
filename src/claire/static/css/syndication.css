@@ -580,6 +580,22 @@ body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-on
 .synd-follow-form input { flex: 1; min-width: 0; height: 26px; }
 .synd-follow-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12.5px; }
 .synd-follow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Feed view (FP4-F3) */
+.synd-feed-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; padding: 4px 8px 2px 18px; }
+.synd-feed-form input[type="text"] { width: 100%; min-width: 0; height: 26px; box-sizing: border-box; }
+.synd-feed-tools { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.synd-feed-tools .tt-icon-btn { display: inline-flex; align-items: center; text-decoration: none; }
+.synd-feed-row { display: flex; align-items: center; gap: 2px; padding-right: 6px; font-size: 12.5px; }
+.synd-feed-row > .tt-tree-item { flex: 1; min-width: 0; }
+.synd-feed-row > .synd-feed-name { flex: 1; min-width: 0; padding: 3px 8px; }
+.synd-feed-row > .tt-icon-btn { visibility: hidden; }
+.synd-feed-row:hover > .tt-icon-btn, .synd-feed-row:focus-within > .tt-icon-btn { visibility: visible; }
+.synd-feed-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.synd-feed-children { padding-left: 14px; }
+.synd-feed-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; }
+.synd-feed-bar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.synd-feed-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px 0; }
+.synd-frame.synd-frame-feed { height: 62vh; margin-top: 8px; border-top: 1px solid var(--border); }
 .synd-post { padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
 .synd-post:hover { background: var(--hover); }
 .synd-post:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

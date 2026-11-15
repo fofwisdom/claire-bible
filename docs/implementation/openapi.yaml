@@ -2301,6 +2301,104 @@ paths:
           description: '`invalid_request`.'
         '404':
           description: '`feed_not_found`.'
+  /api/feeds/items/{item_id}:
+    get:
+      summary: Get one feed item of the own account with the render URL of its body
+      operationId: getFeedItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: item_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: The item. render_url is the address of the body for a sandbox iframe.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  item:
+                    allOf:
+                      - {$ref: '#/components/schemas/FeedItem'}
+                      - type: object
+                        properties:
+                          has_body: {type: boolean}
+                          render_url: {type: string}
+        '404':
+          description: '`item_not_found`.'
+  /api/feeds/items/{item_id}/ingest:
+    post:
+      summary: Ingest one feed item into a theme of the own account
+      operationId: ingestFeedItem
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - {name: item_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme]
+              properties:
+                theme: {type: string, description: Public theme reference of the caller.}
+                focus: {type: string}
+      responses:
+        '200':
+          description: The ingest report with linked (theme_id and document_id, or null).
+        '400':
+          description: '`invalid_request`.'
+        '404':
+          description: '`item_not_found`, or the theme is not a theme of the caller.'
+        '409':
+          description: '`item_without_url`.'
+  /api/feeds/discover:
+    post:
+      summary: Find the feeds of an address
+      operationId: discoverFeeds
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url: {type: string}
+      responses:
+        '200':
+          description: The feed at the address, or the feeds that the page declares with link rel="alternate".
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: {type: string}
+                  error: {type: [string, 'null']}
+                  feeds:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url: {type: string}
+                        title: {type: string}
+                        format: {type: string, enum: [rss, atom, json]}
+                        subscribed: {type: boolean}
+        '400':
+          description: '`invalid_request` or `invalid_url`.'
 
 components:
   parameters:
@@ -2390,6 +2488,9 @@ components:
         starred: {type: boolean}
         linked_theme_id: {type: [integer, 'null']}
         linked_doc_id: {type: [string, 'null']}
+        text: {type: string, description: Plain text of the summary or of the content.}
+        linked: {type: [object, 'null'], description: theme_id and document_id of the ingested document.}
+        timeline_item_id: {type: [string, 'null'], description: The timeline item of the account with the same address.}
     McpTelemetryRecord:
       type: object
       properties:
