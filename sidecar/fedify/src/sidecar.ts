@@ -133,7 +133,7 @@ export class Sidecar {
   readonly #queue: MessageQueue | undefined;
   readonly #now: () => number;
   #config: { value: InstanceConfig; expires: number } | null = null;
-  #federation: { origin: string; value: Federation<void> } | null = null;
+  #federation: { origin: string; allowPrivate: boolean; value: Federation<void> } | null = null;
   readonly #keys = new Map<string, { pairs: CryptoKeyPair[]; expires: number }>();
   #blocks: { etag: string; domains: Set<string> } | null = null;
   readonly counters: InboxCounters = { accepted: 0, rejected: 0, ignored: 0, blocked: 0, dropped: 0 };
@@ -653,8 +653,8 @@ export class Sidecar {
   }
 
   #federationFor(config: InstanceConfig): Federation<void> {
-    if (this.#federation === null || this.#federation.origin !== config.canonical_origin) {
-      this.#federation = { origin: config.canonical_origin, value: this.#build(config.canonical_origin) };
+    if (this.#federation === null || this.#federation.origin !== config.canonical_origin || this.#federation.allowPrivate !== config.allow_private_addresses) {
+      this.#federation = { origin: config.canonical_origin, allowPrivate: config.allow_private_addresses, value: this.#build(config.canonical_origin, config.allow_private_addresses) };
     }
     return this.#federation.value;
   }
@@ -677,8 +677,9 @@ export class Sidecar {
     return pairs;
   }
 
-  #build(origin: string): Federation<void> {
-    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin });
+  #build(origin: string, allowPrivateAddress: boolean): Federation<void> {
+    // allowPrivateAddress is false in production: Fedify then refuses each document address that is not public. The development switch of Claire (contract 1.8) permits a test server at a private address.
+    const federation = createFederation<void>({ kv: this.#kv, queue: this.#queue, origin, allowPrivateAddress });
     const inbox = (identifier: string) => new URL(`/ap/actors/${identifier}/inbox`, origin);
     const sharedInbox = new URL("/ap/inbox", origin);
 

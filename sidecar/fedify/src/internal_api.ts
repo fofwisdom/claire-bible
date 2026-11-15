@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.7";
+export const CONTRACT_VERSION = "1.8";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -29,6 +29,8 @@ export interface InstanceConfig {
   limits: { inbox_body_bytes: number };
   // Entity tag of the domain-blocks response. Read the list again when this value changes.
   domain_blocks_etag: string;
+  // Development only (contract 1.8): Fedify can read documents at private addresses. Claire gives true only in the development environment with CLAIRE_ALLOW_PRIVATE_NETWORKS on.
+  allow_private_addresses: boolean;
 }
 
 export interface ActorRecord {
@@ -416,6 +418,7 @@ const configShape = sealed({
   federated_actors: int,
   limits: sealed({ inbox_body_bytes: int }),
   domain_blocks_etag: str,
+  allow_private_addresses: bool,
 });
 const actorShape = sealed({ public_id: str, username: str, display_name: str, activated_at: nullable(num), updated_at: num, profile_url: str });
 const keysShape = sealed({ public_id: str, keys: list(sealed({ alg: oneOf("rsa2048", "ed25519"), public_jwk: stringMap, private_jwk: stringMap })) });

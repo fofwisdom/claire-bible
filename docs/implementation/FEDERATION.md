@@ -275,7 +275,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.7"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.8"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
@@ -285,6 +285,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - Unit FP4-6 added `GET /context-tasks` and `POST /context-objects` (Section 24.1). The version is 1.5. No shape that existed changed.
 - Unit FP4-9 added `GET /notes/{public_id}`, `GET /interaction-tasks`, and `POST /interaction-tasks/{id}/ack` (Section 25.1). The version is 1.6. No shape that existed changed.
 - Unit FP4-9Q added `POST /quote-events` and `GET /quote-authorizations/{id}`, and changed four shapes (Section 26.1): `quote` in the normal form of an object, `quote_policy` in the object record, `quote_policy`, `quote`, and `quote_authorization` in the note record, and the quote kinds with `quote` in an interaction task. The version is 1.7.
+- Version 1.8 added `allow_private_addresses` to the config. It is true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (`federation_routes.allow_private_addresses`); the sidecar then makes Fedify with `allowPrivateAddress`, so that it can read the documents of a test server at a private address (Section 27). In production the value is always false, and Fedify refuses each address that is not public.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -702,7 +703,7 @@ These statements are true for the code now.
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
 11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
-13. A development instance on a private address cannot follow: Fedify refuses private and loopback addresses for the key fetch (FS1).
+13. A development instance on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
 16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.

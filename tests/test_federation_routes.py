@@ -1027,3 +1027,13 @@ def test_route_table_is_wired_into_the_application(tmp_path):
     assert json.loads(body)["mode"] == "single" and json.loads(body)["federation"] == "off"
     status, _body = asyncio.run(call(("127.0.0.1", 8765)))
     assert status == 404
+
+
+@pytest.mark.parametrize(
+    ("environment", "allow_private_networks", "expected"),
+    [("development", True, True), ("development", False, False), ("production", True, False), ("", True, False)],
+)
+def test_private_address_switch_is_for_development_only(environment, allow_private_networks, expected):
+    """Contract 1.8: the sidecar reads documents at private addresses only in the development environment with CLAIRE_ALLOW_PRIVATE_NETWORKS on."""
+    settings = SimpleNamespace(environment=environment, allow_private_networks=allow_private_networks)
+    assert federation_routes.allow_private_addresses(settings) is expected

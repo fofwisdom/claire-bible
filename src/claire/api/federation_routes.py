@@ -75,7 +75,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.7"
+CONTRACT_VERSION = "1.8"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -127,6 +127,8 @@ class ConfigResponse(_Sealed):
     limits: Limits
     # Entity tag of the ``domain-blocks`` response. The sidecar reads the list again when this value changes.
     domain_blocks_etag: str
+    # Development only: the sidecar can read documents of remote servers at private addresses (a test server on the same host or network). True only when the environment is ``development`` and ``CLAIRE_ALLOW_PRIVATE_NETWORKS`` is on; always false in production.
+    allow_private_addresses: bool
 
 
 class SelfCheck(_Sealed):
@@ -561,6 +563,11 @@ def _not_found() -> JSONResponse:
     return _error(404, "not_found")
 
 
+def allow_private_addresses(settings: Any) -> bool:
+    """The value of ``allow_private_addresses`` of the config: the two conditions of the development switch."""
+    return str(getattr(settings, "environment", "") or "").strip().lower() == "development" and bool(getattr(settings, "allow_private_networks", False))
+
+
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
     from .federation_note_routes import note_internal_routes
@@ -643,6 +650,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 federated_actors=federated_actors,
                 limits=Limits(inbox_body_bytes=INBOX_BODY_LIMIT_BYTES),
                 domain_blocks_etag=blocks_etag,
+                allow_private_addresses=allow_private_addresses(settings),
             )
         )
 
