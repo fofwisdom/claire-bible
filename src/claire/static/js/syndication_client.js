@@ -15,6 +15,8 @@
   const bridge = window.ClaireSyndication;
   // Feed view (syndication_feeds.js, FP4-F3). While Feeds.active, the list pane and the reader pane show feed items.
   const Feeds = window.ClaireSyndicationFeeds;
+  // Compose controls (syndication_compose.js, FP4-9): reply, new note, edit, delete, favourite, and boost.
+  const Compose = window.ClaireSyndicationCompose;
   const cfg = window.__CLAIRE_CONFIG || {};
   const I18n = window.ClaireI18n;
   if (!bridge || !I18n) return;
@@ -282,6 +284,7 @@
           ${item.linked
             ? `<button type="button" class="tt-btn synd-mini" data-item-doc="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.open_document"))}</button>`
             : `<button type="button" class="tt-btn synd-mini" data-item-ingest="${esc(item.id)}">${ic("book")} ${esc(tr("synd.client.action.ingest"))}</button>`}
+          ${Compose ? Compose.actionsHtml(item, true) : ""}
         </div>
       </article>`;
     }).join("");
@@ -311,6 +314,7 @@
         <div class="synd-entry-tools"><span class="synd-post-time">${esc(timeAgo(entry.published_at || entry.received_at))}</span><a class="tt-ext-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer nofollow">${esc(tr("synd.client.action.open_original"))} ↗</a></div>
       </header>
       ${entry.name ? `<h3 class="synd-entry-title">${esc(entry.name)}</h3>` : ""}
+      ${Compose ? `<div class="synd-entry-actions">${Compose.actionsHtml(entry, false)}</div>` : ""}
       ${warned && open ? `<div class="synd-cw is-open">${ic("warning")} ${esc(entry.summary || tr("synd.client.sensitive"))}</div>` : ""}
       ${body}
     </section>`;
@@ -496,6 +500,7 @@
 
   $("panel-client").addEventListener("click", (e) => {
     const pick = (name) => { const el = e.target.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
+    if (Compose && Compose.handleClick(e)) return;
     const stream = pick("data-client-stream");
     if (stream) { if (Feeds) Feeds.deactivate(); C.stream = stream; C.selectedId = null; C.detail = null; loadTimeline(true); return; }
     const star = pick("data-item-star");
@@ -605,6 +610,23 @@
     if (paletteBtn) paletteBtn.addEventListener("click", () => window.ClaireCommandPalette.open());
   }
 
+  if (Compose) {
+    Compose.init({
+      findItem,
+      applyItem,
+      renderClient,
+      ticker: bridge.ticker,
+      // A new note or an edit: the list and the open thread read again.
+      refresh: () => { loadTimeline(true); if (C.selectedId) selectItem(C.selectedId); },
+      // A deleted own note: its item is gone.
+      removed: (id) => {
+        const wasOpen = String(C.selectedId) === String(id);
+        if (wasOpen) { C.selectedId = null; C.detail = null; }
+        loadTimeline(true);
+        if (!wasOpen && C.selectedId) selectItem(C.selectedId);
+      }
+    });
+  }
   if (Feeds) Feeds.init({ setStage, renderStageBar, renderClient, stage: () => C.stage, selectTimelineItem: (id) => { renderClient(); selectItem(id); } });
   bridge.onRender = renderStageBar;
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pollTimeline(); });

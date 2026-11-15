@@ -422,6 +422,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
         *((m, "/media/remote/{url_hash}") for m in ("GET", "HEAD")),
         *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
+        # Outbound interactions (FP4-9)
+        ("POST", "/api/federation/notes"),
+        *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
+        *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
+        *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         *(
@@ -552,6 +557,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/federation/timeline/{item_id}/ingest"),
         *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
         *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
+        # Outbound interactions (FP4-9)
+        ("POST", "/api/federation/notes"),
+        *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
+        *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
+        *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
         ("POST", "/api/federation/publish"),
         ("POST", "/api/federation/retract"),
     }

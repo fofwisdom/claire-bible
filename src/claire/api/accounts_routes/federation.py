@@ -61,6 +61,7 @@ from ..security import read_json_body
 from .admin import is_admin
 from .common import AccountsContext, json_error, not_found, open_auth_db, open_client_db, open_db, require_recent_auth, same_origin
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
+from . import federation_notes
 from .console_federation_panels import account_federation_status, actor_state, admin_federation_body, domain_block_view
 
 ADMIN_FEDERATION_API_PATH = "/api/admin/federation"
@@ -768,7 +769,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         token = usercontent.create_remote_token(account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None))
         return f"{_usercontent_origin() or ''}{REMOTE_RENDER_PATH}/{item_id}?t={token}"
 
-    def _item_view(item: Any, *, detail: bool = False) -> dict[str, Any]:
+    def _item_view(item: Any, *, detail: bool = False, extras: dict[int, dict[str, Any]] | None = None) -> dict[str, Any]:
         # Section 8 rule 4: an item with a content warning shows the summary first. Its text is not in the list.
         warned = item.sensitive or bool(item.summary)
         view = {
@@ -797,7 +798,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         }
         if detail:
             view["render_url"] = _render_url(item.account_id, item.id)
+        # Outbound interactions (unit FP4-9): ``favourited``, ``boosted``, and ``note`` (the own note of the item, or ``None``).
+        view.update((extras or {}).get(item.id, {}))
         return view
+
+    def _extras(client: Any, account_id: int, items: list[Any]) -> dict[int, dict[str, Any]]:
+        return federation_notes.item_extras(client, account_id, [item.id for item in items], origin=ctx.config.public_origin)
 
     def _item_id(request: Request) -> int | None:
         raw = request.path_params["item_id"]
@@ -836,10 +842,11 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 rows = federation_client_store.list_timeline(client, account_id, limit=limit, max_id=None if raw_max is None else int(raw_max), filters=filters)
                 counts = federation_client_store.count_timeline(client, account_id)
+                extras = _extras(client, account_id, rows)
             finally:
                 client.close()
             # The cursor is the ID of the last item (RD18): a later request with ``max_id`` gives the older items.
-            return {"items": [_item_view(item) for item in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit else None, "counts": {**counts, "published": published}}
+            return {"items": [_item_view(item, extras=extras) for item in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit else None, "counts": {**counts, "published": published}}
 
         data = await asyncio.to_thread(_fetch)
         return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)
@@ -861,9 +868,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if item is None:
                     return False
                 thread = federation_client_store.timeline_thread(client, account_id, item_id)
+                extras = _extras(client, account_id, [item, *thread])
             finally:
                 client.close()
-            return {"item": _item_view(item, detail=True), "thread": [_item_view(entry, detail=True) for entry in thread]}
+            return {"item": _item_view(item, detail=True, extras=extras), "thread": [_item_view(entry, detail=True, extras=extras) for entry in thread]}
 
         data = await asyncio.to_thread(_fetch)
         if data is None:
@@ -893,9 +901,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     feeds_store.mark_items_by_url(client, account_id, [item.url, item.object_iri], unread=body.get("unread"), starred=body.get("starred"))
                 client.commit()
                 counts = federation_client_store.count_timeline(client, account_id)
+                extras = {} if item is None else _extras(client, account_id, [item])
             finally:
                 client.close()
-            return False if item is None else {"item": _item_view(item), "counts": counts}
+            return False if item is None else {"item": _item_view(item, extras=extras), "counts": counts}
 
         data = await asyncio.to_thread(_execute)
         if data is None:

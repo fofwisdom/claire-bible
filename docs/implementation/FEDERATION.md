@@ -27,12 +27,13 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2) |
 | Feed view in `/syndication`: tree of folders and feeds, list, reader in the sandbox frame, link share, star, read state, feed discovery, ingest of one item, merge by URL with the timeline (Section 23). It works in single mode. | Implemented (FP4-F3) |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
-| Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No reply, favourite, or boost before FP4-9. |
+| Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). Reply, favourite, and boost: Section 25. |
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
 | Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
 | Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
+| Outbound interactions: `client.db` version 5 (`federation_notes`), contract 1.6, reply, new note, edit, delete (410), content warning, language, hashtags, favourite and boost with their undo, counters of own notes, compose controls of the client (Section 25) | Implemented (FP4-9). No quote before FP4-9Q. |
 
-The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
+The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), and deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25).
 
 ## 2. Architecture
 
@@ -272,13 +273,14 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.4"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.6"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
 - Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
 - Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
 - Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
+- Unit FP4-9 added `GET /notes/{public_id}`, `GET /interaction-tasks`, and `POST /interaction-tasks/{id}/ack` (Section 25.1). The version is 1.6. No shape that existed changed.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -965,7 +967,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 ### 19.4 Differences from the Design and Limits
 
-- The client has no reply, favourite, or boost (FP4-9), and no thread fetch (FP4-6). Mentions of actors that are not followed are in Section 22.
+- The client has no thread fetch (FP4-6). Reply, favourite, and boost are in Section 25. Mentions of actors that are not followed are in Section 22.
 - `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
 
@@ -1161,7 +1163,7 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 - `count` in `federation_auto_replies` is the number of non-public messages of the sender, also those without a notice. The client shows the sum; it has no reset. The rows have no cleanup before the account purge.
 - A message from a `Service`, an `Application`, or an actor of an unknown type is not counted.
 - An `Undo` that has only the ID of the undone activity is ignored: the sidecar cannot read the type.
-- The counters of own notes come with unit FP4-9.
+- The counters of own notes are in Section 25.5 (unit FP4-9).
 
 Tests: `tests/test_e2e_federation_interactions.py` (mentions, rate limit, reactions with `Undo`, automatic notice), `tests/test_federation_routes.py` (contract 1.4 fixtures), `tests/test_client_db.py` (purge), `sidecar/fedify/tests/timeline_test.ts` (the mention in the object, no fetch for an actor that is not followed, reactions as inbox events, delivery of the notice), `sidecar/fedify/tests/internal_api_test.ts`.
 
@@ -1212,7 +1214,7 @@ A feed item and a timeline item of the same account are the same post when the `
 
 ### 23.5 Differences from the Design and Limits
 
-- "Share" is the share sheet of the device (a touch device) or a copy of the address to the clipboard. The design says a new note with the link; the client has no route to publish a note before unit FP4-9.
+- In single mode, "Share" is the share sheet of the device (a touch device) or a copy of the address to the clipboard. In network mode it is a new note with the link (unit FP4-9, Section 25.6).
 - The merge keeps the two rows. The post shows in the feed list and in the timeline, with one state and one document link. The lists are not one list, thus no row is hidden.
 - The merge is by exact address. Two addresses of the same post that differ (a redirect, a query part) do not merge.
 - The discovery finds feeds only. It does not look for an ActivityPub actor of the same site and does not offer a follow in place of the feed.
@@ -1222,3 +1224,99 @@ A feed item and a timeline item of the same account are the same post when the `
 - `GET /api/feeds/items/{item_id}` and `POST /api/feeds/discover` are not in the design. The reader and the subscribe form need them.
 
 Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, subscribe, poll, read with the render on the two origins, star, ingest; network mode: merge by URL and account isolation), `e2e/feed_view.spec.js` (the view in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
+
+## 25. Outbound Interactions (Unit FP4-9)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 5.2 to 5.4, 6.6, 7.1, 8, 10, and 11 (RS10), and the results RT7 and RT8. Data: `client.db` version 5. Contract: 1.6. Quotes (Section 5.4 rules 5 and 6) are unit FP4-9Q.
+
+Code: `src/claire/federation_notes.py` (text to HTML), `src/claire/store/federation_notes.py` (store), `src/claire/api/accounts_routes/federation_notes.py` (routes of the owner), `src/claire/api/federation_note_routes.py` (internal routes), `sidecar/fedify/src/notes.ts` (the `Note` and the handoff of the tasks), `src/claire/static/js/syndication_compose.js` (view).
+
+### 25.1 Routes
+
+All routes are for the owner of the account, in network mode only. A note, an edit, a favourite, and a boost need an account that is an actor (409 `not_actor`). A note or an item of another account gives 404.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `POST` | `/api/federation/notes` | Body: `content` (plain text), and optional `in_reply_to` (the ID of an item of the timeline), `summary` (content warning), `sensitive`, `language`. 201 `{"note", "item_id"}`. Errors: 400 `empty_content`, `content_too_long` (with `limit`), `summary_too_long`, `too_many_mentions`, `too_many_tags`, `invalid_language`, `invalid_mention`, `blocked_domain`; 404 `item_not_found`. |
+| `PATCH` | `/api/federation/notes/{note_id}` | Body: one or more of `content`, `summary`, `sensitive`, `language`. 200 `{"note"}`. 404 `note_not_found`. |
+| `DELETE` | `/api/federation/notes/{note_id}` | 200 `{"deleted": true, "id"}`. The account does not have to be an actor. 404 `note_not_found`. |
+| `POST`, `DELETE` | `/api/federation/timeline/{item_id}/favourite` | 200 `{"item_id", "favourited", "boosted"}`. 404 `item_not_found`, 409 `own_item`, 400 `blocked_domain`. |
+| `POST`, `DELETE` | `/api/federation/timeline/{item_id}/boost` | The same answer. |
+
+- `note`: `id`, `url` (the object ID), `in_reply_to`, `content` (the plain text), `summary`, `sensitive`, `language`, `tags`, `mentions` (handles, or the actor IRI of a mention without a handle), `published_at`, `updated_at`, `edited_at`, `likes`, `announces`.
+- Each item of `GET /api/federation/timeline` and `GET /api/federation/timeline/{item_id}` has three more keys: `favourited`, `boosted`, and `note` (the own note of the item with its counters, or `null`).
+
+Internal API (contract 1.6, prefix `/internal/federation/v1`):
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/notes/{public_id}` | Note record: `public_id`, `actor_public_id`, `type` (`Note`), `content` (HTML), `summary`, `sensitive`, `language`, `in_reply_to`, `audience`, `mentions` (`handle`, `iri`), `tags` (`name`, `href`), `published_at`, `updated_at`, `edited_at`. 404, or 410 `{"error": "gone", "gone_at"}` for a deleted note. The record is given only while federation is active and the account is an actor. |
+| `GET` | `/interaction-tasks` | `tasks`: oldest first, each with `id`, `kind`, `actor_public_id`, `ref_id`, `object_iri`, `recipients`, `created_at`, `lease_until`. Query: `limit` (1 to 50, default 20). The lease rule is that of `/outbox-tasks`. |
+| `POST` | `/interaction-tasks/{id}/ack` | Request: `result`, `error_code`, `mentions` (a list of `handle`, `iri`: the handles that the sidecar resolved). Response: `id`, `status`. |
+
+- `GET /actors/{public_id}/outbox` gives the union of the published documents and the notes that are not deleted, in the sequence of the object number. Its shape did not change.
+- The sidecar reads `/objects/{id}` first and `/notes/{id}` only after a 404.
+- `GET /client-tasks` gives the kinds of contract 1.3 only. The seven kinds of this unit are in `/interaction-tasks`, with their own acknowledgement path.
+
+### 25.2 Tables (`client.db` Version 5)
+
+- `federation_notes`: key `public_id`, with `account_id`, `in_reply_to_iri`, `audience_iri`, `content_text`, `content_html`, `mentions_json`, `summary`, `sensitive`, `language`, `tags_json`, `edited_at`, `published_at`, `updated_at`, `deleted_at`. The migration adds the table and its index at the start of the process.
+- The columns `favourited` and `boosted` of `federation_timeline_items` (version 2) and the task kinds of `federation_client_outbox` (version 1) were there. `federation_object_reactions` did not change.
+- Number space (RT7): a note number comes from the same generator as an object number, with the label `federation_notes`. The route refuses a number that `federation_objects` or `federation_tombstones` of `claire.db` has, and takes the next one.
+- A deleted note keeps its row: `deleted_at` has the time, and the text, the HTML, the content warning, and the tags are empty. The reply target, the audience, and the mentions stay for the `delete_note` task.
+- The account purge deletes the notes of the account and writes a tombstone of the kind `object` for each one in `claire.db` (`purge_account_of_claire_db`), so that the object path gives 410 after the purge.
+
+### 25.3 Notes (Section 5.4 Rules 1 to 3 and 7 to 12)
+
+1. The owner gives plain text. `render_note` escapes each character and makes paragraphs (an empty line), line breaks, links (`http`, `https`), mentions (`@name@host`), and hashtags (`#tag`). `nh3` cleans the result with the elements `p`, `br`, `a`, and `span` only (RS10). The limit is `note_max_chars` of the reading settings; a note has 16 mentions and 32 hashtags at most; a content warning has 500 characters at most.
+2. A reply has `in_reply_to_iri` = the object of the item. The author of the parent is a mention, also when the text does not have the handle. A reply to an own note has no mention of the own account.
+3. A mention with an actor that Claire knows is a link: the handle that the owner gave for a follow, or the handle of the author of an item of the account. Other handles are text until the sidecar resolves them (rule 6 below). A mention on a blocked domain is refused (`blocked_domain`).
+4. The group of a thread (FEP-1b12): when a `Group` that the account follows announced the parent item, the note has that group as `audience_iri`.
+5. Language: the value of the request, else the locale of the account, else `CLAIRE_LANG`, else `en`. A content warning sets `sensitive`.
+6. The note, its item of the timeline, and its `note` task are in one transaction of `client.db`. The item has the own actor as the author, `in_timeline` = 1, and `unread` = 0; the thread view shows it (rule 9). The render route sanitizes its HTML as the HTML of a remote server (Section 19.2).
+7. Sidecar, task `note`: it reads the record, resolves each mention (WebFinger for a handle, a signed fetch for an IRI), and sends `Create` with the ID `{object}#create`. The `Note` has `inReplyTo`, `to` = the public collection, `cc` = the followers collection, the mentioned actors, and the group, a `Mention` tag for each resolved actor, a `Hashtag` tag for each hashtag, `summary` with `sensitive`, `content` with `contentMap` (RT8), and `audience`. Recipients: the followers, the mentioned actors, and the group. A handle that does not resolve and an actor on a blocked domain get no tag and no delivery.
+8. The acknowledgement gives the resolved actors to Claire. Claire refuses an actor on a blocked domain, stores the others in `mentions_json`, and makes the HTML again with their links (the note and its item).
+9. Edit: `PATCH` changes the fields, sets `edited_at`, changes the item, and makes an `update_note` task. The sidecar sends `Update` with the ID `{object}#updates/{updated_at in milliseconds}`; the `Note` has `updated`. The view shows "edited".
+10. Delete: `DELETE` makes the row the tombstone, deletes the item, and makes a `delete_note` task, in one transaction. The sidecar sends `Delete` with a `Tombstone` (ID `{object}#delete`) to the followers and to the actors of the mentions and the audience that Claire knows. `GET /ap/objects/{id}` gives 410 with a `Tombstone` whose `formerType` is `Note`.
+11. Object path: one dispatcher in the sidecar serves the published documents (`Article`) and the notes (`Note`) at `/ap/objects/{id}`. The `Note` of the path has the mentions that have an actor IRI; the path makes no request to a remote server. The outbox collection has one `Create` for each note.
+12. A task of an account that is not an actor waits (rule 11 of the design). A `note` or `update_note` task of a note that the owner deleted before the handoff is `rejected` (`note_removed`).
+
+### 25.4 Favourite and Boost (Section 5.4 Rule 4)
+
+1. `POST` sets `favourited` or `boosted` of the item and makes a `like` or `announce` task with the object IRI as `target_iri` and the item ID as `ref_id`. `DELETE` clears the value and makes the `undo_like` or `undo_announce` task. A request that changes nothing makes no task.
+2. The activity ID is `{actor}#likes/{n}` or `{actor}#announces/{n}`; `n` is the ID of the `like` or `announce` task. The `Undo` has `{...}/undo` and the same `n`: Claire finds the last `like` or `announce` task of the same account and object. A favourite after an undo is a new activity.
+3. `Like` goes to the author of the object only. `Announce` is public and goes to the followers and the author.
+4. An item that is gone, or an author or object on a blocked domain, makes the task `rejected` (`item_removed`, `blocked_domain`) before the handoff. When a `like` or `announce` task is `rejected` (also by the sidecar: `actor_not_found`), the item loses the value.
+5. An own note has no favourite and no boost of its own account (409 `own_item`).
+
+### 25.5 Counters of Own Notes (Section 6.6 Rules 1, 3, and 4)
+
+- A `Like`, an `Announce`, and the `Undo` of one for the object path of a note use `federation_object_reactions`, as for a published document (Section 22.4). A new reaction needs a note that is not deleted and whose account is an actor.
+- A public `Create` whose `inReplyTo` is an own note is an item with `mention` = 1 for the owner of the note, and a reply to an own note passes the timeline rule.
+- `note.likes` and `note.announces` of an item are the numbers of rows.
+
+### 25.6 View
+
+- An item of the list and each post of the reader have the controls reply, favourite, and boost. An own note has reply, edit, and delete, and shows its counters and "edited". The controls are line icons (`comment`, `heart`, `repeat`, `edit`, `trash`); the reader shows them with their text.
+- The tool bar of stage 1 has "New note". One dialog serves a new note, a reply (it starts with the handle of the author), and an edit: text with a character count, content warning, and language. An error of the route shows in the dialog.
+- The view never puts note HTML into the page. The list shows plain text, and the body is in the sandbox frame of the reader.
+- "Share link" of the feed view (Section 23.4) opens the dialog of a new note with the title and the address of the feed item, in network mode. In single mode it is the share sheet or the clipboard, as before.
+- The texts are the catalog keys `synd.compose.*` in English and Korean.
+
+### 25.7 Differences from the Design and Limits
+
+- The tombstone of a deleted note is the note row (`deleted_at`) in `client.db`, not a row of `federation_tombstones` (design Section 5.4 rule 7). Reason: the delete, the item, and the task are in one transaction, and no transaction crosses files. Only the account purge writes tombstones of notes to `claire.db`.
+- No table `federation_object_numbers` (RT7 proposal) and no change of `claire.db`. A note checks the numbers of the published documents; the publish of a document does not check the numbers of the notes. A collision needs the same millisecond and the same low 16 bits; then the object path gives the document.
+- `federation_notes` has no `quote_of_iri`, `quote_state`, and `quote_policy` (design Section 7.1). Unit FP4-9Q adds them with `ALTER TABLE ... ADD COLUMN`; no rebuild is necessary. It has `deleted_at`, which the design does not have.
+- The tasks of this unit have their own internal endpoint and acknowledgement path, not `client-tasks`. Reason: the shape of a client task of contract 1.3 stays sealed, and the acknowledgement carries the resolved mentions.
+- The `audience` of a reply is the group that announced the parent item, not the `audience` property of the parent object: the normal form of an item has no such field.
+- A mention by a handle that Claire does not know has no link in the HTML of the first `Create`. The `Mention` tag has the actor. The object path and a later `Update` have the link.
+- The address of a hashtag is `{origin}/tags/{tag}`. Claire has no page there: the address gives 404.
+- An own note is an item with `in_timeline` = 1 also when it is not a reply (design rule 9 names a reply only), so that the owner sees the notes in the home stream. There is no route that lists the notes; a note whose item is gone has no control in the view.
+- The ingest of an own note (design rule 10) does not work: the ingest of one item reads the address of the item (Section 19.1), and the object path of a note gives ActivityPub JSON only, not a page. An own note has no page on the app origin.
+- The view has no input for hashtags: a `#tag` in the text is the hashtag. `tags` is not a field of the routes.
+- `DELETE /api/federation/notes/{id}` needs no actor (the design table says so too); the favourite and boost routes need one for `POST` and `DELETE`.
+- No media in a note and no poll (RD11). No retry state in the view: a task that the sidecar rejects (for example `actor_not_found` for a note) is visible in `federation_client_outbox` only.
+- The display of a reply on a Mastodon-compatible server is not covered (RT8); it needs a real server (FP4-10).
+
+Tests: `tests/test_e2e_federation_outbound.py` (reply, mentions, edit, delete with 410, group audience, favourite and boost with undo, counters, refusals), `tests/test_federation_note_routes.py` (contract 1.6 fixtures, the union of the outbox collection, `client.db` version 5, purge), `sidecar/fedify/tests/notes_test.ts` (the `Create` at a local test inbox with `inReplyTo` and a `Mention`, `Update`, `Delete`, `Like`, `Announce`, `Undo`, the object path, 410 with the `Tombstone`), `sidecar/fedify/tests/internal_api_test.ts`, `e2e/federation_compose.spec.js` (the controls in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.

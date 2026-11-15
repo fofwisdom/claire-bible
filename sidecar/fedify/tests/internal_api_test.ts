@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "instance_actor_keys", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "instance_actor_keys", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -140,6 +140,21 @@ Deno.test("outbox tasks, acknowledgements, objects, and the outbox collection ag
   fake.failStatus = 500;
   await assert.rejects(api.object("816412345678901234"), (error: InternalApiError) => error.status === 500);
   await assert.rejects(api.outboxTasks(), (error: InternalApiError) => error.status === 500);
+});
+
+Deno.test("notes, interaction tasks, and their acknowledgement agree with the fixtures (contract 1.6)", async () => {
+  const { api, fake } = client();
+  assert.deepEqual(await api.note("816412345678901240"), { state: "found", record: fixture("note").response });
+  // A deleted note is not an absent note: the sidecar must answer 410 for it.
+  assert.deepEqual(await api.note("816412345678901241"), { state: "gone", gone_at: 1800000380 });
+  assert.equal(await api.note("816412345678901999"), null);
+  assert.deepEqual(await api.interactionTasks(10), (fixture("interaction_tasks").response as { tasks: unknown }).tasks);
+  const body = fixture("interaction_task_ack").request.body as { mentions: Parameters<typeof api.ackInteractionTask>[3] };
+  assert.equal(await api.ackInteractionTask(10, "handed_off", null, body.mentions), "handed_off");
+  assert.equal(await api.ackInteractionTask(999, "rejected", "note_gone"), null);
+  assert.deepEqual(fake.interactionAcks[0], { id: 10, ...(fixture("interaction_task_ack").request.body as object) });
+  fake.overrides.set(`GET ${fixture("note").request.path}`, { status: 200, response: { ...fixture("note").response, quote_of: null } });
+  await assert.rejects(api.note("816412345678901240"), ContractError);
 });
 
 Deno.test("a server error is an error, not an absent actor", async () => {

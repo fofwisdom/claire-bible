@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/notes/816412345678901240"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "816412345678901240",
+    "actor_public_id": "116412345678901234",
+    "type": "Note",
+    "content": "<p><span class=\"h-card\"><a href=\"https://remote.example/users/carol\" class=\"u-url mention\" rel=\"nofollow noopener noreferrer\">@carol@remote.example</a></span> Hello <a href=\"https://claire.example.com/tags/claire\" class=\"mention hashtag\" rel=\"nofollow noopener noreferrer\">#Claire</a> <span class=\"h-card\">@dan@other.example</span></p>",
+    "summary": "Greeting",
+    "sensitive": true,
+    "language": "en",
+    "in_reply_to": "https://remote.example/users/carol/notes/1",
+    "audience": null,
+    "mentions": [
+      {
+        "handle": "@carol@remote.example",
+        "iri": "https://remote.example/users/carol"
+      },
+      {
+        "handle": "@dan@other.example",
+        "iri": null
+      }
+    ],
+    "tags": [
+      {
+        "name": "#Claire",
+        "href": "https://claire.example.com/tags/claire"
+      }
+    ],
+    "published_at": 1800000370.0,
+    "updated_at": 1800000370.0,
+    "edited_at": null
+  }
+}

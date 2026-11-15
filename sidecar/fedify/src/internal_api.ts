@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.4";
+export const CONTRACT_VERSION = "1.6";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -216,6 +216,48 @@ export interface ObjectRecord {
 // The result of an object read: the record, the time of removal of a deleted object (410), or null (404).
 export type ObjectResult = { state: "found"; record: ObjectRecord } | { state: "gone"; gone_at: number } | null;
 
+// The canonical form of one own note (contract 1.6, unit FP4-9). content is HTML that Claire made from plain text and sanitized.
+// A mention has the handle of the text (or null for the author of the parent of a reply without a handle) and the actor IRI (or null until the sidecar resolves the handle).
+export interface NoteRecord {
+  public_id: string;
+  actor_public_id: string;
+  type: "Note";
+  content: string;
+  summary: string | null;
+  sensitive: boolean;
+  language: string | null;
+  in_reply_to: string | null;
+  audience: string | null;
+  mentions: { handle: string | null; iri: string | null }[];
+  tags: { name: string; href: string }[];
+  published_at: number;
+  updated_at: number;
+  edited_at: number | null;
+}
+
+// The result of a note read: the record, the time of removal of a deleted note (410), or null (404).
+export type NoteResult = { state: "found"; record: NoteRecord } | { state: "gone"; gone_at: number } | null;
+
+// One task of the outbound interactions (contract 1.6, unit FP4-9).
+// note, update_note: ref_id is the number of the note. delete_note: ref_id is the number of the deleted note, recipients are the actors that got the note in addition to the followers.
+// like, announce: object_iri is the remote object, recipients has its author, ref_id is the number in the activity ID. undo_like, undo_announce: ref_id is the number of the activity that is undone.
+export interface InteractionTask {
+  id: number;
+  kind: "note" | "update_note" | "delete_note" | "like" | "undo_like" | "announce" | "undo_announce";
+  actor_public_id: string;
+  ref_id: string;
+  object_iri: string | null;
+  recipients: string[];
+  created_at: number;
+  lease_until: number;
+}
+
+// A handle of a note that the sidecar resolved to an actor.
+export interface ResolvedMention {
+  handle: string;
+  iri: string;
+}
+
 // items are newest first.
 export interface ActorOutboxPage {
   public_id: string;
@@ -331,6 +373,25 @@ const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
 const clientTasksShape = sealed({
   tasks: list(sealed({ id: int, kind: oneOf("follow", "undo_follow", "reject_follow"), actor_public_id: str, target: str, following_id: nullable(str), created_at: num, lease_until: num })),
+});
+const noteShape = sealed({
+  public_id: str,
+  actor_public_id: str,
+  type: oneOf("Note"),
+  content: str,
+  summary: nullable(str),
+  sensitive: bool,
+  language: nullable(str),
+  in_reply_to: nullable(str),
+  audience: nullable(str),
+  mentions: list(sealed({ handle: nullable(str), iri: nullable(str) })),
+  tags: list(sealed({ name: str, href: str })),
+  published_at: num,
+  updated_at: num,
+  edited_at: nullable(num),
+});
+const interactionTasksShape = sealed({
+  tasks: list(sealed({ id: int, kind: oneOf("note", "update_note", "delete_note", "like", "undo_like", "announce", "undo_announce"), actor_public_id: str, ref_id: str, object_iri: nullable(str), recipients: list(str), created_at: num, lease_until: num })),
 });
 const followingShape = sealed({ public_id: str, total: int });
 const timelineDecisionShape = sealed({
@@ -532,6 +593,37 @@ export class InternalApi {
     if (value === null) return null;
     objectShape(value, "object");
     return { state: "found", record: value as ObjectRecord };
+  }
+
+  // An own note (contract 1.6): the record, the time of removal (410), or null (404).
+  async note(publicId: string): Promise<NoteResult> {
+    let value: unknown | null;
+    try {
+      value = await this.#call("GET", `/notes/${encodeURIComponent(publicId)}`);
+    } catch (error) {
+      if (!(error instanceof InternalApiError) || error.status !== 410) throw error;
+      goneShape(error.detail, "gone");
+      return { state: "gone", gone_at: (error.detail as { gone_at: number }).gone_at };
+    }
+    if (value === null) return null;
+    noteShape(value, "note");
+    return { state: "found", record: value as NoteRecord };
+  }
+
+  // Takes the oldest ready tasks of the outbound interactions (contract 1.6). Each task has a lease.
+  async interactionTasks(limit?: number): Promise<InteractionTask[]> {
+    const value = await this.#call("GET", `/interaction-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    interactionTasksShape(value, "interaction_tasks");
+    return (value as { tasks: InteractionTask[] }).tasks;
+  }
+
+  // Records the result of an interaction task. mentions are the handles of a note that the sidecar resolved.
+  async ackInteractionTask(id: number, result: "handed_off" | "rejected", errorCode: string | null = null, mentions: ResolvedMention[] = []): Promise<"pending" | "handed_off" | "rejected" | null> {
+    const value = await this.#call("POST", `/interaction-tasks/${id}/ack`, { result, error_code: errorCode, mentions });
+    if (value === null) return null;
+    ackShape(value, "ack");
+    return (value as { status: "pending" | "handed_off" | "rejected" }).status;
   }
 
   // One cursor page of the published objects of an actor, or null when the account is not an actor.

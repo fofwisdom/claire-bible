@@ -1,0 +1,57 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/interaction-tasks?limit=10"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 10,
+        "kind": "note",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "816412345678901240",
+        "object_iri": null,
+        "recipients": [],
+        "created_at": 1800000371.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 11,
+        "kind": "delete_note",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "816412345678901241",
+        "object_iri": null,
+        "recipients": [
+          "https://remote.example/users/carol"
+        ],
+        "created_at": 1800000381.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 12,
+        "kind": "like",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "12",
+        "object_iri": "https://remote.example/users/carol/notes/1",
+        "recipients": [
+          "https://remote.example/users/carol"
+        ],
+        "created_at": 1800000382.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 13,
+        "kind": "announce",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "13",
+        "object_iri": "https://remote.example/users/carol/notes/1",
+        "recipients": [
+          "https://remote.example/users/carol"
+        ],
+        "created_at": 1800000383.0,
+        "lease_until": 1800000700.0
+      }
+    ]
+  }
+}

@@ -609,7 +609,14 @@ body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-on
 .synd-post-text { font-size: 13px; line-height: 1.55; color: var(--fg); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .synd-post:not(.is-unread) .synd-post-text { opacity: 0.86; }
 .synd-post-cw { color: var(--muted); }
-.synd-post-actions { display: flex; align-items: center; gap: 6px; }
+.synd-post-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+/* Compose controls (FP4-9): reply, favourite, boost, edit, delete. The colors follow the theme. */
+.synd-act.is-on { color: var(--accent); border-color: var(--accent); }
+.synd-entry-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.synd-entry-actions:empty { display: none; }
+.synd-note-counters { margin: 0; }
+.synd-compose-text { width: 100%; min-height: 120px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--fg); font: inherit; font-size: 13.5px; line-height: 1.55; }
+.synd-compose-text:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .tt-btn.synd-mini { height: 23px; padding: 0 7px; font-size: 11px; }
 .synd-more { padding: 12px; text-align: center; }
 .synd-reader { padding: 14px 16px 28px; display: flex; flex-direction: column; gap: 12px; }

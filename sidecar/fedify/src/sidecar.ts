@@ -18,12 +18,16 @@
 // - A delivery does not go to a follower on a blocked domain.
 // - A Create, an Update, or an Announce of a post, a Delete of an object, and an Undo(Announce) go to Claire as a timeline event with the normal form of the object (unit FP4-4). The sidecar fetches the object of an Announce and the parents of a reply only when Claire says that an account follows the actor. All other activities go to Claire as an inbox event.
 // - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this instance or is a reply to an object of this instance; nothing is fetched for it. A Like or an Announce of an object of this instance, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
+// - An own note (contract 1.6, unit FP4-9) has the object path of the published documents: one dispatcher for the two (RT7). A deleted note gets 410 with a Tombstone whose formerType is Note. The outbox collection has the notes too. An interaction task becomes Create, Update, or Delete of a Note, or Like, Announce, and their Undo (notes.ts).
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
 import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
+// Outbound interactions (contract 1.6, unit FP4-9).
+import { Object as ASObject } from "@fedify/fedify/vocab";
+import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -130,6 +134,8 @@ export class Sidecar {
   readonly outboxCounters: OutboxCounters = { handed_off: 0, rejected: 0, failed: 0 };
   // Deleted objects and purged actors that a dispatcher found, with the time of removal. The key is the path. The answer code reads the entry and removes it.
   readonly #gone = new Map<string, number>();
+  // The paths in #gone that are deleted notes (unit FP4-9): the Tombstone has the former type Note.
+  readonly #goneNotes = new Set<string>();
 
   constructor(options: SidecarOptions) {
     this.#api = options.api;
@@ -216,7 +222,7 @@ export class Sidecar {
       this.#gone.delete(path);
       if (response.status === 404 && goneAt !== undefined) {
         await response.body?.cancel();
-        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: tombstonePath[1] === "objects" ? "Article" : "Person", deleted: instant(goneAt).toString() };
+        const tombstone = { "@context": AS2_CONTEXT, id: `${config.canonical_origin}${path}`, type: "Tombstone", formerType: tombstonePath[1] === "objects" ? (this.#goneNotes.delete(path) ? "Note" : "Article") : "Person", deleted: instant(goneAt).toString() };
         return new Response(JSON.stringify(tombstone), { status: 410, headers: { "content-type": "application/activity+json" } });
       }
     }
@@ -288,7 +294,7 @@ export class Sidecar {
 
   #article(ctx: Context<void>, record: ObjectRecord): Article {
     return new Article({
-      id: ctx.getObjectUri(Article, { id: record.public_id }),
+      id: ctx.getObjectUri(ASObject, { id: record.public_id }),
       attribution: ctx.getActorUri(record.actor_public_id),
       name: record.name,
       content: record.content,
@@ -348,7 +354,7 @@ export class Sidecar {
       return "handed_off";
     }
     if (task.object_public_id === null) return await reject("no_object");
-    const objectUri = ctx.getObjectUri(Article, { id: task.object_public_id });
+    const objectUri = ctx.getObjectUri(ASObject, { id: task.object_public_id });
     let activity: Activity;
     if (task.kind === "delete") {
       activity = new Delete({ id: new URL("#delete", objectUri), object: new Tombstone({ id: objectUri }), ...audience });
@@ -382,6 +388,25 @@ export class Sidecar {
       } catch (error) {
         this.outboxCounters.failed += 1;
         console.error(`client task ${task.id} (${task.kind}) failed: ${(error as Error).name}: ${(error as Error).message}`);
+      }
+    }
+    return tasks.length;
+  }
+
+  // Takes the ready tasks of the outbound interactions from Claire (contract 1.6, unit FP4-9) and gives each one to Fedify (notes.ts). Returns the number of tasks that Claire gave.
+  async processInteractionTasks(limit = OUTBOX_TASK_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const tasks = await this.#api.interactionTasks(limit);
+    if (tasks.length === 0) return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    const deps = { api: this.#api, isBlocked: (host: string) => this.isBlocked(host), deliveryRecipients: (identifier: string) => this.deliveryRecipients(identifier) };
+    for (const task of tasks) {
+      try {
+        this.outboxCounters[await handOffInteraction(deps, ctx, task)] += 1;
+      } catch (error) {
+        this.outboxCounters.failed += 1;
+        console.error(`interaction task ${task.id} (${task.kind}) failed: ${(error as Error).name}: ${(error as Error).message}`);
       }
     }
     return tasks.length;
@@ -695,10 +720,20 @@ export class Sidecar {
         return (await this.#api.following(identifier))?.total ?? null;
       });
 
-    federation.setObjectDispatcher(Article, "/ap/objects/{id}", async (ctx, values) => {
+    // One dispatcher for the published documents (Article) and the own notes (Note): the two have one number space and one path (RT7).
+    federation.setObjectDispatcher(ASObject, "/ap/objects/{id}", async (ctx, values) => {
       if (!PUBLIC_ID.test(values.id)) return null;
       const result = await this.#api.object(values.id);
-      if (result === null) return null;
+      if (result === null) {
+        const note = await this.#api.note(values.id);
+        if (note === null) return null;
+        if (note.state === "gone") {
+          this.#gone.set(`/ap/objects/${values.id}`, note.gone_at);
+          this.#goneNotes.add(`/ap/objects/${values.id}`);
+          return null;
+        }
+        return buildNote(ctx, note.record, knownMentions(note.record));
+      }
       if (result.state === "gone") {
         this.#gone.set(`/ap/objects/${values.id}`, result.gone_at);
         return null;
@@ -714,7 +749,7 @@ export class Sidecar {
         if (page === null) return null;
         const audience = { actor: ctx.getActorUri(identifier), to: PUBLIC_COLLECTION, cc: ctx.getFollowersUri(identifier) };
         const items = page.items.map((item) => {
-          const objectUri = ctx.getObjectUri(Article, { id: item.id });
+          const objectUri = ctx.getObjectUri(ASObject, { id: item.id });
           return new Create({ id: new URL("#create", objectUri), object: objectUri, published: instant(item.published_at), ...audience });
         });
         return { items, nextCursor: page.next_max_id };

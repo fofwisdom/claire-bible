@@ -116,10 +116,12 @@ def _build_standalone_syndication_html() -> str:
     synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
     # The feed view (FP4-F3) loads before the client view: the client view calls it.
     synd_feeds_js = (_STATIC_DIR / "js" / "syndication_feeds.js").read_text(encoding="utf-8")
+    # The compose controls (FP4-9) load before the feed view and the client view: the two call them.
+    synd_compose_js = (_STATIC_DIR / "js" / "syndication_compose.js").read_text(encoding="utf-8")
     # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     html = re.sub(r'<script src="/static/js/[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{command_palette_js}\n{synd_live_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
+    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{command_palette_js}\n{synd_live_js}\n{synd_compose_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 
