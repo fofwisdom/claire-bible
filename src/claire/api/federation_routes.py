@@ -2,7 +2,7 @@
 
 Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddleware`` checks each request before a handler runs. The handlers do not read a ``Principal`` credential.
 
-Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6).
+Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6). Unit FP4-8 (contract 1.4) adds the inbound interactions with the account: mentions, reactions to own objects, and the automatic notice for a non-public message (Sections 6.2 rule 4 and 6.6).
 
 Actor rule (FK4): an account is an actor only when the instance setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
 
@@ -18,7 +18,7 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import html as _html
@@ -41,6 +41,8 @@ from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store.secrets import get_secret_service
+from ..i18n import catalog as i18n_catalog
+from ..i18n.resolver import resolve_bot_locale
 from .collections import parse_collection_query
 
 __all__ = [
@@ -71,7 +73,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.3"
+CONTRACT_VERSION = "1.4"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -82,6 +84,12 @@ _MAX_IRI_LENGTH = 2048
 OUTBOX_LEASE_SECONDS = 300.0
 OUTBOX_TASKS_DEFAULT = 20
 OUTBOX_TASKS_MAX = 50
+# The largest number of actors of this instance that one object can mention in an event (unit FP4-8). The sidecar keeps the first ones.
+MENTIONED_MAX = 16
+# The mention rate limit counts the items of one remote domain and account in this time (Section 6.6 rule 6).
+MENTION_RATE_WINDOW_SECONDS = 3600.0
+# The fragment of the ID of an automatic notice: ``{actor}#auto-replies/{digest}``. A reply to such an ID gets no notice (Section 6.2 rule 4).
+AUTO_REPLY_FRAGMENT = "#auto-replies/"
 
 _log = logging.getLogger("claire.federation.routes")
 
@@ -181,7 +189,8 @@ class InboxEventResponse(_Sealed):
     # ``accept``: the sidecar sends ``Accept(Follow)``.
     reply: Literal["accept"] | None
     # A code for the log and the telemetry of the sidecar. ``None`` for ``accepted``.
-    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type"] | None
+    # ``no_object``: a ``Like``, an ``Announce``, or their ``Undo`` refers to an object path of this instance that is not a public object now (unit FP4-8).
+    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object"] | None
 
 
 class FollowerItem(_Sealed):
@@ -315,6 +324,8 @@ class TimelineEventRequest(_Sealed):
     ``Create`` and ``Update``: ``object`` is the object of the activity, and its author is ``actor``. ``Announce``: ``object`` is the object that the sidecar fetched, and ``announced_by`` is the profile of ``actor``. ``Delete``: ``object_iri`` is the deleted object. ``Undo``: an ``Undo(Announce)``, and ``object_iri`` is the object of the ``Announce``.
 
     ``public`` is ``False`` for an object without the public collection in ``to`` or ``cc``; then ``object`` is ``None``, because Claire stores no such object. ``public`` is ``None`` for ``Delete`` and ``Undo``. ``parents`` is the reply chain of ``object``, nearest parent first (Section 6.5 rule 2).
+
+    Contract 1.4 (unit FP4-8): ``actor_type`` is the type of ``actor`` (``None`` for a type outside the list). ``mentioned`` has the actors of this instance that the object of a ``Create`` mentions (a ``Mention`` tag) or addresses (``to``, ``cc``). ``in_reply_to`` is the reply target of the object; it is also given when ``object`` is ``None``.
     """
 
     event_id: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
@@ -326,14 +337,27 @@ class TimelineEventRequest(_Sealed):
     public: bool | None
     object: TimelineObject | None
     parents: list[TimelineObject] = Field(max_length=20)
+    actor_type: Literal["Person", "Group", "Service", "Application", "Organization"] | None
+    mentioned: list[Annotated[str, Field(min_length=1, max_length=_MAX_IRI_LENGTH)]] = Field(max_length=MENTIONED_MAX)
+    in_reply_to: str | None = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
     verified_by: Literal["http-signature", "ld-signature", "object-integrity-proof"]
+
+
+class TimelineNotice(_Sealed):
+    """One automatic notice for a non-public message (Section 6.2 rule 4, unit FP4-8). The sidecar sends a ``Note`` of the actor ``actor_public_id`` to the sender of the event only, with ``inReplyTo`` = the object of the event and a ``Mention`` of the sender. ``content`` is HTML that Claire made from a fixed text in ``language`` (the locale of the account)."""
+
+    actor_public_id: str
+    content: str
+    language: Literal["en", "ko"]
 
 
 class TimelineEventResponse(_Sealed):
     decision: Literal["accepted", "rejected", "ignored"]
-    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item"] | None
+    reason: Literal["federation_off", "invalid_actor", "blocked_domain", "invalid_object", "too_large", "not_public", "not_followed", "no_item", "rate_limited"] | None
     # The number of items that the event made, changed, or deleted, for all accounts. The parents are not in this number.
     items: int
+    # The automatic notices that the sidecar sends now. Empty for all events except a non-public ``Create`` that mentions or addresses an account.
+    notices: list[TimelineNotice]
 
 
 class TimelineInterestResponse(_Sealed):
@@ -401,6 +425,27 @@ def _event_kind(event: InboxEventRequest) -> Literal["follow", "undo_follow", "d
     if event.type == "Update" and event.object_iri == event.actor.iri:
         return "update_actor"
     return None
+
+
+def _reaction_kind(event: InboxEventRequest) -> tuple[Literal["like", "announce"], bool] | None:
+    """Return the reaction kind of an event and ``True`` for its ``Undo``, or ``None`` (Section 6.6 rule 3)."""
+    kinds: dict[str | None, Literal["like", "announce"]] = {"Like": "like", "Announce": "announce"}
+    if event.type in kinds:
+        return kinds[event.type], False
+    if event.type == "Undo" and event.object_type in kinds:
+        return kinds[event.object_type], True
+    return None
+
+
+def _local_object_public_id(origin: str, iri: str | None) -> int | None:
+    """Return the public ID in an object ID of this instance (``{origin}/ap/objects/{public_id}``), or ``None``."""
+    prefix = f"{origin}/ap/objects/"
+    if iri is None or not iri.startswith(prefix):
+        return None
+    try:
+        return ids.parse_public_id(iri[len(prefix) :])
+    except ValueError:
+        return None
 
 
 def _local_follow(origin: str, iri: str | None) -> tuple[str, int] | None:
@@ -642,6 +687,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return rejected("blocked_domain")
         if event.type in ("Accept", "Reject"):
             return _follow_response(store, origin, event)
+        reaction = _reaction_kind(event)
+        if reaction is not None and _local_object_public_id(origin, event.object_iri) is not None:
+            return _reaction(store, origin, event, *reaction)
         kind = _event_kind(event)
         if kind is None:
             return InboxEventResponse(decision="ignored", reply=None, reason="unsupported_type")
@@ -692,6 +740,33 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             client.close()
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
+    def _reaction(store: accounts_store.AccountStore, origin: str, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
+        """``Like`` or ``Announce`` of an object of an account, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-8). Claire stores the actor one time for each object and kind; the counter of the object is the number of rows. No item is made."""
+        missing = InboxEventResponse(decision="ignored", reply=None, reason="no_object")
+        public_id = _local_object_public_id(origin, event.object_iri)
+        obj = None if public_id is None else federation_store.get_object(store.conn, public_id)
+        if obj is None:
+            return missing
+        if not undo:
+            # A new reaction needs an object that is public now: its account is an actor and its theme is public. An ``Undo`` removes the row in all states.
+            theme = store.conn.execute("SELECT is_public FROM themes WHERE id=?", (obj.theme_id,)).fetchone()
+            try:
+                owner = store.get(obj.account_id)
+            except accounts_store.AccountNotFound:
+                owner = None
+            if not _is_actor(owner) or theme is None or not theme["is_public"]:
+                return missing
+        client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
+        try:
+            if undo:
+                client_store.remove_object_reaction(client, object_public_id=obj.public_id, kind=kind, actor_iri=event.actor.iri)
+            else:
+                client_store.add_object_reaction(client, object_public_id=obj.public_id, account_id=obj.account_id, kind=kind, actor_iri=event.actor.iri, activity_iri=event.event_id, now=now())
+            client.commit()
+        finally:
+            client.close()
+        return InboxEventResponse(decision="accepted", reply=None, reason=None)
+
     async def inbox_event(request: Request) -> Response:
         try:
             event = InboxEventRequest.model_validate_json(await request.body())
@@ -735,11 +810,48 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return False
         return found is not None and found.account_id == account_id
 
+    def _mentioned_accounts(store: accounts_store.AccountStore, origin: str, event: TimelineEventRequest, obj: TimelineObject, actor_ids: list[int]) -> set[int]:
+        """The accounts that are actors and that the object mentions, addresses, or answers (a reply to a published object of the account)."""
+        found: set[int] = set()
+        for iri in event.mentioned:
+            public_id = _local_actor_public_id(origin, iri)
+            account = None if public_id is None else store.find_by_public_id(int(public_id))
+            if account is not None:
+                found.add(account.id)
+        parent_id = _local_object_public_id(origin, obj.in_reply_to)
+        parent = None if parent_id is None else federation_store.get_object(store.conn, parent_id)
+        if parent is not None:
+            found.add(parent.account_id)
+        return found & set(actor_ids)
+
+    def _private_notices(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> list[TimelineNotice]:
+        """The automatic notices for a non-public ``Create`` that mentions or addresses accounts (Section 6.2 rule 4). Claire stores the sender and the time only.
+
+        Rules that stop a loop of automatic systems: no notice to a ``Service`` or an ``Application`` (or an actor of an unknown type), and no notice for a reply to an automatic notice of this instance. A blocked domain does not come here: the caller refused it. One notice at most for each sender and account in ``auto_reply_hours``.
+        """
+        if not event.mentioned or event.actor_type not in ("Person", "Group", "Organization"):
+            return []
+        if event.in_reply_to is not None and event.in_reply_to.startswith(f"{origin}/ap/actors/") and AUTO_REPLY_FRAGMENT in event.in_reply_to:
+            return []
+        window = float(client_store.get_reading_settings(store.conn)["auto_reply_hours"]) * 3600.0
+        actor_ids = set(_actor_account_ids(store))
+        notices: list[TimelineNotice] = []
+        for iri in dict.fromkeys(event.mentioned):
+            public_id = _local_actor_public_id(origin, iri)
+            account = None if public_id is None else store.find_by_public_id(int(public_id))
+            if account is None or account.id not in actor_ids:
+                continue
+            if client_store.record_private_message(client, account_id=account.id, sender_iri=event.actor.iri, now=now(), window_seconds=window):
+                locale = resolve_bot_locale(owner_locale=account.locale, language_code=None, settings_lang=getattr(settings, "ui_lang", None))
+                text = i18n_catalog.t("federation.auto_reply.text", locale=locale)
+                notices.append(TimelineNotice(actor_public_id=str(account.public_id), content=f"<p>{_html.escape(text)}</p>", language=locale))
+        return notices
+
     def _decide_timeline(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> TimelineEventResponse:
         """Apply one timeline event to ``client.db`` and return the decision (Sections 6.1 to 6.5). The caller commits ``client``."""
 
-        def answer(decision: Any, reason: Any, items: int = 0) -> TimelineEventResponse:
-            return TimelineEventResponse(decision=decision, reason=reason, items=items)
+        def answer(decision: Any, reason: Any, items: int = 0, notices: list[TimelineNotice] | None = None) -> TimelineEventResponse:
+            return TimelineEventResponse(decision=decision, reason=reason, items=items, notices=notices or [])
 
         conn = store.conn
         if not _federation_active(store):
@@ -760,7 +872,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if event.public is not True:
             # Claire has no visibility model for an object that is not public (Section 6.2 rule 2). An item that the author changed to not public goes.
             removed = client_store.delete_timeline_items(client, event.object_iri, actor_iri) if event.type == "Update" else 0
-            return answer("ignored", "not_public", removed)
+            return answer("ignored", "not_public", removed, _private_notices(store, client, origin, event) if event.type == "Create" else None)
         obj = event.object
         if obj is None or obj.object_iri != event.object_iri:
             return answer("rejected", "invalid_object")
@@ -776,9 +888,14 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
 
         # ``Create`` and ``Announce``: one item for each account that is an actor and follows the author or the announcer (Section 6.4).
         actor_ids = _actor_account_ids(store)
-        accounts = client_store.accounts_following_actor(client, actor_iri, actor_ids)
+        followers = set(client_store.accounts_following_actor(client, actor_iri, actor_ids))
+        # Section 6.6 rule 1: a public ``Create`` that mentions an account, or that is a reply to an object of an account, is an item for that account, also when the author is not followed.
+        mentioned = _mentioned_accounts(store, origin, event, obj, actor_ids) if event.type == "Create" else set()
+        accounts = sorted(followers | mentioned)
         if not accounts:
             return answer("ignored", "not_followed")
+        rate = int(client_store.get_reading_settings(conn)["mention_rate_per_hour"])
+        author_host = _remote_host(obj.author.iri, origin)
         announced_by = None
         if event.type == "Announce":
             announced_by = (event.announced_by or TimelineActor(iri=actor_iri, name=None, handle=None)).model_dump(mode="json")
@@ -792,16 +909,26 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             parents.append(parent)
             expected = parent.in_reply_to
         made = 0
+        limited = 0
         for account_id in accounts:
+            mention = account_id in mentioned
+            if mention and account_id not in followers:
+                # Section 6.6 rule 6: the limit applies to the items that only the mention brings, for each remote domain and account.
+                recent = client_store.recent_mention_authors(client, account_id, since=now() - MENTION_RATE_WINDOW_SECONDS)
+                if sum(1 for author in recent if _remote_host(author, origin) == author_host) >= rate:
+                    limited += 1
+                    continue
             in_timeline = True
-            if obj.in_reply_to is not None:
+            if obj.in_reply_to is not None and not mention:
                 # Timeline rule (Section 6.5 rule 3): the parent author is the author, the account itself, or a followed actor.
                 parent_author = parents[0].author.iri if parents else client_store.timeline_item_author(client, account_id, obj.in_reply_to)
                 own_actor = f"{origin}/ap/actors/{store.get(account_id).public_id}"
                 in_timeline = _own_object(store, origin, account_id, obj.in_reply_to) or (parent_author is not None and (parent_author in (obj.author.iri, own_actor) or client_store.is_following(client, account_id, parent_author)))
-            made += client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=announced_by, in_timeline=in_timeline, now=now())
+            made += client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=announced_by, in_timeline=in_timeline, now=now(), mention=mention)
             for parent in parents:
                 client_store.upsert_timeline_item(client, account_id=account_id, item=parent.model_dump(mode="json"), announced_by=None, in_timeline=False, now=now())
+        if limited == len(accounts):
+            return answer("ignored", "rate_limited")
         return answer("accepted", None, made)
 
     async def timeline_event(request: Request) -> Response:
@@ -823,7 +950,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 store.conn.close()
 
         decision = await run_in_threadpool(_apply)
-        _log.info("timeline event %s: %s%s, %d item(s)", event.type, decision.decision, "" if decision.reason is None else f" ({decision.reason})", decision.items)
+        _log.info("timeline event %s: %s%s, %d item(s), %d notice(s)", event.type, decision.decision, "" if decision.reason is None else f" ({decision.reason})", decision.items, len(decision.notices))
         if decision.items and (event.type in ("Delete", "Undo") or decision.reason == "not_public"):
             # Section 9.1 rule 6: a deleted item removes its media entries when no other item refers to the URL.
             try:

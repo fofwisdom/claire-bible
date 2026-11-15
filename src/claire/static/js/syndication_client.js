@@ -151,16 +151,23 @@
   async function loadPublished() {
     if (!IS_NETWORK || !IS_OWNER) { C.publishedLoaded = true; return; }
     const keys = new Set();
+    // The counters of each published document (FP4-8), as a text for the knowledge base view.
+    const reactions = {};
     let maxId = null;
     for (let page = 0; page < 10; page++) {
       const result = await api("GET", `/api/federation/objects?limit=80${maxId ? `&max_id=${encodeURIComponent(maxId)}` : ""}`);
       if (!result.ok || !Array.isArray(result.data.items)) break;
-      result.data.items.forEach((item) => keys.add(`${item.theme_id}:${item.document_id}`));
+      result.data.items.forEach((item) => {
+        keys.add(`${item.theme_id}:${item.document_id}`);
+        reactions[`${item.theme_id}:${item.document_id}`] = tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 });
+      });
       maxId = result.data.next_max_id;
       if (!maxId) break;
     }
     bridge.state.publishedKeys = keys;
     C.publishedLoaded = true;
+    bridge.state.reactionLabels = reactions;
+    if (keys.size) bridge.setPublishFilter(bridge.state.pubFilter);
   }
 
   // --- Timeline ------------------------------------------------------------
@@ -219,7 +226,7 @@
       const n = badge[s.key];
       const fresh = (s.key === "unread" || s.key === "mentions") && n > 0;
       return `<button type="button" class="tt-tree-item ${C.stream === s.key ? "active" : ""}" data-client-stream="${s.key}"><span>${s.icon} ${esc(tr(s.label))}</span><span class="tt-count-pill ${fresh ? "fresh" : ""}">${n ? esc(n) : ""}</span></button>`;
-    }).join("");
+    }).join("") + (counts.private_messages ? `<p class="synd-note" id="client-private-note">${esc(tr("synd.client.private_messages", { count: counts.private_messages }))}</p>` : "");
     const title = $("client-stream-title");
     if (title) title.textContent = tr(streamOf(C.stream).label);
   }

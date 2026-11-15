@@ -79,7 +79,7 @@ def test_e2e_timeline_list_thread_and_flags(env):
     page = _get(env, TIMELINE).json()
     # Newest first. The reply to a stranger and its parent are items of the thread only.
     assert [item["object_iri"] for item in page["items"]] == [f"{CAROL}/notes/2", f"{CAROL}/notes/1"]
-    assert page["counts"] == {"total": 2, "unread": 2, "starred": 0, "mentions": 0, "unread_mentions": 0, "ingested": 0, "published": 0}
+    assert page["counts"] == {"total": 2, "unread": 2, "starred": 0, "mentions": 0, "unread_mentions": 0, "ingested": 0, "private_messages": 0, "published": 0}
     plain, warned = page["items"][1], page["items"][0]
     # The list has plain text only: no tag of the remote HTML, and no text of an item with a content warning.
     assert plain["text"] == "Hello worlda linkbad" and "<" not in plain["text"]

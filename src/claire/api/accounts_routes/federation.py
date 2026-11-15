@@ -917,9 +917,15 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 rows = federation_store.list_objects(conn, account_id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
             finally:
                 conn.close()
+            # The counters of the reactions of remote actors (Section 6.6 rules 3 and 4, FP4-8).
+            client = open_client_db(ctx)
+            try:
+                reactions = federation_client_store.count_object_reactions(client, [row.public_id for row in rows])
+            finally:
+                client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at} for row in rows],
+                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"]} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

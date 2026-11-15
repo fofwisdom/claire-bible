@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/timeline-events",
+    "body": {
+      "event_id": "https://remote.example/activities/261",
+      "type": "Create",
+      "recipient_public_id": null,
+      "actor": {
+        "iri": "https://remote.example/users/bob",
+        "inbox": "https://remote.example/users/bob/inbox",
+        "shared_inbox": "https://remote.example/inbox"
+      },
+      "announced_by": null,
+      "object_iri": "https://remote.example/notes/61",
+      "public": false,
+      "object": null,
+      "parents": [],
+      "actor_type": "Person",
+      "mentioned": [
+        "https://claire.example.com/ap/actors/116412345678901234"
+      ],
+      "in_reply_to": null,
+      "verified_by": "http-signature"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "ignored",
+    "reason": "not_public",
+    "items": 0,
+    "notices": [
+      {
+        "actor_public_id": "116412345678901234",
+        "content": "<p>This is an automatic notice. This account cannot receive non-public messages. Please send a public mention.</p>",
+        "language": "en"
+      }
+    ]
+  }
+}
