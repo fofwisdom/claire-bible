@@ -38,7 +38,7 @@
       </div>
     </div>
     <div class="appbar-center">
-      <span id="active-stream-title" class="appbar-title kb-only">전체 적재 문서 (All documents)</span>
+      <span id="active-stream-title" class="appbar-title kb-only" data-i18n="synd.kb.stream.all">All ingested documents</span>
       <span id="client-stream-title" class="appbar-title client-only"></span>
       <button type="button" id="btn-palette" class="palette-trigger" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title">
         <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
@@ -66,62 +66,62 @@
   <!-- View toolbar: the controls of the list of this page. The application bar has no input field (Section 4.1 item 3). -->
   <div class="synd-toolbar" role="toolbar" data-i18n-aria-label="synd.toolbar.label">
     <span id="selected-count-label" class="tt-sel-count kb-only" aria-live="polite"></span>
-    <input id="stream-search" type="search" class="tt-search kb-only" placeholder="제목·본문·[[엔티티]] 검색…" aria-label="문서 검색"/>
-    <button type="button" class="tt-btn kb-only" popovertarget="pop-sort"><span id="btn-sort-label">최신순</span> ▾</button>
-    <button type="button" id="btn-refresh" class="tt-btn kb-only" title="현재 테마 DB 문서 및 엔티티 새로고침 (r)">↻ 새로고침</button>
-    <button type="button" id="btn-mark-read" class="tt-btn kb-only" title="현재 목록 문서 읽음 처리">✓ 읽음 처리</button>
+    <input id="stream-search" type="search" class="tt-search kb-only" data-i18n-placeholder="synd.kb.search.placeholder" data-i18n-aria-label="synd.kb.search.label"/>
+    <button type="button" class="tt-btn kb-only" popovertarget="pop-sort"><span id="btn-sort-label" data-i18n="synd.kb.sort.newest">Newest</span> ▾</button>
+    <button type="button" id="btn-refresh" class="tt-btn kb-only" data-i18n-title="synd.kb.refresh_title">↻ <span data-i18n="synd.kb.refresh">Refresh</span></button>
+    <button type="button" id="btn-mark-read" class="tt-btn kb-only" data-i18n-title="synd.kb.mark_read_title">✓ <span data-i18n="synd.kb.mark_read">Mark as read</span></button>
     <button type="button" id="btn-client-refresh" class="tt-btn client-only" data-i18n="synd.client.refresh" data-i18n-title="synd.client.refresh_title">Refresh</button>
     <span class="synd-toolbar-gap"></span>
-    <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" title="목록 스타일: 목록 / 조밀하게 / 일반 / 넓게 (l 키로 순환)"><span id="btn-list-style-label">☰ 목록</span> ▾</button>
-    <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" title="화면 분할 구조 전환: 3단 분할 ⇄ 2단 상하 분할"><span id="btn-layout-label">◫ 3단 분할</span></button>
+    <button type="button" id="btn-toggle-list-style" class="tt-btn kb-only" popovertarget="pop-list-style" data-i18n-title="synd.kb.list_style.button_title"><span id="btn-list-style-label">☰</span> ▾</button>
+    <button type="button" id="btn-toggle-layout" class="tt-btn kb-only" data-i18n-title="synd.kb.layout.button_title"><span id="btn-layout-label">◫</span></button>
   </div>
 
   <!-- Viewport-Aware Popovers -->
-  <div id="pop-list-style" popover="auto" class="tt-popover tt-popover-end" role="menu" aria-label="목록 스타일">
-    <div class="tt-pop-sec">목록 스타일</div>
-    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><small data-list-style-desc>한 줄 행</small></button>
-    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="compact"><span data-list-style-label>≡ 조밀하게</span><small data-list-style-desc>요약 표시 안 함</small></button>
-    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="card"><span data-list-style-label>▤ 일반</span><small data-list-style-desc>요약 2줄 미리보기</small></button>
-    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="roomy"><span data-list-style-label>▭ 넓게</span><small data-list-style-desc>요약 전체 표시</small></button>
+  <div id="pop-list-style" popover="auto" class="tt-popover tt-popover-end" role="menu" data-i18n-aria-label="synd.kb.list_style.title">
+    <div class="tt-pop-sec" data-i18n="synd.kb.list_style.title">List style</div>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="list"><span data-list-style-label>☰</span><small data-list-style-desc></small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="compact"><span data-list-style-label>≡</span><small data-list-style-desc></small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="card"><span data-list-style-label>▤</span><small data-list-style-desc></small></button>
+    <button type="button" class="tt-pop-item" role="menuitemradio" data-set-list-style="roomy"><span data-list-style-label>▭</span><small data-list-style-desc></small></button>
     <div class="tt-pop-sep"></div>
-    <div class="tt-pop-hint"><kbd>l</kbd> 키로 순환 전환</div>
+    <div class="tt-pop-hint"><kbd>l</kbd> <span data-i18n="synd.kb.list_style.key_hint">changes the style</span></div>
   </div>
 
   <div id="pop-sort" popover="auto" class="tt-popover">
-    <div class="tt-pop-sec">정렬 기준</div>
-    <button type="button" class="tt-pop-item" data-sort="newest"><span>최신 적재순 (Newest first)</span></button>
-    <button type="button" class="tt-pop-item" data-sort="oldest"><span>오래된순 (Oldest first)</span></button>
-    <button type="button" class="tt-pop-item" data-sort="entities"><span>연결 엔티티 수 기준</span></button>
+    <div class="tt-pop-sec" data-i18n="synd.kb.sort.title">Sort order</div>
+    <button type="button" class="tt-pop-item" data-sort="newest"><span data-i18n="synd.kb.sort.newest_long">Newest first</span></button>
+    <button type="button" class="tt-pop-item" data-sort="oldest"><span data-i18n="synd.kb.sort.oldest_long">Oldest first</span></button>
+    <button type="button" class="tt-pop-item" data-sort="entities"><span data-i18n="synd.kb.sort.entities_long">Number of entities</span></button>
   </div>
 
   <div id="pop-main-menu" popover="auto" class="tt-popover tt-popover-end">
-    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span><span data-icon="settings"></span> 환경설정... (Preferences...)</span></a>
+    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span><span data-icon="settings"></span> <span data-i18n="synd.kb.menu.preferences">Preferences…</span></span></a>
     <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec">지식베이스 및 적재 관리</div>
-    <button type="button" id="menu-open-ingest" class="tt-pop-item"><span>+ 새 문서 적재...</span></button>
-    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span><span data-icon="lock"></span> 연결 계정 · 권한 관리...</span></a>
-    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span><span data-icon="tag"></span> 수집 태그 → 엔티티 생성 정책...</span></a>
-    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span><span data-icon="repeat"></span> 부스트·적재 발행 설정...</span></a>
+    <div class="tt-pop-sec" data-i18n="synd.kb.menu.section_kb">Knowledge base and ingestion</div>
+    <button type="button" id="menu-open-ingest" class="tt-pop-item"><span>+ <span data-i18n="synd.kb.menu.ingest">Ingest a document…</span></span></button>
+    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span><span data-icon="lock"></span> <span data-i18n="synd.kb.menu.connections">Connected accounts and permissions…</span></span></a>
+    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span><span data-icon="tag"></span> <span data-i18n="synd.kb.menu.tags">Rules from source tags to entities…</span></span></a>
+    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span><span data-icon="repeat"></span> <span data-i18n="synd.kb.menu.outbound">Boost and publication settings…</span></span></a>
     <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec">목록 스타일</div>
-    <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰ 목록</span><kbd>l</kbd></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="compact"><span data-list-style-label>≡ 조밀하게</span></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="card"><span data-list-style-label>▤ 일반</span></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="roomy"><span data-list-style-label>▭ 넓게</span></button>
+    <div class="tt-pop-sec" data-i18n="synd.kb.list_style.title">List style</div>
+    <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰</span><kbd>l</kbd></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="compact"><span data-list-style-label>≡</span></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="card"><span data-list-style-label>▤</span></button>
+    <button type="button" class="tt-pop-item" data-set-list-style="roomy"><span data-list-style-label>▭</span></button>
     <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec">화면 레이아웃 (UI layout)</div>
-    <button type="button" id="menu-layout-3pane" class="tt-pop-item"><span id="menu-layout-3pane-label">✓ 3단 분할 뷰 (좌-중-우)</span><kbd>m</kbd></button>
-    <button type="button" id="menu-layout-2pane" class="tt-pop-item"><span id="menu-layout-2pane-label">　2단 상하 분할 뷰 (좌-상하)</span></button>
+    <div class="tt-pop-sec" data-i18n="synd.kb.layout.title">Layout</div>
+    <button type="button" id="menu-layout-3pane" class="tt-pop-item"><span id="menu-layout-3pane-label"></span><kbd>m</kbd></button>
+    <button type="button" id="menu-layout-2pane" class="tt-pop-item"><span id="menu-layout-2pane-label"></span></button>
     <div class="tt-pop-sep"></div>
-    <a class="tt-pop-item" href="/"><span>← 지식 그래프 메인으로 이동</span></a>
+    <a class="tt-pop-item" href="/"><span data-i18n="nav.brand_home">Claire Bible home</span></a>
   </div>
 
   <div id="pop-article-actions" popover="auto" class="tt-popover tt-popover-end">
-    <button type="button" class="tt-pop-item" data-art-cmd="open-url"><span>원문 링크 새 탭 열기</span></button>
-    <button type="button" class="tt-pop-item" data-art-cmd="show-url"><span>원문 URL 표시 및 복사</span></button>
-    <button type="button" class="tt-pop-item" data-art-cmd="toggle-unread"><span>읽음 표시 처리</span><kbd>u</kbd></button>
-    <button type="button" class="tt-pop-item" data-art-cmd="toggle-star"><span>별표(고정) 토글</span><kbd>f</kbd></button>
-    <button type="button" class="tt-pop-item" data-art-cmd="dispatch"><span><span data-icon="broadcast"></span> 다른 테마로 적재 전달 (Cross-Theme Dispatch)...</span><kbd>d</kbd></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="open-url"><span data-i18n="synd.kb.row.open_new_tab">Open the source link in a new tab</span></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="show-url"><span data-i18n="synd.kb.article.show_url">Show the source URL</span></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="toggle-unread"><span data-i18n="synd.kb.article.toggle_unread">Change read or unread</span><kbd>u</kbd></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="toggle-star"><span data-i18n="synd.kb.row.star">Add or remove the star</span><kbd>f</kbd></button>
+    <button type="button" class="tt-pop-item" data-art-cmd="dispatch"><span><span data-icon="broadcast"></span> <span data-i18n="synd.kb.article.dispatch">Send to another theme…</span></span><kbd>d</kbd></button>
     <button type="button" class="tt-pop-item" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
   </div>
 
@@ -192,25 +192,25 @@
     </div>
 
     <div id="panel-kb" class="tt-workspace" data-app-panel="kb">
-      <aside id="pane-tree" class="synd-column tt-tree" aria-label="스트림, 출처 및 엔티티 트리">
+      <aside id="pane-tree" class="synd-column tt-tree" data-i18n-aria-label="synd.kb.tree.label">
         <details class="tt-folder" open>
-          <summary><span><span class="tt-folder-marker"></span>스트림 (Streams)</span></summary>
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.kb.tree.streams">Streams</span></span></summary>
           <div id="tree-specials" class="tt-tree-children"></div>
         </details>
 
         <details class="tt-folder" open>
-          <summary><span><span class="tt-folder-marker"></span>수집 출처 유형 (Sources)</span></summary>
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.kb.tree.sources">Source types</span></span></summary>
           <div id="tree-sources" class="tt-tree-children"></div>
         </details>
 
         <details class="tt-folder" open>
-          <summary><span><span class="tt-folder-marker"></span>테마 DB 적재 엔티티</span></summary>
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.kb.tree.entities">Entities of the theme</span></span></summary>
           <div id="tree-entities" class="tt-tree-children"></div>
         </details>
       </aside>
 
       <div id="pane-main-area" class="tt-main-area">
-        <section id="pane-stream" class="synd-column tt-stream" aria-label="문서 스트림">
+        <section id="pane-stream" class="synd-column tt-stream" data-i18n-aria-label="synd.kb.stream.label">
           <div id="pub-filter" class="synd-pub-filter" role="group" data-i18n-aria-label="synd.kb.filter.label" hidden>
             <button type="button" class="tt-btn" data-pub-filter="all" data-i18n="synd.kb.filter.all">All</button>
             <button type="button" class="tt-btn" data-pub-filter="unpublished" data-i18n="synd.kb.filter.unpublished">Not published</button>
@@ -219,7 +219,7 @@
           <div id="headlines-container" class="tt-headlines"></div>
         </section>
 
-        <aside id="pane-reader" class="synd-column tt-reader-pane" aria-label="문서 리더">
+        <aside id="pane-reader" class="synd-column tt-reader-pane" data-i18n-aria-label="synd.kb.reader.label">
           <div id="reader-content"></div>
         </aside>
       </div>
@@ -227,7 +227,7 @@
   </main>
 
   <footer class="tt-footer">
-    <span id="activity-ticker">단축키: j/k(이동), v(수집 원문⇄적재 본문), f(별표), d(교차 테마 적재 전달), l(목록 스타일), m(3단/2단 전환)</span>
+    <span id="activity-ticker" data-i18n="synd.kb.keys_hint">Keys: j/k (move), v (source text or ingested text), f (star), d (send to another theme), l (list style), m (layout)</span>
     <span id="footer-stats" style="font-family:'D2Coding',monospace"></span>
   </footer>
 
@@ -235,20 +235,20 @@
   <dialog id="modal-ingest" closedby="any" aria-labelledby="modal-ingest-title" class="synd-dialog">
     <form id="form-ingest" style="padding:18px;display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 id="modal-ingest-title" style="margin:0;font-size:16px;font-weight:700">현재 테마 지식베이스에 문서 적재 (POST /ingest)</h2>
+        <h2 id="modal-ingest-title" style="margin:0;font-size:16px;font-weight:700" data-i18n="synd.kb.ingest.dialog_title">Ingest a document into the theme</h2>
         <button type="button" data-close-dialog="modal-ingest" class="tt-btn" data-i18n-aria-label="common.action.close"><span data-icon="close"></span></button>
       </div>
       <div>
-        <label for="ingest-payload" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">URL 또는 수집 원문 텍스트</label>
-        <textarea id="ingest-payload" required rows="5" class="tt-search" style="width:100%;height:auto;padding:8px;font-family:inherit" placeholder="https://example.com/article 또는 적재할 원문 텍스트를 입력하세요"></textarea>
+        <label for="ingest-payload" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.payload_label">URL or source text</label>
+        <textarea id="ingest-payload" required rows="5" class="tt-search" style="width:100%;height:auto;padding:8px;font-family:inherit" data-i18n-placeholder="synd.kb.ingest.payload_placeholder"></textarea>
       </div>
       <div>
-        <label for="ingest-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">추출 초점 (Focus · 선택)</label>
-        <input id="ingest-focus" type="text" class="tt-search" style="width:100%;height:34px" placeholder="비워두면 테마 기본 초점 또는 중립 요약으로 정제합니다"/>
+        <label for="ingest-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.focus_label">Extraction focus (optional)</label>
+        <input id="ingest-focus" type="text" class="tt-search" style="width:100%;height:34px" data-i18n-placeholder="synd.kb.ingest.focus_placeholder"/>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
-        <button type="button" data-close-dialog="modal-ingest" class="tt-btn">취소</button>
-        <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri"><span data-icon="download"></span> 적재 실행</button>
+        <button type="button" data-close-dialog="modal-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
+        <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri"><span data-icon="download"></span> <span data-i18n="synd.kb.ingest.submit">Ingest</span></button>
       </div>
     </form>
   </dialog>

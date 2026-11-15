@@ -36,20 +36,22 @@
   };
 
   const LIST_STYLE_META = {
-    list: { icon: "☰", label: { ko: "목록", en: "List" }, desc: { ko: "한 줄 행", en: "Single-line rows" } },
-    compact: { icon: "≡", label: { ko: "조밀하게", en: "Compact" }, desc: { ko: "요약 표시 안 함", en: "No summary" } },
-    card: { icon: "▤", label: { ko: "일반", en: "Card" }, desc: { ko: "요약 2줄 미리보기", en: "Two-line summary" } },
-    roomy: { icon: "▭", label: { ko: "넓게", en: "Roomy" }, desc: { ko: "요약 전체 표시", en: "Full summary" } }
+    list: { icon: "☰", label: "synd.kb.list_style.list", desc: "synd.kb.list_style.list_desc" },
+    compact: { icon: "≡", label: "synd.kb.list_style.compact", desc: "synd.kb.list_style.compact_desc" },
+    card: { icon: "▤", label: "synd.kb.list_style.card", desc: "synd.kb.list_style.card_desc" },
+    roomy: { icon: "▭", label: "synd.kb.list_style.roomy", desc: "synd.kb.list_style.roomy_desc" }
   };
 
-  const UI_LANG = String(document.documentElement.lang || "ko").toLowerCase().startsWith("en") ? "en" : "ko";
-  function i18n(entry) { return entry[UI_LANG] || entry.ko; }
+  // Each text of this view is a catalog key (ClaireI18n, static/locales/{en,ko}.json).
+  const tr = (key, params) => window.ClaireI18n.t(key, params);
+  const UI_LOCALE = document.documentElement.lang || "en";
+  function i18n(key) { return tr(key); }
   function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 
   const cfg = window.__CLAIRE_CONFIG || {};
   const RAW_THEMES = Array.isArray(cfg.themes) && cfg.themes.length
     ? cfg.themes
-    : [{ id: 0, seq: 0, number: "0", label: "기본 지식베이스", icon: "📚", is_default: true, is_public: true }];
+    : [{ id: 0, seq: 0, number: "0", label: tr("synd.kb.default_theme"), icon: "📚", is_default: true, is_public: true }];
 
   const THEMES = {};
   RAW_THEMES.forEach((srv) => {
@@ -59,7 +61,7 @@
       seq: srv.seq != null ? srv.seq : srv.id,
       number: srv.number != null ? String(srv.number) : String(srv.id),
       icon: srv.icon || "📚",
-      label: srv.label || `테마 #${srv.id}`,
+      label: srv.label || tr("synd.kb.theme_number", { id: srv.id }),
       isPublic: srv.is_public !== false,
       defaultFocus: srv.default_focus || "",
       documents: [],
@@ -149,7 +151,7 @@
     themeId: initThemeKey,
     layoutMode: prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel",
     listStyle: prefs.listStyle,
-    treeSel: { kind: "virtual", value: "all", label: "전체 적재 문서 (All documents)" },
+    treeSel: { kind: "virtual", value: "all", label: tr("synd.kb.stream.all") },
     sortBy: "newest",
     searchQuery: "",
     selectedDocId: null,
@@ -202,18 +204,18 @@
 
   function ticker(msg) {
     const el = document.getElementById("activity-ticker");
-    if (el) el.textContent = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })} · ${msg}`;
+    if (el) el.textContent = `${new Date().toLocaleTimeString(UI_LOCALE, { hour12: false })} · ${msg}`;
   }
 
   function formatTimestamp(ts) {
-    if (!ts) return "방금";
+    if (!ts) return tr("synd.kb.time.now");
     const num = Number(ts);
     if (!Number.isFinite(num) || num <= 0) return String(ts);
     const diff = Math.max(0, Math.floor(Date.now() / 1000 - num));
-    if (diff < 60) return "방금 전";
-    if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
-    return new Date(num * 1000).toLocaleDateString("ko-KR");
+    if (diff < 60) return tr("synd.kb.time.now");
+    if (diff < 3600) return tr("synd.kb.time.minutes", { count: Math.floor(diff / 60) });
+    if (diff < 86400) return tr("synd.kb.time.hours", { count: Math.floor(diff / 3600) });
+    return new Date(num * 1000).toLocaleDateString(UI_LOCALE);
   }
 
   function getActiveContentTab(doc) {
@@ -278,11 +280,11 @@
     });
 
     const layoutBtn = document.getElementById("btn-layout-label");
-    if (layoutBtn) layoutBtn.textContent = state.layoutMode === "three-panel" ? "◫ 3단 분할" : "⬒ 2단 상하";
+    if (layoutBtn) layoutBtn.textContent = state.layoutMode === "three-panel" ? `◫ ${tr("synd.kb.layout.three")}` : `⬒ ${tr("synd.kb.layout.two")}`;
     const menu3p = document.getElementById("menu-layout-3pane-label");
-    if (menu3p) menu3p.textContent = `${state.layoutMode === "three-panel" ? "✓ " : "　"}3단 분할 뷰 (좌-중-우)`;
+    if (menu3p) menu3p.textContent = `${state.layoutMode === "three-panel" ? "✓ " : "　"}${tr("synd.kb.layout.three_long")}`;
     const menu2p = document.getElementById("menu-layout-2pane-label");
-    if (menu2p) menu2p.textContent = `${state.layoutMode === "two-panel" ? "✓ " : "　"}2단 상하 분할 뷰 (좌-상하)`;
+    if (menu2p) menu2p.textContent = `${state.layoutMode === "two-panel" ? "✓ " : "　"}${tr("synd.kb.layout.two_long")}`;
 
     const themeQuery = `?theme=${encodeURIComponent(themeRefOf(state.themeId))}`;
     document.querySelectorAll("a[data-settings-path]").forEach((a) => {
@@ -301,9 +303,9 @@
     const streamTitle = document.getElementById("active-stream-title");
     if (streamTitle) streamTitle.textContent = state.treeSel.label;
     const cntEl = document.getElementById("selected-count-label");
-    if (cntEl) cntEl.textContent = state.checkedIds.size > 0 ? `${state.checkedIds.size}개 문서 선택됨` : "";
+    if (cntEl) cntEl.textContent = state.checkedIds.size > 0 ? tr("synd.kb.selected", { count: state.checkedIds.size }) : "";
     const sortEl = document.getElementById("btn-sort-label");
-    if (sortEl) sortEl.textContent = ({ newest: "최신순", oldest: "오래된순", entities: "엔티티순" })[state.sortBy] || "최신순";
+    if (sortEl) sortEl.textContent = tr("synd.kb.sort." + (["newest", "oldest", "entities"].includes(state.sortBy) ? state.sortBy : "newest"));
   }
 
   function renderTree() {
@@ -314,10 +316,10 @@
     const dispatchCnt = (theme.dispatches || []).length;
 
     const specials = [
-      { v: "all", icon: ic("inbox"), label: "전체 적재 문서", cnt: docs.length, fresh: false },
-      { v: "unread", icon: ic("dot"), label: "안읽음 문서", cnt: unreadCnt, fresh: unreadCnt > 0 },
-      { v: "starred", icon: "★", label: "별표(고정) 문서", cnt: starredCnt, fresh: false },
-      { v: "dispatches", icon: ic("broadcast"), label: "교차 테마 전달 이력", cnt: dispatchCnt, fresh: false }
+      { v: "all", icon: ic("inbox"), label: tr("synd.kb.stream.all"), cnt: docs.length, fresh: false },
+      { v: "unread", icon: ic("dot"), label: tr("synd.kb.stream.unread"), cnt: unreadCnt, fresh: unreadCnt > 0 },
+      { v: "starred", icon: "★", label: tr("synd.kb.stream.starred"), cnt: starredCnt, fresh: false },
+      { v: "dispatches", icon: ic("broadcast"), label: tr("synd.kb.stream.dispatches"), cnt: dispatchCnt, fresh: false }
     ];
     const specEl = document.getElementById("tree-specials");
     if (specEl) {
@@ -338,9 +340,9 @@
       srcEl.innerHTML = entries.length
         ? entries.map(([srcType, cnt]) => {
             const act = state.treeSel.kind === "source" && state.treeSel.value === srcType ? "active" : "";
-            return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="source" data-tree-val="${esc(srcType)}" data-tree-lbl="출처: ${esc(srcType.toUpperCase())}"><span>${ic("folder")} ${esc(srcType.toUpperCase())}</span><span class="tt-count-pill">${cnt}</span></button>`;
+            return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="source" data-tree-val="${esc(srcType)}" data-tree-lbl="${esc(tr("synd.kb.source_label", { type: srcType.toUpperCase() }))}"><span>${ic("folder")} ${esc(srcType.toUpperCase())}</span><span class="tt-count-pill">${cnt}</span></button>`;
           }).join("")
-        : `<div style="padding:6px 10px;font-size:11.5px;color:var(--muted)">적재된 문서 없음</div>`;
+        : `<div style="padding:6px 10px;font-size:11.5px;color:var(--muted)">${esc(tr("synd.kb.empty.documents"))}</div>`;
     }
 
     const entEl = document.getElementById("tree-entities");
@@ -351,7 +353,7 @@
             const act = state.treeSel.kind === "entity" && state.treeSel.value === ent.name ? "active" : "";
             return `<button type="button" class="tt-tree-item ${act}" data-tree-kind="entity" data-tree-val="${esc(ent.name)}" data-tree-lbl="[[${esc(ent.name)}]]"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">[[${esc(ent.name)}]] <small style="color:var(--muted)">(${esc(ent.type)})</small></span><span class="tt-count-pill">${ent.count || 1}</span></button>`;
           }).join("")
-        : `<div style="padding:6px 10px;font-size:11.5px;color:var(--muted)">생성된 엔티티 없음</div>`;
+        : `<div style="padding:6px 10px;font-size:11.5px;color:var(--muted)">${esc(tr("synd.kb.empty.entities"))}</div>`;
     }
 
     document.querySelectorAll("[data-tree-kind]").forEach((btn) => {
@@ -376,31 +378,31 @@
       const rawText = doc.rawText || doc.summary || doc.title || "";
       const safeRaw = sanitizeContentHtml(`<p>${esc(rawText).replace(/\n\n+/g, "</p><p>").replace(/\n/g, "<br/>")}</p>`);
       bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px">
-        <div class="tt-summary-callout"><strong>${ic("doc")} 수집 원문 (Collected Original)</strong> — 적재 당시 보관된 원문 텍스트입니다.</div>
+        <div class="tt-summary-callout"><strong>${ic("doc")} ${esc(tr("synd.kb.reader.original_title"))}</strong> — ${esc(tr("synd.kb.reader.original_note"))}</div>
         <article class="doc-content">${safeRaw}</article>
       </div>`;
     } else {
       const safeDetail = sanitizeContentHtml(doc.detailHtml || `<p>${esc(doc.summary || doc.title || "")}</p>`);
       const syndNote = doc.syndicationMeta
-        ? ` · 교차 테마 출처: Theme #${esc(doc.syndicationMeta.source_theme_id)} (${esc(doc.syndicationMeta.source_document_id)})`
+        ? ` · ${esc(tr("synd.kb.reader.cross_source", { theme: doc.syndicationMeta.source_theme_id, document: doc.syndicationMeta.source_document_id }))}`
         : "";
       bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px">
-        <div class="tt-summary-callout"><strong>${ic("pin")} Claire 적재 요약 (${esc(doc.id)})</strong> — ${esc(doc.summary || doc.title)}<div style="margin-top:4px;font-size:11.5px;color:var(--muted)">적재 시각: ${esc(doc.timeAgo)} · 연결 엔티티: ${doc.entityCount || 0}개 · 관계: ${doc.relationCount || 0}개${syndNote}</div></div>
+        <div class="tt-summary-callout"><strong>${ic("pin")} ${esc(tr("synd.kb.reader.summary_title", { id: doc.id }))}</strong> — ${esc(doc.summary || doc.title)}<div style="margin-top:4px;font-size:11.5px;color:var(--muted)">${esc(tr("synd.kb.reader.summary_meta", { time: doc.timeAgo, entities: doc.entityCount || 0, relations: doc.relationCount || 0 }))}${syndNote}</div></div>
         <article class="doc-content">${safeDetail}</article>
       </div>`;
     }
 
     const entities = doc.entities || [];
-    const entChips = entities.map((ent) => `<button type="button" class="tt-entity-chip resolved" data-filter-entity="${esc(ent.name)}" title="클릭하여 엔티티로 스트림 필터링">[[${esc(ent.name)}]] <small style="opacity:0.8">(${esc(ent.type || "Concept")})</small></button>`).join("");
+    const entChips = entities.map((ent) => `<button type="button" class="tt-entity-chip resolved" data-filter-entity="${esc(ent.name)}" title="${esc(tr("synd.kb.entity_filter_title"))}">[[${esc(ent.name)}]] <small style="opacity:0.8">(${esc(ent.type || "Concept")})</small></button>`).join("");
     const sourceTags = doc.sourceTags || [];
     const tagChips = sourceTags.map((tag) => `<span class="tt-entity-chip candidate">#${esc(tag)}</span>`).join("");
 
-    const bottomMetaBar = `<footer class="tt-entity-bar" aria-label="문서 엔티티 및 수집 태그 바">
+    const bottomMetaBar = `<footer class="tt-entity-bar" aria-label="${esc(tr("synd.kb.reader.meta_bar"))}">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span style="font-weight:700;color:var(--accent)">${ic("link")} 생성된 엔티티:</span>
-        ${entChips || `<span style="color:var(--muted)">연결된 엔티티 없음</span>`}
+        <span style="font-weight:700;color:var(--accent)">${ic("link")} ${esc(tr("synd.kb.reader.entities_label"))}:</span>
+        ${entChips || `<span style="color:var(--muted)">${esc(tr("synd.kb.reader.no_entities"))}</span>`}
       </div>
-      ${sourceTags.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px"><span style="font-weight:700;color:var(--muted)">${ic("tag")} 수집 태그:</span>${tagChips}</div>` : ""}
+      ${sourceTags.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px"><span style="font-weight:700;color:var(--muted)">${ic("tag")} ${esc(tr("synd.kb.reader.tags_label"))}:</span>${tagChips}</div>` : ""}
     </footer>`;
 
     return `<div class="tt-article-card" data-reader-for="${esc(doc.id)}">
@@ -408,30 +410,30 @@
         <div class="tt-art-title-row">
           <h2 class="tt-art-title"><a href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer">${esc(doc.title)}</a></h2>
           <div style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0">
-            <button type="button" class="tt-btn" data-font-delta="-1" title="본문 글자 축소">A-</button>
-            <button type="button" class="tt-btn" data-font-delta="1" title="본문 글자 확대">A+</button>
-            <button type="button" class="tt-btn" data-toggle-serif="1" title="고딕/명조 서체 전환">${prefs.readerFont === "serif" ? "명조" : "고딕"}</button>
-            <button type="button" class="tt-btn" popovertarget="pop-article-actions" data-art-menu-doc="${esc(doc.id)}" title="문서 추가 작업">⋯</button>
+            <button type="button" class="tt-btn" data-font-delta="-1" title="${esc(tr("synd.kb.reader.font_smaller"))}">A-</button>
+            <button type="button" class="tt-btn" data-font-delta="1" title="${esc(tr("synd.kb.reader.font_larger"))}">A+</button>
+            <button type="button" class="tt-btn" data-toggle-serif="1" title="${esc(tr("synd.kb.reader.font_toggle"))}">${esc(tr(prefs.readerFont === "serif" ? "synd.kb.reader.font_serif" : "synd.kb.reader.font_sans"))}</button>
+            <button type="button" class="tt-btn" popovertarget="pop-article-actions" data-art-menu-doc="${esc(doc.id)}" title="${esc(tr("synd.kb.reader.more_actions"))}">⋯</button>
           </div>
         </div>
         <div class="tt-art-meta">
-          <span><strong>${esc(theme.label)}</strong> · 작성자: ${esc(doc.author)} · ${esc(doc.timeAgo)} · 유형: <code>${esc((doc.sourceType || "web").toUpperCase())}</code></span>
+          <span><strong>${esc(theme.label)}</strong> · ${esc(tr("synd.kb.reader.author"))}: ${esc(doc.author)} · ${esc(doc.timeAgo)} · ${esc(tr("synd.kb.reader.type"))}: <code>${esc((doc.sourceType || "web").toUpperCase())}</code></span>
           <span style="display:inline-flex;gap:10px;align-items:center">
-            <a href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600">원문 링크 열기 ↗</a>
+            <a href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;font-weight:600">${esc(tr("synd.kb.reader.open_source"))} ↗</a>
           </span>
         </div>
       </header>
 
-      <div class="tt-view-switcher" role="region" aria-label="수집 원문 및 적재 본문 전환">
+      <div class="tt-view-switcher" role="region" aria-label="${esc(tr("synd.kb.reader.body_switch"))}">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div class="tt-seg" role="group" aria-label="본문 표시 모드">
-            <button type="button" class="tt-seg-btn ${activeTab === "original" ? "active" : ""}" data-switch-body="${esc(doc.id)}" data-target-tab="original">${ic("doc")} 수집 원문 (Original)</button>
-            <button type="button" class="tt-seg-btn ${activeTab === "ingested" ? "active" : ""}" data-switch-body="${esc(doc.id)}" data-target-tab="ingested">${ic("book")} 적재 본문 (Claire 정제본)</button>
+          <div class="tt-seg" role="group" aria-label="${esc(tr("synd.kb.reader.body_mode"))}">
+            <button type="button" class="tt-seg-btn ${activeTab === "original" ? "active" : ""}" data-switch-body="${esc(doc.id)}" data-target-tab="original">${ic("doc")} ${esc(tr("synd.kb.reader.tab_original"))}</button>
+            <button type="button" class="tt-seg-btn ${activeTab === "ingested" ? "active" : ""}" data-switch-body="${esc(doc.id)}" data-target-tab="ingested">${ic("book")} ${esc(tr("synd.kb.reader.tab_ingested"))}</button>
           </div>
           <span class="tt-link-dot linked">${ic("link")} ${esc(doc.id)}</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <button type="button" class="tt-btn tt-btn-pri" data-open-dispatch="${esc(doc.id)}" title="이 문서를 다른 테마 지식베이스로 전달하여 초점 적재 (POST /api/syndication/dispatch)">${ic("broadcast")} 다른 테마로 적재 전달</button>
+          <button type="button" class="tt-btn tt-btn-pri" data-open-dispatch="${esc(doc.id)}" title="${esc(tr("synd.kb.dispatch.action_title"))}">${ic("broadcast")} ${esc(tr("synd.kb.dispatch.action"))}</button>
         </div>
       </div>
 
@@ -443,13 +445,13 @@
   function renderDispatchesStream(container, readerPane, theme) {
     const dispatches = theme.dispatches || [];
     if (!dispatches.length) {
-      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">현재 테마와 관련된 교차 테마 적재 전달(Dispatch) 이력이 없습니다.</div>`;
-      readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">문서를 선택한 뒤 <b>${ic("broadcast")} 다른 테마로 적재 전달</b>을 실행하면 <code>POST /api/syndication/dispatch</code>를 통해 대상 테마로 적재되고 이력이 기록됩니다.</div>`;
+      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">${esc(tr("synd.kb.dispatch.history_empty"))}</div>`;
+      readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">${esc(tr("synd.kb.dispatch.history_hint"))}</div>`;
       return;
     }
     container.innerHTML = dispatches.map((d) => {
       const statusBadge = d.status === "done"
-        ? `<span class="tt-link-dot linked">● 완료</span>`
+        ? `<span class="tt-link-dot linked">● ${esc(tr("synd.kb.dispatch.done"))}</span>`
         : `<span class="tt-link-dot unlinked">● ${esc(d.status || "pending")}</span>`;
       return `<article class="tt-card-row" data-dispatch-doc="${esc(d.document_id || "")}">
         <div class="tt-card-topbar">
@@ -462,11 +464,11 @@
             <span class="tt-card-time">${esc(formatTimestamp(d.created_at))}</span>
           </div>
         </div>
-        <h3 class="tt-card-title">원본 문서: ${esc(d.document_id)} → 대상 문서: ${esc(d.remote_ref || "-")}</h3>
-        <p class="tt-card-snippet">적용 초점(Focus): ${esc(d.applied_focus || "(기본 초점)")}${d.error ? ` · 오류: ${esc(d.error)}` : ""}</p>
+        <h3 class="tt-card-title">${esc(tr("synd.kb.dispatch.source_doc"))}: ${esc(d.document_id)} → ${esc(tr("synd.kb.dispatch.target_doc"))}: ${esc(d.remote_ref || "-")}</h3>
+        <p class="tt-card-snippet">${esc(tr("synd.kb.dispatch.applied_focus"))}: ${esc(d.applied_focus || tr("synd.kb.dispatch.default_focus"))}${d.error ? ` · ${esc(tr("synd.kb.error"))}: ${esc(d.error)}` : ""}</p>
       </article>`;
     }).join("");
-    readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">교차 테마 적재 전달 이력 총 ${dispatches.length}건이 조회되었습니다.</div>`;
+    readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">${esc(tr("synd.kb.dispatch.history_count", { count: dispatches.length }))}</div>`;
   }
 
   function renderStreamAndReader() {
@@ -478,15 +480,15 @@
     if (state.treeSel.kind === "virtual" && state.treeSel.value === "dispatches") {
       renderDispatchesStream(container, readerPane, theme);
       const footer = document.getElementById("footer-stats");
-      if (footer) footer.textContent = `Theme #${theme.id} · 교차 테마 전달 이력 ${theme.dispatches.length}건`;
+      if (footer) footer.textContent = tr("synd.kb.footer.dispatches", { id: theme.id, count: theme.dispatches.length });
       return;
     }
 
     const visible = getVisibleDocuments();
     if (state.loading && !theme.loaded) {
-      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">테마 지식베이스 문서를 불러오는 중입니다…</div>`;
+      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">${esc(tr("synd.kb.loading"))}</div>`;
     } else if (visible.length === 0) {
-      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">표시할 적재 문서가 없습니다. 상단의 <b>+ 문서 적재</b> 버튼으로 문서를 적재하세요.</div>`;
+      container.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--muted);font-size:13px">${esc(tr("synd.kb.empty.stream"))}</div>`;
     } else {
       container.innerHTML = visible.map((doc) => {
         const isSel = state.selectedDocId === doc.id;
@@ -505,8 +507,8 @@
           return `<article class="tt-card-row ${doc.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-card-id="${esc(doc.id)}">
             <div class="tt-card-topbar">
               <div class="tt-card-meta-left">
-                <input type="checkbox" class="tt-row-check" data-check-id="${esc(doc.id)}" ${checked} aria-label="${esc(doc.title)} 선택"/>
-                <button type="button" class="tt-icon-btn ${doc.starred ? "starred" : ""}" data-star-id="${esc(doc.id)}" title="별표(고정) 토글">${doc.starred ? "★" : "☆"}</button>
+                <input type="checkbox" class="tt-row-check" data-check-id="${esc(doc.id)}" ${checked} aria-label="${esc(tr("synd.kb.row.select", { title: doc.title }))}"/>
+                <button type="button" class="tt-icon-btn ${doc.starred ? "starred" : ""}" data-star-id="${esc(doc.id)}" title="${esc(tr("synd.kb.row.star"))}">${doc.starred ? "★" : "☆"}</button>
                 <span class="tt-feed-pill proto-rss">${esc(srcLabel)}</span>
                 <span class="tt-card-feed-title">${esc(doc.author)}</span>
               </div>
@@ -519,10 +521,10 @@
             <h3 class="tt-card-title">${esc(doc.title)}</h3>
             ${summaryHtml}
             <div class="tt-card-bottom">
-              <div class="tt-card-tags">${entChips || `<span style="font-size:11px;color:var(--muted)">엔티티 ${doc.entityCount || 0}개</span>`}</div>
+              <div class="tt-card-tags">${entChips || `<span style="font-size:11px;color:var(--muted)">${esc(tr("synd.kb.row.entity_count", { count: doc.entityCount || 0 }))}</span>`}</div>
               <div class="tt-card-actions">
-                <button type="button" data-quick-dispatch="${esc(doc.id)}" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px">${ic("broadcast")} 테마 전달</button>
-                <a class="tt-ext-link" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" title="원문 링크 새 탭 열기">↗</a>
+                <button type="button" data-quick-dispatch="${esc(doc.id)}" class="tt-btn" style="height:23px;padding:0 7px;font-size:11px">${ic("broadcast")} ${esc(tr("synd.kb.row.dispatch_short"))}</button>
+                <a class="tt-ext-link" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" title="${esc(tr("synd.kb.row.open_new_tab"))}">↗</a>
               </div>
             </div>
           </article>`;
@@ -531,10 +533,10 @@
         const excerptHtml = prefs.showExcerpt ? `<span class="tt-flat-excerpt">— ${esc(doc.summary || doc.rawText || "")}</span>` : "";
         return `<div class="tt-row-wrap ${doc.unread ? "is-unread" : ""} ${isSel ? "is-selected" : ""}" data-row-id="${esc(doc.id)}">
           <div class="tt-flat-row" data-click-row="${esc(doc.id)}">
-            <input type="checkbox" class="tt-row-check" data-check-id="${esc(doc.id)}" ${checked} aria-label="${esc(doc.title)} 선택"/>
-            <button type="button" class="tt-icon-btn ${doc.starred ? "starred" : ""}" data-star-id="${esc(doc.id)}" title="별표(고정) 토글">${doc.starred ? "★" : "☆"}</button>
-            <button type="button" class="tt-icon-btn" data-quick-dispatch="${esc(doc.id)}" title="다른 테마로 적재 전달">${ic("broadcast")}</button>
-            <span class="tt-link-dot linked" title="테마 DB 적재 문서">${ic("link")} 적재</span>
+            <input type="checkbox" class="tt-row-check" data-check-id="${esc(doc.id)}" ${checked} aria-label="${esc(tr("synd.kb.row.select", { title: doc.title }))}"/>
+            <button type="button" class="tt-icon-btn ${doc.starred ? "starred" : ""}" data-star-id="${esc(doc.id)}" title="${esc(tr("synd.kb.row.star"))}">${doc.starred ? "★" : "☆"}</button>
+            <button type="button" class="tt-icon-btn" data-quick-dispatch="${esc(doc.id)}" title="${esc(tr("synd.kb.dispatch.action"))}">${ic("broadcast")}</button>
+            <span class="tt-link-dot linked" title="${esc(tr("synd.kb.row.ingested_title"))}">${ic("link")} ${esc(tr("synd.kb.row.ingested"))}</span>
             ${reactionBadge(doc)}
             <div class="tt-flat-main">
               <span class="tt-flat-title">${esc(doc.title)}</span>
@@ -544,7 +546,7 @@
             <div class="tt-flat-right">
               <span class="tt-feed-pill proto-rss">${esc(srcLabel)}</span>
               <span class="tt-flat-time">${esc(doc.timeAgo)}</span>
-              <a class="tt-ext-link" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" title="원문 열기">→</a>
+              <a class="tt-ext-link" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer" title="${esc(tr("synd.kb.row.open_source"))}">→</a>
             </div>
           </div>
         </div>`;
@@ -558,11 +560,11 @@
     }
     readerPane.innerHTML = selDoc
       ? buildReaderHtml(selDoc)
-      : `<div style="padding:36px;color:var(--muted);font-size:13px">목록에서 읽을 적재 문서를 선택하세요.</div>`;
+      : `<div style="padding:36px;color:var(--muted);font-size:13px">${esc(tr("synd.kb.reader.empty"))}</div>`;
 
     const footer = document.getElementById("footer-stats");
     if (footer) {
-      footer.textContent = `Theme #${theme.id} (${theme.label}) · 적재 문서 ${theme.documents.length}건 · 엔티티 ${theme.entities.length}개 · 전달 이력 ${theme.dispatches.length}건`;
+      footer.textContent = tr("synd.kb.footer.summary", { id: theme.id, label: theme.label, documents: theme.documents.length, entities: theme.entities.length, dispatches: theme.dispatches.length });
     }
     bindStreamAndReaderEvents();
   }
@@ -617,29 +619,29 @@
 
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 id="modal-dispatch-title" style="margin:0;font-size:16px;font-weight:700">${ic("broadcast")} 교차 테마 적재 전달 (POST /api/syndication/dispatch)</h2>
+        <h2 id="modal-dispatch-title" style="margin:0;font-size:16px;font-weight:700">${ic("broadcast")} ${esc(tr("synd.kb.dispatch.dialog_title"))}</h2>
         <button type="button" id="btn-close-dispatch" class="tt-btn">✕</button>
       </div>
-      <div style="font-size:12.5px;color:var(--muted)">선택한 문서(<code>${esc(doc.id)}</code> · <strong>${esc(doc.title)}</strong>)의 원문을 대상 테마의 적재 파이프라인으로 전달하여 대상 테마 초점에 맞춰 새로 정제·적재합니다.</div>
+      <div style="font-size:12.5px;color:var(--muted)"><code>${esc(doc.id)}</code> · <strong>${esc(doc.title)}</strong><br/>${esc(tr("synd.kb.dispatch.dialog_note"))}</div>
       <div>
-        <label for="dispatch-target-theme" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">대상 지식 테마 (target_theme_id)</label>
+        <label for="dispatch-target-theme" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.target_theme"))}</label>
         <select id="dispatch-target-theme" class="tt-btn" style="width:100%;height:34px">${targetOptions}</select>
       </div>
       <div>
-        <label for="dispatch-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">적용할 추출 초점 (focus · 선택)</label>
-        <input id="dispatch-focus" type="text" class="tt-search" style="width:100%;height:34px" value="${esc(theme.defaultFocus || "")}" placeholder="비워두면 대상 테마의 기본 초점(default_focus)이 적용됩니다"/>
+        <label for="dispatch-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.focus_label"))}</label>
+        <input id="dispatch-focus" type="text" class="tt-search" style="width:100%;height:34px" value="${esc(theme.defaultFocus || "")}" placeholder="${esc(tr("synd.kb.dispatch.focus_placeholder"))}"/>
       </div>
       <div id="dispatch-status-msg" style="font-size:12px;color:var(--muted)"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
-        <button type="button" id="btn-cancel-dispatch" class="tt-btn">취소</button>
-        <button type="button" id="btn-confirm-dispatch" class="tt-btn tt-btn-pri">${ic("broadcast")} 대상 테마로 적재 전달</button>
+        <button type="button" id="btn-cancel-dispatch" class="tt-btn">${esc(tr("common.action.cancel"))}</button>
+        <button type="button" id="btn-confirm-dispatch" class="tt-btn tt-btn-pri">${ic("broadcast")} ${esc(tr("synd.kb.dispatch.confirm"))}</button>
       </div>
       ${nativeActor ? `<fieldset id="dispatch-native" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
-        <legend style="font-size:12px;font-weight:700;padding:0 4px">${ic("home")} 네이티브 액터로 발행 (POST /api/federation/publish)</legend>
-        <div style="font-size:12.5px">대상: <b data-native-handle>${esc(nativeActor.handle)}</b> 의 팔로워 · 형식: Article</div>
-        <div style="font-size:11.5px;color:var(--muted)">${theme.isPublic ? "이 문서의 적재 본문을 팔로워의 서버로 전달합니다. 이미 발행한 문서는 갱신으로 전달합니다. 나중에 철회하거나 테마를 비공개로 바꾸면 삭제를 요청하지만, 원격 서버의 삭제는 보장되지 않습니다." : "비공개 테마의 문서는 발행할 수 없습니다."}</div>
+        <legend style="font-size:12px;font-weight:700;padding:0 4px">${ic("home")} ${esc(tr("synd.kb.publish.action"))}</legend>
+        <div style="font-size:12.5px">${esc(tr("synd.kb.publish.target"))}: <b data-native-handle>${esc(nativeActor.handle)}</b> · ${esc(tr("synd.kb.publish.format"))}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${esc(tr(theme.isPublic ? "synd.kb.publish.public_note" : "synd.kb.publish.private_note"))}</div>
         <div id="dispatch-native-msg" style="font-size:12px;color:var(--muted)"></div>
-        <div style="display:flex;justify-content:flex-end"><button type="button" id="btn-native-publish" class="tt-btn tt-btn-pri" ${theme.isPublic ? "" : "disabled"}>${ic("home")} 네이티브 액터로 발행</button></div>
+        <div style="display:flex;justify-content:flex-end"><button type="button" id="btn-native-publish" class="tt-btn tt-btn-pri" ${theme.isPublic ? "" : "disabled"}>${ic("home")} ${esc(tr("synd.kb.publish.action"))}</button></div>
       </fieldset>` : ""}
     `;
 
@@ -648,7 +650,7 @@
       nativeBtn.addEventListener("click", async () => {
         const msgEl = document.getElementById("dispatch-native-msg");
         nativeBtn.disabled = true;
-        if (msgEl) msgEl.textContent = "발행을 요청하고 있습니다…";
+        if (msgEl) msgEl.textContent = tr("synd.kb.publish.sending");
         try {
           const resp = await fetch("/api/federation/publish", {
             method: "POST",
@@ -658,15 +660,15 @@
           const data = await resp.json().catch(() => ({}));
           if (resp.status !== 202 || !data.object) {
             const errText = data.error || `HTTP ${resp.status}`;
-            if (msgEl) msgEl.textContent = `발행 실패: ${errText}`;
-            ticker(`네이티브 액터 발행 실패: ${errText}`);
+            if (msgEl) msgEl.textContent = tr("synd.kb.publish.failed", { error: errText });
+            ticker(tr("synd.kb.publish.failed", { error: errText }));
             nativeBtn.disabled = false;
             return;
           }
           modal.close();
-          ticker(`네이티브 액터 ${data.created ? "발행" : "갱신"} 요청 완료: ${doc.id} → ${nativeActor.handle}`);
+          ticker(tr(data.created ? "synd.kb.publish.created" : "synd.kb.publish.updated", { id: doc.id, handle: nativeActor.handle }));
         } catch (err) {
-          if (msgEl) msgEl.textContent = `네트워크 오류: ${err.message || err}`;
+          if (msgEl) msgEl.textContent = tr("synd.kb.network_error", { error: err.message || err });
           nativeBtn.disabled = false;
         }
       });
@@ -684,7 +686,7 @@
         const focusVal = document.getElementById("dispatch-focus").value.trim();
         const msgEl = document.getElementById("dispatch-status-msg");
         confirmBtn.disabled = true;
-        if (msgEl) msgEl.textContent = "교차 테마 적재 전달을 수행하고 있습니다…";
+        if (msgEl) msgEl.textContent = tr("synd.kb.dispatch.sending");
         try {
           const resp = await fetch("/api/syndication/dispatch", {
             method: "POST",
@@ -699,16 +701,16 @@
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok || !data.ok) {
             const errText = data.detail || data.error || `HTTP ${resp.status}`;
-            if (msgEl) msgEl.textContent = `전달 실패: ${errText}`;
-            ticker(`교차 테마 적재 전달 실패: ${errText}`);
+            if (msgEl) msgEl.textContent = tr("synd.kb.dispatch.failed", { error: errText });
+            ticker(tr("synd.kb.dispatch.failed", { error: errText }));
             confirmBtn.disabled = false;
             return;
           }
           modal.close();
-          ticker(`교차 테마 적재 완료: ${doc.id} → Theme #${targetThemeId} (${data.target_document_id})`);
+          ticker(tr("synd.kb.dispatch.completed", { id: doc.id, theme: targetThemeId, target: data.target_document_id }));
           await syncLiveThemeDb();
         } catch (err) {
-          if (msgEl) msgEl.textContent = `네트워크 오류: ${err.message || err}`;
+          if (msgEl) msgEl.textContent = tr("synd.kb.network_error", { error: err.message || err });
           confirmBtn.disabled = false;
         }
       });
@@ -900,7 +902,7 @@
     prefs.listStyle = state.listStyle;
     savePrefs();
     closeOpenPopovers();
-    ticker(`목록 스타일: ${listStyleLabel(state.listStyle)} — ${i18n(LIST_STYLE_META[state.listStyle].desc)}`);
+    ticker(`${tr("synd.kb.list_style.title")}: ${listStyleLabel(state.listStyle)} — ${i18n(LIST_STYLE_META[state.listStyle].desc)}`);
     renderAll();
   }
 
@@ -915,7 +917,7 @@
     prefs.layoutMode = state.layoutMode;
     savePrefs();
     closeOpenPopovers();
-    ticker(`화면 분할: ${state.layoutMode === "three-panel" ? "3단 분할 (좌-중-우)" : "2단 상하 분할 (좌-상하)"}`);
+    ticker(`${tr("synd.kb.layout.title")}: ${tr(state.layoutMode === "three-panel" ? "synd.kb.layout.three_long" : "synd.kb.layout.two_long")}`);
     renderAll();
   }
 
@@ -962,7 +964,7 @@
         const docs = curTheme().documents || [];
         const targets = state.checkedIds.size > 0 ? docs.filter((x) => state.checkedIds.has(x.id)) : getVisibleDocuments();
         targets.forEach((d) => markDocumentSeen(d));
-        ticker(`${targets.length}개 문서 읽음 처리 완료`);
+        ticker(tr("synd.kb.marked_read", { count: targets.length }));
         renderAll();
       });
     }
@@ -990,7 +992,7 @@
         closeOpenPopovers();
         if (!doc) return;
         if (cmd === "open-url") window.open(doc.url, "_blank", "noopener");
-        else if (cmd === "show-url") window.prompt("문서 URL:", doc.url);
+        else if (cmd === "show-url") window.prompt(tr("synd.kb.url_prompt"), doc.url);
         else if (cmd === "toggle-unread") { markDocumentSeen(doc); renderAll(); }
         else if (cmd === "toggle-star") togglePinDocument(doc);
         else if (cmd === "dispatch") openDispatchModal(doc.id);
@@ -1020,7 +1022,7 @@
         const focus = focusEl ? focusEl.value.trim() : "";
         if (!payload) return;
         if (submitBtn) submitBtn.disabled = true;
-        ticker("문서 적재 요청을 전송하고 있습니다…");
+        ticker(tr("synd.kb.ingest.sending"));
         try {
           const resp = await fetch("/ingest", {
             method: "POST",
@@ -1033,17 +1035,17 @@
           });
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok || data.error) {
-            ticker(`적재 실패: ${data.detail || data.error || resp.status}`);
+            ticker(tr("synd.kb.ingest.failed", { error: data.detail || data.error || resp.status }));
           } else {
             if (ingestModal) ingestModal.close();
             if (payloadEl) payloadEl.value = "";
             if (focusEl) focusEl.value = "";
             if (data.document_id) state.selectedDocId = data.document_id;
-            ticker(`문서 적재 완료: ${data.document_id || ""}`);
+            ticker(tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
             await syncLiveThemeDb();
           }
         } catch (err) {
-          ticker(`적재 오류: ${err.message || err}`);
+          ticker(tr("synd.kb.ingest.failed", { error: err.message || err }));
         } finally {
           if (submitBtn) submitBtn.disabled = false;
         }
@@ -1102,7 +1104,7 @@
     Object.assign(prefs, nextPrefs);
     state.layoutMode = prefs.layoutMode === "two-panel" ? "two-panel" : "three-panel";
     state.listStyle = prefs.listStyle;
-    state.treeSel = { kind: "virtual", value: "all", label: "전체 적재 문서 (All documents)" };
+    state.treeSel = { kind: "virtual", value: "all", label: tr("synd.kb.stream.all") };
     state.checkedIds.clear();
     state.selectedDocId = null;
   }

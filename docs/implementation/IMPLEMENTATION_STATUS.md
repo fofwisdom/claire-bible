@@ -78,7 +78,7 @@ Limits:
 
 1. The workspace links to `/syndication` only from the bar (`#syndlink`, for the owner) and from the stage strip. `/syndication` is not in the manifests and is not a view of the workspace.
 2. `/syndication` and the console do not show the authentication state. The console link of the workspace goes to `/admin` for an administrator and to `/settings` for other accounts; the link of `/syndication` goes to `/settings/reader`.
-3. The text of the view toolbar of `/syndication` and the text of the console body are not in the catalogs (units IP2-2 and IP2-3 of [`I18N_DESIGN.md`](../design/I18N_DESIGN.md)).
+3. The text of `/syndication` is in the catalogs (`synd.*`; the knowledge base view has `synd.kb.*`, test `e2e/syndication_i18n.spec.js`). The text of the console body and of the workspace is not in the catalogs (units IP2-2 and IP2-3 of [`I18N_DESIGN.md`](../design/I18N_DESIGN.md)).
 4. The login and setup pages, the shared document page, and the public pages have no application bar.
 
 ### 1.6 보류 결정 [결정]

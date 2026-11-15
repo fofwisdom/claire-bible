@@ -65,9 +65,9 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert 'data-list-style="list"' in r_pub.text
         assert 'id="btn-toggle-list-style"' in r_pub.text
         assert 'id="btn-toggle-layout"' in r_pub.text
-        assert "수집 원문" in r_pub.text
-        assert "적재 본문" in r_pub.text
-        assert "생성된 엔티티" in r_pub.text
+        # The text of the reader comes from the catalogs (static/locales/{en,ko}.json).
+        for key in ("synd.kb.reader.tab_original", "synd.kb.reader.tab_ingested", "synd.kb.reader.entities_label"):
+            assert f'tr("{key}")' in r_pub.text, key
         assert "/prototype/syndication" not in r_pub.text
         assert "CLAIRE_SYND_SEEDS" not in r_pub.text
 

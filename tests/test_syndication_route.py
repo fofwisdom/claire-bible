@@ -7,6 +7,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
+from claire.i18n import load_catalog
 from claire.store import db as dbm
 
 OWNER_TOKEN = "o" * 32
@@ -75,9 +76,9 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'name="claire-storage-key" content="a' in res_public.text
         assert "claireSyndicationPrefs_v2" not in res_public.text
         assert 'PREFS_SLOT_PREFIX: "claire_synd_prefs_v2:"' in res_public.text
-        assert "수집 원문" in res_public.text
-        assert "적재 본문" in res_public.text
-        assert "생성된 엔티티" in res_public.text
+        # The text of the reader comes from the catalogs (static/locales/{en,ko}.json).
+        for key in ("synd.kb.reader.tab_original", "synd.kb.reader.tab_ingested", "synd.kb.reader.entities_label"):
+            assert f'tr("{key}")' in res_public.text, key
         assert "/prototype/syndication" not in res_public.text
 
         # Live /syndication does not ship fake seeds or simulated federation prototypes.
@@ -91,12 +92,14 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         # Four list styles: list / compact / card / roomy.
         for style in ("list", "compact", "card", "roomy"):
             assert f'data-set-list-style="{style}"' in res_public.text
-        for label in ("☰ 목록<", "≡ 조밀하게<", "▤ 일반<", "▭ 넓게<"):
-            assert label in res_public.text
+        # The labels come from the catalogs; the page has the keys and the glyphs.
+        for glyph, style in (("☰", "list"), ("≡", "compact"), ("▤", "card"), ("▭", "roomy")):
+            assert f'{style}: {{ icon: "{glyph}", label: "synd.kb.list_style.{style}", desc: "synd.kb.list_style.{style}_desc" }}' in res_public.text
         for paren in ("(리스트)", "(컴팩트)", "(카드)", "(루미)"):
             assert paren not in res_public.text
-        assert 'en: "Compact"' in res_public.text
-        assert 'en: "Roomy"' in res_public.text
+        catalog_en = load_catalog("en")
+        assert catalog_en["synd.kb.list_style.compact"] == "Compact"
+        assert catalog_en["synd.kb.list_style.roomy"] == "Roomy"
 
         res_head = client.head("/syndication", headers=headers)
         assert res_head.status_code == 200
