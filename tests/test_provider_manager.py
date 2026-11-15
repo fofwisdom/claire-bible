@@ -287,3 +287,46 @@ def test_agy_models_parsing_and_effort_inference(tmp_path: Path):
         pm.update_config({"providers": {"codex": {"model": "unsupported-codex-model"}}})
     with pytest.raises(ValueError):
         pm.update_config({"providers": {"openai": {"model": "unsupported-openai-model"}}})
+
+
+def test_agy_discovery_fallback_excludes_gemini4_on_legacy_cli(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    import claire.provider_manager as pm_mod
+
+    pm_mod._AGY_MODELS_CACHE.clear()
+    pm_mod._AGY_VERSION_CACHE.clear()
+    monkeypatch.setattr(pm_mod, "find_agy_executable", lambda _bin="agy": "/host-bin/agy")
+    monkeypatch.setattr(pm_mod, "diagnose_agy_environment", lambda _bin="agy": {"found_path": "/host-bin/agy", "is_executable": True})
+
+    def fake_run(cmd, **_kwargs):
+        if cmd[1:] == ["--version"]:
+            return SimpleNamespace(returncode=0, stdout="1.1.14\n", stderr="")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unknown command: models\n")
+
+    monkeypatch.setattr(pm_mod.subprocess, "run", fake_run)
+
+    disc = pm_mod.discover_agy_models("agy", force_refresh=True)
+    assert disc["source"] == "fallback"
+    assert disc["cli_version"] == "1.1.14"
+    ids = {m["id"] for m in disc["models"]}
+    assert "gemini-3.8-flash-medium" in ids
+    assert "gemini-4-hydrogen-medium" not in ids
+
+    pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
+    sanitized = pm.get_sanitized_config()
+    assert sanitized["providers"]["antigravity"]["models_source"] == "fallback"
+    assert sanitized["providers"]["antigravity"]["cli_version"] == "1.1.14"
+
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"antigravity": {"model": "gemini-4-hydrogen-medium"}}})
+
+    updated = pm.update_config({"providers": {"antigravity": {"model": "gemini-3.8-flash-medium"}}})
+    assert updated["providers"]["antigravity"]["model"] == "gemini-3.8-flash-medium"
+
+    conn = pm.test_connection("antigravity")
+    assert conn["ok"] is True
+    assert "v1.1.14" in conn["message"]
+    assert conn["details"]["models_source"] == "fallback"
+
+    pm_mod._AGY_MODELS_CACHE.clear()
+    pm_mod._AGY_VERSION_CACHE.clear()

@@ -326,6 +326,8 @@ class AntigravityProvider:
                 output_snippet=stdout[:500] if stdout else None,
             )
             logger.error("agy CLI returned non-zero code %d: %s", exit_code, err_msg)
+            if "is not recognized as a known model" in err_msg:
+                raise RuntimeError(f"agy CLI model '{self.model}' is not supported by installed agy CLI (update host agy or select a supported model in /admin/providers): {err_msg[:600]}")
             raise RuntimeError(f"agy CLI failed (code {exit_code}): {err_msg[:300]}")
 
         if output_format == "text":

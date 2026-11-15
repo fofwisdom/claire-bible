@@ -779,6 +779,63 @@ test('provider management lives in the admin console and the root topbar shows o
   expect(pageErrors).toEqual([]);
 });
 
+test('admin providers surfaces legacy agy fallback warning and excludes unverified models', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/?t=e2e-owner-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
+
+  await page.evaluate(async () => {
+    if (!navigator.serviceWorker) return;
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r => r.unregister()));
+  });
+
+  await page.route(u => u.pathname === '/providers', async (route) => {
+    if (route.request().method() !== 'GET') {
+      return route.continue();
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        active_provider: 'antigravity',
+        providers: {
+          gemini: { has_api_key: false, api_key: '', model: 'gemini-3.1-flash-lite', embed_model: 'gemini-embedding-001' },
+          antigravity: {
+            installed: true,
+            bin: 'agy',
+            model: 'gemini-4-hydrogen-medium',
+            cli_version: '1.1.14',
+            models_source: 'fallback',
+            available_models: [
+              { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+              { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
+              { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }
+            ]
+          },
+          codex: { installed: false, bin: 'codex', model: '' },
+          openai: { has_api_key: false, api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', embed_model: 'text-embedding-3-small' },
+          jev: { enabled: false, has_api_key: false, api_key: '' },
+          stt: { enabled: true, provider: 'gemini', model: '', language: 'ko', timeout: 600 }
+        }
+      })
+    });
+  });
+
+  await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
+  const detailPane = page.locator('#admin-providers-host');
+  await expect(detailPane).toBeVisible();
+  await expect(detailPane).toContainText('(v1.1.14)');
+  await expect(page.locator('#prov-agy-model')).toHaveValue('gemini-3.8-flash-medium');
+  await expect(page.locator('#prov-agy-model option[value="gemini-4-hydrogen-medium"]')).toHaveCount(0);
+  await expect(detailPane).toContainText('CLI v1.1.14에서 동적 모델 조회에 실패하여 기본 호환 모델만 표시합니다');
+
+  expect(pageErrors).toEqual([]);
+});
+
 test('decision stream and heatmap matrix are separate features with proper audit stream and matrix confirm', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

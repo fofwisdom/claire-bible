@@ -30,14 +30,6 @@ log = logging.getLogger("claire.provider")
 PROVIDERS_CONFIG_FILENAME = "providers.json"
 
 DEFAULT_AGY_MODELS: list[dict[str, str]] = [
-    {"id": "gemini-4-argon-medium", "label": "Gemini 4 Argon (Medium)"},
-    {"id": "gemini-4-argon-high", "label": "Gemini 4 Argon (High)"},
-    {"id": "gemini-4-argon-low", "label": "Gemini 4 Argon (Low)"},
-    {"id": "gemini-4-hydrogen-high", "label": "Gemini 4 Hydrogen (High)"},
-    {"id": "gemini-4-hydrogen-xhigh", "label": "Gemini 4 Hydrogen (XHigh)"},
-    {"id": "gemini-4-hydrogen-medium", "label": "Gemini 4 Hydrogen (Medium)"},
-    {"id": "gemini-4-hydrogen-low", "label": "Gemini 4 Hydrogen (Low)"},
-    {"id": "gemini-pro-orchestrator-g1-pro", "label": "Orchestrator (Argon)"},
     {"id": "gemini-3.8-flash-high", "label": "Gemini 3.8 Flash (High)"},
     {"id": "gemini-3.8-flash-medium", "label": "Gemini 3.8 Flash (Medium)"},
     {"id": "gemini-3.8-flash-low", "label": "Gemini 3.8 Flash (Low)"},
@@ -99,7 +91,9 @@ DEFAULT_OPENAI_EMBED_MODELS: tuple[str, ...] = (
 )
 
 _AGY_MODELS_CACHE_TTL_SEC = 300.0
-_AGY_MODELS_CACHE: dict[str, tuple[float, list[dict[str, str]]]] = {}
+_AGY_FALLBACK_CACHE_TTL_SEC = 60.0
+_AGY_MODELS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_AGY_VERSION_CACHE: dict[str, tuple[float, str | None]] = {}
 _GEMINI_DISCOVERED_MODELS: list[str] = []
 
 
@@ -110,6 +104,34 @@ def infer_agy_effort_from_model(model_name: str) -> str | None:
         if m.endswith(f"-{suf}"):
             return suf
     return None
+
+
+def _agy_cli_env() -> dict[str, str]:
+    """Build the minimal environment for agy CLI discovery commands."""
+    from .extract.antigravity_provider import _subprocess_env
+
+    return _subprocess_env()
+
+
+def get_agy_cli_version(exe: str, *, force_refresh: bool = False) -> str | None:
+    """Return the version string of the installed agy CLI binary, or None."""
+    now = time.monotonic()
+    if not force_refresh and exe in _AGY_VERSION_CACHE:
+        cached_at, cached_ver = _AGY_VERSION_CACHE[exe]
+        if (now - cached_at) < _AGY_MODELS_CACHE_TTL_SEC:
+            return cached_ver
+    ver: str | None = None
+    try:
+        proc = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=3.0, env=_agy_cli_env(), check=False)
+        raw = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+        if proc.returncode == 0 and raw:
+            first_line = raw.splitlines()[0].strip()
+            if first_line and len(first_line) <= 64:
+                ver = first_line
+    except Exception as exc:
+        log.debug("Failed to read agy version via %s: %s", exe, exc)
+    _AGY_VERSION_CACHE[exe] = (now, ver)
+    return ver
 
 
 def _parse_agy_models_output(raw: str) -> list[dict[str, str]]:
@@ -135,33 +157,39 @@ def _parse_agy_models_output(raw: str) -> list[dict[str, str]]:
     return models
 
 
-def list_agy_models(
-    bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False
-) -> list[dict[str, str]]:
-    """설치된 agy CLI에서 사용 가능한 모델 목록을 조회한다(실패 시 기본 목록 폴백)."""
+def discover_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False) -> dict[str, Any]:
+    """Query the installed agy CLI for supported models and report discovery metadata."""
     exe = find_agy_executable(bin_name)
     if not exe:
-        return [dict(item) for item in DEFAULT_AGY_MODELS]
+        return {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": None, "error": "agy binary not found"}
     now = time.monotonic()
     if not force_refresh and exe in _AGY_MODELS_CACHE:
-        cached_at, cached_models = _AGY_MODELS_CACHE[exe]
-        if (now - cached_at) < _AGY_MODELS_CACHE_TTL_SEC:
-            return [dict(item) for item in cached_models]
+        cached_at, cached = _AGY_MODELS_CACHE[exe]
+        ttl = _AGY_MODELS_CACHE_TTL_SEC if cached["source"] == "cli" else _AGY_FALLBACK_CACHE_TTL_SEC
+        if (now - cached_at) < ttl:
+            return {"models": [dict(item) for item in cached["models"]], "source": cached["source"], "cli_version": cached["cli_version"], "error": cached["error"]}
+    cli_version = get_agy_cli_version(exe, force_refresh=force_refresh)
+    err_detail: str | None = None
     try:
-        proc = subprocess.run(
-            [exe, "models"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        proc = subprocess.run([exe, "models"], capture_output=True, text=True, timeout=timeout, env=_agy_cli_env(), check=False)
         parsed = _parse_agy_models_output(proc.stdout or "")
         if proc.returncode == 0 and parsed:
-            _AGY_MODELS_CACHE[exe] = (now, parsed)
-            return [dict(item) for item in parsed]
+            result = {"models": parsed, "source": "cli", "cli_version": cli_version, "error": None}
+            _AGY_MODELS_CACHE[exe] = (now, result)
+            return {"models": [dict(item) for item in parsed], "source": "cli", "cli_version": cli_version, "error": None}
+        raw_err = ((proc.stderr or "") or (proc.stdout or "")).strip()
+        err_detail = raw_err.splitlines()[0][:200] if raw_err else f"exit code {proc.returncode}"
     except Exception as exc:
+        err_detail = str(exc)[:200]
         log.debug("Failed to list agy models via %s: %s", exe, exc)
-    return [dict(item) for item in DEFAULT_AGY_MODELS]
+    fallback = {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": cli_version, "error": err_detail}
+    _AGY_MODELS_CACHE[exe] = (now, fallback)
+    return {"models": [dict(item) for item in DEFAULT_AGY_MODELS], "source": "fallback", "cli_version": cli_version, "error": err_detail}
+
+
+def list_agy_models(bin_name: str = "agy", *, timeout: float = 10.0, force_refresh: bool = False) -> list[dict[str, str]]:
+    """설치된 agy CLI에서 사용 가능한 모델 목록을 조회한다(실패 시 기본 목록 폴백)."""
+    return discover_agy_models(bin_name, timeout=timeout, force_refresh=force_refresh)["models"]
 
 
 def list_gemini_models() -> list[str]:
@@ -436,7 +464,12 @@ class ProviderManager:
             agy = providers["antigravity"]
             bin_name = str(agy.get("bin") or "agy")
             agy["installed"] = find_agy_executable(bin_name) is not None
-            agy["available_models"] = list_agy_models(bin_name)
+            disc = discover_agy_models(bin_name)
+            agy["available_models"] = disc["models"]
+            agy["models_source"] = disc["source"]
+            agy["cli_version"] = disc["cli_version"]
+            if disc["error"]:
+                agy["models_error"] = disc["error"]
 
         # Codex CLI
         if "codex" in providers:
@@ -547,6 +580,9 @@ class ProviderManager:
                         "installed",
                         "available_models",
                         "available_embed_models",
+                        "models_source",
+                        "cli_version",
+                        "models_error",
                     ):
                         continue
                     target[k] = v
@@ -827,12 +863,18 @@ class ProviderManager:
             exe = find_agy_executable(bin_name)
             if exe:
                 diag = diagnose_agy_environment(bin_name)
-                models = list_agy_models(bin_name, force_refresh=True)
+                disc = discover_agy_models(bin_name, force_refresh=True)
+                models = disc["models"]
+                ver_text = f"v{disc['cli_version']}" if disc.get("cli_version") else "버전 확인 불가"
+                if disc["source"] == "cli":
+                    msg = f"Antigravity CLI 감지 성공: {exe} ({ver_text}, 모델 {len(models)}개 조회)"
+                else:
+                    msg = f"Antigravity CLI 감지 성공: {exe} ({ver_text}, 동적 모델 조회 불가 → 기본 호환 모델 {len(models)}개만 허용; Gemini 4 사용 시 호스트 agy 업데이트 필요)"
                 return {
                     "ok": True,
                     "provider": "antigravity",
-                    "message": f"Antigravity CLI 감지 성공: {exe} (모델 {len(models)}개)",
-                    "details": {**diag, "models": models},
+                    "message": msg,
+                    "details": {**diag, "models": models, "models_source": disc["source"], "cli_version": disc["cli_version"], "models_error": disc["error"]},
                 }
             return {
                 "ok": False,
