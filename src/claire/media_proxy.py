@@ -336,11 +336,35 @@ def cleanup_proxy(settings: Any) -> MediaProxy:
     return MediaProxy(settings, get_media_store(settings))
 
 
+def run_retention(settings: Any, *, apply: bool, now: float | None = None) -> dict[str, int]:
+    """The retention run of the timeline items (design Section 10 rules 1 and 2) with the instance value of ``claire.db`` and the account values of ``client.db``. No client database gives zero items."""
+    conn = dbm.connect_existing(Path(settings.db_file), readonly=True)
+    try:
+        instance_days = int(client_store.get_reading_settings(conn)["retention_days"])
+    finally:
+        conn.close()
+    path = client_db.client_db_path(settings.db_file)
+    if not path.exists():
+        return {"retention_days": instance_days, "expired_items": 0}
+    client = client_db.connect_client_existing(path, readonly=not apply)
+    try:
+        result = client_store.retention_run(client, instance_days=instance_days, now=time.time() if now is None else now, apply=apply)
+        if apply:
+            client.commit()
+        return result
+    finally:
+        client.close()
+
+
 async def run_cleanup_scheduler(settings: Any) -> None:
-    """The media eviction, one time each day in the ``api`` process. The first run is ``CLEANUP_START_DELAY`` seconds after the start. Cancel the task to stop."""
+    """The retention run and the media eviction, one time each day in the ``api`` process. The first run is ``CLEANUP_START_DELAY`` seconds after the start. Cancel the task to stop."""
     await asyncio.sleep(CLEANUP_START_DELAY)
     while True:
         try:
+            # The retention run comes first: the media cleanup then deletes the media of the items that went (design Section 10 rule 4).
+            kept = await asyncio.to_thread(run_retention, settings, apply=True)
+            if kept["expired_items"]:
+                log.info("retention run: %d timeline item(s) older than the retention deleted", kept["expired_items"])
             result = await cleanup_proxy(settings).evict()
             if result["evicted"] or result["orphans"]:
                 log.info("media cleanup: %d entry(ies) without an access in %d day(s), %d entry(ies) without an item", result["evicted"], result["evict_days"], result["orphans"])

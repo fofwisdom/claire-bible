@@ -326,3 +326,18 @@ def test_thread_fetch_reads_the_note_of_drfed_and_finds_no_collection(stack, cla
     claire._wait(lambda: claire.api("POST", f"/api/federation/timeline/{item}/context").json() == {"state": "recent", "pending": False}, "the thread fetch task did not end", seconds=60)
     thread = claire.api("GET", f"/api/federation/timeline/{item}").json()["thread"]
     assert [entry["id"] for entry in thread] == [item]
+
+
+def test_quote_request_arrives_and_the_quote_stays_pending(stack, claire):
+    """Unit FP4-9Q against DrFed: the request and the note with the quote arrive. DrFed 0.1.0 sends no answer, thus the quote stays ``pending``."""
+    author = stack.actors[1]
+    made = stack.graphql(CREATE_OBJECT, {"actor": author.id, "html": "<p>A note to quote.</p>", "to": [PUBLIC]})["createObject"]
+    item = claire.add_item(made["iri"], author, "<p>A note to quote.</p>")
+    quoted = claire.api("POST", "/api/federation/notes", {"content": "A quote from Claire", "quote_of": item})
+    assert quoted.status_code == 201, quoted.text
+    note = quoted.json()["note"]
+    request = _verified(claire.deliveries("QuoteRequest")[0], claire)
+    assert _ids(request["object"]) == [made["iri"]] and _ids(request["instrument"]) == [note["url"]]
+    create = _verified([d for d in claire.deliveries("Create", 2) if d["payload"]["object"].get("id") == note["url"]][-1], claire)
+    assert create["object"]["quote"] == made["iri"] and made["iri"] in create["object"]["content"]
+    assert claire.api("GET", f"/api/federation/timeline/{quoted.json()['item_id']}").json()["item"]["note"]["quote"] == {"iri": made["iri"], "state": "pending"}

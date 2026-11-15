@@ -30,6 +30,7 @@ __all__ = [
     "add_following",
     "count_following",
     "effective_retention_days",
+    "expired_item_ids",
     "get_account_retention",
     "get_following",
     "get_reading_settings",
@@ -45,6 +46,7 @@ __all__ = [
     "lease_client_tasks",
     "resolve_following",
     "remove_following",
+    "retention_run",
     "set_account_retention",
     "set_following_state",
     "set_reading_settings",
@@ -272,6 +274,45 @@ def set_account_retention(conn: sqlite3.Connection, account_id: int, retention_d
 def effective_retention_days(conn: sqlite3.Connection, account_id: int, *, instance_value: int) -> int:
     own = get_account_retention(conn, account_id)
     return instance_value if own is None else min(own, instance_value)
+
+
+# --- Retention run (Section 10 rules 1, 2, and 4) ---------------------------
+
+
+def expired_item_ids(conn: sqlite3.Connection, *, instance_days: int, now: float) -> list[int]:
+    """The timeline items that the retention run deletes (``client.db``).
+
+    An item goes when it is older than the retention of its account by ``received_at``, is not starred, and has no ingested document. An own note that is not deleted keeps its item (the item has the controls of the note). An item with ``in_timeline`` = 0 that is the parent of an item that stays also stays (rule 2), through all levels.
+    """
+    own = {int(account): int(days) for account, days in conn.execute("SELECT account_id, retention_days FROM federation_account_settings WHERE retention_days IS NOT NULL")}
+    has_notes = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='federation_notes'").fetchone() is not None
+    own_note = "AND NOT EXISTS (SELECT 1 FROM federation_notes n WHERE n.account_id=i.account_id AND n.deleted_at IS NULL AND i.object_iri LIKE '%/ap/objects/' || n.public_id)" if has_notes else ""
+    expired: list[int] = []
+    for (account_id,) in conn.execute("SELECT DISTINCT account_id FROM federation_timeline_items").fetchall():
+        days = min(own.get(int(account_id), instance_days), instance_days)
+        rows = conn.execute(f"SELECT i.id, i.object_iri, i.in_timeline FROM federation_timeline_items i WHERE i.account_id=? AND i.received_at < ? AND i.starred=0 AND i.linked_doc_id IS NULL {own_note}", (account_id, now - days * 86400.0)).fetchall()
+        candidates = {int(item_id): (str(object_iri), int(in_timeline)) for item_id, object_iri, in_timeline in rows}
+        while True:
+            # The parents (``in_timeline`` = 0) of the items that stay.
+            marks = ",".join("?" * len(candidates)) or "NULL"
+            parents = {str(row[0]) for row in conn.execute(f"SELECT DISTINCT in_reply_to_iri FROM federation_timeline_items WHERE account_id=? AND in_reply_to_iri IS NOT NULL AND id NOT IN ({marks})", (account_id, *candidates))}
+            kept = [item_id for item_id, (object_iri, in_timeline) in candidates.items() if in_timeline == 0 and object_iri in parents]
+            if not kept:
+                break
+            for item_id in kept:
+                del candidates[item_id]
+        expired.extend(sorted(candidates))
+    return expired
+
+
+def retention_run(conn: sqlite3.Connection, *, instance_days: int, now: float, apply: bool) -> dict[str, int]:
+    """Count, and with ``apply`` delete, the timeline items that are older than the retention. The caller commits. The media cleanup deletes the media entries that no item uses after this run."""
+    ids = expired_item_ids(conn, instance_days=instance_days, now=now)
+    if apply:
+        for start in range(0, len(ids), 500):
+            part = ids[start : start + 500]
+            conn.execute(f"DELETE FROM federation_timeline_items WHERE id IN ({','.join('?' * len(part))})", part)
+    return {"retention_days": instance_days, "expired_items": len(ids)}
 
 
 # --- Client outbox (Section 5.2) -------------------------------------------

@@ -34,6 +34,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Thread fetch: route `POST /api/federation/timeline/{item_id}/context`, task `fetch_context` of the client outbox, internal endpoints `context-tasks` and `context-objects`, contract 1.5, sidecar fetch with `@fedify/backfill` (Section 24) | Implemented (FP4-6) |
 | Outbound interactions: `client.db` version 5 (`federation_notes`), contract 1.6, reply, new note, edit, delete (410), content warning, language, hashtags, favourite and boost with their undo, counters of own notes, compose controls of the client (Section 25) | Implemented (FP4-9). No quote before FP4-9Q. |
 | Quotes (FEP-044f): `client.db` version 6 (quote columns of `federation_notes`, `federation_quote_authorizations`), `claire.db` version 24 (`federation_objects.quote_policy`), contract 1.7, outbound `QuoteRequest` with the quote states, inbound requests with the quote policy, the authorization path `/ap/quote-authorizations/{id}` with 410 after a revoke, quote controls of the client (Section 26) | Implemented (FP4-9Q) |
+| End-to-end with a remote server and retention: the DrFed 0.1.0 test stack in Docker with scenarios of a real Claire process and its sidecar, the development switch `allow_private_addresses` (contract 1.8), the retention run of the timeline items in the daily cleanup and in `claire federation prune` | Unit FP4-10 complete. See Section 27. |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25), and deliveries of the quote activities with the fetch of the authorization of an `Accept` (Section 26).
 
@@ -1098,7 +1099,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 - `Cross-Origin-Resource-Policy` is `cross-origin`, not `same-site` (design Section 9.1 rule 5). The body is in a sandbox frame with an opaque origin, and Chromium refuses a `same-site` resource for an opaque origin (confirmed with a test in a real browser). The media token is the access control.
 - The token has the account ID in its text (`{account_id}.{exp}.{signature}`), because the media host has no session.
-- `claire federation prune` does the media cleanup only. The retention run of the items (design Section 10 rule 2) is part of unit FP4-10.
+- `claire federation prune` also does the retention run of the items from unit FP4-10 (Section 27.4).
 - An `Update` that changes the media of an item leaves the old entries until the next cleanup.
 - The table has no column for the reason of a failed fetch. The log of the process has the reason.
 - The timeline list has no thumbnail: media shows in the body only.
@@ -1285,7 +1286,7 @@ The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17),
 - An object that comes in an earlier request than the object that links it to the thread is not stored, when it has no `context` of the thread.
 - A task of an account that stops being an actor waits until the account is an actor again. While it waits, no new task of that thread is made.
 - The thread view shows 200 items at most (Section 19), also when the fetch stored more.
-- A fetched item has no part in the retention rules of this unit: the retention run is unit FP4-10.
+- A fetched item has `in_timeline` = 0. The retention run deletes it when it is older than the retention, unless it is the parent of an item that stays (Section 27.4).
 - The Deno tests have no network permission. The remote servers of the tests are in the test process (a replaced `fetch`), as in the other sidecar tests, not a listener on a local port.
 
 Tests: `tests/test_e2e_federation_thread_fetch.py` (a real app and the signed internal API: task, no second task in the refetch time, lease, storage rules, limits, the switch, the actor rule), `tests/test_federation_routes.py` (contract 1.5 fixtures `context_tasks.json` and `context_objects.json`), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`, `sidecar/fedify/tests/context_test.ts` (context collection with pages, reply tree, limits, blocked domain, objects of other origins, parts), `sidecar/fedify/tests/internal_api_test.ts` (fixtures), `e2e/federation_client.spec.js` (the note and the new thread in a browser).
@@ -1486,6 +1487,65 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 - The `Tombstone` of a revoked authorization has `formerType` as the short name `QuoteAuthorization`.
 - No retry state in the view: a task that the sidecar rejects (for example `actor_not_found` for a `quote_authorize` task) is visible in `federation_client_outbox` only. The request stays `approved`, and the authorization path serves it.
 - The Deno tests have no network permission. The remote servers of the tests are in the test process (a replaced `fetch`), as in the other sidecar tests.
-- The quote protocol is not confirmed with a real remote server (unit FP4-10): the request, the approval, the display of an approved quote, and the revoke.
+- The DrFed test stack confirms the outbound request and the note with the quote (Section 27.2). The approval, the refusal, and the revoke need a remote server that sends activities; DrFed 0.1.0 sends none, thus these are outside the range that the stack confirms. The tests with the signed internal API and the sidecar tests cover them.
 
 Tests: `tests/test_e2e_federation_quotes.py` (a real app and the signed internal API: the quote states `pending`, `approved`, `refused`, and `revoked`; the four policies; the decisions of the owner; 410 after a revoke; the policy of a published document; untrusted input), `tests/test_federation_quotes.py` (contract 1.7 fixtures `quote_*.json`, the checks of an authorization, `client.db` version 6, `claire.db` version 24), `tests/test_federation_routes.py` and `tests/test_federation_note_routes.py` (the changed fixtures), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`, `sidecar/fedify/tests/quotes_test.ts` (`QuoteRequest` and `Create` at a local test inbox, `Accept` with the `QuoteAuthorization`, `Reject` for a `nobody` object, `Delete`, the inbound activities as quote events, an authorization of another origin, the authorization path with 410, `canQuote`, the keys of an inbound quote), `sidecar/fedify/tests/internal_api_test.ts`, `e2e/federation_compose.spec.js` (the quote controls in a browser).
+
+## 27. DrFed Test Stack, Retention Run, and Contract 1.8 (Unit FP4-10)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 10 (rules 1, 2, and 4) and 14 (unit FP4-10). Owner decisions of 2026-11-16: Fedify is responsible for the interoperation with other server software; the check with a real remote server is DrFed; a limit of this document says "outside the range that the DrFed test stack confirms", and names no server software.
+
+### 27.1 DrFed Test Stack (Development Test Only)
+
+DrFed 0.1.0 (`@drfed/drfed`, license AGPL-3.0-only) is a test server for ActivityPub implementations: it makes test instances and actors, makes `Note` and `Article` objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). It sends no activity to a remote inbox. It runs only as a separate program in a test container; no Claire Bible code links to it, and no Claire Bible image has it.
+
+`tests/drfed/docker-compose.yml` and `tests/drfed_stack.py` start the stack. It is not a part of a deployment.
+
+| Part | Rule |
+| :--- | :--- |
+| Image | `tests/drfed/Dockerfile`: `node:26-slim` with the npm package (DrFed needs Node.js 26 or later and has no official image). The account is made before the server starts (`drfed-account create --migrate`, then `drfed-server`), because PGlite gives the data directory to one process. |
+| Networks | DrFed listens only on its address of the internal network `backend` and has no published port. A TLS gateway (nginx) is on `backend` and on `edge`. A client on `edge` reaches only port 443 of the gateway. DrFed is also on `edge` for its own requests (it reads the actor of a sender to check a signature). |
+| Names | The root origin is `https://drfed.test`; each DrFed instance is a subdomain. The service `dns` (dnsmasq) answers the root name and each name below it with the address of the gateway (`--address=/drfed.test/{gateway}`, with `--local` for an empty IPv6 answer). A container uses it with `dns:`. A Docker network alias cannot be a wildcard, and the name of an instance is made at run time, thus a DNS service is the method. A test process on the host connects each such name to the gateway and keeps the name in the Host header and in the TLS server name. |
+| TLS | Each start makes a private certificate authority and one certificate for `drfed.test` and `*.drfed.test`. The gateway sends the Host header as it came: DrFed selects the instance from it and ignores the forwarded headers. |
+| Automation | The helper does all steps with GraphQL (`/graphql` of the root origin), without the web UI: it asks for a login mail, reads the login link in the log of DrFed (`--mail-log-content`), completes the challenge, and makes one instance with actors. |
+| Claire side | The profile `claire` adds the Fedify sidecar of a Claire process as a container (image of `sidecar/fedify`, with the DNS service and the certificate authority as `DENO_CERT`). The Claire process runs on the host in the development environment; the sidecar reaches it through the Unix socket of its data directory. The public origin of Claire is `http://{gateway}:8080` (the development rule of `WebRuntimeConfig`: http and an IPv4 address); the gateway sends that port to the sidecar. |
+
+Manual work: `python -m tests.drfed_stack up` shows the root origin, the instance, the actors, the certificate authority, and the access token; `info` shows them again; `down` removes the containers, the networks, and the run directory (`.dev/drfed-test`, which Git ignores). The automatic scenarios run only with `CB_DRFED_TEST=1` (`CB_DRFED_TEST=1 pytest tests/test_drfed_docker.py`).
+
+### 27.2 Scenarios (`tests/test_drfed_docker.py`)
+
+| Group | Scenario |
+| :--- | :--- |
+| Stack | The helper signs in and makes an instance with actors. Each name below the root resolves to the gateway, and only port 443 is open. An unknown certificate authority stops the connection. The gateway keeps the Host header. The actor, the WebFinger answer, and a public note are readable. |
+| Follow | `POST /api/federation/following` with a handle of DrFed: the sidecar reads the WebFinger answer and the actor (TLS with the private authority, a private address), and the `Follow` arrives at the inbox with a verified signature. DrFed sends no `Accept`: the follow stays `pending`. |
+| Published document | `Create` with the `Article` (title, share link, no body) and `Update` at a second publish arrive with a verified signature. The object is readable at its address. |
+| Notes | A reply arrives as `Create(Note)` with `inReplyTo`, a `Mention` of the author of the parent, a `Hashtag`, the content warning, and `contentMap`. An edit arrives as `Update(Note)` with `updated`. A delete arrives as `Delete` with a `Tombstone`, and the object address gives 410. |
+| Favourite and boost | `Like`, `Announce` (public), and `Undo(Like)` with the ID of the `Like` arrive with a verified signature. |
+| Quote | `QuoteRequest` (the quoted object and the note as `instrument`) and the `Create(Note)` with `quote` arrive. DrFed sends no answer: the quote stays `pending`. |
+| Thread fetch | The sidecar reads a note of DrFed for a `fetch_context` task. DrFed gives no `context` and no `replies` collection: the task ends and stores nothing. |
+
+Each delivery is checked in the record of DrFed: status `received`, verification result `verified`, the key of the Claire actor, and the JSON-LD body.
+
+Because DrFed sends no activity, a note of DrFed becomes an item of the timeline through a direct row in `client.db`, and the DrFed actor is a follower of the Claire account through a direct row in `claire.db`. All requests after that are real.
+
+Outside the range that the stack confirms (DrFed 0.1.0 sends no activity to a remote inbox): the `Accept` of a follow, inbound posts of followed actors, inbound mentions, favourites, and boosts, the automatic notice, inbound quote requests, and the approval, the refusal, and the revoke of an outbound quote. The tests with the signed internal API (`tests/test_e2e_federation_*.py`) and the sidecar tests cover these paths. The display of a post on a remote server is also outside the range: DrFed shows no post.
+
+### 27.3 Development Switch for Private Addresses (Contract 1.8)
+
+Fedify refuses each document address that is not public (`UrlError: Invalid or private address`), also an address of a documentation range. The sidecar had no option for it (FS1), thus a Claire instance could not read an actor of a server on the same host or network. Contract 1.8 adds `allow_private_addresses` to the config: true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (the setting that the media proxy and the feed fetcher use). The sidecar then makes Fedify with `allowPrivateAddress`. In production the value is always false. A sidecar test fails when the option has a constant value or is in a second place.
+
+### 27.4 Retention Run
+
+- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of its account by `received_at` (the lower of the account value and the instance value), is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
+- The daily cleanup of the `api` process (`media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
+- `claire federation prune` shows `retention_days` and `expired_items` with the media numbers; `--apply` deletes.
+- An ingested document is never deleted (RD17). Feed items have no retention run.
+
+### 27.5 Differences from the Design and Limits
+
+- The end-to-end test of the design row (one test for all functions in the two directions) is the group of the DrFed scenarios for the outbound direction and the fetches, and the unit end-to-end tests with the signed internal API for the inbound direction, the render, the media proxy, and the ingest of an item. DrFed 0.1.0 cannot do the inbound direction.
+- The Claire side of the stack uses http for the public origin of Claire, because the development environment of Claire permits only http with an IPv4 address. The direction from Claire to DrFed uses TLS.
+- The stack needs the two address ranges `172.31.251.0/24` and `172.31.252.0/24`; `CB_DRFED_EDGE_PREFIX` and `CB_DRFED_BACKEND_PREFIX` select other ranges.
+- The first build of the stack reads the npm registry and the image registry.
+
+Tests: `tests/test_drfed_docker.py` (10 scenarios, only with `CB_DRFED_TEST=1`), `tests/test_federation_retention.py` (the retention rules and the command), `tests/test_federation_routes.py` (the development switch), `sidecar/fedify/tests/sidecar_test.ts` (FS1).
