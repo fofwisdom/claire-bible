@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -802,6 +802,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v20_syndication_cleanup(conn)
     _migrate_v21_account_feeds(conn)
     _migrate_v22_move_feed_tables(conn)
+    _migrate_v23_object_content_digest(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1260,6 +1261,12 @@ def _main_file(conn: sqlite3.Connection) -> Path | None:
         if row[1] == "main" and row[2]:
             return Path(row[2])
     return None
+
+
+def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
+    """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
+    if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
+        conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
 
 
 def _migrate_v22_move_feed_tables(conn: sqlite3.Connection) -> None:
@@ -2881,6 +2888,16 @@ def last_inbox_activity(conn: sqlite3.Connection, theme_id: int | None = None) -
     return row["m"] if row and row["m"] else None
 
 
+def _sync_published_object(conn: sqlite3.Connection, theme_id: int, document_id: str) -> None:
+    """A new summary or a new share link of a published document makes an ``update`` task (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5). The caller commits. A failure here must not stop the write of the caller."""
+    from . import federation as federation_store
+
+    try:
+        federation_store.sync_object_content(conn, theme_id=theme_id, document_id=document_id, now=time.time())
+    except sqlite3.Error as exc:
+        logger.warning("The published object of document %s was not compared with its new content: %s", document_id, exc)
+
+
 def log_extraction(
     conn: sqlite3.Connection, *,
     document_id: str, provider: str, model: str,
@@ -2893,6 +2910,7 @@ def log_extraction(
         "raw_response,created_at) VALUES (?,?,?,?,?,?,?)",
         (theme_id, document_id, provider, model, prompt_version, raw_response, time.time()),
     )
+    _sync_published_object(conn, theme_id, document_id)
     conn.commit()
 
 
@@ -3449,6 +3467,7 @@ def create_doc_share(conn: sqlite3.Connection, document_id: str,
     conn.execute(
         "INSERT INTO doc_shares(token, theme_id, document_id, created_at, expires_at) "
         "VALUES (?,?,?,?,?)", (token, theme_id, document_id, now, expires))
+    _sync_published_object(conn, theme_id, document_id)
     conn.commit()
     return token
 

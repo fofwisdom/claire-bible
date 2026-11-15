@@ -71,6 +71,10 @@ __all__ = [
     "recent_mention_authors",
     "record_private_message",
     "remove_object_reaction",
+    "THREAD_FETCH_KIND",
+    "last_thread_fetch",
+    "request_thread_fetch",
+    "store_context_objects",
 ]
 
 FollowingState = Literal["pending", "accepted", "rejected"]
@@ -314,17 +318,18 @@ def get_client_task(conn: sqlite3.Connection, task_id: int) -> ClientTask | None
     return None if row is None else _client_task(row)
 
 
-def lease_client_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int) -> list[ClientTask]:
-    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` (the accounts that are actors now) and return them. Only the kinds of the contract (``CONTRACT_CLIENT_KINDS``). The caller commits."""
+def lease_client_tasks(conn: sqlite3.Connection, *, account_ids: list[int], now: float, lease_seconds: float, limit: int, only_kinds: tuple[str, ...] | None = None) -> list[ClientTask]:
+    """Give a lease on the oldest ready tasks of the accounts in ``account_ids`` (the accounts that are actors now) and return them. Only the kinds of the contract (``CONTRACT_CLIENT_KINDS``), or the kinds in ``only_kinds`` (the thread fetch, unit FP4-6). The caller commits."""
     if limit < 1 or lease_seconds <= 0:
         raise ValueError("limit and lease_seconds must be more than 0")
     if not account_ids:
         return []
+    wanted = CONTRACT_CLIENT_KINDS if only_kinds is None else only_kinds
     marks = ",".join("?" for _ in account_ids)
-    kinds = ",".join("?" for _ in CONTRACT_CLIENT_KINDS)
+    kinds = ",".join("?" for _ in wanted)
     rows = conn.execute(
         f"SELECT id FROM federation_client_outbox WHERE status='pending' AND (lease_until IS NULL OR lease_until <= ?) AND account_id IN ({marks}) AND kind IN ({kinds}) ORDER BY id LIMIT ?",
-        (now, *account_ids, *CONTRACT_CLIENT_KINDS, limit),
+        (now, *account_ids, *wanted, limit),
     ).fetchall()
     leased = []
     for row in rows:
@@ -640,3 +645,71 @@ def timeline_thread(conn: sqlite3.Connection, account_id: int, item_id: int) -> 
                 found[item.object_iri] = item
                 queue.append(item)
     return sorted(found.values(), key=lambda i: (i.published_at if i.published_at is not None else i.received_at, i.id))
+
+
+# --- Thread fetch (Section 6.5 rules 4 to 6, unit FP4-6) --------------------
+
+# The kind of the client outbox for a thread fetch. The sidecar takes these tasks with the internal endpoint ``context-tasks``, not with ``client-tasks``.
+THREAD_FETCH_KIND = "fetch_context"
+
+
+def last_thread_fetch(conn: sqlite3.Connection, account_id: int, object_iris: list[str]) -> ClientTask | None:
+    """The newest thread fetch task of the account whose start object is one of ``object_iris`` (the stored items of one thread), or ``None``. No column has the time of the last fetch: the task rows of the client outbox have it (``target_iri``, ``created_at``)."""
+    if not object_iris:
+        return None
+    marks = ",".join("?" for _ in object_iris)
+    row = conn.execute(f"SELECT {_CLIENT_TASK_COLUMNS} FROM federation_client_outbox WHERE account_id=? AND kind=? AND target_iri IN ({marks}) ORDER BY id DESC LIMIT 1", (account_id, THREAD_FETCH_KIND, *object_iris)).fetchone()
+    return None if row is None else _client_task(row)
+
+
+def request_thread_fetch(conn: sqlite3.Connection, *, account_id: int, item_id: int, refetch_seconds: float, now: float) -> tuple[Literal["queued", "recent"], bool] | None:
+    """Make the ``fetch_context`` task for the thread of an item (Section 6.5 rule 4). Return the state and ``True`` while a task of the thread waits for the sidecar, or ``None`` when the account has no such item. The caller commits.
+
+    ``recent``: a task of the same thread waits, or one was made less than ``refetch_seconds`` ago; then no task is made. The result of the earlier task (handed off or rejected) makes no difference: a server that failed gets no second request in that time.
+
+    The start object of the task is the top stored item of the reply chain of the item: the sidecar reads the ``context`` or the ``replies`` of that object. ``ref_id`` is the item.
+    """
+    thread = timeline_thread(conn, account_id, item_id)
+    if not thread:
+        return None
+    by_iri = {entry.object_iri: entry for entry in thread}
+    top = next(entry for entry in thread if entry.id == item_id)
+    visited = {top.object_iri}
+    while top.in_reply_to_iri in by_iri and top.in_reply_to_iri not in visited:
+        top = by_iri[top.in_reply_to_iri]
+        visited.add(top.object_iri)
+    last = last_thread_fetch(conn, account_id, list(by_iri))
+    if last is not None and (last.status == "pending" or now - last.created_at < refetch_seconds):
+        return "recent", last.status == "pending"
+    add_client_task(conn, account_id=account_id, kind=THREAD_FETCH_KIND, target_iri=top.object_iri, ref_id=item_id, now=now)
+    return "queued", True
+
+
+def store_context_objects(conn: sqlite3.Connection, *, account_id: int, item_id: int, objects: list[dict[str, Any]], now: float) -> tuple[int, int]:
+    """Store the objects of a thread fetch for the account with ``in_timeline`` = 0 (Section 6.5 rule 5). Return the number of new items and the number of objects that are in the thread. The caller commits.
+
+    Only an object of the thread of the item is stored: it has the ``context`` of a stored item of the thread, it is a reply to an object of the thread, or an object of the thread is a reply to it. An object without such a link cannot show in the thread view, and it is not stored (RS4). An item that exists keeps its content and its state.
+    """
+    thread = timeline_thread(conn, account_id, item_id)
+    if not thread:
+        return 0, 0
+    known = {entry.object_iri for entry in thread}
+    contexts = {entry.context_iri for entry in thread if entry.context_iri is not None}
+    targets = {entry.in_reply_to_iri for entry in thread if entry.in_reply_to_iri is not None}
+    waiting = [obj for obj in objects if obj["object_iri"] not in known]
+    linked: list[dict[str, Any]] = []
+    changed = True
+    while changed and waiting:
+        changed = False
+        for obj in list(waiting):
+            if obj.get("context") in contexts or obj.get("in_reply_to") in known or obj["object_iri"] in targets:
+                waiting.remove(obj)
+                if obj["object_iri"] in known:
+                    continue
+                linked.append(obj)
+                known.add(obj["object_iri"])
+                if obj.get("in_reply_to") is not None:
+                    targets.add(obj["in_reply_to"])
+                changed = True
+    made = sum(upsert_timeline_item(conn, account_id=account_id, item=obj, announced_by=None, in_timeline=False, now=now) for obj in linked)
+    return made, len(linked)

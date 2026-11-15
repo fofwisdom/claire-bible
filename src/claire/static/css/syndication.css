@@ -615,6 +615,7 @@ body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-on
 .synd-reader { padding: 14px 16px 28px; display: flex; flex-direction: column; gap: 12px; }
 .synd-reader-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .synd-thread-title { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.synd-thread-fetch { font-size: 12px; color: var(--muted); }
 .synd-entry { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); overflow: hidden; }
 .synd-entry.is-main { border-color: var(--accent); }
 .synd-entry-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }

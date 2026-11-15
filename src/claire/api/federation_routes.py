@@ -73,7 +73,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.4"
+CONTRACT_VERSION = "1.5"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -90,6 +90,9 @@ MENTIONED_MAX = 16
 MENTION_RATE_WINDOW_SECONDS = 3600.0
 # The fragment of the ID of an automatic notice: ``{actor}#auto-replies/{digest}``. A reply to such an ID gets no notice (Section 6.2 rule 4).
 AUTO_REPLY_FRAGMENT = "#auto-replies/"
+# Thread fetch (contract 1.5, unit FP4-6): the number of tasks that one ``context-tasks`` call gives by default, and the largest number of objects in one ``context-objects`` request (the highest ``context_max_items``).
+CONTEXT_TASKS_DEFAULT = 2
+CONTEXT_OBJECTS_MAX = 1000
 
 _log = logging.getLogger("claire.federation.routes")
 
@@ -395,6 +398,38 @@ class ActorOutboxResponse(_Sealed):
     # Newest first.
     items: list[OutboxItem]
     next_max_id: str | None
+
+
+class ContextTaskItem(_Sealed):
+    """One thread fetch task (contract 1.5, FEDERATION_REMOTE_READING_DESIGN.md Section 6.5 rule 4, unit FP4-6). The sidecar reads the ``context`` collection of ``object_iri``, or its ``replies`` collections, with requests that the actor ``actor_public_id`` signs. ``max_items`` and ``max_depth`` are ``context_max_items`` and ``context_depth``."""
+
+    id: int
+    actor_public_id: str
+    object_iri: str
+    max_items: int
+    max_depth: int
+    created_at: float
+    lease_until: float
+
+
+class ContextTasksResponse(_Sealed):
+    tasks: list[ContextTaskItem]
+
+
+class ContextObjectsRequest(_Sealed):
+    """Fetched objects of one thread fetch task (Section 6.5 rule 5). Each object is public; the sidecar gives no other object. One task can have more than one request: the body limit of the internal API applies to each one."""
+
+    task_id: int = Field(ge=1)
+    objects: list[TimelineObject] = Field(max_length=CONTEXT_OBJECTS_MAX)
+
+
+class ContextObjectsResponse(_Sealed):
+    decision: Literal["accepted", "rejected"]
+    reason: Literal["federation_off", "not_an_actor", "context_fetch_off"] | None
+    # The number of new items of the account. An object that the account has already is not in this number.
+    stored: int
+    # The number of objects that Claire did not take: above ``context_max_items``, not permitted (Section 6.2), or without a link to the thread.
+    refused: int
 
 
 def _remote_host(iri: str, origin: str) -> str | None:
@@ -1147,6 +1182,75 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         _log.info("client task %s (%s): %s%s", task.id, task.kind, task.status, "" if task.error_code is None else f" ({task.error_code})")
         return _json(OutboxAckResponse(id=task.id, status=task.status))
 
+    # --- Thread fetch (contract 1.5, Section 6.5 rules 4 to 6, unit FP4-6) ---
+
+    def context_tasks(request: Request) -> Response:
+        raw_limit = request.query_params.get("limit", str(CONTEXT_TASKS_DEFAULT))
+        if not (raw_limit.isascii() and raw_limit.isdigit() and 1 <= int(raw_limit) <= OUTBOX_TASKS_MAX):
+            return _error(400, "invalid_request")
+        store = _open_store()
+        try:
+            actor_ids = _actor_account_ids(store)
+            public_ids = {a: str(store.get(a).public_id) for a in actor_ids}
+            reading = client_store.get_reading_settings(store.conn)
+        finally:
+            store.conn.close()
+        max_items, max_depth = int(reading["context_max_items"]), int(reading["context_depth"])
+        client = _client()
+        try:
+            leased = client_store.lease_client_tasks(client, account_ids=actor_ids, now=now(), lease_seconds=OUTBOX_LEASE_SECONDS, limit=int(raw_limit), only_kinds=(client_store.THREAD_FETCH_KIND,))
+            items = []
+            for task in leased:
+                # Rule 6: the admin can set the fetch to off after the owner made the task.
+                code = "context_fetch_off" if reading["context_fetch"] != "on" or max_items < 1 else None if task.target_iri else "no_target"
+                if code is not None:
+                    client_store.ack_client_task(client, task.id, result="rejected", error_code=code, now=now())
+                    continue
+                items.append(ContextTaskItem(id=task.id, actor_public_id=public_ids[task.account_id], object_iri=str(task.target_iri), max_items=max_items, max_depth=max_depth, created_at=task.created_at, lease_until=float(task.lease_until or 0.0)))
+            client.commit()
+        finally:
+            client.close()
+        return _json(ContextTasksResponse(tasks=items))
+
+    async def context_objects(request: Request) -> Response:
+        try:
+            body = ContextObjectsRequest.model_validate_json(await request.body())
+        except ValidationError:
+            return _error(400, "invalid_request")
+        origin = _runtime().public_origin
+
+        def _apply() -> ContextObjectsResponse | None:
+            def refuse(reason: Any) -> ContextObjectsResponse:
+                return ContextObjectsResponse(decision="rejected", reason=reason, stored=0, refused=len(body.objects))
+
+            store = _open_store()
+            client = _client()
+            try:
+                task = client_store.get_client_task(client, body.task_id)
+                if task is None or task.kind != client_store.THREAD_FETCH_KIND or task.status != "pending" or task.ref_id is None:
+                    return None
+                if not _federation_active(store):
+                    return refuse("federation_off")
+                if task.account_id not in _actor_account_ids(store):
+                    return refuse("not_an_actor")
+                reading = client_store.get_reading_settings(store.conn)
+                if reading["context_fetch"] != "on":
+                    return refuse("context_fetch_off")
+                # The same rules as for a ``Create`` (Section 6.2): a permitted remote address, no blocked domain for the author and the object host, and the size limits. The limit of one task applies to each request.
+                permitted = [obj.model_dump(mode="json") for obj in body.objects[: int(reading["context_max_items"])] if _object_refusal(store.conn, origin, obj) is None]
+                stored, linked = client_store.store_context_objects(client, account_id=task.account_id, item_id=task.ref_id, objects=permitted, now=now())
+                client.commit()
+                return ContextObjectsResponse(decision="accepted", reason=None, stored=stored, refused=len(body.objects) - linked)
+            finally:
+                client.close()
+                store.conn.close()
+
+        result = await run_in_threadpool(_apply)
+        if result is None:
+            return _not_found()
+        _log.info("context objects of task %s: %s%s, %d stored, %d refused", body.task_id, result.decision, "" if result.reason is None else f" ({result.reason})", result.stored, result.refused)
+        return _json(result)
+
     def following(request: Request) -> Response:
         store = _open_store()
         try:
@@ -1248,6 +1352,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/actors/{public_id}/following", following, methods=["GET"]),
         Route("/client-tasks", client_tasks, methods=["GET"]),
         Route("/client-tasks/{task_id}/ack", client_task_ack, methods=["POST"]),
+        Route("/context-tasks", context_tasks, methods=["GET"]),
+        Route("/context-objects", context_objects, methods=["POST"]),
         Route("/inbox-events", inbox_event, methods=["POST"]),
         Route("/timeline-events", timeline_event, methods=["POST"]),
         Route("/timeline-interest", timeline_interest, methods=["GET"]),

@@ -37,6 +37,8 @@ BOB_IRI = "https://remote.example/users/bob"
 INBOX_EVENT_FIXTURES = ["inbox_event_follow", "inbox_event_accept_follow", "inbox_event_undo_follow", "inbox_event_delete_actor", "inbox_event_update_actor", "inbox_event_blocked_domain", "inbox_event_not_an_actor", "inbox_event_ignored", "inbox_event_like", "inbox_event_undo_like", "inbox_event_no_object"]
 FP2_FIXTURES = ["followers", "followers_next", "followers_not_found", "domain_blocks", *INBOX_EVENT_FIXTURES]
 FP4_FIXTURES = ["client_tasks", "client_task_ack", "following", "timeline_interest", "timeline_event_create", "timeline_event_announce", "timeline_event_not_public", "timeline_event_delete", "timeline_event_mention", "timeline_event_private_notice"]
+# Contract 1.5 (unit FP4-6): the thread fetch. The test of these fixtures stores its own rows.
+FP46_FIXTURES = ["context_tasks", "context_objects"]
 FP3_FIXTURES = ["outbox_tasks", "outbox_task_ack", "outbox_task_ack_rejected", "outbox_task_ack_not_found", "object", "object_gone", "object_not_found", "actor_outbox", "actor_outbox_not_found", "actor_gone"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
@@ -251,8 +253,37 @@ def test_keys_agree_with_fixtures(internal):
     internal.assert_fixture("instance_actor_keys")
 
 
+def test_thread_fetch_agrees_with_fixtures(internal):
+    """Contract 1.5 (unit FP4-6): ``alice`` has the item ``notes/40`` and a ``fetch_context`` task for it. The sidecar takes the task and gives one reply of the thread."""
+    from claire.store import client_db
+    from claire.store import federation_client as client_store
+
+    root = {"object_iri": "https://remote.example/notes/40", "url": None, "type": "Note", "author": {"iri": "https://remote.example/users/dan", "name": None, "handle": "@dan@remote.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>root</p>", "language": None, "published_at": 1800000350.0, "updated_at": None, "attachments": [], "context": "https://remote.example/contexts/40", "in_reply_to": None}
+    client = client_db.connect_client_existing(client_db.client_db_path(internal.settings.db_file))
+    try:
+        client_store.upsert_timeline_item(client, account_id=internal.alice, item=root, announced_by=None, in_timeline=True, now=1800000351.0)
+        item_id = client.execute("SELECT id FROM federation_timeline_items WHERE object_iri=?", (root["object_iri"],)).fetchone()[0]
+        client.execute("INSERT INTO federation_client_outbox (id, account_id, kind, target_iri, ref_id, status, created_at) VALUES (4, ?, 'fetch_context', ?, ?, 'pending', 1800000363.0)", (internal.alice, root["object_iri"], item_id))
+        client.commit()
+    finally:
+        client.close()
+    # The objects of a task that the sidecar did not take yet are accepted too: the lease is not a condition.
+    internal.assert_fixture("context_tasks")
+    internal.assert_fixture("context_objects")
+    client = client_db.connect_client_existing(client_db.client_db_path(internal.settings.db_file), readonly=True)
+    try:
+        assert [tuple(r) for r in client.execute("SELECT account_id, object_iri, in_timeline, in_reply_to_iri FROM federation_timeline_items WHERE object_iri LIKE '%/notes/41'")] == [(internal.alice, "https://remote.example/notes/41", 0, "https://remote.example/notes/40")]
+        # The thread fetch task is not in the list of the other client tasks.
+        assert [r[0] for r in client.execute("SELECT id FROM federation_client_outbox WHERE lease_until IS NOT NULL")] == [4]
+    finally:
+        client.close()
+    for name, model in (("context_tasks", federation_routes.ContextTasksResponse), ("context_objects", federation_routes.ContextObjectsResponse)):
+        with pytest.raises(ValueError):
+            model.model_validate({**fixture(name)["response"], "extra_field": 1})
+
+
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}

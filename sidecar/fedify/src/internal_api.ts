@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.4";
+export const CONTRACT_VERSION = "1.5";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -201,6 +201,25 @@ export interface TimelineInterest {
   context_depth: number;
 }
 
+// One thread fetch task (contract 1.5, unit FP4-6): the sidecar reads the thread of object_iri with requests that the actor actor_public_id signs. max_items and max_depth are the limits of the task.
+export interface ContextTask {
+  id: number;
+  actor_public_id: string;
+  object_iri: string;
+  max_items: number;
+  max_depth: number;
+  created_at: number;
+  lease_until: number;
+}
+
+// The answer to the objects of a thread fetch. stored is the number of new items. refused is the number of objects that Claire did not take.
+export interface ContextObjectsResult {
+  decision: "accepted" | "rejected";
+  reason: "federation_off" | "not_an_actor" | "context_fetch_off" | null;
+  stored: number;
+  refused: number;
+}
+
 // The canonical form of one published object. content is HTML that Claire sanitized.
 export interface ObjectRecord {
   public_id: string;
@@ -340,6 +359,8 @@ const timelineDecisionShape = sealed({
   notices: list(sealed({ actor_public_id: str, content: str, language: oneOf("en", "ko") })),
 });
 const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
+const contextTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, object_iri: str, max_items: int, max_depth: int, created_at: num, lease_until: num })) });
+const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("federation_off", "not_an_actor", "context_fetch_off")), stored: int, refused: int });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -518,6 +539,22 @@ export class InternalApi {
     const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/following`);
     if (value !== null) followingShape(value, "following");
     return value as { public_id: string; total: number } | null;
+  }
+
+  // Takes the oldest ready thread fetch tasks of the client outbox (contract 1.5). The acknowledgement is ackClientTask.
+  async contextTasks(limit?: number): Promise<ContextTask[]> {
+    const value = await this.#call("GET", `/context-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    contextTasksShape(value, "context_tasks");
+    return (value as { tasks: ContextTask[] }).tasks;
+  }
+
+  // Gives fetched objects of a thread fetch task to Claire. Returns null when Claire has no such task that waits.
+  async contextObjects(taskId: number, objects: TimelineObject[]): Promise<ContextObjectsResult | null> {
+    const value = await this.#call("POST", "/context-objects", { task_id: taskId, objects });
+    if (value === null) return null;
+    contextObjectsShape(value, "context_objects");
+    return value as ContextObjectsResult;
   }
 
   async object(publicId: string): Promise<ObjectResult> {

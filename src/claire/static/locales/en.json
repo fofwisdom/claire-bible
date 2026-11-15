@@ -222,6 +222,7 @@
   "synd.client.sensitive": "Sensitive content",
   "synd.client.select_prompt": "Select a post to read.",
   "synd.client.thread_title": "Thread · {count} posts",
+  "synd.client.thread_fetching": "Fetching more posts of this thread…",
   "synd.client.frame_title": "Post body of {name}",
   "synd.ingest.title": "Take this post into the knowledge base",
   "synd.ingest.theme_label": "Theme",

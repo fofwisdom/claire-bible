@@ -18,11 +18,13 @@
 // - A delivery does not go to a follower on a blocked domain.
 // - A Create, an Update, or an Announce of a post, a Delete of an object, and an Undo(Announce) go to Claire as a timeline event with the normal form of the object (unit FP4-4). The sidecar fetches the object of an Announce and the parents of a reply only when Claire says that an account follows the actor. All other activities go to Claire as an inbox event.
 // - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this instance or is a reply to an object of this instance; nothing is fetched for it. A Like or an Announce of an object of this instance, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
+// - A thread fetch task (contract 1.5, unit FP4-6) has no activity: the sidecar fetches the objects of a thread and gives them to Claire (context.ts).
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
 import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
@@ -429,6 +431,14 @@ export class Sidecar {
     await ctx.sendActivity(sender, remote, activity);
     await this.#api.ackClientTask(task.id, "handed_off");
     return "handed_off";
+  }
+
+  // Takes the ready thread fetch tasks from Claire (contract 1.5, unit FP4-6) and gives the fetched objects to Claire. Returns the number of tasks that Claire gave. The work is in context.ts.
+  async processContextTasks(limit = CONTEXT_TASK_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    return await processContextTasks({ api: this.#api, ctx, origin: config.canonical_origin, isBlocked: (host) => this.isBlocked(host), counters: this.outboxCounters }, limit);
   }
 
   // One verified inbound activity: makes the event, gets the decision of Claire, and sends the reply (design Section 6.3).

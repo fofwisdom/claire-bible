@@ -528,6 +528,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/api/federation/timeline/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     ("PATCH", "/api/federation/timeline/{item_id}"): _any("owner", modes=NETWORK_ONLY),
     ("POST", "/api/federation/timeline/{item_id}/ingest"): _any("owner", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/context"): _any("owner", modes=NETWORK_ONLY),
     ("GET", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
     ("HEAD", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
     ("GET", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),

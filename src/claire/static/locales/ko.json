@@ -222,6 +222,7 @@
   "synd.client.sensitive": "민감한 내용",
   "synd.client.select_prompt": "읽을 게시물을 선택하세요.",
   "synd.client.thread_title": "스레드 · 게시물 {count}개",
+  "synd.client.thread_fetching": "이 스레드의 게시물을 더 가져오는 중…",
   "synd.client.frame_title": "{name} 님의 게시물 본문",
   "synd.ingest.title": "이 게시물을 지식베이스에 적재",
   "synd.ingest.theme_label": "테마",

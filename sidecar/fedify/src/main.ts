@@ -13,6 +13,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
+import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
 import { OUTBOX_TASK_BATCH, publicSelfCheck, Sidecar } from "./sidecar.ts";
 
@@ -86,6 +87,22 @@ if (import.meta.main) {
   };
   poll();
   setInterval(poll, OUTBOX_POLL_SECONDS * 1000);
+
+  // The thread fetches (contract 1.5) have their own loop: one fetch can make many requests, and it must not delay the other tasks.
+  let fetching = false;
+  const pollContext = async () => {
+    if (fetching) return;
+    fetching = true;
+    try {
+      while ((await sidecar.processContextTasks()) >= CONTEXT_TASK_BATCH);
+    } catch (error) {
+      console.error(`context poll failed: ${(error as Error).name}: ${(error as Error).message}`);
+    } finally {
+      fetching = false;
+    }
+  };
+  pollContext();
+  setInterval(pollContext, OUTBOX_POLL_SECONDS * 1000);
 
   Deno.serve({ hostname: env("CLAIRE_FEDIFY_HOST", "0.0.0.0"), port: Number(env("CLAIRE_FEDIFY_PORT", "8790")) }, (request) => sidecar.handle(request));
 }

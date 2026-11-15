@@ -23,8 +23,9 @@
 | 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
 | 20 | 직전 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
 | 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
-| 22 | 현재 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
-| 23 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
+| 23 | 현재 version (아래 "v23" 절) | `federation_objects.content_digest` |
+| 24 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -158,6 +159,14 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 이관**(`_migrate_v22_move_feed_tables`, 멱등): `claire.db`에 피드 테이블이 있으면, 행을 같은 ID로 `claire.db` 옆의 `client.db`에 복사하고, 모든 ID가 들어갔는지 확인한 뒤에만 두 테이블과 인덱스를 지운다. 복사가 끝나지 않으면(오류, 또는 파일 없는 메모리 DB에 행이 있는 경우) 테이블을 두고 다음 기동에서 다시 시도한다. 행은 잃지 않는다. 운영자가 할 일은 없다.
 - **[코드]** `_migrate_v21_account_feeds`는 이제 아무것도 만들지 않는다. 새 DB의 `claire.db`에는 피드 테이블이 없다.
 - **[테스트]** `tests/test_client_db.py`. 다른 테스트는 버전 번호 대신 `dbm.SCHEMA_VERSION`과 비교한다(DS-2).
+
+## v23 (발행 문서의 내용 다이제스트, FP4-P1)
+
+확인 기준: FP4-P1 잔여 구현 (2026-11-15). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §5.5 규칙 5, 7.
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 23`.
+- **[코드] 이관**(`_migrate_v23_object_content_digest`, 멱등): `federation_objects`에 `content_digest TEXT` 열을 더한다. 값은 팔로워가 마지막으로 받은 요약(없으면 제목)과 공유 토큰의 SHA-256이다. 이전 버전의 행은 NULL이며, 첫 비교에서 값만 채우고 `Update`를 보내지 않는다(규칙 7).
+- **[테스트]** `tests/test_federation_publish.py`.
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
