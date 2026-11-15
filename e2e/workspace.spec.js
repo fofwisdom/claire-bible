@@ -2306,9 +2306,9 @@ test('narrow screen botnav switches views and opens list drawer and context bott
 
   const botnav = page.locator('#botnav');
   await expect(botnav).toBeVisible();
-  // The view buttons are in the bottom bar. The search field of the view stays in the header.
+  // The view buttons are in the bottom bar. The button of the command palette stays in the header.
   await expect(page.locator('#centertab-group')).toBeHidden();
-  await expect(page.locator('#q')).toBeVisible();
+  await expect(page.locator('#palettetrigger')).toBeVisible();
   await expect(page.locator('#botnav-home')).toBeVisible();
   await expect(page.locator('#botnav-list')).toBeVisible();
   await expect(page.locator('#botnav-reader')).toBeVisible();
@@ -3166,10 +3166,12 @@ test.describe('command palette (HW-7)', () => {
     const input = page.locator('#cmdpalette-input');
     await expect(dialog).toBeHidden();
 
-    // 1. Open palette with Ctrl+K and close with Escape.
-    await page.keyboard.press('Control+k');
+    // 1. Open palette with "/" and close with Escape. The dialog has an opaque background.
+    await page.keyboard.press('/');
     await expect(dialog).toBeVisible();
     await expect(input).toBeFocused();
+    const paletteBg = await dialog.evaluate(el => getComputedStyle(el).backgroundColor);
+    expect(paletteBg).not.toBe('rgba(0, 0, 0, 0)');
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
 
@@ -3187,8 +3189,8 @@ test.describe('command palette (HW-7)', () => {
     await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
     await expect(page.locator('#rtitle')).toContainText('테스트 문서 1');
 
-    // 3. Reopen palette with Ctrl+K, select an entity, and keep the reader view.
-    await page.keyboard.press('Control+k');
+    // 3. Reopen palette with the header button, select an entity, and keep the reader view.
+    await page.locator('#palettetrigger').click();
     await expect(dialog).toBeVisible();
     await input.fill('허브 엔티티');
     const entRow = page.locator('#cmdpalette-list .cmd-palette-row').filter({ hasText: '허브 엔티티' }).first();
@@ -3199,8 +3201,8 @@ test.describe('command palette (HW-7)', () => {
     await expect(page.locator('body')).toHaveAttribute('data-center-view', 'reader');
     await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
 
-    // 4. Reopen palette with Ctrl+K and run the Go to Graph command with Enter.
-    await page.keyboard.press('Control+k');
+    // 4. Reopen palette with "/" and run the Go to Graph command with Enter.
+    await page.keyboard.press('/');
     await expect(dialog).toBeVisible();
     await input.fill('그래프');
     await expect(page.locator('#cmdpalette-list .cmd-palette-row.is-active')).toBeVisible();
@@ -3208,6 +3210,41 @@ test.describe('command palette (HW-7)', () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('the list filter is in the list pane and filters only the list that shows; the palette starts the search in the bodies', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitForClaire(page);
+
+    // The list toggle is after the brand link and the theme picker. The header has no input field.
+    const order = await page.evaluate(() => [...document.querySelector('.bar-brand-group').children].map(el => el.id || el.className));
+    expect(order.indexOf('listtoggle')).toBeGreaterThan(order.indexOf('theme-picker-wrap'));
+    await expect(page.locator('#bar input')).toHaveCount(0);
+
+    // Documents: the filter is below the list switch. "/" in the field is text, not the shortcut.
+    const q = page.locator('#docs #q');
+    await expect(q).toBeVisible();
+    await expect(q).toHaveAttribute('placeholder', /제목·요약/);
+    await q.fill('테스트 문서 1');
+    await expect(page.locator('#doclist .docitem').first()).toContainText('테스트 문서 1');
+    await q.press('/');
+    await expect(page.locator('#cmdpalette')).toBeHidden();
+
+    // Entities: a change of the list removes the text, and the field filters entities.
+    await page.locator('#listswitch [data-list="entities"]').click();
+    await expect(q).toHaveValue('');
+    await expect(q).toHaveAttribute('placeholder', /엔티티 이름/);
+
+    // The palette has the command for a search in the document bodies. The result shows in the document list.
+    await page.locator('#palettetrigger').click();
+    await page.locator('#cmdpalette-input').fill('테스트');
+    await page.locator('#cmdpalette-list .cmd-palette-row').filter({ hasText: '본문에서' }).click();
+    await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await expect(q).toHaveValue('테스트');
 
     expect(pageErrors).toEqual([]);
   });

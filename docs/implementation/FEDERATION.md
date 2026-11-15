@@ -954,7 +954,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 - Actions of an item: star, read or unread, "take into knowledge base" (the ingest dialog with the themes of the owner), and, for an item with a document, "open document" and "publish" (the dispatch dialog of FP3-5 for that document).
 - Stage 3 has the filter all, not published, and published. The published documents come from `GET /api/federation/objects`.
 - Knowledge base view: the context menu (right click) of a document has "open original", "Markdown export" (`GET /document/export`, MD-3), "publish or dispatch", and "toggle star". The article menu of the reader has the Markdown export too.
-- The page has the command palette of the workspace (`command_palette.js`, Ctrl+K) with the three stages.
+- The page has the command palette of the workspace (`command_palette.js`, the `/` key) with the three stages.
 - In single mode the stage bar shows; stage 1 has a notice and sends no timeline request.
 - The stage strip of the home page (HW-8) shows the counts of the timeline (`GET /api/federation/timeline?limit=1`) and its three links go to the three stages.
 - Code: `src/claire/static/js/syndication_client.js` (stage bar and client view), `syndication_live.js` (knowledge base view; the object `window.ClaireSyndication` joins the two), `src/claire/templates/syndication.html`. The texts of the stage bar, the client view, the context menu, and the console fields are catalog keys (`synd.*`, `console.federation.*`) in English and Korean.

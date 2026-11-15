@@ -362,7 +362,6 @@
   #panel .ingest-submit button{min-height:34px}
   #rprog, #iprog{margin:.3em 0;padding-left:18px} #rprog li, #iprog li{margin:.3em 0;color:var(--muted);font-size:12px}
   input{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:13px}
-  #q{width:150px}
   button{background:var(--btn-bg);color:var(--btn-fg);border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px}
   button:hover{filter:brightness(1.08)}
   button.sec{background:var(--sec-bg);color:var(--sec-fg)}
@@ -640,7 +639,7 @@
   .bar-icon-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;min-width:30px;padding:0 6px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:background .15s ease}
   .bar-icon-btn[hidden]{display:none}
   .bar-icon-btn:hover{background:var(--hover)}
-  .bar-icon-btn[aria-expanded="true"]{background:var(--active);border-color:var(--accent);color:var(--accent)}
+  .bar-icon-btn[aria-expanded="true"]{background:var(--sec-bg)}
   .bar-icon-btn:disabled{opacity:.4;cursor:default}
   .bar-ingest-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;box-sizing:border-box;background:var(--btn-bg);color:var(--btn-fg);border:1px solid transparent;border-radius:4px;font-weight:700;font-size:12.5px;cursor:pointer}
   #morebtn{align-items:center;justify-content:center}
@@ -668,10 +667,18 @@
   #synthchips{margin-bottom:10px}
   /* List switch: documents or entities */
   .list-switch{display:inline-flex;gap:3px;margin-right:8px;flex:none}
-  .list-switch-btn{height:24px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer}
+  .list-switch-btn{height:26px;padding:0 14px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer}
   .list-switch-btn[aria-pressed="true"]{background:var(--card-bg);color:var(--fg);border-color:var(--accent2);border-bottom-width:3px}
   #docs[data-list="docs"] #listtitle,#docs[data-list="entities"] #listtitle{margin-right:auto}
   .docsearch-stat-row #stat{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* List filter: one field below the list switch. It filters the list that shows. */
+  .list-filter{padding:8px 10px;border-bottom:1px solid var(--border);background:var(--docs-bg);flex-shrink:0}
+  .list-filter #barsearch{position:relative;height:28px;box-sizing:border-box;gap:4px;padding:0 4px 0 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg)}
+  .list-filter #barsearch:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px rgba(2,132,199,.18)}
+  .list-filter input#q{flex:1;min-width:0;height:100%;padding:0;border:0;background:transparent;color:var(--fg);font-size:12.5px;outline:none}
+  .list-filter input#q::-webkit-search-cancel-button{display:none}
+  .stream-filter-input{flex:1 1 180px;max-width:320px;height:28px;box-sizing:border-box;margin:0 12px}
+  .stream-filter-input::-webkit-search-cancel-button{display:none}
   /* Home view */
   #homewrap{width:100%;height:100%;overflow:auto;background:var(--bar-bg);container-type:inline-size;container-name:home}
   .home-inner{max-width:1080px;margin:0 auto;padding:18px 22px 40px}
@@ -799,7 +806,7 @@
   }
   /* Narrow screens: view navigation moves to #botnav at the bottom. */
   @media (max-width:720px){
-    /* The view buttons are in the bottom bar. The search field of the view stays, as the second row of the header. */
+    /* The view buttons are in the bottom bar. The button of the command palette stays, as the second row of the header. */
     #bar{flex-wrap:wrap}
     #bar #centerhead{order:10;flex:1 0 100%}
     #bar #centerhead #centertab-group,#listtoggle,#ctxbtn{display:none}
@@ -815,7 +822,7 @@
   /* The backdrop is a scroll container (overflow:hidden); without it overscroll-behavior has no effect there and the page behind scrolls. */
   dialog:modal{overscroll-behavior:contain}
   dialog::backdrop{overflow:hidden;overscroll-behavior:contain}
-  .cmd-palette{margin:min(12vh,80px) auto auto;padding:0;width:min(560px,calc(100vw - 24px));max-width:560px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--fg);box-shadow:0 18px 48px rgba(0,0,0,.35)}
+  .cmd-palette{margin:min(12vh,80px) auto auto;padding:0;width:min(560px,calc(100vw - 24px));max-width:560px;border:1px solid var(--border);border-radius:10px;background:var(--card-bg);color:var(--fg);box-shadow:0 18px 48px rgba(0,0,0,.35)}
   .cmd-palette::backdrop{background:rgba(0,0,0,.45)}
   .cmd-palette-head{padding:10px 12px;border-bottom:1px solid var(--border)}
   .cmd-palette-head input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px}

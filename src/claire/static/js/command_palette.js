@@ -110,6 +110,13 @@
     }));
   }
 
+  // Commands that use the text of the input field, for example a search in the document bodies. They show for each text that is not empty.
+  function queryActions(query){
+    const q = query.trim();
+    if(!q || !config || typeof config.getQueryActions !== 'function') return [];
+    return (config.getQueryActions(q) || []).map(cmd => ({icon: cmd.icon || '›', iconName: cmd.iconName || '', label: cmd.label, meta: cmd.meta || '', run: cmd.run}));
+  }
+
   function filterEntities(query){
     const raw = (config && typeof config.getEntities === 'function') ? config.getEntities() : [];
     const q = query.trim().toLowerCase();
@@ -151,7 +158,8 @@
     renderGroups([
       {title: tr('nav.palette.group_commands'), rows: cmdRows},
       {title: tr('nav.palette.group_documents'), rows: mapDocRows(cachedDocs)},
-      {title: tr('nav.palette.group_entities'), rows: entRows}
+      {title: tr('nav.palette.group_entities'), rows: entRows},
+      {title: tr('nav.palette.group_search'), rows: queryActions(query)}
     ]);
 
     if(config && typeof config.fetchDocuments === 'function'){
@@ -165,7 +173,8 @@
           renderGroups([
             {title: tr('nav.palette.group_commands'), rows: filterCommands(inputEl.value || '')},
             {title: tr('nav.palette.group_documents'), rows: mapDocRows(docs)},
-            {title: tr('nav.palette.group_entities'), rows: filterEntities(inputEl.value || '')}
+            {title: tr('nav.palette.group_entities'), rows: filterEntities(inputEl.value || '')},
+            {title: tr('nav.palette.group_search'), rows: queryActions(inputEl.value || '')}
           ]);
         }).catch(() => {});
       };
@@ -226,10 +235,13 @@
     if(!globalBound){
       globalBound = true;
       document.addEventListener('keydown', e => {
-        if((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key || '').toLowerCase() === 'k'){
-          e.preventDefault();
-          if(isOpen()) close(); else open();
-        }
+        // The shortcut is "/". A browser uses Ctrl+K for its address bar, thus that key stays with the browser.
+        if(e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+        const t = e.target;
+        if(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+        if(document.querySelector('dialog[open]')) return;
+        e.preventDefault();
+        open();
       });
     }
   }

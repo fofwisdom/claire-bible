@@ -228,47 +228,19 @@ async function markDocumentSeen(docId){
     if(dc && dc.seen!==1){ dc.seen=1; renderDocs(document.getElementById('docq').value); }
   }catch(_){}
 }
-function updateCenterSearchMode(view){
+// The list filter (#q) filters the list below it. Its text and its function follow the list (documents or entities), not the center view.
+function updateCenterSearchMode(){
   const qEl = document.getElementById('q');
-  const qicon = document.getElementById('qicon');
-  const qlbl = document.getElementById('qlbl');
   const qclear = document.getElementById('qclear');
   if(!qEl) return;
-  const v = qEl.value || '';
-  if(qclear) qclear.style.display = v ? 'flex' : 'none';
-
+  if(qclear) qclear.style.display = qEl.value ? 'flex' : 'none';
+  const t = (key) => (window.ClaireI18n ? ClaireI18n.t(key) : key);
+  const ent = (typeof listMode === 'function') && listMode() === 'entities';
   const isAuthed = (typeof AUTH_SCOPE !== 'undefined' && AUTH_SCOPE !== 'anonymous' && AUTH_SCOPE !== 'unknown');
-
-  if(view === 'reader' || view === 'presentation' || view === 'home'){
-    if(qicon) qicon.textContent = (view === 'presentation' ? '📊' : '📖');
-    if(qlbl) qlbl.textContent = (view === 'presentation' ? '프레젠테이션 검색' : '문서 검색');
-    qEl.placeholder = (view === 'presentation'
-      ? '프레젠테이션 문서 검색 (제목 필터링, Enter: 본문 심층 검색)'
-      : '문서 검색 (제목 필터링, Enter: 본문 심층 검색)');
-    qEl.title = isAuthed
-      ? '문서 검색: 실시간 제목·요약 필터링, Enter로 AI 지식 검색 및 요약'
-      : '문서 검색: 실시간 제목·요약 필터링, Enter로 전체 본문(FTS5) 전문 검색';
-    if(v && typeof onDocqInput === 'function'){
-      onDocqInput(v);
-    }
-  } else if(view === 'stream'){
-    if(qicon) qicon.textContent = '📜';
-    if(qlbl) qlbl.textContent = '의사결정 스트림 검색';
-    qEl.placeholder = '의사결정 스트림 검색 (엔티티·속성·사유)';
-    qEl.title = '의사결정 스트림 검색: 엔티티 이름, 속성, 판단 사유 필터링';
-    if(typeof filterDecisionStreamByQuery === 'function'){
-      filterDecisionStreamByQuery(v);
-    }
-  } else {
-    // graph
-    if(qicon) qicon.textContent = '🌐';
-    if(qlbl) qlbl.textContent = '그래프 검색';
-    qEl.placeholder = '그래프 노드 검색 (엔티티 이름)';
-    qEl.title = '그래프 노드 검색: 실시간 노드 하이라이트, Enter로 카메라 포커스';
-    if(v && typeof hl === 'function'){
-      hl(v);
-    }
-  }
+  const key = ent ? 'list.filter.entities' : 'list.filter.documents';
+  qEl.dataset.i18nPlaceholder = key;
+  qEl.placeholder = t(key);
+  qEl.title = t(ent ? 'list.filter.entities_tip' : (isAuthed ? 'list.filter.documents_tip_ai' : 'list.filter.documents_tip'));
 }
 window.updateCenterSearchMode = updateCenterSearchMode;
 
@@ -1293,7 +1265,7 @@ function closeReader(focus=false){
   if(!target && readerReturnDocId){
     target=[...document.querySelectorAll('[data-read-doc]')].find(el=>el.dataset.readDoc===readerReturnDocId);
   }
-  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('docs')) : document.getElementById('q');
+  if(!target) target=mobileMQ.matches ? (paneTabs[activePane] || document.getElementById('docs')) : document.getElementById('palettetrigger');
   readerReturnFocus=null; readerReturnDocId=null;
   replaceAppHistory({ modal: getActiveModalName() });
   if(focus && target) requestAnimationFrame(()=>target.focus());

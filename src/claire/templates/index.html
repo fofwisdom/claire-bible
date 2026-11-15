@@ -81,7 +81,6 @@
 <body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">
 <header id="bar">
   <div class="bar-brand-group">
-    <button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>
     <a class="brand" href="./" onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}" title="Claire Bible 홈 (지식 그래프)">
       <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
       Claire Bible
@@ -100,16 +99,15 @@
         <span class="theme-plain-label" id="theme-plain-label">__THEME_PLAIN_LABEL__</span>
       </div>
     </div>
+    <button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>
   </div>
   <div id="centerhead" class="center-head-bar">
       <div id="netsearch">
-        <div id="barsearch">
-          <label class="sr-only" for="q" id="qlbl">통합 검색</label>
-          <span class="center-search-icon" id="qicon" aria-hidden="true">🌐</span>
-          <input id="q" placeholder="그래프 노드 검색 (엔티티 이름)" oninput="onCenterSearchInput(this.value)"/>
-          <input type="hidden" id="docq"/>
-          <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" title="검색어 초기화" aria-label="검색어 초기화" style="display:none">✕</button>
-        </div>
+        <button id="palettetrigger" type="button" class="palette-trigger" onclick="if(window.ClaireCommandPalette) window.ClaireCommandPalette.open()" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
+          <span class="palette-trigger-label" data-i18n="nav.palette.trigger">Search · Go · Commands</span>
+          <kbd aria-hidden="true">/</kbd>
+        </button>
       </div>
       <div class="center-tab-group" id="centertab-group">
         <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="목록 열기" aria-label="목록">
@@ -197,6 +195,14 @@
         <span id="listtitle" class="list-title">문서</span>
         <span id="stat" role="status" aria-live="polite">로딩…</span>
         <button id="docclose" class="doc-drawer-close" type="button" onclick="closeDocDrawer(true)" title="목록 닫기" aria-label="목록 닫기">✕</button>
+      </div>
+    </div>
+    <div id="listfilter" class="list-filter">
+      <div id="barsearch">
+        <label class="sr-only" for="q" id="qlbl" data-i18n="list.filter.label">List filter</label>
+        <input id="q" type="search" autocomplete="off" data-i18n-placeholder="list.filter.documents" oninput="onCenterSearchInput(this.value)"/>
+        <input type="hidden" id="docq"/>
+        <button id="qclear" type="button" class="center-search-clear-btn" onclick="clearCenterSearch()" data-i18n-title="list.filter.clear" data-i18n-aria-label="list.filter.clear" style="display:none">✕</button>
       </div>
     </div>
     <div id="listbody">
@@ -401,6 +407,8 @@
           <button type="button" class="sec" data-filter="CREATE_NEW" onclick="filterDecisionStreamCenter('CREATE_NEW')">신규</button>
           <button type="button" class="sec" data-filter="ROLLED_BACK" onclick="filterDecisionStreamCenter('ROLLED_BACK')">롤백됨</button>
         </div>
+        <label class="sr-only" for="streamq" data-i18n="stream.filter.label">Decision stream filter</label>
+        <input id="streamq" type="search" class="stream-filter-input" autocomplete="off" data-i18n-placeholder="stream.filter.placeholder" oninput="filterDecisionStreamByQuery(this.value)"/>
         <div class="stream-count-stat" id="stream-count-stat">기록 로딩 중…</div>
       </div>
       <div id="stream-scroll-container" class="stream-scroll-container" onscroll="handleStreamScroll(this)">

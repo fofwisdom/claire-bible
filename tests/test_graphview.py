@@ -619,7 +619,8 @@ def test_unified_search_ui_components():
     assert 'id="netsearch"' in GRAPH_HTML
     assert 'id="barsearch"' in GRAPH_HTML
     assert 'id="q"' in GRAPH_HTML
-    assert 'id="qicon"' in GRAPH_HTML
+    assert 'id="palettetrigger"' in GRAPH_HTML  # the header has the button of the command palette; the filter is in the list pane
+    assert 'id="listfilter"' in GRAPH_HTML
     assert 'id="qclear"' in GRAPH_HTML
     assert 'onCenterSearchInput' in GRAPH_HTML
     assert 'updateCenterSearchMode' in GRAPH_HTML
@@ -915,7 +916,7 @@ def test_common_header_height_and_component_synchronization():
     assert "#detailhead{display:flex;align-items:center;justify-content:space-between;height:48px;min-height:48px;" in GRAPH_HTML
 
     # 2. 중앙 헤더 내 검색창(#barsearch)과 탭 컨트롤(.center-tabs)이 34px 높이와 6px 반경으로 상호 동기화됨
-    assert "#centerhead #barsearch{\n    display:flex;align-items:center;position:relative;width:100%;\n    height:34px;box-sizing:border-box;\n    background:var(--panel-bg);border:1px solid var(--border);\n    border-radius:6px;" in GRAPH_HTML
+    assert "#centerhead .palette-trigger{\n    display:flex;align-items:center;position:relative;width:100%;\n    height:34px;box-sizing:border-box;\n    background:var(--panel-bg);border:1px solid var(--border);\n    border-radius:6px;" in GRAPH_HTML
     assert ".center-tabs{\n    display:inline-flex;align-items:center;gap:2px;\n    height:34px;box-sizing:border-box;\n    background:var(--sec-bg);padding:2px;border-radius:6px;" in GRAPH_HTML
 
     # 3. 우측 상세 닫기 버튼(#detailclose)도 34px 정사각 및 6px 반경으로 일치함

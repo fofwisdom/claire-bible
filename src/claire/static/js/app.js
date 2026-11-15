@@ -711,7 +711,7 @@ function closeContextPanel(){
   setContextUserOpen(false);
 }
 // --- List pane: open state and the list that the user selects (design Section 4.3) ---
-let listPaneOpen = true, listOverride = null;
+let listPaneOpen = true, listOverride = null, lastListMode = null;
 try{ if(getAccountStorage('claireListOpen') === 'false') listPaneOpen = false; }catch(_){}
 function toggleListPane(){
   if(mobileMQ.matches){ toggleDocDrawer(); return; }
@@ -4056,7 +4056,7 @@ function onDocqInput(v){
     serverSearchResults = null;
   }
   const qEl = document.getElementById('q');
-  if(qEl && typeof centerView !== 'undefined' && centerView === 'reader' && qEl.value !== v){
+  if(qEl && listMode() === 'docs' && qEl.value !== v){
     qEl.value = v;
     const qclear = document.getElementById('qclear');
     if(qclear) qclear.style.display = v ? 'flex' : 'none';
@@ -4070,7 +4070,7 @@ function clearServerSearch(){
   const dq = document.getElementById('docq');
   if(dq){ dq.value = ''; }
   const qEl = document.getElementById('q');
-  if(qEl && typeof centerView !== 'undefined' && centerView === 'reader'){
+  if(qEl && listMode() === 'docs'){
     qEl.value = '';
     const qclear = document.getElementById('qclear');
     if(qclear) qclear.style.display = 'none';
@@ -4519,6 +4519,8 @@ function updateListTitle(){
 function syncListPane(){
   const docsEl = document.getElementById('docs'); if(!docsEl) return;
   const mode = listMode();
+  if(lastListMode && lastListMode !== mode) resetListFilter(lastListMode);
+  lastListMode = mode;
   docsEl.dataset.list = mode;
   docsEl.setAttribute('aria-label', mode === 'entities' ? '엔티티 목록' : '문서 목록');
   document.querySelectorAll('#listswitch .list-switch-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.list === mode ? 'true' : 'false'));
@@ -4526,6 +4528,33 @@ function syncListPane(){
   else if(net && typeof net.setHoverNode === 'function') net.setHoverNode(null);
   updateListTitle();
   syncListTopBtn();
+  if(typeof updateCenterSearchMode === 'function') updateCenterSearchMode();
+}
+// The list filter belongs to one list. A change of the list removes the text and the effect of the filter on the list before.
+function resetListFilter(prevMode){
+  const q = document.getElementById('q');
+  if(!q || !q.value) return;
+  q.value = '';
+  const dq = document.getElementById('docq'); if(dq) dq.value = '';
+  if(prevMode === 'entities'){
+    if(typeof onSearchInput === 'function') onSearchInput('');
+  } else {
+    docSearchActive = false;
+    serverSearchResults = null;
+    if(typeof cancelServerSearch === 'function') cancelServerSearch();
+    renderDocs('');
+  }
+}
+// A search in the document bodies from the command palette. The result shows in the document list.
+function runFullTextSearch(query){
+  const v = String(query || '').trim(); if(!v) return;
+  if(listMode() !== 'docs') setListOverride('docs');
+  if(mobileMQ.matches){ if(typeof openDocDrawer === 'function') openDocDrawer(); }
+  else if(!listPaneOpen){ toggleListPane(); }
+  const q = document.getElementById('q'); if(q) q.value = v;
+  const dq = document.getElementById('docq'); if(dq) dq.value = v;
+  updateCenterSearchMode();
+  doDocServerSearch(v);
 }
 // The scroll container of the visible list.
 function listScroller(){ return document.getElementById(listMode() === 'entities' ? 'entlist' : 'doclist'); }
@@ -4973,6 +5002,7 @@ function resetWorkspaceState(){
   const qclear = document.getElementById('qclear');
   if(qclear) qclear.style.display = 'none';
   streamSearchQuery = '';
+  { const sq = document.getElementById('streamq'); if(sq) sq.value = ''; }
   updateSearchModeUI();
   clearTimeout(searchDebounce);
 
@@ -5779,16 +5809,9 @@ function onCenterSearchInput(v){
   if(dq && dq.value !== v){
     dq.value = v;
   }
-  const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
-  if(view === 'reader' || view === 'home'){
-    onDocqInput(v);
-  } else if(view === 'stream'){
-    if(typeof filterDecisionStreamByQuery === 'function'){
-      filterDecisionStreamByQuery(v);
-    }
-  } else {
-    onSearchInput(v);
-  }
+  // The filter works on the list that shows: documents or entities.
+  if(listMode() === 'entities') onSearchInput(v);
+  else onDocqInput(v);
 }
 window.onCenterSearchInput = onCenterSearchInput;
 
@@ -5847,16 +5870,11 @@ if(qEl){
     if(e.key!=='Enter') return;
     e.preventDefault();
     const val = (e.target.value || '').trim();
-    const view = (typeof centerView !== 'undefined' ? centerView : 'graph');
-    if(view === 'reader'){
+    if(listMode() !== 'entities'){
       cancelServerSearch();
       currentSearchSeq++;
       clearTimeout(searchDebounce);
       doDocServerSearch(val);
-    } else if(view === 'stream'){
-      if(typeof filterDecisionStreamByQuery === 'function'){
-        filterDecisionStreamByQuery(val);
-      }
     } else {
       cancelServerSearch();
       currentSearchSeq++;
@@ -5878,7 +5896,6 @@ if(qEl){
       }
     }
   });
-  qEl.addEventListener('focus', e=> e.target.select());
 }
 function doSemantic(){
   const docqVal = (document.getElementById('docq') ? document.getElementById('docq').value : '').trim();
@@ -6383,14 +6400,22 @@ function drawHomeMiniMap(){
     if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
     if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
   });
-  const pad = 16;
+  const pad = 12;
+  // The hint text is at the bottom of the box. The drawing does not go below the text.
+  const hintEl = document.getElementById('home-minimap-hint');
+  const reserve = hintEl ? Math.min(h / 2, hintEl.offsetHeight + 10) : 0;
+  const drawH = h - reserve;
   const spanX = Math.max(1e-3, maxX - minX), spanY = Math.max(1e-3, maxY - minY);
-  const scale = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY);
+  const scale = Math.min((w - pad * 2) / spanX, (drawH - pad * 2) / spanY);
   const ox = (w - spanX * scale) / 2 - minX * scale;
-  const oy = (h - spanY * scale) / 2 - minY * scale;
+  const oy = (drawH - spanY * scale) / 2 - minY * scale;
   const dark = curTheme() === 'dark';
-  ctx.strokeStyle = dark ? 'rgba(139,148,158,0.28)' : 'rgba(101,109,118,0.25)';
-  ctx.lineWidth = 0.8;
+  // The dot size and the line opacity follow the density: a graph with thousands of nodes stays a map of clusters, not one filled area.
+  const count = layout.points.length;
+  const unit = Math.max(0.45, Math.min(2.2, Math.sqrt((w * drawH) / (count * 22))));
+  const edgeAlpha = Math.max(0.06, Math.min(0.28, 60 / Math.max(1, layout.ea.length)));
+  ctx.strokeStyle = dark ? 'rgba(139,148,158,' + edgeAlpha + ')' : 'rgba(101,109,118,' + edgeAlpha + ')';
+  ctx.lineWidth = Math.max(0.4, Math.min(0.8, unit * 0.5));
   ctx.beginPath();
   for(let k = 0; k < layout.ea.length; k++){
     const pa = layout.points[layout.ea[k]], pb = layout.points[layout.eb[k]];
@@ -6400,13 +6425,18 @@ function drawHomeMiniMap(){
   }
   ctx.stroke();
   const accent = (typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() : '') || '#0969da';
-  layout.points.forEach(p => {
+  // Nodes with many connections come last, thus the hubs stay on top.
+  if(!layout.order) layout.order = layout.points.slice().sort((a, b) => a.degree - b.degree);
+  layout.order.forEach(p => {
     const cx = p.x * scale + ox, cy = p.y * scale + oy;
-    const rad = Math.max(2.2, Math.min(6, 2 + Math.sqrt(p.degree) * 0.55));
+    const rad = Math.min(6, unit * (1 + Math.sqrt(p.degree) * 0.28));
     ctx.beginPath();
     ctx.arc(cx, cy, rad, 0, Math.PI * 2);
     ctx.fillStyle = TYPE_COLORS[p.group] || '#8b949e';
+    // In a dense graph the nodes with one connection or less are lighter, thus the cluster centers show.
+    ctx.globalAlpha = (count > 600 && p.degree <= 1) ? 0.55 : 1;
     ctx.fill();
+    ctx.globalAlpha = 1;
     if(selectedNodeId && p.id === selectedNodeId){
       ctx.beginPath();
       ctx.arc(cx, cy, rad + 2.5, 0, Math.PI * 2);
@@ -7891,9 +7921,10 @@ if(window.ClaireCommandPalette){
       {id: 'light', icon: '🌞', label: tr('nav.palette.cmd_theme_light'), keywords: 'light theme', run: () => { if(curTheme() !== 'light') toggleTheme(); }},
       {id: 'dark', icon: '🌙', label: tr('nav.palette.cmd_theme_dark'), keywords: 'dark theme', run: () => { if(curTheme() !== 'dark') toggleTheme(); }}
     ],
+    getQueryActions: q => [{id: 'fulltext', icon: '›', iconName: 'search', label: tr('nav.palette.cmd_fulltext', {query: q}), run: () => runFullTextSearch(q)}],
     getListFilter: () => {
       const qEl = document.getElementById('q');
-      return qEl ? String(qEl.value || '').trim() : '';
+      return (qEl && listMode() === 'docs') ? String(qEl.value || '').trim() : '';
     },
     getCachedDocuments: query => {
       const q = String(query || '').trim().toLowerCase();

@@ -97,9 +97,9 @@ All items are **[code]** unless a different tag is given.
 
 From left to right:
 
-1. List toggle (`aria-expanded`), brand link (`enterHome`), theme picker (not changed).
+1. Brand link (`enterHome`), theme picker (not changed), list toggle (`aria-expanded`). The list toggle comes after the two controls that identify the knowledge base, and its open state has a neutral fill, not the accent color (Section 16).
 2. View navigation: Home, Reader, Graph, Presentation, Decision stream. The last two show only when their feature switch is on, as at the base commit (HD7).
-3. Search field: the `#q` field moves from `#centerhead` to the header. Its behavior for each view does not change. In the home view it works as in the reader view.
+3. Command palette button (`#palettetrigger`): it opens the palette (Section 11). The header has no input field. The `#q` field is the filter of the list pane (Section 4.3, Section 16).
 4. Ingest button (owner and collaborator only, the same condition as `canIngest()`).
 5. Manage menu: re-ingest, regenerate, deduplicate, path, synthesis, and the permanent delete as the last item behind a separator. Each item calls the function that the button of `#moremenu` calls today.
 6. Authentication state, settings link, light and dark switch, context panel toggle.
@@ -124,7 +124,8 @@ Rules:
 ### 4.3 List Pane
 
 - A switch with two buttons, Documents and Entities, selects the list in each view. The default is the list of the view: entities in the graph view, documents in all other views. A selection of the user stays until the next change of the view.
-- The lists, their filters, their paging, and their limits do not change ([`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md) Section 1).
+- One filter field (`#q`) is below the switch. It filters the list that shows: documents by title and summary (Enter starts the search in the document bodies, and the result shows in the document list), entities by name (the graph shows the same entities). A change of the list removes the text of the field (Section 16).
+- The lists, their paging, and their limits do not change ([`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md) Section 1).
 
 ### 4.4 Center Views
 
@@ -191,7 +192,7 @@ Three lists of five entities each. A click selects the entity and opens the cont
 | Bridges | `sources.length` of the graph nodes | Highest first; equal values in the order of `degree`. An entity that is in no document is not in the list. |
 | Added in the last 7 days | `created_at` of the graph nodes (new field, Section 9) | Newest first; the list is not shown when no node is in the period |
 
-Mini map: one static drawing of the node positions on a 2D canvas, without a render loop and without input. A click opens the graph view. The positions come from the layout code of the engine without its renderer (`Simulation`: `setTopology()`, `snapToHomes()`, `warmup()`). **[code]** The simulation runs without a `Network` instance.
+Mini map: one static drawing of the node positions on a 2D canvas, without a render loop and without input. A click opens the graph view. The positions come from the layout code of the engine without its renderer (`Simulation`: `setTopology()`, `snapToHomes()`, `warmup()`). **[code]** The simulation runs without a `Network` instance. The dot size and the line opacity follow the node density of the box, nodes with one connection or less are lighter in a dense graph, the nodes with the most connections are drawn last, and the drawing stays above the hint text. A check with a graph of 2900 entities and 4712 relations (2026-11-15) gave one filled area with the fixed dot size of the first implementation.
 
 ### 5.4 Recent Decisions Card
 
@@ -383,9 +384,9 @@ Each unit updates [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.m
 
 ## 11. Command Palette
 
-One dialog for search, movement, and commands, opened with Ctrl+K (Cmd+K) or from the manage menu. It is not the search field of the header; that field keeps its function (Section 4.1).
+One dialog for search, movement, and commands, opened with the `/` key, the button of the header, or the manage menu. The `/` key does not open the palette while the focus is in a field that takes text or while a dialog is open. Ctrl+K is not used: a browser uses that key (Section 16).
 
-- Sources: commands (home, graph, ingest, light and dark), documents (`GET /documents` with the filter of the list), entities (the graph nodes in the client).
+- Sources: commands (home, graph, ingest, light and dark), documents (`GET /documents` with the filter of the list), entities (the graph nodes in the client), and one row that starts the search in the document bodies with the text of the input field.
 - A row runs a function that exists. The palette makes no new write path.
 - Unit FP4-5 also specifies a command palette for `/syndication`. The two pages use one script module and one set of catalog keys. The unit that comes first makes the module.
 
@@ -403,7 +404,7 @@ Each unit ends with passing tests and one commit. Each unit records its result i
 | HW-4 | Local graph (6.4) and the hover link between the graph, the lists, and the cards | The local graph of a seed document shows its entities in ring 1 and their neighbors in ring 2. A click selects the entity. | HW-3 | M |
 | HW-5 | Entity marks (8) with `nodes[].aliases` (9) | Tests T1 to T4 pass. | HW-3 | M |
 | HW-6 | Graph view: insight lists in the context panel without a selection; entity detail from each view | A click on a list row in the home view opens the entity detail and does not change the view. | HW-2 | S |
-| HW-7 | Command palette (11) | Ctrl+K opens the palette. A document row opens the reader. | HW-1 | S |
+| HW-7 | Command palette (11) | The `/` key opens the palette. A document row opens the reader. | HW-1 | S |
 | HW-8 | Stage strip (5.6) | The strip shows for the owner with the counts of the routes that exist. A route that fails gives no count. | HW-1 | S |
 
 Order (HD9, HD14): HW-1 to HW-8 come before the units of [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) and [`I18N_DESIGN.md`](I18N_DESIGN.md) that are not done.
@@ -453,7 +454,7 @@ The owner accepted the prototype. These items differ in the design, with the rea
 | Stage strip with new posts, mentions, and published documents | Done with FP4-5 (2026-11-15): the strip has the counts of `GET /api/federation/timeline?limit=1`, and its links go to the three stages | — |
 | Relation colors by type and a legend of relation lines in the graph view | The graph view does not change | HD12 |
 | Isolated entities and pairs removed from the map | They stay on the canvas | HD11 |
-| The header search opens the command palette | The header keeps the search field of the view; the palette opens with Ctrl+K | The search of each view must stay |
+| The header search opens the command palette | First implementation: the header kept the search field of the view. Changed on 2026-11-15: as in the prototype (Section 16) | One field with a different function in each view was not clear |
 | Split view and "no graph" options, and the comparison switches | Not built | HD3; the switches are a tool of the prototype |
 | A force layout written for the prototype | The mini map uses the layout code of the engine | One layout in the product |
 
@@ -505,3 +506,18 @@ Result: the reader page has fewer elements, and principle A1 shows as a function
 | P3 | `enterHome()` sets `homeEntryActive` while it resets the workspace, thus `closeReader()` does not change the view to the graph. The view goes from the reader to the home view in one step. |
 | HW-8 | Done with FP4-5: the strip has the timeline counts of `GET /api/federation/timeline?limit=1`, and its links go to the three stages of `/syndication`. |
 
+## 16. Search Structure Change (2026-11-15), Implemented
+
+Owner decision after the use of the first implementation: each field has one function, as in the prototype.
+
+| Item | Before | After |
+| :--- | :--- | :--- |
+| Header | Input field `#q`; its function changed with the view (document filter, graph node search, decision stream filter) | Button `#palettetrigger` that opens the command palette |
+| List pane | No filter field | Filter field `#q` below the list switch; it filters the list that shows |
+| Decision stream | Filter through the header field | Filter field `#streamq` in the toolbar of the stream view |
+| Palette shortcut | Ctrl+K (Cmd+K) | `/` (also on `/syndication`) |
+| Search in document bodies | Enter in the header field (reader view only) | Enter in the document filter, or the row of the palette; the result shows in the document list |
+| List toggle | First control of the header; accent color while the list is open | After the theme picker; neutral fill while the list is open |
+| Palette background | `var(--panel)`, a variable that does not exist (transparent dialog) | `var(--card-bg)` |
+
+The two buttons of the list switch are wider (padding only). The full form of the prototype for the switch and the theme picker (buttons of equal width with counts) is not built; the owner looks at it again later.
