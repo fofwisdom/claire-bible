@@ -15,6 +15,7 @@ The source of the license is the field `license` in the `deno.json` file of the 
 
 | Package | Version | License |
 | :--- | :--- | :--- |
+| `@fedify/backfill` | 2.4.5 | MIT |
 | `@fedify/fedify` | 2.4.5 | MIT |
 | `@fedify/sqlite` | 2.4.5 | MIT |
 | `@fedify/uri-template` | 2.4.5 | MIT |

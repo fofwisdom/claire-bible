@@ -25,6 +25,7 @@ Federation client routes, for the owner of the account, in network mode only (FE
 - ``GET /api/federation/timeline``: one cursor page of the timeline of the caller, with the counts of the stage bar. The list has plain text only, no remote HTML.
 - ``GET /api/federation/timeline/{item_id}``: one item with its thread and the render URL of each body.
 - ``PATCH /api/federation/timeline/{item_id}``: ``unread`` and ``starred``.
+- ``POST /api/federation/timeline/{item_id}/context``: ask for a fetch of the thread of an item from the remote server (Section 6.5 rule 4, unit FP4-6).
 - ``GET /api/federation/objects``: one cursor page of the published documents of the caller (stage 3 of the stage bar).
 - ``GET /render/remote/{item_id}``: the body of an item on the app origin, only when the instance has no ``usercontent`` host (Section 8 rule 5).
 
@@ -902,6 +903,44 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         return json_error(404, "item_not_found") if data is False else JSONResponse(data, headers=_NO_STORE)
 
+    async def federation_timeline_context_post(request: Request) -> Response:
+        """Thread fetch (Section 6.5 rules 4 and 6, unit FP4-6): make the ``fetch_context`` task for the thread of an item. ``state`` is ``queued`` (a new task, 202), ``recent`` (a task of the thread waits, or one was made less than ``context_refetch_minutes`` ago), or ``off`` (the admin set ``context_fetch`` to ``off`` or the limit to 0, or the account is not an actor). ``pending`` is true while a task of the thread waits for the sidecar."""
+        # Same-origin rule for a cookie request: ``AuthenticationMiddleware``.
+        account_id = _owner_account_id(request)
+        if account_id is None:
+            return not_found()
+        item_id = _item_id(request)
+        if item_id is None:
+            return json_error(404, "item_not_found")
+
+        def _execute() -> dict[str, Any] | None | bool:
+            conn = open_db(ctx)
+            try:
+                if not _network_mode(conn):
+                    return None
+                store = accounts_store.AccountStore(conn)
+                reading = federation_client_store.get_reading_settings(conn)
+                # The sidecar takes only the tasks of an account that is an actor: a task of another account would wait without an end.
+                off = reading["context_fetch"] != "on" or int(reading["context_max_items"]) < 1 or actor_state(store.get(account_id), federation=store.federation_state()) != "active"
+            finally:
+                conn.close()
+            client = open_client_db(ctx)
+            try:
+                if off:
+                    return False if federation_client_store.get_timeline_item(client, account_id, item_id) is None else {"state": "off", "pending": False}
+                found = federation_client_store.request_thread_fetch(client, account_id=account_id, item_id=item_id, refetch_seconds=int(reading["context_refetch_minutes"]) * 60.0, now=time.time())
+                client.commit()
+            finally:
+                client.close()
+            return False if found is None else {"state": found[0], "pending": found[1]}
+
+        data = await asyncio.to_thread(_execute)
+        if data is None:
+            return not_found()
+        if data is False:
+            return json_error(404, "item_not_found")
+        return JSONResponse(data, status_code=202 if data["state"] == "queued" else 200, headers=_NO_STORE)
+
     async def federation_objects_get(request: Request) -> Response:
         """The published documents of the caller, newest first. The knowledge base view uses the list for its filter of published and unpublished documents (design Section 1.3 rule 6)."""
         account_id = _owner_account_id(request)
@@ -981,6 +1020,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(FEDERATION_TIMELINE_API_PATH, federation_timeline_get, methods=["GET"]),
         Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}", federation_timeline_item_get, methods=["GET"]),
         Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}", federation_timeline_item_patch, methods=["PATCH"]),
+        Route(FEDERATION_TIMELINE_API_PATH + "/{item_id}/context", federation_timeline_context_post, methods=["POST"]),
         Route(FEDERATION_OBJECTS_API_PATH, federation_objects_get, methods=["GET"]),
         Route(REMOTE_RENDER_PATH + "/{item_id}", remote_render_fallback, methods=["GET"]),
         Route(REMOTE_MEDIA_PATH + "/{url_hash}", remote_media_fallback, methods=["GET"]),

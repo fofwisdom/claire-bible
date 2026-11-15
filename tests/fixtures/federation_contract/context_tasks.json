@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/context-tasks?limit=2"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 4,
+        "actor_public_id": "116412345678901234",
+        "object_iri": "https://remote.example/notes/40",
+        "max_items": 100,
+        "max_depth": 5,
+        "created_at": 1800000363.0,
+        "lease_until": 1800000700.0
+      }
+    ]
+  }
+}

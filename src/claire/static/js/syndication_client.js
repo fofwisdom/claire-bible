@@ -46,6 +46,7 @@
     selectedId: null,
     detail: null,
     openWarnings: new Set(),
+    threadFetchId: null,
     following: null,
     actor: null,
     publishedLoaded: false,
@@ -336,7 +337,9 @@
     const thread = detail.thread.length > 1
       ? `<h2 class="synd-thread-title">${esc(tr("synd.client.thread_title", { count: detail.thread.length }))}</h2>${detail.thread.map((entry) => entryHtml(entry, String(entry.id) === String(item.id))).join("")}`
       : entryHtml(item, true);
-    el.innerHTML = `<div class="synd-reader">${actions}${thread}</div>`;
+    // Thread fetch (FP4-6): a note while the server fetches the thread. fetchThread() shows and hides it.
+    const fetchNote = `<div class="synd-thread-fetch" id="client-thread-fetch" role="status" ${String(C.threadFetchId) === String(item.id) ? "" : "hidden"}>${esc(tr("synd.client.thread_fetching"))}</div>`;
+    el.innerHTML = `<div class="synd-reader">${actions}${fetchNote}${thread}</div>`;
     const main = el.querySelector(".synd-entry.is-main");
     if (main && detail.thread.length > 1) main.scrollIntoView({ block: "nearest" });
   }
@@ -344,6 +347,7 @@
   async function selectItem(id) {
     C.selectedId = id;
     C.detail = null;
+    C.threadFetchId = null;
     renderList();
     renderReader();
     const result = await api("GET", `/api/federation/timeline/${encodeURIComponent(id)}`);
@@ -358,6 +362,45 @@
     if (window.matchMedia("(max-width: 720px)").matches) $("client-reader-pane").scrollIntoView({ block: "start" });
     const listed = C.items.find((item) => String(item.id) === String(id));
     if (listed && listed.unread) patchItem(id, { unread: false });
+    fetchThread(id);
+  }
+
+  // --- Thread fetch (FEDERATION_REMOTE_READING_DESIGN.md Section 6.5 rule 4, unit FP4-6) ---
+  // When the owner opens an item, the server makes a fetch task for its thread (one at most in the refetch time of the instance). While a task waits for the sidecar, the reader shows a note and this code asks again. After the task has a result, or after the last attempt, the thread loads again.
+  const THREAD_POLL_MS = 3000;
+  const THREAD_POLL_MAX = 10;
+
+  function showThreadFetch(id) {
+    C.threadFetchId = id;
+    const note = $("client-thread-fetch");
+    if (note) note.hidden = id === null;
+  }
+
+  async function fetchThread(id) {
+    const selected = () => String(C.selectedId) === String(id);
+    for (let attempt = 0; attempt <= THREAD_POLL_MAX; attempt += 1) {
+      const result = await api("POST", `/api/federation/timeline/${encodeURIComponent(id)}/context`);
+      if (!selected()) return;
+      if (!(result.ok && result.data.pending) || attempt === THREAD_POLL_MAX) {
+        showThreadFetch(null);
+        // Without a wait, the thread that the reader has is the current one.
+        if (attempt > 0) await reloadThread(id);
+        return;
+      }
+      showThreadFetch(id);
+      await new Promise((resolve) => setTimeout(resolve, THREAD_POLL_MS));
+      if (!selected()) return;
+    }
+  }
+
+  async function reloadThread(id) {
+    const result = await api("GET", `/api/federation/timeline/${encodeURIComponent(id)}`);
+    if (!result.ok || String(C.selectedId) !== String(id) || !C.detail) return;
+    const ids = (thread) => thread.map((entry) => String(entry.id)).join(",");
+    // The frames load again when the reader is made again: only a thread with other items replaces the view.
+    if (ids(result.data.thread) === ids(C.detail.thread)) return;
+    C.detail = result.data;
+    renderReader();
   }
 
   async function patchItem(id, change) {
