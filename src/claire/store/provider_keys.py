@@ -8,13 +8,15 @@ AAD는 ``account_id|provider|key_id``이므로 암호문을 다른 행으로 옮
 
 from __future__ import annotations
 
+import json
 import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from claire.secret_scrub import register_secret, scrub_text
+from claire.store.secrets import clear_volatile_user_seals, generate_user_seal, register_volatile_user_seal
 
 if TYPE_CHECKING:
     from claire.store.secrets import SecretService
@@ -74,8 +76,10 @@ def put_key(
     status: KeyStatus,
     secret_service: "SecretService | None" = None,
     now: float | None = None,
+    user_seal: str | bytes | None = None,
+    model_prefs: dict[str, Any] | None = None,
 ) -> ProviderKeyMeta:
-    """등록·교체(``UNIQUE(account_id, provider)``). 교체하면 새 ``key_id``와 nonce를 쓴다. 검증은 호출자(라우트)가 먼저 한다."""
+    """Store or replace an account BYOK key using split-key envelope encryption."""
     if status not in KEY_STATUSES:
         raise ValueError("invalid key status")
     if not isinstance(api_key, str) or not api_key:
@@ -84,9 +88,12 @@ def put_key(
     sec = _service(secret_service)
     ts = time.time() if now is None else now
     key_id = secrets.token_hex(16)
-    encrypted = sec.encrypt(api_key, key_aad(account_id, provider, key_id))
+    seal = user_seal if user_seal is not None else generate_user_seal()
+    register_volatile_user_seal(account_id, seal)
+    encrypted = sec.encrypt_with_user_seal(api_key, key_aad(account_id, provider, key_id), account_id=account_id, provider=provider, user_seal=seal)
     fingerprint = sec.compute_fingerprint(api_key, purpose=FINGERPRINT_PURPOSE)[:8]
     verified_at = ts if status == "active" else None
+    prefs_json = json.dumps(model_prefs if isinstance(model_prefs, dict) else {}, ensure_ascii=False)
     with conn:
         conn.execute(
             "DELETE FROM account_provider_keys WHERE account_id=? AND provider=?",
@@ -94,11 +101,11 @@ def put_key(
         )
         conn.execute(
             "INSERT INTO account_provider_keys (id, account_id, provider, ciphertext, nonce, key_version, "
-            "fingerprint, status, created_at, last_verified_at, last_used_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            "fingerprint, status, created_at, last_verified_at, last_used_at, model_prefs_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
             (
                 key_id, account_id, provider, encrypted.ciphertext, encrypted.nonce, encrypted.key_version,
-                fingerprint, status, ts, verified_at,
+                fingerprint, status, ts, verified_at, prefs_json,
             ),
         )
     return ProviderKeyMeta(
@@ -141,7 +148,7 @@ def has_key(conn: sqlite3.Connection, *, account_id: int) -> bool:
 
 
 def delete_key(conn: sqlite3.Connection, *, account_id: int, provider: str | None = None) -> int:
-    """지운 행 수. ``provider``가 None이면 그 계정의 키 전부."""
+    """Delete stored keys for an account and clear volatile seal if none remain."""
     with conn:
         if provider is None:
             cur = conn.execute("DELETE FROM account_provider_keys WHERE account_id=?", (account_id,))
@@ -149,6 +156,8 @@ def delete_key(conn: sqlite3.Connection, *, account_id: int, provider: str | Non
             cur = conn.execute(
                 "DELETE FROM account_provider_keys WHERE account_id=? AND provider=?", (account_id, provider)
             )
+    if not has_key(conn, account_id=account_id):
+        clear_volatile_user_seals(account_id)
     return int(cur.rowcount or 0)
 
 
@@ -192,13 +201,19 @@ def _service(secret_service: "SecretService | None") -> "SecretService":
     return get_secret_service()
 
 
-def _decrypt_row(row: sqlite3.Row | tuple, *, account_id: int, sec: "SecretService") -> ActiveKey:
+def _decrypt_row(row: sqlite3.Row | tuple, *, account_id: int, sec: "SecretService", user_seal: str | bytes | None = None) -> ActiveKey:
     from claire.store.secrets import SecretDecryptionError
 
     key_id, provider, ciphertext, nonce, key_version, fingerprint = tuple(row)
     try:
-        raw = sec.decrypt(
-            bytes(ciphertext), bytes(nonce), key_aad(account_id, str(provider), str(key_id)), int(key_version)
+        raw = sec.decrypt_with_user_seal(
+            bytes(ciphertext),
+            bytes(nonce),
+            key_aad(account_id, str(provider), str(key_id)),
+            account_id=account_id,
+            provider=str(provider),
+            key_version=int(key_version),
+            user_seal=user_seal,
         )
     except SecretDecryptionError:
         raise ProviderKeyError("stored provider key could not be decrypted") from None
@@ -219,18 +234,16 @@ def load_key(
     account_id: int,
     provider: str,
     secret_service: "SecretService | None" = None,
+    user_seal: str | bytes | None = None,
 ) -> ActiveKey | None:
-    """상태와 무관하게 그 프로바이더 키를 복호화한다. 재검증(``POST /api/me/keys/verify``) 전용이다.
-
-    작업 경로는 ``load_active_key``만 쓴다. 복호화 실패는 ``ProviderKeyError``.
-    """
+    """Decrypt a stored provider key regardless of status for reverification."""
     row = conn.execute(
         f"SELECT {_KEY_COLUMNS} FROM account_provider_keys WHERE account_id=? AND provider=?",
         (account_id, provider),
     ).fetchone()
     if row is None:
         return None
-    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service))
+    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
 
 
 def load_active_key(
@@ -238,23 +251,38 @@ def load_active_key(
     *,
     account_id: int,
     secret_service: "SecretService | None" = None,
+    user_seal: str | bytes | None = None,
 ) -> ActiveKey | None:
-    """``status='active'``인 키를 복호화해 돌려준다. 없으면 None. 복호화 실패는 ``ProviderKeyError``(폴백하지 않는다).
-
-    복호화한 값은 ``claire.secret_scrub.register_secret``에 등록한다.
-    """
+    """Decrypt and return the active provider key for an account, or None."""
     rows = conn.execute(
         f"SELECT {_KEY_COLUMNS} FROM account_provider_keys WHERE account_id=? AND status='active' ORDER BY provider",
         (account_id,),
     ).fetchall()
     if not rows:
         return None
-    # 여러 프로바이더가 생기면 멤버 키 프로바이더 순서를 따른다(지금은 gemini 하나).
     from claire.accounts.provider_policy import MEMBER_KEY_PROVIDERS
 
     order = {name: i for i, name in enumerate(MEMBER_KEY_PROVIDERS)}
     row = min(rows, key=lambda r: order.get(str(tuple(r)[1]), len(order)))
-    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service))
+    return _decrypt_row(row, account_id=account_id, sec=_service(secret_service), user_seal=user_seal)
+
+
+def get_key_model_prefs(conn: sqlite3.Connection, *, account_id: int, provider: str = "gemini") -> dict[str, Any]:
+    """Return stored per-account BYOK model preferences or an empty dictionary."""
+    try:
+        row = conn.execute(
+            "SELECT model_prefs_json FROM account_provider_keys WHERE account_id=? AND provider=?",
+            (account_id, provider),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return {}
+    if row is None or not row[0]:
+        return {}
+    try:
+        parsed = json.loads(str(row[0]))
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
 
 
 _REJECT_CODES: Final[frozenset[int]] = frozenset({401, 403})

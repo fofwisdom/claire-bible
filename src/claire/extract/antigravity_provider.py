@@ -39,6 +39,7 @@ from .prompts import (
     render_detail_prompt,
     research_prompt,
     select_followups_prompt,
+    summarize_document_prompt,
     summarize_search_prompt,
 )
 from .prompts import (
@@ -528,47 +529,24 @@ class AntigravityProvider:
         prompt = f"{sys}\n\nDOCUMENT:\n{body}"
 
         schema = ExtractionResult.extraction_json_schema()
-        fallback_used = False
-        try:
-            data = self._run_cli(
-                prompt,
-                json_schema=schema,
-                output_format="json",
-                effort=effort,
-                call_type="extract_json",
-                document_id=getattr(doc, "id", None),
-            )
-            if isinstance(data, dict):
-                result = ExtractionResult.model_validate(data)
-            else:
-                result = _coerce(str(data))
-        except Exception as e:
-            fallback_used = True
-            logger.warning("agy structured extraction fallback: %s", e)
-            # 폴백: 일반 텍스트 모드로 JSON 요청
-            fallback_prompt = (
-                f"{prompt}\n\nReturn ONLY valid JSON matching this schema:\n"
-                f"{json.dumps(schema)}"
-            )
-            raw_text = self._run_cli(
-                fallback_prompt,
-                output_format="text",
-                effort=effort,
-                call_type="extract_text_fallback",
-                document_id=getattr(doc, "id", None),
-            )
-            result = _coerce(str(raw_text))
+        data = self._run_cli(
+            prompt,
+            json_schema=schema,
+            output_format="json",
+            effort=effort,
+            call_type="extract_json",
+            document_id=getattr(doc, "id", None),
+        )
+        if isinstance(data, dict):
+            result = ExtractionResult.model_validate(data)
+        else:
+            result = _coerce(str(data))
 
-        # 요약 평문 정제 및 비어있거나 서문형 메타 안내문인 경우 방어적 보강
         if result.summary:
             result.summary = clean_plain_summary(result.summary)
 
         if not result.summary or not result.summary.strip():
             result.summary = ""
-        elif is_preface_summary(result.summary) and result.key_claims:
-            claims_summary = clean_plain_summary(" ".join(result.key_claims[:3]))
-            if claims_summary and len(claims_summary) >= 30:
-                result.summary = claims_summary
 
         result.model = self.model
         result.prompt_version = PROMPT_VERSION
@@ -587,7 +565,7 @@ class AntigravityProvider:
             input_chars=len(doc.raw_text or ""),
             duration_ms=total_duration,
             status="SUCCESS" if verdict == "REAL_LLM" else "DEGRADED",
-            google_block_reason="NONE" if verdict == "REAL_LLM" else ("FALLBACK_TEXT" if fallback_used else "FALLBACK_DETECTED"),
+            google_block_reason="NONE" if verdict == "REAL_LLM" else "EMPTY_OR_SHORT_SUMMARY",
             summary_verdict=verdict,
             output_snippet=result.summary[:500] if result.summary else None,
         )
@@ -596,49 +574,31 @@ class AntigravityProvider:
     def embed(
         self, text: str, *, task_type: str | None = None, title: str | None = None
     ) -> list[float]:
-        """임베딩 생성 (Gemini API 키 존재 시 Gemini embed. 키가 없으면 개발 환경은 결정론적 해시 벡터, 운영 환경은 실패)."""
-        if getattr(self.settings, "gemini_api_key", None):
-            try:
-                from google import genai
-                from google.genai import types
-
-                client = genai.Client(api_key=self.settings.gemini_api_key)
-                embed_model = getattr(
-                    self.settings, "gemini_embed_model", "gemini-embedding-001"
-                )
-                limit = getattr(self.settings, "embed_char_budget", 8000)
-                tt = task_type or getattr(
-                    self.settings, "embed_task_type", "SEMANTIC_SIMILARITY"
-                )
-                try:
-                    config = types.EmbedContentConfig(task_type=tt, title=title)
-                    resp = client.models.embed_content(
-                        model=embed_model, contents=text[:limit] or " ", config=config
-                    )
-                except Exception:
-                    resp = client.models.embed_content(
-                        model=embed_model, contents=text[:limit] or " "
-                    )
-                return list(resp.embeddings[0].values)
-            except Exception as e:
-                if getattr(self.settings, "is_production", False):
-                    raise
-                logger.warning("Gemini embedding fallback to deterministic hash: %s", e)
-        elif getattr(self.settings, "is_production", False):
+        """Generate embedding via Gemini when key is set, else raise error."""
+        if not getattr(self.settings, "gemini_api_key", None):
             from ..config import ProviderUnavailableError
 
-            # 운영 환경은 의사 벡터를 저장하지 않는다(PRINCIPLES C2). 호출자는 벡터 없이 FTS 로 진행한다.
             raise ProviderUnavailableError(
                 "Antigravity CLI has no embedding endpoint and GEMINI_API_KEY is empty"
             )
 
-        # 해시 기반 결정론적 의사 임베딩 (차원 EMBED_DIM, 개발 환경 전용)
-        h = hashlib.sha256(text.encode("utf-8", "ignore")).digest()
-        vals = []
-        for i in range(self.EMBED_DIM):
-            b = h[i % len(h)]
-            vals.append((b / 127.5) - 1.0)
-        return vals
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.settings.gemini_api_key)
+        embed_model = getattr(self.settings, "gemini_embed_model", "gemini-embedding-001")
+        limit = getattr(self.settings, "embed_char_budget", 8000)
+        tt = task_type or getattr(self.settings, "embed_task_type", "SEMANTIC_SIMILARITY")
+        embed_cfg_kwargs: dict[str, Any] = {"task_type": tt}
+        if title and tt == "RETRIEVAL_DOCUMENT":
+            embed_cfg_kwargs["title"] = title
+        config = types.EmbedContentConfig(**embed_cfg_kwargs)
+        resp = client.models.embed_content(
+            model=embed_model,
+            contents=text[:limit] or " ",
+            config=config,
+        )
+        return list(resp.embeddings[0].values)
 
     def summarize_search(self, query: str, context: str) -> str:
         """검색된 컨텍스트만 사용해 질의에 답한다(인용 포함, 환각 억제, 문어체)."""
@@ -647,6 +607,21 @@ class AntigravityProvider:
             prompt, output_format="text", call_type="summarize_search", allow_tools=False
         )
         return str(res).strip()
+
+    def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+        """Generate a concise plain-text Korean executive summary for a document."""
+        prompt = summarize_document_prompt(doc)
+        target_effort = effort or self.effort
+        doc_id = getattr(doc, "id", None)
+        res = self._run_cli(
+            prompt,
+            output_format="text",
+            effort=target_effort,
+            call_type="summarize_document",
+            document_id=doc_id,
+            allow_tools=False,
+        )
+        return clean_plain_summary(str(res).strip()).strip()
 
     def render_detail(
         self,
@@ -664,77 +639,17 @@ class AntigravityProvider:
         doc_id = getattr(doc, "id", None)
         target_effort = effort or self.effort
 
-        text = ""
-        try:
-            text = self._render_detail_call(
-                body,
-                images,
-                merged=merged,
-                scale=1,
-                format=format,
-                focus=focus_val,
-                effort=target_effort,
-                document_id=doc_id,
-                timeout=self.detail_timeout,
-            )
-        except Exception as e:
-            fallback_worked = False
-            # Fallback 1: 고추론(high) 실패 시 medium 추론으로 강등 재시도
-            if target_effort == "high":
-                logger.warning(
-                    "render_detail high effort failed (%s), retrying with medium effort",
-                    e,
-                )
-                try:
-                    text = self._render_detail_call(
-                        body,
-                        images,
-                        merged=merged,
-                        scale=1,
-                        format=format,
-                        focus=focus_val,
-                        effort="medium",
-                        document_id=doc_id,
-                        timeout=self.detail_timeout,
-                    )
-                    fallback_worked = bool(text and text.strip())
-                except Exception as e2:
-                    logger.warning(
-                        "render_detail medium effort retry also failed: %s", e2
-                    )
-
-            # Fallback 2: 대용량 본문(30,000자 초과) 타임아웃 지속 시 핵심 맥락 축소 재시도
-            if not fallback_worked and len(body) > 30_000:
-                logger.warning(
-                    "render_detail prompt body large (%d chars), retrying with condensed context",
-                    len(body),
-                )
-                condensed_body = (
-                    body[:20_000]
-                    + "\n\n[... 중략 (대용량 본문 일부 압축) ...]\n\n"
-                    + body[-10_000:]
-                )
-                eff_retry = "medium" if target_effort == "high" else target_effort
-                try:
-                    text = self._render_detail_call(
-                        condensed_body,
-                        images,
-                        merged=merged,
-                        scale=1,
-                        format=format,
-                        focus=focus_val,
-                        effort=eff_retry,
-                        document_id=doc_id,
-                        timeout=self.detail_timeout,
-                    )
-                    fallback_worked = bool(text and text.strip())
-                except Exception as e3:
-                    logger.warning(
-                        "render_detail condensed body retry failed: %s", e3
-                    )
-
-            if not fallback_worked:
-                raise
+        text = self._render_detail_call(
+            body,
+            images,
+            merged=merged,
+            scale=1,
+            format=format,
+            focus=focus_val,
+            effort=target_effort,
+            document_id=doc_id,
+            timeout=self.detail_timeout,
+        )
 
         if merged and text:
             for scale in (2, 4):
@@ -845,24 +760,21 @@ class AntigravityProvider:
             },
             "required": ["is_paper", "reason"],
         }
-        try:
-            data = self._run_cli(
-                prompt,
-                json_schema=schema,
-                output_format="json",
-                effort=eff,
-                call_type="classify_paper",
-                document_id=getattr(doc, "id", None),
-            )
-            parsed = data if isinstance(data, dict) else json.loads(str(data))
-            return PaperClassificationResult(
-                bool(parsed.get("is_paper", False)),
-                str(parsed.get("reason", "")),
-                author=parsed.get("author"),
-                title=parsed.get("title"),
-            )
-        except Exception as e:  # noqa: BLE001
-            return PaperClassificationResult(False, f"classify_paper failed: {e}")
+        data = self._run_cli(
+            prompt,
+            json_schema=schema,
+            output_format="json",
+            effort=eff,
+            call_type="classify_paper",
+            document_id=getattr(doc, "id", None),
+        )
+        parsed = data if isinstance(data, dict) else json.loads(str(data))
+        return PaperClassificationResult(
+            bool(parsed.get("is_paper", False)),
+            str(parsed.get("reason", "")),
+            author=parsed.get("author"),
+            title=parsed.get("title"),
+        )
 
     def classify_watch(self, doc: Document) -> dict:
         """[주기 크롤링] 문서가 '주기적으로 내용이 바뀌는 콘텐츠'인지 판단."""

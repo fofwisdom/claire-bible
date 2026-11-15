@@ -216,25 +216,16 @@ def test_extract_structured_success_despite_error_status(mock_run):
 
 
 @patch("subprocess.run")
-def test_extract_fallback_when_structured_fails(mock_run):
-    fallback_json = json.dumps({
-        "summary": "폴백 요약",
-        "key_claims": [],
-        "entities": [],
-        "relations": [],
-    })
-    mock_run.side_effect = [
-        RuntimeError("CLI structured error"),
-        SimpleNamespace(returncode=0, stdout=fallback_json, stderr=""),
-    ]
+def test_extract_raises_without_text_fallback(mock_run):
+    mock_run.side_effect = RuntimeError("CLI structured error")
 
     s = _make_settings()
     prov = AntigravityProvider(s)
     doc = Document(id="doc1", title="Test", raw_text="Some text", source_type="text")
 
-    result = prov.extract(doc)
-    assert result.summary == "폴백 요약"
-    assert mock_run.call_count == 2
+    with pytest.raises(RuntimeError, match="CLI structured error"):
+        prov.extract(doc)
+    assert mock_run.call_count == 1
 
 
 @patch("subprocess.run")
@@ -385,15 +376,12 @@ def test_judge_same_entity(mock_run):
     assert prov.judge_same_entity(mc) is False
 
 
-def test_embed_deterministic_hash():
-    prov = AntigravityProvider(_make_settings(gemini_api_key="", environment="development"))
-    v1 = prov.embed("hello world")
-    v2 = prov.embed("hello world")
-    v3 = prov.embed("another text")
+def test_embed_raises_without_gemini_key():
+    from claire.config import ProviderUnavailableError
 
-    assert len(v1) == AntigravityProvider.EMBED_DIM
-    assert v1 == v2
-    assert v1 != v3
+    prov = AntigravityProvider(_make_settings(gemini_api_key="", environment="development"))
+    with pytest.raises(ProviderUnavailableError, match="GEMINI_API_KEY is empty"):
+        prov.embed("hello world")
 
 
 @patch("subprocess.run")
@@ -712,62 +700,29 @@ def test_judge_relationship_passes_low_effort_and_metadata(mock_run):
 
 
 @patch("subprocess.run")
-def test_render_detail_fallback_on_high_effort_timeout(mock_run):
-    """high effort 타임아웃 시 medium effort 로 강등 재시도하여 성공하는지 검증."""
-    call_count = 0
-
-    def side_effect(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        assert kwargs.get("timeout") == 300.0  # detail_timeout 적용 확인
-        cmd = args[0]
-        eff_idx = cmd.index("--effort")
-        effort_val = cmd[eff_idx + 1]
-        if effort_val == "high":
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
-        return SimpleNamespace(
-            returncode=0,
-            stdout="## 상세 내용 (Medium 추론 복구)\n\n정상 렌더링 완료.",
-            stderr="",
-        )
-
-    mock_run.side_effect = side_effect
+def test_render_detail_raises_without_effort_downgrade(mock_run):
+    """Verify render_detail raises on timeout and does not retry with lower effort."""
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["agy"], timeout=300.0)
     s = _make_settings(agy_effort="high", agy_detail_timeout=300.0)
     prov = AntigravityProvider(s)
     doc = Document(id="doc_fb1", title="Large Doc", raw_text="Short content", source_type="text")
 
-    res = prov.render_detail(doc, effort="high")
-    assert "Medium 추론 복구" in res
-    assert call_count == 2
+    with pytest.raises(RuntimeError, match="timed out"):
+        prov.render_detail(doc, effort="high")
+    assert mock_run.call_count == 1
 
 
 @patch("subprocess.run")
-def test_render_detail_fallback_on_large_body_timeout(mock_run):
-    """대용량 본문(30k 초과)에서 medium 재시도까지 실패 시 condensed body 로 재시도하는지 검증."""
-    efforts_called = []
-
-    def side_effect(*args, **kwargs):
-        cmd = args[0]
-        eff_idx = cmd.index("--effort")
-        effort_val = cmd[eff_idx + 1]
-        efforts_called.append(effort_val)
-        if len(efforts_called) < 3:
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=300.0)
-        return SimpleNamespace(
-            returncode=0,
-            stdout="## 상세 내용 (Condensed 복구)\n\n압축 본문 렌더링 완료.",
-            stderr="",
-        )
-
-    mock_run.side_effect = side_effect
+def test_render_detail_raises_without_condensed_fallback(mock_run):
+    """Verify render_detail raises on large body timeout and does not retry with condensed text."""
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["agy"], timeout=300.0)
     s = _make_settings(agy_effort="high", agy_detail_timeout=300.0)
     prov = AntigravityProvider(s)
     large_text = "A" * 35_000
     doc = Document(id="doc_fb2", title="Huge Paper", raw_text=large_text, source_type="pdf")
 
-    res = prov.render_detail(doc, effort="high")
-    assert "Condensed 복구" in res
-    assert len(efforts_called) == 3
-    assert efforts_called == ["high", "medium", "medium"]
+    with pytest.raises(RuntimeError, match="timed out"):
+        prov.render_detail(doc, effort="high")
+    assert mock_run.call_count == 1
 
 

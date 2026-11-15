@@ -53,7 +53,8 @@ def resolve_embed_identity(provider: Any, settings: Any = None) -> EmbedPin:
     모델: ``provider.embed_model`` → ``provider.settings.gemini_embed_model`` → ``settings.gemini_embed_model`` → 전역 설정. 모르면 빈 문자열.
     """
     name = _str_attr(provider, "name")
-    if name == "mock":
+    explicit_ep = _str_attr(provider, "embed_provider")
+    if name == "mock" and (not explicit_ep or explicit_ep == "mock"):
         return EmbedPin("mock", MOCK_EMBED_MODEL)
     model = _str_attr(provider, "embed_model") or _str_attr(
         getattr(provider, "settings", None), "gemini_embed_model"

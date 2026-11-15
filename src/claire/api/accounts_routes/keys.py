@@ -21,11 +21,20 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ...accounts.provider_policy import MEMBER_KEY_PROVIDERS
+from ...accounts.provider_policy import (
+    ADMIN_ONLY_FEATURES,
+    EFFORT_ORDER,
+    FEATURE_SLOTS,
+    MEMBER_KEY_PROVIDERS,
+    MODEL_CAPABILITY_RANKS,
+    is_model_equal_or_higher,
+    normalize_model_and_effort,
+)
 from ...secret_scrub import register_secret, scrub_text
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import provider_keys
+from ...store.secrets import BYOK_SEAL_COOKIE, generate_user_seal, register_volatile_user_seal
 from ..principal import Principal, request_principal
 from ..security import read_json_body
 from .common import (
@@ -78,6 +87,104 @@ def _clean_api_key(value: Any) -> str | None:
 # --- 동기 작업 (asyncio.to_thread) ------------------------------------------------
 
 
+def _admin_baseline(ctx: AccountsContext) -> dict[str, dict[str, str]]:
+    """Compute effective admin model and effort baseline per feature slot."""
+    from ...provider_manager import ProviderManager
+
+    data_dir = ctx.data_dir or ctx.db_file.parent
+    cfg: dict[str, Any] = {}
+    try:
+        pm = ProviderManager(data_dir=data_dir, auto_migrate=False)
+        cfg = pm.get_config()
+    except Exception:
+        cfg = {}
+    providers = cfg.get("providers", {}) if isinstance(cfg, dict) else {}
+    active = str(cfg.get("active_provider") or getattr(ctx.settings, "provider", "mock") or "mock").strip().lower()
+    raw_routing = cfg.get("feature_routing") if isinstance(cfg.get("feature_routing"), dict) else getattr(ctx.settings, "feature_routing", {}) or {}
+
+    def _prov_defaults(pname: str, slot: str) -> tuple[str, str]:
+        pdata = providers.get(pname, {}) if isinstance(providers, dict) else {}
+        if pname == "gemini":
+            if slot == "embed":
+                return str(pdata.get("embed_model") or getattr(ctx.settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001"), ""
+            return str(pdata.get("model") or getattr(ctx.settings, "gemini_model", "") or ""), str(pdata.get("effort") or getattr(ctx.settings, "gemini_effort", "medium") or "medium")
+        if pname == "antigravity":
+            return str(pdata.get("model") or getattr(ctx.settings, "agy_model", "") or ""), str(pdata.get("effort") or getattr(ctx.settings, "agy_effort", "medium") or "medium")
+        if pname == "codex":
+            return str(pdata.get("model") or getattr(ctx.settings, "codex_model", "") or "codex-default"), str(pdata.get("effort") or getattr(ctx.settings, "codex_effort", "medium") or "medium")
+        return ("mock", "") if pname == "mock" else ("", "")
+
+    baseline: dict[str, dict[str, str]] = {}
+    for slot in FEATURE_SLOTS:
+        slot_cfg = raw_routing.get(slot, {}) if isinstance(raw_routing, dict) else {}
+        slot_prov = str(slot_cfg.get("provider") or "inherit").strip().lower() or "inherit"
+        eff_prov = active if slot_prov == "inherit" else slot_prov
+        def_m, def_e = _prov_defaults(eff_prov, slot)
+        model = str(slot_cfg.get("model") or def_m or "").strip()
+        effort = str(slot_cfg.get("effort") or def_e or "").strip().lower()
+        baseline[slot] = {"provider": eff_prov, "model": model, "effort": effort}
+    return baseline
+
+
+def _validate_byok_prefs(payload: dict[str, Any], baseline: dict[str, dict[str, str]]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Validate optional BYOK model preferences against admin baseline (>= rank)."""
+    from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_models
+
+    allowed_gen = set(list_gemini_models())
+    allowed_embed = set(DEFAULT_GEMINI_EMBED_MODELS)
+    prefs: dict[str, Any] = {}
+
+    if "model" in payload or "effort" in payload:
+        req_model = str(payload.get("model") or "").strip()
+        req_effort = str(payload.get("effort") or "").strip().lower()
+        if req_model.lower() == "mock":
+            return {}, {"code": "model_below_admin_baseline", "slot": "extract_graph", "reason": "mock is forbidden"}
+        if req_model and req_model not in allowed_gen:
+            return {}, {"code": "unsupported_model", "slot": "extract_graph", "model": req_model}
+        if req_effort and req_effort not in EFFORT_ORDER:
+            return {}, {"code": "unsupported_effort", "slot": "extract_graph", "effort": req_effort}
+        base = baseline.get("extract_graph", {"model": "", "effort": "medium"})
+        check_model = req_model or base.get("model") or ""
+        check_effort = req_effort or base.get("effort") or "medium"
+        if base.get("model") and base.get("model") != "mock" and not is_model_equal_or_higher(check_model, check_effort, base.get("model"), base.get("effort")):
+            return {}, {"code": "model_below_admin_baseline", "slot": "extract_graph", "requested_model": check_model, "requested_effort": check_effort, "admin_model": base.get("model"), "admin_effort": base.get("effort")}
+        if req_model:
+            prefs["model"] = req_model
+        if req_effort:
+            prefs["effort"] = req_effort
+
+    if "feature_models" in payload:
+        raw_fm = payload.get("feature_models")
+        if not isinstance(raw_fm, dict):
+            return {}, {"code": "invalid_request", "fields": ["feature_models"]}
+        fm_out: dict[str, dict[str, str]] = {}
+        for slot, cfg in raw_fm.items():
+            if slot not in FEATURE_SLOTS or slot in ADMIN_ONLY_FEATURES:
+                return {}, {"code": "unsupported_feature", "slot": str(slot)}
+            if not isinstance(cfg, dict):
+                return {}, {"code": "invalid_request", "fields": [f"feature_models.{slot}"]}
+            m = str(cfg.get("model") or "").strip()
+            e = str(cfg.get("effort") or "").strip().lower()
+            if m.lower() == "mock":
+                return {}, {"code": "model_below_admin_baseline", "slot": slot, "requested_model": m}
+            allowed = allowed_embed if slot == "embed" else allowed_gen
+            if m and m not in allowed:
+                return {}, {"code": "unsupported_model", "slot": slot, "model": m}
+            if e and e not in EFFORT_ORDER:
+                return {}, {"code": "unsupported_effort", "slot": slot, "effort": e}
+            base = baseline.get(slot, {"model": "", "effort": "medium"})
+            check_m = m or base.get("model") or ""
+            check_e = e or base.get("effort") or "medium"
+            if m and base.get("model") and base.get("model") != "mock" and not is_model_equal_or_higher(check_m, check_e, base.get("model"), base.get("effort")):
+                return {}, {"code": "model_below_admin_baseline", "slot": slot, "requested_model": check_m, "requested_effort": check_e, "admin_model": base.get("model"), "admin_effort": base.get("effort")}
+            _, norm_e = normalize_model_and_effort(check_m, check_e)
+            fm_out[slot] = {"provider": "gemini", "model": m or check_m, "effort": "" if slot == "embed" else (e or norm_e)}
+        if fm_out:
+            prefs["feature_models"] = fm_out
+
+    return prefs, None
+
+
 def list_meta(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
     auth = open_auth_db(ctx)
     try:
@@ -86,16 +193,40 @@ def list_meta(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
         auth.close()
 
 
-def store_key(ctx: AccountsContext, account_id: int, provider: str, api_key: str) -> dict[str, Any]:
+def get_member_prefs(ctx: AccountsContext, account_id: int, provider: str = "gemini") -> dict[str, Any]:
     auth = open_auth_db(ctx)
     try:
-        meta = provider_keys.put_key(auth, account_id=account_id, provider=provider, api_key=api_key, status="active")
+        return provider_keys.get_key_model_prefs(auth, account_id=account_id, provider=provider)
+    finally:
+        auth.close()
+
+
+def store_key(
+    ctx: AccountsContext,
+    account_id: int,
+    provider: str,
+    api_key: str,
+    *,
+    user_seal: str | None = None,
+    model_prefs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    auth = open_auth_db(ctx)
+    try:
+        meta = provider_keys.put_key(
+            auth,
+            account_id=account_id,
+            provider=provider,
+            api_key=api_key,
+            status="active",
+            user_seal=user_seal,
+            model_prefs=model_prefs,
+        )
         auth_db.record_admin_audit(
             auth,
             actor_account_id=account_id,
             action="account.provider_key_put",
             target_account_id=account_id,
-            detail={"provider": provider},
+            detail={"provider": provider, "has_model_prefs": bool(model_prefs)},
         )
         return _meta_dict(meta)
     finally:
@@ -184,7 +315,23 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return denied
         assert principal.account_id is not None
         items = await asyncio.to_thread(list_meta, ctx, principal.account_id)
-        return JSONResponse({"keys": items}, headers={"Cache-Control": "no-store"})
+        payload: dict[str, Any] = {"keys": items}
+        if str(request.query_params.get("include_policy") or "").lower() in ("1", "true", "yes"):
+            from ...provider_manager import DEFAULT_GEMINI_EMBED_MODELS, list_gemini_models
+
+            baseline = await asyncio.to_thread(_admin_baseline, ctx)
+            prefs = await asyncio.to_thread(get_member_prefs, ctx, principal.account_id)
+            payload["model_policy"] = {
+                "admin_baseline": baseline,
+                "allowed_models": list_gemini_models(),
+                "allowed_embed_models": list(DEFAULT_GEMINI_EMBED_MODELS),
+                "model_ranks": dict(MODEL_CAPABILITY_RANKS),
+                "effort_order": list(EFFORT_ORDER),
+                "model_prefs": prefs,
+                "split_key_enabled": True,
+                "has_cookie_seal": bool(request.cookies.get(BYOK_SEAL_COOKIE)),
+            }
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
     async def keys_put(request: Request) -> Response:
         principal, denied = await _gate(request)
@@ -200,11 +347,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
             register_secret(raw_key)
             register_secret(raw_key.strip())
         body.pop("api_key", None)
-        if set(body) != {"provider"} or raw_key is None:
+        allowed_keys = {"provider", "model", "effort", "feature_models"}
+        if "provider" not in body or (set(body) - allowed_keys) or raw_key is None:
             return json_error(400, "invalid_request", fields=["provider", "api_key"])
         provider = body["provider"]
         if not isinstance(provider, str) or provider not in MEMBER_KEY_PROVIDERS:
             return json_error(400, "unsupported_provider", providers=list(MEMBER_KEY_PROVIDERS))
+        baseline = await asyncio.to_thread(_admin_baseline, ctx)
+        prefs, pref_err = _validate_byok_prefs(body, baseline)
+        if pref_err is not None:
+            err_code = str(pref_err.pop("code", "invalid_request"))
+            return json_error(400, err_code, **pref_err)
         api_key = _clean_api_key(raw_key)
         del raw_key
         if api_key is None:
@@ -216,14 +369,38 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(503, "key_verification_unavailable", message=scrub_text(exc, extra=(api_key,)))
         if not ok:
             return json_error(422, "key_verification_failed", message=scrub_text(message, extra=(api_key,)))
-        meta = await asyncio.to_thread(store_key, ctx, principal.account_id, provider, api_key)
-        return JSONResponse({"key": meta}, headers={"Cache-Control": "no-store"})
+        seal = request.cookies.get(BYOK_SEAL_COOKIE) or generate_user_seal()
+        meta = await asyncio.to_thread(
+            store_key,
+            ctx,
+            principal.account_id,
+            provider,
+            api_key,
+            user_seal=seal,
+            model_prefs=prefs,
+        )
+        res_body: dict[str, Any] = {"key": meta}
+        if prefs:
+            res_body["model_prefs"] = prefs
+        resp = JSONResponse(res_body, headers={"Cache-Control": "no-store"})
+        resp.set_cookie(
+            BYOK_SEAL_COOKIE,
+            seal,
+            httponly=True,
+            samesite="lax",
+            secure=bool(ctx.config.secure_cookie),
+            path="/",
+        )
+        return resp
 
     async def keys_verify(request: Request) -> Response:
         principal, denied = await _gate(request)
         if denied is not None:
             return denied
         assert principal.account_id is not None
+        seal_cookie = request.cookies.get(BYOK_SEAL_COOKIE)
+        if seal_cookie:
+            register_volatile_user_seal(principal.account_id, seal_cookie)
         body = await read_json_body(request)
         if set(body) != {"provider"}:
             return json_error(400, "invalid_request", fields=["provider"])

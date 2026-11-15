@@ -594,18 +594,16 @@ def test_member_quota_exhaustion_is_rejected_not_retried(tmp_path, fake_genai, m
     assert calls["n"] == 1
 
 
-def test_admin_path_keeps_json_fallback(tmp_path, fake_genai):
+def test_admin_path_raises_without_json_fallback(tmp_path, fake_genai):
     from claire.extract.gemini_provider import GeminiProvider
     from claire.ontology.base import Document
 
     p = GeminiProvider(_settings(tmp_path, provider="gemini"))
     assert p.client.api_key == ADMIN_KEY and p.credential_key == "admin" and p.usage_hooks is None
-    p.client.interactions.create.side_effect = [
-        _Err(400, "Invalid schema"),
-        SimpleNamespace(output_text='{"summary":"폴백 요약","key_claims":[],"entities":[],"relations":[]}'),
-    ]
-    res = p.extract(Document(id="d", title="t", raw_text="body", source_type="text"))
-    assert res.summary == "폴백 요약"
+    p.client.interactions.create.side_effect = _Err(400, "Invalid schema")
+    with pytest.raises(_Err, match="Invalid schema"):
+        p.extract(Document(id="d", title="t", raw_text="body", source_type="text"))
+    assert p.client.interactions.create.call_count == 1
 
 
 def test_error_messages_are_scrubbed(tmp_path, fake_genai, monkeypatch):
