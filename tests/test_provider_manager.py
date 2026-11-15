@@ -185,7 +185,7 @@ def test_provider_api_routes(tmp_path: Path):
             "providers": {
                 "gemini": {
                     "api_key": "AIzaSyNewTestKey123",
-                    "model": "gemini-3.7-flash",
+                    "model": "gemini-3.8-flash",
                 }
             }
         }
@@ -194,9 +194,17 @@ def test_provider_api_routes(tmp_path: Path):
     res_json = patch_resp.json()
     assert res_json["ok"] is True
     assert res_json["config"]["active_provider"] == "gemini"
-    assert res_json["config"]["providers"]["gemini"]["model"] == "gemini-3.7-flash"
+    assert res_json["config"]["providers"]["gemini"]["model"] == "gemini-3.8-flash"
     assert res_json["config"]["providers"]["gemini"]["has_api_key"] is True
     assert res_json["config"]["providers"]["gemini"]["api_key"] == "••••••••"
+
+    # 4b. PATCH with unsupported model -> 400
+    bad_resp = client.patch(
+        "/providers",
+        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
+        json={"providers": {"antigravity": {"model": "gemini-4-hydrogen"}}},
+    )
+    assert bad_resp.status_code == 400
 
     # 5. POST test connection
     test_resp = client.post(
@@ -237,11 +245,11 @@ def test_agy_models_parsing_and_effort_inference(tmp_path: Path):
     from claire.provider_manager import _parse_agy_models_output
 
     raw = (
-        "\r⠋ Fetching available models...\r⠙ Fetching available models..."
-        "\rgemini-4-hydrogen-high    Gemini 4 Hydrogen (High)\n"
-        "gemini-4-hydrogen-xhigh   Gemini 4 Hydrogen (XHigh)\n"
-        "gemini-4-hydrogen-medium  Gemini 4 Hydrogen (Medium)\n"
-        "gemini-4-hydrogen-low     Gemini 4 Hydrogen (Low)\n"
+        "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n"
+        "gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)\n"
+        "gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)\n"
+        "gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)\n"
+        "gemini-pro-orchestrator-g1-pro\tOrchestrator (Argon)\n"
     )
     parsed = _parse_agy_models_output(raw)
     assert [m["id"] for m in parsed] == [
@@ -249,6 +257,7 @@ def test_agy_models_parsing_and_effort_inference(tmp_path: Path):
         "gemini-4-hydrogen-xhigh",
         "gemini-4-hydrogen-medium",
         "gemini-4-hydrogen-low",
+        "gemini-pro-orchestrator-g1-pro",
     ]
 
     pm = ProviderManager(data_dir=tmp_path / "data", auto_migrate=False)
@@ -265,3 +274,16 @@ def test_agy_models_parsing_and_effort_inference(tmp_path: Path):
     assert updated["providers"]["antigravity"]["effort"] == "xhigh"
     assert isinstance(updated["providers"]["antigravity"]["available_models"], list)
     assert any(m["id"] == "gemini-4-hydrogen-xhigh" for m in updated["providers"]["antigravity"]["available_models"])
+    assert any(m["id"] == "gemini-3.8-flash" for m in updated["providers"]["gemini"]["available_models"])
+    assert any(m["id"] == "gemini-embedding-001" for m in updated["providers"]["gemini"]["available_embed_models"])
+    assert any(m["id"] == "gpt-5.4" for m in updated["providers"]["codex"]["available_models"])
+    assert any(m["id"] == "gpt-4o-mini" for m in updated["providers"]["openai"]["available_models"])
+
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"gemini": {"model": "unsupported-gemini-model"}}})
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"antigravity": {"model": "gemini-4-hydrogen"}}})
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"codex": {"model": "unsupported-codex-model"}}})
+    with pytest.raises(ValueError):
+        pm.update_config({"providers": {"openai": {"model": "unsupported-openai-model"}}})

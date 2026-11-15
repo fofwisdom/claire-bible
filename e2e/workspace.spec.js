@@ -747,13 +747,19 @@ test('provider management lives in the admin console and the root topbar shows o
   const activeSelect = page.locator('#prov-active-select');
   await expect(activeSelect).toBeVisible();
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
+  expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
+  expect(await page.locator('#prov-gemini-embed').evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-agy-bin')).toBeVisible();
   const agyModelSelect = page.locator('#prov-agy-model');
   await expect(agyModelSelect).toBeVisible();
+  expect(await agyModelSelect.evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-agy-effort')).toHaveCount(0);
-  await expect(agyModelSelect.locator('option[value="gemini-4-hydrogen-medium"]')).toHaveCount(1);
+  await expect(agyModelSelect.locator('option[value="gemini-4-hydrogen-medium"]')).toHaveText('gemini-4-hydrogen-medium');
   await expect(page.locator('#prov-cdx-bin')).toBeVisible();
+  expect(await page.locator('#prov-cdx-model').evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-oai-url')).toBeVisible();
+  expect(await page.locator('#prov-oai-model').evaluate(el => el.tagName)).toBe('SELECT');
+  expect(await page.locator('#prov-oai-embed').evaluate(el => el.tagName)).toBe('SELECT');
 
   // 6. Test connection button for antigravity
   const agyTestBtn = detailPane.locator('button:has-text("CLI 확인")').first();

@@ -30,20 +30,77 @@ log = logging.getLogger("claire.provider")
 PROVIDERS_CONFIG_FILENAME = "providers.json"
 
 DEFAULT_AGY_MODELS: list[dict[str, str]] = [
-    {"id": "gemini-4-hydrogen-low", "label": "Gemini 4 Hydrogen (Low)"},
-    {"id": "gemini-4-hydrogen-medium", "label": "Gemini 4 Hydrogen (Medium)"},
-    {"id": "gemini-4-hydrogen-high", "label": "Gemini 4 Hydrogen (High)"},
-    {"id": "gemini-4-hydrogen-xhigh", "label": "Gemini 4 Hydrogen (XHigh)"},
-    {"id": "gemini-4-argon-low", "label": "Gemini 4 Argon (Low)"},
     {"id": "gemini-4-argon-medium", "label": "Gemini 4 Argon (Medium)"},
     {"id": "gemini-4-argon-high", "label": "Gemini 4 Argon (High)"},
-    {"id": "gemini-3.8-flash-low", "label": "Gemini 3.8 Flash (Low)"},
-    {"id": "gemini-3.8-flash-medium", "label": "Gemini 3.8 Flash (Medium)"},
+    {"id": "gemini-4-argon-low", "label": "Gemini 4 Argon (Low)"},
+    {"id": "gemini-4-hydrogen-high", "label": "Gemini 4 Hydrogen (High)"},
+    {"id": "gemini-4-hydrogen-xhigh", "label": "Gemini 4 Hydrogen (XHigh)"},
+    {"id": "gemini-4-hydrogen-medium", "label": "Gemini 4 Hydrogen (Medium)"},
+    {"id": "gemini-4-hydrogen-low", "label": "Gemini 4 Hydrogen (Low)"},
+    {"id": "gemini-pro-orchestrator-g1-pro", "label": "Orchestrator (Argon)"},
     {"id": "gemini-3.8-flash-high", "label": "Gemini 3.8 Flash (High)"},
+    {"id": "gemini-3.8-flash-medium", "label": "Gemini 3.8 Flash (Medium)"},
+    {"id": "gemini-3.8-flash-low", "label": "Gemini 3.8 Flash (Low)"},
+    {"id": "claude-opus-5-5-low", "label": "Claude Opus 5.5 (Low)"},
+    {"id": "claude-opus-5-5-medium", "label": "Claude Opus 5.5 (Medium)"},
+    {"id": "claude-opus-5-5-high", "label": "Claude Opus 5.5 (High)"},
+    {"id": "claude-sonnet-5-5-low", "label": "Claude Sonnet 5.5 (Low)"},
+    {"id": "claude-sonnet-5-5-medium", "label": "Claude Sonnet 5.5 (Medium)"},
+    {"id": "claude-sonnet-5-5-high", "label": "Claude Sonnet 5.5 (High)"},
+    {"id": "gpt-oss-120b-medium", "label": "GPT-OSS 120B (Medium)"},
 ]
+
+DEFAULT_GEMINI_MODELS: tuple[str, ...] = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-4-argon",
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+)
+
+DEFAULT_GEMINI_EMBED_MODELS: tuple[str, ...] = (
+    "gemini-embedding-001",
+    "gemini-embedding-2",
+    "gemini-embedding-2-preview",
+)
+
+DEFAULT_CODEX_MODELS: tuple[str, ...] = (
+    "",
+    "gpt-5.4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex",
+    "gpt-5-codex",
+    "gpt-5",
+    "o3",
+    "o4-mini",
+)
+
+DEFAULT_OPENAI_MODELS: tuple[str, ...] = (
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4.1-mini",
+    "gpt-4.1",
+    "gpt-5-mini",
+    "gpt-5",
+    "o4-mini",
+    "o3-mini",
+)
+
+DEFAULT_OPENAI_EMBED_MODELS: tuple[str, ...] = (
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+    "text-embedding-ada-002",
+)
 
 _AGY_MODELS_CACHE_TTL_SEC = 300.0
 _AGY_MODELS_CACHE: dict[str, tuple[float, list[dict[str, str]]]] = {}
+_GEMINI_DISCOVERED_MODELS: list[str] = []
 
 
 def infer_agy_effort_from_model(model_name: str) -> str | None:
@@ -67,7 +124,7 @@ def _parse_agy_models_output(raw: str) -> list[dict[str, str]]:
         line = re.sub(r"^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s]+", "", line).strip()
         if not line or line.startswith("Fetching available models"):
             continue
-        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]+)\s{2,}(.+)$", line)
+        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]+)(?:\t+|\s{2,})(.+)$", line)
         if not m:
             continue
         model_id = m.group(1).strip()
@@ -106,6 +163,25 @@ def list_agy_models(
         log.debug("Failed to list agy models via %s: %s", exe, exc)
     return [dict(item) for item in DEFAULT_AGY_MODELS]
 
+
+def list_gemini_models() -> list[str]:
+    """지원되는 Gemini 생성 모델 목록을 반환한다."""
+    seen: list[str] = list(DEFAULT_GEMINI_MODELS)
+    for m in _GEMINI_DISCOVERED_MODELS:
+        if m not in seen:
+            seen.append(m)
+    return seen
+
+
+def _validate_provider_model(
+    provider_name: str, field_name: str, value: str, allowed: set[str]
+) -> None:
+    if value not in allowed:
+        raise ValueError(
+            f"지원되지 않는 {provider_name} {field_name} 입니다: '{value}'. "
+            f"지원 목록: {', '.join(sorted(m or '(계정 기본)' for m in allowed))}"
+        )
+
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
     "version": 1,
     "active_provider": "mock",
@@ -120,7 +196,7 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
         },
         "antigravity": {
             "bin": "agy",
-            "model": "gemini-3.7-flash",
+            "model": "gemini-3.8-flash-medium",
             "effort": "medium",
             "timeout": 180.0,
             "detail_timeout": 300.0,
@@ -352,6 +428,8 @@ class ProviderManager:
             key = str(g.get("api_key") or "")
             g["has_api_key"] = bool(key.strip())
             g["api_key"] = "••••••••" if g["has_api_key"] else ""
+            g["available_models"] = [{"id": m} for m in list_gemini_models()]
+            g["available_embed_models"] = [{"id": m} for m in DEFAULT_GEMINI_EMBED_MODELS]
 
         # Antigravity CLI
         if "antigravity" in providers:
@@ -365,6 +443,9 @@ class ProviderManager:
             cdx = providers["codex"]
             bin_name = str(cdx.get("bin") or "codex")
             cdx["installed"] = find_codex_executable(bin_name) is not None
+            cdx["available_models"] = [
+                {"id": m, "label": m or "계정 기본"} for m in DEFAULT_CODEX_MODELS
+            ]
 
         # OpenAI
         if "openai" in providers:
@@ -372,6 +453,8 @@ class ProviderManager:
             key = str(oai.get("api_key") or "")
             oai["has_api_key"] = bool(key.strip())
             oai["api_key"] = "••••••••" if oai["has_api_key"] else ""
+            oai["available_models"] = [{"id": m} for m in DEFAULT_OPENAI_MODELS]
+            oai["available_embed_models"] = [{"id": m} for m in DEFAULT_OPENAI_EMBED_MODELS]
 
         # Jev
         if "jev" in providers:
@@ -415,9 +498,56 @@ class ProviderManager:
                     elif not raw_key and "api_key" in target and inc_data.get("clear_api_key"):
                         target["api_key"] = ""
                 
+                # 모델 화이트리스트 검증 (선택형 통제)
+                if name == "gemini":
+                    if "model" in inc_data:
+                        _validate_provider_model(
+                            "gemini", "모델", str(inc_data["model"]).strip(), set(list_gemini_models())
+                        )
+                    if "embed_model" in inc_data:
+                        _validate_provider_model(
+                            "gemini",
+                            "임베딩 모델",
+                            str(inc_data["embed_model"]).strip(),
+                            set(DEFAULT_GEMINI_EMBED_MODELS),
+                        )
+                elif name == "antigravity":
+                    if "model" in inc_data:
+                        bin_for_check = str(
+                            inc_data.get("bin") or target.get("bin") or "agy"
+                        ).strip()
+                        allowed_agy = {m["id"] for m in list_agy_models(bin_for_check)}
+                        _validate_provider_model(
+                            "antigravity", "모델", str(inc_data["model"]).strip(), allowed_agy
+                        )
+                elif name == "codex":
+                    if "model" in inc_data:
+                        _validate_provider_model(
+                            "codex", "모델", str(inc_data["model"]).strip(), set(DEFAULT_CODEX_MODELS)
+                        )
+                elif name == "openai":
+                    if "model" in inc_data:
+                        _validate_provider_model(
+                            "openai", "모델", str(inc_data["model"]).strip(), set(DEFAULT_OPENAI_MODELS)
+                        )
+                    if "embed_model" in inc_data:
+                        _validate_provider_model(
+                            "openai",
+                            "임베딩 모델",
+                            str(inc_data["embed_model"]).strip(),
+                            set(DEFAULT_OPENAI_EMBED_MODELS),
+                        )
+
                 # 나머지 일반 필드 갱신
                 for k, v in inc_data.items():
-                    if k in ("api_key", "has_api_key", "clear_api_key", "installed", "available_models"):
+                    if k in (
+                        "api_key",
+                        "has_api_key",
+                        "clear_api_key",
+                        "installed",
+                        "available_models",
+                        "available_embed_models",
+                    ):
                         continue
                     target[k] = v
 
