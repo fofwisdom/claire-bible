@@ -1381,7 +1381,7 @@ Internal API (contract 1.6, prefix `/internal/federation/v1`):
 - The view has no input for hashtags: a `#tag` in the text is the hashtag. `tags` is not a field of the routes.
 - `DELETE /api/federation/notes/{id}` needs no actor (the design table says so too); the favourite and boost routes need one for `POST` and `DELETE`.
 - No media in a note and no poll (RD11). No retry state in the view: a task that the sidecar rejects (for example `actor_not_found` for a note) is visible in `federation_client_outbox` only.
-- The display of a reply on a Mastodon-compatible server is not covered (RT8); it needs a real server (FP4-10).
+- The display of a reply on a remote server is outside the range that the DrFed test stack confirms: DrFed records the delivery and its JSON-LD body and shows no post (RT8). Fedify is responsible for the interoperation with other server software.
 
 Tests: `tests/test_e2e_federation_outbound.py` (reply, mentions, edit, delete with 410, group audience, favourite and boost with undo, counters, refusals), `tests/test_federation_note_routes.py` (contract 1.6 fixtures, the union of the outbox collection, `client.db` version 5, purge), `sidecar/fedify/tests/notes_test.ts` (the `Create` at a local test inbox with `inReplyTo` and a `Mention`, `Update`, `Delete`, `Like`, `Announce`, `Undo`, the object path, 410 with the `Tombstone`), `sidecar/fedify/tests/internal_api_test.ts`, `e2e/federation_compose.spec.js` (the controls in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
 
