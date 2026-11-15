@@ -36,6 +36,8 @@ COMPOSE_FILE = REPO_ROOT / "tests" / "drfed" / "docker-compose.yml"
 DEFAULT_RUN_DIR = REPO_ROOT / ".dev" / "drfed-test"
 DEFAULT_PROJECT = "claire-drfed-test"
 ROOT_NAME = "drfed.test"
+# The port of the gateway for the public origin of the Claire instance under test (no TLS: the development rule of Claire is http with an IPv4 address). The gateway sends its requests to the sidecar of Claire (the service ``sidecar``).
+CLAIRE_PORT = 8080
 STATE_FILE = "stack.json"
 # The first three numbers of the two Docker networks. CB_DRFED_EDGE_PREFIX and CB_DRFED_BACKEND_PREFIX select other networks when these are in use.
 DEFAULT_EDGE_PREFIX = "172.31.251"
@@ -98,6 +100,19 @@ class DrFedStack:
     def is_stack_name(self, host: str) -> bool:
         return host == self.root_name or host.endswith("." + self.root_name)
 
+    @property
+    def claire_origin(self) -> str:
+        """The public origin for a Claire process in the development environment (``CLAIRE_PUBLIC_URL``)."""
+        return f"http://{self.gateway_ip}:{CLAIRE_PORT}"
+
+    def start_sidecar(self, claire_data_dir: Path) -> None:
+        """Start the Fedify sidecar of a Claire process on the host. ``claire_data_dir`` is the data directory of that process: it has the Unix socket and the service key."""
+        (Path(claire_data_dir) / "fedify").mkdir(exist_ok=True)
+        _compose(self, "--profile", "claire", "up", "-d", "--build", "sidecar", timeout=1800, extra_env={"CB_DRFED_CLAIRE_DATA": str(claire_data_dir), "CB_DRFED_UID": str(os.getuid()), "CB_DRFED_GID": str(os.getgid())})
+
+    def stop_sidecar(self) -> None:
+        _compose(self, "--profile", "claire", "rm", "-f", "-s", "sidecar", check=False)
+
     def compose(self, *args: str, check: bool = True, timeout: float = 300) -> subprocess.CompletedProcess:
         return _compose(self, *args, check=check, timeout=timeout)
 
@@ -143,8 +158,8 @@ class _GatewayTransport(httpx.HTTPTransport):
         return super().handle_request(request)
 
 
-def _compose(stack: DrFedStack, *args: str, check: bool = True, timeout: float = 300) -> subprocess.CompletedProcess:
-    env = {**os.environ, "CB_DRFED_RUN_DIR": stack.run_dir, "CB_DRFED_PROJECT": stack.project, "CB_DRFED_EMAIL": stack.email, "CB_DRFED_ROOT_NAME": stack.root_name, "CB_DRFED_EDGE_PREFIX": stack.edge_prefix, "CB_DRFED_BACKEND_PREFIX": stack.backend_prefix}
+def _compose(stack: DrFedStack, *args: str, check: bool = True, timeout: float = 300, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    env = {**(extra_env or {}), **os.environ, "CB_DRFED_RUN_DIR": stack.run_dir, "CB_DRFED_PROJECT": stack.project, "CB_DRFED_EMAIL": stack.email, "CB_DRFED_ROOT_NAME": stack.root_name, "CB_DRFED_EDGE_PREFIX": stack.edge_prefix, "CB_DRFED_BACKEND_PREFIX": stack.backend_prefix}
     result = subprocess.run(["docker", "compose", "-f", str(COMPOSE_FILE), "-p", stack.project, *args], env=env, capture_output=True, text=True, timeout=timeout)
     if check and result.returncode != 0:
         raise DrFedStackError(f"docker compose {' '.join(args[:3])} failed: {result.stderr[-2000:]}")
@@ -232,7 +247,7 @@ def stop(run_dir: Path = DEFAULT_RUN_DIR, project: str = DEFAULT_PROJECT) -> Non
     """Stop the stack, remove its volumes and networks, and delete the run directory."""
     run_dir = Path(run_dir).resolve()
     stack = DrFedStack(run_dir=str(run_dir), project=project, edge_prefix=os.environ.get("CB_DRFED_EDGE_PREFIX", DEFAULT_EDGE_PREFIX), backend_prefix=os.environ.get("CB_DRFED_BACKEND_PREFIX", DEFAULT_BACKEND_PREFIX), loopback_port=0, email="none@drfed.test")
-    stack.compose("--profile", "probe", "down", "-v", "--remove-orphans", check=False)
+    stack.compose("--profile", "probe", "--profile", "claire", "down", "-v", "--remove-orphans", check=False)
     shutil.rmtree(run_dir, ignore_errors=True)
 
 

@@ -2,6 +2,7 @@
 # DrFed 0.1.0 (a test server for ActivityPub implementations) behind a TLS gateway, as a model of a remote ActivityPub server:
 # - The network `backend` is internal. Only DrFed and the gateway are on it. DrFed listens on its address of `backend` only and has no published port.
 # - The network `edge` is the side that a client sees. Only port 443 of the gateway (TLS, a wildcard certificate of a private certificate authority) is the way in.
+#   Port 8080 of the gateway (no TLS) is the public origin of the Claire instance under test, when the profile `claire` runs.
 # - The service `dns` answers the root name and each name below it with the address of the gateway (each DrFed instance has a subdomain of the root origin). A container on `edge` uses it with `dns:`.
 # - DrFed is on `edge` only for its requests to other servers (it reads the actor of a sender to verify an HTTP signature).
 # tests/drfed_stack.py writes the certificates to CB_DRFED_RUN_DIR and starts this stack.
@@ -66,6 +67,36 @@ services:
     networks:
       edge:
         ipv4_address: "${CB_DRFED_EDGE_PREFIX:?}.3"
+
+  # The Fedify sidecar of the Claire instance under test (profile `claire`). The Claire process runs on the host; the sidecar reaches it through the Unix socket in the data directory of that process, as in a deployment.
+  # The sidecar is a container because it must resolve the names below the root origin (the service `dns`); a process on the host uses the DNS of the host.
+  sidecar:
+    profiles:
+      - claire
+    build:
+      context: ../../sidecar/fedify
+    image: claire-fedify-drfed-test:1
+    user: "${CB_DRFED_UID:-1000}:${CB_DRFED_GID:-1000}"
+    environment:
+      CLAIRE_FEDIFY_SOCKET: /data/run/federation.sock
+      CLAIRE_FEDIFY_SERVICE_KEY_FILE: /data/auth/fedify_service.key
+      CLAIRE_FEDIFY_DB: /data/fedify/fedify.db
+      CLAIRE_FEDIFY_HOST: 0.0.0.0
+      CLAIRE_FEDIFY_PORT: "8790"
+      # The certificate authority of the test stack. Deno reads this variable at its start.
+      DENO_CERT: /tls/ca.crt
+    volumes:
+      - "${CB_DRFED_CLAIRE_DATA:-/nonexistent}/run:/data/run"
+      - "${CB_DRFED_CLAIRE_DATA:-/nonexistent}/fedify:/data/fedify"
+      - "${CB_DRFED_CLAIRE_DATA:-/nonexistent}/auth/fedify_service.key:/data/auth/fedify_service.key:ro"
+      - "${CB_DRFED_RUN_DIR:?CB_DRFED_RUN_DIR is required}/tls/ca.crt:/tls/ca.crt:ro"
+    dns:
+      - "${CB_DRFED_EDGE_PREFIX:?}.3"
+    networks:
+      backend:
+        aliases:
+          - claire-sidecar
+      edge:
 
   # A client on the network `edge` only. The tests use it to show which ports a remote server can reach.
   probe:
