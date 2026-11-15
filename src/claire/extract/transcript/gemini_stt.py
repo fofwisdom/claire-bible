@@ -251,11 +251,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
 
         self.settings = settings
         self.provider_context = context_of(settings) if settings is not None else None
-        raw_model = (
-            getattr(settings, "stt_model", "")
-            or os.environ.get("STT_MODEL", "")
-            or os.environ.get("CLAIRE_STT_MODEL", "")
-        )
+        raw_model = getattr(settings, "stt_model", "") or ""
         self.model = raw_model.strip() or "gemini-3.5-transcribe"
         self.language = getattr(settings, "stt_language", "ko")
         self.timeout = float(getattr(settings, "stt_timeout", 600.0))

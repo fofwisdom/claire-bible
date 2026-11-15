@@ -136,9 +136,7 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_PROVIDER` | `mock` | `mock`, `gemini`, `antigravity`, `codex`, `codex-cli` | 지식 그래프 추출, 요약, 판정에 사용할 메인 LLM 프로바이더. 키나 실행 파일이 없거나 알 수 없는 값이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). 상태 표시에는 `unavailable`로 나온다. 명시적으로 `mock`을 지정하면 운영 환경에서도 그대로 쓴다. ([MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md) 참조) |
-| `CLAIRE_GEMINI_MODEL` | `gemini-3.1-flash-lite` | 문자열 | Gemini 프로바이더 사용 시 적용할 모델명. |
 | `CLAIRE_GEMINI_EFFORT` | `medium` | `low`, `medium`, `high` | Gemini 모델 추론 사고 레벨 (Reasoning Effort). |
-| `CLAIRE_GEMINI_EMBED_MODEL` | `gemini-embedding-001` | 문자열 | 임베딩 벡터 생성에 사용할 Gemini 모델명. 실제 기본값은 `providers.json` 기본값(`DEFAULT_PROVIDERS_CONFIG`)인 `gemini-embedding-001`이다. `Settings` 필드 기본값 `text-embedding-004`는 `providers.json` 값이 우선하므로 적용되지 않는다. 모델을 바꾸면 기존 벡터와 공간이 달라지므로 `re-embed`가 필요하다. |
 | `CLAIRE_EMBED_TASK_TYPE` | `SEMANTIC_SIMILARITY` | 문자열 | 호출자가 task_type을 지정하지 않을 때 쓰는 임베딩 task_type (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, `SEMANTIC_SIMILARITY` 등). 적재 파이프라인과 `re-embed`의 온톨로지 프레임 임베딩은 `RETRIEVAL_DOCUMENT`를 직접 지정하므로 이 값의 영향을 받지 않는다. |
 | `CLAIRE_GEMINI_MIN_INTERVAL` | `4.0` | 부동소수점 (초) | Gemini API 호출 간 최소 대기 간격 (무료 티어 Rate Limit 보호용). |
 | `CLAIRE_GEMINI_MAX_RETRIES` | `5` | 정수 | Gemini API 429/5xx 에러 발생 시 최대 재시도 횟수. |
@@ -154,7 +152,6 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_AGY_BIN` | `agy` | 실행 파일명 또는 절대 경로 | `agy` 실행 바이너리 경로 (호스트 PATH 또는 `/host-bin`에서 자동 탐색). |
-| `CLAIRE_AGY_MODEL` | `gemini-3.7-flash` | 문자열 | Antigravity CLI 호출 시 사용할 기본 모델. |
 | `CLAIRE_AGY_EFFORT` | `medium` | `low`, `medium`, `high` | Antigravity CLI 추론 사고 레벨. |
 | `CLAIRE_AGY_TIMEOUT` | `180.0` | 부동소수점 (초) | `agy` 프로세스 실행 제한 시간. |
 | `CLAIRE_AGY_DETAIL_TIMEOUT` | `300.0` | 부동소수점 (초) | 상세(Detail) 생성 호출에 적용하는 `agy` 실행 제한 시간. 일반 호출의 `CLAIRE_AGY_TIMEOUT`과 별도로 적용된다. |
@@ -169,7 +166,6 @@ graph TD
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_CODEX_BIN` | `codex` | 실행 파일명 또는 경로 | Codex CLI 실행 파일 경로. |
-| `CLAIRE_CODEX_MODEL` | `""` | 문자열 | 사용할 Codex 모델명. 빈 문자열이면 인증된 계정의 기본 모델이 사용된다. |
 | `CLAIRE_CODEX_EFFORT` | `medium` | `low`, `medium`, `high` | Codex CLI 추론 레벨. |
 | `CLAIRE_CODEX_TIMEOUT` | `300.0` | 부동소수점 (초) | Codex CLI 실행 제한 시간. |
 | `CLAIRE_CODEX_MAX_CONCURRENCY` | `1` | 정수 | Codex CLI 최대 동시 실행 수. |
@@ -186,7 +182,6 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
 | `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더(`antigravity` 등)이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
-| `CLAIRE_STT_MODEL` | `""` | 문자열 | STT 전용 모델명 (예: `gemini-3.5-transcribe`, `STT_MODEL` 별칭 지원). 비어있을 경우 프로바이더 기본 모델 사용. |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
 | `CLAIRE_STT_CUSTOM_VOCABULARY` | *(빈 목록)* | 쉼표 또는 줄바꿈 구분 문자열 | STT 프롬프트에 추가할 사용자 지정 용어 목록 (예: `vSAN,vCenter,Tanzu`). |
@@ -264,7 +259,6 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_JEV_API_KEY` | `""` | 문자열 | TypeSafe AI 플랫폼 API 키 (`null` 또는 빈 문자열이면 shadow 비활성). |
 | `CLAIRE_JEV_BASE_URL` | `https://api.typesafe.ai/v1` | 유효한 URL | Jev API 기본 URL (`POST {base}/systemone`). |
 | `CLAIRE_JEV_TIMEOUT` | `15.0` | 부동소수점 (초) | Jev 호출 타임아웃. shadow 결과 수거 대기에도 적용된다. 연속 3회 실패하면 600초간 호출을 건너뛴다. |
-| `CLAIRE_JEV_MODEL` | `jev-latest` | 모델명 또는 별칭 | 평가 중 별칭 이동을 막으려면 `jev-1.14.0`처럼 버전을 고정한다. 실제 응답 모델명은 판정 기록에 남는다. |
 
 ---
 
@@ -427,7 +421,6 @@ TELEGRAM_OWNER_CHAT_ID=12345678
 
 # --- LLM 프로바이더 ---
 CLAIRE_PROVIDER=gemini
-CLAIRE_GEMINI_MODEL=gemini-3.1-flash-lite
 CLAIRE_GEMINI_EFFORT=medium
 
 # --- 웹 서비스 및 보안 ---

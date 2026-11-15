@@ -19,6 +19,7 @@ import os
 import re
 from collections.abc import Callable
 from pathlib import Path
+import logging
 from typing import Any
 
 from starlette.applications import Starlette
@@ -32,6 +33,7 @@ from ..store.media import (
     LocalMediaStore,
     MediaObject,
     MediaStore,
+    MediaStoreError,
     RangeParseError,
     create_media_capability_token,
     get_media_store,
@@ -43,6 +45,10 @@ from ..store.secrets import SecretService, get_secret_service
 __all__ = [
     "create_media_app",
 ]
+
+log = logging.getLogger(__name__)
+
+_PRIVATE_KEY_PREFIXES = ("remote/", "claire-probe/")
 
 _LEGACY_IMAGE_RE = re.compile(r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|svg|mp4|webm|mp3|ogg|bin)$")
 
@@ -107,7 +113,8 @@ def create_media_app(
 
     async def media_object_route(request: Any) -> Response:
         key = request.path_params.get("key", "").lstrip("/")
-        if not key or ".." in key.split("/"):
+        # The cache of remote media (``remote/``) is reached only through the proxy route with its token, and the probe objects of the storage test are not media.
+        if not key or ".." in key.split("/") or key.startswith(_PRIVATE_KEY_PREFIXES):
             return PlainTextResponse("Not Found", status_code=404)
 
         # Token checking for capability access
@@ -146,10 +153,16 @@ def create_media_app(
                 return PlainTextResponse("Forbidden: invalid or expired viewing token", status_code=403)
 
         range_header = request.headers.get("range")
+        # FEDERATION_REMOTE_READING_DESIGN.md Section 9.1.1 rule 7: when the object store is not available, a key that is not in local storage gets 503.
+        store_error: MediaStoreError | None = None
         try:
             obj = await media_store.get(key, range_header=range_header)
         except RangeParseError:
             return PlainTextResponse("Requested Range Not Satisfiable", status_code=416)
+        except MediaStoreError as exc:
+            obj, store_error = None, exc
+        except ValueError:
+            obj = None
 
         if obj is None:
             # Fallback to local data/images if key exists there
@@ -184,7 +197,22 @@ def create_media_app(
                         status_code=200,
                     )
             else:
-                return PlainTextResponse("Not Found", status_code=404)
+                # A legacy image that the migration moved into the bucket has the object key ``images/{name}`` (Section 9.1.1 rule 6).
+                legacy_key = f"images/{key}"
+                if store_error is None and _LEGACY_IMAGE_RE.fullmatch(legacy_key):
+                    try:
+                        obj = await media_store.get(legacy_key, range_header=range_header)
+                    except RangeParseError:
+                        return PlainTextResponse("Requested Range Not Satisfiable", status_code=416)
+                    except MediaStoreError as exc:
+                        store_error = exc
+                    except ValueError:
+                        obj = None
+                if store_error is not None:
+                    log.error("The media store is not available for key %s: %s", key, store_error)
+                    return PlainTextResponse("Service Unavailable", status_code=503, headers={"retry-after": "60"})
+                if obj is None:
+                    return PlainTextResponse("Not Found", status_code=404)
 
         cache_control = "private, no-store" if is_private_req else "public, max-age=31536000, immutable"
         headers = {
@@ -202,6 +230,19 @@ def create_media_app(
 
         return Response(content=obj.body, status_code=obj.status_code, headers=headers)
 
+    # Remote media of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1, unit FP4-7).
+    from ..media_proxy import MediaProxy, proxy_response, verify_media_token
+
+    remote_proxy = MediaProxy(settings, media_store, now=now)
+
+    async def remote_media_route(request: Any) -> Response:
+        """``GET /media/remote/{url_hash}?t={token}``. A token that is absent, expired, or of another URL gets the same 404 as a URL without an entry."""
+        url_hash = request.path_params.get("url_hash", "")
+        token = request.query_params.get("t", "")
+        if verify_media_token(token, url_hash, secret_service=sec_svc, now=now() if now is not None else None) is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return proxy_response(await remote_proxy.serve(url_hash, request.headers.get("range")))
+
     async def legacy_images_route(request: Any) -> Response:
         filename = request.path_params.get("filename", "").strip().lstrip("/")
         if filename.startswith("images/"):
@@ -218,6 +259,7 @@ def create_media_app(
         return PlainTextResponse("Not Found", status_code=404)
 
     routes = [
+        Route("/media/remote/{url_hash}", remote_media_route, methods=["GET", "HEAD"]),
         Route("/media/{key:path}", media_object_route, methods=["GET", "HEAD"]),
         Route("/images/{filename:path}", legacy_images_route, methods=["GET", "HEAD"]),
         Route("/p/images/{filename:path}", legacy_images_route, methods=["GET", "HEAD"]),

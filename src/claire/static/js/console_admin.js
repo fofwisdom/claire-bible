@@ -567,6 +567,113 @@
     }
   }
 
+  // --- /admin/storage: object storage settings and the connection test (FEDERATION_REMOTE_READING_DESIGN.md Section 9.2, unit FP4-1). The server renders the form with the values and the texts; only the changed values go to the server. ---
+
+  function initStorageSection() {
+    var form = document.getElementById("admin-storage-form");
+    var result = document.getElementById("admin-storage-result");
+    var testBtn = document.getElementById("admin-storage-test");
+    var testState = document.getElementById("admin-storage-test-state");
+    if (!form) return;
+
+    function msg(name) { return form.getAttribute("data-msg-" + name) || ""; }
+
+    function setResult(text, isError) {
+      if (!result) return;
+      result.textContent = text;
+      result.setAttribute("data-state", isError ? "error" : "ok");
+    }
+
+    function send(method, url, payload) {
+      var init = { method: method, credentials: "same-origin", headers: { "Accept": "application/json" } };
+      if (payload !== undefined) {
+        init.headers["Content-Type"] = "application/json";
+        init.body = JSON.stringify(payload);
+      }
+      return fetch(url, init).then(function (resp) {
+        return resp.json().catch(function () { return null; }).then(function (body) {
+          return { ok: resp.ok, status: resp.status, body: body };
+        });
+      });
+    }
+
+    // Sends a change. When the server asks for recent authentication, the shared dialog opens and the change is sent again after it.
+    function sendChange(method, url, payload, onDone) {
+      var attempt = function () {
+        send(method, url, payload).then(function (res) {
+          if (res.status === 401 && res.body && res.body.error === "reauth_required") {
+            setResult(msg("reauth"), true);
+            openReauthModal(attempt);
+            return;
+          }
+          onDone(res);
+        }).catch(function () {
+          setResult(msg("network"), true);
+        });
+      };
+      attempt();
+    }
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var update = {};
+      var fields = form.querySelectorAll("[data-storage-initial]");
+      Array.prototype.forEach.call(fields, function (field) {
+        if (field.disabled || String(field.value) === field.getAttribute("data-storage-initial")) return;
+        update[field.name] = field.value;
+      });
+      if (!Object.keys(update).length) {
+        setResult(msg("nochange"), false);
+        return;
+      }
+      sendChange("PUT", "/api/admin/storage", update, function (res) {
+        if (!res.ok) {
+          var detail = res.body && typeof res.body.detail === "string" ? " " + res.body.detail : "";
+          setResult(msg("failed") + detail, true);
+          return;
+        }
+        Array.prototype.forEach.call(fields, function (field) {
+          if (field.name === "secret_key") {
+            if (field.value) field.setAttribute("placeholder", "••••••••");
+            field.value = "";
+            return;
+          }
+          field.setAttribute("data-storage-initial", String(field.value));
+        });
+        setResult(msg("saved"), false);
+      });
+    });
+
+    if (testBtn) {
+      testBtn.addEventListener("click", function () {
+        testBtn.disabled = true;
+        setResult(msg("testing"), false);
+        sendChange("POST", "/api/admin/storage/test", {}, function (res) {
+          testBtn.disabled = false;
+          if (res.status === 409) {
+            setResult(msg("not_configured"), true);
+            return;
+          }
+          var test = res.body && res.body.test;
+          if (!res.ok || !test) {
+            setResult(msg("failed"), true);
+            return;
+          }
+          if (testState) {
+            testState.textContent = "";
+            var badge = document.createElement("span");
+            badge.className = test.ok ? "badge badge-enabled" : "badge badge-disabled";
+            badge.setAttribute("data-storage-test-state", test.ok ? "ok" : "failed");
+            badge.textContent = test.ok ? msg("test_ok") : msg("test_failed") + " " + String(test.failed_operation || "");
+            testState.appendChild(badge);
+          }
+          if (test.ok) setResult(msg("test_ok"), false);
+          else setResult(msg("test_failed") + " " + String(test.failed_operation || "") + (test.detail ? " (" + test.detail + ")" : ""), true);
+        });
+      });
+    }
+  }
+
   // --- /admin/federation: switch, readiness checks, sidecar heartbeat, domain blocks (Fedify sidecar design Sections 9.2, 11, and 12) ---
 
   function initFederationSection() {
@@ -881,6 +988,8 @@
       initMcpSection();
     } else if (section === "federation") {
       initFederationSection();
+    } else if (section === "storage") {
+      initStorageSection();
     }
   }
 

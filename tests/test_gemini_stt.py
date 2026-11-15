@@ -46,10 +46,9 @@ def test_parse_raw_transcript_lines_with_offset():
 def test_gemini_provider_routing(monkeypatch):
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
     monkeypatch.setenv("CLAIRE_STT_PROVIDER", "gemini")
-    monkeypatch.setenv("CLAIRE_STT_MODEL", "gemini-3.5-transcribe")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-fake")
 
-    s = Settings()
+    s = Settings(stt_model="gemini-3.5-transcribe")
     assert s.effective_stt_provider == "gemini"
     assert s.stt_model == "gemini-3.5-transcribe"
 

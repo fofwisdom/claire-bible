@@ -25,7 +25,7 @@ from claire.store.token_store import reset_token_stores
 SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any"}
 
 ROOT = {"/"}
-ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
+ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
        "/me", "/api/me", "/api/me/password", "/api/invites", "/api/me/keys", "/api/me/keys/verify",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
@@ -34,7 +34,7 @@ ANY = {"/providers", "/providers/test", "/limits", "/ingest-limits", "/tokens", 
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
        "/api/federation/status", "/api/federation/followers", "/api/federation/settings", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
        # Federation client (FP4-5)
-       "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/render/remote/{item_id}", "/api/federation/objects",
+       "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items"}
 SYSTEM = {
@@ -58,6 +58,7 @@ SYSTEM = {
     "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
+    "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
     "/settings/telegram", "/settings/bundles", "/settings/backups", "/settings/federation",
     "/settings", "/settings/account", "/settings/keys", "/settings/themes", "/settings/tokens",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
@@ -69,6 +70,7 @@ SYSTEM = {
 ADMIN_KEYS = {
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
     ("POST", "/providers/test"),
+    ("POST", "/providers/check"),
     ("POST", "/support/bundle"),
     *((m, p) for p in ("/admin/accounts", "/api/admin/accounts", "/admin/instance", "/api/admin/instance") for m in ("GET", "HEAD")),
     ("PATCH", "/api/admin/accounts"),
@@ -88,6 +90,9 @@ ADMIN_KEYS = {
     *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
     *((m, p) for p in ("/admin/backups", "/api/admin/account-backups") for m in ("GET", "HEAD")),
     ("POST", "/api/admin/account-backups/restore"),
+    *((m, p) for p in ("/admin/storage", "/api/admin/storage") for m in ("GET", "HEAD")),
+    ("PUT", "/api/admin/storage"),
+    ("POST", "/api/admin/storage/test"),
 }
 # 네트워크 전용 경로는 P3에서 생긴다(/invite/{code}, /explore/*, /api/invites).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
@@ -106,6 +111,7 @@ NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/api/federation/timeline/{item_id}") for m in ("GET", "HEAD", "PATCH")),
     ("POST", "/api/federation/timeline/{item_id}/ingest"),
     *((m, "/render/remote/{item_id}") for m in ("GET", "HEAD")),
+    *((m, "/media/remote/{url_hash}") for m in ("GET", "HEAD")),
     *((m, "/api/federation/objects") for m in ("GET", "HEAD")),
     ("POST", "/api/federation/publish"),
     ("POST", "/api/federation/retract"),

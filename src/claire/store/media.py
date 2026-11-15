@@ -23,20 +23,24 @@ from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from .secrets import SecretService, get_secret_service
 
 __all__ = [
     "DEFAULT_MEDIA_TOKEN_TTL",
+    "FallbackMediaStore",
     "LocalMediaStore",
+    "MediaHead",
     "MediaObject",
     "MediaStore",
+    "MediaStoreError",
     "RangeParseError",
     "S3MediaStore",
     "create_media_capability_token",
     "derive_media_key",
     "get_media_store",
+    "is_object_storage_key",
     "parse_byte_range",
     "register_cdn_invalidator",
     "trigger_cdn_invalidation",
@@ -47,8 +51,33 @@ DEFAULT_MEDIA_TOKEN_TTL = 3600
 _CDN_INVALIDATORS: list[Callable[[list[str]], Any]] = []
 
 
+# FEDERATION_REMOTE_READING_DESIGN.md Section 9.1.1 rule 6 (RT5): an object storage key has only these characters, so that the signed path and the sent path are the same.
+_OBJECT_KEY_RE = re.compile(r"[A-Za-z0-9/_.-]+")
+S3_TIMEOUT_SECONDS = 30.0
+
+
 class RangeParseError(ValueError):
     """Raised when an HTTP Range header cannot be parsed or is unsatisfiable."""
+
+
+class MediaStoreError(Exception):
+    """The media store is not available or refused the operation (Section 9.1.1 rule 7)."""
+
+
+def is_object_storage_key(key: str) -> bool:
+    """True when ``key`` is a legal object storage key: the characters ``[A-Za-z0-9/_.-]`` only, no empty segment, and no ``.`` or ``..`` segment."""
+    if not isinstance(key, str) or not _OBJECT_KEY_RE.fullmatch(key):
+        return False
+    return all(part not in ("", ".", "..") for part in key.split("/"))
+
+
+@dataclass(slots=True)
+class MediaHead:
+    """The metadata of a stored media object, without the body."""
+
+    content_type: str
+    content_length: int
+    etag: str | None = None
 
 
 @dataclass(slots=True)
@@ -240,6 +269,11 @@ class MediaStore(ABC):
         """Delete media object under key. Returns True if deleted or did not exist."""
         ...
 
+    async def head(self, key: str) -> MediaHead | None:
+        """Return the metadata of the object under key, or ``None`` when there is no object. The default reads the object."""
+        obj = await self.get(key)
+        return None if obj is None else MediaHead(content_type=obj.content_type, content_length=obj.content_length, etag=obj.etag)
+
     @abstractmethod
     def presign(self, key: str, expires_in: int = 3600, method: str = "GET") -> str:
         """Return a presigned or capability-signed URL for direct access."""
@@ -320,6 +354,13 @@ class LocalMediaStore(MediaStore):
         if target.is_file():
             target.unlink()
         return True
+
+    async def head(self, key: str) -> MediaHead | None:
+        target = self._safe_path(key)
+        if not target.is_file():
+            return None
+        guessed_type, _ = mimetypes.guess_type(target.name)
+        return MediaHead(content_type=guessed_type or "application/octet-stream", content_length=target.stat().st_size)
 
     def presign(self, key: str, expires_in: int = 3600, method: str = "GET") -> str:
         # Local presigning returns path relative to base_url
@@ -405,75 +446,76 @@ class S3MediaStore(MediaStore):
         clean_key = key.lstrip("/")
         return f"{self.endpoint_url}/{self.bucket}/{clean_key}"
 
-    async def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    def _clean_key(self, key: str) -> str:
+        """The key without a leading slash. A key that needs percent encoding is refused (Section 9.1.1 rule 6), because the signed path is the raw path."""
+        clean_key = key.lstrip("/")
+        if not is_object_storage_key(clean_key):
+            raise ValueError(f"Not a legal object storage key: {key!r}")
+        return clean_key
+
+    async def _send(self, method: str, key: str, *, extra_headers: dict[str, str] | None = None, content: bytes | None = None) -> Any:
+        """Send one signed request for the object of ``key``. A network failure is a ``MediaStoreError``."""
         import httpx
 
-        clean_key = key.lstrip("/")
+        clean_key = self._clean_key(key)
+        headers = {"host": httpx.URL(self.endpoint_url).netloc.decode("ascii"), **(extra_headers or {})}
+        payload_hash = hashlib.sha256(content or b"").hexdigest()
+        signed_headers = self._sign_v4_request(method, f"/{self.bucket}/{clean_key}", {}, headers, payload_hash)
         url = self._object_url(clean_key)
-        path = f"/{self.bucket}/{clean_key}"
-        payload_hash = hashlib.sha256(data).hexdigest()
-        headers = {
-            "content-type": content_type,
-            "host": httpx.URL(self.endpoint_url).netloc,
-        }
-        signed_headers = self._sign_v4_request("PUT", path, {}, headers, payload_hash)
-        async with httpx.AsyncClient() as client:
-            resp = await client.put(url, headers=signed_headers, content=data)
-            resp.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=S3_TIMEOUT_SECONDS) as client:
+                if method == "PUT":
+                    return await client.put(url, headers=signed_headers, content=content)
+                if method == "GET":
+                    return await client.get(url, headers=signed_headers)
+                if method == "HEAD":
+                    return await client.head(url, headers=signed_headers)
+                return await client.delete(url, headers=signed_headers)
+        except httpx.HTTPError as exc:
+            raise MediaStoreError(f"{method} failed: {type(exc).__name__}") from exc
+
+    @staticmethod
+    def _refuse(method: str, resp: Any) -> MediaStoreError:
+        return MediaStoreError(f"{method} failed: HTTP {resp.status_code}")
+
+    async def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        resp = await self._send("PUT", key, extra_headers={"content-type": content_type}, content=data)
+        if resp.status_code >= 300:
+            raise self._refuse("PUT", resp)
         return key
 
     async def get(self, key: str, range_header: str | None = None) -> MediaObject | None:
-        import httpx
+        resp = await self._send("GET", key, extra_headers={"range": range_header} if range_header else None)
+        if resp.status_code == 404:
+            return None
+        if resp.status_code == 416:
+            raise RangeParseError("Range unsatisfiable from S3 backend")
+        if resp.status_code >= 300:
+            raise self._refuse("GET", resp)
+        body = resp.content
+        return MediaObject(
+            body=body,
+            content_type=resp.headers.get("content-type", "application/octet-stream"),
+            content_length=len(body),
+            content_range=resp.headers.get("content-range"),
+            etag=resp.headers.get("etag"),
+            status_code=resp.status_code,
+        )
 
-        clean_key = key.lstrip("/")
-        url = self._object_url(clean_key)
-        path = f"/{self.bucket}/{clean_key}"
-        empty_hash = hashlib.sha256(b"").hexdigest()
-        headers = {
-            "host": httpx.URL(self.endpoint_url).netloc,
-        }
-        if range_header:
-            headers["range"] = range_header
-        signed_headers = self._sign_v4_request("GET", path, {}, headers, empty_hash)
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=signed_headers)
-            if resp.status_code == 404:
-                return None
-            if resp.status_code == 416:
-                raise RangeParseError("Range unsatisfiable from S3 backend")
-            resp.raise_for_status()
-
-            body = resp.content
-            content_type = resp.headers.get("content-type", "application/octet-stream")
-            content_length = len(body)
-            content_range = resp.headers.get("content-range")
-            etag = resp.headers.get("etag")
-            return MediaObject(
-                body=body,
-                content_type=content_type,
-                content_length=content_length,
-                content_range=content_range,
-                etag=etag,
-                status_code=resp.status_code,
-            )
+    async def head(self, key: str) -> MediaHead | None:
+        resp = await self._send("HEAD", key)
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 300:
+            raise self._refuse("HEAD", resp)
+        length = resp.headers.get("content-length", "")
+        return MediaHead(content_type=resp.headers.get("content-type", "application/octet-stream"), content_length=int(length) if str(length).isdigit() else 0, etag=resp.headers.get("etag"))
 
     async def delete(self, key: str) -> bool:
-        import httpx
-
-        clean_key = key.lstrip("/")
-        url = self._object_url(clean_key)
-        path = f"/{self.bucket}/{clean_key}"
-        empty_hash = hashlib.sha256(b"").hexdigest()
-        headers = {
-            "host": httpx.URL(self.endpoint_url).netloc,
-        }
-        signed_headers = self._sign_v4_request("DELETE", path, {}, headers, empty_hash)
-        async with httpx.AsyncClient() as client:
-            resp = await client.delete(url, headers=signed_headers)
-            if resp.status_code in (200, 204, 404):
-                return True
-            resp.raise_for_status()
-        return True
+        resp = await self._send("DELETE", key)
+        if resp.status_code in (200, 204, 404):
+            return True
+        raise self._refuse("DELETE", resp)
 
     def presign(self, key: str, expires_in: int = 3600, method: str = "GET") -> str:
         """Generate a presigned GET URL with SigV4 query authentication."""
@@ -493,7 +535,8 @@ class S3MediaStore(MediaStore):
             "X-Amz-SignedHeaders": "host",
         }
         canonical_uri = f"/{self.bucket}/{clean_key}"
-        canonical_querystr = "&".join(f"{k}={qp[k]}" for k in sorted(qp.keys()))
+        # SigV4 signs the percent-encoded query (the credential has slashes).
+        canonical_querystr = "&".join(f"{k}={quote(qp[k], safe='-_.~')}" for k in sorted(qp.keys()))
         canonical_headers = f"host:{self.endpoint_url.split('://')[-1]}\n"
         canonical_request = f"{method}\n{canonical_uri}\n{canonical_querystr}\n{canonical_headers}\nhost\nUNSIGNED-PAYLOAD"
 
@@ -510,7 +553,7 @@ class S3MediaStore(MediaStore):
 
         qp["X-Amz-Signature"] = signature
         base = self.public_url_base or f"{self.endpoint_url}/{self.bucket}"
-        query_string = "&".join(f"{k}={qp[k]}" for k in sorted(qp.keys()))
+        query_string = "&".join(f"{k}={quote(qp[k], safe='-_.~')}" for k in sorted(qp.keys()))
         return f"{base}/{clean_key}?{query_string}"
 
     async def invalidate(self, keys: list[str]) -> list[str]:
@@ -518,28 +561,63 @@ class S3MediaStore(MediaStore):
         return keys
 
 
+class FallbackMediaStore(MediaStore):
+    """Object storage for writes, with a read fallback to local storage (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1.1 rule 3).
+
+    A read looks in ``primary``. A key that is not there, or a primary store that is not available, is read from ``fallback``. When the primary store is not available and the key is not in ``fallback``, the ``MediaStoreError`` of the primary store goes to the caller (rule 7).
+    """
+
+    def __init__(self, primary: MediaStore, fallback: MediaStore) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    async def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        return await self.primary.put(key, data, content_type)
+
+    async def get(self, key: str, range_header: str | None = None) -> MediaObject | None:
+        try:
+            obj = await self.primary.get(key, range_header=range_header)
+        except (MediaStoreError, ValueError) as exc:
+            if isinstance(exc, RangeParseError):
+                raise
+            obj = await self.fallback.get(key, range_header=range_header)
+            if obj is None and isinstance(exc, MediaStoreError):
+                raise
+            return obj
+        return obj if obj is not None else await self.fallback.get(key, range_header=range_header)
+
+    async def head(self, key: str) -> MediaHead | None:
+        try:
+            found = await self.primary.head(key)
+        except (MediaStoreError, ValueError) as exc:
+            found = await self.fallback.head(key)
+            if found is None and isinstance(exc, MediaStoreError):
+                raise
+            return found
+        return found if found is not None else await self.fallback.head(key)
+
+    async def delete(self, key: str) -> bool:
+        await self.fallback.delete(key)
+        return await self.primary.delete(key)
+
+    def presign(self, key: str, expires_in: int = 3600, method: str = "GET") -> str:
+        return self.primary.presign(key, expires_in=expires_in, method=method)
+
+    async def invalidate(self, keys: list[str]) -> list[str]:
+        return await self.primary.invalidate(keys)
+
+
 def get_media_store(settings: Any | None = None) -> MediaStore:
-    """Factory to get the configured MediaStore (Local or S3)."""
-    # Check S3 configuration in environment or settings
-    s3_endpoint = os.environ.get("CLAIRE_MEDIA_S3_ENDPOINT") or getattr(settings, "media_s3_endpoint", "")
-    s3_bucket = os.environ.get("CLAIRE_MEDIA_S3_BUCKET") or getattr(settings, "media_s3_bucket", "")
-    s3_access = os.environ.get("CLAIRE_MEDIA_S3_ACCESS_KEY") or getattr(settings, "media_s3_access_key", "")
-    s3_secret = os.environ.get("CLAIRE_MEDIA_S3_SECRET_KEY") or getattr(settings, "media_s3_secret_key", "")
-    s3_region = os.environ.get("CLAIRE_MEDIA_S3_REGION") or getattr(settings, "media_s3_region", "us-east-1")
+    """The media store of this process (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 and 9.2).
+
+    Local storage under ``data/media`` is the default. With object storage (the admin settings with the mode ``s3``), the store writes to the bucket and reads fall back to local storage. A setting that cannot be read gives local storage: the process starts also then (rule 7).
+    """
+    from . import media_storage
 
     sec_svc = getattr(settings, "secret_service", None) if settings else None
-
-    if s3_endpoint and s3_bucket and s3_access and s3_secret:
-        return S3MediaStore(
-            endpoint_url=s3_endpoint,
-            bucket=s3_bucket,
-            access_key=s3_access,
-            secret_key=s3_secret,
-            region=s3_region,
-            secret_service=sec_svc,
-        )
-
-    # Default to LocalMediaStore under data/media
     data_dir = getattr(settings, "data_dir", None) or Path("data")
-    media_dir = Path(data_dir) / "media"
-    return LocalMediaStore(media_dir, secret_service=sec_svc)
+    local = LocalMediaStore(Path(data_dir) / "media", secret_service=sec_svc)
+    config = media_storage.active_config(settings)
+    if config is None:
+        return local
+    return FallbackMediaStore(media_storage.build_s3_store(config, secret_service=sec_svc), local)

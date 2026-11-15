@@ -186,6 +186,25 @@ class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
             return {}
 
 
+# The model of each provider comes from the Web UI (providers.json) only. The old variables are read one time by ``ProviderManager.migrate_from_env_if_needed``.
+MODEL_FIELDS = ("gemini_model", "gemini_embed_model", "agy_model", "codex_model", "jev_model", "stt_model")
+
+
+class _WithoutModelFields(PydanticBaseSettingsSource):
+    """An environment source without the model fields: no environment variable and no ``.env`` line sets a model."""
+
+    def __init__(self, settings_cls: type[BaseSettings], source: Any) -> None:
+        super().__init__(settings_cls)
+        self.source = source
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        blocked = {name for field in MODEL_FIELDS for name in (field, f"claire_{field}")}
+        return {key: value for key, value in self.source().items() if str(key).lower() not in blocked}
+
+
 class _IngestLimitsJsonSettingsSource(PydanticBaseSettingsSource):
     """ingest_limits.json (WebUI 관리 파일)에서 상황 별 적재 제한 설정을 로드하는 settings source."""
 
@@ -410,8 +429,8 @@ class Settings(BaseSettings):
             init_settings,
             ingest_limits_json,
             providers_json,
-            env_settings,
-            strict_dotenv,
+            _WithoutModelFields(settings_cls, env_settings),
+            _WithoutModelFields(settings_cls, strict_dotenv),
             file_secret_settings,
         )
 
@@ -443,11 +462,10 @@ class Settings(BaseSettings):
 
     # --- provider ---
     provider: str = Field(default="mock", alias="CLAIRE_PROVIDER")
-    gemini_model: str = Field(default="gemini-3.1-flash-lite", alias="CLAIRE_GEMINI_MODEL")
+    # The model fields have no environment variable: the Web UI (providers.json) sets the models. ``_WithoutModelFields`` removes them from the environment sources.
+    gemini_model: str = Field(default="gemini-3.1-flash-lite")
     gemini_effort: str = Field(default="medium", alias="CLAIRE_GEMINI_EFFORT")
-    gemini_embed_model: str = Field(
-        default="text-embedding-004", alias="CLAIRE_GEMINI_EMBED_MODEL"
-    )
+    gemini_embed_model: str = Field(default="gemini-embedding-001")
     embed_task_type: str = Field(
         default="SEMANTIC_SIMILARITY", alias="CLAIRE_EMBED_TASK_TYPE"
     )
@@ -488,11 +506,11 @@ class Settings(BaseSettings):
     )
     jev_timeout: float = Field(default=15.0, alias="CLAIRE_JEV_TIMEOUT")
     # 버전 고정(jev-1.14.0 등) 시 shadow 평가 도중 jev-latest 별칭 이동을 막는다. 응답의 실제 모델명은 판정 기록에 남는다
-    jev_model: str = Field(default="jev-latest", alias="CLAIRE_JEV_MODEL")
+    jev_model: str = Field(default="jev-latest")
 
     # --- Antigravity CLI (agy) ---
     agy_bin: str = Field(default="agy", alias="CLAIRE_AGY_BIN")
-    agy_model: str = Field(default="gemini-3.7-flash", alias="CLAIRE_AGY_MODEL")
+    agy_model: str = Field(default="gemini-3.8-flash-medium")
     agy_effort: str = Field(default="medium", alias="CLAIRE_AGY_EFFORT")
     agy_timeout: float = Field(default=180.0, alias="CLAIRE_AGY_TIMEOUT")
     agy_detail_timeout: float = Field(
@@ -502,7 +520,7 @@ class Settings(BaseSettings):
 
     # --- Codex CLI (native host only) ---
     codex_bin: str = Field(default="codex", alias="CLAIRE_CODEX_BIN")
-    codex_model: str = Field(default="", alias="CLAIRE_CODEX_MODEL")
+    codex_model: str = Field(default="")
     codex_effort: str = Field(default="medium", alias="CLAIRE_CODEX_EFFORT")
     codex_timeout: float = Field(default=300.0, alias="CLAIRE_CODEX_TIMEOUT")
     codex_max_concurrency: int = Field(
@@ -514,7 +532,7 @@ class Settings(BaseSettings):
         default=True, alias="CLAIRE_ENABLE_VIDEO_TRANSCRIPTION"
     )
     stt_provider: str = Field(default="gemini", alias="CLAIRE_STT_PROVIDER")
-    stt_model: str = Field(default="", alias="CLAIRE_STT_MODEL")
+    stt_model: str = Field(default="")
     stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
     stt_timeout: float = Field(default=600.0, alias="CLAIRE_STT_TIMEOUT")
     video_chunk_duration_sec: int = Field(
@@ -925,10 +943,7 @@ class Settings(BaseSettings):
     @field_validator("stt_model", mode="before")
     @classmethod
     def _parse_stt_model(cls, value: object) -> str:
-        s = str(value or "").strip()
-        if not s:
-            s = os.environ.get("STT_MODEL", "").strip() or os.environ.get("CLAIRE_STT_MODEL", "").strip()
-        return s
+        return str(value or "").strip()
 
     @field_validator("stt_custom_vocabulary", mode="before")
     @classmethod

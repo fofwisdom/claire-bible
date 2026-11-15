@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -272,7 +273,6 @@ def test_presentation_pdf_max_bytes_must_be_positive(monkeypatch):
 def test_codex_config_defaults(monkeypatch):
     for name in (
         "CLAIRE_CODEX_BIN",
-        "CLAIRE_CODEX_MODEL",
         "CLAIRE_CODEX_EFFORT",
         "CLAIRE_CODEX_TIMEOUT",
         "CLAIRE_CODEX_MAX_CONCURRENCY",
@@ -315,3 +315,28 @@ def test_preferred_languages_config(monkeypatch):
     monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "en, fr")
     settings_fr = Settings(_env_file=None)
     assert settings_fr.effective_preferred_languages == ["fr", "en"]
+
+
+def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):
+    """The Web UI (providers.json) sets the models. An environment variable and a ``.env`` line do not."""
+    from claire.config import MODEL_FIELDS
+    from claire.provider_manager import DEFAULT_PROVIDERS_CONFIG, ProviderManager
+
+    # A providers.json without models: no value of the file hides an environment value.
+    config = json.loads(json.dumps(DEFAULT_PROVIDERS_CONFIG))
+    for name, keys in (("gemini", ("model", "embed_model")), ("antigravity", ("model",)), ("codex", ("model",)), ("jev", ("model",)), ("stt", ("model",))):
+        for key in keys:
+            config["providers"][name].pop(key, None)
+    (tmp_path / "providers.json").write_text(json.dumps(config), encoding="utf-8")
+    for field in MODEL_FIELDS:
+        monkeypatch.setenv(f"CLAIRE_{field.upper()}", "from-env")
+        monkeypatch.setenv(field.upper(), "from-env")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("CLAIRE_AGY_MODEL=from-dotenv\n", encoding="utf-8")
+    settings = Settings(_env_file=dotenv, data_dir=tmp_path)
+    assert {field: getattr(settings, field) for field in MODEL_FIELDS} == {field: Settings.model_fields[field].default for field in MODEL_FIELDS}
+    # The field defaults are the defaults of providers.json.
+    manager = ProviderManager.__new__(ProviderManager)
+    manager.get_config = lambda: json.loads(json.dumps(DEFAULT_PROVIDERS_CONFIG))
+    effective = ProviderManager.get_settings_dict(manager)
+    assert all(Settings.model_fields[field].default == effective.get(field, Settings.model_fields[field].default) for field in MODEL_FIELDS)

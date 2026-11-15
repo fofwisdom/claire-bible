@@ -59,7 +59,7 @@
 
 `providers.json`이 없으면 `migrate_from_env_if_needed`가 환경변수와 `.env`·`.env.dev`에서 `MIGRATED_ENV_VARS`를 모아 파일을 만든다. 그 뒤로는 파일 값이 이긴다. 기본값은 `DEFAULT_PROVIDERS_CONFIG` 값이 실제 기본값이다.
 
-- 차이가 있는 키는 하나다. `CLAIRE_GEMINI_EMBED_MODEL`의 `Settings` 기본값은 `text-embedding-004`이지만, 실제로는 `gemini-embedding-001`이 쓰인다.
+- 모델(`gemini.model`, `gemini.embed_model`, `antigravity.model`, `codex.model`, `jev.model`, `stt.model`)은 Web UI에서만 정한다. 모델을 정하는 환경 변수는 없다: `Settings`는 환경 변수와 `.env`에서 모델 필드를 읽지 않는다(`config.MODEL_FIELDS`). 이전 판의 `CLAIRE_*_MODEL` 변수는 `providers.json`이 없을 때의 1회 이관에서만 읽힌다. `Settings` 필드 기본값은 `DEFAULT_PROVIDERS_CONFIG` 기본값과 같다.
 - VLM 설정(`CLAIRE_ENABLE_VLM_TRANSCRIPTION`, `CLAIRE_VLM_PROVIDER`, `CLAIRE_VLM_MODEL`)은 `providers.json`에 없고 환경변수로만 정한다.
 
 ### 2.2 작업별 `ProviderContext`

@@ -422,6 +422,18 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         badge="서버 전역 · 관리자",
         description="계정 소유자가 만든 계정 백업을 그 계정에 복원합니다(운영자 전용).",
     ),
+    ConsoleSectionSpec(
+        slug="storage",
+        path="/admin/storage",
+        area="admin",
+        group_id="admin_system",
+        group_label="시스템 관리 및 설정 (관리자)",
+        nav_label="미디어 저장소",
+        icon="database",
+        title="미디어 저장소 (로컬 · 오브젝트 스토리지)",
+        badge="서버 전역 · 관리자",
+        description="미디어 저장 방식(로컬 또는 S3 호환 오브젝트 스토리지)과 연결 설정, 연결 시험, 마지막 이관 결과를 관리합니다.",
+    ),
 )
 
 ALL_SETTINGS_SPECS: tuple[ConsoleSectionSpec, ...] = (
@@ -562,6 +574,12 @@ def _build_theme_selector_html(
 def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, principal: Principal | None = None) -> tuple[str, dict[str, Any]]:
     if slug == "backups" and principal is not None:
         return feature_routes.admin_backups_body(ctx, principal=principal), {}
+
+    if slug == "storage":
+        from .storage import admin_storage_body
+
+        body, extra = admin_storage_body(ctx)
+        return body, {"admin_storage": extra}
 
     if slug == "providers":
         body = (

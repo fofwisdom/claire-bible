@@ -1,0 +1,48 @@
+# Development test only. Do not use this file for a deployment.
+# A Garage server (the reference S3 server, RD26) behind a TLS gateway. The stack is a model of object storage on an external host:
+# - The network `storage` is internal. Only Garage and the gateway are on it. Garage has no published port.
+# - The network `edge` is the side that a client sees. Only the S3 API port of the gateway (TLS) is there.
+# - The admin API (3903) and the RPC port (3901) of Garage stay on the network `storage`.
+# tests/garage_stack.py writes the configuration, the keys, and the certificates to CB_GARAGE_RUN_DIR and starts this stack.
+name: "${CB_GARAGE_PROJECT:-claire-garage-test}"
+
+services:
+  garage:
+    image: "${CB_GARAGE_IMAGE:-dxflrs/garage:v2.1.0}"
+    command: ["/garage", "-c", "/etc/garage.toml", "server"]
+    volumes:
+      - "${CB_GARAGE_RUN_DIR:?CB_GARAGE_RUN_DIR is required}/garage.toml:/etc/garage.toml:ro"
+    tmpfs:
+      - /var/lib/garage
+    networks:
+      - storage
+
+  gateway:
+    image: "${CB_GARAGE_GATEWAY_IMAGE:-nginx:1.27-alpine}"
+    depends_on:
+      - garage
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - "${CB_GARAGE_RUN_DIR:?CB_GARAGE_RUN_DIR is required}/tls:/tls:ro"
+    networks:
+      storage:
+      edge:
+        aliases:
+          - garage.storage.test
+    # The loopback port is for manual work on the host. The automatic tests use the address of the gateway on the network `edge`.
+    ports:
+      - "127.0.0.1:${CB_GARAGE_HOST_PORT:-0}:3900"
+
+  # A client on the network `edge` only. The tests use it to show which ports an external client can reach.
+  probe:
+    image: "${CB_GARAGE_GATEWAY_IMAGE:-nginx:1.27-alpine}"
+    profiles:
+      - probe
+    entrypoint: ["sh", "-c"]
+    networks:
+      - edge
+
+networks:
+  storage:
+    internal: true
+  edge:

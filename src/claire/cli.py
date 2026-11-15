@@ -10,7 +10,7 @@ Command Groups:
   Ingestion & Search:    ingest, search, hoyowiki
   Presentations:         presentation
   Reprocess & Backfill:  reprocess, regenerate, summary-regenerate, reextract, backfill-detail, backfill-summary, backfill-images, recompile-html, video-reprocess
-  Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill
+  Formats & Truncation:  format-status, format-migrate, artifact-migrate, truncation-status, truncation-backfill, stt-scan, stt-backfill, media
   Queues & Workers:      queue, replay-failed, recover-run, refresh-mark, refresh-run, expand-run
   Document Management:   doc, doc-title, watch, share, auth
   Graph & Entities:      link-relations, re-embed, entity, export-graph, import-graph
@@ -656,6 +656,71 @@ def cmd_artifact_migrate(args) -> int:
     if not apply and result["migrated"] > 0:
         print("\nTo apply the conversion, run the command again with the option --apply.")
 
+    return 0
+
+
+def cmd_media(args) -> int:
+    """Migration of the local media into the object storage (FEDERATION_REMOTE_READING_DESIGN.md Section 9.3, unit FP4-1).
+
+    The target is the object storage of the admin settings (with any mode). Without ``--apply`` the command changes nothing. ``--delete-source`` deletes the local files only after all files passed, and only when a media host is set: without a media host the app route ``/image`` reads the disk only (RT4).
+    """
+    import asyncio
+    import json
+    import sqlite3
+
+    from .store import db as dbm
+    from .store import media_storage
+    from .store.secrets import SecretError
+
+    s = get_settings()
+    apply = bool(getattr(args, "apply", False)) and not getattr(args, "dry_run", False)
+    delete_source = bool(getattr(args, "delete_source", False))
+    if delete_source and not apply:
+        print("media migrate: --delete-source needs --apply", file=sys.stderr)
+        return 2
+    if delete_source and not (getattr(s, "media_fqdn", "") or "").strip():
+        print("media migrate: --delete-source is refused, because no media host is set (CLAIRE_MEDIA_FQDN). Without a media host, the images are read from the local disk only.", file=sys.stderr)
+        return 2
+    try:
+        config = media_storage.target_config(s)
+    except (sqlite3.Error, RuntimeError, SecretError, ValueError, KeyError) as e:
+        print(f"media migrate: cannot read the object storage settings: {e}", file=sys.stderr)
+        return 1
+    if config is None:
+        print("media migrate: the object storage settings are not complete. Set them in /admin/storage.", file=sys.stderr)
+        return 1
+    result = asyncio.run(media_storage.migrate_to_object_storage(s.data_dir, media_storage.build_s3_store(config), apply=apply, delete_source=delete_source))
+    result["bucket"] = config.bucket
+    if apply and s.db_file.is_file():
+        try:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                media_storage.record_migration_result(conn, result)
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            print(f"media migrate: the result was not recorded for the console: {e}", file=sys.stderr)
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result["errors"] else 0
+    mode_str = "APPLY" if apply else "DRY-RUN (no change)"
+    print(f"=== Media migration to object storage ({mode_str}) ===")
+    print(f"  Bucket:                {config.bucket}")
+    print(f"  Local files in scope:  {result['total']}")
+    print(f"  Already in the bucket: {result['already_stored']}")
+    if apply:
+        print(f"  Uploaded:              {result['uploaded']}")
+        print(f"  Local files deleted:   {result['deleted_sources']}")
+    else:
+        print(f"  To upload:             {result['to_upload']}")
+    print(f"  Errors:                {result['errors']}")
+    if result["errors"]:
+        print(f"\n[errors ({result['errors']})]")
+        for err in result["error_details"][:10]:
+            print(f"  - key={err.get('key')}: {err.get('error')}")
+        return 1
+    if not apply and result["to_upload"]:
+        print("\nTo copy the files, run the command again with the option --apply.")
     return 0
 
 
@@ -3473,6 +3538,55 @@ def cmd_instance(args) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_federation_prune(args) -> int:
+    """The media cleanup of the federation client (FEDERATION_REMOTE_READING_DESIGN.md Section 9.1 rule 6 and Section 10 rule 4): delete the media cache entries without an access in ``media_evict_days``, and the entries that no timeline item uses. The ``api`` process does the same one time each day."""
+    import asyncio
+    import json
+    import sqlite3
+
+    from . import media_proxy
+    from .store import client_db
+    from .store import federation_media
+
+    s = get_settings()
+    client_file = client_db.client_db_path(s.db_file)
+    if not s.db_file.is_file() or not client_file.is_file():
+        print("federation prune: no client database. There is nothing to delete.", file=sys.stderr)
+        return 1
+    try:
+        if args.apply:
+            result = asyncio.run(media_proxy.cleanup_proxy(s).evict())
+        else:
+            import time
+
+            from .store import db as dbm
+            from .store import federation_client as client_store
+
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                evict_days = int(client_store.get_reading_settings(conn)["media_evict_days"])
+            finally:
+                conn.close()
+            client = client_db.connect_client_existing(client_file, readonly=True)
+            try:
+                old = set(federation_media.evictable_hashes(client, before=time.time() - evict_days * 86400.0))
+                orphans = set(federation_media.orphan_hashes(client)) - old
+            finally:
+                client.close()
+            result = {"evict_days": evict_days, "evicted": len(old), "orphans": len(orphans)}
+    except sqlite3.Error as e:
+        print(f"federation prune: cannot read the database: {e}", file=sys.stderr)
+        return 1
+    result = {"applied": bool(args.apply), **result}
+    if getattr(args, "json", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.apply:
+        print(f"federation prune: {result['evicted']} media entry(ies) without an access in {result['evict_days']} day(s) and {result['orphans']} media entry(ies) without an item deleted.")
+    else:
+        print(f"federation prune: {result['evicted']} media entry(ies) had no access in {result['evict_days']} day(s), and {result['orphans']} media entry(ies) have no item. Use --apply to delete them.")
+    return 0
+
+
 def cmd_federation(args) -> int:
     """Recovery for a lost sidecar database (Fedify sidecar design Section 9.4): set the tasks that the sidecar took in the last hours to ``pending`` again.
 
@@ -3485,6 +3599,8 @@ def cmd_federation(args) -> int:
     from .store import db as dbm
     from .store import federation as federation_store
 
+    if getattr(args, "federation_action", None) == "prune":
+        return _cmd_federation_prune(args)
     hours = float(args.max_age_hours)
     if not 0 < hours <= 24 * 30:
         print("federation requeue: --max-age-hours must be more than 0 and not more than 720", file=sys.stderr)
@@ -5514,7 +5630,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pfed = sub.add_parser(
         "federation",
-        help="federation maintenance: recovery after the loss of the sidecar database",
+        help="federation maintenance: recovery after the loss of the sidecar database, cleanup of the media cache",
         description="Federation maintenance commands for the admin.",
     )
     pfed_sub = pfed.add_subparsers(dest="federation_action", required=True)
@@ -5527,6 +5643,32 @@ def build_parser() -> argparse.ArgumentParser:
     pfed_requeue.add_argument("--apply", action="store_true", help="change the tasks. Without this option the command only counts them")
     pfed_requeue.add_argument("--json", action="store_true", help="output the result in JSON format")
     pfed_requeue.set_defaults(func=cmd_federation)
+    pfed_prune = pfed_sub.add_parser(
+        "prune",
+        help="delete the media cache entries of the federation client that are old or have no item",
+        description="Delete the media cache entries without an access in the number of days of the admin setting media_evict_days, and the entries that no timeline item uses, with their files in the media store. The api process does the same one time each day. Without --apply the command only counts the entries.",
+    )
+    pfed_prune.add_argument("--apply", action="store_true", help="delete the entries. Without this option the command only counts them")
+    pfed_prune.add_argument("--json", action="store_true", help="output the result in JSON format")
+    pfed_prune.set_defaults(func=cmd_federation)
+
+    pmedia = sub.add_parser(
+        "media",
+        help="media storage: migrate the local media into the object storage",
+        description="Media storage commands for the admin.",
+    )
+    pmedia_sub = pmedia.add_subparsers(dest="media_action", required=True)
+    pmedia_migrate = pmedia_sub.add_parser(
+        "migrate",
+        help="copy the local media into the object storage (default: dry-run, requires --apply)",
+        description="Copy the files of data/media and data/images into the bucket of the object storage settings. Each file is uploaded, read back, and compared by SHA-256. A file that is in the bucket with the same hash is skipped, so the command can run again. Without --apply the command only counts the files.",
+    )
+    pmedia_migrate.add_argument("--to", choices=["object-storage"], required=True, help="the target of the migration")
+    pmedia_migrate.add_argument("--apply", action="store_true", help="copy the files. Without this option the command only counts them")
+    pmedia_migrate.add_argument("--dry-run", action="store_true", help="count the files without a change (default)")
+    pmedia_migrate.add_argument("--delete-source", action="store_true", help="delete the local files after all files passed (needs --apply and a media host)")
+    pmedia_migrate.add_argument("--json", action="store_true", help="output the result in JSON format")
+    pmedia_migrate.set_defaults(func=cmd_media)
 
     pfeeds = sub.add_parser(
         "feeds",

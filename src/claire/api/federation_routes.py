@@ -36,6 +36,7 @@ from ..store import actor_keys
 from ..store import auth_db
 from .. import ids
 from ..store import db as dbm
+from .. import media_proxy
 from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
@@ -823,6 +824,14 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
 
         decision = await run_in_threadpool(_apply)
         _log.info("timeline event %s: %s%s, %d item(s)", event.type, decision.decision, "" if decision.reason is None else f" ({decision.reason})", decision.items)
+        if decision.items and (event.type in ("Delete", "Undo") or decision.reason == "not_public"):
+            # Section 9.1 rule 6: a deleted item removes its media entries when no other item refers to the URL.
+            try:
+                removed = await media_proxy.cleanup_proxy(settings).remove_orphans()
+                if removed:
+                    _log.info("timeline event %s: %d media entry(ies) removed", event.type, removed)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("media cleanup after a timeline event failed: %s", type(exc).__name__)
         return _json(decision)
 
     def timeline_interest(request: Request) -> Response:

@@ -215,9 +215,8 @@ def test_settings_jev_configuration(monkeypatch):
     monkeypatch.setenv("CLAIRE_JEV_API_KEY", "jev_sec_12345")
     monkeypatch.setenv("CLAIRE_JEV_BASE_URL", "https://custom-jev.example.com/v1")
     monkeypatch.setenv("CLAIRE_JEV_TIMEOUT", "20.5")
-    monkeypatch.setenv("CLAIRE_JEV_MODEL", "jev-1.14.0")
 
-    settings = Settings()
+    settings = Settings(jev_model="jev-1.14.0")
     assert settings.enable_jev is True
     assert settings.jev_api_key == "jev_sec_12345"
     assert settings.jev_base_url == "https://custom-jev.example.com/v1"
