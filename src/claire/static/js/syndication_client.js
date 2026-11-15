@@ -13,6 +13,8 @@
   const ic = (name) => (window.ClaireIcons ? window.ClaireIcons.svg(name) : "");
 
   const bridge = window.ClaireSyndication;
+  // Feed view (syndication_feeds.js, FP4-F3). While Feeds.active, the list pane and the reader pane show feed items.
+  const Feeds = window.ClaireSyndicationFeeds;
   const cfg = window.__CLAIRE_CONFIG || {};
   const I18n = window.ClaireI18n;
   if (!bridge || !I18n) return;
@@ -113,6 +115,7 @@
     }
     if (client) {
       renderClient();
+      if (Feeds) Feeds.open();
       if (IS_NETWORK && !C.loaded) loadTimeline(true);
       if (IS_NETWORK && C.following === null) loadFollowing();
     }
@@ -145,22 +148,30 @@
       btn.classList.toggle("tt-btn-pri", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    if (Feeds) Feeds.decorateStageBar();
   }
 
   // The published documents of the account, as "themeId:documentId" keys for the filter of stage 3.
   async function loadPublished() {
     if (!IS_NETWORK || !IS_OWNER) { C.publishedLoaded = true; return; }
     const keys = new Set();
+    // The counters of each published document (FP4-8), as a text for the knowledge base view.
+    const reactions = {};
     let maxId = null;
     for (let page = 0; page < 10; page++) {
       const result = await api("GET", `/api/federation/objects?limit=80${maxId ? `&max_id=${encodeURIComponent(maxId)}` : ""}`);
       if (!result.ok || !Array.isArray(result.data.items)) break;
-      result.data.items.forEach((item) => keys.add(`${item.theme_id}:${item.document_id}`));
+      result.data.items.forEach((item) => {
+        keys.add(`${item.theme_id}:${item.document_id}`);
+        reactions[`${item.theme_id}:${item.document_id}`] = tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 });
+      });
       maxId = result.data.next_max_id;
       if (!maxId) break;
     }
     bridge.state.publishedKeys = keys;
     C.publishedLoaded = true;
+    bridge.state.reactionLabels = reactions;
+    if (keys.size) bridge.setPublishFilter(bridge.state.pubFilter);
   }
 
   // --- Timeline ------------------------------------------------------------
@@ -218,10 +229,10 @@
     el.innerHTML = STREAMS.map((s) => {
       const n = badge[s.key];
       const fresh = (s.key === "unread" || s.key === "mentions") && n > 0;
-      return `<button type="button" class="tt-tree-item ${C.stream === s.key ? "active" : ""}" data-client-stream="${s.key}"><span>${s.icon} ${esc(tr(s.label))}</span><span class="tt-count-pill ${fresh ? "fresh" : ""}">${n ? esc(n) : ""}</span></button>`;
-    }).join("");
+      return `<button type="button" class="tt-tree-item ${C.stream === s.key && !(Feeds && Feeds.active) ? "active" : ""}" data-client-stream="${s.key}"><span>${s.icon} ${esc(tr(s.label))}</span><span class="tt-count-pill ${fresh ? "fresh" : ""}">${n ? esc(n) : ""}</span></button>`;
+    }).join("") + (counts.private_messages ? `<p class="synd-note" id="client-private-note">${esc(tr("synd.client.private_messages", { count: counts.private_messages }))}</p>` : "");
     const title = $("client-stream-title");
-    if (title) title.textContent = tr(streamOf(C.stream).label);
+    if (title && !(Feeds && Feeds.active)) title.textContent = tr(streamOf(C.stream).label);
   }
 
   function itemBadges(item) {
@@ -237,6 +248,7 @@
     const el = $("client-list");
     const notice = $("client-notice");
     if (!el) return;
+    if (Feeds && Feeds.active) return;
     if (!IS_NETWORK) {
       notice.hidden = false;
       notice.textContent = tr("synd.client.single_mode");
@@ -307,6 +319,7 @@
   function renderReader() {
     const el = $("client-reader");
     if (!el) return;
+    if (Feeds && Feeds.active) return;
     if (!IS_NETWORK) { el.innerHTML = ""; return; }
     const detail = C.detail;
     if (!detail || String(detail.item.id) !== String(C.selectedId)) {
@@ -484,7 +497,7 @@
   $("panel-client").addEventListener("click", (e) => {
     const pick = (name) => { const el = e.target.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
     const stream = pick("data-client-stream");
-    if (stream) { C.stream = stream; C.selectedId = null; C.detail = null; loadTimeline(true); return; }
+    if (stream) { if (Feeds) Feeds.deactivate(); C.stream = stream; C.selectedId = null; C.detail = null; loadTimeline(true); return; }
     const star = pick("data-item-star");
     if (star) { const item = findItem(star); if (item) patchItem(star, { starred: !item.starred }); return; }
     const read = pick("data-item-read");
@@ -524,7 +537,7 @@
 
   // Keys of the client view: j and k move in the list, s is the star.
   document.addEventListener("keydown", (e) => {
-    if (C.stage !== "collect" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (C.stage !== "collect" || (Feeds && Feeds.active) || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
     if (!C.items.length) return;
     const index = C.items.findIndex((item) => String(item.id) === String(C.selectedId));
@@ -592,6 +605,7 @@
     if (paletteBtn) paletteBtn.addEventListener("click", () => window.ClaireCommandPalette.open());
   }
 
+  if (Feeds) Feeds.init({ setStage, renderStageBar, renderClient, stage: () => C.stage, selectTimelineItem: (id) => { renderClient(); selectItem(id); } });
   bridge.onRender = renderStageBar;
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pollTimeline(); });
   setInterval(pollTimeline, POLL_MS);

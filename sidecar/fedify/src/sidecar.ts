@@ -17,12 +17,13 @@
 // - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
 // - A delivery does not go to a follower on a blocked domain.
 // - A Create, an Update, or an Announce of a post, a Delete of an object, and an Undo(Announce) go to Claire as a timeline event with the normal form of the object (unit FP4-4). The sidecar fetches the object of an Announce and the parents of a reply only when Claire says that an account follows the actor. All other activities go to Claire as an inbox event.
+// - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this instance or is a reply to an object of this instance; nothing is fetched for it. A Like or an Announce of an object of this instance, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
-import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineObject } from "./internal_api.ts";
-import { actorProfile, isPost, isPublic, type LoadOptions, normalObject, type Post } from "./timeline.ts";
+import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
+import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 
 // The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
 export const INSTANCE_ACTOR_USERNAME = "claire";
@@ -469,6 +470,7 @@ export class Sidecar {
       const result = await this.#api.timelineEvent(timeline);
       this.counters[result.decision] += 1;
       if (result.decision !== "accepted") console.warn(`inbox activity ${type} ${result.decision}: ${result.reason}`);
+      for (const notice of result.notices) await this.#sendNotice(ctx, actor, timeline.object_iri, notice);
       return;
     }
     const event: InboxEvent = { event_id: activity.id.href, type, object_type: objectType, recipient_public_id: recipient, actor: remote, object_iri: objectIri, verified_by: verifiedBy };
@@ -496,15 +498,39 @@ export class Sidecar {
     }
   }
 
+  // Sends one automatic notice for a non-public message (design Section 6.2 rule 4, unit FP4-8): a Note of the account to the sender only, with inReplyTo = the object and a Mention of the sender. The Note is not public and not in the outbox collection.
+  // The ID has a digest of the object ID: a second run of the same inbox activity makes the same Note. Claire finds a reply to a notice by the fragment #auto-replies/ and sends no notice for it.
+  async #sendNotice(ctx: Context<void>, sender: Actor, objectIri: string, notice: TimelineNotice): Promise<void> {
+    if (sender.id === null || !PUBLIC_ID.test(notice.actor_public_id) || (await ctx.getActorKeyPairs(notice.actor_public_id)).length === 0) return;
+    const actorUri = ctx.getActorUri(notice.actor_public_id);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(objectIri)));
+    const noteId = new URL(`#auto-replies/${[...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("")}`, actorUri);
+    const published = instant(this.#now());
+    const note = new Note({
+      id: noteId,
+      attribution: actorUri,
+      to: sender.id,
+      replyTarget: new URL(objectIri),
+      contents: [notice.content, new LanguageString(notice.content, notice.language)],
+      tags: [new Mention({ href: sender.id, name: actorProfile(sender)?.handle ?? sender.id.href })],
+      published,
+    });
+    await ctx.sendActivity({ identifier: notice.actor_public_id }, sender, new Create({ id: new URL(`${noteId.hash}/create`, actorUri), actor: actorUri, to: sender.id, object: note, published }));
+  }
+
   // The timeline event of an activity (unit FP4-4), null when the activity is not for the timelines (then it goes to Claire as an inbox event), or "dropped" when the object cannot have a normal form.
   // Create, Update, and Announce of a post; Delete of an object that is not the actor; Undo(Announce).
   async #timelineEvent(ctx: InboxContext<void>, activity: Activity, actor: Actor, undoneType: string | null, objectIri: string | null, base: Pick<TimelineEvent, "event_id" | "recipient_public_id" | "actor" | "verified_by">): Promise<TimelineEvent | "dropped" | null> {
     if (objectIri === null || objectIri === base.actor.iri) return null;
-    const without = (type: TimelineEvent["type"], isPublicObject: boolean | null): TimelineEvent => ({ event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: null, object_iri: objectIri, public: isPublicObject, object: null, parents: [], verified_by: base.verified_by });
-    if (activity instanceof Undo) return undoneType === "Announce" ? without("Undo", null) : null;
+    const origin = (await this.config()).canonical_origin;
+    // An Announce of an object of this instance and its Undo are reactions (unit FP4-8): they stay inbox events, and Claire counts them.
+    const ownObject = objectIri.startsWith(`${origin}/`);
+    const remoteType = actorType(actor);
+    const without = (type: TimelineEvent["type"], isPublicObject: boolean | null): TimelineEvent => ({ event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: null, object_iri: objectIri, public: isPublicObject, object: null, parents: [], actor_type: remoteType, mentioned: [], in_reply_to: null, verified_by: base.verified_by });
+    if (activity instanceof Undo) return undoneType === "Announce" && !ownObject ? without("Undo", null) : null;
     if (activity instanceof Delete) return without("Delete", null);
     const type = activity instanceof Create ? "Create" : activity instanceof Update ? "Update" : activity instanceof Announce ? "Announce" : null;
-    if (type === null) return null;
+    if (type === null || (type === "Announce" && ownObject)) return null;
     const drop = (why: string): "dropped" => {
       this.counters.dropped += 1;
       console.warn(`inbox activity ${type} dropped: ${why}`);
@@ -512,15 +538,20 @@ export class Sidecar {
     };
     // An Update changes only an item that exists, and its object is in the activity. A Create or an Announce can need fetches: Claire says first if an account follows the actor (RS2, RS4).
     const interest = type === "Update" ? null : await this.#api.timelineInterest(base.actor.iri);
-    if (interest !== null && !interest.followed) return null;
-    const load: LoadOptions & { suppressError: true } = { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader, suppressError: true };
+    const followed = interest === null || interest.followed;
+    // An actor that no account follows gets no fetch. Its Create can still be for an account (a mention or a reply to an own object, Section 6.6 rule 1): only the object in the activity is read.
+    if (!followed && type !== "Create") return null;
+    const load: LoadOptions & { suppressError: true } = { documentLoader: followed ? ctx.documentLoader : noFetch, contextLoader: ctx.contextLoader, suppressError: true };
     const object = await activity.getObject(load);
     if (!isPost(object) || object.id === null) return null;
+    const mentioned = type === "Create" ? await localMentions(object, origin, load) : [];
+    const inReplyTo = object.replyTargetId?.href ?? null;
+    if (!followed && mentioned.length === 0 && !(inReplyTo !== null && inReplyTo.startsWith(`${origin}/`))) return null;
     if (await this.isBlocked(object.id.hostname)) {
       this.counters.blocked += 1;
       return "dropped";
     }
-    if (!isPublic(object)) return { ...without(type, false), object_iri: object.id.href };
+    if (!isPublic(object)) return { ...without(type, false), object_iri: object.id.href, mentioned, in_reply_to: inReplyTo };
     const selfProfile = actorProfile(actor);
     if (selfProfile === null) return drop("the actor has no ID");
     let author = selfProfile;
@@ -537,8 +568,8 @@ export class Sidecar {
     }
     const normal = await normalObject(object, author, load);
     if (typeof normal === "string") return drop(normal);
-    const parents = interest !== null && interest.context_fetch === "on" ? await this.#parents(object, interest.context_depth, load) : [];
-    return { event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: type === "Announce" ? selfProfile : null, object_iri: normal.object_iri, public: true, object: normal, parents, verified_by: base.verified_by };
+    const parents = interest !== null && interest.followed && interest.context_fetch === "on" ? await this.#parents(object, interest.context_depth, load) : [];
+    return { event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: type === "Announce" ? selfProfile : null, object_iri: normal.object_iri, public: true, object: normal, parents, actor_type: remoteType, mentioned, in_reply_to: inReplyTo, verified_by: base.verified_by };
   }
 
   // The profile of the author of an object. When the actor document is not available, the profile has the ID only.

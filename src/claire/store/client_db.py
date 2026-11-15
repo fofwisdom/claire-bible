@@ -13,6 +13,7 @@ Versions:
 - 1 (FP4-2, 2026-11-13): feed tables (moved from ``claire.db`` version 21), ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``.
 - 2 (FP4-4, 2026-11-15): ``federation_timeline_items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 - 3 (FP4-7, 2026-11-15): ``federation_media_cache`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.2).
+- 4 (FP4-8, 2026-11-15): ``federation_object_reactions`` and ``federation_auto_replies`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 3
+CLIENT_SCHEMA_VERSION = 4
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -98,6 +99,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v1(conn)
     _migrate_v2(conn)
     _migrate_v3(conn)
+    _migrate_v4(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -269,6 +271,36 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_media_cache_access ON federation_media_cache(last_access_at)")
 
 
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    # Reactions of remote actors to an object of an account (Section 6.6 rule 3, unit FP4-8). One row for each actor and kind, so that an Undo removes it. The counter of an object is the number of its rows.
+    # account_id is the owner of the object: the account purge deletes by it, and the object tables are in claire.db.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_object_reactions (
+            object_public_id INTEGER NOT NULL,
+            account_id INTEGER NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('like', 'announce', 'quote')),
+            actor_iri TEXT NOT NULL,
+            activity_iri TEXT NOT NULL,
+            received_at REAL NOT NULL,
+            PRIMARY KEY (object_public_id, kind, actor_iri)
+        )
+        """
+    )
+    # Automatic notices for non-public messages (Section 6.2 rule 4). Claire keeps the sender and the time of the last notice only, and no content. count is the number of non-public messages of the sender.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_auto_replies (
+            account_id INTEGER NOT NULL,
+            sender_iri TEXT NOT NULL,
+            last_sent_at REAL NOT NULL,
+            count INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (account_id, sender_iri)
+        )
+        """
+    )
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits.
 
@@ -280,6 +312,8 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM federation_timeline_items WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_account_settings WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_client_outbox WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_object_reactions WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))
 
 
 def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int) -> bool:

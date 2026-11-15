@@ -65,6 +65,12 @@ __all__ = [
     "timeline_item_author",
     "update_timeline_items",
     "upsert_timeline_item",
+    "add_object_reaction",
+    "count_object_reactions",
+    "count_private_messages",
+    "recent_mention_authors",
+    "record_private_message",
+    "remove_object_reaction",
 ]
 
 FollowingState = Literal["pending", "accepted", "rejected"]
@@ -423,19 +429,23 @@ def _item_values(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def upsert_timeline_item(conn: sqlite3.Connection, *, account_id: int, item: dict[str, Any], announced_by: dict[str, Any] | None, in_timeline: bool, now: float) -> bool:
+def upsert_timeline_item(conn: sqlite3.Connection, *, account_id: int, item: dict[str, Any], announced_by: dict[str, Any] | None, in_timeline: bool, now: float, mention: bool = False) -> bool:
     """Store one object for the account. Return ``True`` when the item is new.
 
-    The event is idempotent (Section 6.4 rule 3): an item that exists keeps its content, its announcer, and its owner state (``unread``, ``starred``). Only ``in_timeline`` can change, from 0 to 1: an item that came first as the parent of a reply shows in the timeline when it comes again by the timeline rule.
+    The event is idempotent (Section 6.4 rule 3): an item that exists keeps its content, its announcer, and its owner state (``unread``, ``starred``). Only ``in_timeline`` and ``mention`` can change, from 0 to 1: an item that came first as the parent of a reply shows in the timeline when it comes again by the timeline rule.
+
+    ``mention``: the object mentions the account or is a reply to an object of the account (Section 6.6 rule 1).
     """
     values = _item_values(item)
-    columns = ["account_id", "object_iri", "author_iri", "announced_by_iri", "announced_by_json", "in_timeline", "received_at", *values]
-    params = [account_id, item["object_iri"], item["author"]["iri"], None if announced_by is None else announced_by["iri"], None if announced_by is None else json.dumps(announced_by, ensure_ascii=False, sort_keys=True), 1 if in_timeline else 0, now, *values.values()]
+    columns = ["account_id", "object_iri", "author_iri", "announced_by_iri", "announced_by_json", "in_timeline", "mention", "received_at", *values]
+    params = [account_id, item["object_iri"], item["author"]["iri"], None if announced_by is None else announced_by["iri"], None if announced_by is None else json.dumps(announced_by, ensure_ascii=False, sort_keys=True), 1 if in_timeline else 0, 1 if mention else 0, now, *values.values()]
     cur = conn.execute(f"INSERT OR IGNORE INTO federation_timeline_items ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})", params)
     if cur.rowcount == 1:
         return True
     if in_timeline:
         conn.execute("UPDATE federation_timeline_items SET in_timeline=1 WHERE account_id=? AND object_iri=? AND in_timeline=0", (account_id, item["object_iri"]))
+    if mention:
+        conn.execute("UPDATE federation_timeline_items SET mention=1 WHERE account_id=? AND object_iri=? AND mention=0", (account_id, item["object_iri"]))
     return False
 
 
@@ -462,6 +472,52 @@ def delete_announced_items(conn: sqlite3.Connection, object_iri: str, announcer_
         "AND NOT EXISTS (SELECT 1 FROM federation_following f WHERE f.account_id=federation_timeline_items.account_id AND f.actor_iri=federation_timeline_items.author_iri AND f.state='accepted')",
         (object_iri, announcer_iri),
     ).rowcount
+
+
+# --- Inbound interactions with the account (Sections 6.2 rule 4 and 6.6, unit FP4-8) ---
+
+
+def recent_mention_authors(conn: sqlite3.Connection, account_id: int, *, since: float) -> list[str]:
+    """The authors of the mention items that the account got after ``since``, one entry for each item. The caller counts the items of one remote domain for the mention rate limit (Section 6.6 rule 6)."""
+    return [str(r[0]) for r in conn.execute("SELECT author_iri FROM federation_timeline_items WHERE account_id=? AND mention=1 AND received_at>?", (account_id, since))]
+
+
+def add_object_reaction(conn: sqlite3.Connection, *, object_public_id: int, account_id: int, kind: Literal["like", "announce"], actor_iri: str, activity_iri: str, now: float) -> bool:
+    """Store a ``Like`` or an ``Announce`` of an object of the account (Section 6.6 rule 3). One row for each actor and kind: a repeated activity changes nothing. Return ``True`` for a new row."""
+    cur = conn.execute("INSERT OR IGNORE INTO federation_object_reactions (object_public_id, account_id, kind, actor_iri, activity_iri, received_at) VALUES (?, ?, ?, ?, ?, ?)", (object_public_id, account_id, kind, actor_iri, activity_iri, now))
+    return cur.rowcount == 1
+
+
+def remove_object_reaction(conn: sqlite3.Connection, *, object_public_id: int, kind: Literal["like", "announce"], actor_iri: str) -> bool:
+    """``Undo`` of a reaction: delete the row of this actor. Return ``True`` when a row was there."""
+    return conn.execute("DELETE FROM federation_object_reactions WHERE object_public_id=? AND kind=? AND actor_iri=?", (object_public_id, kind, actor_iri)).rowcount == 1
+
+
+def count_object_reactions(conn: sqlite3.Connection, object_public_ids: list[int]) -> dict[int, dict[str, int]]:
+    """The counters of the given objects: ``{public_id: {"like": n, "announce": n}}``. An object without a reaction has zeros."""
+    counts = {public_id: {"like": 0, "announce": 0} for public_id in object_public_ids}
+    if not object_public_ids:
+        return counts
+    marks = ",".join("?" for _ in object_public_ids)
+    for public_id, kind, number in conn.execute(f"SELECT object_public_id, kind, COUNT(*) FROM federation_object_reactions WHERE kind IN ('like', 'announce') AND object_public_id IN ({marks}) GROUP BY object_public_id, kind", object_public_ids):
+        counts[int(public_id)][str(kind)] = int(number)
+    return counts
+
+
+def record_private_message(conn: sqlite3.Connection, *, account_id: int, sender_iri: str, now: float, window_seconds: float) -> bool:
+    """Count one non-public message of the sender to the account (Section 6.2 rule 4). Return ``True`` when Claire must send the automatic notice: the first message of the sender, or a message after ``window_seconds`` from the last notice. No content is stored."""
+    row = conn.execute("SELECT last_sent_at FROM federation_auto_replies WHERE account_id=? AND sender_iri=?", (account_id, sender_iri)).fetchone()
+    if row is None:
+        conn.execute("INSERT INTO federation_auto_replies (account_id, sender_iri, last_sent_at, count) VALUES (?, ?, ?, 1)", (account_id, sender_iri, now))
+        return True
+    send = now - float(row[0]) >= window_seconds
+    conn.execute("UPDATE federation_auto_replies SET count=count+1, last_sent_at=? WHERE account_id=? AND sender_iri=?", (now if send else float(row[0]), account_id, sender_iri))
+    return send
+
+
+def count_private_messages(conn: sqlite3.Connection, account_id: int) -> int:
+    """The number of non-public messages that the account got an automatic notice for. The client shows the number only."""
+    return int(conn.execute("SELECT COALESCE(SUM(count), 0) FROM federation_auto_replies WHERE account_id=?", (account_id,)).fetchone()[0])
 
 
 # --- Timeline of the owner (Sections 5.3 and 8, unit FP4-5) ----------------
@@ -529,12 +585,12 @@ def list_timeline(conn: sqlite3.Connection, account_id: int, *, limit: int, max_
 
 
 def count_timeline(conn: sqlite3.Connection, account_id: int) -> dict[str, int]:
-    """The numbers of the stage bar: the items of the timeline, the unread ones, the starred ones, the mentions, and the items that the owner took into a theme."""
+    """The numbers of the stage bar: the items of the timeline, the unread ones, the starred ones, the mentions, the items that the owner took into a theme, and the non-public messages that got an automatic notice (FP4-8)."""
     row = conn.execute(
         "SELECT COUNT(*), COALESCE(SUM(unread), 0), COALESCE(SUM(starred), 0), COALESCE(SUM(mention), 0), COALESCE(SUM(mention AND unread), 0), COALESCE(SUM(linked_doc_id IS NOT NULL), 0) FROM federation_timeline_items WHERE account_id=? AND in_timeline=1",
         (account_id,),
     ).fetchone()
-    return {"total": int(row[0]), "unread": int(row[1]), "starred": int(row[2]), "mentions": int(row[3]), "unread_mentions": int(row[4]), "ingested": int(row[5])}
+    return {"total": int(row[0]), "unread": int(row[1]), "starred": int(row[2]), "mentions": int(row[3]), "unread_mentions": int(row[4]), "ingested": int(row[5]), "private_messages": count_private_messages(conn, account_id)}
 
 
 def get_timeline_item(conn: sqlite3.Connection, account_id: int, item_id: int) -> TimelineItem | None:

@@ -6,13 +6,16 @@
 // - The handle of an actor is `@preferredUsername@host of the actor ID`. No WebFinger request is made for it.
 // - An attachment that is not in the object document is not fetched.
 // - The limits of Section 6.3 apply here and in Claire: an object with more content than the limit has no normal form, and only the first attachments within the limit are kept.
+// - A mention of an actor of this instance is read from the object document only (unit FP4-8): a Mention tag, or the actor in `to` or `cc`. No tag is fetched.
 
 import type { DocumentLoader } from "@fedify/fedify";
-import { type Actor, Article, Document, getTypeId, LanguageString, Link, Note, type Object as ASObject, Page, PUBLIC_COLLECTION, Question } from "@fedify/fedify/vocab";
-import type { TimelineActor, TimelineObject } from "./internal_api.ts";
+import { type Actor, Article, Document, getTypeId, LanguageString, Link, Mention, Note, type Object as ASObject, Page, PUBLIC_COLLECTION, Question } from "@fedify/fedify/vocab";
+import type { TimelineActor, TimelineEvent, TimelineObject } from "./internal_api.ts";
 
 export const CONTENT_MAX_BYTES = 64 * 1024;
 export const MAX_ATTACHMENTS = 8;
+// The largest number of actors of this instance in `mentioned` of one event. Claire refuses a longer list.
+export const MAX_MENTIONED = 16;
 
 export type Post = Note | Article | Page | Question;
 
@@ -49,7 +52,27 @@ export function actorProfile(actor: Actor): TimelineActor | null {
   return { iri: actor.id.href, name: plain(actor.name, 512), handle: username === null ? null : `@${username}@${actor.id.hostname}`.slice(0, 512) };
 }
 
-const noFetch: DocumentLoader = (url) => Promise.reject(new Error(`no fetch of ${url}`));
+// A loader that refuses each request: only data that is in the document is read.
+export const noFetch: DocumentLoader = (url) => Promise.reject(new Error(`no fetch of ${url}`));
+
+// The type of an actor for Claire, or null for a type outside the list of the contract.
+export function actorType(actor: Actor): TimelineEvent["actor_type"] {
+  const typeId = getTypeId(actor);
+  const name = typeId.hash.slice(1) || typeId.href.split("/").pop() || "";
+  return (["Person", "Group", "Service", "Application", "Organization"] as const).find((known) => known === name) ?? null;
+}
+
+// The actors of this instance (`{origin}/ap/actors/{id}`) that a post mentions with a Mention tag or addresses in `to` or `cc`, MAX_MENTIONED at most.
+export async function localMentions(post: Post, origin: string, options: LoadOptions): Promise<string[]> {
+  const prefix = `${origin}/ap/actors/`;
+  const isActor = (iri: string) => iri.startsWith(prefix) && /^[1-9][0-9]{0,18}$/.test(iri.slice(prefix.length));
+  const found = new Set<string>();
+  for await (const tag of post.getTags({ documentLoader: noFetch, contextLoader: options.contextLoader, suppressError: true })) {
+    if (tag instanceof Mention && tag.href !== null && isActor(tag.href.href)) found.add(tag.href.href);
+  }
+  for (const id of [...post.toIds, ...post.ccIds]) if (isActor(id.href)) found.add(id.href);
+  return [...found].slice(0, MAX_MENTIONED);
+}
 
 // The normal form of a post with the given author, or the reason why it has none.
 export async function normalObject(post: Post, author: TimelineActor, options: LoadOptions): Promise<TimelineObject | "no_id" | "too_large"> {

@@ -26,6 +26,7 @@ import re
 import secrets
 import sqlite3
 import time
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -137,18 +138,18 @@ _REMOTE_IMG_ATTR_RE = re.compile(r'\b(src|alt|title|width|height)="([^"]*)"', re
 MediaUrlFn = Callable[[str], "str | None"]
 
 
-def _remote_token_message(account_id: int, item_id: int, exp: int) -> bytes:
-    return f"remote:{int(account_id)}:{int(item_id)}:{exp}".encode("utf-8")
+def _remote_token_message(account_id: int, item_id: int, exp: int, kind: str = "remote") -> bytes:
+    return f"{kind}:{int(account_id)}:{int(item_id)}:{exp}".encode("utf-8")
 
 
-def create_remote_token(account_id: int, item_id: int, expires_in: int = DEFAULT_VIEWING_TOKEN_TTL, *, secret_service: SecretService | None = None, now: float | None = None) -> str:
-    """Make a viewing token of the kind ``remote``: it binds ``(account_id, item_id, exp)`` of one timeline item (Section 8 rule 2). A token of a document is not valid for an item, and the reverse."""
+def create_remote_token(account_id: int, item_id: int, expires_in: int = DEFAULT_VIEWING_TOKEN_TTL, *, secret_service: SecretService | None = None, now: float | None = None, kind: str = "remote") -> str:
+    """Make a viewing token of the kind ``remote``: it binds ``(account_id, item_id, exp)`` of one timeline item (Section 8 rule 2). A token of a document is not valid for an item, and the reverse. The kind ``feed`` is for one feed item (unit FP4-F3): a token of one kind is not valid for the other kind."""
     exp = int(now if now is not None else time.time()) + int(expires_in)
     key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
-    return f"{exp}.{hmac.new(key, _remote_token_message(account_id, item_id, exp), hashlib.sha256).hexdigest()}"
+    return f"{exp}.{hmac.new(key, _remote_token_message(account_id, item_id, exp, kind), hashlib.sha256).hexdigest()}"
 
 
-def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_service: SecretService | None = None, now: float | None = None) -> bool:
+def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_service: SecretService | None = None, now: float | None = None, kind: str = "remote") -> bool:
     if not isinstance(token, str) or token.count(".") != 1:
         return False
     exp_text, signature = token.split(".")
@@ -158,7 +159,7 @@ def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_ser
     if int(now if now is not None else time.time()) > exp:
         return False
     key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
-    return hmac.compare_digest(signature, hmac.new(key, _remote_token_message(account_id, item_id, exp), hashlib.sha256).hexdigest())
+    return hmac.compare_digest(signature, hmac.new(key, _remote_token_message(account_id, item_id, exp, kind), hashlib.sha256).hexdigest())
 
 
 def _proxy_image_tag(match: re.Match[str], media_url: MediaUrlFn) -> str:
@@ -305,6 +306,49 @@ def load_remote_item(db_path: Path | None, item_id: int) -> dict[str, Any] | Non
     if row is None:
         return None
     return {"account_id": int(row[0]), "content_html": str(row[1]), "attachments": json.loads(row[2]), "language": row[3]}
+
+
+# --- Feed items (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, unit FP4-F3) ---
+
+FEED_TOKEN_KIND = "feed"
+_URL_ATTRIBUTE_RE = re.compile(r"""\b(href|src)(\s*=\s*)(["'])(.*?)\3""", re.IGNORECASE | re.DOTALL)
+
+
+def absolute_urls(raw_html: str, base_url: str | None) -> str:
+    """Make each relative ``href`` and ``src`` of feed HTML absolute against ``base_url``. The frame has an other origin, thus a relative address has no use there. The result is not safe HTML: the caller sanitizes it after this step."""
+    if not raw_html or not base_url:
+        return raw_html or ""
+
+    def _join(match: re.Match[str]) -> str:
+        value = html.unescape(match.group(4)).strip()
+        if not value or value.startswith("#") or re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", value):
+            return match.group(0)
+        try:
+            joined = urllib.parse.urljoin(base_url, value)
+        except ValueError:
+            return match.group(0)
+        return f'{match.group(1)}{match.group(2)}"{html.escape(joined, quote=True)}"'
+
+    return _URL_ATTRIBUTE_RE.sub(_join, raw_html)
+
+
+def load_feed_item(db_path: Path | None, item_id: int) -> dict[str, Any] | None:
+    """Read the columns that the render of one feed item needs from ``client.db`` next to ``claire.db``, or ``None``. The body is ``content``, or ``summary`` when the item has no content."""
+    from ..store import client_db
+
+    if db_path is None:
+        return None
+    client_path = client_db.client_db_path(db_path)
+    if not client_path.exists():
+        return None
+    conn = client_db.connect_client_existing(client_path, readonly=True)
+    try:
+        row = conn.execute("SELECT i.account_id, i.content, i.summary, i.url, f.site_url, f.url FROM feed_items i JOIN feed_subscriptions f ON f.id=i.feed_id WHERE i.id=?", (item_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {"account_id": int(row[0]), "content_html": absolute_urls(str(row[1] or row[2] or ""), row[3] or row[4] or row[5]), "attachments": [], "language": None}
 
 
 class _CookielessMiddleware:
@@ -498,6 +542,19 @@ def create_usercontent_app(
             media_url = remote_media_urls(db_path, account_id=item["account_id"], content_html=item["content_html"], attachments=item["attachments"], media_base=media_origin, secret_service=secret_service, now=now() if now is not None else None)
         return remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors=app_origin, media_url=media_url, media_source=media_origin)
 
+    async def render_feed_route(request: Any) -> Response:
+        """``GET /render/feed/{item_id}?t={token}`` (unit FP4-F3): the body of one feed item, with the rules of ``render_remote_route``. The token has the kind ``feed``."""
+        item_id = int(request.path_params["id"])
+        item = load_feed_item(db_path, item_id)
+        token = request.query_params.get("t", "")
+        if item is None or not verify_remote_token(token, item["account_id"], item_id, secret_service=secret_service, now=now() if now is not None else None, kind=FEED_TOKEN_KIND):
+            return PlainTextResponse("Not Found", status_code=404)
+        media_origin = roles.origin("media") if roles is not None and hasattr(roles, "origin") else None
+        media_url = None
+        if media_origin is not None:
+            media_url = remote_media_urls(db_path, account_id=item["account_id"], content_html=item["content_html"], attachments=[], media_base=media_origin, secret_service=secret_service, now=now() if now is not None else None)
+        return remote_item_response(content_html=item["content_html"], attachments=[], language=None, frame_ancestors=app_origin, media_url=media_url, media_source=media_origin)
+
     async def presentation_route(request: Any) -> Response:
         doc_id_param = request.query_params.get("id", "").strip()
         doc_dict: dict[str, Any] | None = None
@@ -613,6 +670,7 @@ Reveal.initialize({{ hash: true, slideNumber: true }});
             Route("/render/doc/{id:int}", render_doc_route, methods=["GET", "HEAD"]),
             Route("/render/doc/{id}", render_doc_route, methods=["GET", "HEAD"]),
             Route("/render/remote/{id:int}", render_remote_route, methods=["GET", "HEAD"]),
+            Route("/render/feed/{id:int}", render_feed_route, methods=["GET", "HEAD"]),
             Route("/p/presentation", presentation_route, methods=["GET", "HEAD"]),
         ],
     )

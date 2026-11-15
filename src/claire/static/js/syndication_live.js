@@ -159,8 +159,16 @@
     loading: false,
     // Stage 3 of the stage bar (FP4-5): "all", "published", or "unpublished". publishedKeys has "themeId:documentId" of each published document of the account.
     pubFilter: "all",
-    publishedKeys: new Set()
+    publishedKeys: new Set(),
+    // The counters of each published document (FP4-8): "themeId:documentId" gives the text that the client script made from the catalog.
+    reactionLabels: {}
   };
+
+  function reactionBadge(doc) {
+    const theme = curTheme();
+    const label = theme && state.reactionLabels[`${theme.id}:${doc.id}`];
+    return label ? `<span class="tt-link-dot cl-inbox" data-reactions="${esc(doc.id)}">${esc(label)}</span>` : "";
+  }
 
   function savePrefs() {
     writeSlot(state.themeId, prefs, loadCustom(state.themeId));
@@ -500,6 +508,7 @@
                 <span class="tt-card-feed-title">${esc(doc.author)}</span>
               </div>
               <div class="tt-card-meta-right">
+                ${reactionBadge(doc)}
                 <span class="tt-link-dot linked">${ic("link")} ${esc(doc.id)}</span>
                 <span class="tt-card-time">${esc(doc.timeAgo)}</span>
               </div>
@@ -523,6 +532,7 @@
             <button type="button" class="tt-icon-btn ${doc.starred ? "starred" : ""}" data-star-id="${esc(doc.id)}" title="별표(고정) 토글">${doc.starred ? "★" : "☆"}</button>
             <button type="button" class="tt-icon-btn" data-quick-dispatch="${esc(doc.id)}" title="다른 테마로 적재 전달">${ic("broadcast")}</button>
             <span class="tt-link-dot linked" title="테마 DB 적재 문서">${ic("link")} 적재</span>
+            ${reactionBadge(doc)}
             <div class="tt-flat-main">
               <span class="tt-flat-title">${esc(doc.title)}</span>
               <span class="tt-flat-author">${esc(doc.author)}</span>

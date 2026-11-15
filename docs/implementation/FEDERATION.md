@@ -24,11 +24,13 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Sidecar task poller, delivery of `Create`, `Update`, and `Delete` of an `Article` to followers, public object path and outbox collection (Section 4.4) | Implemented (FP3-3) |
 | Lifecycle tasks (`Update(Person)`, purge with `Delete(Person)` and the skip option) and privacy triggers (private theme, purged document, deleted theme) (Section 8.5) | Implemented (FP3-4) |
 | Native actor as a target in the dialog of `/syndication` (Section 7.7), recovery command `claire federation requeue` (Section 7.4) | Implemented (FP3-5) |
-| Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2). No feed view in `/syndication` yet (FP4-F3). |
+| Account feeds: `claire.db` version 21, poller, OPML import and export, routes `/api/feeds*`, command `claire feeds poll` (Section 15). They need no actor and work in single mode. | Implemented (FP4-F1, FP4-F2) |
+| Feed view in `/syndication`: tree of folders and feeds, list, reader in the sandbox frame, link share, star, read state, feed discovery, ingest of one item, merge by URL with the timeline (Section 23). It works in single mode. | Implemented (FP4-F3) |
 | Inbound posts: `client.db` version 2 (`federation_timeline_items`), internal endpoints `timeline-events` and `timeline-interest`, fan-out, the timeline rule, and the parent chain (Section 18) | Implemented (FP4-4) |
 | Federation client: timeline routes, render route with the `remote` token, ingest of one item, stage bar and client view in `/syndication`, context menu with the Markdown export, console fields of the reading settings (Section 19) | Implemented (FP4-5). No reply, favourite, or boost before FP4-9. |
 | Media storage backends: local default, S3-compatible object storage (reference server: Garage), console section `/admin/storage` with its routes and the connection test, read fallback to local storage, command `claire media migrate` (Section 20) | Implemented (FP4-1) |
 | Media proxy: `client.db` version 3 (`federation_media_cache`), route `/media/remote/{url_hash}` with the media token, fetch rules, media in the body of an item, cleanup of entries, command `claire federation prune` (Section 21) | Implemented (FP4-7) |
+| Inbound interactions with the account: `client.db` version 4 (`federation_object_reactions`, `federation_auto_replies`), contract 1.4, mentions and replies of actors that are not followed, counters of `Like` and `Announce` on published documents, mention rate limit, automatic notice for a non-public message (Section 22) | Implemented (FP4-8) |
 
 The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), and deliveries of published objects to the inboxes of followers (Section 4.4).
 
@@ -270,12 +272,13 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.3"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.4"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
 - Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
 - Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
+- Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
 - Unit FP3-4 added the answer 410 to `/actors/{public_id}`. The version was 1.2. A sidecar of version 1.1 gets an error for a purged actor and answers 503, not 410.
 - Version 1.1 (unit FP2-2) added `limits` and `domain_blocks_etag` to `config`, and the three endpoints of phase FP2. Because the shapes are sealed, a sidecar of version 1.0 refuses the `config` answer of version 1.1. Claire and the sidecar must come from the same commit.
 
@@ -791,7 +794,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 2. Each hop (the first request and each redirect, at most 5) gets the private address check of the other fetchers (`check_ip_safety` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` and `CLAIRE_PRIVATE_NETWORK_ALLOWLIST`). Cloud metadata and link-local addresses are always refused. The body limit is 5 MiB, the timeout 20 seconds.
 3. Success: next poll in 1 hour, failure count 0. Failure (`429`, `5xx`, other HTTP status, network error, blocked address, body that is not a feed): failure count + 1, next poll in `1 hour × 2^failures`, at most 24 hours, and not before `Retry-After` (at most 7 days).
 4. An item has a stable key in its feed: the GUID or `id` of the feed, else the item URL, else a SHA-256 hash of title, time, and summary. A known key is not stored again; its changed fields are updated, and its read and star state stays. At most 500 items are read from one body.
-5. HTML of an item is stored as it is. A client must render it on the `usercontent` origin only (K10, unit FP4-F3). `<category>` values (Atom `term`, JSON Feed `tags`) stay raw tags in `categories`.
+5. HTML of an item is stored as it is. A client must render it on the `usercontent` origin only (K10, Section 23.2). `<category>` values (Atom `term`, JSON Feed `tags`) stay raw tags in `categories`.
 6. WebSub: the poll stores the hub (`websub_hub`) and the topic (`websub_topic`, the `self` link). This unit does not subscribe to the hub; the poll schedule applies to all feeds.
 7. The `api` process polls the due feeds (at most 100 for each cycle, 4 in parallel) every 5 minutes, the first time 2 minutes after the start. The command `claire feeds poll` does the same on demand ([`COMMANDS.md`](COMMANDS.md)).
 8. Each account has at most 1000 feeds.
@@ -823,7 +826,7 @@ The account purge (`AccountStore.purge`) deletes the client data of the account 
 
 ### 15.6 Known Limits
 
-- No feed view, no subscribe dialog with feed discovery (`<link rel="alternate">`), no ingest of one item, and no merge with the timeline by URL: unit FP4-F3.
+- The feed view, the feed discovery, the ingest of one item, and the merge with the timeline by URL are in Section 23 (unit FP4-F3).
 - No WebSub subscription, no auto-ingest rule, no retention run for feed items.
 - No route to rename a feed or to move it to a different folder.
 - A permanent redirect does not change the stored feed URL.
@@ -962,7 +965,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 ### 19.4 Differences from the Design and Limits
 
-- The client has no reply, favourite, or boost (FP4-9), no mentions of actors that are not followed (FP4-8; the mentions stream stays empty), and no feed view (FP4-F3).
+- The client has no reply, favourite, or boost (FP4-9), and no thread fetch (FP4-6). Mentions of actors that are not followed are in Section 22.
 - `GET /api/federation/timeline/{item_id}` and `GET /api/federation/objects` are not in the route table of design Section 5.3. The thread view and the filter of stage 3 need them.
 - The texts of the knowledge base view that existed before this unit are not catalog keys yet. I18N design ID5 gives that work to the rebuild of the page; this unit did it for the new parts only.
 
@@ -1067,7 +1070,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 | Host | Path | Rule |
 | :--- | :--- | :--- |
 | `media` | `GET /media/remote/{url_hash}?t={token}` | No cookie. A token that is absent, expired, or of another URL gets 404, as a URL without an entry. |
-| app (only without a `media` host) | `GET /media/remote/{url_hash}?t={token}` | The caller is the owner of the account of the token, in network mode. With a `media` host this path gives 404. |
+| app (only without a `media` host) | `GET /media/remote/{url_hash}?t={token}` | The caller is the owner of the account of the token, in the two modes (Section 23.1). With a `media` host this path gives 404. |
 
 - The first request fetches the URL, puts the file in the media store, and records the result. Later requests read the store. One fetch runs at a time for one URL in a process.
 - Fetch rules: each hop gets the private address check of the other fetchers (`allow_private_networks`, `private_network_allowlist`); 3 redirects at most; timeout 15 seconds; no cookie (each hop has a new client) and no credential; `User-Agent: ClaireBible-MediaProxy/1.0 (+{public URL})`.
@@ -1093,3 +1096,129 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 - The timeline list has no thumbnail: media shows in the body only.
 
 Tests: `tests/test_media_proxy.py` (fetch rules with a local HTTP server, token, records, migration of `client.db`), `tests/test_e2e_federation_media.py` (the proxy on the app origin and on the role hosts, limits, token, delete, cleanup command), `tests/test_federation_media_browser.py` (a real Chromium over three local hosts; skipped without a Playwright Chromium).
+
+## 22. Inbound Interactions (Unit FP4-8)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 6.2 rule 4, 6.6 rules 1 to 4 and 6, 7.1, and 10. Data: `client.db` version 4. Contract: 1.4. Quote requests (Section 6.6 rule 5) are unit FP4-9Q. Own notes and their counters are unit FP4-9.
+
+### 22.1 Routes
+
+This unit adds no route. It changes these answers:
+
+| Method | Path | Change |
+| :--- | :--- | :--- |
+| `GET` | `/api/federation/timeline` | The filter `mention=1` now has items. `counts` has `private_messages`: the number of non-public messages that the account got (Section 22.5). |
+| `GET` | `/api/federation/objects` | Each item has `likes` and `announces`: the counters of the published document. |
+| `POST` | `/internal/federation/v1/timeline-events` | Request: `actor_type` (`Person`, `Group`, `Service`, `Application`, `Organization`, or null), `mentioned` (actor IRIs of this instance, 16 at most), `in_reply_to` (the reply target of the object, also when `object` is null). Response: the reason `rate_limited`, and `notices` (a list of `actor_public_id`, `content`, `language`). |
+| `POST` | `/internal/federation/v1/inbox-events` | `Like`, `Announce`, and `Undo` of them for an object path of this instance get a decision (Section 22.4). New reason: `no_object`. No shape of the request changed. |
+
+Contract 1.4 changed the shapes of the timeline event and of the two decisions. The shapes are sealed: Claire and the sidecar must come from the same commit.
+
+### 22.2 Tables (`client.db` Version 4)
+
+- `federation_object_reactions`: key `(object_public_id, kind, actor_iri)`, with `account_id` (the owner of the object), `activity_iri`, and `received_at`. `kind` is `like` or `announce` (the `CHECK` also permits `quote` for unit FP4-9Q, as in the design). `object_public_id` is the number of the object; the number space of published documents and notes is the same (RT7), so the notes of unit FP4-9 can use this table without a change.
+- `federation_auto_replies`: key `(account_id, sender_iri)`, with `last_sent_at` and `count`. No content of a message is stored.
+- The migration adds the two tables at the start of the process. The account purge deletes the rows of the account in the two tables (`client_db.purge_account`).
+
+### 22.3 Mentions and Replies (Section 6.6 Rules 1, 2, and 6)
+
+1. The sidecar asks `timeline-interest` for the actor of a `Create`, as before. When no account follows the actor, the sidecar reads only the object that is in the activity, with a loader that refuses each fetch. The activity becomes a timeline event only when the object has a `Mention` tag with an actor of this instance, has such an actor in `to` or `cc`, or has `inReplyTo` on this instance. If not, it stays an inbox event, and Claire ignores it. The sidecar fetches no parent for an actor that no account follows.
+2. `mentioned` is read for each `Create`, also from a followed actor. An `Announce` has an empty list.
+3. Claire makes one item for each account that is an actor and that follows the actor, is in `mentioned`, or owns the published document in `in_reply_to` of the object. An item of the last two groups has `mention` = 1 and `in_timeline` = 1. An item that exists changes `mention` from 0 to 1 only.
+4. The domain blocks and the limits of Section 18 apply. A mention that is not public is not stored (`not_public`).
+5. Rate limit: for an account that does not follow the author, Claire counts the mention items of the account from the domain of the author in the last hour. At `mention_rate_per_hour` (reading settings, default 100) the account gets no item. When all accounts of the event are at the limit, the decision is `ignored` with the reason `rate_limited`. A followed author has no limit.
+
+### 22.4 Reactions to Own Objects (Section 6.6 Rules 3 and 4)
+
+1. A `Like`, an `Announce` whose object is on this instance, and an `Undo` of one stay inbox events. The sidecar does not fetch the object. For an `Undo`, `object_type` is the type of the activity that is undone, and that activity must be in the `Undo`.
+2. Claire applies the event when `object_iri` is `{origin}/ap/objects/{public_id}`. A new reaction needs a published document whose account is an actor and whose theme is public; Claire stores the actor one time for each object and kind. An `Undo` deletes the row of the same actor in all states of the object. A repeated activity and a repeated `Undo` give `accepted` and change nothing.
+3. An object path without an object gives `ignored` with the reason `no_object`. An object of another server gives `unsupported_type`, as before. The check of the domain blocks comes first.
+4. A reaction makes no item. The counter of an object is the number of its rows; `GET /api/federation/objects` gives `likes` and `announces`.
+
+### 22.5 Automatic Notice for a Non-Public Message (Section 6.2 Rule 4)
+
+1. A `Create` of an object that is not public and that mentions or addresses an account goes to Claire with `public: false`, without content, with `mentioned`, `actor_type`, and `in_reply_to`.
+2. For each account in `mentioned` that is an actor, Claire counts the message in `federation_auto_replies`. Claire answers with one notice for the account when the sender has no row, or when `auto_reply_hours` (reading settings, default 24) are over since the last notice.
+3. Rules that stop a loop: no notice when `actor_type` is `Service`, `Application`, or null; no notice when `in_reply_to` is the ID of an automatic notice of this instance (`{actor}#auto-replies/...`); no notice for a blocked domain (the event is `rejected` before this step). Such a message is not counted.
+4. The text is the catalog key `federation.auto_reply.text` in the locale of the account (`en` or `ko`), else the instance locale (`CLAIRE_LANG`), else English. `content` is one paragraph of escaped text.
+5. The sidecar sends each notice at once: `Create` of a `Note` from the actor of the account, with the ID `{actor}#auto-replies/{digest}` (the first 16 bytes of the SHA-256 of the object ID, hexadecimal), `inReplyTo` = the object, `to` = the sender only, a `Mention` of the sender, and `content` with `contentMap`. The `Note` is not public and not in the outbox collection.
+
+### 22.6 View
+
+- The stream "Mentions and replies" of the client view (filter `mention=1`) shows the items of Section 22.3. An item has the badge "Mention".
+- Below the streams, the client shows the number of non-public messages (`synd.client.private_messages`) when it is more than 0.
+- In the knowledge base view, a published document shows its counters (`synd.kb.reactions`) in the list. The client script reads them with the published documents (`GET /api/federation/objects`).
+
+### 22.7 Differences from the Design and Limits
+
+- The automatic notice is not a task of the client outbox (`auto_reply` in design Section 5.2). Claire gives the notice in the decision of the event, and the sidecar sends it in the same inbox run, the same pattern as `Accept(Follow)`. Reason: the notice needs the sender and the object ID at one time, and Claire must store no data of the message other than the sender and the time. Limit: when the sidecar stops between the decision and the handoff to its queue, that notice is lost, and the sender gets the next one after `auto_reply_hours`.
+- The ID of a notice is a fragment of the actor ID. A remote server cannot fetch the `Note` by its ID.
+- The counters are not columns of `federation_objects` (design Section 6.6 rule 3). They are the number of rows in `federation_object_reactions`. Reason: the object table is in `claire.db`, and the reactions are in `client.db`; one file has the full state.
+- `federation_object_reactions` has the column `account_id`, which design Section 7.1 does not have. The account purge needs it.
+- The rows of a retracted document stay until the account purge. The object number is not used again, so no list shows them.
+- An actor of this instance in `to` or `cc` counts as a mention, also without a `Mention` tag.
+- The mention rate limit counts stored items. An item that the author deleted is not in the count.
+- `count` in `federation_auto_replies` is the number of non-public messages of the sender, also those without a notice. The client shows the sum; it has no reset. The rows have no cleanup before the account purge.
+- A message from a `Service`, an `Application`, or an actor of an unknown type is not counted.
+- An `Undo` that has only the ID of the undone activity is ignored: the sidecar cannot read the type.
+- The counters of own notes come with unit FP4-9.
+
+Tests: `tests/test_e2e_federation_interactions.py` (mentions, rate limit, reactions with `Undo`, automatic notice), `tests/test_federation_routes.py` (contract 1.4 fixtures), `tests/test_client_db.py` (purge), `sidecar/fedify/tests/timeline_test.ts` (the mention in the object, no fetch for an actor that is not followed, reactions as inbox events, delivery of the notice), `sidecar/fedify/tests/internal_api_test.ts`.
+
+## 23. Feed View (Unit FP4-F3)
+
+Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Sections 1.3 rule 7, 4.4, and 8. Code: `src/claire/static/js/syndication_feeds.js` (view), `src/claire/api/accounts_routes/feeds.py` (routes), `src/claire/feeds/discover.py` (discovery), `src/claire/store/feeds.py` (store), `src/claire/api/usercontent.py` (render), `src/claire/api/server.py` (ingest of one item). The unit has no schema change: `feed_items` had `unread`, `starred`, `linked_theme_id`, and `linked_doc_id`.
+
+### 23.1 Routes
+
+All routes are for the owner of the account, in single mode and in network mode (`_any("owner")`). An item of another account gives 404.
+
+| Method | Path | Answer |
+| :--- | :--- | :--- |
+| `GET` | `/api/feeds/items/{item_id}` | `{"item"}`: the keys of the list, `has_body`, and `render_url`. |
+| `POST` | `/api/feeds/discover` | Body: `url`. `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}`. The address is a feed (one entry), or a page whose `<link rel="alternate">` elements with a feed type give the entries (20 at most). `error` is the reason when the address gave no body (for example `http_404`, `blocked_address`). 400 `invalid_url`. |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
+| `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the instance has no `usercontent` host. |
+
+Changes of the routes of Section 15.3:
+
+- An item of `GET /api/feeds/items` has three more keys: `text` (plain text of the summary, else of the content; the tags are removed on the server, 400 characters at most), `linked` (`{"theme_id", "document_id"}` or `null`), and `timeline_item_id`.
+- `PATCH /api/feeds/items` also sets the state of the timeline items with the same address (Section 23.3).
+- `GET /media/remote/{url_hash}` on the app origin (Section 21.3) is open in single mode too, because the body of a feed item has media.
+
+### 23.2 Rendering
+
+1. Feed HTML is not trusted. No route puts it into a page of the app origin, and the view never puts it into the DOM: the list shows `text` and the title as characters.
+2. The body is `content`, or `summary` when the item has no content. The render makes each relative `href` and `src` absolute (base: the item address, else the site address, else the feed address) and then uses the same functions as a remote post (Section 19.2): `sanitize_remote_html`, the media proxy addresses for `img`, and `remote_item_response` with the same policy and `sandbox`. The view puts the page in an `iframe` with the same `sandbox` value.
+3. The viewing token has the kind `feed` and binds `(account_id, item_id, exp)` (one hour). A token of the kind `remote` is not valid for a feed item, and the reverse. A token that is absent, expired, or of another item gets 404.
+4. With a `usercontent` host the path on the app origin gives 404. Without one, the path on the app origin needs the session of the owner of the item and the token.
+
+### 23.3 Merge by URL with the Timeline
+
+A feed item and a timeline item of the same account are the same post when the `url` of the feed item is the `url` or the `object_iri` of the timeline item.
+
+- The feed item has `timeline_item_id`. The view shows the mark "in timeline" and the action "open in timeline" (network mode).
+- The read state and the star are one state: a change of the feed item changes the timeline item, and `PATCH /api/federation/timeline/{item_id}` changes the feed item. "Mark all as read" of a feed does the same.
+- The ingest of one of the two gives the document link to the other, when the other has no document.
+
+### 23.4 View
+
+- The client view (stage 1) has the folder "Feeds" in its tree: "all feed items", "starred feed items", each folder with its feeds, then the feeds without a folder, each with its unread count. A feed whose last poll failed has the warning icon and the reason as its title.
+- Subscribe: the form takes the address of a feed or of a site (without a scheme, `https://` is added) and an optional folder. One found feed is added at once; for more feeds the owner selects one. A new feed is polled at once. The tools are "poll all feeds now", OPML import (a file, 1 MiB at most), and OPML export.
+- The list pane and the reader pane are those of the timeline. A feed scope takes them; a stream of the timeline gives them back. The list has "unread only", "mark all as read", and older items by a cursor.
+- Actions of an item: star, read or unread, "share link", "take into knowledge base" (the dialog of Section 19.3 with the feed route), and, for an item with a document, "open document" and (network mode) "publish". Opening an item marks it as read. The keys `j`, `k`, and `s` work as in the timeline list.
+- Single mode: the client view shows the feeds, the notice that follows and the timeline need network mode, and no stream tree and no follow tree. The stage bar shows the unread count of the feeds. In network mode the stage bar adds that count only when it is above 0.
+- The texts are the catalog keys `synd.feeds.*` in English and Korean.
+
+### 23.5 Differences from the Design and Limits
+
+- "Share" is the share sheet of the device (a touch device) or a copy of the address to the clipboard. The design says a new note with the link; the client has no route to publish a note before unit FP4-9.
+- The merge keeps the two rows. The post shows in the feed list and in the timeline, with one state and one document link. The lists are not one list, thus no row is hidden.
+- The merge is by exact address. Two addresses of the same post that differ (a redirect, a query part) do not merge.
+- The discovery finds feeds only. It does not look for an ActivityPub actor of the same site and does not offer a follow in place of the feed.
+- No route to rename a feed or to move it to a different folder, no WebSub subscription, no auto-ingest rule, no retention run for feed items (as in Section 15.6).
+- The media cleanup (Section 21.4) counts only timeline items as users of an entry. An entry of a feed item goes at the daily cleanup and comes back at the next render.
+- An instance with a `usercontent` host and no `media` host shows no image in the body of a feed item (Section 21.2 rule 5).
+- `GET /api/feeds/items/{item_id}` and `POST /api/feeds/discover` are not in the design. The reader and the subscribe form need them.
+
+Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, subscribe, poll, read with the render on the two origins, star, ingest; network mode: merge by URL and account isolation), `e2e/feed_view.spec.js` (the view in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.

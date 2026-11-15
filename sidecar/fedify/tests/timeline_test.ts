@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { generateCryptoKeyPair, MemoryKvStore, signRequest } from "@fedify/fedify";
-import { type Activity, Announce, Create, CryptographicKey, Delete, Document, Endpoints, LanguageString, Note, Page, Person, PUBLIC_COLLECTION, Undo, Update } from "@fedify/fedify/vocab";
+import { type Activity, Announce, Create, CryptographicKey, Delete, Document, Endpoints, LanguageString, Like, Mention, Note, Page, Person, PUBLIC_COLLECTION, Undo, Update } from "@fedify/fedify/vocab";
 import { InternalApi } from "../src/internal_api.ts";
 import { Sidecar } from "../src/sidecar.ts";
 import { CONTENT_MAX_BYTES, MAX_ATTACHMENTS } from "../src/timeline.ts";
@@ -38,9 +38,15 @@ function setup() {
   // The object documents of the remote servers. A GET of another address gives an actor document.
   const objects = new Map<string, unknown>();
   const fetched: string[] = [];
+  // The deliveries of the sidecar to the inboxes of the remote servers (unit FP4-8: the automatic notice).
+  const deliveries: { url: string; body: Record<string, unknown> }[] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
+    if (request.method === "POST") {
+      deliveries.push({ url: request.url, body: JSON.parse(await request.text()) });
+      return new Response(null, { status: 202 });
+    }
     const url = request.url.split("#")[0];
     fetched.push(url);
     if (url.endsWith("/missing")) return new Response("Not Found", { status: 404 });
@@ -54,7 +60,7 @@ function setup() {
     return response.status;
   };
   const add = async (object: Note | Page) => objects.set(object.id!.href, await object.toJsonLd());
-  return { fake, sidecar, post, add, objects, fetched, restore: () => (globalThis.fetch = realFetch) };
+  return { fake, sidecar, post, add, objects, fetched, deliveries, restore: () => (globalThis.fetch = realFetch) };
 }
 
 function note(id: string, author: string, values: Record<string, unknown> = {}): Note {
@@ -116,7 +122,7 @@ Deno.test("a Delete of an object and an Undo(Announce) are timeline events witho
   try {
     await post(new Delete({ id: new URL("https://remote.example/activities/204"), actor: new URL(DAN), object: new URL("https://remote.example/notes/4") }));
     assert.deepEqual(fake.timelineEvents, [fixture("timeline_event_delete").request.body]);
-    fake.timelineDecision = { decision: "accepted", reason: null, items: 1 };
+    fake.timelineDecision = { decision: "accepted", reason: null, items: 1, notices: [] };
     const announce = new Announce({ id: new URL("https://remote.example/activities/202"), actor: new URL(DAN), object: new URL("https://forum.example/post/42") });
     await post(new Undo({ id: new URL("https://remote.example/activities/205"), actor: new URL(DAN), object: announce }));
     const undo = fake.timelineEvents[1];
@@ -144,7 +150,7 @@ Deno.test("an actor that no account follows gets no fetch: the activity stays an
 Deno.test("a reply brings its parent chain, nearest first, within the depth of Claire, and the chain stops at a parent that is not public", async () => {
   const { fake, post, add, restore } = setup();
   try {
-    fake.timelineDecision = { decision: "accepted", reason: null, items: 1 };
+    fake.timelineDecision = { decision: "accepted", reason: null, items: 1, notices: [] };
     fake.followed.add(BOB);
     await add(note("https://forum.example/c/3", ERIN, { replyTarget: new URL("https://forum.example/c/2") }));
     await add(note("https://forum.example/c/2", ERIN, { replyTarget: new URL("https://forum.example/c/1") }));
@@ -191,7 +197,7 @@ Deno.test("an object of another author, a body above the limit, and an announced
 Deno.test("an Update has the changed object and asks no interest, and only the first attachments within the limit are kept", async () => {
   const { fake, post, restore } = setup();
   try {
-    fake.timelineDecision = { decision: "ignored", reason: "no_item", items: 0 };
+    fake.timelineDecision = { decision: "ignored", reason: "no_item", items: 0, notices: [] };
     const attachments = Array.from({ length: MAX_ATTACHMENTS + 2 }, (_, i) => new Document({ url: new URL(`https://remote.example/media/${i}.png`), mediaType: "image/png" }));
     await post(new Update({ id: new URL("https://remote.example/activities/240"), actor: new URL(BOB), object: note("https://remote.example/notes/40", BOB, { content: "<p>changed</p>", attachments }) }));
     const [event] = fake.timelineEvents;
@@ -200,6 +206,99 @@ Deno.test("an Update has the changed object and asks no interest, and only the f
     assert.equal(object.content_html, "<p>changed</p>");
     assert.equal(object.attachments.length, MAX_ATTACHMENTS);
     assert.ok(!fake.calls.some((call) => call.includes("/timeline-interest")));
+  } finally {
+    restore();
+  }
+});
+
+// --- Inbound interactions with an account (contract 1.4, unit FP4-8) ---
+
+const ALICE_ACTOR = `${ORIGIN}/ap/actors/116412345678901234`;
+const ALICE_OBJECT = `${ORIGIN}/ap/objects/816412345678901234`;
+
+Deno.test("a public reply with a mention from an actor that no account follows is the timeline event of the contract fixture, without a fetch of an object", async () => {
+  const { fake, sidecar, post, fetched, restore } = setup();
+  try {
+    const reply = new Note({ id: new URL("https://remote.example/notes/60"), attribution: new URL(BOB), content: "<p>A public reply to Alice</p>", published: PUBLISHED, to: PUBLIC_COLLECTION, cc: new URL(ALICE_ACTOR), replyTarget: new URL(ALICE_OBJECT), tags: [new Mention({ href: new URL(ALICE_ACTOR), name: "@alice@claire.example.com" })] });
+    await post(new Create({ id: new URL("https://remote.example/activities/260"), actor: new URL(BOB), object: reply, to: PUBLIC_COLLECTION }));
+    assert.deepEqual(fake.timelineEvents, [fixture("timeline_event_mention").request.body]);
+    assert.deepEqual(fake.events, []);
+    assert.equal(sidecar.counters.accepted, 1);
+    // Only the actor document is fetched (the signature check). The object of this instance and the parents are not.
+    assert.ok(fetched.every((url) => url === BOB));
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a non-public message to an account goes to Claire without content, and the notice of Claire goes to the sender only", async () => {
+  const { fake, post, deliveries, restore } = setup();
+  try {
+    const direct = new Note({ id: new URL("https://remote.example/notes/61"), attribution: new URL(BOB), content: "<p>a secret for Alice</p>", to: new URL(ALICE_ACTOR), tags: [new Mention({ href: new URL(ALICE_ACTOR), name: "@alice@claire.example.com" })] });
+    const create = () => new Create({ id: new URL("https://remote.example/activities/261"), actor: new URL(BOB), object: direct, to: new URL(ALICE_ACTOR) });
+    await post(create());
+    assert.deepEqual(fake.timelineEvents, [fixture("timeline_event_private_notice").request.body]);
+    assert.ok(!JSON.stringify(fake.timelineEvents).includes("a secret"));
+    assert.equal(deliveries.length, 1);
+    const [delivery] = deliveries;
+    assert.equal(delivery.url, `${BOB}/inbox`);
+    const notice = delivery.body.object as Record<string, unknown>;
+    const text = (fixture("timeline_event_private_notice").response.notices as { content: string }[])[0].content;
+    assert.equal(delivery.body.type, "Create");
+    assert.equal(delivery.body.actor, ALICE_ACTOR);
+    assert.equal(delivery.body.to, BOB);
+    assert.equal(delivery.body.cc, undefined);
+    assert.equal(notice.type, "Note");
+    assert.match(String(notice.id), new RegExp(`^${ALICE_ACTOR}#auto-replies/[0-9a-f]{32}$`));
+    assert.equal(notice.attributedTo, ALICE_ACTOR);
+    assert.equal(notice.inReplyTo, "https://remote.example/notes/61");
+    assert.equal(notice.to, BOB);
+    assert.equal(notice.cc, undefined);
+    assert.equal(notice.content, text);
+    assert.deepEqual(notice.contentMap, { en: text });
+    assert.equal((notice.tag as Record<string, unknown>).type, "Mention");
+    assert.equal((notice.tag as Record<string, unknown>).href, BOB);
+    assert.ok(!JSON.stringify(delivery.body).includes("Public"));
+    // The ID has a digest of the object ID: a second run of the same activity makes the same Note.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("https://remote.example/notes/61")));
+    assert.equal(notice.id, `${ALICE_ACTOR}#auto-replies/${[...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("")}`);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a Create from an actor that no account follows stays an inbox event when its object is not in the activity or has no relation to this instance", async () => {
+  const { fake, post, add, fetched, restore } = setup();
+  try {
+    fake.decision = IGNORED;
+    // The object is an ID only: the sidecar does not fetch it for an actor that no account follows.
+    await add(note("https://remote.example/notes/62", BOB, { tags: [new Mention({ href: new URL(ALICE_ACTOR) })] }));
+    await post(new Create({ id: new URL("https://remote.example/activities/262"), actor: new URL(BOB), object: new URL("https://remote.example/notes/62") }));
+    // A mention of an actor of another server, and a followers collection of this instance in cc, are not a mention of an account.
+    await post(new Create({ id: new URL("https://remote.example/activities/263"), actor: new URL(BOB), object: note("https://remote.example/notes/63", BOB, { cc: new URL(`${ALICE_ACTOR}/followers`), tags: [new Mention({ href: new URL(ERIN) })] }) }));
+    assert.deepEqual(fake.timelineEvents, []);
+    assert.deepEqual(fake.events.map((e) => e.type), ["Create", "Create"]);
+    assert.ok(!fetched.includes("https://remote.example/notes/62"));
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a Like and an Announce of an object of this instance and their Undo are inbox events for the counters of Claire", async () => {
+  const { fake, post, fetched, restore } = setup();
+  try {
+    const like = new Like({ id: new URL("https://remote.example/activities/250"), actor: new URL(BOB), object: new URL(ALICE_OBJECT) });
+    await post(like);
+    await post(new Undo({ id: new URL("https://remote.example/activities/251"), actor: new URL(BOB), object: like }));
+    assert.deepEqual(fake.events, [fixture("inbox_event_like").request.body, fixture("inbox_event_undo_like").request.body]);
+    fake.decision = { decision: "accepted", reply: null, reason: null };
+    const announce = new Announce({ id: new URL("https://remote.example/activities/253"), actor: new URL(DAN), object: new URL(ALICE_OBJECT), to: PUBLIC_COLLECTION });
+    await post(announce);
+    await post(new Undo({ id: new URL("https://remote.example/activities/254"), actor: new URL(DAN), object: announce }));
+    assert.deepEqual(fake.events.slice(2).map((e) => [e.type, e.object_type, e.object_iri]), [["Announce", null, ALICE_OBJECT], ["Undo", "Announce", ALICE_OBJECT]]);
+    assert.deepEqual(fake.timelineEvents, []);
+    // The object of this instance is not fetched.
+    assert.ok(!fetched.some((url) => url.startsWith(ORIGIN)));
   } finally {
     restore();
   }

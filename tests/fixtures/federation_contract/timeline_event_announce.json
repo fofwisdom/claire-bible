@@ -39,6 +39,9 @@
         "in_reply_to": null
       },
       "parents": [],
+      "actor_type": "Person",
+      "mentioned": [],
+      "in_reply_to": null,
       "verified_by": "http-signature"
     }
   },
@@ -46,6 +49,7 @@
   "response": {
     "decision": "accepted",
     "reason": null,
-    "items": 1
+    "items": 1,
+    "notices": []
   }
 }

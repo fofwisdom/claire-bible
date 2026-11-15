@@ -118,7 +118,7 @@
     <!-- Federation client view (stage 1, FP4-5): streams and follows, timeline list, and reader with the thread. The body of a post renders in a sandbox iframe on the usercontent origin. -->
     <div id="panel-client" class="tt-workspace" data-app-panel="client" hidden>
       <aside id="client-tree" class="synd-column tt-tree" data-i18n-aria-label="synd.client.tree_label">
-        <details class="tt-folder" open>
+        <details class="tt-folder" open id="client-streams-folder">
           <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.client.streams">Streams</span></span></summary>
           <div id="client-streams" class="tt-tree-children"></div>
         </details>
@@ -131,6 +131,27 @@
           </form>
           <div id="client-follow-msg" class="synd-note" role="status"></div>
           <div id="client-following" class="tt-tree-children"></div>
+        </details>
+        <!-- Feed view (FP4-F3): folders and feeds of the account. It works in single mode too. -->
+        <details class="tt-folder" open id="client-feeds-folder">
+          <summary><span><span class="tt-folder-marker"></span><span data-i18n="synd.feeds.title">Feeds</span></span><span id="client-feeds-unread" class="tt-count-pill"></span></summary>
+          <form id="client-feed-form" class="synd-feed-form">
+            <label for="client-feed-url" class="sr-only" data-i18n="synd.feeds.subscribe_label">Address of a feed or a site</label>
+            <input id="client-feed-url" type="text" class="tt-search" autocomplete="off" spellcheck="false" data-i18n-placeholder="synd.feeds.subscribe_placeholder"/>
+            <button type="submit" class="tt-btn" data-i18n="synd.feeds.subscribe_button">Subscribe</button>
+            <label for="client-feed-folder" class="sr-only" data-i18n="synd.feeds.folder_label">Folder (optional)</label>
+            <input id="client-feed-folder" type="text" class="tt-search" autocomplete="off" list="client-feed-folders" data-i18n-placeholder="synd.feeds.folder_placeholder"/>
+            <datalist id="client-feed-folders"></datalist>
+            <span class="synd-feed-tools">
+              <button type="button" id="btn-feed-poll" class="tt-icon-btn" data-i18n-title="synd.feeds.poll_now" data-i18n-aria-label="synd.feeds.poll_now"><span data-icon="repeat"></span></button>
+              <button type="button" id="btn-feed-import" class="tt-icon-btn" data-i18n-title="synd.feeds.opml_import" data-i18n-aria-label="synd.feeds.opml_import"><span data-icon="upload"></span></button>
+              <a id="btn-feed-export" class="tt-icon-btn" href="/api/feeds/opml" download="claire-feeds.opml" data-i18n-title="synd.feeds.opml_export" data-i18n-aria-label="synd.feeds.opml_export"><span data-icon="download"></span></a>
+            </span>
+            <input id="client-feed-opml-file" type="file" accept=".opml,.xml,text/xml,text/x-opml,application/xml" hidden/>
+          </form>
+          <div id="client-feed-msg" class="synd-note" role="status"></div>
+          <div id="client-feed-candidates" class="tt-tree-children"></div>
+          <div id="client-feeds" class="tt-tree-children"></div>
         </details>
         <p class="synd-note" data-i18n="synd.client.collect_note">Collection is not ingestion. A post enters a theme only when you take it in.</p>
       </aside>
@@ -223,7 +244,7 @@
         <label for="item-ingest-focus" data-i18n="synd.ingest.focus_label">Focus (optional)</label>
         <input id="item-ingest-focus" type="text" class="tt-search" data-i18n-placeholder="synd.ingest.focus_placeholder"/>
       </div>
-      <p class="synd-note" data-i18n="synd.ingest.note">The post stays in the timeline. The theme rules apply to the new document.</p>
+      <p id="item-ingest-note" class="synd-note" data-i18n="synd.ingest.note">The post stays in the timeline. The theme rules apply to the new document.</p>
       <div id="item-ingest-msg" class="synd-note" role="status"></div>
       <div class="synd-dialog-foot">
         <button type="button" data-close-dialog="modal-item-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
@@ -280,6 +301,7 @@
   <script src="/static/js/icons.js"></script>
   <script src="/static/js/command_palette.js"></script>
   <script src="/static/js/syndication_live.js"></script>
+  <script src="/static/js/syndication_feeds.js"></script>
   <script src="/static/js/syndication_client.js"></script>
 </body>
 </html>
