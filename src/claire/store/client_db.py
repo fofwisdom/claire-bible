@@ -14,11 +14,13 @@ Versions:
 - 2 (FP4-4, 2026-11-15): ``federation_timeline_items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
 - 3 (FP4-7, 2026-11-15): ``federation_media_cache`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.2).
 - 4 (FP4-8, 2026-11-15): ``federation_object_reactions`` and ``federation_auto_replies`` (FEDERATION_REMOTE_READING_DESIGN.md Section 7.1).
+- 5 (FP4-9, 2026-11-15): ``federation_notes`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 and 7.1). The quote columns of the design come with unit FP4-9Q (``ALTER TABLE ... ADD COLUMN``, no rebuild).
 """
 
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 __all__ = [
@@ -36,7 +38,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 4
+CLIENT_SCHEMA_VERSION = 5
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -100,6 +102,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v2(conn)
     _migrate_v3(conn)
     _migrate_v4(conn)
+    _migrate_v5(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -301,6 +304,33 @@ def _migrate_v4(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    # Own notes of an account (Section 5.4, unit FP4-9). public_id is in the number space of the published documents of claire.db (RT7): the object path is /ap/objects/{public_id} for the two.
+    # content_html is made and sanitized by Claire from content_text. deleted_at is the tombstone of the note: the row stays without content, and the object path gives 410.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_notes (
+            public_id INTEGER PRIMARY KEY,
+            account_id INTEGER NOT NULL,
+            in_reply_to_iri TEXT,
+            audience_iri TEXT,
+            content_text TEXT NOT NULL,
+            content_html TEXT NOT NULL,
+            mentions_json TEXT NOT NULL DEFAULT '[]',
+            summary TEXT,
+            sensitive INTEGER NOT NULL DEFAULT 0,
+            language TEXT,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            edited_at REAL,
+            published_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            deleted_at REAL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_notes_account ON federation_notes(account_id, public_id)")
+
+
 def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     """Delete all client data of the account (Section 10 rule 5). No ingested document is in this file. The caller commits.
 
@@ -314,6 +344,7 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM federation_client_outbox WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_object_reactions WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_notes WHERE account_id=?", (account_id,))
 
 
 def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int) -> bool:
@@ -323,6 +354,9 @@ def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int)
         return False
     conn = connect_client_db(client_db_path(main))
     try:
+        # Each note of the account gets a tombstone in claire.db, as each published document does (unit FP4-9): the object path gives 410 after the purge. The caller commits claire.db.
+        for public_id, deleted_at in conn.execute("SELECT public_id, deleted_at FROM federation_notes WHERE account_id=?", (account_id,)).fetchall():
+            claire_conn.execute("INSERT INTO federation_tombstones (public_id, kind, gone_at) VALUES (?, 'object', ?) ON CONFLICT(public_id) DO NOTHING", (int(public_id), float(deleted_at) if deleted_at is not None else time.time()))
         purge_account(conn, account_id)
         conn.commit()
     finally:

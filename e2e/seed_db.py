@@ -164,6 +164,7 @@ def seed(db_path: Path) -> None:
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-panel-nonce", "e2e-panel-token-0123456789abcdef01", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-fedclient-nonce", "e2e-fedclient-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-fedsingle-nonce", "e2e-fedsingle-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-fedcompose-nonce", "e2e-fedcompose-token-0123456789abc", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-feedview-nonce", "e2e-feedview-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
 
         e1 = Entity(

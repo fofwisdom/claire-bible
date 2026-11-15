@@ -79,6 +79,8 @@ if (import.meta.main) {
       while ((await sidecar.processOutboxTasks()) >= OUTBOX_TASK_BATCH);
       // The client tasks (contract 1.3): follows, unfollows, and removed followers.
       while ((await sidecar.processClientTasks()) >= OUTBOX_TASK_BATCH);
+      // The outbound interactions (contract 1.6): notes, favourites, and boosts.
+      while ((await sidecar.processInteractionTasks()) >= OUTBOX_TASK_BATCH);
     } catch (error) {
       console.error(`outbox poll failed: ${(error as Error).name}: ${(error as Error).message}`);
     } finally {

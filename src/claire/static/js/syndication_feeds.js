@@ -319,10 +319,13 @@
     await loadItems(true);
   }
 
-  // Link share. A feed has no interaction target (design Section 1.3 rule 7): the share gives the address of the item to the share sheet of the device, or to the clipboard.
+  // Link share. A feed has no interaction target (design Section 1.3 rule 7): the share is a new note with the address of the item (network mode), or the address goes to the share sheet of the device or to the clipboard (single mode).
   async function shareLink(id) {
     const item = findItem(id);
     if (!item || !item.url) return;
+    // Network mode (unit FP4-9): the share is a new note with the link. The owner can change the text before it is sent.
+    const compose = window.ClaireSyndicationCompose;
+    if (compose && compose.available && compose.open({ mode: "new", text: `${item.title ? `${item.title}\n` : ""}${item.url}` })) return;
     try {
       if (navigator.share && window.matchMedia("(pointer: coarse)").matches) { await navigator.share({ title: item.title || "", url: item.url }); return; }
       await navigator.clipboard.writeText(item.url);

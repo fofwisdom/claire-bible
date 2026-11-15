@@ -150,3 +150,15 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/api/feeds/discover` | Body `{"url"}`. 200 `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}` | 400 `invalid_request`, 400 `invalid_url` |
 | `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"theme", "focus"?}`. 200: the ingest report with `linked` (`{"theme_id", "document_id"}` or `null`) | 400 `invalid_request`, 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
 | `GET` | `/render/feed/{item_id}?t={token}` | 200 HTML for a sandbox `iframe`. On the app origin only without a `usercontent` host | 404 |
+
+## 8. 연합 클라이언트 발신 상호작용 경로 (FP4-9)
+
+확인 기준: FP4-9 구현 (2026-11-15). 동작의 정본은 [FEDERATION.md](FEDERATION.md) §25다. 모든 경로는 `owner`(`_any`)이고 네트워크 모드에서만 열린다. owner가 아니거나 싱글 모드이면 404다. 쿠키 채널의 상태 변경 요청은 같은 origin이어야 하고, 아니면 403이다. 응답은 `Cache-Control: no-store`다. 다른 계정의 노트·항목 ID는 없는 ID와 같게 다룬다. 삭제를 뺀 모든 경로는 계정이 연합 액터여야 하고, 아니면 409 `not_actor`다.
+
+| Method | Path | 성공 | 그 밖의 응답 |
+|---|---|---|---|
+| `POST` | `/api/federation/notes` | 본문 `{"content", "in_reply_to"?, "summary"?, "sensitive"?, "language"?}`. `content`는 일반 텍스트이고 HTML은 서버가 만든다. 201 `{"note", "item_id"}` | 400 `invalid_request`, 400 `empty_content`, 400 `content_too_long`(`limit`), 400 `summary_too_long`, 400 `too_many_mentions`, 400 `too_many_tags`, 400 `invalid_language`, 400 `invalid_mention`, 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor` |
+| `PATCH` | `/api/federation/notes/{note_id}` | 본문은 `content`, `summary`, `sensitive`, `language` 중 하나 이상. 200 `{"note"}` | `POST`의 400 응답, 404 `note_not_found`, 409 `not_actor` |
+| `DELETE` | `/api/federation/notes/{note_id}` | 200 `{"deleted": true, "id"}`. 객체 경로는 그 뒤로 410이다 | 404 `note_not_found` |
+| `POST`, `DELETE` | `/api/federation/timeline/{item_id}/favourite` | 200 `{"item_id", "favourited", "boosted"}` | 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor`, 409 `own_item` |
+| `POST`, `DELETE` | `/api/federation/timeline/{item_id}/boost` | 200 `{"item_id", "favourited", "boosted"}` | 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor`, 409 `own_item` |

@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/notes/816412345678901241"
+  },
+  "status": 410,
+  "response": {
+    "error": "gone",
+    "gone_at": 1800000380.0
+  }
+}

@@ -40,6 +40,7 @@ from .. import media_proxy
 from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
+from ..store import federation_notes as notes_store
 from ..store.secrets import get_secret_service
 from ..i18n import catalog as i18n_catalog
 from ..i18n.resolver import resolve_bot_locale
@@ -73,7 +74,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.5"
+CONTRACT_VERSION = "1.6"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 INSTANCE_ACTOR_ID = "instance"
@@ -557,6 +558,7 @@ def _not_found() -> JSONResponse:
 
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
+    from .federation_note_routes import note_internal_routes
     from .security import WebRuntimeConfig
 
     data_dir = Path(settings.data_dir)
@@ -780,6 +782,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         missing = InboxEventResponse(decision="ignored", reply=None, reason="no_object")
         public_id = _local_object_public_id(origin, event.object_iri)
         obj = None if public_id is None else federation_store.get_object(store.conn, public_id)
+        if obj is None and public_id is not None:
+            # An own note of an account (unit FP4-9): the same counters, in the same number space (RT7).
+            return _note_reaction(store, public_id, event, kind, undo)
         if obj is None:
             return missing
         if not undo:
@@ -801,6 +806,33 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         finally:
             client.close()
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
+
+    def _note_reaction(store: accounts_store.AccountStore, public_id: int, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
+        """``Like`` or ``Announce`` of an own note, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-9). A new reaction needs a note that is not deleted and whose account is an actor."""
+        client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
+        try:
+            note = notes_store.get_note(client, public_id)
+            if note is None or (not undo and (note.deleted_at is not None or note.account_id not in _actor_account_ids(store))):
+                return InboxEventResponse(decision="ignored", reply=None, reason="no_object")
+            if undo:
+                client_store.remove_object_reaction(client, object_public_id=public_id, kind=kind, actor_iri=event.actor.iri)
+            else:
+                client_store.add_object_reaction(client, object_public_id=public_id, account_id=note.account_id, kind=kind, actor_iri=event.actor.iri, activity_iri=event.event_id, now=now())
+            client.commit()
+        finally:
+            client.close()
+        return InboxEventResponse(decision="accepted", reply=None, reason=None)
+
+    def _note_owner(public_id: int | None) -> int | None:
+        """The account of an own note that is not deleted, or ``None`` (unit FP4-9)."""
+        if public_id is None:
+            return None
+        client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file), readonly=True)
+        try:
+            note = notes_store.get_note(client, public_id)
+        finally:
+            client.close()
+        return None if note is None or note.deleted_at is not None else note.account_id
 
     async def inbox_event(request: Request) -> Response:
         try:
@@ -843,7 +875,10 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             found = federation_store.get_object(store.conn, ids.parse_public_id(iri[len(prefix) :]))
         except ValueError:
             return False
-        return found is not None and found.account_id == account_id
+        if found is None:
+            # An own note of the account (unit FP4-9).
+            return _note_owner(_local_object_public_id(origin, iri)) == account_id
+        return found.account_id == account_id
 
     def _mentioned_accounts(store: accounts_store.AccountStore, origin: str, event: TimelineEventRequest, obj: TimelineObject, actor_ids: list[int]) -> set[int]:
         """The accounts that are actors and that the object mentions, addresses, or answers (a reply to a published object of the account)."""
@@ -857,6 +892,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         parent = None if parent_id is None else federation_store.get_object(store.conn, parent_id)
         if parent is not None:
             found.add(parent.account_id)
+        elif (note_owner := _note_owner(parent_id)) is not None:
+            # A reply to an own note of an account (unit FP4-9).
+            found.add(note_owner)
         return found & set(actor_ids)
 
     def _private_notices(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> list[TimelineNotice]:
@@ -1322,6 +1360,16 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             rows = federation_store.list_objects(store.conn, account.id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id, public_themes_only=True)
         finally:
             store.conn.close()
+        # The outbox collection is the union of the published documents and the own notes, in the sequence of the object number (RT7, unit FP4-9).
+        client = _client()
+        try:
+            total += notes_store.count_notes(client, account.id)
+            notes = notes_store.list_notes(client, account.id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
+        finally:
+            client.close()
+        # With min_id the two pages are the oldest objects above the cursor; if not, they are the newest ones.
+        merged = sorted([*rows, *notes], key=lambda row: row.public_id, reverse=True)
+        rows = merged[-query.limit :] if query.min_id is not None else merged[: query.limit]
         return _json(
             ActorOutboxResponse(
                 public_id=str(account.public_id),
@@ -1362,4 +1410,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/outbox-tasks", outbox_tasks, methods=["GET"]),
         Route("/outbox-tasks/{task_id}/ack", outbox_task_ack, methods=["POST"]),
         Route("/objects/{object_public_id}", published_object, methods=["GET"]),
+        # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
+        *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
     ]
