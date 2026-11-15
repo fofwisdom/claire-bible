@@ -24,8 +24,9 @@
 | 20 | 직전 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
 | 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
 | 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
-| 23 | 현재 version (아래 "v23" 절) | `federation_objects.content_digest` |
-| 24 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 23 | 직전 version (아래 "v23" 절) | `federation_objects.content_digest` |
+| 24 | 현재 version (아래 "v24" 절) | `federation_objects.quote_policy` |
+| 25 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -168,14 +169,24 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 이관**(`_migrate_v23_object_content_digest`, 멱등): `federation_objects`에 `content_digest TEXT` 열을 더한다. 값은 팔로워가 마지막으로 받은 요약(없으면 제목)과 공유 토큰의 SHA-256이다. 이전 버전의 행은 NULL이며, 첫 비교에서 값만 채우고 `Update`를 보내지 않는다(규칙 7).
 - **[테스트]** `tests/test_federation_publish.py`.
 
+## v24 (발행 문서의 인용 정책, FP4-9Q)
+
+확인 기준: FP4-9Q 구현 (2026-11-15). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §5.4 규칙 6, §7.1.
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 24`.
+- **[코드] 이관**(`_migrate_v24_object_quote_policy`, 멱등): `federation_objects`에 `quote_policy TEXT NOT NULL DEFAULT 'manual'` 열을 더한다. `CHECK`는 `public`, `followers`, `manual`, `nobody`만 허용한다. 이전 버전의 행은 기본값 `manual`을 받는다. 이관은 기동 때 스스로 끝나며 운영자가 할 일은 없다.
+- **[코드] 위치 근거**: 정책 변경과 `update` 작업(`federation_outbox`)이 `claire.db`의 한 트랜잭션에 있어야 하므로 이 열은 `client.db`가 아니라 `claire.db`에 둔다(`store.federation.set_object_quote_policy`).
+- **[테스트]** `tests/test_federation_quotes.py`.
+
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 5`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 계정별 읽기 설정, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 6`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
   - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`, `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
   - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
   - **v3 (FP4-7)**: `federation_media_cache`(원격 미디어 캐시 기록, 키 `url_hash`, 설계 §7.2). 계정 열이 없고 모든 계정이 함께 쓴다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v4 (FP4-8)**: `federation_object_reactions`(자기 객체에 대한 원격 `Like`·`Announce` 기록, 키 `(object_public_id, kind, actor_iri)`, 객체 소유 계정 `account_id`), `federation_auto_replies`(비공개 메시지 자동 안내 기록, 키 `(account_id, sender_iri)`, 내용은 저장하지 않음). 설계 §7.1. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
   - **v5 (FP4-9)**: `federation_notes`(계정이 쓴 노트, 키 `public_id`, 게시 문서와 같은 번호 공간, 설계 §5.4·§7.1)와 인덱스 `idx_federation_notes_account`. 삭제한 노트는 행을 두고 `deleted_at`만 채운다(객체 경로 410). 인용 열(`quote_of_iri`, `quote_state`, `quote_policy`)은 FP4-9Q에서 `ALTER TABLE ... ADD COLUMN`으로 더한다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
+  - **v6 (FP4-9Q)**: `federation_notes`에 인용 열 `quote_of_iri`, `quote_author_iri`, `quote_state`(`pending`, `approved`, `refused`, `revoked` 또는 NULL), `quote_authorization_iri`, `quote_policy`(기본값 `public`)를 `ALTER TABLE ... ADD COLUMN`으로 더한다(열이 없을 때만, 재구성 없음). v5의 행은 인용이 없고 정책은 `public`이다. 새 테이블 `federation_quote_authorizations`(자기 객체에 대한 원격 인용 요청과 그 결과, 키 `id`, 유일 `(object_public_id, quoting_object_iri)`, 객체 소유 계정 `account_id`, 요청 활동 ID `request_iri`)와 인덱스 `idx_federation_quote_authorizations_account`. 설계 §5.4 규칙 5·6, §6.6 규칙 5, §7.1. 이관은 기동 때 스스로 끝나며, 모르는 테이블과 행은 그대로 둔다. 테스트: `tests/test_federation_quotes.py`.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 

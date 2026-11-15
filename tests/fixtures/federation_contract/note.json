@@ -32,6 +32,9 @@
     ],
     "published_at": 1800000370.0,
     "updated_at": 1800000370.0,
-    "edited_at": null
+    "edited_at": null,
+    "quote_policy": "public",
+    "quote": null,
+    "quote_authorization": null
   }
 }

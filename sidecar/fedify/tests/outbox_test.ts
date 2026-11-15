@@ -81,6 +81,8 @@ Deno.test("a create task and a delete task become signed activities for the inbo
       updated: "2027-01-15T08:05:20Z",
       to: PUBLIC,
       cc: `${ALICE_URL}/followers`,
+      // The quote policy `manual` of the fixture (unit FP4-9Q, RT9): automatic approval for the author, manual approval for all.
+      interactionPolicy: { canQuote: { automaticApproval: ALICE_URL, manualApproval: "as:Public" } },
     });
     // v1 sends no tags and no attachments (design Section 9.1).
     assert.ok(!("tag" in (create.object as object)) && !("attachment" in (create.object as object)));

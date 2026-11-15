@@ -31,7 +31,7 @@ def _profile(iri: str) -> dict:
 
 
 def _object(iri: str, author: str, **changes) -> dict:
-    return {"object_iri": iri, "url": iri, "type": "Note", "author": _profile(author), "name": None, "summary": None, "sensitive": False, "content_html": "<p>text <script>alert(1)</script></p>", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": None, **changes}
+    return {"object_iri": iri, "url": iri, "type": "Note", "author": _profile(author), "name": None, "summary": None, "sensitive": False, "content_html": "<p>text <script>alert(1)</script></p>", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": None, "quote": None, **changes}
 
 
 def _event(kind: str, actor: str, obj: dict | None = None, *, object_iri: str | None = None, public: bool | None = True, parents: list[dict] | None = None, actor_type: str | None = "Person", mentioned: list[str] | None = None, in_reply_to: str | None = None, n: list[int] = [0]) -> dict:

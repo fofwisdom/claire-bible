@@ -26,6 +26,7 @@ from starlette.routing import Route
 from .. import security
 from . import admin, console, features, federation, feeds, idp, instance, invites, keys, login, me, setup, storage
 from . import federation_notes
+from . import federation_quotes
 from .common import AccountsContext, build_context, prepare_auth_db, prepare_client_db, require_recent_auth
 
 __all__ = [
@@ -58,6 +59,7 @@ def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> Ac
         *instance.routes(ctx),
         *federation.routes(ctx),
         *federation_notes.routes(ctx),
+        *federation_quotes.routes(ctx),
         *idp.routes(ctx),
         *invites.routes(ctx),
         *keys.routes(ctx),

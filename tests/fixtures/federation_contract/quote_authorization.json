@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/quote-authorizations/1"
+  },
+  "status": 200,
+  "response": {
+    "id": "1",
+    "actor_public_id": "116412345678901234",
+    "object_public_id": "816412345678901240",
+    "quoting_object_iri": "https://remote.example/notes/9"
+  }
+}

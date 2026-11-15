@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/notes/816412345678901242"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "816412345678901242",
+    "actor_public_id": "116412345678901234",
+    "type": "Note",
+    "content": "<p>Look at this</p><p class=\"quote-inline\">RE: <a href=\"https://remote.example/users/carol/notes/1\" rel=\"nofollow noopener noreferrer\">https://remote.example/users/carol/notes/1</a></p>",
+    "summary": null,
+    "sensitive": false,
+    "language": "en",
+    "in_reply_to": null,
+    "audience": null,
+    "mentions": [],
+    "tags": [],
+    "published_at": 1800000389.0,
+    "updated_at": 1800000389.0,
+    "edited_at": null,
+    "quote_policy": "followers",
+    "quote": "https://remote.example/users/carol/notes/1",
+    "quote_authorization": null
+  }
+}

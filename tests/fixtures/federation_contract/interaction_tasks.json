@@ -13,6 +13,7 @@
         "ref_id": "816412345678901240",
         "object_iri": null,
         "recipients": [],
+        "quote": null,
         "created_at": 1800000371.0,
         "lease_until": 1800000700.0
       },
@@ -25,6 +26,7 @@
         "recipients": [
           "https://remote.example/users/carol"
         ],
+        "quote": null,
         "created_at": 1800000381.0,
         "lease_until": 1800000700.0
       },
@@ -37,6 +39,7 @@
         "recipients": [
           "https://remote.example/users/carol"
         ],
+        "quote": null,
         "created_at": 1800000382.0,
         "lease_until": 1800000700.0
       },
@@ -49,6 +52,7 @@
         "recipients": [
           "https://remote.example/users/carol"
         ],
+        "quote": null,
         "created_at": 1800000383.0,
         "lease_until": 1800000700.0
       }

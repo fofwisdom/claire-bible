@@ -1,0 +1,56 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/interaction-tasks?limit=5"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 20,
+        "kind": "quote_request",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "816412345678901242",
+        "object_iri": "https://remote.example/users/carol/notes/1",
+        "recipients": [
+          "https://remote.example/users/carol"
+        ],
+        "quote": null,
+        "created_at": 1800000390.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 21,
+        "kind": "quote_authorize",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "1",
+        "object_iri": "https://claire.example.com/ap/objects/816412345678901240",
+        "recipients": [
+          "https://remote.example/users/bob"
+        ],
+        "quote": {
+          "request_iri": "https://remote.example/users/bob#quote-requests/9",
+          "quoting_object_iri": "https://remote.example/notes/9"
+        },
+        "created_at": 1800000391.0,
+        "lease_until": 1800000700.0
+      },
+      {
+        "id": 22,
+        "kind": "quote_revoke",
+        "actor_public_id": "116412345678901234",
+        "ref_id": "2",
+        "object_iri": "https://claire.example.com/ap/objects/816412345678901240",
+        "recipients": [
+          "https://remote.example/users/bob"
+        ],
+        "quote": {
+          "request_iri": "https://remote.example/users/bob#quote-requests/8",
+          "quoting_object_iri": "https://remote.example/notes/8"
+        },
+        "created_at": 1800000392.0,
+        "lease_until": 1800000700.0
+      }
+    ]
+  }
+}

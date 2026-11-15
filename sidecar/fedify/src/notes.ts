@@ -7,10 +7,12 @@
 // - With a language, the Note has `content` and `contentMap` (RT8).
 // - Each activity has a stable ID, so that a second handoff of the same task makes the same activity: {object}#create, {object}#updates/{ms}, {object}#delete, {actor}#likes/{n}, {actor}#announces/{n}, and {...}/undo for the Undo of the last two.
 // - A fetch of a remote actor is signed with the key of the actor (servers with authorized fetch).
+// - Quotes (contract 1.7, unit FP4-9Q, quotes.ts): a Note has canQuote from its quote policy, `quote` (with `quoteUrl`) while its quote waits or is approved, and `quoteAuthorization` for an approved quote. A quote_request task sends QuoteRequest to the author of the quoted object and then Create of the note. The tasks quote_authorize, quote_reject, and quote_revoke answer the request of a remote actor.
 
 import type { Context } from "@fedify/fedify";
 import { type Activity, type Actor, Announce, Create, Delete, Hashtag, isActor, LanguageString, Like, Mention, Note, PUBLIC_COLLECTION, type Recipient, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
 import type { InteractionTask, InternalApi, NoteRecord, ResolvedMention } from "./internal_api.ts";
+import { buildQuoteAnswer, buildQuoteRequest, quoteInteractionPolicy } from "./quotes.ts";
 
 // The parts of the Sidecar that this module uses.
 export interface InteractionDeps {
@@ -61,6 +63,11 @@ export function buildNote(ctx: Context<void>, record: NoteRecord, mentions: Note
     updated: record.edited_at === null ? null : instant(record.edited_at),
     to: PUBLIC_COLLECTION,
     ccs,
+    // Quotes (unit FP4-9Q). Fedify writes `quote` (FEP-044f), and `quoteUrl` with the keys of other servers (RT9).
+    interactionPolicy: quoteInteractionPolicy(ctx, record.actor_public_id, record.quote_policy),
+    quote: record.quote === null ? null : new URL(record.quote),
+    quoteUrl: record.quote === null ? null : new URL(record.quote),
+    quoteAuthorization: record.quote_authorization === null ? null : new URL(record.quote_authorization),
   });
 }
 
@@ -95,7 +102,19 @@ export async function handOffInteraction(deps: InteractionDeps, ctx: Context<voi
     if (unique.length > 0) await ctx.sendActivity(sender, unique, activity, { preferSharedInbox: true, orderingKey });
   };
 
-  if (task.kind === "note" || task.kind === "update_note") {
+  if (task.kind === "quote_authorize" || task.kind === "quote_reject" || task.kind === "quote_revoke") {
+    // The answer to the request of a remote actor to quote an own object (Section 6.6 rule 5).
+    if (task.recipients.length === 0) return await reject("no_quote");
+    const quoting = await lookup(task.recipients[0]);
+    if (quoting === null) return await reject("actor_not_found");
+    const answer = buildQuoteAnswer(ctx, task, quoting);
+    if (typeof answer === "string") return await reject(answer);
+    await send([quoting], answer, task.object_iri ?? actorUri.href);
+    await deps.api.ackInteractionTask(task.id, "handed_off");
+    return "handed_off";
+  }
+
+  if (task.kind === "note" || task.kind === "update_note" || task.kind === "quote_request") {
     const result = await deps.api.note(task.ref_id);
     if (result === null) return await reject("note_not_found");
     // The owner deleted the note before the handoff: its delete_note task follows.
@@ -125,7 +144,15 @@ export async function handOffInteraction(deps: InteractionDeps, ctx: Context<voi
     const objectUri = noteUri(ctx, record);
     const addressing = { actor: actorUri, to: PUBLIC_COLLECTION, ccs: note.ccIds };
     // The ID of an Update has the time of the change: each edit is one activity.
-    const activity = task.kind === "note" ? new Create({ id: new URL("#create", objectUri), object: note, published: instant(record.published_at), ...addressing }) : new Update({ id: new URL(`#updates/${Math.round(record.updated_at * 1000)}`, objectUri), object: note, published: instant(record.updated_at), ...addressing });
+    if (task.kind === "quote_request" && task.object_iri !== null && task.recipients.length > 0 && record.quote !== null) {
+      // Section 5.4 rule 5: QuoteRequest to the author of the quoted object, then Create of the note with the quote. An author that is not available gets no request: the quote stays pending, and the note has the link.
+      const author = await lookup(task.recipients[0]);
+      if (author !== null) {
+        await send([author], buildQuoteRequest(objectUri, actorUri, new URL(task.object_iri), author.id!, note), objectUri.href);
+        direct.push(author);
+      }
+    }
+    const activity = task.kind !== "update_note" ? new Create({ id: new URL("#create", objectUri), object: note, published: instant(record.published_at), ...addressing }) : new Update({ id: new URL(`#updates/${Math.round(record.updated_at * 1000)}`, objectUri), object: note, published: instant(record.updated_at), ...addressing });
     await send([...(await deps.deliveryRecipients(task.actor_public_id)), ...direct], activity, objectUri.href);
     await deps.api.ackInteractionTask(task.id, "handed_off", null, resolved);
     return "handed_off";
