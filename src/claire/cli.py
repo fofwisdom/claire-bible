@@ -662,7 +662,7 @@ def cmd_artifact_migrate(args) -> int:
 def cmd_media(args) -> int:
     """Migration of the local media into the object storage (FEDERATION_REMOTE_READING_DESIGN.md Section 9.3, unit FP4-1).
 
-    The target is the object storage of the environment variables ``CLAIRE_MEDIA_S3_*``, else of the admin settings (with any mode). Without ``--apply`` the command changes nothing. ``--delete-source`` deletes the local files only after all files passed, and only when a media host is set: without a media host the app route ``/image`` reads the disk only (RT4).
+    The target is the object storage of the admin settings (with any mode). Without ``--apply`` the command changes nothing. ``--delete-source`` deletes the local files only after all files passed, and only when a media host is set: without a media host the app route ``/image`` reads the disk only (RT4).
     """
     import asyncio
     import json
@@ -687,11 +687,10 @@ def cmd_media(args) -> int:
         print(f"media migrate: cannot read the object storage settings: {e}", file=sys.stderr)
         return 1
     if config is None:
-        print("media migrate: the object storage settings are not complete. Set them in /admin/storage or with the environment variables CLAIRE_MEDIA_S3_*.", file=sys.stderr)
+        print("media migrate: the object storage settings are not complete. Set them in /admin/storage.", file=sys.stderr)
         return 1
     result = asyncio.run(media_storage.migrate_to_object_storage(s.data_dir, media_storage.build_s3_store(config), apply=apply, delete_source=delete_source))
     result["bucket"] = config.bucket
-    result["source"] = config.source
     if apply and s.db_file.is_file():
         try:
             conn = dbm.connect_existing(s.db_file)
@@ -706,7 +705,7 @@ def cmd_media(args) -> int:
         return 1 if result["errors"] else 0
     mode_str = "APPLY" if apply else "DRY-RUN (no change)"
     print(f"=== Media migration to object storage ({mode_str}) ===")
-    print(f"  Bucket:                {config.bucket} (settings from: {config.source})")
+    print(f"  Bucket:                {config.bucket}")
     print(f"  Local files in scope:  {result['total']}")
     print(f"  Already in the bucket: {result['already_stored']}")
     if apply:

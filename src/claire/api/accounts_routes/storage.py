@@ -1,8 +1,8 @@
 """Object storage settings of the instance: ``/api/admin/storage``, ``/api/admin/storage/test``, and the body of the console section ``/admin/storage`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 and 9.2, unit FP4-1).
 
 - ``GET /api/admin/storage``: the settings without the secret key, the state of the last test, and the result of the last migration run.
-- ``PUT /api/admin/storage``: a partial update. Refused with 409 ``env_locked`` when the environment variables ``CLAIRE_MEDIA_S3_*`` set the store. A change takes effect at the next start of the ``api`` process.
-- ``POST /api/admin/storage/test``: write, read with a byte range, head, and delete one probe object in the bucket of the environment or of the stored fields.
+- ``PUT /api/admin/storage``: a partial update. A change takes effect at the next start of the ``api`` process.
+- ``POST /api/admin/storage/test``: write, read with a byte range, head, and delete one probe object in the bucket of the stored fields.
 
 All routes are for the admin. A change and the test need the same origin and a recent authentication. ``api.security.ROUTE_POLICY`` has the access rules.
 """
@@ -55,11 +55,11 @@ def _format_ts(value: Any) -> str:
         return "-"
 
 
-def _field(name: str, label_key: str, value: str, *, input_type: str = "text", placeholder: str = "", disabled: bool = False, hint_key: str | None = None) -> str:
+def _field(name: str, label_key: str, value: str, *, input_type: str = "text", placeholder: str = "", hint_key: str | None = None) -> str:
     hint = f'<small style="font-weight:400;color:var(--muted)">{escape(t(hint_key))}</small>' if hint_key else ""
     return (
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t(label_key))}'
-        f'<input type="{input_type}" name="{name}" class="pref-input" value="{escape(value)}" placeholder="{escape(placeholder)}" data-storage-initial="{escape(value)}" autocomplete="off" spellcheck="false"{" disabled" if disabled else ""}/>'
+        f'<input type="{input_type}" name="{name}" class="pref-input" value="{escape(value)}" placeholder="{escape(placeholder)}" data-storage-initial="{escape(value)}" autocomplete="off" spellcheck="false"/>'
         f"{hint}</label>"
     )
 
@@ -91,40 +91,33 @@ def _migration_html(last: dict[str, Any] | None) -> str:
 def admin_storage_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     """Return the body and the bootstrap data of ``/admin/storage``. ``console_admin.js`` sends the changes."""
     view = _view(ctx)
-    locked = bool(view["env_locked"])
     mode_options = "".join(f'<option value="{mode}"{" selected" if view["mode"] == mode else ""}>{escape(t(f"console.storage.mode.{mode}"))}</option>' for mode in media_storage.MODES)
     secret_placeholder = t("console.storage.secret_key.set") if view["secret_key_set"] else ""
-    env_html = ""
-    if locked:
-        env = view.get("env") or {}
-        env_html = f'<p class="hint" data-storage-env-locked>{escape(t("console.storage.env_locked", endpoint=str(env.get("endpoint", "")), bucket=str(env.get("bucket", ""))))}</p>'
-    disabled = " disabled" if locked else ""
-    messages = " ".join(f'data-msg-{name}="{escape(t(f"console.storage.msg.{name}"))}"' for name in ("saved", "nochange", "failed", "env_locked", "testing", "test_ok", "test_failed", "not_configured", "reauth", "network"))
+    messages = " ".join(f'data-msg-{name}="{escape(t(f"console.storage.msg.{name}"))}"' for name in ("saved", "nochange", "failed", "testing", "test_ok", "test_failed", "not_configured", "reauth", "network"))
     body = (
         f'<section class="card" id="admin-storage-state" aria-label="{escape(t("console.storage.state.title"))}">'
         f'<h2><span data-icon="database"></span> {escape(t("console.storage.state.title"))}</h2>'
         "<dl>"
-        f'<dt>{escape(t("console.storage.state.active"))}</dt><dd><span class="badge badge-enabled" data-storage-field="effective_mode">{escape(t("console.storage.mode." + str(view["effective_mode"])))}</span></dd>'
+        f'<dt>{escape(t("console.storage.state.active"))}</dt><dd><span class="badge badge-enabled" data-storage-field="mode">{escape(t("console.storage.mode." + str(view["mode"])))}</span></dd>'
         f'<dt>{escape(t("console.storage.state.last_test"))}</dt><dd id="admin-storage-test-state">{_test_state_html(view["last_test"])}</dd>'
         "</dl>"
         f'<p class="hint">{escape(t("console.storage.state.hint"))}</p>'
-        f"{env_html}"
         "</section>"
         f'<section class="card" id="admin-storage-settings" aria-label="{escape(t("console.storage.form.title"))}">'
         f'<h2><span data-icon="settings"></span> {escape(t("console.storage.form.title"))}</h2>'
         f'<p class="hint">{escape(t("console.storage.form.hint"))}</p>'
         f'<form id="admin-storage-form" {messages}>'
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px 16px;margin-bottom:12px;align-items:start">'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.storage.field.mode"))}<select name="mode" class="pref-input" data-storage-initial="{escape(str(view["mode"]))}"{disabled}>{mode_options}</select></label>'
-        f"{_field('endpoint', 'console.storage.field.endpoint', view['endpoint'], input_type='url', placeholder=media_storage.GARAGE_ENDPOINT_PLACEHOLDER, disabled=locked, hint_key='console.storage.field.endpoint_hint')}"
-        f"{_field('bucket', 'console.storage.field.bucket', view['bucket'], disabled=locked, hint_key='console.storage.field.bucket_hint')}"
-        f"{_field('region', 'console.storage.field.region', view['region'], placeholder=media_storage.GARAGE_REGION, disabled=locked, hint_key='console.storage.field.region_hint')}"
-        f"{_field('access_key', 'console.storage.field.access_key', view['access_key'], disabled=locked)}"
-        f"{_field('secret_key', 'console.storage.field.secret_key', '', input_type='password', placeholder=secret_placeholder, disabled=locked, hint_key='console.storage.field.secret_key_hint')}"
-        f"{_field('public_url_base', 'console.storage.field.public_url_base', view['public_url_base'], input_type='url', disabled=locked, hint_key='console.storage.field.public_url_base_hint')}"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.storage.field.mode"))}<select name="mode" class="pref-input" data-storage-initial="{escape(str(view["mode"]))}">{mode_options}</select></label>'
+        f"{_field('endpoint', 'console.storage.field.endpoint', view['endpoint'], input_type='url', placeholder=media_storage.GARAGE_ENDPOINT_PLACEHOLDER, hint_key='console.storage.field.endpoint_hint')}"
+        f"{_field('bucket', 'console.storage.field.bucket', view['bucket'], hint_key='console.storage.field.bucket_hint')}"
+        f"{_field('region', 'console.storage.field.region', view['region'], placeholder=media_storage.GARAGE_REGION, hint_key='console.storage.field.region_hint')}"
+        f"{_field('access_key', 'console.storage.field.access_key', view['access_key'])}"
+        f"{_field('secret_key', 'console.storage.field.secret_key', '', input_type='password', placeholder=secret_placeholder, hint_key='console.storage.field.secret_key_hint')}"
+        f"{_field('public_url_base', 'console.storage.field.public_url_base', view['public_url_base'], input_type='url', hint_key='console.storage.field.public_url_base_hint')}"
         "</div>"
         '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-        f'<button type="submit" class="pref-btn pref-btn-accent"{disabled}>{escape(t("common.action.save"))}</button>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
         f'<button type="button" class="pref-btn" id="admin-storage-test">{escape(t("console.storage.test.run"))}</button>'
         "</div>"
         "</form>"
@@ -136,7 +129,7 @@ def admin_storage_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         f"{_migration_html(view['last_migration'])}"
         "</section>"
     )
-    return body, {"env_locked": locked, "effective_mode": view["effective_mode"], "mode": view["mode"]}
+    return body, {"mode": view["mode"]}
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
@@ -165,8 +158,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         principal = request_principal(request)
-        if media_storage.env_config() is not None:
-            return json_error(409, "env_locked")
         body = await read_json_body(request)
         try:
             update = media_storage.validate_update(body, allow_private_http=_allow_private_http(ctx))
@@ -204,7 +195,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
             result = await media_storage.probe_store(media_storage.build_s3_store(config))
         except (MediaStoreError, ValueError) as exc:
             result = {"ok": False, "failed_operation": "put", "detail": str(exc)[:300], "tested_at": time.time()}
-        result["source"] = config.source
 
         def _record() -> None:
             conn = open_db(ctx)

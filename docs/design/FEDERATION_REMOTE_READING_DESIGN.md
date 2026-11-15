@@ -517,7 +517,7 @@ The owner decision (2026-11-13): local storage is the default and needs no setti
 
 1. New console section `/admin/storage` and routes `GET`, `PUT /api/admin/storage`, `POST /api/admin/storage/test`.
 2. Fields: mode (`local`, the default, or `s3`), endpoint, bucket, region, access key, secret key, optional public URL base. The form has the Garage profile of Section 9.1.1 rule 5 as defaults. The test writes, reads (with a byte range), heads, and deletes one probe object, and reports the first operation that fails. A change from `s3` back to `local` is possible; the media in the bucket stay there and the console says so.
-3. Precedence: the environment variables `CLAIRE_MEDIA_S3_*` win over the admin settings. The console shows that the environment sets the store and refuses a change (RD9).
+3. Source: the admin settings are the only source of the object storage configuration (changed 2026-11-15; before, the environment variables won). The environment variables `CLAIRE_MEDIA_S3_*` of the older releases are imported one time into the admin settings and have no effect after that (RD9).
 4. A change of the settings takes effect at the next start of the `api` process. The console says so.
 
 ### 9.3 Migration from Local Storage
@@ -634,7 +634,7 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD6 | Replies | Automatic collection as in Mastodon: replies are stored, parents are fetched, and the thread is fetched when the owner opens it (Section 6.5) | Locked 2026-11-13 |
 | RD7 | Media limits | The admin sets the size limits and the eviction period (Section 10) | Locked 2026-11-13 |
 | RD8 | Following limit | Instance setting, default 1000. The admin can increase it. (Section 5.1, Section 10) | Locked 2026-11-13 |
-| RD9 | Visibility and precedence | `following` collection gives the total only. Environment variables win over the admin storage settings. | Locked 2026-11-13 |
+| RD9 | Visibility and precedence | `following` collection gives the total only. The admin storage settings are the only source; the old environment variables are imported one time (changed 2026-11-15). | Locked 2026-11-13 |
 | RD10 | Federation client | The federation client is in `/syndication`. It does two-way communication and the first collection, separate from ingestion. It takes collected posts into the knowledge base and publishes ingested documents. (Section 1.3) | Locked 2026-11-13 |
 | RD11 | Outbound interaction scope | Reply, new public note, quote with FEP-044f consent, favourite, boost, delete of an own note. No media in notes, no poll (Section 5.4). | Locked 2026-11-13 |
 | RD12 | Connected external accounts in the client | The owner decides later, after the progress of the external project fedi.blue. Until then FP4 has the native actor only (option A); the prototype keeps option B for reference. | **Deferred** 2026-11-13 |

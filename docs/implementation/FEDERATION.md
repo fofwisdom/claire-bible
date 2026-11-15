@@ -978,7 +978,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 | :--- | :--- |
 | Default | `LocalMediaStore` under `data/media`; legacy files under `data/images`. No setting is necessary. |
 | Object storage | `S3MediaStore`: `PutObject`, `GetObject` with `Range`, `HeadObject`, `DeleteObject`; SigV4 with `x-amz-content-sha256`; path-style addressing. A network failure or an answer that is not a success is a `MediaStoreError`. |
-| Store of the process | `get_media_store`: the environment variables `CLAIRE_MEDIA_S3_*` (all four necessary values), else the admin settings with the mode `s3`, else local storage. With object storage the store is `FallbackMediaStore`: writes go to the bucket, and a key that is not in the bucket is read from local storage. |
+| Store of the process | `get_media_store`: the admin settings with the mode `s3`, else local storage. No environment variable sets the store. With object storage the store is `FallbackMediaStore`: writes go to the bucket, and a key that is not in the bucket is read from local storage. |
 | Keys | An object key has only `[A-Za-z0-9/_.-]` (`is_object_storage_key`). `S3MediaStore` refuses another key before a request goes out, so the signed path and the sent path are the same (RT5). |
 | Media host | A legacy image that the migration moved has the object key `images/{name}`; the media host looks for it after the key of the URL and the local file. When the object store is not available and the key is not local, the answer is 503 with `Retry-After: 60`. |
 | Settings | `claire.db` `instance_settings`: `media_storage` (the fields; the secret key as AES-256-GCM ciphertext with the additional authenticated data `media_storage:s3`), `media_storage_test` (the last test), `media_storage_migration` (the last migration run with `--apply`). A stored setting that cannot be read (for example another master key) is logged and gives local storage; the process starts. |
@@ -989,9 +989,9 @@ All routes are for the admin. A change and the test need the same origin and a r
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
-| `GET` | `/api/admin/storage` | `{"storage"}`: `mode`, `endpoint`, `bucket`, `region`, `access_key`, `secret_key_set`, `public_url_base`, `env_locked`, `effective_mode`, `last_test`, `last_migration`, and `env` (endpoint, bucket, region) when the environment sets the store. The secret key is never in an answer. |
-| `PUT` | `/api/admin/storage` | A partial update: `mode` (`local`, `s3`), `endpoint`, `bucket`, `region`, `access_key`, `secret_key`, `public_url_base`, `clear_secret_key`. Answer `{"storage", "restart_required": true}`. 400 `invalid_request` with `field` and `detail`; 409 `env_locked` when the environment sets the store. The mode `s3` needs the endpoint, the bucket, the access key, and the secret key. The endpoint is `https`; `http` is possible only for a private address when `allow_private_networks` is on. The audit action is `storage.update` (the names of the changed fields, never the secret). |
-| `POST` | `/api/admin/storage/test` | `{"test": {"ok", "failed_operation", "detail", "tested_at", "source"}}`. The test uses the environment, else the stored fields with any mode. It writes, reads with a byte range, heads, and deletes one object `claire-probe/{random}.bin`. 409 `storage_not_configured` when the fields are not complete. The audit action is `storage.test`. |
+| `GET` | `/api/admin/storage` | `{"storage"}`: `mode`, `endpoint`, `bucket`, `region`, `access_key`, `secret_key_set`, `public_url_base`, `last_test`, `last_migration`. The secret key is never in an answer. |
+| `PUT` | `/api/admin/storage` | A partial update: `mode` (`local`, `s3`), `endpoint`, `bucket`, `region`, `access_key`, `secret_key`, `public_url_base`, `clear_secret_key`. Answer `{"storage", "restart_required": true}`. 400 `invalid_request` with `field` and `detail`. The mode `s3` needs the endpoint, the bucket, the access key, and the secret key. The endpoint is `https`; `http` is possible only for a private address when `allow_private_networks` is on. The audit action is `storage.update` (the names of the changed fields, never the secret). |
+| `POST` | `/api/admin/storage/test` | `{"test": {"ok", "failed_operation", "detail", "tested_at"}}`. The test uses the stored fields with any mode. It writes, reads with a byte range, heads, and deletes one object `claire-probe/{random}.bin`. 409 `storage_not_configured` when the fields are not complete. The audit action is `storage.test`. |
 
 The console section `/admin/storage` shows the store for new media, the state of the last test, the form (Garage defaults as placeholders: region `garage`, port 3900), and the result of the last migration run. Its texts are catalog keys (`console.storage.*`) in English and Korean.
 
@@ -1002,11 +1002,12 @@ The console section `/admin/storage` shows the store for new media, the state of
 ### 20.4 Differences from the Design and Limits
 
 - RT10: the Garage defaults of design Section 9.1.1 rule 5 (path-style addressing, region `garage`, port 3900) are confirmed against Garage v2.1.0 in Docker (Section 20.5). That test group runs only with `CB_GARAGE_TEST=1`. The test `test_garage_accepts_the_four_operations` starts a local Garage server and is skipped when the `garage` binary is not installed. The other object storage tests use a local S3-compatible server in the test process that checks the SigV4 signature.
+- Design Section 9.2 rule 3 said that the environment variables `CLAIRE_MEDIA_S3_*` win over the admin settings and lock the console. The rule changed on 2026-11-15: the console is the only place for the settings, the same as for the provider models. A process imports the old variables one time, when all four necessary variables are set and the admin settings were never saved (`_import_legacy_environment`); the log has a warning, and the variables have no effect after that.
 - The ingest writes document images to `data/images` with any mode. A later run of the migration command moves them into the bucket.
 - The public URL base is stored and given to `S3MediaStore`, but no route sends media of public themes to it.
 - The app route `/image` (an instance without a media host) reads the local disk only.
 
-Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command, environment lock), `tests/s3_test_server.py` (the local S3-compatible server).
+Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command), `tests/s3_test_server.py` (the local S3-compatible server).
 
 ### 20.5 Garage Test Stack in Docker (Development Test Only)
 
@@ -1020,7 +1021,7 @@ Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback a
 | Secrets | The RPC secret, the admin token, and the access keys are random for each start. They are in the run directory only (mode 0700; manual work: `.dev/garage-test`, which Git ignores). |
 | Keys | `rw` (read and write on the bucket `claire-media`), `ro` (read), `none` (no bucket), `other` (owner of the bucket `other-tenant`). |
 
-Manual work: `python -m tests.garage_stack up` shows the endpoint and the `CLAIRE_MEDIA_S3_*` environment; `info` shows them again; `down` removes the containers, the networks, and the run directory.
+Manual work: `python -m tests.garage_stack up` shows the endpoint, the access key, and the secret key for the console section `/admin/storage`, and the value of `SSL_CERT_FILE`; `info` shows them again; `down` removes the containers, the networks, and the run directory.
 
 Scenarios of `tests/test_garage_docker.py` (`CB_GARAGE_TEST=1 pytest tests/test_garage_docker.py`):
 

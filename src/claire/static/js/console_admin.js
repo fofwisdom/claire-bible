@@ -628,10 +628,6 @@
       }
       sendChange("PUT", "/api/admin/storage", update, function (res) {
         if (!res.ok) {
-          if (res.body && res.body.error === "env_locked") {
-            setResult(msg("env_locked"), true);
-            return;
-          }
           var detail = res.body && typeof res.body.detail === "string" ? " " + res.body.detail : "";
           setResult(msg("failed") + detail, true);
           return;

@@ -235,13 +235,13 @@ def _info(stack: GarageStack) -> str:
             f"Bucket: {stack.bucket}",
             f"Certificate authority: {stack.ca_file}",
             "",
-            "Environment for a development process on the host:",
+            "Trust for a development process on the host:",
             f"export SSL_CERT_FILE={stack.ca_bundle}",
-            f"export CLAIRE_MEDIA_S3_ENDPOINT={stack.loopback_endpoint}",
-            f"export CLAIRE_MEDIA_S3_BUCKET={stack.bucket}",
-            f"export CLAIRE_MEDIA_S3_REGION={stack.region}",
-            f"export CLAIRE_MEDIA_S3_ACCESS_KEY={key.key_id}",
-            f"export CLAIRE_MEDIA_S3_SECRET_KEY={key.secret}",
+            "",
+            "Values for the console section /admin/storage:",
+            f"Endpoint:   {stack.loopback_endpoint}",
+            f"Access key: {key.key_id}",
+            f"Secret key: {key.secret}",
         ]
     )
 

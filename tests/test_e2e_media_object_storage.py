@@ -59,7 +59,7 @@ def test_e2e_admin_sets_object_storage_tests_it_and_migrates(env, s3, monkeypatc
 
     # Local storage is the default. A member does not see the admin routes.
     view = c.request("GET", STORAGE, session=env.admin).json()["storage"]
-    assert view["mode"] == "local" and view["effective_mode"] == "local" and view["secret_key_set"] is False and view["last_test"] is None
+    assert view["mode"] == "local" and view["secret_key_set"] is False and view["last_test"] is None
     assert c.request("GET", STORAGE, session=env.member).status_code == 404
     assert c.request("PUT", STORAGE, session=env.member, json={"mode": "local"}).status_code == 404
     # A test without settings, and a change without a recent authentication, are refused.
@@ -106,18 +106,6 @@ def test_e2e_admin_sets_object_storage_tests_it_and_migrates(env, s3, monkeypatc
     media_app = create_media_app(env.settings, store=store)
     served = asyncio.run(_call_asgi(media_app, "/media/doc1_0.png"))
     assert served.status == 200 and served.body == files["doc1_0.png"]
-
-
-def test_environment_variables_lock_the_settings(env, s3, monkeypatch):
-    for name, value in (("ENDPOINT", s3.endpoint), ("BUCKET", BUCKET), ("ACCESS_KEY", ACCESS_KEY), ("SECRET_KEY", SECRET_KEY), ("REGION", REGION)):
-        monkeypatch.setenv(f"CLAIRE_MEDIA_S3_{name}", value)
-    c = env.client
-    view = c.request("GET", STORAGE, session=env.admin).json()["storage"]
-    assert view["env_locked"] is True and view["effective_mode"] == "s3" and SECRET_KEY not in json.dumps(view)
-    assert c.request("PUT", STORAGE, session=env.admin, json={"mode": "local"}).json()["error"] == "env_locked"
-    assert c.request("POST", TEST, session=env.admin, json={}).json()["test"]["ok"] is True
-    page = c.request("GET", "/admin/storage", session=env.admin).text
-    assert "data-storage-env-locked" in page and SECRET_KEY not in page
 
 
 def test_delete_source_needs_a_media_host(env, monkeypatch, capsys):

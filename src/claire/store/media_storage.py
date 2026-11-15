@@ -1,7 +1,7 @@
 """Object storage settings of the instance, the storage test, and the migration from local storage (FEDERATION_REMOTE_READING_DESIGN.md Sections 7.3, 9.1.1, 9.2, and 9.3; unit FP4-1).
 
 - The admin settings are one JSON value in ``claire.db`` ``instance_settings`` (key ``media_storage``). The secret key is encrypted with ``SecretService`` and the additional authenticated data ``media_storage:s3``. No function of this module gives the secret to a caller, except ``active_config`` and ``target_config`` (for the store of this process).
-- The environment variables ``CLAIRE_MEDIA_S3_*`` win over the admin settings (Section 9.2 rule 3).
+- The admin settings are the only source of the object storage configuration. The environment variables ``CLAIRE_MEDIA_S3_*`` of the releases before these settings are imported one time and have no effect after that.
 - The result of the last test and of the last migration run are two more ``instance_settings`` values. The console shows them.
 
 Only this module reads and writes these ``instance_settings`` keys (store boundary, DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 6).
@@ -40,15 +40,8 @@ GARAGE_REGION = "garage"
 GARAGE_ENDPOINT_PLACEHOLDER = "https://garage.example:3900"
 PROBE_PREFIX = "claire-probe"
 _TEXT_MAX = {"endpoint": 2048, "bucket": 255, "region": 64, "access_key": 256, "secret_key": 1024, "public_url_base": 2048}
-_ENV = {
-    "endpoint": "CLAIRE_MEDIA_S3_ENDPOINT",
-    "bucket": "CLAIRE_MEDIA_S3_BUCKET",
-    "access_key": "CLAIRE_MEDIA_S3_ACCESS_KEY",
-    "secret_key": "CLAIRE_MEDIA_S3_SECRET_KEY",
-    "region": "CLAIRE_MEDIA_S3_REGION",
-    "public_url_base": "CLAIRE_MEDIA_S3_PUBLIC_URL_BASE",
-}
-_REQUIRED = ("endpoint", "bucket", "access_key", "secret_key")
+# The variables of the releases before the admin settings. They are read one time only, for the import (``_import_legacy_environment``).
+_LEGACY_ENV = {"endpoint": "CLAIRE_MEDIA_S3_ENDPOINT", "bucket": "CLAIRE_MEDIA_S3_BUCKET", "access_key": "CLAIRE_MEDIA_S3_ACCESS_KEY", "secret_key": "CLAIRE_MEDIA_S3_SECRET_KEY", "region": "CLAIRE_MEDIA_S3_REGION"}
 
 
 class StorageSettingsError(ValueError):
@@ -61,7 +54,7 @@ class StorageSettingsError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class S3Config:
-    """A complete object storage configuration. ``source`` is ``env`` or ``admin``."""
+    """A complete object storage configuration."""
 
     endpoint: str
     bucket: str
@@ -69,18 +62,6 @@ class S3Config:
     access_key: str
     secret_key: str
     public_url_base: str
-    source: str
-
-
-# --- Environment -----------------------------------------------------------
-
-
-def env_config() -> S3Config | None:
-    """The configuration of the environment variables, or ``None`` when one of the four necessary variables is empty."""
-    values = {name: (os.environ.get(var) or "").strip() for name, var in _ENV.items()}
-    if not all(values[name] for name in _REQUIRED):
-        return None
-    return S3Config(endpoint=values["endpoint"], bucket=values["bucket"], region=values["region"] or DEFAULT_REGION, access_key=values["access_key"], secret_key=values["secret_key"], public_url_base=values["public_url_base"], source="env")
 
 
 # --- Stored admin settings -------------------------------------------------
@@ -137,7 +118,7 @@ def _admin_config(conn: sqlite3.Connection, secret_service: SecretService | None
     stored = _stored(conn)
     if not (stored["endpoint"] and stored["bucket"] and stored["access_key"] and stored["secret"]):
         return None
-    return S3Config(endpoint=stored["endpoint"], bucket=stored["bucket"], region=stored["region"] or DEFAULT_REGION, access_key=stored["access_key"], secret_key=_decrypt_secret(stored, secret_service), public_url_base=stored["public_url_base"], source="admin")
+    return S3Config(endpoint=stored["endpoint"], bucket=stored["bucket"], region=stored["region"] or DEFAULT_REGION, access_key=stored["access_key"], secret_key=_decrypt_secret(stored, secret_service), public_url_base=stored["public_url_base"])
 
 
 def _is_private_host(host: str) -> bool:
@@ -221,8 +202,7 @@ def set_admin_settings(conn: sqlite3.Connection, update: dict[str, Any], *, secr
 def settings_view(conn: sqlite3.Connection) -> dict[str, Any]:
     """The settings for the API and the console. The secret key is never in the view: ``secret_key_set`` says whether one is stored (RS7)."""
     stored = _stored(conn)
-    env = env_config()
-    view: dict[str, Any] = {
+    return {
         "mode": stored["mode"],
         "endpoint": stored["endpoint"],
         "bucket": stored["bucket"],
@@ -230,14 +210,9 @@ def settings_view(conn: sqlite3.Connection) -> dict[str, Any]:
         "access_key": stored["access_key"],
         "secret_key_set": bool(stored["secret"]),
         "public_url_base": stored["public_url_base"],
-        "env_locked": env is not None,
-        "effective_mode": "s3" if env is not None else stored["mode"],
         "last_test": _read_json(conn, TEST_RESULT_KEY),
         "last_migration": _read_json(conn, MIGRATION_RESULT_KEY),
     }
-    if env is not None:
-        view["env"] = {"endpoint": env.endpoint, "bucket": env.bucket, "region": env.region, "public_url_base": env.public_url_base}
-    return view
 
 
 # --- Configuration of a process --------------------------------------------
@@ -271,12 +246,28 @@ def _config_from_db(settings: Any, *, need_mode_s3: bool) -> S3Config | None:
         conn.close()
 
 
+def _import_legacy_environment(settings: Any) -> None:
+    """Move the object storage of the old environment variables into the admin settings, one time: only when all four necessary variables are set and the admin settings were never saved. After the import the variables have no effect."""
+    values = {name: (os.environ.get(var) or "").strip() for name, var in _LEGACY_ENV.items()}
+    if not all(values[name] for name in ("endpoint", "bucket", "access_key", "secret_key")):
+        return
+    db_file = getattr(settings, "db_file", None) if settings is not None else None
+    if not db_file or not Path(db_file).is_file():
+        return
+    conn = dbm.connect_existing(Path(db_file))
+    try:
+        if _read_json(conn, SETTING_KEY) is not None:
+            return
+        set_admin_settings(conn, {"mode": "s3", **values, "region": values["region"] or DEFAULT_REGION}, secret_service=secret_service_for(settings), updated_by=None)
+        log.warning("The object storage of the environment variables CLAIRE_MEDIA_S3_* is now in the admin settings (/admin/storage). The variables have no effect from now on; remove them.")
+    finally:
+        conn.close()
+
+
 def active_config(settings: Any) -> S3Config | None:
     """The object storage configuration that this process uses for its store, or ``None`` for local storage. A stored setting that cannot be read is logged and gives ``None``."""
-    env = env_config()
-    if env is not None:
-        return env
     try:
+        _import_legacy_environment(settings)
         return _config_from_db(settings, need_mode_s3=True)
     except (sqlite3.Error, RuntimeError, SecretError, ValueError, KeyError) as exc:
         log.error("The object storage settings cannot be read; the media store is local storage: %s", exc)
@@ -284,8 +275,8 @@ def active_config(settings: Any) -> S3Config | None:
 
 
 def target_config(settings: Any) -> S3Config | None:
-    """The object storage configuration for the test and the migration: the environment, else the stored fields with any mode. ``None`` when the configuration is not complete."""
-    return env_config() or _config_from_db(settings, need_mode_s3=False)
+    """The object storage configuration for the test and the migration: the stored fields with any mode. ``None`` when the configuration is not complete."""
+    return _config_from_db(settings, need_mode_s3=False)
 
 
 def build_s3_store(config: S3Config, *, secret_service: SecretService | None = None) -> S3MediaStore:

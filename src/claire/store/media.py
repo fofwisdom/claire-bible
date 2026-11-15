@@ -610,7 +610,7 @@ class FallbackMediaStore(MediaStore):
 def get_media_store(settings: Any | None = None) -> MediaStore:
     """The media store of this process (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 and 9.2).
 
-    Local storage under ``data/media`` is the default. With object storage (the environment variables ``CLAIRE_MEDIA_S3_*``, else the admin settings with the mode ``s3``), the store writes to the bucket and reads fall back to local storage. A setting that cannot be read gives local storage: the process starts also then (rule 7).
+    Local storage under ``data/media`` is the default. With object storage (the admin settings with the mode ``s3``), the store writes to the bucket and reads fall back to local storage. A setting that cannot be read gives local storage: the process starts also then (rule 7).
     """
     from . import media_storage
 

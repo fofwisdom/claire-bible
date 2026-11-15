@@ -91,13 +91,13 @@ def test_storage_settings_keep_the_secret_encrypted_and_out_of_the_view(tmp_path
         update = media_storage.validate_update({"mode": "s3", "endpoint": "https://garage.example:3900/", "bucket": BUCKET, "region": REGION, "access_key": ACCESS_KEY, "secret_key": SECRET_KEY})
         media_storage.set_admin_settings(conn, update, secret_service=settings.secret_service, updated_by=1)
         view = media_storage.settings_view(conn)
-        assert view["secret_key_set"] is True and view["endpoint"] == "https://garage.example:3900" and view["effective_mode"] == "s3"
+        assert view["secret_key_set"] is True and view["endpoint"] == "https://garage.example:3900" and view["mode"] == "s3"
         raw = conn.execute("SELECT value FROM instance_settings WHERE key='media_storage'").fetchone()[0]
         assert SECRET_KEY not in raw and SECRET_KEY not in repr(view)
     finally:
         conn.close()
     config = media_storage.active_config(settings)
-    assert config is not None and config.secret_key == SECRET_KEY and config.source == "admin" and config.region == REGION
+    assert config is not None and config.secret_key == SECRET_KEY and config.region == REGION
     assert isinstance(get_media_store(settings), FallbackMediaStore)
     # A secret that cannot be decrypted gives local storage, and the process starts.
     other = SimpleNamespace(db_file=settings.db_file, data_dir=tmp_path, secret_service=SecretService(master_key=b"z" * 32))
@@ -116,18 +116,26 @@ def test_storage_settings_validation():
         media_storage.validate_update({"endpoint": "http://garage.example:3900"}, allow_private_http=True)
 
 
-def test_environment_wins_over_the_admin_settings(tmp_path, monkeypatch):
+def test_legacy_environment_is_imported_one_time(tmp_path, monkeypatch):
+    """The variables of the old releases go into the admin settings when these were never saved. After that the variables have no effect."""
     settings = _settings(tmp_path)
     for name, value in (("ENDPOINT", "https://env.example"), ("BUCKET", "env-bucket"), ("ACCESS_KEY", "envkey"), ("SECRET_KEY", "envsecret")):
         monkeypatch.setenv(f"CLAIRE_MEDIA_S3_{name}", value)
     config = media_storage.active_config(settings)
-    assert config is not None and config.source == "env" and config.bucket == "env-bucket" and config.region == "us-east-1"
+    assert config is not None and (config.endpoint, config.bucket, config.secret_key, config.region) == ("https://env.example", "env-bucket", "envsecret", "us-east-1")
+    assert b"envsecret" not in settings.db_file.read_bytes()
+    # The admin changes the settings. The variables do not come back.
     conn = dbm.connect_existing(settings.db_file)
     try:
-        view = media_storage.settings_view(conn)
+        media_storage.set_admin_settings(conn, {"mode": "local"}, secret_service=media_storage.secret_service_for(settings), updated_by=1)
+        conn.commit()
+        assert media_storage.settings_view(conn)["mode"] == "local"
     finally:
         conn.close()
-    assert view["env_locked"] is True and view["effective_mode"] == "s3" and "envsecret" not in repr(view)
+    assert media_storage.active_config(settings) is None and isinstance(get_media_store(settings), LocalMediaStore)
+    # Variables that are not complete change nothing.
+    monkeypatch.delenv("CLAIRE_MEDIA_S3_BUCKET")
+    assert media_storage.active_config(_settings(tmp_path / "other")) is None
 
 
 async def test_media_host_reads_the_bucket_then_local_storage_and_answers_503(tmp_path, s3):
