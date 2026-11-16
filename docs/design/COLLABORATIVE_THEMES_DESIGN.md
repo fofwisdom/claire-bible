@@ -52,7 +52,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT5 | Only members of a theme contribute. Each theme sets its join policy (`open` or `approval`). Moderators hide or remove contributions and remove or ban members after the contribution. Read visibility is a separate setting. | **[decision]** owner, 2026-11-16 |
 | CT6 | The migration changes each existing theme that is not a default theme (admin themes included) into a theme. The old owner becomes its first moderator. The number and the URL stay; `/@{u}/themes/{number}/` sends a 308 to `/themes/{number}/`. | **[decision]** owner, 2026-11-16 |
 
-| CT7 | A contribution is a donation to the community of the theme. This is true also when the contributor ingested the document with its own API key. The theme keeps the contribution when the contributor leaves, is banned, or purges its account; an account purge sets the contributor to "deleted account". | **[decision]** owner, 2026-11-16 (OQ1) |
+| CT7 | A contribution is a donation to the community of the theme. This is true also when the contributor ingested the document with its own API key. The theme keeps the contribution when the contributor leaves, is banned, or purges its account; an account purge sets the contributor to "deleted account". After a moderator approves a contribution, the contributor cannot withdraw it. | **[decision]** owner, 2026-11-16 (OQ1, approval rule added the same day) |
 | CT8 | The founder of a theme becomes its first moderator. The admin can remove the role. | **[decision]** owner, 2026-11-16 (OQ2) |
 | CT9 | `/@{u}/themes` is the collection of the themes where `u` is an active member and that the requester can read. | **[decision]** owner, 2026-11-16 (OQ3) |
 | CT10 | Background LLM work (watch, refresh queue, expand queue) does not run on themes in v1. | **[decision]** owner, 2026-11-16 (OQ5) |
@@ -99,7 +99,7 @@ Rules:
 1. One function decides the matrix (today `_theme_accessible` and `_get_theme_ctx`). Routes do not check access on their own.
 2. A response that must hide a members-only theme gives the same 404 as for an unknown number (PRINCIPLES C1, THEMES.md §3).
 3. **[proposal]** The admin reads all themes, members-only themes included, because the admin moderates all themes. The admin does not read the knowledge base of another account; the current rule for knowledge bases stays.
-4. "Moderate T" means: decide join requests, remove and ban members, hide and remove contributions, change the label, the description, the visibility, and the join policy, and run graph maintenance (`/dedup/*`, `/resolution/*`, `/entity/primary-label`).
+4. "Moderate T" means: decide join requests, remove and ban members, approve, hide, and remove contributions, change the label, the description, the visibility, and the join policy, and run graph maintenance (`/dedup/*`, `/resolution/*`, `/entity/primary-label`).
 
 ### 5.2 Credential Scopes
 
@@ -167,10 +167,11 @@ Rules:
 ### 7.2 Rules
 
 1. The copy is independent. A later change or deletion of the source document does not change the contribution. **[proposal]** An explicit update of a contribution is a later change (Section 13, OQ7).
-2. Contributions are visible after the merge job. No moderator approval is necessary before (CT5).
-3. A contributor can withdraw its own contribution. A withdrawal removes the contribution like a moderator removal, but makes no tombstone.
+2. Contributions are visible after the merge job. No moderator approval is necessary before (CT5). Approval does not control visibility; it accepts the donation for the community (CT7).
+3. A contributor can withdraw its own contribution only while no moderator has approved it (`approved_at IS NULL`). A withdrawal removes the contribution like a moderator removal, but makes no tombstone. After the approval, a withdrawal request gets 409 with the code `contribution_approved`; the contributor can ask a moderator to remove it.
 4. A contribution is a donation to the community of T (CT7). When its contributor leaves, is banned, or purges its account, the contribution stays in T. Only a moderator removal or a withdrawal of the contributor (rule 3) removes it.
 5. Moderator actions:
+   - **Approve**: sets `approved_at` and `approved_by_account_id`. A moderator can approve a contribution with the state `visible` or `hidden`. An approval is final: no route clears it. A moderator removal of an approved contribution stays possible.
    - **Hide**: `documents.hidden = 1` and state `hidden`. Readers and search do not show the document. The action is reversible.
    - **Remove**: the existing document purge in T (graph sources, embeddings, FTS), a tombstone for the `canonical_url`, and deletion of the `theme_contributions` row.
    - Each action writes a row in `theme_moderation_log`.
@@ -214,7 +215,7 @@ When a theme has no moderator (for example after an account purge, or after the 
 | Page | Who | Content |
 | :--- | :--- | :--- |
 | `/settings/themes` | Account | The themes where the account is a member or a pending member, the themes it founded and the founder limit, the button to make a theme, and the link to `/themes` |
-| `/settings/themes/{number}` | Moderator | Members, join requests, contributions with hide and remove, the moderation log, theme settings |
+| `/settings/themes/{number}` | Moderator | Members, join requests, contributions with approve, hide, and remove (contributions that wait for approval first), the moderation log, theme settings |
 | `/admin/themes` | Admin | All themes with counts, themes without a moderator, the moderator assignment |
 
 New UI text uses keys of the English and Korean catalogs from the start (I18N design).
@@ -270,6 +271,8 @@ CREATE TABLE IF NOT EXISTS theme_contributions (
     state TEXT NOT NULL CHECK (state IN ('merging', 'visible', 'hidden', 'failed')),
     contributed_at REAL NOT NULL,
     updated_at REAL NOT NULL,
+    approved_at REAL,                           -- NULL: the contributor can withdraw (CT7)
+    approved_by_account_id INTEGER,             -- value
     UNIQUE (theme_id, document_id)
 );
 CREATE INDEX IF NOT EXISTS idx_theme_contributions_theme ON theme_contributions(theme_id, public_id);
@@ -279,7 +282,7 @@ CREATE TABLE IF NOT EXISTS theme_moderation_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
     actor_account_id INTEGER,                   -- value
-    action TEXT NOT NULL,                       -- 'approve_member', 'ban_member', 'remove_member', 'hide_contribution', 'unhide_contribution', 'remove_contribution', 'grant_moderator', 'revoke_moderator', 'archive', 'unarchive', 'update_settings'
+    action TEXT NOT NULL,                       -- 'approve_member', 'ban_member', 'remove_member', 'approve_contribution', 'hide_contribution', 'unhide_contribution', 'remove_contribution', 'grant_moderator', 'revoke_moderator', 'archive', 'unarchive', 'update_settings'
     target TEXT NOT NULL DEFAULT '',
     reason TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
@@ -316,7 +319,7 @@ The migration completes on its own and keeps all data (operator rule). A second 
 2. For each `themes` row with `is_default = 0` and `account_id IS NOT NULL`:
    1. `created_by_account_id = account_id`, `account_id = NULL`, `join_policy = 'approval'`, `state = 'active'`.
    2. When the old owner account has the state `active` or `suspended`, insert a membership `(role 'moderator', state 'active')`. When the account has the state `deleting` or `purged`, insert nothing; the admin moderates the theme (Section 8.2).
-   3. For each `documents` row of the theme, insert a `theme_contributions` row with `contributor_account_id` = the old owner, `source_document_id = NULL`, and the state `hidden` when `documents.hidden = 1`, else `visible`.
+   3. For each `documents` row of the theme, insert a `theme_contributions` row with `contributor_account_id` = the old owner, `source_document_id = NULL`, the state `hidden` when `documents.hidden = 1`, else `visible`, and `approved_at` = the time of the migration with `approved_by_account_id = NULL`. The old owner made these documents in the theme; they are accepted donations from the start.
 3. Drop or rename `theme_members` and `users` (Section 9.3).
 4. In one transaction for each theme. When a theme fails, the migration writes a warning, leaves that theme as it was, and tries again at the next start. The code treats a theme that is not converted (`is_default = 0 AND account_id IS NOT NULL`) as a theme with that account as moderator until the conversion completes.
 
@@ -402,7 +405,7 @@ Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ5 (CT10), OQ6 (Sectio
 | CT-1 | `claire.db` version 25 (Section 9), migration (Section 10), `store/theme_membership.py`, `ThemeManager` without `(account_id, label)` uniqueness, `reload()` without JSON-only entries | A version 24 database with four themes starts as version 25 with one knowledge base, three themes, the old owner as moderator, and one contribution for each document. A second start changes nothing. |
 | CT-2 | Access matrix (Section 5), namespace paths and redirects (Section 6), `/themes` collection | Non-members get 404 for members-only themes on each `namespaced` route. Old `/@{u}/themes/{number}/` links get 308. |
 | CT-3 | Membership and moderation routes (Section 8.2), admin moderator routes, moderation log | Join with `open` and `approval`, approve, ban, leave, last-moderator rule, admin role assignment |
-| CT-4 | Contribution route and `contribution_merge` job (Section 7), hide, remove, withdraw | A document of a knowledge base appears in the theme graph without a new LLM extraction when an extraction exists. A duplicate gets 409. |
+| CT-4 | Contribution route and `contribution_merge` job (Section 7), approve, hide, remove, withdraw | A document of a knowledge base appears in the theme graph without a new LLM extraction when an extraction exists. A duplicate gets 409. A withdrawal after the approval gets 409. |
 | CT-5 | Ingest entry points (Section 11.1), workers without theme rows (CT10), Telegram, MCP, CLI, account purge and backup (Section 11.2), federation publish rule (Section 11.3) | A pinned ingest to a theme gets 403. The watch, refresh, and expand workers take no theme row. Account purge removes memberships and keeps contributions with a NULL contributor. |
 | CT-6 | Console pages (Section 8.3) with English and Korean catalog keys | E2E test: account A makes a theme, account B joins, A approves, B contributes a document, A hides it, the admin gives B the moderator role. |
 | CT-7 | Implementation documents: `THEMES.md`, `SCHEMA_VERSIONING.md`, `ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `openapi.yaml` | The documents describe the code after CT-1 to CT-6. This design document is removed after the implementation. |
