@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Planned, not implemented (draft, Rev. 7). The owner direction of Section 2 and the decisions KD1 to KD9 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. No question is open (Section 16).
+- **Status**: Planned, not implemented (draft, Rev. 8). The owner direction of Section 2 and the decisions KD1 to KD9 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. No question is open (Section 16). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16).
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -12,7 +12,9 @@
   - Rev. 5 (2026-11-16): the relay and the history of the server-level partnership of Rev. 1 to Rev. 3 moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only. The mutual collaboration between accounts is not a part of that partnership and stays in the shared knowledge base design §9.10.
   - Rev. 6 (2026-11-16): answers to PQ3 to PQ9 and PQ13 (KD1 to KD8, Section 2.1). Review of the owner proposal for PQ2 (the domain `claire.bible`) with the policy of the `.bible` registry (Section 16).
   - Rev. 7 (2026-11-16): answer to PQ2: the identifiers are on `w3id.org` (KD9). The registration is a pull request of the owner when the target is live (Section 9.1).
+  - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The areas of the admin console (Section 6.5) are tabs of the section `/admin/federation` in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md).
 - **Related Documents**:
+  - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout and tabs of the console)
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
   - [`FEDERATION.md`](../implementation/FEDERATION.md) (server actor §4.2, inbox event contract §5.7, domain blocks, switch and readiness checks §7, Fedify version §9.3)
@@ -264,6 +266,8 @@ A level "limit" for domain blocks (offers from that domain always wait for appro
 | Domain blocks | Existing list |
 | Suggestions | Known servers of known servers, index lists |
 | Journal | The inbox journal of Section 13, with replay of a failed activity |
+
+Layout ([`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) §5): the section `/admin/federation` has four tabs. "Switches and state" has the switches, the existing readiness checks, and the existing sidecar state. "Known servers" is a list with the detail of the selected server and the field to add a domain. "Blocks and suggestions" has the domain blocks and the suggestions. "Inbox journal" has the journal. The relay has no area (Section 7).
 
 ---
 

@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Claire Bible — 설정 및 관리 콘솔 · 공유 지식베이스 · 지식 연합 시각 프로토타입</title>
+<meta name="robots" content="noindex, nofollow"/>
+<style>
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--bar-bg:#f6f8fa;--border:#d0d7de;--panel-bg:#f6f8fa;--accent:#0969da;--chip-bg:#eaeef2;--hover:#eef1f4;--active:#ddf4ff;--card-bg:#ffffff;--mark-bg:#fff8c5;--mark-fg:#633c01;--btn-bg:#1f883d;--btn-fg:#fff;--shadow:rgba(31,35,40,.28);--warn:#cf222e;--remote:#8250df;--kb:#1a7f37;--fic:#bf3989;--idea:#bc4c00}
+[data-theme=dark]{--bg:#0e1116;--fg:#d7dbe0;--muted:#8b949e;--bar-bg:#161b22;--border:#2a2f37;--panel-bg:#10151c;--accent:#58a6ff;--chip-bg:#1f2937;--hover:#161b22;--active:#1f2937;--card-bg:#161b22;--mark-bg:#4d3800;--mark-fg:#ffdf5d;--btn-bg:#238636;--shadow:rgba(1,4,9,.6);--warn:#ff7b72;--remote:#d2a8ff;--kb:#7ee787;--fic:#f778ba;--idea:#ffa657}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif}
+button,select,input,textarea{font:inherit;color:inherit}
+h2{font-size:17px;margin:0 0 4px}h3{font-size:13px;margin:16px 0 6px}h4{margin:0 0 6px;font-size:12px}
+a{color:var(--accent);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
+code{background:var(--chip-bg);border-radius:4px;padding:0 4px;font-size:12px}
+.btn{background:var(--bar-bg);border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--btn-bg);color:var(--btn-fg);border-color:transparent}
+.btn.on{background:var(--active);border-color:var(--accent);color:var(--accent)}
+.btn.danger{color:var(--warn)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chip{display:inline-block;background:var(--chip-bg);border-radius:10px;padding:0 7px;font-size:11px;color:var(--muted);white-space:nowrap}
+.chip.remote{color:var(--remote)}.chip.kb{color:var(--kb)}.chip.fic{color:var(--fic)}.chip.warn{color:var(--warn)}.chip.acc{color:var(--accent)}
+.ref{display:inline-block;font-size:10px;font-weight:700;border:1px dashed var(--border);color:var(--muted);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:middle;white-space:nowrap}
+.muted{color:var(--muted)}.small{font-size:11px}
+#app{display:grid;grid-template-rows:auto auto auto 1fr;height:100vh}
+header.top{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bar-bg);flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.logo{font-weight:700;display:flex;gap:6px;align-items:center}
+.logo i{width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,#00ffaa,#0969da);display:inline-block}
+select.sel,input.inp{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px}
+#tabs{display:flex;gap:2px;padding:4px 10px 0;border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;background:none;padding:5px 10px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.tab:hover{background:var(--hover)}
+.tab.on{background:var(--bg);border-color:var(--border);color:var(--fg);font-weight:700;margin-bottom:-1px}
+#addr{display:flex;gap:8px;align-items:center;padding:4px 10px;border-bottom:1px solid var(--border);font-size:12px;background:var(--panel-bg)}
+#addr code{background:var(--bg);border:1px solid var(--border);padding:1px 8px;border-radius:10px}
+#body{display:grid;grid-template-columns:1fr auto;min-height:0}
+main{overflow:auto;padding:14px 18px 60px;min-height:0}
+.wrap{max-width:1060px;margin:0 auto}
+#flow{width:300px;border-left:1px solid var(--border);background:var(--panel-bg);overflow:auto;display:none}
+#flow.show{display:block}
+#flow .hd{position:sticky;top:0;background:var(--bar-bg);border-bottom:1px solid var(--border);padding:6px 10px;font-weight:700;display:flex;gap:6px;align-items:center}
+.fl{padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px}
+.fl b{font-size:10px;border-radius:4px;padding:0 4px;margin-right:4px;color:#fff;background:var(--muted)}
+.fl.ap b{background:var(--remote)}.fl.srv b{background:var(--kb)}.fl.auth b{background:var(--idea)}
+.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.cols{display:grid;gap:14px;grid-template-columns:minmax(0,1.6fr) minmax(260px,1fr)}
+@media(max-width:860px){.cols{grid-template-columns:1fr}#flow.show{position:fixed;right:0;top:0;bottom:0;z-index:30;box-shadow:0 0 24px var(--shadow)}}
+.card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--card-bg)}
+.card.click{cursor:pointer}.card.click:hover{border-color:var(--accent)}
+.card.note{background:var(--mark-bg);color:var(--mark-fg);border-color:transparent}
+.card.err{border-color:var(--warn)}
+.ttl{font-weight:700}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.line{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px dashed var(--border);flex-wrap:wrap}
+.line:first-child{border-top:none}
+.sub{display:flex;gap:2px;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.c,th.c{text-align:center}
+.yes{color:var(--kb);font-weight:700}.no{color:var(--muted)}
+.empty{padding:26px 16px;color:var(--muted);text-align:center}
+dialog{border:1px solid var(--border);border-radius:10px;background:var(--card-bg);color:var(--fg);padding:0;width:min(600px,94vw);box-shadow:0 12px 40px var(--shadow)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog .hd{padding:10px 14px;border-bottom:1px solid var(--border);font-weight:700;background:var(--bar-bg)}
+dialog .bd{padding:12px 14px;max-height:62vh;overflow:auto}
+dialog .ft{padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:6px;justify-content:flex-end}
+label.f{display:block;margin:8px 0 2px;font-weight:600;font-size:12px}
+input.w,textarea.w{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 7px}
+.legend{font-size:11px;color:var(--muted);margin:2px 0 12px}
+/* 설정 및 관리 콘솔: 화면 높이에 고정한 셸. 레일, 섹션 목록, 본문이 따로 스크롤한다. */
+main.con-on{padding:0;overflow:hidden}
+main.con-on .wrap{max-width:none;height:100%}
+main.con-on.leg{overflow:auto}
+.con{display:grid;grid-template-columns:68px 244px minmax(0,1fr);height:100%;min-height:0}
+.crail{border-right:1px solid var(--border);background:var(--bar-bg);display:flex;flex-direction:column;gap:3px;padding:8px 5px;overflow:auto;min-height:0}
+.rb{position:relative;border:1px solid transparent;border-radius:10px;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;font-size:10.5px;color:var(--muted);flex:none}
+.rb b{font-size:19px;line-height:1.1;font-weight:400}
+.rb:hover{background:var(--hover)}
+.rb.on{background:var(--active);border-color:var(--accent);color:var(--fg);font-weight:700}
+.rb .badge{position:absolute;top:1px;right:3px}
+.badge{display:inline-block;min-width:17px;text-align:center;background:var(--accent);color:#fff;border-radius:9px;font-size:10px;padding:0 5px;font-weight:700}
+.cnav{border-right:1px solid var(--border);background:var(--panel-bg);display:flex;flex-direction:column;min-height:0;min-width:0}
+.cnav .top{padding:8px;flex:none}.cnav .top input{width:100%}
+#cnav-list{flex:1;overflow:auto;padding:0 6px 8px;min-height:0}
+.ni{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:1px}
+.ni:hover{background:var(--hover)}
+.ni.on{background:var(--active);border-color:var(--accent)}
+.ni b{font-weight:600}
+.ni small{display:block;color:var(--muted);font-size:10.5px;font-family:ui-monospace,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.glabel{font-size:11px;font-weight:700;color:var(--muted);padding:10px 8px 3px}
+.cnav .leg{border-top:1px solid var(--border);padding:6px 10px;font-size:10.5px;color:var(--muted);flex:none;line-height:1.9}
+.tg{display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:0 4px;vertical-align:middle;white-space:nowrap;line-height:1.5}
+.tg.n{background:var(--kb);color:var(--bg)}.tg.c{background:var(--accent);color:var(--bg)}.tg.p{border:1px dashed var(--idea);color:var(--idea)}
+.ccont{display:flex;flex-direction:column;min-width:0;min-height:0}
+.shead{padding:10px 18px 8px;border-bottom:1px solid var(--border);flex:none}
+.shead h2{margin:0}
+.stabs{display:flex;gap:2px;padding:6px 18px 0;border-bottom:1px solid var(--border);overflow-x:auto;flex:none}
+.sbody{flex:1;min-height:0;overflow:auto;padding:14px 18px 48px}
+.sbody.fill{overflow:hidden;padding:0}
+.sgrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));align-items:start}
+.sgrid .wide{grid-column:1/-1}
+.sgrid .card{min-width:0}
+.card.plain{border:none;background:none;padding:0}
+.tw{overflow-x:auto}
+.md{display:grid;grid-template-columns:minmax(220px,320px) minmax(0,1fr);height:100%;min-height:0}
+.mlist{border-right:1px solid var(--border);overflow:auto;min-height:0;background:var(--panel-bg)}
+.mdet{overflow:auto;min-height:0;padding:14px 18px 48px}
+.mi{padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer}
+.mi:hover{background:var(--hover)}.mi.on{background:var(--active);box-shadow:inset 3px 0 0 var(--accent)}
+.stats{display:flex;gap:8px;flex-wrap:wrap}
+.stats div{flex:1 1 90px;border:1px solid var(--border);border-radius:6px;padding:6px 10px;background:var(--panel-bg)}
+.stats b{display:block;font-size:16px}.stats span{font-size:11px;color:var(--muted)}
+pre.code{margin:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel-bg);font-size:11.5px;overflow-x:auto}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--fg);color:var(--bg);border-radius:8px;padding:7px 14px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:60}
+#toast.show{opacity:1}
+/* 비교용: 지금의 콘솔 구조. 링크를 한 줄로 늘어놓고, 섹션의 모든 카드를 920px 한 단에 쌓는다. */
+.con.legacy{grid-template-columns:260px minmax(0,1fr);height:auto}
+.con.legacy .crail,.con.legacy .cnav .top{display:none}
+.con.legacy #cnav-list{overflow:visible}
+.con.legacy .sbody{overflow:visible;max-width:920px}
+.con.legacy .sgrid{grid-template-columns:1fr}
+.con.legacy .md{height:420px;border:1px solid var(--border);border-radius:8px}
+@media(max-width:860px){
+ .con{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr)}
+ .crail{flex-direction:row;border-right:none;border-bottom:1px solid var(--border);padding:4px 6px}
+ .rb{flex-direction:row;gap:4px;padding:4px 8px}.rb b{font-size:15px}.rb .badge{position:static}
+ .cnav{border-right:none;border-bottom:1px solid var(--border)}
+ .cnav .top,.cnav .leg{display:none}
+ #cnav-list{display:flex;gap:4px;overflow-x:auto;padding:5px 6px}
+ .ni{flex:none;margin:0;border-color:var(--border)}.ni small{display:none}
+ .shead{padding:8px 12px 6px}.stabs{padding:4px 12px 0}.sbody{padding:10px 12px 48px}
+ .sgrid{grid-template-columns:1fr}
+ .md{grid-template-columns:1fr;grid-template-rows:150px minmax(0,1fr)}
+ #addr{white-space:nowrap;overflow-x:auto}#pathNote{display:none}#legBtn{flex:none}
+ .mlist{border-right:none;border-bottom:1px solid var(--border)}.mdet{padding:10px 12px 48px}
+ .con.legacy{grid-template-columns:1fr;grid-template-rows:none}
+ .con.legacy #cnav-list{flex-wrap:wrap}
+}
+</style></head><body>
+<div id="app">
+<header class="top">
+  <span class="logo"><i></i>Claire Bible</span>
+  <span class="chip">시각 프로토타입 · 목업 데이터 · 서버로 아무것도 보내지 않음</span>
+  <span class="grow"></span>
+  <label class="small muted" for="persona">보는 사람</label><select class="sel" id="persona"></select>
+  <label class="small muted" for="mode">서버 모드</label><select class="sel" id="mode"><option value="network">네트워크</option><option value="single">싱글</option></select>
+  <button class="btn" data-a="toggleFlow" id="flowBtn">⇄ 흐름 기록 <span id="flowN" class="chip">0</span></button>
+  <button class="btn" data-a="toggleDark" title="라이트/다크">◐</button>
+</header>
+<nav id="tabs"></nav>
+<div id="addr"><span class="muted">경로</span><code id="path">/</code><span id="pathNote" class="muted"></span><span class="grow"></span><button class="btn" id="legBtn" data-a="legacy" hidden></button></div>
+<div id="body"><main><div class="wrap" id="main"></div></main>
+<aside id="flow"><div class="hd">⇄ 흐름 기록<span class="grow"></span><button class="btn" data-a="clearFlow">지우기</button></div><div id="flowList"></div></aside></div>
+</div>
+<div id="toast"></div>
+<dialog id="dlg"><div class="hd" id="dlgH"></div><div class="bd" id="dlgB"></div><div class="ft" id="dlgF"></div></dialog>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ref=c=>`<span class="ref">${c}</span>`;
+
+/* ---------- 목업 데이터 (모든 이름·도메인은 가상) ---------- */
+const SELF="claire.example";
+const personas={anon:{label:"익명 (로그인 안 함)"},fow:{label:"@fow · 서버 관리자",admin:true,rate:0.92,dec:38},mina:{label:"@mina · 계정",rate:0.88,dec:25},joon:{label:"@joon · 계정",rate:0.46,dec:13}};
+const themes=[
+ {n:2001,label:"ActivityPub · Fedify",type:"real",top:["ActivityPub","Fedify","HTTP Signatures","WebFinger","인박스","Mastodon"],act:"12분 전",locked:false},
+ {n:2002,label:"엔티티 해석 · 지식 그래프",type:"real",top:["Entity resolution","지식 그래프","Wikidata","임베딩","벤치마크"],act:"3시간 전",locked:true},
+ {n:2003,label:"은빛 항구 · 아라크네 연대기",type:"fictional",top:["은빛 항구","아라크네","일곱 길드","등대지기 로웬","안개 해협"],act:"어제",locked:false}];
+let kbs=[
+ {n:1001,label:"연합 프로토콜 노트",icon:"📡",type:"real",theme:2001,policy:"approval",docs:42,desc:"ActivityPub와 주변 명세를 읽고 정리한 문서 모음"},
+ {n:1002,label:"Fediverse 구현 사례",icon:"🧩",type:"real",theme:2001,policy:"open",docs:27,desc:"연합 소프트웨어의 공개 문서에서 얻은 구현 사례"},
+ {n:9101,label:"ActivityPub Atlas",icon:"🗺️",type:"real",theme:2001,server:"atlas.example",rn:77,docs:130,desc:"프로토콜 문서 지도",followed:true},
+ {n:1003,label:"지식 그래프 연구 모음",icon:"🕸️",type:"real",theme:2002,policy:"approval",docs:64,desc:"엔티티 해석과 그래프 구축 연구"},
+ {n:9102,label:"Entity Resolution Lab",icon:"🔬",type:"real",theme:2002,server:"hanbit.example",rn:12,docs:58,desc:"한빛 연구실의 공유 지식베이스",followed:false},
+ {n:1004,label:"은빛 항구 연대기 설정집",icon:"⚓",type:"fictional",theme:2003,policy:"open",docs:19,desc:"가상 세계 「은빛 항구」의 설정"},
+ {n:9103,label:"Silverport Lore",icon:"📜",type:"fictional",theme:2003,server:"mare.example",rn:5,docs:33,desc:"같은 세계의 다른 서버 설정집",followed:false}];
+const members={
+ 1001:[{a:"@fow",role:"moderator",st:"active"},{a:"@mina",role:"collaborator",st:"active"},{a:"@hana",role:"member",st:"active"},{a:"@dojin",role:"member",st:"pending"},{a:"@troll",role:"member",st:"banned"}],
+ 1002:[{a:"@hana",role:"moderator",st:"active"},{a:"@mina",role:"member",st:"active"}],
+ 1003:[{a:"@fow",role:"moderator",st:"active"}],
+ 1004:[{a:"@hana",role:"moderator",st:"active"},{a:"@fow",role:"member",st:"active"}]};
+let grants=[{kb:1001,a:"@sora@atlas.example",until:"2027-05-16"}];            // 이 서버가 원격 계정에 준 Grant
+const grantsToUs=[{kb:9101,a:"@mina"}];                                        // 원격 지식베이스가 이 서버 계정에 준 Grant
+const attached=[{u:"@mina",theme:2001,rep:"good",docs:31},{u:"@joon",theme:2001,rep:"limited",docs:9}];
+let contribs=[
+ {id:"c1",kb:1001,title:"HTTP 서명 초안과 RFC 9421 비교",by:"@mina",origin:"direct",st:"visible"},
+ {id:"c2",kb:1001,title:"WebFinger 정리",by:"@sora@atlas.example",origin:"curation",st:"visible",src:"atlas.example",curator:"@mina"},
+ {id:"c3",kb:1001,title:"공유 인박스 전달 규칙",by:"@fow",origin:"migration",st:"visible"},
+ {id:"c4",kb:1001,title:"액터 키 회전 메모",by:"@hana",origin:"bulk",st:"hidden"},
+ {id:"c5",kb:1001,title:"NodeInfo 2.1 필드",by:null,origin:"direct",st:"visible"},
+ {id:"c6",kb:1002,title:"포럼형 그룹 액터의 Announce 전달",by:"@hana",origin:"direct",st:"visible"},
+ {id:"c7",kb:1003,title:"교차 유형 엔티티 병합 규칙",by:"@fow",origin:"migration",st:"visible"},
+ {id:"c8",kb:1004,title:"안개 해협의 항로",by:"@hana",origin:"direct",st:"visible"}];
+let queue=[
+ {id:"q1",kb:1001,title:"ActivityPub 인박스 재시도 전략",by:"@joon",rep:"limited",rate:0.46,origin:"bulk",ts:0.62,ks:0.55,others:[["Fediverse 구현 사례","approved"],["ActivityPub Atlas · atlas.example","pending"]]},
+ {id:"q2",kb:1001,title:"그룹 액터가 받은 활동을 다시 보내는 방식",by:"@sora@atlas.example",rep:"good",rate:0.81,origin:"bulk",ts:0.69,ks:0.66,remote:true,others:[["Fediverse 구현 사례","pending"]]},
+ {id:"q3",kb:1001,title:"주말 요리 레시피 모음",by:"@joon",rep:"limited",rate:0.46,origin:"auto",ts:0.21,ks:0.08,others:[["Fediverse 구현 사례","rejected · off_subject"]]}];
+const sources={1002:["포럼형 그룹 액터의 Announce 전달","콘텐츠 경고와 요약 필드","원격 미디어 캐시 정책"],9101:["Object Integrity Proofs 개요","컬렉션 페이지 매김","Follow와 Accept 순서"],"@mina":["서명된 GET 요구 서버 목록","액터 이전(Move) 절차"]};
+let docs=[
+ {id:"d1",o:"fow",title:"Fedify 사이드카 키 보관 방식",src:"URL",theme:2001,score:0.71},
+ {id:"d2",o:"fow",title:"HTTP 서명과 서명된 GET",src:"URL",theme:2001,score:0.64},
+ {id:"d3",o:"fow",title:"교차 유형 엔티티 해석 벤치마크",src:"PDF 업로드",theme:2002,score:0.58},
+ {id:"d4",o:"fow",title:"은빛 항구의 일곱 길드",src:"URL",theme:2003,score:0.80},
+ {id:"d5",o:"fow",title:"회의 메모",src:"붙여넣기",theme:null,score:null},
+ {id:"d6",o:"fow",title:"양자 내성 암호 개요",src:"URL",theme:null,score:0.12},
+ {id:"d7",o:"mina",title:"서명된 GET 요구 서버 목록",src:"URL",theme:2001,score:0.66},
+ {id:"d8",o:"mina",title:"액터 이전(Move) 절차",src:"URL",theme:2001,score:0.61},
+ {id:"d9",o:"joon",title:"ActivityPub 인박스 재시도 전략",src:"URL",theme:2001,score:0.62},
+ {id:"d10",o:"joon",title:"아라크네의 직조 마법",src:"URL",theme:2003,score:0.77},
+ {id:"d11",o:"joon",title:"주말 요리 레시피 모음",src:"URL",theme:null,score:0.09}];
+const incoming=[{title:"컬렉션 동기화 헤더 정리",src:"URL",theme:2001,score:0.67},{title:"등대지기 로웬의 일지",src:"URL",theme:2003,score:0.83}];
+let subs=[{id:"s1",o:"fow",doc:"d2",theme:2001,by:"server",score:0.64,targets:[{kb:1001,st:"visible",note:"모더레이터 · 승인 없음"},{kb:1002,st:"pending"},{kb:9101,st:"offered",note:"Offer 보냄"}]}];
+let servers=[
+ {d:"atlas.example",name:"Atlas 지식 서버",sw:"Claire Bible 0.27",how:"@mina 계정이 기여함",kbs:3,last:"12분 전",err:0},
+ {d:"hanbit.example",name:"한빛 연구실",sw:"Claire Bible 0.27",how:"상대 계정이 이 서버에서 큐레이션함",kbs:2,last:"1시간 전",err:1},
+ {d:"mare.example",name:"Mare Archive",sw:"Claire Bible 0.26",how:"관리자가 도메인을 추가함",kbs:1,last:"어제",err:0}];
+let blocks=[{d:"spam.example",when:"2026-11-02"}];
+let suggestions=[{d:"lyra.example",via:"atlas.example이 아는 서버"},{d:"orbit.example",via:"Claire 서버 색인 목록"}];
+let journal=[
+ {id:"j1",act:"Offer(claire:Contribution)",from:"@sora@atlas.example",sig:true,st:"processed"},
+ {id:"j2",act:"Update(Article)",from:"ActivityPub Atlas 액터 · atlas.example",sig:true,st:"processed"},
+ {id:"j3",act:"Delete(Article)",from:"Entity Resolution Lab 액터 · hanbit.example",sig:true,st:"failed",err:"사본 조회 실패"},
+ {id:"j4",act:"Offer(claire:Contribution)",from:"@x@spam.example",sig:false,st:"refused",err:"차단 도메인"}];
+const activity=[["🌐","atlas.example에 새 공유 지식베이스 「Fedify 운영 일지」","20분 전"],["✅","hanbit.example의 검토자가 @fow의 기여 「교차 유형 엔티티 해석 벤치마크」를 승인","2시간 전"],["📥","@mina가 atlas.example의 「ActivityPub Atlas」에서 문서 1건 큐레이션","어제"]];
+let mutual=[{a:"fow",b:"mina",st:"active"},{a:"joon",b:"fow",st:"pending",req:"joon"}];
+const modlog=[["@mina","curate","WebFinger 정리"],["@fow","grant_collaborator","@mina"],["@fow","ban_member","@troll"]];
+const S={persona:"fow",mode:"network",view:"console",arg:null,rtab:"queue",sec:"settings/kb",grp:"know",stab:{},sel:{},navQ:"",legacy:false,rkb:1001,fed:true,auto:false,tf:"all",pub:{fow:true,mina:true,joon:true},rule:{fow:{on:false,memberships:true,mutual:false,themes:true,uploads:false}},never:{d5:true},thr:{theme:0.35,doc:0.4,seed:0.3,auto:0.5},lastRun:"오늘 04:10",flow:[],seq:100};
+
+/* ---------- 모델 ---------- */
+const me=()=>personas[S.persona], acct=()=>S.persona==="anon"?null:"@"+S.persona;
+const kb=n=>kbs.find(k=>k.n==n), th=n=>themes.find(t=>t.n==n);
+const LV={anon:0,none:1,pending:1,banned:1,member:2,collaborator:3,moderator:4,admin:5};
+const CAPS=[["read",0,"읽기"],["join",1,"가입 요청 · 탈퇴"],["contribute_direct",2,"직접 기여"],["contribute_theme",1,"테마로 기여"],["fork",1,"포크"],["review",3,"검토: 승인·거절·숨김·갱신 중지"],["curate",3,"큐레이션"],["maintain",3,"그래프 유지보수"],["people",4,"멤버 · 협력자 관리"],["settings",4,"설정"],["remove",4,"기여 제거"],["moderators",5,"모더레이터 지정"],["delete",5,"지식베이스 삭제"]];
+function roleIn(k){if(!acct())return"anon";if(me().admin)return"admin";const m=(members[k.n]||[]).find(m=>m.a===acct());return m?(m.st==="active"?m.role:m.st):"none"}
+function can(k,c){if(k.server)return c==="read"||((c==="contribute_theme"||c==="fork")&&!!acct());const r=roleIn(k);if(r==="banned")return c==="read"||c==="fork";return LV[r]>=CAPS.find(x=>x[0]===c)[1]}
+const ROLE={anon:"익명",none:"멤버 아님",pending:"가입 대기",banned:"차단됨",member:"멤버",collaborator:"협력자",moderator:"모더레이터",admin:"서버 관리자"};
+const myDocs=()=>docs.filter(d=>d.o===S.persona);
+const ficLike=d=>d.theme&&th(d.theme).type==="fictional";
+const counted=d=>ficLike(d)&&!subs.some(s=>s.doc===d.id&&s.targets.some(t=>t.st==="visible"&&kb(t.kb).type==="fictional"));
+function rep(p=S.persona){const ds=docs.filter(d=>d.o===p),n=ds.filter(counted).length,share=ds.length?n/ds.length:0,rate=personas[p].rate;const lv=share>=0.5||rate<0.2?"low":share>=0.2||rate<0.5?"limited":"good";return{lv,share,n,rate,dec:personas[p].dec}}
+const REP={good:["good","kb"],limited:["limited","acc"],low:["low","warn"]};
+const repChip=l=>`<span class="chip ${REP[l][1]}">평판 ${REP[l][0]}</span>`;
+const typeChip=t=>t==="fictional"?`<span class="chip fic">fictional · 가상 세계</span>`:`<span class="chip kb">real · 실제 세계</span>`;
+const srvChip=k=>k.server?`<span class="chip remote">🌐 ${k.server}</span>`:`<span class="chip">이 서버</span>`;
+const ST={visible:["표시됨","kb"],pending:["검토 대기","acc"],hidden:["숨김",""],rejected:["거절됨","warn"],offered:["Offer 보냄 · 원격 검토 대기","remote"],skipped:["건너뜀",""],removed:["제거됨","warn"],merging:["병합 중","acc"]};
+const stChip=s=>`<span class="chip ${ST[s][1]}">${ST[s][0]}</span>`;
+const ORI={direct:"직접",bulk:"테마 기여",auto:"자동",curation:"큐레이션",fork:"포크",migration:"이전"};
+function log(kind,text){const tag={ap:"ActivityPub",srv:"서버",auth:"인증",ui:"화면"}[kind];S.flow.unshift({kind,tag,text});drawFlow()}
+function drawFlow(){$("#flowN").textContent=S.flow.length;$("#flowList").innerHTML=S.flow.map(f=>`<div class="fl ${f.kind}"><b>${f.tag}</b>${esc(f.text)}</div>`).join("")||`<div class="empty">동작을 실행하면 서버가 하는 일과 보내는 활동이 여기에 쌓입니다.</div>`}
+
+/* ---------- 대화 상자 ---------- */
+const dlg=$("#dlg");let onOk=null;
+function modal(title,body,okLabel,ok){$("#dlgH").innerHTML=title;$("#dlgB").innerHTML=body;onOk=ok||null;$("#dlgF").innerHTML=`<button class="btn" data-a="closeDlg">${ok?"취소":"닫기"}</button>`+(ok?`<button class="btn pri" data-a="okDlg">${okLabel}</button>`:"");if(!dlg.open)dlg.showModal()}
+function stepUp(what,fn){modal("🔐 최근 로그인 확인",`<p><b>${esc(what)}</b></p><p class="muted">이 동작은 쿠키 세션의 최근 로그인이 필요합니다. 베어러 자격 증명(API 토큰, OAuth 토큰)은 통과하지 못합니다. ${ref("§6.8")}${ref("CS9")}</p><label class="f">비밀번호 다시 입력 (목업)</label><input class="w" type="password" value="••••••••" disabled>`,"확인하고 계속",()=>{log("auth","require_recent_auth 통과: "+what);fn()})}
+
+/* ---------- 화면 ---------- */
+const TABS=[["root","루트 페이지"],["themes","테마"],["kbs","공유 지식베이스"],["personal","개인 지식베이스"],["console","⚙ 설정 및 관리 콘솔"]];
+function goSec(id,tab){S.view="console";S.sec=id;S.navQ="";const s=SECS.find(x=>x.id===id);if(s&&tab){if(s.tabKey)S[s.tabKey]=tab;else S.stab[id]=tab}render()}
+function toast(t){const el=$("#toast");el.textContent=t;el.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(()=>el.classList.remove("show"),1600)}
+function nav(view,arg){if(view==="review"){if(arg)S.rkb=+arg;return goSec("settings/kb/review")}if(view==="settings")return goSec("settings/kb");if(view==="admin")return goSec("admin/federation");S.view=view;S.arg=arg===undefined?null:arg;render();$("main").scrollTop=0}
+function path(){const v=S.view,u=S.persona;if(v==="root")return["/",S.mode==="single"?"싱글 모드: 302 → /@fow/":"네트워크 모드: 공개 디렉터리"];if(v==="themes")return[S.arg?`/themes/${S.arg}`:"/themes","컬렉션 (Mastodon Collections 원칙)"];if(v==="kbs"){if(!S.arg)return["/kb","공유 지식베이스 컬렉션"];const k=kb(S.arg);return k.server?[`https://${k.server}/kb/${k.rn}/`,"원격 지식베이스의 로컬 기록 · 문서는 없음"]:[`/kb/${k.n}/`,"공유 지식베이스 (소유자 없음, 항상 공개)"]}if(v==="personal")return[u==="anon"?"/@fow/":`/@${u}/`,"개인 지식베이스 · 계정마다 하나"];if(!acct())return["/settings","로그인 필요"];const s=SECS.find(x=>x.id===S.sec);return s?[secPath(s),(s.admin?"관리자 콘솔":"계정 설정")+" · "+s.sc+" · 경로는 지금과 같고 묶음만 바뀝니다"]:["/settings",""]}
+function render(){
+ const con=S.view==="console",mainEl=$("main");let keep=null;
+ if(con){const sb=document.querySelector(".sbody[data-key]"),ml=document.querySelector(".mdet");if(sb)keep=[sb.dataset.key,sb.scrollTop,ml?ml.scrollTop:0]}
+ mainEl.classList.toggle("con-on",con);mainEl.classList.toggle("leg",con&&S.legacy);
+ $("#legBtn").hidden=!con;$("#legBtn").textContent=S.legacy?"배치: 지금 구조 (비교) → 새 구조로":"배치: 새 구조 → 지금 구조와 비교";$("#legBtn").classList.toggle("on",S.legacy);
+ $("#tabs").innerHTML=TABS.map(([v,l])=>`<button class="tab ${S.view===v?"on":""}" data-a="nav" data-v="${v}">${l}</button>`).join("");
+ $("#main").innerHTML=({root:vRoot,themes:vThemes,kbs:vKbs,personal:vPersonal,console:vConsole})[S.view]();
+ const [p,note]=path();$("#path").textContent=SELF+p.replace(/^https:\/\/[^/]+/,m=>" → "+m.slice(8));$("#pathNote").textContent=note;
+ if(keep){const sb=document.querySelector(".sbody[data-key]");if(sb&&sb.dataset.key===keep[0]){sb.scrollTop=keep[1];const ml=document.querySelector(".mdet");if(ml)ml.scrollTop=keep[2]}}
+}
+const gate=(code,msg)=>`<div class="card"><div class="empty"><b>${code}</b><br>${msg}</div></div>`;
+
+function themeCard(t){const ks=kbs.filter(k=>k.theme===t.n),loc=ks.filter(k=>!k.server).length,rem=ks.length-loc,n=contribs.filter(c=>ks.some(k=>k.n===c.kb)&&c.st==="visible").length+ks.reduce((a,k)=>a+k.docs,0);
+ return `<div class="card click" data-a="nav" data-v="themes" data-arg="${t.n}"><div class="row"><span class="ttl">${esc(t.label)}</span>${t.locked?`<span class="chip" title="관리자가 라벨을 잠금">🔒</span>`:""}<span class="grow"></span>${typeChip(t.type)}</div><div class="row small" style="margin:4px 0"><span class="chip">이 서버 ${loc}</span><span class="chip remote">다른 서버 ${rem}</span><span class="chip">표시된 기여 ${n}</span><span class="muted">최근 활동 ${t.act}</span></div><div class="row">${t.top.slice(0,5).map(e=>`<span class="chip">${esc(e)}</span>`).join("")}</div></div>`}
+
+function vRoot(){
+ if(S.mode==="single")return `<h2>싱글 모드에는 루트 페이지가 없습니다 ${ref("CT33")}${ref("연합 §15")}</h2><div class="card"><p><code>GET /</code> → <b>302</b> → <code>/@fow/</code> (관리자의 개인 지식베이스). 임시 리다이렉트인 이유: <code>/</code>의 뜻은 서버 모드에 따라 달라지고, 관리자가 모드를 바꿀 수 있습니다.</p><p>개인 지식베이스의 다른 루트 경로는 <b>308</b> → <code>/@fow/…</code></p><p class="muted">관리자 계정이 <code>setup_required</code> 상태이면 대상이 없으므로 "설정이 끝나지 않음" 페이지를 보입니다. 싱글 모드에서도 서버 액터와 공유 지식의 연합은 동작합니다 ${ref("KD2")}.</p><div class="row"><button class="btn pri" data-a="nav" data-v="personal">/@fow/ 로 이동</button></div></div><h3>개인 지식베이스 홈 개요의 테마 카드 ${ref("§8.4")}</h3><div class="card click" data-a="nav" data-v="themes"><span class="ttl">테마 ${themes.length}개</span> <span class="muted">같은 주제의 지식베이스 묶음 보기 → /themes</span></div>`;
+ const ts=themes.filter(t=>S.tf==="all"||t.type===S.tf);
+ return `<div class="row"><h2>테마</h2>${ref("CT11")}${ref("§8.4")}<span class="grow"></span>${[["all","전체"],["real","real"],["fictional","fictional"]].map(([v,l])=>`<button class="btn ${S.tf===v?"on":""}" data-a="tf" data-v="${v}">${l}</button>`).join("")}<button class="btn pri" data-a="newKb" ${acct()?"":"disabled"}>＋ 공유 지식베이스 만들기</button></div>
+ <div class="legend">같은 주제의 지식베이스를 서버가 엔티티로 판정해 묶습니다. 다른 서버의 공유 지식베이스도 관리자 사이의 합의 없이 이 서버의 테마에 들어옵니다 ${ref("CT35")}. 최근 활동 순.</div>
+ <div class="grid">${ts.map(themeCard).join("")}</div><div style="margin-top:6px"><a data-a="nav" data-v="themes">모든 테마 컬렉션 /themes →</a></div>
+ <div class="cols" style="margin-top:14px"><div><h3>서버 사이의 최근 활동 ${ref("연합 §8.3")}</h3><div class="card">${S.fed?activity.map(a=>`<div class="line"><span>${a[0]}</span><span class="grow">${esc(a[1])}</span><span class="muted small">${a[2]}</span></div>`).join(""):`<div class="empty">연합이 꺼져 있습니다.</div>`}</div></div>
+ <div><h3>연합 서버 ${ref("연합 §6.2")}</h3><div class="card">${S.fed?servers.map(s=>`<div class="line"><span class="grow"><b>${esc(s.name)}</b><br><span class="muted small">${s.d}</span></span><span class="chip remote">공유 지식베이스 ${s.kbs}</span></div>`).join(""):`<div class="empty">연합이 꺼져 있습니다.</div>`}</div><div class="legend" style="margin-top:6px">공유 지식베이스가 있는 알려진 서버만 보입니다. 합의나 승인 절차는 없습니다. 관리자는 도메인 차단과 스위치로 한쪽에서 제어합니다.</div></div></div>`}
+
+function kbLine(k,extra=""){return `<div class="line"><span style="font-size:18px">${k.icon}</span><span class="grow"><a data-a="nav" data-v="kbs" data-arg="${k.n}"><b>${esc(k.label)}</b></a> ${srvChip(k)} ${typeChip(k.type)}<br><span class="muted small">${esc(k.desc)} · 문서 ${k.docs}${k.server?"":" · 가입 "+(k.policy==="open"?"자유":"승인")}</span></span>${extra}</div>`}
+function vThemes(){
+ if(!S.arg)return `<div class="row"><h2>테마 컬렉션</h2>${ref("CT11")}</div><div class="legend">테마는 구획이 아니라 컬렉션입니다. 테마 번호는 서버마다 다르고, 식별자로 서버 밖에 나가지 않습니다 ${ref("연합 §8.2")}.</div><div class="grid">${themes.map(themeCard).join("")}</div>`;
+ const t=th(S.arg),ks=kbs.filter(k=>k.theme===t.n&&(!k.server||S.fed)),at=attached.filter(a=>a.theme===t.n&&S.pub[a.u.slice(1)]).sort((a,b)=>(a.rep==="good"?0:1)-(b.rep==="good"?0:1));
+ return `<div class="row"><a data-a="nav" data-v="themes">← 테마</a></div><div class="row"><h2>${esc(t.label)}</h2>${typeChip(t.type)}<span class="grow"></span><button class="btn pri" data-a="contribTheme" data-t="${t.n}" ${acct()?"":"disabled"}>이 테마에 기여</button><button class="btn" data-a="newKb" data-t="${t.n}" ${acct()?"":"disabled"}>＋ 이 테마에 공유 지식베이스 만들기</button></div>
+ <div class="row" style="margin:6px 0 12px"><span class="muted small">상위 엔티티</span>${t.top.map(e=>`<span class="chip">${esc(e)}</span>`).join("")}</div>
+ <h3>공유 지식베이스 ${ref("CT13")}</h3><div class="card">${ks.map(k=>kbLine(k,k.server?`<a class="small" data-a="origin" data-n="${k.n}">원본에서 열기 ↗</a>`:`<button class="btn" data-a="fork" data-n="${k.n}" ${acct()?"":"disabled"}>포크</button>`)).join("")}</div>
+ <div class="legend" style="margin-top:6px">"이 테마에 기여"는 한 번의 결정으로 이 테마의 모든 공유 지식베이스에 보냅니다. 멤버가 아니어도 됩니다. 각 지식베이스의 검토자가 따로 결정합니다.</div>
+ <h3>붙은 공개 개인 지식베이스 ${ref("§8.2 규칙 5")}</h3><div class="card">${at.length?at.map(a=>`<div class="line"><span style="font-size:18px">👤</span><span class="grow"><b>${a.u}</b>의 개인 지식베이스 <span class="chip">문서 ${a.docs}</span>${a.rep!=="good"?` <span class="chip acc" title="평판 limited: 다른 것 뒤에 표시">◔ 뒤에 표시</span>`:""}<br><span class="muted small">큐레이션 원천이 될 수 있습니다. 포크할 수 없습니다 ${ref("CT15")}</span></span></div>`).join(""):`<div class="empty">없음</div>`}</div>`}
+
+function vKbs(){
+ if(!S.arg){const f=(l,ks)=>`<h3>${l}</h3><div class="card">${ks.map(k=>kbLine(k,k.server?"":`<span class="chip">${ROLE[roleIn(k)]}</span>`)).join("")||`<div class="empty">없음</div>`}</div>`;
+  return `<div class="row"><h2>공유 지식베이스</h2>${ref("CT2")}<span class="grow"></span><button class="btn pri" data-a="newKb" ${acct()?"":"disabled"}>＋ 공유 지식베이스 만들기</button></div><div class="legend">어느 계정도 소유하지 않는 협업 지식베이스. 문서는 기여, 큐레이션, 포크 사본으로만 들어옵니다 ${ref("CT4")}.</div>${f("이 서버 <code>/kb</code>",kbs.filter(k=>!k.server))}${S.fed?f(`다른 서버의 <code>/kb</code> 컬렉션에서 읽은 기록 ${ref("연합 §8.1")}`,kbs.filter(k=>k.server)):""}`}
+ const k=kb(S.arg),t=th(k.theme);
+ if(k.server){const g=grantsToUs.some(x=>x.kb===k.n&&x.a===acct());
+  return `<div class="row"><a data-a="nav" data-v="kbs">← 공유 지식베이스</a></div><div class="row"><span style="font-size:22px">${k.icon}</span><h2>${esc(k.label)}</h2>${srvChip(k)}${typeChip(k.type)}</div><p class="muted">${esc(k.desc)}</p>
+  <div class="cols"><div><div class="card"><h4>원격 지식베이스 기록 ${ref("연합 §8.1")}</h4><table><tr><th>원본 IRI</th><td><code>https://${k.server}/kb/${k.rn}</code></td></tr><tr><th>액터</th><td><code>Group</code> · 인박스, 아웃박스, 팔로워 ${ref("KD5")}</td></tr><tr><th>문서 수</th><td>${k.docs} (메타데이터와 시그니처만 읽음, 문서는 읽지 않음)</td></tr><tr><th>이 서버의 테마</th><td><a data-a="nav" data-v="themes" data-arg="${t.n}">${esc(t.label)}</a></td></tr><tr><th>액터 팔로우</th><td>${k.followed?`<span class="chip kb">서버 액터가 팔로우 중</span> 개정과 삭제 통지를 받음`:`<span class="chip">아님</span> 큐레이션하거나 테마 멤버가 되면 팔로우`}</td></tr><tr><th>권위</th><td>원본 서버가 이 지식베이스의 권위입니다. 이 서버는 원본을 바꾸지 않습니다 ${ref("연합 §6.4")}</td></tr></table></div>
+  <div class="card" style="margin-top:10px"><div class="empty">이 서버에는 이 지식베이스의 문서가 없습니다.<br>큐레이션이나 기여가 있을 때만 사본이 생깁니다.</div></div></div>
+  <div><div class="card"><h4>할 수 있는 일</h4><div class="line"><span class="grow">문서 기여 <span class="muted small">계정 액터 → 지식베이스 액터로 <code>Offer</code></span>${g?`<br><span class="chip kb">원격 협력자 Grant 보유 · 승인 없음</span>`:""}</span><button class="btn pri" data-a="contribTheme" data-t="${t.n}" ${acct()?"":"disabled"}>기여</button></div><div class="line"><span class="grow">큐레이션 <span class="muted small">이 테마의 로컬 지식베이스 검토자만</span></span><button class="btn" data-a="goCurate" data-n="${k.n}">검토 콘솔</button></div><div class="line"><span class="grow">원본 페이지</span><a data-a="origin" data-n="${k.n}">열기 ↗</a></div></div>
+  <div class="legend" style="margin-top:6px">원격 지식베이스에서는 검토, 큐레이션, 유지보수, 모더레이터 역할을 가질 수 없습니다. 그 서버의 세션이 필요하기 때문입니다 ${ref("KD6")}.</div></div></div>`}
+ const r=roleIn(k),cs=contribs.filter(c=>c.kb===k.n&&(c.st==="visible"||(can(k,"review")&&c.st==="hidden"))),ms=(members[k.n]||[]).filter(m=>m.st==="active"||can(k,"people"));
+ return `<div class="card note" style="margin-bottom:10px">기존 작업 공간(홈, 리더, 그래프, 프레젠테이션, 적재)은 그대로입니다. 이 화면은 설계가 거기에 더하는 부분만 보입니다. <code>CONSOLE_LAYOUT_DESIGN.md</code> §7</div><div class="row"><a data-a="nav" data-v="kbs">← 공유 지식베이스</a></div><div class="row"><span style="font-size:22px">${k.icon}</span><h2>${esc(k.label)}</h2>${typeChip(k.type)}<span class="chip">가입: ${k.policy==="open"?"자유":"승인"}</span><span class="chip acc">내 역할: ${ROLE[r]}</span><span class="grow"></span>
+ ${r==="none"?`<button class="btn" data-a="join" data-n="${k.n}">가입 요청</button>`:""}${["member","collaborator","moderator","pending"].includes(r)?`<button class="btn" data-a="leave" data-n="${k.n}">탈퇴</button>`:""}
+ <button class="btn pri" data-a="direct" data-n="${k.n}" ${can(k,"contribute_direct")?"":"disabled"} title="멤버만 직접 기여">문서 직접 기여</button><button class="btn" data-a="fork" data-n="${k.n}" ${can(k,"fork")?"":"disabled"}>포크</button>${can(k,"review")?`<button class="btn" data-a="nav" data-v="review" data-arg="${k.n}">검토 콘솔</button>`:""}</div>
+ <p class="muted">${esc(k.desc)} · 테마 <a data-a="nav" data-v="themes" data-arg="${t.n}">${esc(t.label)}</a>${k.forkOf?` · <b>${esc(kb(k.forkOf).label)}</b>의 포크`:""}</p>
+ <div class="card note" style="margin-bottom:10px">URL이나 파일을 공유 지식베이스에 직접 적재할 수 없습니다. 적재는 개인 지식베이스로 가고, 여기에는 기여로 들어옵니다. <code>403 kb_ingest_by_contribution</code> ${ref("CT4")}</div>
+ <div class="cols"><div><h3 style="margin-top:0">문서 (기여) ${ref("§9")}</h3><div class="card">${cs.length?cs.map(c=>`<div class="line"><span class="grow"><b>${esc(c.title)}</b>${c.rev?` <span class="chip acc">개정 ${c.rev}회</span>`:""}<br><span class="muted small">기여 ${c.by||"삭제된 계정"} · ${ORI[c.origin]}${c.src?` · 원본 🌐 ${c.src}`:""}${c.curator?` · 큐레이터 ${c.curator}`:""}</span></span>${stChip(c.st)}</div>`).join(""):`<div class="empty">아직 문서가 없습니다.</div>`}</div>
+ <div class="legend" style="margin-top:6px">기여는 지식베이스 커뮤니티에 대한 기증입니다. 기여자가 떠나거나 계정을 지워도 남고, 기여 표시는 "삭제된 계정"이 됩니다 ${ref("CT7")}.</div></div>
+ <div><h3 style="margin-top:0">멤버와 역할 ${ref("§6.2")}</h3><div class="card">${ms.map(m=>`<div class="line"><span class="grow">${m.a}</span><span class="chip ${m.st==="banned"?"warn":m.role==="moderator"?"kb":m.role==="collaborator"?"acc":""}">${m.st==="active"?ROLE[m.role]:ROLE[m.st]}</span></div>`).join("")}${grants.filter(g=>g.kb===k.n).map(g=>`<div class="line"><span class="grow">${g.a}</span><span class="chip remote">원격 협력자 · ${g.until}까지</span></div>`).join("")}</div>
+ <h3>내 권한 (${ROLE[r]})</h3><div class="card"><table>${CAPS.map(c=>`<tr><td>${c[2]} <code>${c[0]}</code></td><td class="c">${can(k,c[0])?`<span class="yes">가능</span>`:`<span class="no">${r==="anon"&&c[0]!=="read"?"404":"403"}</span>`}</td></tr>`).join("")}</table></div><div class="legend" style="margin-top:6px">역할은 고정된 권한 묶음입니다 ${ref("CT29")}. "보는 사람"을 바꿔 비교하세요.</div></div></div>`}
+
+function vPersonal(){
+ if(!acct())return `<h2>@fow의 개인 지식베이스</h2>`+(S.pub.fow?`<div class="card"><div class="empty">공개된 개인 지식베이스를 읽기 전용으로 봅니다. 쓰기는 404.</div></div>`:gate("404","비공개 개인 지식베이스와 없는 번호는 같은 404를 줍니다 (CS1)"));
+ const u=S.persona,r=rep(),ds=myDocs();
+ return `<div class="card note" style="margin-bottom:10px">기존 작업 공간(홈, 리더, 그래프, 프레젠테이션, 적재)은 그대로입니다. 이 화면은 설계가 거기에 더하는 부분만 보입니다. <code>CONSOLE_LAYOUT_DESIGN.md</code> §7</div><div class="row"><h2>${acct()}의 개인 지식베이스</h2>${ref("CT1")}<span class="chip">${S.pub[u]?"공개":"비공개"}</span><button class="btn" data-a="togglePub">${S.pub[u]?"비공개로":"공개로"}</button><span class="grow"></span>${repChip(r.lv)}</div>
+ <div class="legend">계정마다 하나. 모든 적재가 여기로 옵니다. 지식 유형이 없고, 감시·새로 고침·확장은 여기서만 돕니다 ${ref("CT10")}${ref("CT18")}.</div>
+ <div class="card"><h4>적재</h4><div class="row"><input class="inp grow" placeholder="https://… (목업: 버튼을 누르면 예시 문서가 들어옵니다)" disabled><button class="btn pri" data-a="ingest">적재</button></div>
+ <div class="card note" style="margin-top:8px">📣 소설·만화·게임·영화 같은 가상 세계 자료는 <b>fictional</b> 유형의 공유 지식베이스로 보내 주세요. 개인 지식베이스에 쌓인 가상 자료는 평판을 낮춥니다. <a data-a="tfGo">fictional 테마 보기</a> · <a data-a="newKb">공유 지식베이스 만들기</a> <span class="muted small">(닫을 수 없는 상시 안내)</span> ${ref("§8.7")}</div>
+ <div class="muted small" style="margin-top:6px">초점(focus) 입력은 모든 진입점에서 봉인되었습니다 ${ref("CT28")}</div></div>
+ <h3>문서와 문서 매치 ${ref("§8.5")}</h3><div class="card">${ds.map(d=>{const t=d.theme&&th(d.theme),sub=subs.filter(s=>s.doc===d.id).length;return `<div class="line"><span class="grow"><b>${esc(d.title)}</b> <span class="chip">${d.src}</span>${S.never[d.id]?` <span class="chip warn">절대 기여 안 함</span>`:""}${d.isNew?` <span class="chip acc">방금 적재</span>`:""}<br><span class="small">${t?`<span class="muted">매치</span> <a data-a="nav" data-v="themes" data-arg="${t.n}">${esc(t.label)}</a> <span class="muted">${d.score.toFixed(2)}</span>`:`<span class="muted">맞는 테마 없음</span>`}${ficLike(d)?(counted(d)?` <span class="chip fic">가상 자료로 보임 · 평판에 계산됨</span>`:` <span class="chip kb">fictional 지식베이스에 기여됨 · 계산 안 함</span>`):""}${sub?` <span class="chip">제출 ${sub}건</span>`:""}</span></span>
+ <button class="btn" data-a="never" data-d="${d.id}">${S.never[d.id]?"기여 허용":"절대 기여 안 함"}</button><button class="btn ${ficLike(d)&&counted(d)?"pri":""}" data-a="contribDoc" data-d="${d.id}" ${S.never[d.id]?"disabled":""}>${ficLike(d)?"이 테마에 기여":"이 문서 기여"}</button></div>`}).join("")}</div>
+ <div class="legend" style="margin-top:6px">"이 문서 기여"는 결정 하나입니다. 지식베이스도 테마도 고르지 않습니다. 서버가 문서의 엔티티로 테마를 고르고 그 테마의 공유 지식베이스 검토자에게 보냅니다 ${ref("CT21")}. LLM 호출은 없습니다.</div>`}
+
+/* ---------- 설정 및 관리 콘솔 ---------- */
+function ruleOf(){return S.rule[S.persona]||(S.rule[S.persona]={on:false,memberships:true,mutual:false,themes:false,uploads:false})}
+const NEW=` <span class="tg n">신규</span>`,CHG=` <span class="tg c">바뀜</span>`,PROP=` <span class="tg p">제안</span>`;
+const K=(t,b,o)=>Object.assign({t,b},o||{});
+const kv=r=>`<table>${r.map(([k,v])=>`<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
+const tbl=(h,rows)=>`<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`;
+const sw=(l,d,on)=>`<div class="line"><span class="grow"><b>${l}</b>${d?`<br><span class="muted small">${d}</span>`:""}</span><button class="btn ${on?"on":""}" data-a="tog">${on?"● 켬":"○ 끔"}</button></div>`;
+const opt=(l,d,o)=>`<div class="line"><span class="grow"><b>${l}</b>${d?`<br><span class="muted small">${d}</span>`:""}</span><select class="sel">${o.map(x=>`<option>${x}</option>`).join("")}</select></div>`;
+const inp=(l,v,ph)=>`<label class="f">${l}</label><input class="w" value="${v||""}" placeholder="${ph||""}">`;
+const mb=(l,c)=>`<button class="btn ${c||""}" data-a="mock">${l}</button>`;
+const stats=a=>`<div class="stats">${a.map(([n,l])=>`<div><b>${n}</b><span>${l}</span></div>`).join("")}</div>`;
+const note=h=>`<div class="muted small" style="margin-top:8px">${h}</div>`;
+const plain=h=>K("",`<div class="legend" style="margin:0">${h}</div>`,{w:1,cls:"plain"});
+const none=`<div class="empty">없음</div>`;
+const md=(list,det)=>({fill:`<div class="md"><div class="mlist">${list}</div><div class="mdet">${det}</div></div>`});
+const mi=(k,v,on,h)=>`<div class="mi ${on?"on":""}" data-a="sel" data-k="${k}" data-v="${v}">${h}</div>`;
+const reviewable=()=>kbs.filter(k=>!k.server&&can(k,"review"));
+function rvK(){const m=reviewable();if(!m.some(k=>k.n==S.rkb))S.rkb=m[0]?m[0].n:null;return S.rkb?kb(S.rkb):null}
+const accts=[{a:"@fow",role:"서버 관리자",st:"active",login:"비밀번호 · GitHub",p:"fow",mod:2},{a:"@mina",role:"멤버",st:"active",login:"비밀번호",p:"mina",mod:0},{a:"@joon",role:"멤버",st:"active",login:"사내 OIDC",p:"joon",mod:0},{a:"@hana",role:"멤버",st:"active",login:"비밀번호",mod:2},{a:"@dojin",role:"멤버",st:"active",login:"GitHub",mod:0},{a:"@old",role:"멤버",st:"suspended",login:"비밀번호",mod:1}];
+const folders=[["기술 블로그",[["Fedify 블로그","RSS","1시간"],["W3C 소식","Atom","6시간"],["SocialHub","RSS","3시간"]]],["연구",[["엔티티 해석 논문 알림","RSS","하루"],["@alice@scholar.example","ActivityPub","실시간"]]],["가상 세계",[["은빛 항구 팬 위키 변경","RSS","하루"]]]];
+
+/* 지식: /settings/kb */
+function tKbPersonal(){const u=S.persona,made=kbs.filter(k=>!k.server&&(members[k.n]||[]).some(m=>m.a===acct()&&m.role==="moderator"&&m.st==="active"));
+ return [K("개인 지식베이스 "+ref("CT1"),kv([["경로",`<code>/@${u}/</code>`],["공개 범위",`<span class="chip">${S.pub[u]?"공개":"비공개"}</span> <button class="btn" data-a="togglePub">${S.pub[u]?"비공개로":"공개로"}</button>`],["지식 유형",`없음. 판정에서는 real로 다룹니다 ${ref("CT18")}`],["임베딩 모델","<code>server-embed-v3</code> · 고정"],["문서",myDocs().length+"건"],["작업자",`감시 · 새로 고침 · 확장은 여기서만 돕니다 ${ref("CT10")}`]])+`<div class="row" style="margin-top:8px"><button class="btn" data-a="nav" data-v="personal">개인 지식베이스 열기</button></div>`),
+ K("내가 운영하는 공유 지식베이스",(made.map(k=>`<div class="line"><span class="grow">${k.icon} <a data-a="nav" data-v="kbs" data-arg="${k.n}">${esc(k.label)}</a> ${typeChip(k.type)}</span><button class="btn" data-a="nav" data-v="review" data-arg="${k.n}">검토 · 운영</button></div>`).join("")||none)+`<div class="line"><button class="btn pri" data-a="newKb">＋ 공유 지식베이스 만들기</button><span class="muted small">개수 제한 없음 ${ref("CT3")}</span></div>`),
+ K("예전 「지식 테마 관리」"+CHG,`<p style="margin:0">계정은 개인 지식베이스 하나만 가집니다. 기본이 아니던 기존 테마는 공유 지식베이스로 바뀌고, 옛 소유자가 첫 모더레이터가 됩니다 ${ref("CT6")}. 서버 등급의 <code>max_themes</code> 한도는 없어집니다.</p>${note(`<code>/settings/themes</code>의 기능은 이 섹션이 이어받습니다.${PROP} 설계는 이 경로의 처리를 아직 정하지 않았습니다.`)}`)]}
+function tKbSubs(){const my=subs.filter(s=>s.o===S.persona);
+ if(!my.length)return [K("제출 "+ref("§9.2"),`<div class="empty">아직 제출이 없습니다. 개인 지식베이스에서 문서를 기여하세요.</div><div class="row"><button class="btn pri" data-a="nav" data-v="personal">개인 지식베이스로</button></div>`,{w:1})];
+ return my.map(s=>{const d=docs.find(x=>x.id===s.doc),t=s.theme&&th(s.theme);return K(esc(d.title),`<div class="row small"><span class="chip">${s.auto?"자동 규칙":s.by==="server"?"서버가 테마 선택":"계정이 테마 선택"}</span><span class="muted">테마 ${t?esc(t.label):"없음"}${s.score!=null?` · 점수 ${s.score.toFixed(2)}`:""}</span></div>${s.targets.map((g,i)=>{const k=kb(g.kb);return `<div class="line"><span class="grow">${k.icon} ${esc(k.label)} ${srvChip(k)}${g.note?`<br><span class="muted small">${esc(g.note)}</span>`:""}</span>${stChip(g.st)}${g.st==="pending"||g.st==="offered"?`<button class="btn" data-a="withdraw" data-s="${s.id}" data-i="${i}">철회</button>`:""}${g.st==="offered"?`<button class="btn" data-a="simRemote" data-s="${s.id}" data-i="${i}" title="목업: 원격 검토자가 승인">▶ 원격 승인</button>`:""}</div>`}).join("")}`)}).concat([plain(`승인 뒤에는 철회할 수 없습니다 <code>409 contribution_approved</code> ${ref("CT7")}. 원격 대상은 그 서버의 검토자가 결정하고, 결정이 여기에 표시됩니다 ${ref("연합 §12.1")}.`)])}
+function tKbRule(){const r=rep(),ru=ruleOf();
+ return [K("상태 "+ref("§9.9"),`${S.auto?"":`<div class="muted" style="margin-bottom:6px">⏸ 서버 스위치 <code>kb_auto_contribution</code>이 꺼져 있습니다. 규칙은 설정을 유지한 채 멈춥니다. 관리자가 <a data-a="goFed">/admin/federation</a>에서 켭니다 ${ref("CT31")}</div>`}<div class="row"><span class="chip ${ru.on&&S.auto&&r.lv!=="low"?"kb":""}">${!ru.on?"꺼짐":!S.auto?"서버 스위치로 멈춤":r.lv==="low"?"평판 low로 멈춤":"동작 중"}</span><span class="grow"></span><button class="btn" data-a="dryRun">미리 실행 (dry run)</button>${ru.on?`<button class="btn" data-a="ruleOff">즉시 멈춤</button>`:`<button class="btn pri" data-a="ruleOn" ${S.auto?"":"disabled"}>🔐 규칙 켜기</button>`}</div>${note("계정마다 규칙 하나. 켜거나 범위를 넓히려면 최근 로그인이 필요합니다. 거절된 문서는 같은 지식베이스로 다시 가지 않습니다.")}`,{cls:S.auto?"":"err"}),
+ K("대상",`<div class="line"><label><input type="checkbox" data-c="memberships" ${ru.memberships?"checked":""}> 내가 멤버 · 협력자 · 모더레이터인 공유 지식베이스</label></div><div class="line"><label><input type="checkbox" data-c="mutual" ${ru.mutual?"checked":""}> 상호 협업 상대가 만든 공유 지식베이스</label></div><div class="line"><label><input type="checkbox" data-c="themes" ${ru.themes?"checked":""}> 이 규칙으로 따르는 테마의 공유 지식베이스</label><span class="muted small">다른 서버 포함, 양쪽 서버 스위치 필요</span></div>`),
+ K("문서 범위 "+ref("CS14"),`<div class="line"><label><input type="checkbox" data-c="uploads" ${ru.uploads?"checked":""}> 업로드한 파일 문서 포함</label></div><div class="line"><span class="muted small">붙여넣은 텍스트와 "절대 기여 안 함" 문서는 절대 가지 않습니다. 실행 · 대상마다 최대 50건.</span></div>`)]}
+function tKbRep(){const r=rep(),lim={good:100,limited:20,low:5}[r.lv],cd=myDocs().filter(counted);
+ return [K("내 평판 "+ref("§8.6"),`<div class="row">${repChip(r.lv)}<span class="muted small">본인, 검토자, 관리자만 봅니다</span></div>${kv([["가상 자료 비율",`<b>${r.share.toFixed(2)}</b> <span class="muted">(${r.n}/${myDocs().length}) · 0.2 limited · 0.5 low</span>`],["승인율 (180일)",`<b>${r.rate.toFixed(2)}</b> <span class="muted">결정 ${r.dec}건 · 0.5 미만 limited</span>`],["지식베이스당 대기 한도",lim]])}${note("평판은 읽기, 개인 지식베이스 적재, 게시, 가입을 막지 않습니다. 교환에서의 범위만 줄입니다.")}`),
+ K("계산된 가상 자료 문서",cd.map(d=>`<div class="line"><span class="grow"><b>${esc(d.title)}</b><br><span class="muted small">매치 ${esc(th(d.theme).label)}</span></span><button class="btn pri" data-a="contribDoc" data-d="${d.id}">이 테마에 기여</button></div>`).join("")||`<div class="empty">계산되는 문서가 없습니다.</div>`),
+ K("수준별 효과",tbl(["효과","good","limited","low"],[["공개 개인 지식베이스가 테마에 붙기","됨","됨, 뒤에 표시","안 됨"],["지식베이스당 대기 기여","100","20","5"],["검토 대기열 순서","먼저","good 뒤","마지막"],["멤버의 직접 기여","병합 뒤 표시","병합 뒤 표시","승인 대기"],["협력자 · 모더레이터 · 상호 협업 기여","승인 없음","승인 없음","승인 대기"],["자동 기여","됨","실행 · 대상마다 10건","멈춤"]]),{w:1})]}
+function tKbMem(){const u=S.persona,mem=kbs.filter(k=>!k.server&&(members[k.n]||[]).some(m=>m.a===acct())),mu=mutual.filter(m=>m.a===u||m.b===u);
+ return [K("멤버십과 역할",(mem.map(k=>{const m=members[k.n].find(m=>m.a===acct());return `<div class="line"><span class="grow">${k.icon} <a data-a="nav" data-v="kbs" data-arg="${k.n}">${esc(k.label)}</a></span><span class="chip">${m.st==="active"?ROLE[m.role]:ROLE[m.st]}</span></div>`}).join("")+grantsToUs.filter(g=>g.a===acct()).map(g=>`<div class="line"><span class="grow">${kb(g.kb).icon} ${esc(kb(g.kb).label)} ${srvChip(kb(g.kb))}</span><span class="chip remote">원격 협력자 (Grant)</span></div>`).join(""))||none),
+ K("상호 협업 "+ref("§9.10"),(mu.map(m=>{const o=m.a===u?m.b:m.a;return `<div class="line"><span class="grow">@${o}</span>${m.st==="active"?`<span class="chip kb">활성</span><button class="btn" data-a="muEnd" data-o="${o}">끝내기</button>`:m.req===u?`<span class="chip">요청함</span>`:`<span class="chip acc">요청 받음</span><button class="btn pri" data-a="muAccept" data-o="${o}">🔐 수락</button>`}</div>`}).join("")||none)+`<div class="line"><button class="btn" data-a="muReq">🔐 상호 협업 요청</button></div>${note("두 계정의 합의입니다. 한쪽이 공유 지식베이스를 만들면 다른 쪽이 바로 협력자가 됩니다. 서버 안의 교환이고, 다른 서버 계정과는 Grant로 동작합니다.")}`)]}
+
+/* 지식: /settings/kb/{number} */
+function tRvQueue(){const k=rvK(),q=queue.filter(x=>x.kb===k.n).sort((a,b)=>({good:0,limited:1,low:2}[a.rep]-{good:0,limited:1,low:2}[b.rep])),gone=contribs.filter(c=>c.kb===k.n&&c.originGone);
+ const cs=gone.map(c=>K(esc(c.title),`<div class="row"><span class="chip warn">원본에서 삭제됨 · 사유 ${c.originGone}</span><span class="chip">즉시 숨김</span>${ref("KD1")}</div><div class="muted small" style="margin:6px 0">원본 🌐 ${c.src}. 사본은 자동으로 지워지지 않습니다. 여기서 지워도 원본은 바뀌지 않습니다.</div><div class="row"><button class="btn" data-a="goneShow" data-c="${c.id}">다시 표시</button><button class="btn danger" data-a="goneRemove" data-c="${c.id}" ${can(k,"remove")?"":"disabled"} title="remove 권한: 모더레이터">제거</button></div>`,{cls:"err"}))
+ .concat(q.map(x=>K(esc(x.title),`<div class="row small"><span class="chip">${ORI[x.origin]}</span>${x.remote?`<span class="chip remote">🌐 원격 Offer</span>`:""}<span>기여 ${x.by}</span>${repChip(x.rep)}<span class="muted">승인율 ${x.rate.toFixed(2)}</span></div>${kv([["테마 점수",x.ts.toFixed(2)],["이 지식베이스 점수",x.ks.toFixed(2)],["다른 검토자의 결정",x.others.length?x.others.map(o=>`${esc(o[0])}: <b>${esc(o[1])}</b>`).join("<br>"):"없음"]])}<div class="row" style="margin-top:8px"><button class="btn pri" data-a="approve" data-q="${x.id}">승인</button><select class="sel" id="rs-${x.id}"><option>off_subject</option><option>wrong_knowledge_type</option><option>duplicate</option><option>low_quality</option><option>spam</option><option>other</option></select><button class="btn danger" data-a="reject" data-q="${x.id}">거절</button></div>`)));
+ if(!cs.length)cs.push(K("",`<div class="empty">대기 중인 기여가 없습니다.</div>`,{w:1}));
+ cs.push(plain(`평판 순, 그다음 오래된 순. 서버는 검토자를 대신해 결정하지 않습니다 ${ref("§9.3")}. 승인하면 병합 작업이 LLM 호출 없이 그래프를 만들고, 임베딩은 서버 제공자가 냅니다 ${ref("CT24")}.`));return cs}
+function tRvContent(){const k=rvK(),cs=contribs.filter(c=>c.kb===k.n&&c.st!=="removed");
+ return [K("기여",cs.map(c=>`<div class="line"><span class="grow"><b>${esc(c.title)}</b>${c.rev?` <span class="chip acc">개정 ${c.rev}회</span>`:""}${c.frozen?` <span class="chip">갱신 중지</span>`:""}<br><span class="muted small">기여 ${c.by||"삭제된 계정"} · ${ORI[c.origin]}${c.src?` · 원본 🌐 ${c.src}`:""}</span></span>${stChip(c.st)}<button class="btn" data-a="hide" data-c="${c.id}">${c.st==="hidden"?"다시 표시":"숨김"}</button><button class="btn" data-a="freeze" data-c="${c.id}">${c.frozen?"갱신 재개":"갱신 중지"}</button><button class="btn danger" data-a="remove" data-c="${c.id}" ${can(k,"remove")?"":"disabled"} title="remove 권한: 모더레이터">제거</button></div>`).join("")||none,{w:1}),
+ K(`사건 시뮬레이션 <span class="chip">목업</span>`,`<div class="line"><span class="grow">원본 문서가 새 버전으로 바뀜 ${ref("CT20")}<br><span class="muted small">개인 지식베이스의 재수집 또는 원격 지식베이스 액터의 <code>Update</code></span></span><button class="btn" data-a="simRev" data-n="${k.n}">▶ 개정 도착</button></div><div class="line"><span class="grow">원본 서버에서 문서가 삭제됨 ${ref("KD1")}<br><span class="muted small">지식베이스 액터의 <code>Delete</code></span></span><button class="btn" data-a="simDel" data-n="${k.n}">▶ 원본 삭제 도착</button></div>`),
+ K("규칙",`<p style="margin:0" class="muted small">개정은 승인 없이 사본에 적용됩니다. 검토자는 기여마다 갱신을 멈출 수 있습니다. 제거는 묘비(tombstone)를 남겨 같은 URL이 다시 들어오지 못하게 합니다.</p>`)]}
+function tRvCurate(){const k=rvK(),t=th(k.theme),srcs=kbs.filter(x=>x.theme===k.theme&&x.n!==k.n&&sources[x.n]&&(!x.server||S.fed)),pa=attached.filter(a=>a.theme===k.theme&&a.rep!=="low"&&sources[a.u]&&S.pub[a.u.slice(1)]);
+ const cur=S.csrc&&(srcs.some(x=>x.n==S.csrc)||pa.some(a=>a.u===S.csrc))?S.csrc:(srcs[0]?srcs[0].n:null);S.csrc=cur;const sk=kb(cur);
+ const list=srcs.map(x=>mi("csrc",x.n,cur==x.n,`${x.icon} <b>${esc(x.label)}</b><br><span class="muted small">${x.server?"🌐 "+x.server:"이 서버"} · 문서 ${x.docs}</span>`)).join("")+pa.map(a=>mi("csrc",a.u,cur===a.u,`👤 <b>${a.u}</b><br><span class="muted small">공개 개인 지식베이스 · 문서 ${a.docs}</span>`)).join("");
+ const det=cur?`<h4>표시된 문서</h4><div class="card">${(sources[cur]||[]).map((d,i)=>{const dup=contribs.some(c=>c.kb===k.n&&c.title===d&&c.st!=="removed");return `<div class="line"><label class="grow"><input type="checkbox" class="cq" value="${i}" ${dup?"disabled":""}> ${esc(d)}</label>${dup?`<span class="chip">이미 있음 · 409</span>`:""}</div>`}).join("")}<div class="line"><button class="btn pri" data-a="curate" data-n="${k.n}">선택한 문서 큐레이션</button>${sk&&sk.server?`<span class="muted small">서명된 GET으로 문서와 추출 결과를 읽고, 지식베이스 액터를 팔로우합니다 ${ref("연합 §11")}</span>`:""}</div></div><div class="legend" style="margin-top:8px">같은 테마 「${esc(t.label)}」의 다른 지식베이스에서 표시된 문서만 가져옵니다. 사본은 새 IRI를 갖고 <code>origin</code>과 원래 기여자를 유지합니다. 큐레이터가 승인한 것으로 봅니다 ${ref("CT14")}.</div>`:`<div class="empty">같은 테마에 다른 지식베이스가 없습니다.</div>`;
+ return md(list||`<div class="empty">원천 없음</div>`,det)}
+function tRvPeople(){const k=rvK();
+ return [K("멤버 "+ref("§10.2"),(members[k.n]||[]).map(m=>`<div class="line"><span class="grow">${m.a}</span><span class="chip">${m.st==="active"?ROLE[m.role]:ROLE[m.st]}</span>${m.st==="pending"?`<button class="btn pri" data-a="mApprove" data-m="${m.a}">가입 승인</button>`:""}${m.st==="active"&&m.role==="member"?`<button class="btn" data-a="mGrant" data-m="${m.a}">🔐 협력자로</button>`:""}${m.st==="active"&&m.role==="collaborator"?`<button class="btn" data-a="mRevoke" data-m="${m.a}">🔐 멤버로</button>`:""}${m.role==="moderator"?`<span class="muted small">관리자만 바꿉니다</span>`:m.st==="banned"?`<button class="btn" data-a="mUnban" data-m="${m.a}">차단 해제</button>`:`<button class="btn danger" data-a="mBan" data-m="${m.a}">차단</button>`}</div>`).join("")),
+ K("원격 협력자 "+ref("KD6"),(grants.filter(g=>g.kb===k.n).map(g=>`<div class="line"><span class="grow">${g.a} <span class="chip remote">Grant · ${g.until}까지</span></span><button class="btn" data-a="gRevoke" data-g="${g.a}">🔐 Revoke</button></div>`).join("")||none)+`<div class="line"><input class="inp grow" id="gAcct" value="@nari@hanbit.example"><button class="btn" data-a="gGrant" data-n="${k.n}">🔐 Grant (6개월)</button></div>${note("원격 협력자는 기여만 승인 없이 할 수 있습니다. 원격 모더레이터는 없습니다.")}`),
+ plain("차단과 검토는 빠르게 해야 하므로 최근 로그인이 필요 없고, 역할 변경은 필요합니다. 모더레이터는 다른 모더레이터를 바꿀 수 없습니다.")]}
+function tRvSet(){const k=rvK();
+ return [K("기본 정보",inp("이름",esc(k.label))+inp("설명",esc(k.desc))+inp("아이콘",k.icon)+`<div class="row" style="margin-top:8px">${mb("저장","pri")}</div>`),
+ K("주제 판정 "+ref("§8.5"),`<label class="f">지식 유형</label><div class="row"><label><input type="radio" name="st" ${k.type==="real"?"checked":""}> real</label><label><input type="radio" name="st" ${k.type==="fictional"?"checked":""}> fictional</label></div>${inp("시드 엔티티 (최대 20개)","ActivityPub, WebFinger")}${note("시그니처가 아직 없는 지식베이스의 문서 매치에 씁니다.")}`),
+ K("가입과 보관",opt("가입 정책","open: 바로 멤버 · approval: 모더레이터 승인",[k.policy,k.policy==="open"?"approval":"open"])+`<div class="line"><span class="grow"><b>보관</b><br><span class="muted small">읽기 전용. 가입, 기여, 병합 작업이 멈추고 테마 기여와 자동 기여의 대상에서 빠집니다</span></span>${mb("보관")}</div>`),
+ plain(`삭제는 서버 관리자만 합니다 <code>/admin/kb</code>. 이 화면의 모든 변경은 <code>kb_moderation_log</code>에 남습니다.`)]}
+const tRvLog=()=>[K("운영 기록 "+ref("§6.8"),tbl(["행위자","동작","대상"],modlog.slice().reverse().map(l=>[l[0],`<code>${l[1]}</code>`,esc(l[2])])),{w:1})];
+function rvTabs(){const k=rvK();if(!k)return [["none","검토",()=>[K("",`<div class="empty"><b>대상 없음</b><br>검토 권한(<code>review</code>)이 있는 공유 지식베이스가 없습니다.</div>`,{w:1})]]];
+ const n=queue.filter(x=>x.kb===k.n).length+contribs.filter(c=>c.kb===k.n&&c.originGone).length;
+ return [["queue",`대기열 ${n}`,tRvQueue],["content","기여 관리",tRvContent],["curate","큐레이션",tRvCurate]].concat(can(k,"people")?[["people","멤버 · 역할",tRvPeople],["set","설정",tRvSet],["log","운영 기록",tRvLog]]:[])}
+
+/* 서버 관리: 연합, 공유 지식베이스, 테마 */
+const swb=(on,a)=>`<button class="btn ${on?"on":""}" data-a="${a}">${on?"● on":"○ off"}</button>`;
+const tFedSw=()=>[K("스위치 "+ref("연합 §14"),`<div class="line"><span class="grow"><code>federation</code><br><span class="muted small">공유 지식의 연합도 함께 켭니다. ActivityPub 기능이 완성되면 기본값 on, 싱글 모드 포함</span></span>${swb(S.fed,"swFed")}</div><div class="line"><span class="grow"><code>kb_auto_contribution</code>${NEW} ${ref("KD4")}<br><span class="muted small">이 서버 계정의 자동 기여를 보내고, 다른 서버의 자동 기여를 받습니다. 기본값 off</span></span>${swb(S.auto,"swAuto")}</div><div class="line"><span class="grow">서명된 GET${NEW}<br><span class="muted small">공유 지식 컬렉션은 서버 액터가 서명한 요청에만 답합니다. 그래서 도메인 차단이 읽기에도 적용됩니다</span></span><span class="chip kb">항상</span></div>`),
+ K("준비 검사 GF1–GF7",stats([["7 / 7","통과"],["방금","마지막 검사"]])+note(`GF1(네트워크 모드)은 싱글 모드에서도 연합이 동작하도록 바뀝니다 ${ref("연합 §15")}${CHG}`)+`<div class="row" style="margin-top:8px">${mb("다시 검사")}</div>`),
+ K("Fedify 사이드카",kv([["상태",`<span class="chip kb">실행 중</span>`],["Fedify","2.4.5"],["보내는 큐","0건 대기"],["지식베이스 액터 키",`사이드카가 보관 ${ref("KD5")}${NEW}`]]))];
+function tFedSrv(){const s=servers.find(x=>x.d===S.sel.srv)||servers[0];
+ const list=servers.map(x=>mi("srv",x.d,s&&x.d===s.d,`<b>${x.d}</b>${x.err?` <span class="chip warn">오류 ${x.err}</span>`:""}<br><span class="muted small">${esc(x.name)} · 공유 KB ${x.kbs} · ${x.last}</span>`)).join("")+`<div style="padding:10px 12px"><input class="inp" style="width:100%" id="addD" placeholder="도메인 추가: kb.example.org"><div class="row" style="margin-top:6px"><button class="btn" data-a="addServer">🔐 추가</button></div></div>`;
+ const ks=s?kbs.filter(k=>k.server===s.d):[];
+ return md(list,s?`<div class="row"><h2>${s.d}</h2><span class="grow"></span><button class="btn danger" data-a="block" data-d="${s.d}">🔐 도메인 차단</button></div><div class="sgrid" style="margin-top:10px"><section class="card"><h4>서버</h4>${kv([["이름",esc(s.name)],["소프트웨어",s.sw],["알게 된 경로",esc(s.how)],["마지막 읽기",s.last],["오류",s.err?`<span class="chip warn">${s.err}</span>`:"없음"]])}</section><section class="card"><h4>이 서버가 읽은 공유 지식베이스 (${ks.length})</h4>${ks.map(k=>`<div class="line"><span class="grow">${k.icon} <a data-a="nav" data-v="kbs" data-arg="${k.n}">${esc(k.label)}</a></span>${k.followed?`<span class="chip kb">액터 팔로우</span>`:""}</div>`).join("")||none}</section></div><div class="legend" style="margin-top:10px">합의가 없습니다. 서버는 계정의 활동으로 알려지거나 관리자가 추가합니다. 처음 접촉할 때 <code>/kb</code> 컬렉션을 한 번 전부 읽습니다 ${ref("연합 §6.2")}.</div>`:`<div class="empty">알려진 서버가 없습니다.</div>`)}
+const tFedBlock=()=>[K("도메인 차단",(blocks.map(x=>`<div class="line"><span class="grow"><b>${x.d}</b><br><span class="muted small">${x.when} · 이미 받은 사본은 남고 개정만 멈춤</span></span><button class="btn" data-a="unblock" data-d="${x.d}">🔐 해제</button></div>`).join("")||none)+note(`단계 "limit"(그 도메인의 Offer는 항상 승인 대기, 로컬 테마에 안 들어옴)은 뒤 단계 ${ref("KD8")}`)),
+ K("제안"+NEW,(suggestions.map(x=>`<div class="line"><span class="grow"><b>${x.d}</b><br><span class="muted small">${esc(x.via)}</span></span><button class="btn" data-a="addSug" data-d="${x.d}">🔐 추가</button></div>`).join("")||none)+note("제안은 관리자가 손으로 추가할 때만 알려진 서버가 됩니다."))];
+const tFedJournal=()=>[K("인박스 저널 "+ref("연합 §13"),tbl(["활동","보낸 쪽","서명","상태",""],journal.map(j=>[`<code>${esc(j.act)}</code>`,esc(j.from),j.sig?"✓":"✗",j.st==="processed"?`<span class="chip kb">처리됨</span>`:j.st==="failed"?`<span class="chip warn">실패: ${esc(j.err)}</span>`:`<span class="chip">거부: ${esc(j.err)}</span>`,j.st==="failed"?`<button class="btn" data-a="replay" data-j="${j.id}">다시 처리</button>`:""]))+note("받은 활동을 처리 전에 저장합니다. 활동 IRI가 키이므로 두 번 처리해도 결과가 같습니다. 보존: 처리됨 30일, 실패 90일."),{w:1})];
+const tAkAll=()=>[K("공유 지식베이스",tbl(["공유 지식베이스","유형","모더레이터","상태",""],kbs.filter(k=>!k.server).map(k=>{const mods=(members[k.n]||[]).filter(m=>m.role==="moderator"&&m.st==="active");return [`${k.icon} <a data-a="nav" data-v="kbs" data-arg="${k.n}">${esc(k.label)}</a> <span class="muted">#${k.n}</span>`,k.type,mods.length?mods.map(m=>m.a).join(", "):`<span class="chip warn">없음 · 관리자가 대신</span>`,k.n===1003?`<span class="chip warn">병합 실패 1</span>`:`<span class="chip kb">active</span>`,`<button class="btn" data-a="setMod" data-n="${k.n}">🔐 모더레이터 지정</button> <button class="btn danger" data-a="delKb" data-n="${k.n}">삭제…</button>`]}))+note(`모더레이터 역할은 관리자만 주고 뺏습니다. 삭제는 관리자만, 미리 실행을 먼저 봅니다 ${ref("CS4")}.`),{w:1})];
+const tAkFail=()=>[K("실패한 병합 작업",tbl(["지식베이스","문서","코드",""],[["🕸️ 지식 그래프 연구 모음","임베딩 공간 비교 노트","<code>embedding_model_unavailable</code>",mb("다시 시도")]])+note(`서버 제공자가 그 지식베이스의 고정 임베딩 모델을 제공하지 않으면 기여가 실패합니다 ${ref("§13.5")}.`),{w:1}),
+ K("변환 실패 "+ref("§12.2"),`<div class="empty">없음</div>${note("버전 27 이전에서 변환에 실패한 지식베이스는 모든 경로에서 404를 주고 여기에 경고로 나옵니다. 다음 시작 때 다시 시도합니다.")}`)];
+const tAtJudge=()=>[K("주제 판정 "+ref("§8.2"),`<div class="row"><span class="muted">마지막 실행 ${S.lastRun}</span><span class="grow"></span><button class="btn pri" data-a="runJudge">지금 실행</button></div>${note("하루 한 번, 또는 지식베이스에 새 표시 문서 20건. LLM 호출 없음. 테마 자체는 서버끼리 교환하지 않습니다.")}`),
+ K("임계값 "+ref("CT25"),[["theme","theme_match_threshold"],["doc","document_match_threshold"],["seed","seed_match_threshold"],["auto","auto_match_threshold"]].map(([k,l])=>`<div class="line"><span class="grow"><code>${l}</code></span><input class="inp" style="width:70px" type="number" step="0.05" value="${S.thr[k]}"></div>`).join("")),
+ K("평판 숫자와 한도 "+ref("§8.6"),kv([["가상 자료 비율","limited 0.2 · low 0.5"],["승인율","limited 0.5 미만 · low 0.2 미만"],["대기 한도","100 · 20 · 5"],["자동 기여","실행 · 대상마다 50건"]])+`<div class="row" style="margin-top:8px">${mb("수정")}</div>`)];
+const tAtAdj=()=>[K("테마와 조정 "+ref("§8.3"),tbl(["테마","유형","멤버","조정"],themes.map(t=>[`<b>${esc(t.label)}</b> <span class="muted">#${t.n}</span>`,t.type,kbs.filter(k=>k.theme===t.n).map(k=>`<span class="chip ${k.server?"remote":""}">${k.icon} ${esc(k.label)}${k.pinned?" 📌":""}</span>`).join(" "),`<button class="btn" data-a="lock" data-t="${t.n}">${t.locked?"🔒 잠금 해제":"라벨 잠금"}</button> <button class="btn" data-a="pin" data-t="${t.n}">고정</button> <button class="btn" data-a="merge" data-t="${t.n}">병합…</button>`]))+note("나중 실행은 조정을 유지합니다. 병합된 테마의 번호는 308으로 대상 테마에 갑니다."),{w:1})];
+const tAtAgree=()=>[K("결정 일치도 "+ref("§9.3"),tbl(["공유 지식베이스","결정 3건 이상 항목","다수 결정과 일치"],[["📡 연합 프로토콜 노트","21","0.90"],["🧩 Fediverse 구현 사례","18","0.83"],["🕸️ 지식 그래프 연구 모음","9",`<span class="chip warn">0.44</span>`]])+note(`아주 다르게 결정하는 검토자를 찾는 데 씁니다. 한 지식베이스의 결정은 평판 계산에서 최대 3분의 1만 차지합니다 ${ref("CS10")}.`),{w:1})];
+function tAccts(){const a=accts.find(x=>x.a===S.sel.acct)||accts[0],r=a.p?rep(a.p):null;
+ return md(accts.map(x=>mi("acct",x.a,x.a===a.a,`<b>${x.a}</b> ${x.st==="suspended"?`<span class="chip warn">정지</span>`:""}<br><span class="muted small">${x.role} · ${x.login}</span>`)).join(""),
+ `<div class="row"><h2>${a.a}</h2><span class="chip">${a.role}</span><span class="grow"></span>${mb(a.st==="suspended"?"🔐 복구":"🔐 정지")}</div><div class="sgrid" style="margin-top:10px"><section class="card"><h4>계정</h4>${kv([["상태",a.st],["로그인",a.login],["서버 등급","standard"],["가입","2026-03-02"]])}</section><section class="card"><h4>교환 ${ref("§8.6")}${NEW}</h4>${kv([["평판",r?repChip(r.lv):repChip("good")],["모더레이터인 공유 지식베이스",a.mod+"개"],["자동 기여 규칙",a.st==="suspended"?"정지로 멈춤":"—"]])}${note("관리자는 모든 평판 수준을 봅니다. 멤버의 비공개 콘텐츠는 보지 않습니다.")}</section></div>${a.st==="suspended"?`<div class="card note" style="margin-top:10px">정지된 계정의 역할은 저장되어 있지만 권한을 주지 않습니다. 이 계정만 모더레이터인 공유 지식베이스는 <a data-a="goSec" data-s="admin/kb">/admin/kb</a>에 "모더레이터 없음"으로 나옵니다 ${ref("§6.7")}.</div>`:""}`)}
+function tFeeds(){const i=+S.sel.folder||0,f=folders[i];
+ return md(folders.map((x,j)=>mi("folder",j,j===i,`🗂️ <b>${x[0]}</b><br><span class="muted small">대상 ${x[1].length}개</span>`)).join("")+`<div style="padding:10px 12px">${mb("＋ 폴더")}</div>`,
+ `<div class="row"><h2>${f[0]}</h2><span class="grow"></span>${mb("＋ 수집 대상","pri")}</div><div class="card" style="margin-top:10px">${tbl(["대상","종류","주기","",""],f[1].map(r=>[`<b>${r[0]}</b>`,`<span class="chip">${r[1]}</span>`,r[2],`<button class="btn on" data-a="tog">● 켬</button>`,mb("편집")]))}</div><div class="legend" style="margin-top:10px">수집은 적재가 아닙니다. 게시물은 직접 적재할 때만 개인 지식베이스에 들어갑니다.</div>`)}
+
+const GROUPS=[["acct","👤","계정"],["know","📚","지식"],["synd","📰","수집 · 게시"],["agent","🤖","에이전트"],["srv","🖥️","서버",1],["sys","⚙️","시스템",1]];
+const SYN="선택 테마 → 개인 지식베이스";
+const SECS=[
+{id:"settings/account",g:"acct",i:"👤",n:"내 계정 · 프로필 · 보안",sc:"계정 전역",d:"프로필 표시 이름, 비밀번호와 단계 인증, 외부 IdP 연결, 할당량, 계정 수명주기",tabs:[
+ ["profile","프로필",()=>[K("계정 정보",kv([["USERNAME","@"+S.persona],["역할",me().admin?"서버 관리자":"멤버"],["상태","active"],["가입","2026-03-02"]])),K("표시 이름",inp("표시 이름",S.persona)+`<div class="row" style="margin-top:8px">${mb("저장","pri")}</div>`),K("인터페이스 언어",opt("언어","빈 값은 자동 협상",["자동","한국어","English"])),K("공개 프로필"+CHG,sw("<code>profile_public</code>","연합이 켜져 있으면 공개 프로필은 연합 액터입니다. 공개로 바꿀 때 최근 로그인이 필요합니다",true)+note(`USERNAME은 두 서버 모드에서 모두 공개됩니다 ${ref("CT33")}`))]],
+ ["sec","보안 · 로그인",()=>[K("비밀번호 변경",inp("현재 비밀번호","")+inp("새 비밀번호","")+`<div class="row" style="margin-top:8px">${mb("🔐 변경","pri")}</div>`),K("단계 인증",kv([["최근 로그인","4분 전 · 유효"],["필요한 동작","비밀번호, BYOK 키, 계정 수명주기, 역할 변경, 자동 기여 규칙, 상호 협업"]])+note(`베어러 자격 증명은 통과하지 못합니다 ${ref("§6.8")}`)),K("연결된 외부 로그인 (OIDC · GitHub)",tbl(["공급자","연결일",""],[["GitHub","2026-04-11",mb("연결 해제")],["사내 OIDC","—",mb("연결")]])+note(`IdP 클레임은 역할, 범위, 상호 협업, 규칙을 주지 않습니다 ${ref("§6.7")}`))]],
+ ["quota","할당량",()=>[K("할당량 및 사용량",stats([["412","문서"],["1.8 GB","미디어"],["37 / 200","오늘 적재"]])),K("서버 등급",kv([["등급","standard"],["BYOK","허용"]])+note(`<code>max_themes</code> 한도는 없어집니다 ${ref("§10.1")}${CHG}`))]],
+ ["data","데이터 · 삭제",()=>[K("그래프 번들 내보내기",`<p class="muted small" style="margin:0 0 8px">개인 지식베이스의 그래프 데이터 번들(.tar.zst)</p>${mb("번들 만들기","pri")}`),K("계정 삭제"+CHG,`<p style="margin:0">개인 지식베이스, 멤버십, 규칙, 상호 협업이 지워집니다. 공유 지식베이스에 한 기여는 남고, 기여 표시는 "삭제된 계정"이 됩니다 ${ref("CT7")}.</p><div class="line" style="margin-top:6px"><label><input type="checkbox"> 내 활동 기록도 삭제 <span class="muted small">제출, 운영 기록에 쓴 사유 글. 지식베이스 내용은 바뀌지 않음 ${ref("CT19")}</span></label></div><div class="row" style="margin-top:8px">${mb("🔐 삭제 미리 보기","danger")}</div>`,{cls:"err"})]]]},
+{id:"settings/keys",g:"acct",i:"🔐",n:"BYOK 외부 API 키",sc:"계정 전역",d:"쓰기 전용 외부 프로바이더 API 키와 서버 등급 허용량",tabs:[
+ ["keys","내 키",()=>[K("내 API 키 (쓰기 전용 · Split-Key 봉인)",tbl(["프로바이더","상태","등록",""],[["Gemini",`<span class="chip kb">확인됨</span>`,"2026-09-01",mb("다시 확인")+" "+mb("삭제","danger")],["OpenAI 호환",`<span class="chip">없음</span>`,"—",""]]),{w:1}),K("키 등록 · 교체",opt("프로바이더","",["Gemini","OpenAI 호환"])+inp("API 키","","값은 다시 볼 수 없습니다")+`<div class="row" style="margin-top:8px">${mb("🔐 등록","pri")}</div>`),K("기여와 비용",`<p class="muted small" style="margin:0">내 키로 적재한 문서를 기여해도 기증입니다. 공유 지식베이스의 병합 작업 임베딩은 서버가 냅니다 ${ref("CT24")}.</p>`)]],
+ ["tier","서버 등급",()=>[K("현재 서버 등급 허용량 (ServerTier)",tbl(["항목","허용량"],[["일일 적재","200"],["미디어 저장","5 GB"],["BYOK","허용"]]),{w:1})]]]},
+{id:"settings/tokens",g:"acct",i:"🔑",n:"API · MCP 상시 키",mk:CHG,sc:"계정 전역",path:()=>me().admin?"/admin/tokens":"/settings/tokens",d:"API · MCP 상시 이용 토큰 발급 · 폐기, OAuth 2.1 승인 클라이언트",tabs:[
+ ["tok","토큰",()=>[K("토큰",tbl(["이름","범위","마지막 사용",""],[["노트북 CLI",`<span class="chip kb">owner</span>`,"오늘",mb("폐기","danger")],["수집 에이전트",`<span class="chip acc">write</span>${NEW}`,"어제",mb("폐기","danger")],["옛 협력자 링크용",`<span class="chip">readonly</span> <span class="muted small">← collaborator</span>`,"3달 전",mb("폐기","danger")]])+`<div class="row" style="margin-top:8px">${mb("＋ 토큰 발급","pri")}</div>`,{w:1}),K("범위 "+ref("§6.6"),tbl(["범위","개인 지식베이스","공유 지식베이스 · 테마","계정 · 규칙"],[["owner","모든 권한","계정의 모든 권한","가능 (단계 인증)"],["write","읽기, 적재, 게시","읽기, 기여, 제출, 대기 기여 철회","불가"],["readonly","읽기","읽기","불가"]])+note(`<code>write</code>는 계정의 도구(에이전트, 스크립트, 봇)용입니다. 가입, 포크, 검토, 역할 변경은 사람의 결정이라 하지 못합니다 ${ref("CT30")}.`),{w:1}),K("알림 "+ref("CT34"),`<p style="margin:0">범위 <code>collaborator</code>였던 토큰 1개가 <code>readonly</code>로 바뀌었습니다. 이 알림은 한 번만 나옵니다.</p>`,{cls:"note"})]],
+ ["oauth","OAuth 클라이언트",()=>[K("내가 승인한 OAuth 2.1 클라이언트",tbl(["클라이언트","범위","승인일",""],[["Claude 데스크톱",`<span class="chip">readonly</span>`,"2026-10-03",mb("승인 취소","danger")]])+note("OAuth 토큰은 이 설계에서 readonly만 가집니다. write 범위는 별도 변경입니다."),{w:1})]]]},
+{id:"settings/telegram",g:"acct",i:"✈️",n:"텔레그램 봇",mk:CHG,sc:"계정 전역",d:"계정 전용 텔레그램 봇 토큰, 허용 사용자, 켜기 · 끄기, 실행 상태",tabs:[["bot","봇",()=>[K("실행 상태",stats([["실행 중","상태"],["12","오늘 수신"]])+sw("봇 켜기","",true)),K("봇 토큰",inp("토큰","••••••••:••••")+`<div class="row" style="margin-top:8px">${mb("🔐 교체")}</div>`),K("허용 사용자",tbl(["사용자 ID",""],[["48211034",mb("제거","danger")]])+`<div class="row" style="margin-top:8px">${mb("＋ 추가")}</div>`),K("바뀌는 동작",`<p class="muted small" style="margin:0">적재는 항상 개인 지식베이스로 갑니다. <code>/kb</code>가 검색 · 읽기 대상을 고릅니다. <code>/webco</code>와 초점 문법은 없어집니다 ${ref("CT27")}${ref("CT28")}. 가상 자료로 보이는 문서는 답장에 알림이 붙습니다.</p>`)]]]},
+{id:"settings/bundles",g:"acct",i:"📦",n:"서포트 · 데이터 번들",sc:"계정 전역",d:"계정 범위의 진단 서포트 번들과 데이터 번들",tabs:[["b","번들",()=>[K("서포트 번들",tbl(["만든 때","기간","파기",""],[["오늘 09:12","1일","6시간 뒤",mb("내려받기")]])+`<div class="row" style="margin-top:8px">${mb("번들 만들기","pri")}</div>`),K("데이터 번들",tbl(["지식베이스","만든 때",""],[["개인 지식베이스","어제",mb("내려받기")+" "+mb("삭제","danger")]])+note(`공유 지식베이스의 데이터 번들은 모더레이터와 관리자만 만듭니다 ${ref("§13.2")}`))]]]},
+{id:"settings/backups",g:"acct",i:"💾",n:"백업",sc:"계정 전역",d:"계정 데이터 백업, 자동 백업 주기와 보존 개수",tabs:[["b","백업",()=>[K("백업 목록",tbl(["만든 때","크기",""],[["2026-11-15 03:00","212 MB",mb("내려받기")+" "+mb("삭제","danger")],["2026-11-08 03:00","208 MB",mb("내려받기")+" "+mb("삭제","danger")]])+`<div class="row" style="margin-top:8px">${mb("지금 백업","pri")}</div>`,{w:1}),K("자동 백업",opt("주기","",["매주","매일","끔"])+opt("보존 개수","",["4","8","12"])),K("범위",`<p class="muted small" style="margin:0">계정 백업에는 개인 지식베이스만 들어갑니다. 공유 지식베이스는 서버 백업에 있습니다 ${ref("§13.2")}${CHG}</p>`)]]]},
+{id:"settings/kb",g:"know",i:"📚",n:"내 지식베이스 · 기여",mk:NEW,sc:"계정 전역",d:"개인 지식베이스, 제출과 대상별 상태, 자동 기여 규칙, 평판, 멤버십과 상호 협업",tabs:[["personal","개인 지식베이스",tKbPersonal],["subs","제출",tKbSubs],["rule","자동 기여 규칙",tKbRule],["rep","평판",tKbRep],["mem","멤버십 · 상호 협업",tKbMem]]},
+{id:"settings/kb/review",g:"know",i:"🧐",n:"검토 · 운영",mk:NEW,sc:"공유 지식베이스",tabKey:"rtab",show:()=>reviewable().length>0,path:()=>"/settings/kb/"+(S.rkb||"{number}"),badge:()=>queue.filter(x=>reviewable().some(k=>k.n===x.kb)).length,d:"협력자: 검토, 큐레이션, 유지보수. 모더레이터: 멤버와 역할, 설정, 제거, 운영 기록",tabs:rvTabs},
+{id:"settings/federation",g:"know",i:"🌐",n:"연합 · 팔로워",sc:"계정 전역",d:"내 계정의 연합 핸들과 액터 상태, 팔로워",tabs:[["f","액터 · 팔로워",()=>[K("연합 액터",kv([["핸들",`<code>@${S.persona}@${SELF}</code>`],["상태",S.fed?`<span class="chip kb">연합 액터</span>`:`<span class="chip">연합 꺼짐</span>`],["게시","개인 지식베이스의 문서만 게시합니다"]])+note(`싱글 모드에서도 관리자 계정 액터가 같은 규칙으로 연합합니다 ${ref("KD2")}${CHG}`)),K("팔로워",tbl(["계정",""],[["@alice@scholar.example",mb("제거","danger")],["@dana@hci.example",mb("제거","danger")]]))]]]},
+{id:"settings/reader",g:"synd",i:"📖",n:"리더 · 목록 스타일",sc:SYN,d:"작업 공간 기본 탭, 목록 밀도, 화면 분할, 원문 ⇄ 본문 전환, 본문 서체",tabs:[["r","리더",()=>[K("작업 공간",opt("기본 탭","",["수집","적재","게시"])+opt("화면 분할","",["3단","2단"])),K("목록",opt("목록 밀도","",["보통","촘촘하게","넓게"])+sw("읽지 않은 항목 강조","",true)),K("본문",opt("본문 서체","",["Noto Sans KR","Noto Serif KR"])+sw("수집 원문 ⇄ 적재 본문 전환 버튼","",true))]]]},
+{id:"settings/connections",g:"synd",i:"🔌",n:"연결 서버 계정 (AP · AT)",sc:SYN,d:"클라이언트로 접속할 ActivityPub, AT Protocol 서버 계정",tabs:[["c","연결 계정",()=>[K("연결 계정",tbl(["계정","프로토콜","상태",""],[["@fow@social.example",`<span class="chip">ActivityPub</span>`,"연결됨",mb("연결 해제","danger")],["fow.bsky.example",`<span class="chip">AT Protocol</span>`,"연결됨",mb("연결 해제","danger")]])+`<div class="row" style="margin-top:8px">${mb("＋ 계정 연결","pri")}</div>`,{w:1})]]]},
+{id:"settings/feeds",g:"synd",i:"📡",n:"정기 수집 대상 · 폴더",sc:SYN,d:"RSS/Atom 피드와 연결 계정 경유 수집 대상, 주기",tabs:[["f","폴더와 대상",tFeeds]]},
+{id:"settings/tags",g:"synd",i:"🏷️",n:"태그=엔티티 적재 정책",sc:SYN,d:"수집 원문 태그의 파이프라인 전달, 잠정 엔티티 승격, 노이즈 태그 필터",tabs:[["t","태그 정책",()=>[K("전달과 승격",sw("[태그]를 파이프라인에 전달","",true)+sw("잠정 엔티티로 승격","",true)+sw("해시태그 역변환","",false)),K("노이즈 태그 필터",inp("제외할 태그","followfriday, photo")+`<div class="row" style="margin-top:8px">${mb("저장","pri")}</div>`)]]]},
+{id:"settings/rules",g:"synd",i:"⚡",n:"오거나이즈 · 자동 적재",sc:SYN,d:"엔티티 연관도 임계 점수와 자동 적재 전달 규칙",tabs:[["r","규칙",()=>[K("연관도 임계 점수",`<input type="range" style="width:100%" value="60">${note("개인 지식베이스의 엔티티와 얼마나 겹치는지로 수집 항목을 정리합니다.")}`),K("자동 적재 규칙",tbl(["조건","동작",""],[["연관도 0.8 이상","적재 제안",mb("편집")],["폴더 「연구」","적재 제안",mb("편집")]])),K("자동 기여와의 차이",`<p class="muted small" style="margin:0">이 규칙은 수집 → 개인 지식베이스 적재입니다. 개인 지식베이스 → 공유 지식베이스는 <a data-a="goSec" data-s="settings/kb" data-t="rule">자동 기여 규칙</a>이 맡습니다.</p>`)]]]},
+{id:"settings/outbound",g:"synd",i:"🔁",n:"부스트 · 적재 발행",sc:SYN,d:"프로토콜별 기본 발행 모드, 공개 열람 링크 첨부, 발행 본문 공유 정책",tabs:[["o","발행",()=>[K("기본 발행 모드",opt("ActivityPub","",["부스트","인용"])+opt("AT Protocol","",["인용","리포스트"])),K("링크와 공유",sw("공개 열람 링크 첨부","",true)+opt("발행 본문 공유 정책 (peerSharePolicy)","",["허용","출처 표시 필요","불허"]))]]]},
+{id:"settings/opml",g:"synd",i:"🗂️",n:"OPML · 툼스톤 진단",sc:SYN,d:"OPML 2.0 구독 목록 입출력, 재수집 차단 상태 점검",tabs:[["o","OPML",()=>[K("가져오기 · 내보내기",`<div class="row">${mb("OPML 가져오기")}${mb("OPML 내보내기")}</div>`),K("툼스톤 진단",tbl(["URL","소각일"],[["https://blog.example/post/12","2026-10-01"],["https://blog.example/post/19","2026-10-22"]]))]]]},
+{id:"settings/mcp",g:"agent",i:"🧩",n:"MCP 클라이언트 연결",mk:CHG,sc:"계정",d:"외부 AI 하네스용 /mcp 엔드포인트, 연결 스니펫, 도구 목록",tabs:[
+ ["conn","연결",()=>[K("엔드포인트",kv([["URL",`<code>https://${SELF}/mcp</code>`],["인증","API 토큰 또는 OAuth 2.1"]])),K("연결 스니펫",`<pre class="code">{ "mcpServers": { "claire": {
+    "url": "https://${SELF}/mcp" } } }</pre>`)]],
+ ["tools","도구",()=>[K("도구",tbl(["도구","종류","지식베이스 선택"],[["search","읽기","<code>kb</code> 필수"],["get_document","읽기","<code>kb</code> 필수"],["ingest","쓰기","개인 지식베이스만"],[`kb_candidates${NEW}`,"읽기","지식베이스 또는 테마의 기여 후보와 점수"],[`kb_submit${NEW}`,"쓰기 · 범위 write","후보를 제출"]])+note(`읽기 도구는 <code>kb</code>가 없으면 <code>400 kb_required</code>를 받습니다. 기본값은 없습니다 ${ref("CT23")}. 서버는 선택에 LLM을 쓰지 않습니다. 계정의 에이전트가 고를 수 있습니다 ${ref("§9.9")}.`),{w:1})]]]},
+{id:"settings/webmcp",g:"agent",i:"🕸️",n:"WebMCP 페이지 도구",sc:"계정",d:"브라우저 내장 에이전트용 페이지 도구 노출, 사용자 확인 정책, 호출 시뮬레이터",tabs:[["w","페이지 도구",()=>[K("노출",sw("<code>document.modelContext</code> 페이지 도구","",false)+opt("사용자 확인","",["항상 묻기","읽기는 묻지 않기"])),K("호출 시뮬레이터",`<pre class="code">search({ query: "WebFinger" })</pre><div class="row" style="margin-top:8px">${mb("실행")}</div>`)]]]},
+{id:"admin/server",g:"srv",admin:1,i:"🖥️",n:"서버 모드 · 서버 등급",mk:CHG,sc:"서버 전역",d:"싱글 ↔ 네트워크 모드 전환, 준비 검사, 기본 서버 등급",tabs:[
+ ["mode","서버 모드",()=>[K("현재 모드",`<div class="row"><button class="btn ${S.mode==="network"?"on":""}" data-a="setMode" data-v="network">네트워크</button><button class="btn ${S.mode==="single"?"on":""}" data-a="setMode" data-v="single">싱글</button></div>${note("전환은 최근 로그인이 필요합니다.")}`),K("싱글 모드의 루트"+CHG,`<p style="margin:0"><code>/</code> → 302 → <code>/@fow/</code>. 관리자가 첫 설정에서 USERNAME을 정합니다. USERNAME은 두 모드에서 공개됩니다 ${ref("CT33")}.</p>`),K("모드와 연합"+CHG,`<p style="margin:0">연합이 켜져 있어도 싱글 모드로 돌아갈 수 있게 바뀝니다. 연합이 싱글 모드에서도 동작하기 때문입니다 ${ref("연합 §15")}. 싱글 모드로 가려면 여전히 멤버가 없어야 합니다.</p>`)]],
+ ["checks","준비 검사 G1–G9",()=>[K("네트워크 모드 준비 검사",stats([["9 / 9","통과"],["오늘 04:10","마지막 검사"]])+`<div class="row" style="margin-top:8px">${mb("다시 검사")}</div>`),K("레거시 호스트 일몰 시계",kv([["레거시 호스트","없음"],["일몰","—"]]))]],
+ ["tier","서버 등급",()=>[K("서버 등급 할당량",tbl(["등급","일일 적재","미디어",""],[["standard","200","5 GB",mb("편집")],["plus","1000","50 GB",mb("편집")]])+note(`등급의 <code>max_themes</code>는 기능이 없어져 등급과 콘솔에서 빠집니다 ${ref("§10.1")}`),{w:1})]]]},
+{id:"admin/accounts",g:"srv",admin:1,i:"👥",n:"계정 · 초대 · 퇴역 이름",sc:"서버 전역",d:"계정 상태 전환, 초대 코드, 퇴역 USERNAME",tabs:[["dir","계정",tAccts],["inv","초대",()=>[K("가입 초대 코드",tbl(["코드","남은 횟수","만료",""],[["K7Q2-…","1","2026-12-01",mb("비활성화","danger")],["M3XP-…","0","—",""]])+`<div class="row" style="margin-top:8px">${mb("＋ 초대 코드","pri")}</div>`,{w:1})]],["ret","퇴역 이름",()=>[K("퇴역 USERNAME",tbl(["USERNAME","퇴역일",""],[["@oldname","2026-08-14",mb("해제")]])+note("지워진 계정의 이름은 다시 쓸 수 없게 퇴역합니다."),{w:1})]]]},
+{id:"admin/idp",g:"srv",admin:1,i:"🪪",n:"외부 IdP 로그인 정책",sc:"서버 전역",d:"외부 IdP 공급자 등록, Discovery 검증, 가입 정책",tabs:[["reg","공급자",()=>[K("IdP 공급자 레지스트리",tbl(["공급자","발급자","상태",""],[["GitHub","github.com",`<span class="chip kb">사용</span>`,mb("편집")],["사내 OIDC","sso.corp.example",`<span class="chip kb">사용</span>`,mb("Discovery 검증")]])+`<div class="row" style="margin-top:8px">${mb("＋ 공급자","pri")}</div>`,{w:1})]],["pol","가입 정책",()=>[K("로그인 방식 · 계정 매핑",sw("가입은 초대가 있을 때만","",true)+inp("이메일 도메인 제한","corp.example")),K("역할과 IdP "+ref("§6.7"),`<p style="margin:0">IdP 클레임(그룹, 역할, 이메일 도메인, 테넌트)은 서버 역할, 지식베이스 역할, 자격 증명 범위, 상호 협업, 자동 규칙을 주거나 바꾸지 않습니다. IdP 관리자는 서버의 신뢰 경계 밖에 있습니다.</p>`)]],["sim","시뮬레이터",()=>[K("로그인 화면 · 흐름 시뮬레이터",`<div class="row">${mb("GitHub로 로그인")}${mb("사내 OIDC로 로그인")}</div>${note("서버 설정을 바꾸지 않는 시뮬레이션입니다.")}`)]]]},
+{id:"admin/federation",g:"srv",admin:1,i:"🌐",n:"연합 · 도메인 차단",mk:CHG,sc:"서버 전역",d:"연합 스위치와 준비 검사, 사이드카, 알려진 서버, 도메인 차단, 인박스 저널",tabs:()=>[["sw","스위치 · 상태",tFedSw],["srv",`알려진 서버 ${servers.length}`,tFedSrv],["block","차단 · 제안",tFedBlock],["journal","인박스 저널",tFedJournal]]},
+{id:"admin/kb",g:"srv",admin:1,i:"📚",n:"공유 지식베이스 관리",mk:NEW+PROP,sc:"서버 전역",badge:()=>1,d:"모든 공유 지식베이스, 모더레이터 지정, 실패한 병합 작업",tabs:[["all","전체",tAkAll],["fail","실패 · 경고 1",tAkFail]]},
+{id:"admin/themes",g:"srv",admin:1,i:"🗃️",n:"테마 (주제 판정)",mk:CHG,sc:"서버 전역",d:"테마 컬렉션, 주제 판정 실행, 임계값, 조정, 결정 일치도",tabs:[["judge","판정 · 임계값",tAtJudge],["adj","테마와 조정",tAtAdj],["agree","결정 일치도",tAtAgree]]},
+{id:"admin/providers",g:"sys",admin:1,i:"⚡",n:"프로바이더",sc:"서버 전역",d:"LLM · STT · VLM, 하이퍼스케일러 프로바이더 설정과 연결 테스트",tabs:[["llm","LLM",()=>[K("LLM 프로바이더",tbl(["프로바이더","모델","상태",""],[["Gemini","gemini-pro","확인됨",mb("연결 테스트")],["OpenAI 호환","—","없음",mb("설정")]]),{w:1})]],["emb","임베딩",()=>[K("임베딩 모델",tbl(["모델","쓰는 지식베이스",""],[["server-embed-v3","6",mb("연결 테스트")],["server-embed-small","1",mb("연결 테스트")]])+note(`공유 지식베이스의 병합 작업은 서버 제공자로 임베딩합니다. 만든 계정은 서버가 제공하는 모델 중에서 고릅니다 ${ref("CT24")}${CHG}`),{w:1})]],["stt","STT · VLM",()=>[K("STT",kv([["프로바이더","Gemini"],["상태","확인됨"]])),K("VLM",kv([["프로바이더","Gemini"],["상태","확인됨"]]))]]]},
+{id:"admin/limits",g:"sys",admin:1,i:"📏",n:"적재 제한",mk:CHG,sc:"서버 전역",d:"상황별 적재 제한과 슬라이싱 예산",tabs:[["l","제한",()=>[K("적재 제한",inp("문서당 최대 길이","120000")+inp("PDF 최대 쪽수","300")),K("슬라이싱 예산",inp("기본 예산","8")+inp("높은 effort 예산","24")),K("기여 한도"+NEW,inp("제출 요청당 문서","20")+inp("자동 기여: 실행 · 대상마다","50")+note(`평판별 대기 한도는 <a data-a="goSec" data-s="admin/themes">테마</a> 섹션에 있습니다.`))]]]},
+{id:"admin/mcp",g:"sys",admin:1,i:"📈",n:"MCP 감사 · 진단 번들",sc:"서버 전역",d:"MCP 호출 기록, RBAC 대조 진단, WebMCP 헤더 정책, 지원 번들",tabs:[["audit","감사 기록",()=>[K("실시간 MCP 호출 감사 기록",tbl(["시각","계정","도구","결과"],[["10:02:11","@fow","search","200"],["10:02:14","@mina","kb_submit","200"],["10:03:40","@joon","search","400 kb_required"]]),{w:1})]],["rbac","RBAC · 정책",()=>[K("RBAC 설계 vs 현재 MCP 접근 판정",tbl(["범위","읽기","적재","기여","역할 변경"],[["owner","✓","✓","✓","단계 인증"],["write","✓","✓","✓","✗"],["readonly","✓","✗","✗","✗"]])),K("전역 WebMCP 정책",sw("<code>Permissions-Policy</code>로 페이지 도구 허용","",false))]],["bundle","지원 번들",()=>[K("진단 지원 번들 내보내기",opt("기간","",["1일","3일","7일"])+`<div class="row" style="margin-top:8px">${mb("번들 만들기","pri")}</div>`)]]]},
+{id:"admin/backups",g:"sys",admin:1,i:"♻️",n:"계정 백업 복원",sc:"서버 전역",d:"계정 소유자가 만든 계정 백업을 그 계정에 복원",tabs:[["r","복원",()=>[K("복원",opt("계정","",["@mina","@joon"])+`<div class="row" style="margin-top:8px">${mb("백업 파일 선택")}${mb("🔐 복원 미리 보기","pri")}</div>`),K("버전 27 이전 백업"+CHG,`<p class="muted small" style="margin:0">개인 지식베이스만 복원하고, 보관물에 든 다른 지식베이스는 건너뜁니다. 결과에 건너뛴 목록이 나옵니다 ${ref("§13.2")}.</p>`)]]]},
+{id:"admin/storage",g:"sys",admin:1,i:"🗄️",n:"미디어 저장소",sc:"서버 전역",d:"로컬 또는 S3 호환 오브젝트 스토리지, 연결 시험, 이관 결과",tabs:[["s","저장소",()=>[K("저장 방식",opt("방식","",["로컬","S3 호환 오브젝트 스토리지"])+inp("버킷","")+`<div class="row" style="margin-top:8px">${mb("연결 시험")}${mb("🔐 저장","pri")}</div>`),K("마지막 이관",kv([["결과","성공"],["옮긴 파일","1,204"],["끝난 때","2026-10-30"]]))]]]}
+];
+const visSecs=()=>SECS.filter(s=>(!s.admin||me().admin)&&(!s.show||s.show()));
+const secPath=s=>s.path?s.path():"/"+s.id;
+const secTabs=s=>typeof s.tabs==="function"?s.tabs():s.tabs;
+function curTab(s){const ts=secTabs(s),k=s.tabKey?S[s.tabKey]:S.stab[s.id];return ts.find(t=>t[0]===k)||ts[0]}
+const cardH=c=>`<section class="card ${c.w?"wide":""} ${c.cls||""}">${c.t?`<h4>${c.t}${c.tag||""}</h4>`:""}${c.b}</section>`;
+function tabHtml(t){const r=t[2]();return !Array.isArray(r)?{fill:r.fill}:{html:`<div class="sgrid">${r.map(cardH).join("")}</div>`}}
+function navList(){const vs=visSecs(),q=S.navQ.trim().toLowerCase();
+ const item=(s,sub,tid)=>{const b=s.badge?s.badge():0;return `<div class="ni ${!sub&&s.id===S.sec?"on":""}" data-a="goSec" data-s="${s.id}" ${tid?`data-t="${tid}"`:""}><span>${s.i}</span><span class="grow"><b>${s.n}</b>${s.mk||""}<small>${sub?esc(sub):secPath(s)}</small></span>${b?`<span class="badge">${b}</span>`:""}</div>`};
+ if(q){const out=[];vs.forEach(s=>{const base=(s.n+" "+secPath(s)+" "+s.d).toLowerCase().includes(q);let hit=false;secTabs(s).forEach(t=>{let titles=[];try{const r=t[2]();if(Array.isArray(r))titles=r.map(c=>c.t.replace(/<[^>]+>/g,""))}catch(e){}const m=titles.filter(x=>x.toLowerCase().includes(q));if(t[1].toLowerCase().includes(q)||m.length){hit=true;out.push(item(s,"탭 "+t[1]+(m.length?" · "+m[0]:""),t[0]))}});if(base&&!hit)out.push(item(s))});return out.join("")||`<div class="empty">"${esc(S.navQ)}"에 맞는 설정이 없습니다.</div>`}
+ if(S.legacy)return GROUPS.filter(g=>!g[3]||me().admin).map(g=>`<div class="glabel">${g[2]}${g[3]?" (관리자)":""}</div>`+vs.filter(s=>s.g===g[0]).map(s=>item(s)).join("")).join("");
+ return vs.filter(s=>s.g===S.grp).map(s=>item(s)).join("")}
+function vConsole(){
+ if(!acct())return `<div style="padding:18px">${gate("로그인 필요","설정은 URL의 이름공간이 아니라 자격 증명의 계정에 속합니다. 로그인하지 않은 요청은 로그인 화면으로 갑니다.")}</div>`;
+ const vs=visSecs();let sec=vs.find(s=>s.id===S.sec);const hidden=!sec&&SECS.find(s=>s.id===S.sec);
+ if(!sec&&!hidden){sec=vs[0];S.sec=sec.id}
+ if(sec)S.grp=sec.g;else if(!GROUPS.some(g=>g[0]===S.grp&&(!g[3]||me().admin)))S.grp="acct";
+ const rail=GROUPS.filter(g=>!g[3]||me().admin).map(g=>{const b=vs.filter(s=>s.g===g[0]&&s.badge).reduce((a,s)=>a+s.badge(),0);return `<button class="rb ${g[0]===S.grp?"on":""}" data-a="grp" data-g="${g[0]}"><b>${g[1]}</b>${g[2]}${b?`<span class="badge">${b}</span>`:""}</button>`}).join("");
+ let cont;
+ if(!sec)cont=`<div class="sbody">${gate("404",hidden.admin?"관리자가 아닌 호출자는 모든 관리자 경로에서 <b>404</b>를 받습니다. 403이 아닙니다. 관리자 링크와 스크립트는 응답에 들어가지 않습니다.":"이 계정에는 이 섹션이 없습니다.")}</div>`;
+ else{const ts=secTabs(sec),ct=curTab(sec),extra=sec.id==="settings/kb/review"&&rvK()?`<select class="sel" id="rkb">${reviewable().map(x=>`<option value="${x.n}" ${x.n===S.rkb?"selected":""}>${x.icon} ${esc(x.label)}</option>`).join("")}</select><span class="chip acc">${ROLE[roleIn(rvK())]}</span>`:"";
+  const head=`<div class="shead"><div class="row"><span style="font-size:18px">${sec.i}</span><h2>${sec.n}</h2>${sec.mk||""}<span class="chip">${sec.sc}</span>${extra}</div><div class="muted small">${sec.d}</div></div>`;
+  if(S.legacy)cont=head+`<div class="sbody">${ts.map(t=>{const r=tabHtml(t);return `<h3>${t[1]}</h3>${r.fill||r.html}`}).join("")}</div>`;
+  else{const r=tabHtml(ct);cont=head+`<div class="stabs">${ts.map(t=>`<button class="tab ${t===ct?"on":""}" data-a="stab" data-v="${t[0]}">${t[1]}</button>`).join("")}</div><div class="sbody ${r.fill?"fill":""}" data-key="${sec.id}/${ct[0]}">${r.fill||r.html}</div>`}}
+ return `<div class="con ${S.legacy?"legacy":""}"><div class="crail">${rail}</div><div class="cnav"><div class="top"><input class="inp" id="navq" placeholder="설정 검색: 토큰, 차단, 평판…" value="${esc(S.navQ)}"></div><div id="cnav-list">${navList()}</div><div class="leg"><span class="tg n">신규</span> 설계가 더한 화면 <span class="tg c">바뀜</span> 설계가 바꾸는 화면 <span class="tg p">제안</span> 결정 전</div></div><div class="ccont">${cont}</div></div>`}
+
+/* ---------- 기여 흐름 ---------- */
+function planTargets(d,tn){const r=rep().lv;return kbs.filter(k=>k.theme===tn).map(k=>{
+ if(contribs.some(c=>c.kb===k.n&&c.title===d.title&&c.st!=="removed")||queue.some(q=>q.kb===k.n&&q.title===d.title))return{kb:k.n,st:"skipped",note:"이미 같은 문서가 있음"};
+ if(k.server){if(!S.fed)return{kb:k.n,st:"skipped",note:"연합이 꺼져 있음"};if(blocks.some(b=>b.d===k.server))return{kb:k.n,st:"skipped",note:"차단한 도메인"};return grantsToUs.some(g=>g.kb===k.n&&g.a===acct())?{kb:k.n,st:"visible",note:"Offer에 Grant 첨부 · 승인 없음"}:{kb:k.n,st:"offered",note:"Offer 보냄"}}
+ const ro=roleIn(k);if(ro==="banned")return{kb:k.n,st:"skipped",note:"차단된 계정"};
+ if(LV[ro]>=3&&r!=="low")return{kb:k.n,st:"visible",note:ROLE[ro]+" · 승인 없음"};
+ return{kb:k.n,st:"pending",note:r==="low"?"평판 low: 승인 대기":""}})}
+function openContrib(d,tn,by){
+ if(!tn)return modal("맞는 테마가 없습니다 <code>no_theme</code>",`<p><b>${esc(d.title)}</b>의 엔티티에 맞는 테마를 찾지 못했습니다. ${ref("§9.2 규칙 3")}</p><div class="line"><span class="grow">테마를 직접 고르기</span>${themes.map(t=>`<button class="btn" data-a="pickTheme" data-d="${d.id}" data-t="${t.n}">${esc(t.label)}</button>`).join("")}</div><div class="line"><span class="grow">멤버인 공유 지식베이스에 직접 기여</span><button class="btn" data-a="closeNav" data-v="kbs">지식베이스 보기</button></div><div class="line"><span class="grow">새 공유 지식베이스 만들기</span><button class="btn" data-a="newKb">만들기</button></div>`);
+ const t=th(tn),ts=planTargets(d,tn);
+ modal(`기여: ${esc(d.title)}`,`<p>테마 <b>${esc(t.label)}</b> ${typeChip(t.type)} <span class="chip">${by==="server"?`서버가 선택 · 점수 ${d.score.toFixed(2)}`:"계정이 선택"}</span></p><h4>대상 지식베이스와 경로</h4>${ts.map(g=>{const k=kb(g.kb);return `<div class="line"><span class="grow">${k.icon} ${esc(k.label)} ${srvChip(k)}${g.note?`<br><span class="muted small">${esc(g.note)}</span>`:""}</span>${stChip(g.st)}</div>`}).join("")}<p class="muted small">기여는 기증입니다. 검토자가 승인한 뒤에는 철회할 수 없습니다. 개인 지식베이스의 원본이 새로 수집되면 사본도 자동으로 갱신됩니다. ${ref("CT7")}${ref("CT20")}</p>`,"기여",()=>submit(d,tn,by,ts))}
+function submit(d,tn,by,ts,auto){
+ const s={id:"s"+(++S.seq),o:S.persona,doc:d.id,theme:tn,by,score:d.score,targets:ts,auto};subs.unshift(s);const r=rep();
+ log("srv",`POST /submissions → 제출 ${s.id} (${auto?"origin auto":by==="server"?"routed_by server":"routed_by account"})`);
+ ts.forEach(g=>{const k=kb(g.kb);if(g.st==="skipped")return;
+  if(k.server){log("ap",`Offer(claire:Contribution) ${acct()}@${SELF} → ${k.label} 액터 · ${k.server}`);if(g.st==="visible")log("ap",`Accept(Offer) result=https://${k.server}/kb/${k.rn}/c/${S.seq} ← ${k.server}`);return}
+  if(g.st==="visible"){contribs.unshift({id:"c"+(++S.seq),kb:k.n,title:d.title,by:acct(),origin:auto?"auto":"bulk",st:"visible"});log("srv",`${k.label}: 병합 작업 완료 (LLM 호출 없음) → 표시됨`)}
+  else{queue.push({id:"q"+(++S.seq),kb:k.n,title:d.title,by:acct(),rep:r.lv,rate:r.rate,origin:auto?"auto":"bulk",ts:d.score||0,ks:Math.max(0,(d.score||0)-0.06),others:[],sub:s.id});log("srv",`${k.label}: 숨긴 사본 + 대기 기여 (그래프 아직 없음)`)}});
+ return s}
+function setTarget(q,st,note){const s=subs.find(x=>x.id===q.sub);if(s){const g=s.targets.find(t=>t.kb===q.kb);if(g){g.st=st;g.note=note}}}
+
+/* ---------- 동작 ---------- */
+const A={
+ nav:d=>{dlg.open&&dlg.close();nav(d.v,d.arg)},closeNav:d=>{dlg.close();nav(d.v)},closeDlg:()=>dlg.close(),okDlg:()=>{const f=onOk;dlg.close();f&&f();render()},
+ toggleFlow:()=>$("#flow").classList.toggle("show"),clearFlow:()=>{S.flow=[];drawFlow()},
+ toggleDark:()=>{const h=document.documentElement;h.dataset.theme=h.dataset.theme==="dark"?"light":"dark"},
+ tf:d=>{S.tf=d.v;render()},tfGo:()=>{S.tf="fictional";nav(S.mode==="single"?"themes":"root")},
+ origin:d=>{const k=kb(d.n);modal("원본 서버로 이동",`<p>새 창: <code>https://${k.server}/kb/${k.rn}/</code></p><p class="muted">원격 지식베이스는 원본으로 연결됩니다. 이 서버는 원격 객체를 자기 것으로 다시 내보내지 않습니다.</p>`)},
+ goCurate:d=>{const k=kb(d.n),l=kbs.find(x=>!x.server&&x.theme===k.theme&&can(x,"review"));if(!l)return modal("큐레이션할 수 없습니다",`<p>같은 테마의 로컬 공유 지식베이스에서 검토 권한이 있어야 합니다.</p>`);S.rtab="curate";S.csrc=k.n;nav("review",l.n)},
+ goFed:()=>goSec("admin/federation","sw"),
+ contribDoc:d=>{const x=docs.find(y=>y.id===d.d);openContrib(x,x.theme&&x.score>=S.thr.doc?x.theme:null,"server")},
+ pickTheme:d=>openContrib(docs.find(y=>y.id===d.d),+d.t,"account"),
+ contribTheme:d=>{const ds=myDocs().filter(x=>!S.never[x.id]);modal(`이 테마에 기여: ${esc(th(d.t).label)}`,`<p class="muted">개인 지식베이스의 문서를 고르세요. 요청마다 최대 20건.</p>${ds.map(x=>`<div class="line"><span class="grow">${esc(x.title)}</span><button class="btn" data-a="pickTheme" data-d="${x.id}" data-t="${d.t}">선택</button></div>`).join("")||`<div class="empty">기여할 문서가 없습니다.</div>`}`)},
+ direct:d=>{const k=kb(d.n),ds=myDocs().filter(x=>!S.never[x.id]);modal(`직접 기여: ${esc(k.label)}`,`<p class="muted">멤버의 직접 기여는 병합 작업 뒤 바로 보입니다${rep().lv==="low"?" (평판 low: 승인 대기)":""}. ${ref("§9.1")}</p>${ds.map(x=>`<div class="line"><span class="grow">${esc(x.title)}</span><button class="btn" data-a="directGo" data-d="${x.id}" data-n="${k.n}">기여</button></div>`).join("")}`)},
+ directGo:d=>{const k=kb(d.n),x=docs.find(y=>y.id===d.d);dlg.close();if(contribs.some(c=>c.kb===k.n&&c.title===x.title&&c.st!=="removed")){modal("409 중복",`<p>이 지식베이스에 같은 <code>canonical_url</code> 또는 <code>content_hash</code>의 기여가 이미 있습니다.</p>`);return}contribs.unshift({id:"c"+(++S.seq),kb:k.n,title:x.title,by:acct(),origin:"direct",st:"visible"});log("srv",`POST /kb/${k.n}/contributions → 사본 + contribution_merge 작업 → 표시됨`);render()},
+ never:d=>{S.never[d.d]=!S.never[d.d];render()},
+ togglePub:()=>{const u=S.persona;if(!S.pub[u])return modal("개인 지식베이스 공개",`<p>공개 문서는 같은 테마 지식베이스의 검토자가 <b>큐레이션</b>할 수 있습니다.</p><p>큐레이션된 사본은 나중에 비공개로 바꿔도 남고, 원본의 개정을 계속 따릅니다. ${ref("CS6")}${ref("CT19")}${ref("CT26")}</p>`,"공개",()=>{S.pub[u]=true;log("srv","개인 지식베이스 공개 → 다음 판정에서 시그니처 계산")});S.pub[u]=false;log("srv","개인 지식베이스 비공개 → 시그니처와 테마 붙기를 즉시 제거, 기존 사본은 유지");render()},
+ ingest:()=>{const x=incoming[(S.seq++)%2],d={id:"d"+(++S.seq),o:S.persona,title:x.title+(docs.some(y=>y.title===x.title&&y.o===S.persona)?" (2)":""),src:x.src,theme:x.theme,score:x.score,isNew:true};docs.forEach(y=>y.isNew=false);docs.unshift(d);log("srv",`적재 → 추출 → 문서 매치: ${th(d.theme).label} ${d.score}`);
+  if(ficLike(d)){log("srv",`알림 {"code":"fiction_like_document"}`);modal("가상 자료로 보이는 문서",`<p><b>${esc(d.title)}</b>의 문서 매치가 fictional 테마 <b>${esc(th(d.theme).label)}</b>입니다.</p><p class="muted">개인 지식베이스에 두면 평판의 가상 자료 비율에 계산됩니다. fictional 공유 지식베이스에 기여해 표시되면 계산에서 빠집니다. WebUI, 텔레그램 답장, MCP 결과, CLI가 같은 알림을 보입니다. ${ref("§8.7")}</p>`,"이 테마에 기여",()=>setTimeout(()=>openContrib(d,d.theme,"server"),0))}
+  else if(ruleOf().on&&S.auto&&rep().lv!=="low"){const ts=planTargets(d,d.theme).filter(g=>g.st!=="skipped");if(ts.length){submit(d,d.theme,"server",ts,true);log("srv","자동 기여 규칙이 새 문서를 보냄")}}render()},
+ withdraw:d=>{const s=subs.find(x=>x.id===d.s),g=s.targets[+d.i];queue=queue.filter(q=>!(q.sub===s.id&&q.kb===g.kb));g.st="skipped";g.note="기여자가 철회";log("srv","대기 기여 철회 → 행 삭제");render()},
+ simRemote:d=>{const s=subs.find(x=>x.id===d.s),g=s.targets[+d.i],k=kb(g.kb);g.st="visible";g.note=`원격 검토자가 승인 · result=https://${k.server}/kb/${k.rn}/c/${++S.seq}`;log("ap",`Accept(Offer) result=… ← ${k.label} 액터 · ${k.server}`);render()},
+ dryRun:()=>{const ru=ruleOf(),ds=myDocs().filter(x=>!S.never[x.id]&&x.src!=="붙여넣기"&&(ru.uploads||x.src!=="PDF 업로드")&&x.theme&&x.score>=S.thr.auto&&!subs.some(s=>s.doc===x.id));const out=ds.map(x=>{const ts=planTargets(x,x.theme).filter(g=>g.st!=="skipped"&&(ru.themes||(ru.memberships&&!kb(g.kb).server&&LV[roleIn(kb(g.kb))]>=2&&roleIn(kb(g.kb))!=="admin")));return ts.length?`<div class="line"><span class="grow"><b>${esc(x.title)}</b> <span class="muted small">점수 ${x.score.toFixed(2)}</span><br>${ts.map(g=>`<span class="chip">${kb(g.kb).icon} ${esc(kb(g.kb).label)}${kb(g.kb).server?" 🌐":""} → ${ST[g.st][0]}</span>`).join(" ")}</span></div>`:""}).join("");modal("자동 기여 미리 실행",`<p class="muted">규칙을 켜면 지금 나갈 문서입니다. 아무것도 보내지 않았습니다. 실행·대상마다 최대 50건. ${ref("§9.9 규칙 6")}</p>${out||`<div class="empty">지금 나갈 문서가 없습니다.</div>`}<p class="muted small">제외: 붙여넣은 텍스트, "절대 기여 안 함" 문서, 이미 기여한 문서${ru.uploads?"":", 업로드한 파일"}, 점수 ${S.thr.auto} 미만</p>`)},
+ ruleOn:()=>stepUp("자동 기여 규칙 켜기",()=>{ruleOf().on=true;log("srv","kb_auto_rules.state = active")}),
+ ruleOff:()=>{ruleOf().on=false;log("srv","자동 기여 규칙 즉시 멈춤");render()},
+ muReq:()=>stepUp("@hana에게 상호 협업 요청",()=>{mutual.push({a:S.persona,b:"hana",st:"pending",req:S.persona})}),
+ muAccept:d=>stepUp(`@${d.o}의 상호 협업 요청 수락`,()=>{mutual.find(m=>(m.a===d.o||m.b===d.o)&&(m.a===S.persona||m.b===S.persona)).st="active";log("srv",`상호 협업 시작: 이후 새 공유 지식베이스에서 서로 협력자`)}),
+ muEnd:d=>{mutual=mutual.filter(m=>!((m.a===d.o||m.b===d.o)&&(m.a===S.persona||m.b===S.persona)));log("srv","상호 협업 종료: 이미 준 역할은 그대로");render()},
+ join:d=>{const k=kb(d.n);(members[k.n]=members[k.n]||[]).push({a:acct(),role:"member",st:k.policy==="open"?"active":"pending"});log("srv",`POST /kb/${k.n}/membership → ${k.policy==="open"?"활성 멤버":"가입 대기"}`);render()},
+ leave:d=>{const k=kb(d.n),ms=members[k.n],m=ms.find(x=>x.a===acct());if(m.role==="moderator"&&ms.filter(x=>x.role==="moderator"&&x.st==="active").length===1)return modal("409","<p>마지막 모더레이터는 떠날 수 없습니다.</p>");members[k.n]=ms.filter(x=>x!==m);log("srv",`DELETE /kb/${k.n}/membership`);render()},
+ fork:d=>{const k=kb(d.n);modal(`포크: ${esc(k.label)}`,`<p>새 공유 지식베이스 <b>${esc(k.label)} (fork)</b>를 만듭니다. 지식 유형, 임베딩 모델, 시드 엔티티가 같고, 원본의 테마에 들어갑니다.</p><p class="muted">표시된 문서만 추출 결과, 엔티티, 관계, 임베딩과 함께 복사합니다. LLM 호출도 새 임베딩도 없습니다. 숨김·대기·거절·제거된 문서는 복사하지 않습니다. 개인 지식베이스는 포크할 수 없습니다 <code>403 kb_fork_shared_only</code> ${ref("CT15")}</p>`,"포크",()=>{const n=1100+(++S.seq);kbs.push({n,label:k.label+" (fork)",icon:"🍴",type:k.type,theme:k.theme,policy:"approval",docs:0,desc:k.label+"의 포크",forkOf:k.n});members[n]=[{a:acct(),role:"moderator",st:"active"}];contribs.filter(c=>c.kb===k.n&&c.st==="visible").forEach(c=>contribs.push({...c,id:"c"+(++S.seq),kb:n,origin:"fork",curator:acct()}));log("srv",`POST /kb/${k.n}/forks → #${n}, 만든 계정이 모더레이터`);setTimeout(()=>nav("kbs",n),0)})},
+ newKb:d=>{const tn=d.t?+d.t:null,sim=kbs.filter(k=>!tn||k.theme===tn).slice(0,4);dlg.open&&dlg.close();modal("공유 지식베이스 만들기",`<div class="card note"><b>먼저 비슷한 지식베이스를 확인하세요</b> <span class="small">(이 서버와 다른 서버)</span>${sim.map(k=>`<div class="line"><span class="grow">${k.icon} ${esc(k.label)} ${k.server?"🌐 "+k.server:""}</span><button class="btn" data-a="nav" data-v="kbs" data-arg="${k.n}">열기</button></div>`).join("")}</div><label class="f">이름</label><input class="w" id="nk-l" value="새 공유 지식베이스"><label class="f">지식 유형 (필수) ${ref("CT12")}</label><div class="row"><label><input type="radio" name="nk-t" value="real" checked> real · 실제 세계의 지식</label><label><input type="radio" name="nk-t" value="fictional"> fictional · 만든 세계의 지식</label></div><label class="f">시드 엔티티 (최대 20개, 쉼표로 구분)</label><input class="w" id="nk-s" placeholder="예: ActivityPub, WebFinger"><label class="f">임베딩 모델 (서버 제공자가 제공하는 모델, 나중에 바꿀 수 없음)</label><select class="sel"><option>server-embed-v3</option><option>server-embed-small</option></select><p class="muted small">만든 계정이 첫 모더레이터가 됩니다. 가입 정책은 "승인"으로 시작합니다. 상호 협업 상대는 바로 협력자가 됩니다. 개수 제한은 없습니다. ${ref("CT3")}${ref("CT8")}</p>`,"만들기",()=>{const n=1100+(++S.seq),type=document.querySelector("input[name=nk-t]:checked").value,t=tn||(themes.find(x=>x.type===type)||themes[0]).n;kbs.push({n,label:$("#nk-l").value||"새 공유 지식베이스",icon:"📚",type,theme:t,policy:"approval",docs:0,desc:"새로 만든 공유 지식베이스 (시그니처 없음)"});members[n]=[{a:acct(),role:"moderator",st:"active"}];mutual.filter(m=>m.st==="active"&&(m.a===S.persona||m.b===S.persona)).forEach(m=>{const o=m.a===S.persona?m.b:m.a;members[n].push({a:"@"+o,role:"collaborator",st:"active"});log("srv",`상호 협업: @${o} → 협력자 (grant_collaborator)`)});log("srv",`POST /kb → #${n} (${type})`);if(S.fed)log("ap","/kb 컬렉션에 새 항목 → 알려진 서버가 다음 읽기에서 가져감");setTimeout(()=>nav("kbs",n),0)})},
+ goSec:d=>{dlg.open&&dlg.close();goSec(d.s,d.t)},grp:d=>{const x=visSecs().find(y=>y.g===d.g);if(x)goSec(x.id)},
+ stab:d=>{const x=SECS.find(y=>y.id===S.sec);if(x.tabKey)S[x.tabKey]=d.v;else S.stab[x.id]=d.v;render()},
+ sel:d=>{if(d.k==="csrc")S.csrc=isNaN(+d.v)?d.v:+d.v;else S.sel[d.k]=d.v;render()},
+ tog:(d,el)=>{const on=el.classList.toggle("on");el.textContent=on?"● 켬":"○ 끔"},mock:(d,el)=>toast("목업: 「"+el.textContent.trim()+"」은 여기서 동작하지 않습니다"),
+ legacy:()=>{S.legacy=!S.legacy;render();$("main").scrollTop=0},setMode:d=>{S.mode=d.v;$("#mode").value=d.v;log("srv",`서버 모드 = ${S.mode}`);render()},
+ approve:d=>{const q=queue.find(x=>x.id===d.q),k=kb(q.kb);queue=queue.filter(x=>x!==q);contribs.unshift({id:"c"+(++S.seq),kb:k.n,title:q.title,by:q.by,origin:q.origin,st:"visible",src:q.remote?q.by.split("@")[2]:undefined});setTarget(q,"visible",`${acct()}가 승인`);modlog.push([acct(),"approve_contribution",q.title]);log("srv",`승인 → 병합 작업 (LLM 호출 없음, 서버 임베딩) → 표시됨`);if(q.remote)log("ap",`Accept(Offer) result=https://${SELF}/kb/${k.n}/c/${S.seq} → ${q.by}`);render()},
+ reject:d=>{const q=queue.find(x=>x.id===d.q),rs=$("#rs-"+q.id).value;queue=queue.filter(x=>x!==q);setTarget(q,"rejected",`사유 ${rs}`);modlog.push([acct(),"reject_contribution",`${q.title} (${rs})`]);log("srv",`거절 (${rs}) → 사본 삭제. 같은 지식베이스로 다시 오지 않음`);if(q.remote)log("ap",`Reject(Offer) reason=${rs} → ${q.by}`);render()},
+ hide:d=>{const c=contribs.find(x=>x.id===d.c);c.st=c.st==="hidden"?"visible":"hidden";modlog.push([acct(),c.st==="hidden"?"hide_contribution":"unhide_contribution",c.title]);render()},
+ freeze:d=>{const c=contribs.find(x=>x.id===d.c);c.frozen=!c.frozen;modlog.push([acct(),c.frozen?"freeze_updates":"unfreeze_updates",c.title]);render()},
+ remove:d=>{const c=contribs.find(x=>x.id===d.c);modal("기여 제거",`<p><b>${esc(c.title)}</b></p><label class="f">사유 코드</label><select class="sel"><option>off_subject</option><option>wrong_knowledge_type</option><option>duplicate</option><option>low_quality</option><option>spam</option><option>other</option></select><p class="muted small">문서, 그래프 원천, 임베딩, 전문 검색 행을 지우고 <code>canonical_url</code>의 묘비를 남깁니다. 되돌릴 수 없습니다.</p>`,"제거",()=>{c.st="removed";modlog.push([acct(),"remove_contribution",c.title]);log("srv","제거 → 문서 퍼지 + 묘비")})},
+ simRev:d=>{const c=contribs.find(x=>x.kb==d.n&&x.st!=="removed"&&(x.src||x.origin!=="migration"));if(!c)return;if(c.src)log("ap",`Update(Article + claire:Extraction) ← 지식베이스 액터 · ${c.src}`);else log("srv","개인 지식베이스의 원본 content_hash 변경 감지");if(c.frozen){log("srv",`「${c.title}」: 갱신 중지됨 → 적용 안 함`)}else{c.rev=(c.rev||0)+1;log("srv",`「${c.title}」: 새 버전 병합, 승인 없음 (kb_contribution_revisions)`)}render()},
+ simDel:d=>{const c=contribs.find(x=>x.kb==d.n&&x.src&&x.st!=="removed"&&!x.originGone);if(!c)return modal("대상 없음","<p>원격에서 온 사본이 없습니다. 먼저 원격 지식베이스에서 큐레이션하세요.</p>");c.st="hidden";c.originGone="spam";log("ap",`Delete(Article) ← 지식베이스 액터 · ${c.src}`);log("srv",`「${c.title}」: 즉시 숨김 + 검토 대기열에 추가`);S.rtab="queue";render()},
+ goneShow:d=>{const c=contribs.find(x=>x.id===d.c);c.st="visible";delete c.originGone;c.frozen=true;modlog.push([acct(),"unhide_contribution",c.title]);log("srv","검토자가 다시 표시: 사본은 이 서버가 호스팅하고 제어함");render()},
+ goneRemove:d=>{const c=contribs.find(x=>x.id===d.c);c.st="removed";delete c.originGone;modlog.push([acct(),"remove_contribution",c.title]);log("srv","사본 제거. 원본 서버에는 영향 없음");render()},
+ curate:d=>{const k=kb(d.n),src=S.csrc,sk=kb(src),ids=[...document.querySelectorAll(".cq:checked")].map(x=>+x.value);if(!ids.length)return;if(sk&&sk.server){log("ap",`서명된 GET https://${sk.server}/kb/${sk.rn}/… (문서 + 추출 결과)`);if(!sk.followed){sk.followed=true;log("ap",`Follow 서버 액터 → ${sk.label} 액터 · ${sk.server}`)}}ids.forEach(i=>{const t=sources[src][i];contribs.unshift({id:"c"+(++S.seq),kb:k.n,title:t,by:sk?(sk.server?"@sora@"+sk.server:"@hana"):src,origin:"curation",st:"visible",src:sk&&sk.server?sk.server:undefined,curator:acct()});modlog.push([acct(),"curate",t])});log("srv",`POST /kb/${k.n}/curations → 사본 ${ids.length}건, 큐레이터 승인으로 표시`);S.rtab="content";render()},
+ mApprove:d=>{members[S.rkb].find(m=>m.a===d.m).st="active";modlog.push([acct(),"approve_member",d.m]);render()},
+ mBan:d=>{const m=members[S.rkb].find(m=>m.a===d.m);m.st="banned";m.role="member";modlog.push([acct(),"ban_member",d.m]);log("srv",`${d.m} 차단: 읽기와 포크만. 이 지식베이스는 그 계정의 기여 대상에서 빠짐`);render()},
+ mUnban:d=>{members[S.rkb]=members[S.rkb].filter(m=>m.a!==d.m);modlog.push([acct(),"remove_member",d.m]);render()},
+ mGrant:d=>stepUp(`${d.m}에게 협력자 역할 주기`,()=>{members[S.rkb].find(m=>m.a===d.m).role="collaborator";modlog.push([acct(),"grant_collaborator",d.m])}),
+ mRevoke:d=>stepUp(`${d.m}의 협력자 역할 빼기`,()=>{members[S.rkb].find(m=>m.a===d.m).role="member";modlog.push([acct(),"revoke_collaborator",d.m])}),
+ gGrant:d=>{const a=$("#gAcct").value.trim();if(!a)return;stepUp(`${a}에게 원격 협력자 Grant`,()=>{grants.push({kb:+d.n,a,until:"2027-05-16"});modlog.push([acct(),"grant_collaborator",a]);log("ap",`Grant(context=지식베이스, target=${a}, object=collaborator, 종료 6개월) 지식베이스 액터 → ${a}`)})},
+ gRevoke:d=>stepUp(`${d.g}의 Grant 회수`,()=>{grants=grants.filter(g=>!(g.kb==S.rkb&&g.a===d.g));modlog.push([acct(),"revoke_collaborator",d.g]);log("ap",`Revoke(Grant) → ${d.g}: 다음 Offer부터 다시 승인 대기`)}),
+ swFed:()=>stepUp(`federation ${S.fed?"끄기":"켜기"}`,()=>{S.fed=!S.fed;log("srv",`server_settings.federation = ${S.fed?"on":"off"} (admin_audit)`)}),
+ swAuto:()=>stepUp(`kb_auto_contribution ${S.auto?"끄기":"켜기"}`,()=>{S.auto=!S.auto;log("srv",`server_settings.kb_auto_contribution = ${S.auto?"on":"off"}${S.auto?"":" → 모든 규칙 멈춤, 설정 유지"}`)}),
+ block:d=>stepUp(`${d.d} 도메인 차단`,()=>{servers=servers.filter(s=>s.d!==d.d);blocks.push({d:d.d,when:"2026-11-16"});log("srv",`${d.d} 차단: 읽기와 쓰기 중단, 그 서버의 서명된 GET은 404, 사본은 유지`)}),
+ unblock:d=>stepUp(`${d.d} 차단 해제`,()=>{blocks=blocks.filter(b=>b.d!==d.d)}),
+ addServer:()=>{const v=$("#addD").value.trim();if(!v)return;A.addSug({d:v})},
+ addSug:d=>stepUp(`${d.d} 알려진 서버로 추가`,()=>{suggestions=suggestions.filter(s=>s.d!==d.d);servers.push({d:d.d,name:d.d,sw:"Claire Bible 0.27",how:"관리자가 도메인을 추가함",kbs:0,last:"방금",err:0});log("ap",`서명된 GET https://${d.d}/nodeinfo, 서버 액터, /kb 컬렉션 (첫 접촉: 전체 읽기)`)}),
+ replay:d=>{const j=journal.find(x=>x.id===d.j);j.st="processed";log("srv",`저널 ${j.id} 다시 처리 (활동 IRI가 키, 멱등)`);render()},
+ runJudge:()=>{S.lastRun="방금";log("srv","주제 판정: 시그니처 → 군집 → 테마 시그니처 → 문서 매치 → 평판 → 자동 기여. 조정은 유지");render()},
+ lock:d=>{const t=th(d.t);t.locked=!t.locked;render()},
+ pin:d=>{const k=kbs.find(x=>x.theme==d.t&&!x.pinned);if(k)k.pinned=true;log("srv","theme_knowledge_bases.pinned = 1: 나중 실행에서도 멤버 유지");render()},
+ merge:d=>modal("테마 병합",`<p><b>${esc(th(d.t).label)}</b>를 다른 테마에 합칩니다. 이 테마의 멤버는 대상 테마에 고정되고, <code>/themes/${d.t}</code>는 308으로 대상에 갑니다.</p><p class="muted">지식 유형이 다른 테마는 합칠 수 없습니다.</p><select class="sel">${themes.filter(t=>t.n!=d.t&&t.type===th(d.t).type).map(t=>`<option>${esc(t.label)}</option>`).join("")||"<option>같은 유형의 다른 테마 없음</option>"}</select>`),
+ setMod:d=>stepUp(`#${d.n} 모더레이터 지정`,()=>{log("srv",`PUT /api/admin/kb/${d.n}/moderators/{account} (kb_moderation_log + admin_audit)`)}),
+ delKb:d=>modal(`삭제 미리 실행: ${esc(kb(d.n).label)}`,`<p>지워질 것: 문서 ${kb(d.n).docs}건, 기여 ${contribs.filter(c=>c.kb==d.n).length}건, 멤버십 ${(members[d.n]||[]).length}건, 그래프와 임베딩.</p><p class="muted">미리 실행 결과입니다. 실제 삭제는 관리자만, 최근 로그인 뒤에 합니다.</p>`)
+};
+document.addEventListener("click",e=>{const el=e.target.closest("[data-a]");if(!el||el.disabled)return;const f=A[el.dataset.a];if(f){e.preventDefault();f(el.dataset,el)}});
+document.addEventListener("change",e=>{const t=e.target;if(t.id==="persona"){S.persona=t.value;render()}else if(t.id==="mode"){S.mode=t.value;log("srv",`서버 모드 = ${S.mode}`);render()}else if(t.id==="rkb"){S.rkb=+t.value;render()}else if(t.dataset.c){const ru=ruleOf(),k=t.dataset.c;if(t.checked&&ru.on){t.checked=false;stepUp("규칙 범위 넓히기",()=>{ru[k]=true})}else{ru[k]=t.checked;render()}}});
+$("#persona").innerHTML=Object.entries(personas).map(([k,p])=>`<option value="${k}" ${k===S.persona?"selected":""}>${p.label}</option>`).join("");
+if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.dataset.theme="dark";
+document.addEventListener("input",e=>{if(e.target.id==="navq"){S.navQ=e.target.value;$("#cnav-list").innerHTML=navList()}});
+if(innerWidth>1500)$("#flow").classList.add("show");
+drawFlow();render();
+</script></body></html>

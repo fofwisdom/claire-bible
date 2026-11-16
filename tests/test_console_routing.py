@@ -456,3 +456,27 @@ def test_each_console_page_follows_the_interface_locale(console_env):
             assert not left, (path, sorted(left)[:8])
             korean = client.get(path, headers={**headers, "Accept-Language": "ko"})
             assert korean.status_code == 200 and '<html lang="ko">' in korean.text and hangul.search(catalog.sub("", korean.text)), path
+
+
+def test_modern_console_shell_markup_and_security_boundaries(console_env):
+    """Console shell emits collapsible groups, command palette, drawer, and preserves member/admin stripping."""
+    _set_mode(console_env.db_file, "network")
+    client = console_env.client
+
+    member_html = client.get("/settings/account", headers=console_env.alice_owner).text
+    assert '<meta name="text-scale" content="scale"/>' in member_html
+    assert 'data-nav-group="workspace"' in member_html
+    assert 'data-nav-group-toggle="workspace"' in member_html
+    assert 'id="console-grp-workspace"' in member_html
+    assert 'id="console-nav-drawer"' in member_html
+    assert 'id="cmdpalette"' in member_html
+    assert '/static/js/command_palette.js' in member_html
+    assert '/static/js/console_shell.js' in member_html
+    assert '/admin/' not in member_html
+    assert 'data-nav-group="admin_server"' not in member_html
+    assert 'console_admin.js' not in member_html
+
+    admin_html = client.get("/admin/server", headers=console_env.admin_owner).text
+    assert 'data-nav-group="admin_server"' in admin_html
+    assert 'data-nav-group-toggle="admin_system"' in admin_html
+    assert 'console_admin.js' in admin_html

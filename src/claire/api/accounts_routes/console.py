@@ -404,8 +404,9 @@ def _build_sidebar_html(
     admin_viewer: bool,
     theme_query: str | None,
 ) -> str:
-    groups: list[tuple[str, list[ConsoleSectionSpec]]] = [
+    groups: list[tuple[str, str, list[ConsoleSectionSpec]]] = [
         (
+            "workspace",
             t("console.group.workspace"),
             [
                 spec
@@ -414,22 +415,27 @@ def _build_sidebar_html(
                 if not (admin_viewer and spec.slug in {"themes", "tokens"})
             ],
         ),
-        (t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
-        (t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
+        ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
+        ("agents", t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
     ]
     if admin_viewer:
-        groups.append((t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
-        groups.append((t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
+        groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
+        groups.append(("admin_system", t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
 
     parts: list[str] = []
-    for group_label, specs in groups:
-        parts.append(f'<div class="console-nav-group-label">{escape(group_label)}</div>')
+    for group_id, group_label, specs in groups:
+        has_active = any(spec.path == active_path for spec in specs)
+        group_cls = "console-nav-group has-active" if has_active else "console-nav-group"
+        list_id = f"console-grp-{group_id}"
+        parts.append(f'<div class="{group_cls}" data-nav-group="{escape(group_id)}">')
+        parts.append(f'  <button type="button" class="console-nav-group-btn" data-nav-group-toggle="{escape(group_id)}" aria-expanded="true" aria-controls="{escape(list_id)}"><span class="console-nav-group-label">{escape(group_label)}</span><span class="console-nav-chev" aria-hidden="true">▾</span></button>')
+        parts.append(f'  <ul id="{escape(list_id)}" class="console-nav-list" role="list">')
         for spec in specs:
             href = _append_theme_query(spec.path, theme_query) if spec.theme_scoped else spec.path
             current = ' aria-current="page"' if spec.path == active_path else ""
-            parts.append(
-                f'<a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}{escape(spec.nav_label)}</a>'
-            )
+            parts.append(f'    <li><a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}<span>{escape(spec.nav_label)}</span></a></li>')
+        parts.append("  </ul>")
+        parts.append("</div>")
     return "\n      ".join(parts)
 
 

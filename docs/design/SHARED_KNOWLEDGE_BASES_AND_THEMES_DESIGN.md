@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Planned, not implemented (draft, Rev. 7). Owner decisions CT1 to CT37 are locked (2026-11-16). No question of this design is open (Section 15).
+- **Status**: Planned, not implemented (draft, Rev. 8). Owner decisions CT1 to CT37 are locked (2026-11-16). No question of this design is open (Section 15). Work starts from the visual prototype [`prototypes/console_modern_prototype.html`](prototypes/console_modern_prototype.html) (mock data; owner, 2026-11-16): it shows this design, the federation design, and the settings and admin console of [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md). The first prototype [`prototypes/shared_knowledge_federation_prototype.html`](prototypes/shared_knowledge_federation_prototype.html) is kept for reference.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -12,7 +12,9 @@
   - Rev. 5 (2026-11-16): answers to OQ24 to OQ28 (CT29 to CT34). Automatic contribution is a server switch in the federation menu (CT31). Shared knowledge bases aim at partnerships between servers; the new design [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) starts idea I2 (CT32). Single mode sends `/` to `/@{username}/` of the admin (CT33, replaces CT22).
   - Rev. 6 (2026-11-16): terms as in Mastodon (CT36): **federation** is the open exchange between servers, and **relay** is the server-level subscription; the term "partnership" is retired. Themes share ingested documents between servers without an agreement (CT35). The agreement between two accounts is renamed mutual collaboration (Section 9.10). The exchange between servers is designed in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md).
   - Rev. 7 (2026-11-16): the relay is an idea outside this design; it moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) with the server-level partnership of the federation design Rev. 1 to Rev. 3 (owner: the plan grew too wide). The mutual collaboration (Section 9.10) is an exchange inside the server from the contributor proposal, not a part of that partnership; it stays here. The owner answered OQ29: CT37.
+  - Rev. 8 (2026-11-16): the visual prototype is the base for the work (owner). The console pages of Section 10.3 get their place, tabs, and layout from [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md). The workspace stays; the prototype shows only the parts that this design adds (Sections 8.4, 10.3).
 - **Related Documents**:
+  - [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (layout, groups, and tabs of the console; console and workspace)
   - [`THEMES.md`](../implementation/THEMES.md) (current implementation of the partition)
   - [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (principal, credentials, OIDC, step-up authentication)
   - [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (namespaces, numbers, collection contract §7, embedding space §10.4)
@@ -362,6 +364,7 @@ Later runs keep each adjustment.
 - **Single mode** (CT33): no root page. `/` sends the request to `/@{username}/` of the admin. The home overview of the personal knowledge base has a theme card with a link to `/themes`.
 - **Theme page `/themes/{number}`**: the knowledge bases of the theme (shared first, then attached personal knowledge bases), the top entities, and the actions "Contribute to this theme" (Section 9.2), "Make a shared knowledge base in this theme", and "Fork" for each shared knowledge base.
 - Each item of a collection has `number`, `label`, `description`, `knowledge_type`, `state`, counts, and `url`.
+- **The workspace stays.** The personal knowledge base at `/@{u}/` keeps the workspace that is in service (WEBUI.md). This design adds parts to it and removes the focus control; it does not replace it. The visual prototype shows only the added parts ([`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) §7). The UI of `/kb/{number}/` is question CQ4 of that design.
 
 ### 8.5 Document Match
 
@@ -559,6 +562,14 @@ A shared knowledge base without an active moderator has the admin as its only mo
 | `/admin/themes` | Admin | Themes, the last judgement run, `theme_match_threshold`, `document_match_threshold`, `seed_match_threshold`, `auto_match_threshold`, the reputation numbers and limits, the adjustments of Section 8.3, the agreement of decisions (Section 9.3) |
 
 New UI text uses keys of the English and Korean catalogs from the start.
+
+[`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) gives the group, the tabs, and the layout of each page (its Section 5), with these effects on the table above:
+
+1. `/settings/kb` has the tabs: personal knowledge base, submissions, automatic rule, reputation, memberships and mutual collaboration. It takes the function of `/settings/themes` (question CQ2 of that design).
+2. `/settings/kb/{number}` has the tabs: queue, contributions, curation; for a moderator also members and roles, settings, moderation log.
+3. `/admin/kb` has the tabs: all, failures and warnings. Its name is question CQ5 of that design.
+4. `/admin/themes` keeps its path, and its content today (the themes of the admin account, the theme slot counts) goes away.
+5. Sections that exist get changes from this design: tokens (CT30, CT34), Telegram (CT27, CT28), account deletion (CT19), backups (Section 13.2), MCP tools (Section 13.4), server tier (`max_themes`, Section 10.1).
 
 ---
 
@@ -915,7 +926,7 @@ Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5
 
 The federation between servers has no open question; its decisions KD1 to KD9 are in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §2.1.
 
-No question of this design is open.
+No question of this design is open. The questions about the console and the workspace (CQ1 to CQ6) are in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) §11.
 
 ---
 
@@ -932,7 +943,7 @@ No question of this design is open.
 | CT-6 | Contribution to a theme with routing (Section 9.2), review help (Section 9.3) | A document without a selected theme goes to the shared knowledge bases of its matched theme; no match gives `no_theme`; pending copies are not visible; each reviewer decides alone and sees the other decisions; contributions of collaborators need no approval; limits apply |
 | CT-7 | Curation and fork (Sections 9.7, 9.8) | A fork of a shared knowledge base has the same visible documents and graph without LLM calls; a fork of a personal knowledge base gets 403 `kb_fork_shared_only`; curation from a public personal knowledge base works and from a private one gives 404 |
 | CT-8 | Ingest entry points, workers, purge with the option for activity records, backup, federation, Telegram, MCP, CLI (Section 13) | A pinned ingest to a shared knowledge base gets 403; workers take no shared row; purge keeps contributions with a NULL credit; the option deletes submissions and reason texts and no content |
-| CT-9 | Console pages (Section 10.3) with English and Korean catalog keys | E2E test: A makes a shared knowledge base (`real`); B makes a similar one; both are in one theme on the root page; C ingests a document and contributes it without a theme; the server routes it to that theme; each moderator approves and sees the decision of the other; A gives C the role `collaborator`; C curates from B; D forks A; E ingests a fiction document and sees the fiction-like notice. |
+| CT-9 | Console pages (Section 10.3) with English and Korean catalog keys, in the layout of [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (after its unit CL-1) | E2E test: A makes a shared knowledge base (`real`); B makes a similar one; both are in one theme on the root page; C ingests a document and contributes it without a theme; the server routes it to that theme; each moderator approves and sees the decision of the other; A gives C the role `collaborator`; C curates from B; D forks A; E ingests a fiction document and sees the fiction-like notice. |
 | CT-10 | Implementation documents: `THEMES.md` (becomes the knowledge base document), `SCHEMA_VERSIONING.md`, `ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `openapi.yaml`, `COMMANDS.md`, `GLOSSARY.md`, `ENVIRONMENT_VARIABLES.md` | The documents describe the code. This design document is removed after the implementation. |
 | CT-11 | Reputation (Section 8.6) and campaign message (Section 8.7) | Fiction-like documents raise the fiction share; the level changes the theme attachment, the pending limit, the queue order, the direct contribution, and the automatic contribution; an approved contribution to a `fictional` shared knowledge base removes the document from the count; the standing message and the notice show on each surface |
 | CT-12 | Seal of the ingest focus (Section 13.7). Independent of the other units; it can come first. | No entry point gives a focus to the pipeline; stored focus values stay and are not read; the Telegram URL with a separator is ingested without the focus; the UI has no focus control |

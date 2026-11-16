@@ -45,3 +45,4 @@ D2 changed after implementation: the inline drawer panels on the root page were 
 - A new administrator section goes under the administrator prefix and follows invariants 1 to 3.
 - A new account setting goes under the settings prefix. If it is per theme, it validates the theme reference of the caller and fails closed.
 - Keep the old redirects (D4) until the owner decides to remove them.
+- The layout and the navigation of the console shell (groups, tabs, scroll regions) change in [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md) (planned). That design keeps the decisions and the invariants of this document.
