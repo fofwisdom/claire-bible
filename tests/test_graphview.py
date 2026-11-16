@@ -114,7 +114,7 @@ def test_graph_html_self_contained_markers():
     assert "showNodePop(p.node), NODE_POP_DELAY_MS)" in GRAPH_HTML
     # 첫 페인트는 fail-closed이고 /whoami가 owner를 확인한 뒤에만 쓰기 UI를 승격한다.
     assert "synthesize" in GRAPH_HTML                                   # 종합 POST 경로
-    assert "세션 만료" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
+    assert "ws.common.session_expired" in GRAPH_HTML                                    # 만료 시 /web 재접속 안내
     assert "semanticSearch" in GRAPH_HTML and 'id="q"' in GRAPH_HTML    # 검색 입력창 및 비동기 검색
     assert "cancelServerSearch" in GRAPH_HTML and "currentSearchSeq" in GRAPH_HTML  # 비동기 검색 경쟁 방지
     assert "mode:searchMode" in GRAPH_HTML  # FTS / Hybrid 명시적 모드 전달
@@ -128,7 +128,7 @@ def test_graph_html_self_contained_markers():
     assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "updateCenterSearchMode" in GRAPH_HTML
-    assert "익명 읽기전용" in GRAPH_HTML
+    assert "ws.bar.auth_anonymous" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
     # 적재 폼은 CLI의 분량/사고 수준 옵션을 원클릭 선택으로 제공하고 초점을 별도 입력한다.
@@ -177,7 +177,7 @@ def test_graph_html_self_contained_markers():
     # 읽기는 중앙 마크다운 팝업(nav 와 분리) — 노드 패널의 출처 문서 '본문 보기' 버튼이 openReader 호출
     assert "openReader" in GRAPH_HTML and "id=\"reader\"" in GRAPH_HTML  # 중앙 읽기 뷰
     # Unit LP-4: the source document row has an icon button with this label.
-    assert 'title="본문 보기" aria-label="본문 보기"><span data-icon="book"></span></button>' in GRAPH_HTML
+    assert 'title="\' + tr("ws.node.read_doc") + \'" aria-label="\' + tr("ws.node.read_doc") + \'"><span data-icon="book"></span></button>' in GRAPH_HTML
     assert "📖 크게 읽기" not in GRAPH_HTML  # 중복되거나 모호한 '크게 읽기' 라벨 제거
     assert "setReadFS" in GRAPH_HTML and "claireReadFS" in GRAPH_HTML and "rzoom" in GRAPH_HTML  # 글자 크기 조절(A-/A+)
     # RD25: no Markdown renderer and no marked library; the body renders as AsciiDoc with DOMPurify.
@@ -192,7 +192,7 @@ def test_graph_html_self_contained_markers():
     assert 'class="rhead"' not in GRAPH_HTML
     assert "docsPane.setAttribute('role', 'dialog')" in GRAPH_HTML
     assert 'id="tab-detail"' not in GRAPH_HTML
-    assert 'id="detailpane" aria-label="문맥 상세"' in GRAPH_HTML
+    assert 'id="detailpane" aria-label="${t:ws.ctx.detail}"' in GRAPH_HTML
     assert "function revealWorkspace" in GRAPH_HTML and "data-active-pane" in GRAPH_HTML
     assert "function openDetailPane()" in GRAPH_HTML and "let activePane='graph', detailOpen=false" in GRAPH_HTML
     assert "const paneNames=['docs','graph'];" in GRAPH_HTML
@@ -202,9 +202,9 @@ def test_graph_html_self_contained_markers():
     assert "fitGraphContext" in GRAPH_HTML and "resetGraphCamera" in GRAPH_HTML
     # 모바일 그래프의 지역 자료 전환기: 자료 탭으로 왕복하지 않고 검색/이전/다음으로
     # activeDoc을 바꾸되, 자료·그래프의 주 탭 계층과 reader 역할은 그대로 유지한다.
-    assert 'id="graphdocnav" aria-label="그래프 자료 전환"' in GRAPH_HTML
+    assert 'id="graphdocnav" aria-label="${t:ws.graph.doc_nav}"' in GRAPH_HTML
     assert 'id="graphdocpick" aria-haspopup="dialog" aria-expanded="false"' in GRAPH_HTML
-    assert 'id="graphdocmenu" role="dialog" aria-label="그래프에서 볼 자료 선택"' in GRAPH_HTML
+    assert 'id="graphdocmenu" role="dialog" aria-label="${t:ws.graph.doc_menu}"' in GRAPH_HTML
     assert 'aria-hidden="true" inert hidden' in GRAPH_HTML
     assert "function renderGraphDocPicker" in GRAPH_HTML
     assert "function stepGraphDoc" in GRAPH_HTML and "function setActiveDoc" in GRAPH_HTML
@@ -212,7 +212,7 @@ def test_graph_html_self_contained_markers():
     assert "font:{color:th.nodeFont,size:0" in GRAPH_HTML             # 관계 라벨은 기본 숨김
     assert "edgeLabelsByZoom" in GRAPH_HTML                           # 확대/선택/경로에서만 라벨 공개
     # reader는 팝업이 아니라 중앙 작업 영역의 본문 뷰로 표시된다.
-    assert 'id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기"' in GRAPH_HTML
+    assert 'id="reader" class="workspace-pane" role="region" aria-label="${t:ws.view.reader_title}"' in GRAPH_HTML
     assert "handleReaderKey" in GRAPH_HTML and "setReaderBackgroundInert" in GRAPH_HTML
     assert "readerReturnFocus" in GRAPH_HTML and "data-read-doc" in GRAPH_HTML
     assert "#ffffff" in GRAPH_HTML and "this.selectedNodes.has(this._ids[i]) ? 1.6 : 1.25" in GRAPH_HTML  # 선택 노드 고리
@@ -223,7 +223,7 @@ def test_graph_html_self_contained_markers():
     assert GRAPH_HTML.count("if(!r.ok)") >= 2                          # 503 등 비-NDJSON 오류 처리
     assert "renderResearchResult" in GRAPH_HTML                         # 진행/결과 렌더 분리
     assert "borderWidth: lit?3:1" in GRAPH_HTML                         # 강조(문서/검색) 흰 테두리
-    assert "d.checkpoint" in GRAPH_HTML and "내부 체크포인트" in GRAPH_HTML
+    assert "d.checkpoint" in GRAPH_HTML and "ws.dedup.checkpoint" in GRAPH_HTML
     # 모바일 탭 및 데스크톱 롤오버 요약 팝업과 상세/읽기 뷰 오픈 시 가림 방지
     assert "body.detail-open #nodepop" in GRAPH_HTML and "body.reader-open #nodepop" in GRAPH_HTML
     assert "function canShowNodePop(id)" in GRAPH_HTML
@@ -250,7 +250,7 @@ def test_right_menu_compact_icon_mode_markers():
 def test_right_menu_graph_section_markers():
     """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리 및 공통 탭 바 내 전환 단추 검증."""
     assert 'id="graph-section"' in GRAPH_HTML
-    assert 'class="menu-section-title" id="menu-section-title">문서와 그래프<' in GRAPH_HTML
+    assert 'class="menu-section-title" id="menu-section-title">${t:ws.menu.section_title}<' in GRAPH_HTML
     assert "#moremenu .menu-section" in GRAPH_HTML
     assert "border-top:1px solid var(--border)" in GRAPH_HTML
     assert "#moremenu .menu-section-title" in GRAPH_HTML
@@ -276,7 +276,7 @@ def test_stat_location_and_center_view_right_menu_modes():
     """span#stat의 좌측 검색 옵션 하단 배치 및 중앙 화면 모드별 경로 버튼 표시 CSS 검증."""
     # 1. span#stat가 좌측 패널(aside#docs .dhead)의 docsearch-stat-row 내에 위치
     assert '<div class="docsearch-stat-row">' in GRAPH_HTML
-    assert '<span id="stat" role="status" aria-live="polite">로딩…</span>' in GRAPH_HTML
+    assert '<span id="stat" role="status" aria-live="polite">${t:ws.list.loading}</span>' in GRAPH_HTML
     stat_pos = GRAPH_HTML.index('id="stat"')
     docs_pos = GRAPH_HTML.index('id="docs"')
     pinned_pos = GRAPH_HTML.index('id="pinnedhead"')
@@ -337,7 +337,7 @@ def test_favorite_and_hide_ui_markers():
     # 좌측 패널: 제목 줄 좌측 별표 버튼
     assert "doctitle-line" in GRAPH_HTML
     assert "docpin-btn" in GRAPH_HTML
-    assert "'즐겨찾기 ('" in GRAPH_HTML
+    assert "ws.list.pinned_count" in GRAPH_HTML
     # 우측 패널: FTS 스타일 숨기기 체크박스
     assert "dochide-row" in GRAPH_HTML and "dochide-label" in GRAPH_HTML
     assert 'id="panelhidechk"' in GRAPH_HTML
@@ -515,12 +515,12 @@ def test_render_graph_html_default():
     assert "fofwisdom/claire-bible" in html
     assert '<a class="brand"' in html
     assert 'onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:\'brand\'});}"' in html
-    assert 'title="Claire Bible 홈 (지식 그래프)"' in html
+    assert 'title="Claire Bible home (knowledge graph)"' in html
     assert 'function resetHome()' in html
     assert 'function enterHome(' in html
     assert 'id="repolink"' in html
     assert 'id="drawermanager"' in html
-    assert "지식 관리자: owner" in html
+    assert "Knowledge manager: owner" in html
     assert html.index('id="drawermanager"') < html.index('id="repolink"')
     assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html
     assert "get githubRepository(){ return 'fofwisdom/claire-bible'; }" in html
@@ -540,7 +540,7 @@ def test_render_graph_html_custom_settings():
     html = render_graph_html(settings)
     assert 'href="https://custom.git/custom-team/my-kb"' in html
     assert 'title="custom-team/my-kb (GitHub)"' in html or 'custom-team/my-kb' in html
-    assert "지식 관리자: custom_admin" in html
+    assert "Knowledge manager: custom_admin" in html
     assert "get sourceBaseUrl(){ return 'https://custom.git/custom-team/my-kb'; }" in html
     assert "get githubRepository(){ return 'custom-team/my-kb'; }" in html
     assert "get sorcerer(){ return 'custom_admin'; }" in html
@@ -566,7 +566,7 @@ def test_drawerfooter_knowledge_manager_and_github_icon_layout():
     assert 'id="drawermanager"' in footer_html
     assert 'id="repolink"' in footer_html
     assert footer_html.index('id="drawermanager"') < footer_html.index('id="repolink"')
-    assert "지식 관리자: owner" in footer_html
+    assert "Knowledge manager: owner" in footer_html
 
     # 3. XSS 방지 이스케이프 검증
     settings_xss = Settings(
@@ -576,7 +576,7 @@ def test_drawerfooter_knowledge_manager_and_github_icon_layout():
     html_xss = render_graph_html(settings_xss)
     assert "<script>alert(1)</script>" not in html_xss
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
-    assert "지식 관리자: &lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
+    assert "Knowledge manager: &lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
 
 
 def test_code_block_css_resets():
@@ -633,8 +633,8 @@ def test_doclist_desclines_toolbar():
     # doclist 안의 최상단에 .doclist-toolbar 와 id="desclines" 가 위치해야 함
     doclist_match = re.search(r'<div id="doclist">\s*<div class="doclist-toolbar">\s*<select id="desclines"', GRAPH_HTML)
     assert doclist_match is not None
-    assert '<option value="0">제목만 표시</option>' in GRAPH_HTML
-    assert '<option value="3">요약 표시</option>' in GRAPH_HTML
+    assert '<option value="0">${t:ws.list.titles_only}</option>' in GRAPH_HTML
+    assert '<option value="3">${t:ws.list.with_summary}</option>' in GRAPH_HTML
     assert 'doclistToolbarHtml' in GRAPH_HTML
     assert '.doclist-toolbar{position:sticky;top:0' in GRAPH_HTML
 
@@ -690,7 +690,7 @@ def test_document_detail_and_right_menu_includes_nodes():
     assert "MCP" in labels
     assert "Claude Code" in labels
 
-    assert "이 문서의 지식 노드" in GRAPH_HTML
+    assert "ws.ctx.doc_nodes" in GRAPH_HTML
 
 
 def test_graph_engine_physics_and_rendering_backends():
@@ -849,7 +849,7 @@ def test_reader_keyboard_navigation_markup_and_styles():
     from claire.graphview import GRAPH_HTML
 
     # 1. #rbody의 tabindex 및 접근성 명시
-    assert '<div class="rbody" id="rbody" tabindex="0" role="region" aria-label="문서 본문">' in GRAPH_HTML
+    assert '<div class="rbody" id="rbody" tabindex="0" role="region" aria-label="${t:ws.reader.body}">' in GRAPH_HTML
 
     # 2. #rbody 및 블록 컨테이너 포커스 스타일
     assert "#reader .rbody:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}" in GRAPH_HTML
@@ -898,11 +898,11 @@ def test_open_ingest_shows_status_when_running():
     # 2. renderIngestStatus() 함수 및 상태 뷰 식별자 검증
     assert "function renderIngestStatus(){" in GRAPH_HTML
     assert 'id="ingest-status-view"' in GRAPH_HTML
-    assert "적재 상태" in GRAPH_HTML
+    assert "ws.ingest.state" in GRAPH_HTML
     assert '<ul id="iprog">' in GRAPH_HTML
 
     # 3. runIngest() 내 activeIngest 상태 초기화 및 실행 중 중복 호출 방지
-    assert "if(activeIngest && activeIngest.running){\n    alert('이미 적재가 진행 중입니다.');\n    renderIngestStatus();\n    return;\n  }" in GRAPH_HTML
+    assert "if(activeIngest && activeIngest.running){\n    alert(tr(\"ws.ingest.busy\"));\n    renderIngestStatus();\n    return;\n  }" in GRAPH_HTML
     assert "activeIngest = {\n    running: true," in GRAPH_HTML
 
 
@@ -964,7 +964,7 @@ def test_detailpane_title_and_duplicate_removal():
     r_end = GRAPH_HTML.index("function updateReaderRail(){")
     reader_fn = GRAPH_HTML[r_start:r_end]
     assert "h+=docMetaHtml(dc);" in reader_fn
-    assert "<div class=rsection>요약</div>" in reader_fn
+    assert "<div class=rsection>' + rtr(\"reader.section.summary\") + '</div>" in reader_fn
 
 
 def test_default_graph_view_and_stream_tabs_separation():
@@ -976,7 +976,7 @@ def test_default_graph_view_and_stream_tabs_separation():
     assert 'id="centertab-home" type="button" class="center-tab-btn" aria-current="page"' in GRAPH_HTML
 
     # 2. 로고(brand) 클릭 시 홈 보기 복원
-    assert 'title="Claire Bible 홈 (지식 그래프)"' in GRAPH_HTML
+    assert 'title="${t:ws.bar.brand_title}"' in GRAPH_HTML
 
     # 3. enterHome() 및 resetHome() 호출 시 홈 뷰로 복원
     r_home_start = GRAPH_HTML.index("async function enterHome(")
@@ -1032,10 +1032,10 @@ def test_docmeta_message_html_and_red_box_removal():
     fn_end = GRAPH_HTML.index("function renderReader(dc){")
     msg_fn = GRAPH_HTML[fn_start:fn_end]
 
-    assert "원본 PDF 함께 적재" in msg_fn
-    assert "음성 인식(STT)을 적용하여 작성한 문서" in msg_fn
-    assert "영상 자막(CC" in msg_fn
-    assert "원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서" in msg_fn
+    assert "reader.tag.bundle_tip" in msg_fn
+    assert "reader.tag.stt" in msg_fn
+    assert "reader.tag.cc" in msg_fn
+    assert "reader.trunc.appendix_references" in msg_fn
 
 
 def test_heatmap_matrix_mobile_and_visual_improvements():
@@ -1111,7 +1111,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
     # 5. 본문 보기는 팝업 모달이 아닌 중앙 작업 영역(#reader)에 그대로 표시
     assert 'role="dialog" aria-modal="true" aria-labelledby="rtitle"' not in GRAPH_HTML
-    assert 'id="reader" class="workspace-pane" role="region" aria-label="문서 본문 읽기"' in GRAPH_HTML
+    assert 'id="reader" class="workspace-pane" role="region" aria-label="${t:ws.view.reader_title}"' in GRAPH_HTML
     assert 'body[data-center-view="reader"] #reader{\n      display:flex!important;' in GRAPH_HTML
 
 
@@ -1129,8 +1129,8 @@ def test_list_pane_rename_and_windowed_document_list():
     from claire.graphview import GRAPH_HTML
 
     assert "본문 목록" not in GRAPH_HTML
-    assert '<span class="btn-label">목록</span>' in GRAPH_HTML
-    assert 'title="목록 닫기" aria-label="목록 닫기"' in GRAPH_HTML
+    assert '<span class="btn-label">${t:nav.list}</span>' in GRAPH_HTML
+    assert 'title="${t:ws.list.close}" aria-label="${t:ws.list.close}"' in GRAPH_HTML
     wrap_pos = GRAPH_HTML.index('<div id="doclistwrap">')
     ent_pos = GRAPH_HTML.index('<div id="entlist"')
     assert wrap_pos < GRAPH_HTML.index('id="pinnedhead"') < GRAPH_HTML.index('<div id="doclist">') < GRAPH_HTML.index('id="hiddenlist"') < ent_pos
@@ -1146,15 +1146,15 @@ def test_entity_list_markup():
     """The graph view has an entity list with a sort control and filter chips. The E2E test proves that the graph and the list use one predicate."""
     from claire.graphview import GRAPH_HTML
 
-    assert '<div id="entlist" role="list" aria-label="엔티티 목록"></div>' in GRAPH_HTML
+    assert '<div id="entlist" role="list" aria-label="${t:ws.list.entities_label}"></div>' in GRAPH_HTML
     assert GRAPH_HTML.index('<div id="listbody">') < GRAPH_HTML.index('<div id="doclistwrap">') < GRAPH_HTML.index('<div id="enttools">') < GRAPH_HTML.index('<div id="entlist"') < GRAPH_HTML.index('id="listtopbtn"')
-    assert 'data-sort="degree" aria-pressed="true" onclick="setEntitySort(\'degree\')">연결순</button>' in GRAPH_HTML
-    assert 'data-sort="name" aria-pressed="false" onclick="setEntitySort(\'name\')">이름순</button>' in GRAPH_HTML
+    assert 'data-sort="degree" aria-pressed="true" onclick="setEntitySort(\'degree\')">${t:ws.list.sort_degree}</button>' in GRAPH_HTML
+    assert 'data-sort="name" aria-pressed="false" onclick="setEntitySort(\'name\')">${t:ws.list.sort_name}</button>' in GRAPH_HTML
     assert '<div id="entchips" role="status" aria-live="polite" hidden></div>' in GRAPH_HTML
     assert '#docs:not([data-list="entities"]) #enttools{display:none}' in GRAPH_HTML
-    assert "<h4>관찰/주장</h4>" in GRAPH_HTML
-    assert "⌖ 그래프에서 보기" in GRAPH_HTML
-    assert "필터 밖" in GRAPH_HTML
+    assert "'<h4>' + tr(\"ws.ent.observations\") + '</h4>'" in GRAPH_HTML
+    assert "ws.ent.show_in_graph" in GRAPH_HTML
+    assert "ws.ent.outside" in GRAPH_HTML
 
 
 def test_node_detail_panel_markup_has_closed_source_rows_and_no_observation_section():
@@ -1163,11 +1163,11 @@ def test_node_detail_panel_markup_has_closed_source_rows_and_no_observation_sect
 
     assert "관찰 · 주장" not in GRAPH_HTML
     assert "🔬 더 알아보기" not in GRAPH_HTML
-    assert "<h3>더 알아보기</h3>" in GRAPH_HTML
-    assert "관찰/주장 · 연결 보기 (" in GRAPH_HTML
+    assert "'<h3>' + tr(\"ws.research.more\") + '</h3>'" in GRAPH_HTML
+    assert "ws.node.show_in_list" in GRAPH_HTML
     assert "#panel .srcsum{margin:.35em 0 .2em;text-align:justify;text-align-last:start;text-justify:inter-character;word-break:normal;overflow-wrap:anywhere;line-height:1.6}" in GRAPH_HTML
     assert "#panel .nodehead{position:sticky;top:calc(-1 * var(--drawer-pad-y));" in GRAPH_HTML
-    assert "요약 없음" in GRAPH_HTML
+    assert "ws.node.no_summary" in GRAPH_HTML
 
 
 def test_node_detail_docs_brief_omits_detail_text():

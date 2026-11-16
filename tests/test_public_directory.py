@@ -211,11 +211,11 @@ def test_explore_accounts_json_and_html_negotiation(tmp_path: Path):
     res_html = client.get("/explore/accounts", headers={"Accept": "text/html"})
     assert res_html.status_code == 200
     assert "text/html" in res_html.headers.get("content-type", "")
-    assert "공개 디렉터리" in res_html.text
+    assert "Public directory" in res_html.text
     assert "Alice In Wonderland" in res_html.text
     assert "@alice" in res_html.text
     assert "Alice Public Theme" in res_html.text
-    assert "로그인" in res_html.text
+    assert "Log in" in res_html.text
 
     res_dest_html = client.get("/explore/accounts", headers={"Sec-Fetch-Dest": "document"})
     assert res_dest_html.status_code == 200
@@ -230,7 +230,7 @@ def test_network_mode_root_routing(tmp_path: Path):
     res_root = client.get("/")
     assert res_root.status_code == 200
     assert "text/html" in res_root.headers.get("content-type", "")
-    assert "공개 디렉터리" in res_root.text
+    assert "Public directory" in res_root.text
 
     res_doc = client.get("/?doc=doc123&x=1")
     assert res_doc.status_code == 308
@@ -246,7 +246,7 @@ def test_network_mode_root_routing(tmp_path: Path):
 
     res_other = client.get("/?filter=alpha")
     assert res_other.status_code == 200
-    assert "공개 디렉터리" in res_other.text
+    assert "Public directory" in res_other.text
 
 
 def test_single_mode_explore_accounts_is_404(tmp_path: Path):
@@ -272,7 +272,7 @@ def test_single_mode_explore_accounts_is_404(tmp_path: Path):
 
     root_res = client.get("/")
     assert root_res.status_code == 200
-    assert "공개 디렉터리" not in root_res.text
+    assert "Public directory" not in root_res.text
 
 
 def test_account_filtering_profile_public_and_status(tmp_path: Path):
@@ -322,12 +322,12 @@ def test_empty_state_rendering(tmp_path: Path):
 
     res = client.get("/explore/accounts", headers={"Accept": "text/html"})
     assert res.status_code == 200
-    assert "등록된 공개 계정이 없습니다" in res.text
-    assert "로그인" in res.text
+    assert "There are no public accounts" in res.text
+    assert "Log in" in res.text
 
     res_root = client.get("/")
     assert res_root.status_code == 200
-    assert "등록된 공개 계정이 없습니다" in res_root.text
+    assert "There are no public accounts" in res_root.text
 
 
 def test_public_directory_authenticated_user_navigation_e2e(tmp_path: Path):
@@ -348,20 +348,20 @@ def test_public_directory_authenticated_user_navigation_e2e(tmp_path: Path):
     anon_res = client.get("/explore/accounts", headers={"Accept": "text/html"})
     assert anon_res.status_code == 200
     assert 'href="/login"' in anon_res.text
-    assert "로그아웃" not in anon_res.text
+    assert "Log out" not in anon_res.text
 
     client.cookies.set("claire_session", session_token)
     auth_res = client.get("/explore/accounts", headers={"Accept": "text/html"})
     assert auth_res.status_code == 200
-    assert "내 작업 공간" in auth_res.text
+    assert "My workspace" in auth_res.text
     assert 'href="/@alice/"' in auth_res.text
-    assert "로그아웃" in auth_res.text
+    assert "Log out" in auth_res.text
 
     ws_res = client.get("/@alice/")
     assert ws_res.status_code == 200
-    assert "지식 그래프" in ws_res.text
-    assert "공개 디렉터리" not in ws_res.text
+    assert "Knowledge graph" in ws_res.text
+    assert "Public directory" not in ws_res.text
 
     ws_doc_res = client.get("/@alice/?doc=doc1", follow_redirects=False)
     assert ws_doc_res.status_code == 200
-    assert "지식 그래프" in ws_doc_res.text
+    assert "Knowledge graph" in ws_doc_res.text

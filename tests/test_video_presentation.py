@@ -36,6 +36,8 @@ from claire.store import db as dbm
 from claire.store.raw import load_artifact, raw_disk_usage, save_document_attachments
 from claire.store.vectors import VectorStore
 
+from tests.js_i18n import js_i18n_prelude
+
 VIDEO_URL = "https://www.vmware.com/explore/video/6403820644112"
 PDF_URL = "https://static.rainfocus.com/event/session/presrevpdf/APPB1222LV.pdf"
 PDF_BYTES = b"%PDF-synthetic-presentation"
@@ -940,30 +942,30 @@ def test_graphview_doc_meta_html_renders_cc_and_stt_bundles():
         stt: docMetaHtml(sttDoc)
     }}));
     """
-    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    res = subprocess.run(["node", "-e", js_i18n_prelude() + js], capture_output=True, text=True, check=True)
     out = json.loads(res.stdout)
 
     # CC 검증: '🔤⚡📄 CC×PDF' 라벨, 호버 툴팁(자막 선언급, 적재, 파서 접두사 제거)
     assert '><span data-icon="captions"></span><span data-icon="doc"></span> CC×PDF<' in out["cc"]
-    assert "25,183자" in out["cc"]
+    assert "25,183 characters" in out["cc"]
     assert "pypdf" in out["cc"]
     assert "파서: " not in out["cc"]
     assert "📎" not in out["cc"]
-    assert "영상 자막과 원본 PDF 함께 적재 (25,183자 · pypdf)" in out["cc"]
+    assert "Video subtitles ingested together with the original PDF (25,183 characters · pypdf)" in out["cc"]
     assert "적재됨" not in out["cc"]
     assert "stt-tag" not in out["cc"]
 
     # STT 검증: '🎙️⚡📄 STT×PDF' 라벨, 호버 툴팁(음성 전사 선언급, (STT) 제거, 적재)
     assert '><span data-icon="mic"></span><span data-icon="doc"></span> STT×PDF<' in out["stt"]
-    assert "25,183자" in out["stt"]
+    assert "25,183 characters" in out["stt"]
     assert "pypdf" in out["stt"]
     assert "파서: " not in out["stt"]
     assert "📎" not in out["stt"]
-    assert "영상 음성 전사와 원본 PDF 함께 적재 (25,183자 · pypdf)" in out["stt"]
+    assert "Video transcription ingested together with the original PDF (25,183 characters · pypdf)" in out["stt"]
     assert "음성 전사(STT)" not in out["stt"]
     assert "적재됨" not in out["stt"]
     assert "stt-tag" in out["stt"]
-    assert "↗ 전사 열기" in out["stt"]
+    assert "↗ Open the transcription" in out["stt"]
     assert '<span data-icon="mic"></span> STT' not in out["stt"]  # 중복 분리 태그 방지
 
 

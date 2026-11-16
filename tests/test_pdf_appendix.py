@@ -294,5 +294,5 @@ def test_graphview_appendix_truncation_ui():
     html = render_graph_html()
     assert ".trunc-tag.trunc-appendix" in html
     assert "#3fb950" in html
-    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
+    assert "reader.trunc.appendix" in html
     assert "isAppTrunc" in html

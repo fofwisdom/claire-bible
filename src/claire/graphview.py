@@ -8,6 +8,7 @@ from __future__ import annotations
 import html as _html
 import json as _json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ from .store.queries import (
     synthesize,
     theme_summary,
 )
-from .i18n import browser_catalog_json
+from .i18n import browser_catalog_json, get_locale, t
 from .presentation.favicon import (
     FAVICON_TAGS_HTML,
     inject_favicon_head_tags,
@@ -132,6 +133,41 @@ def _build_standalone_syndication_html() -> str:
 GRAPH_HTML: str = _build_standalone_graph_html()
 _SHARED_HTML: str = _build_standalone_shared_html()
 SYNDICATION_HTML: str = _build_standalone_syndication_html()
+
+# Translation slots of a bundled page (I18N design Section 6.2). The server resolves them for the locale of the request, thus the first paint has the correct language:
+# ``${html_lang}`` is the locale code, ``${t:key}`` is the HTML-escaped translation, and ``${tj:key}`` is the translation as a JSON string for an inline script.
+_PAGE_SLOT = re.compile(r"\$\{(?:(t|tj):([a-z0-9_.]+)|html_lang)\}")
+
+
+def localize_page(page_html: str, locale: str) -> str:
+    """Resolve the translation slots of ``page_html`` for ``locale``."""
+
+    def _slot(match: re.Match[str]) -> str:
+        kind, key = match.group(1), match.group(2)
+        if kind is None:
+            return locale
+        text = t(key, locale=locale)  # type: ignore[arg-type]
+        if kind == "t":
+            return _html.escape(text, quote=True)
+        return _json.dumps(text, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+    return _PAGE_SLOT.sub(_slot, page_html)
+
+
+@lru_cache(maxsize=None)
+def _graph_html_for(locale: str) -> str:
+    return localize_page(GRAPH_HTML, locale)
+
+
+@lru_cache(maxsize=None)
+def _syndication_html_for(locale: str) -> str:
+    return localize_page(SYNDICATION_HTML, locale)
+
+
+@lru_cache(maxsize=None)
+def _shared_html_for(locale: str) -> str:
+    catalog = browser_catalog_json(locale, scope="share")  # type: ignore[arg-type]
+    return localize_page(_SHARED_HTML, locale).replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{catalog}</script>', 1)
 
 
 def render_ga_tag(
@@ -488,7 +524,7 @@ def shared_html(
     data = _json.dumps(doc, ensure_ascii=False)
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     return (
-        _SHARED_HTML.replace("__DATA__", data)
+        _shared_html_for(get_locale()).replace("__DATA__", data)
         .replace("__TITLE__", title)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
         .replace("<!-- __OG_TAGS__ -->", og_tags)
@@ -661,14 +697,14 @@ def render_graph_html(
             picker_style_attr = 'style="display:inline-flex"'
         else:
             picker_style_attr = 'style="display:none"'
-        picker_title_attr = 'title="지식 테마 선택 (데이터베이스 전환)"'
+        picker_title_attr = f'title="{_html.escape(t("ws.bar.theme_title"), quote=True)}"'
         select_style_attr = ""
         plain_style_attr = 'style="display:none"'
         plain_icon = "📚"
         plain_label = ""
 
     res = (
-        GRAPH_HTML.replace("__SOURCE_BASE_URL__", base_url)
+        _graph_html_for(get_locale()).replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
         .replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script>')
@@ -846,7 +882,7 @@ def render_syndication_html(
 ) -> str:
     """Return rendered live Syndication UI HTML with settings, active theme, and auth scope variables."""
     return _render_syndication_bundle(
-        SYNDICATION_HTML,
+        _syndication_html_for(get_locale()),
         settings,
         include_private=include_private,
         collaborator=collaborator,

@@ -201,7 +201,7 @@
     _fallbackToCanvas(err){
       if(this.backend !== 'webgpu') return;
       this.fallbackReason = String(err && err.message || err);
-      console.warn('ClaireGraph: WebGPU 렌더러를 잃어 Canvas2D 로 전환합니다 —', this.fallbackReason);
+      console.warn('ClaireGraph: the WebGPU renderer is lost; changing to Canvas2D —', this.fallbackReason);
       const old = this.renderer;
       this.renderer = null;
       try{ old.dispose(); }catch(_){}

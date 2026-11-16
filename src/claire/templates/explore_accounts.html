@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="$html_lang">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -40,16 +40,16 @@
   </head>
   <body>
     <main>
-      <nav aria-label="메인 탐색">
+      <nav aria-label="$nav_label">
         <a href="/"><strong>Claire</strong></a>
-        <a href="/explore/accounts">공개 디렉터리</a>
+        <a href="/explore/accounts">$title</a>
         <div class="nav-right">
           $nav_auth
         </div>
       </nav>
       <header>
-        <h1>공개 디렉터리</h1>
-        <p class="subtitle">네트워크에 참여 중인 지식 관리자 및 공개 지식 테마입니다.</p>
+        <h1>$title</h1>
+        <p class="subtitle">$subtitle</p>
       </header>
       $content
       $pagination

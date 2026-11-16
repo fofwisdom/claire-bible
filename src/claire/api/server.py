@@ -42,6 +42,8 @@ from .. import ids
 from ..accounts import provider_policy as policy
 from ..accounts import server_tier
 from ..config import Settings, get_settings
+from ..i18n import get_locale
+from ..i18n import t as _t
 from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
@@ -845,21 +847,21 @@ def create_app(
             if account_id is not None:
                 home_url = f"/@{username}/" if username else "/me"
                 nav_auth = (
-                    f'<a href="{html.escape(home_url)}">내 작업 공간</a>'
-                    f'<form method="post" action="/logout"><button type="submit" class="link">로그아웃</button></form>'
+                    f'<a href="{html.escape(home_url)}">{html.escape(_t("explore.my_workspace"))}</a>'
+                    f'<form method="post" action="/logout"><button type="submit" class="link">{html.escape(_t("common.action.logout"))}</button></form>'
                 )
             else:
-                nav_auth = '<a href="/login">로그인</a>'
+                nav_auth = f'<a href="/login">{html.escape(_t("explore.login"))}</a>'
 
             if not accounts:
                 if account_id is not None:
-                    btn_html = f'<a class="btn" href="{html.escape(f"/@{username}/" if username else "/me")}">내 작업 공간으로 이동</a>'
+                    btn_html = f'<a class="btn" href="{html.escape(f"/@{username}/" if username else "/me")}">{html.escape(_t("explore.go_workspace"))}</a>'
                 else:
-                    btn_html = '<a class="btn" href="/login">로그인</a>'
+                    btn_html = f'<a class="btn" href="/login">{html.escape(_t("explore.login"))}</a>'
                 content_html = (
                     '<section class="empty-state">'
-                    '<h2>등록된 공개 계정이 없습니다</h2>'
-                    '<p>아직 공개된 지식 프로필이나 테마가 없습니다. 로그인하여 내 작업 공간을 확인하세요.</p>'
+                    f'<h2>{html.escape(_t("explore.empty_title"))}</h2>'
+                    f'<p>{html.escape(_t("explore.empty"))}</p>'
                     f'{btn_html}'
                     '</section>'
                 )
@@ -870,19 +872,19 @@ def create_app(
                     for t in a.themes:
                         t_url = f"/@{html.escape(a.username)}/themes/{t.number}/" if t.number else f"/@{html.escape(a.username)}/"
                         t_items.append(
-                            f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({t.documents}개 문서)</span></li>'
+                            f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({html.escape(_t("explore.theme_docs", count=t.documents))})</span></li>'
                         )
                     if t_items:
                         themes_html = f'<ul class="themes-list">{"".join(t_items)}</ul>'
                     else:
-                        themes_html = '<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">공개 테마가 아직 없습니다.</p>'
+                        themes_html = f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{html.escape(_t("explore.no_themes"))}</p>'
 
                     card = (
                         '<article class="account-card">'
                         '<div class="account-header">'
                         f'<a class="account-name" href="/@{html.escape(a.username)}/">{html.escape(a.display_name or a.username)}'
                         f'<span class="account-handle">@{html.escape(a.username)}</span></a>'
-                        f'<span class="badge">공개 테마 {a.public_themes}개 · 공개 문서 {a.public_documents}개</span>'
+                        f'<span class="badge">{html.escape(_t("explore.badge", themes=a.public_themes, documents=a.public_documents))}</span>'
                         '</div>'
                         f'{themes_html}'
                         '</article>'
@@ -894,23 +896,28 @@ def create_app(
             if query.page:
                 if len(accounts) == query.limit:
                     last_id = ids.format_public_id(accounts[-1].public_id)
-                    pagination_parts.append(f'<a href="/explore/accounts?page=true&max_id={last_id}">다음 페이지 &rarr;</a>')
+                    pagination_parts.append(f'<a href="/explore/accounts?page=true&max_id={last_id}">{html.escape(_t("explore.next"))} &rarr;</a>')
                 if query.max_id is not None and accounts:
                     first_id = ids.format_public_id(accounts[0].public_id)
-                    pagination_parts.insert(0, f'<a href="/explore/accounts?page=true&min_id={first_id}">&larr; 이전 페이지</a>')
+                    pagination_parts.insert(0, f'<a href="/explore/accounts?page=true&min_id={first_id}">&larr; {html.escape(_t("explore.prev"))}</a>')
             pagination_html = f'<div class="pagination">{"".join(pagination_parts)}</div>' if pagination_parts else ""
 
             rendered = string.Template(template_text).substitute(
-                title="공개 디렉터리",
+                title=html.escape(_t("explore.title")),
+                html_lang=get_locale(),
+                nav_label=html.escape(_t("explore.nav_label")),
+                subtitle=html.escape(_t("explore.subtitle")),
                 nav_auth=nav_auth,
                 content=content_html,
                 pagination=pagination_html,
             )
             rendered = inject_favicon_head_tags(rendered)
 
-            etag_parts = [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
+            # The page text follows the interface language, thus the locale is a part of the entity tag.
+            etag_parts = [get_locale()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
             etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
             headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
+            headers["Vary"] += ", Accept-Language"
             if request.headers.get("if-none-match") == etag:
                 return Response(status_code=304, headers=headers)
             if request.method == "HEAD":

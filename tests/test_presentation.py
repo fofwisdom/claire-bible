@@ -700,7 +700,7 @@ def test_presentation_hud_and_layout():
 
     # 5. Verify PDF로 저장 title in HUD and index.html
     assert 'title="PDF로 저장"' in injected
-    assert 'title="PDF로 저장"' in index_html
+    assert 'title="${t:ws.presentation.pdf}"' in index_html
 
     # 6. Verify complete removal of subslide badges, hints, and '하위 슬라이드' buttons
     assert "cb-subslide-badge" not in injected
@@ -727,8 +727,8 @@ def test_presentation_hud_and_layout():
     # 8. Verify reader.js text updates (removal of 고품질 and PDF save alert)
     reader_js = Path("src/claire/static/js/reader.js").read_text(encoding="utf-8")
     assert "고품질" not in reader_js
-    assert "이 문서의 내용을 바탕으로 프레젠테이션 슬라이드를 생성할 수 있습니다." in reader_js
-    assert "PDF 저장은 소유자(인증된 세션)만 이용할 수 있습니다." in reader_js
+    assert "reader.pres.can_make" in reader_js
+    assert "reader.pres.pdf_owner_only" in reader_js
 
 
 def test_presentation_option_a_and_async_generation(tmp_path: Path):

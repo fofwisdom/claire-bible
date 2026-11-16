@@ -3,6 +3,11 @@
  * Manages document reading view, heading navigation rail, STT modal, font sizing, and sharing.
  */
 
+// Catalog text (static/js/i18n.js). Without the runtime, the key shows. The name is not ``tr``: app.js declares ``tr`` in the same bundle.
+function rtr(key, params) {
+  return (typeof ClaireI18n !== 'undefined' && ClaireI18n) ? ClaireI18n.t(key, params) : key;
+}
+
 function readerApiUrl(path) {
   var cleanPath = String(path || '').replace(/^\/+/, '');
   if (typeof apiUrl === 'function') {
@@ -25,9 +30,9 @@ let descLines = 3;
 try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===3||v===4||v===2) descLines=(v===0?0:3); }catch(e){}
 function doclistToolbarHtml(){
   return '<div class="doclist-toolbar">'+
-    '<select id="desclines" onchange="setDescLines(this.value)" title="목록 설명 줄수" aria-label="목록 설명 줄수">'+
-    '<option value="0"'+(descLines===0?' selected':'')+'>제목만 표시</option>'+
-    '<option value="3"'+(descLines===3?' selected':'')+'>요약 표시</option>'+
+    '<select id="desclines" onchange="setDescLines(this.value)" title="' + rtr("ws.list.desc_lines") + '" aria-label="' + rtr("ws.list.desc_lines") + '">'+
+    '<option value="0"'+(descLines===0?' selected':'')+'>' + rtr("ws.list.titles_only") + '</option>'+
+    '<option value="3"'+(descLines===3?' selected':'')+'>' + rtr("ws.list.with_summary") + '</option>'+
     '</select></div>';
 }
 function applyDescLines(){
@@ -98,7 +103,7 @@ function setupReaderAccessibleBlocks(container){
     if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
     if(!el.hasAttribute('role')) el.setAttribute('role', 'region');
     if(!el.hasAttribute('aria-label')){
-      const label = el.tagName === 'TABLE' ? '데이터 표' : (el.tagName === 'PRE' ? '코드 블록' : '수식 블록');
+      const label = el.tagName === 'TABLE' ? rtr("reader.block.table") : (el.tagName === 'PRE' ? rtr("reader.block.code") : rtr("reader.block.math"));
       el.setAttribute('aria-label', label);
     }
   });
@@ -274,7 +279,7 @@ function setCenterView(mode){
   if(typeof syncListPane === 'function') syncListPane();
   updateCenterSearchMode(centerView);
   const mt = document.getElementById('menu-section-title');
-  if(mt){ mt.textContent = (centerView==='graph' ? '그래프 도구' : (centerView==='matrix' ? '대조 매트릭스' : (centerView==='stream' ? '의사결정 스트림' : (centerView==='presentation' ? '프레젠테이션' : '문서와 그래프')))); }
+  if(mt){ mt.textContent = (centerView==='graph' ? rtr("reader.menu.graph") : (centerView==='matrix' ? rtr("reader.menu.matrix") : (centerView==='stream' ? rtr("ws.view.stream") : (centerView==='presentation' ? rtr("ws.view.presentation") : rtr("ws.menu.section_title"))))); }
   // The view buttons are a navigation, not a tab list: the active one has aria-current.
   ['home','reader','graph','presentation','stream'].forEach(name => {
     const btn = document.getElementById('centertab-' + name);
@@ -284,7 +289,7 @@ function setCenterView(mode){
   });
   if(typeof syncManageButton === 'function') syncManageButton();
   if(centerView==='home'){
-    document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : 'Claire Bible — 홈';
+    document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : rtr('home.title');
     if(typeof renderHome === 'function') renderHome();
     if(typeof loadHomeStats === 'function') loadHomeStats();
   }
@@ -380,9 +385,9 @@ function openReader(docId, pushHist=true){
   readerReturnDocId=docId;
   const sb=document.getElementById('sharebox'); if(sb){ sb.className='sharebox'; sb.innerHTML=''; }  // 이전 공유링크 닫기
   applyReadFS();   // 저장된 글자 크기 적용
-  document.getElementById('rtitle').textContent='문서 불러오는 중…';
+  document.getElementById('rtitle').textContent=rtr("ws.reader.loading");
   document.getElementById('rbody').innerHTML='';
-  if(panel) panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
+  if(panel) panel.innerHTML='<p class=hint>' + rtr("ws.reader.loading") + '</p>';
   const r=document.getElementById('reader');
   r.setAttribute('aria-hidden','false');
   r.setAttribute('aria-busy','true');
@@ -410,18 +415,18 @@ function openReader(docId, pushHist=true){
   }
   fetch(readerApiUrl('document?id=' + encodeURIComponent(docId))).then(x=>x.json()).then(dc=>{
     if(!dc || dc.error){
-      document.getElementById('rbody').innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
+      document.getElementById('rbody').innerHTML='<p class=hint>' + rtr("ws.reader.not_found") + '</p>';
       r.setAttribute('aria-busy','false');
-      if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>';
+      if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>' + rtr("ws.reader.not_found") + '</p>';
       return;
     }
     renderReader(dc);
     if(activeDoc===docId) renderDocPanel(dc);
     markDocumentSeen(docId);
   }).catch(()=>{
-    document.getElementById('rbody').innerHTML='<p class=hint>문서 로드 실패.</p>';
+    document.getElementById('rbody').innerHTML='<p class=hint>' + rtr("ws.reader.load_failed") + '</p>';
     r.setAttribute('aria-busy','false');
-    if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>문서 로드 실패.</p>';
+    if(activeDoc===docId && panel) panel.innerHTML='<p class=hint>' + rtr("ws.reader.load_failed") + '</p>';
   });
 }
 function docMetaHtml(dc){
@@ -435,7 +440,7 @@ function docMetaHtml(dc){
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
   const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
-  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || '파서 런타임 오류');
+  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || rtr("reader.tag.parser_runtime_error"));
   const parserRequested = (dc.pdf_parser_requested || (dc.meta && dc.meta.pdf_parser_requested) || '');
   const parserUsed = (dc.pdf_parser_used || (dc.meta && dc.meta.pdf_parser_used) || '');
   const isEncodingFlaw = !!(dc.pdf_encoding_flaw_detected || (dc.meta && dc.meta.pdf_encoding_flaw_detected));
@@ -455,9 +460,9 @@ function docMetaHtml(dc){
   const totalChars = origChars || rawChars || fallbackChars;
   let charTip = '';
   if(origChars > 0 && rawChars > 0 && origChars !== rawChars){
-    charTip = '전체 문자 수: ' + origChars.toLocaleString() + '자 (적재: ' + rawChars.toLocaleString() + '자)';
+    charTip = rtr('reader.char_tip_cut', { orig: origChars.toLocaleString(), raw: rawChars.toLocaleString() });
   } else if(totalChars > 0){
-    charTip = '전체 문자 수: ' + totalChars.toLocaleString() + '자';
+    charTip = rtr('reader.char_tip', { count: totalChars.toLocaleString() });
   }
   const hasRawLink = showOrigin && canAccessRaw && Boolean(dc.has_raw_file);
   const hasRawText = Boolean(rawChars > 0 || dc.has_raw_file || (dc.raw_text && String(dc.raw_text).length > 0));
@@ -466,28 +471,28 @@ function docMetaHtml(dc){
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   if(showOrigin){
     if(hasUrl){
-      h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>↗ 원문 열기</a>';
+      h+='<a href="'+esc(dc.url)+'" target=_blank rel=noopener>' + rtr("ws.node.open_source") + '</a>';
       if(canAccessRaw && dc.has_raw_file){
-        h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
+        h+=' <a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> ' + rtr("ws.node.open_raw") + '</a>';
       }
       if(isStt){
-        h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+        h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="' + rtr("reader.open_transcript_title") + '">' + rtr("ws.ctx.open_transcript") + '</a>';
       }
       if(hasPresentation){
         h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
       }
     } else {
       if(canAccessRaw && dc.has_raw_file){
-        h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>';
+        h+='<a href="/document/raw?id='+encodeURIComponent(dc.id)+'" target=_blank rel=noopener><span data-icon="doc"></span> ' + rtr("ws.node.open_raw") + '</a>';
         if(isStt){
-          h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+          h+=' <a href="#" class="stt-link" onclick="openSttReader();return false;" title="' + rtr("reader.open_transcript_title") + '">' + rtr("ws.ctx.open_transcript") + '</a>';
         }
         if(hasPresentation){
           h+=' <a href="'+esc(presentation.public_url)+'" target=_blank rel=noopener>↗ Presentation PDF</a>';
         }
       } else {
         if(isStt){
-          h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="음성 인식(STT) 전사 텍스트 열기">↗ 전사 열기</a>';
+          h+='<a href="#" class="stt-link" onclick="openSttReader();return false;" title="' + rtr("reader.open_transcript_title") + '">' + rtr("ws.ctx.open_transcript") + '</a>';
         } else {
           h+='<span></span>';
         }
@@ -501,84 +506,84 @@ function docMetaHtml(dc){
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = reqName + ' 폴백 (' + usedName + ')';
-    tags.push('<span class="prov det trunc-tag parser-fallback-tag" title="파서 대체 사유: '+esc(fallbackReason)+'"><span data-icon="warning"></span> '+esc(fallbackTitle)+'</span>');
+    const fallbackTitle = rtr('reader.tag.parser_fallback', { requested: reqName, used: usedName });
+    tags.push('<span class="prov det trunc-tag parser-fallback-tag" title="'+esc(rtr('reader.tag.fallback_reason', { reason: fallbackReason }))+'"><span data-icon="warning"></span> '+esc(fallbackTitle)+'</span>');
   }
   if(isEncodingFlaw){
-    const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : '인코딩 결함';
-    tags.push('<span class="prov det trunc-tag encoding-flaw-tag" title="인코딩 결함 상세: '+esc(flawTxt)+'"><span data-icon="warning"></span> PDF 인코딩 결함</span>');
+    const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : rtr("reader.tag.encoding");
+    tags.push('<span class="prov det trunc-tag encoding-flaw-tag" title="'+esc(rtr('reader.tag.encoding_detail', { detail: flawTxt }))+'"><span data-icon="warning"></span> ' + rtr("reader.tag.pdf_encoding") + '</span>');
   }
   if(isScanned){
-    tags.push('<span class="prov det trunc-tag scanned-tag" title="텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다."><span data-icon="camera"></span> 스캔본 PDF</span>');
+    tags.push('<span class="prov det trunc-tag scanned-tag" title="' + rtr("reader.tag.scanned_tip") + '"><span data-icon="camera"></span> ' + rtr("reader.tag.scanned") + '</span>');
   }
   if(hasPresentation){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
-    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
+    const artifactState = presentation.artifact_path ? rtr("reader.tag.artifact_kept") : rtr("reader.tag.artifact_unknown");
     const bundleIcon = isStt ? '<span data-icon="mic"></span><span data-icon="doc"></span>' : '<span data-icon="captions"></span><span data-icon="doc"></span>';
     const bundleType = isStt ? 'STT×PDF' : 'CC×PDF';
     const pdfLabel = bundleIcon+' '+bundleType;
-    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const bundleSource = rtr(isStt ? 'reader.tag.bundle_stt' : 'reader.tag.bundle_cc');
     const metaParts = [];
-    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfChars > 0) metaParts.push(rtr('reader.chars', { count: pdfChars.toLocaleString() }));
     if(pdfParser) metaParts.push(pdfParser);
-    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    if(presentation.parser_fallback) metaParts.push(rtr("reader.tag.docling_fallback"));
     const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
-    const tip = bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState;
+    const tip = rtr('reader.tag.bundle_tip', { source: bundleSource })+metaDetail+' · '+artifactState;
     const tagClass = 'prov det focus-tag' + (isStt ? ' stt-tag' : '');
     tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
   }
   if(focus){
     const dispFocus = focus.length > 25 ? focus.slice(0, 25) + '…' : focus;
-    tags.push('<span class="prov det focus-tag" title="적재 시 지정한 초점: '+esc(focus)+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
+    tags.push('<span class="prov det focus-tag" title="'+esc(rtr('reader.tag.focus_tip', { focus: focus }))+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
-    const tip = sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서';
+    const tip = sttLang ? rtr('reader.tag.stt_lang', { lang: sttLang }) : rtr('reader.tag.stt');
     tags.push('<span class="prov det focus-tag stt-tag" title="'+esc(tip)+'"><span data-icon="mic"></span> STT</span>');
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
-    const tip = capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서';
+    const tip = capLang ? rtr('reader.tag.cc_lang', { lang: capLang }) : rtr('reader.tag.cc');
     tags.push('<span class="prov det focus-tag cc-tag" title="'+esc(tip)+'"><span data-icon="captions"></span> CC</span>');
   }
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
     const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
-    let vlmLabel = '이미지 전사';
+    let vlmLabel = rtr("reader.tag.vlm_label");
     if(vlmCount > 0){
-      vlmLabel += ' (' + vlmCount.toLocaleString() + '장)';
+      vlmLabel += ' (' + rtr('reader.tag.images', { count: vlmCount.toLocaleString() }) + ')';
     }
-    let vlmTip = vlmLang ? ('이미지 전사(VLM: '+vlmLang+')를 적용하여 작성한 문서') : '이미지 전사(VLM)를 적용하여 작성한 문서';
+    let vlmTip = vlmLang ? rtr('reader.tag.vlm_lang', { lang: vlmLang }) : rtr('reader.tag.vlm');
     if(vlmCount > 0){
-      vlmTip += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
+      vlmTip += ' (' + rtr('reader.tag.images_transcribed', { count: vlmCount.toLocaleString() }) + ')';
     }
     if(vlmModel){
-      vlmTip += ' · 모델: ' + vlmModel;
+      vlmTip += ' · ' + rtr('reader.tag.model', { model: vlmModel });
     }
     tags.push('<span class="prov det focus-tag vlm-tag" title="'+esc(vlmTip)+'"><span data-icon="image"></span> '+esc(vlmLabel)+'</span>');
   }
   // The reason of a cut source text. It is the hover text of the source badge; the badge has the two character counts (one notice, not two).
   let truncTip = '';
-  if(isAppTrunc && isRefTrunc) truncTip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
-  else if(isRefTrunc) truncTip = '원문의 참고문헌(References) 부분을 제외한 문서';
-  else if(isAppTrunc) truncTip = '원문의 부록(Appendix) 부분을 절단한 문서';
-  else if(isSttTrunc) truncTip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
-  else if(isTrunc) truncTip = '글자 수 상한으로 원문 일부를 절단한 문서';
-  if(truncTip && origChars > 0 && rawChars > 0) truncTip += ' (원문: '+origChars.toLocaleString()+'자 → 적재: '+rawChars.toLocaleString()+'자)';
+  if(isAppTrunc && isRefTrunc) truncTip = rtr("reader.trunc.appendix_references");
+  else if(isRefTrunc) truncTip = rtr("reader.trunc.references");
+  else if(isAppTrunc) truncTip = rtr("reader.trunc.appendix");
+  else if(isSttTrunc) truncTip = rtr("reader.trunc.stt");
+  else if(isTrunc) truncTip = rtr("reader.trunc.limit");
+  if(truncTip && origChars > 0 && rawChars > 0) truncTip += ' (' + rtr('reader.chars_cut', { orig: origChars.toLocaleString(), raw: rawChars.toLocaleString() }) + ')';
   const truncKind = (isAppTrunc && isRefTrunc) ? 'appendix-references' : (isRefTrunc ? 'references' : (isAppTrunc ? 'appendix' : (isSttTrunc ? 'stt' : (isTrunc ? 'limit' : ''))));
   const hasI18nT = typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function';
   if(isTrunc){
-    let keptPartLabel = hasI18nT ? ClaireI18n.t('context.doc.source_kept_partial') : '원문 일부 보존';
+    let keptPartLabel = rtr('context.doc.source_kept_partial');
     if(origChars > 0 && rawChars > 0){
-      keptPartLabel += ' (' + rawChars.toLocaleString() + ' / ' + origChars.toLocaleString() + '자)';
+      keptPartLabel += ' (' + rtr('reader.chars_part', { raw: rawChars.toLocaleString(), orig: origChars.toLocaleString() }) + ')';
     } else if(rawChars > 0){
-      keptPartLabel += ' (' + rawChars.toLocaleString() + '자)';
+      keptPartLabel += ' (' + rtr('reader.chars', { count: rawChars.toLocaleString() }) + ')';
     }
     tags.push('<span class="prov det source-badge" data-source-badge="partial" data-trunc="'+esc(truncKind)+'" title="'+esc(truncTip)+'">'+esc(keptPartLabel)+'</span>');
   } else if(hasRawText){
-    const keptFullLabel = hasI18nT ? ClaireI18n.t('context.doc.source_kept') : '원문 보존';
+    const keptFullLabel = rtr('context.doc.source_kept');
     tags.push('<span class="prov det source-badge" data-source-badge="full">'+esc(keptFullLabel)+'</span>');
   }
   // The model of the latest extraction, to the right of the source badge. A later ingestion with a different model changes it.
@@ -606,7 +611,7 @@ function getDocMetaMessages(dc){
   const isAppTrunc = isTrunc && !!(dc.appendix_truncated || (dc.meta && dc.meta.appendix_truncated));
   const isRefTrunc = isTrunc && !!(dc.references_truncated || (dc.meta && dc.meta.references_truncated));
   const isParserFallback = !!(dc.pdf_parser_fallback || (dc.meta && dc.meta.pdf_parser_fallback));
-  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || '파서 런타임 오류');
+  const fallbackReason = (dc.pdf_parser_fallback_reason || (dc.meta && dc.meta.pdf_parser_fallback_reason) || rtr("reader.tag.parser_runtime_error"));
   const parserRequested = (dc.pdf_parser_requested || (dc.meta && dc.meta.pdf_parser_requested) || '');
   const parserUsed = (dc.pdf_parser_used || (dc.meta && dc.meta.pdf_parser_used) || '');
   const isEncodingFlaw = !!(dc.pdf_encoding_flaw_detected || (dc.meta && dc.meta.pdf_encoding_flaw_detected));
@@ -624,97 +629,97 @@ function getDocMetaMessages(dc){
   if(isParserFallback){
     const reqName = parserRequested ? (parserRequested === 'pypdfium2' ? 'PyPDFium2' : (parserRequested === 'pypdf' ? 'PyPDF' : (parserRequested === 'docling' ? 'Docling' : parserRequested))) : 'PyPDFium2';
     const usedName = parserUsed ? (parserUsed === 'pypdfium2' ? 'PyPDFium2' : (parserUsed === 'pypdf' ? 'PyPDF' : (parserUsed === 'docling' ? 'Docling' : parserUsed))) : 'PyPDF';
-    const fallbackTitle = reqName + ' 폴백 (' + usedName + ')';
-    messages.push('파서 대체 사유: ' + fallbackReason + ' (' + fallbackTitle + ')');
+    const fallbackTitle = rtr('reader.tag.parser_fallback', { requested: reqName, used: usedName });
+    messages.push(rtr('reader.tag.fallback_reason', { reason: fallbackReason }) + ' (' + fallbackTitle + ')');
   }
   if(isEncodingFlaw){
-    const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : '인코딩 결함';
-    messages.push('인코딩 결함 상세: ' + flawTxt);
+    const flawTxt = Array.isArray(encodingFlaws) && encodingFlaws.length ? encodingFlaws.join(', ') : rtr("reader.tag.encoding");
+    messages.push(rtr('reader.tag.encoding_detail', { detail: flawTxt }));
   }
   if(isScanned){
-    messages.push('텍스트 레이어가 희소한 스캔본 PDF입니다. OCR 변환이 권장됩니다.');
+    messages.push(rtr("reader.tag.scanned_tip"));
   }
   if(hasPresentation){
     const pdfChars = Number(presentation.raw_chars || 0);
     const pdfParser = String(presentation.parser_used || '').trim();
-    const artifactState = presentation.artifact_path ? '원본 보존됨' : '원본 경로 미확인';
-    const bundleSource = isStt ? '영상 음성 전사와' : '영상 자막과';
+    const artifactState = presentation.artifact_path ? rtr("reader.tag.artifact_kept") : rtr("reader.tag.artifact_unknown");
+    const bundleSource = rtr(isStt ? 'reader.tag.bundle_stt' : 'reader.tag.bundle_cc');
     const metaParts = [];
-    if(pdfChars > 0) metaParts.push(pdfChars.toLocaleString()+'자');
+    if(pdfChars > 0) metaParts.push(rtr('reader.chars', { count: pdfChars.toLocaleString() }));
     if(pdfParser) metaParts.push(pdfParser);
-    if(presentation.parser_fallback) metaParts.push('Docling 폴백');
+    if(presentation.parser_fallback) metaParts.push(rtr("reader.tag.docling_fallback"));
     const metaDetail = metaParts.length ? ' ('+metaParts.join(' · ')+')' : '';
-    messages.push(bundleSource+' 원본 PDF 함께 적재'+metaDetail+' · '+artifactState);
+    messages.push(rtr('reader.tag.bundle_tip', { source: bundleSource })+metaDetail+' · '+artifactState);
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
-    messages.push(sttLang ? '음성 인식(STT: '+sttLang+')을 적용하여 작성한 문서' : '음성 인식(STT)을 적용하여 작성한 문서');
+    messages.push(sttLang ? rtr('reader.tag.stt_lang', { lang: sttLang }) : rtr('reader.tag.stt'));
   }
   if(isCc && !hasPresentation){
     const capLang = (dc.caption_language || (dc.meta && dc.meta.caption_language) || '').trim();
-    messages.push(capLang ? '영상 자막(CC: '+capLang+')을 적용하여 작성한 문서' : '영상 자막(CC)을 적용하여 작성한 문서');
+    messages.push(capLang ? rtr('reader.tag.cc_lang', { lang: capLang }) : rtr('reader.tag.cc'));
   }
   if(isVlm){
     const vlmCount = Number((dc.vlm_images_count !== undefined ? dc.vlm_images_count : (dc.meta && dc.meta.vlm_images_count)) || 0);
     const vlmModel = String((dc.vlm_model || (dc.meta && dc.meta.vlm_model)) || '').trim();
     const vlmLang = String((dc.vlm_language || (dc.meta && dc.meta.vlm_language)) || '').trim();
-    let msg = vlmLang ? ('이미지 전사(VLM: '+vlmLang+')를 적용하여 작성한 문서') : '이미지 전사(VLM)를 적용하여 작성한 문서';
+    let msg = vlmLang ? rtr('reader.tag.vlm_lang', { lang: vlmLang }) : rtr('reader.tag.vlm');
     if(vlmCount > 0){
-      msg += ' (' + vlmCount.toLocaleString() + '장 이미지 전사)';
+      msg += ' (' + rtr('reader.tag.images_transcribed', { count: vlmCount.toLocaleString() }) + ')';
     }
     if(vlmModel){
-      msg += ' · 모델: ' + vlmModel;
+      msg += ' · ' + rtr('reader.tag.model', { model: vlmModel });
     }
     messages.push(msg);
   }
   if(isAppTrunc && isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = '원문의 부록(Appendix) 및 참고문헌(References) 부분을 제외한 문서';
+    let tip = rtr("reader.trunc.appendix_references");
     if(orig > 0 && raw > 0){
-      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars_cut', { orig: orig.toLocaleString(), raw: raw.toLocaleString() }) + ')';
     } else if(raw > 0){
-      tip+=' ('+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars', { count: raw.toLocaleString() }) + ')';
     }
     messages.push(tip);
   } else if(isRefTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = '원문의 참고문헌(References) 부분을 제외한 문서';
+    let tip = rtr("reader.trunc.references");
     if(orig > 0 && raw > 0){
-      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars_cut', { orig: orig.toLocaleString(), raw: raw.toLocaleString() }) + ')';
     } else if(raw > 0){
-      tip+=' ('+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars', { count: raw.toLocaleString() }) + ')';
     }
     messages.push(tip);
   } else if(isAppTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = '원문의 부록(Appendix) 부분을 절단한 문서';
+    let tip = rtr("reader.trunc.appendix");
     if(orig > 0 && raw > 0){
-      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars_cut', { orig: orig.toLocaleString(), raw: raw.toLocaleString() }) + ')';
     } else if(raw > 0){
-      tip+=' ('+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars', { count: raw.toLocaleString() }) + ')';
     }
     messages.push(tip);
   } else if(isSttTrunc){
     const orig=(dc.stt_orig_chars || (dc.meta && dc.meta.stt_orig_chars) || dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.stt_raw_chars || (dc.meta && dc.meta.stt_raw_chars) || dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = '음성 전사(STT) 전문이 일부 절단된 상태에서 본문(상세)이 작성된 문서';
+    let tip = rtr("reader.trunc.stt");
     if(orig > 0 && raw > 0){
-      tip += ' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      tip += ' (' + rtr('reader.chars_cut', { orig: orig.toLocaleString(), raw: raw.toLocaleString() }) + ')';
     } else if(raw > 0){
-      tip += ' ('+raw.toLocaleString()+'자)';
+      tip += ' (' + rtr('reader.chars', { count: raw.toLocaleString() }) + ')';
     }
     messages.push(tip);
   } else if(isTrunc){
     const orig=(dc.orig_chars || (dc.meta && dc.meta.orig_chars)) || 0;
     const raw=(dc.raw_chars || (dc.meta && dc.meta.raw_chars)) || 0;
-    let tip = '글자 수 상한으로 원문 일부를 절단한 문서';
+    let tip = rtr("reader.trunc.limit");
     if(orig > 0 && raw > 0){
-      tip+=' (원문: '+orig.toLocaleString()+'자 → 적재: '+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars_cut', { orig: orig.toLocaleString(), raw: raw.toLocaleString() }) + ')';
     } else if(raw > 0){
-      tip+=' ('+raw.toLocaleString()+'자)';
+      tip+=' (' + rtr('reader.chars', { count: raw.toLocaleString() }) + ')';
     }
     messages.push(tip);
   }
@@ -733,9 +738,9 @@ function renderReader(dc){
   if(dc && dc.title){
     document.title = dc.title + ' — Claire Bible';
   } else {
-    document.title = '문서 — Claire Bible';
+    document.title = rtr('reader.doc_title');
   }
-  document.getElementById('rtitle').innerHTML = esc(dc.title||'(제목 없음)')
+  document.getElementById('rtitle').innerHTML = esc(dc.title||rtr("home.recent.untitled"))
     + (dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'');
   let h='';
 
@@ -762,32 +767,32 @@ function renderReader(dc){
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
   if(isSttTrunc){
-    h+='<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>음성 전사(STT) 일부 절단 안내</strong>: 전체 전사 내용 중 일부만 반영된 상태에서 본문(상세)이 작성되었습니다. 전체 재전사 명령: <code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code></div>';
+    h+='<div class="stt-trunc-banner"><span data-icon="warning"></span> '+rtr('reader.banner.stt_trunc', { command: '<code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code>' })+'</div>';
   }
   h+=extraSourcesHtml(dc);
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
-    h+='<div class="rsection">초점</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
+    h+='<div class="rsection">' + rtr("ws.ingest.focus") + '</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
   }
   if(dc.summary){
-    h+='<div class=rsection>요약</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   }else if(dc.detail || dc.detail_html){
-    h+='<div class=rsection>요약</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 누락 안내</strong>: 요약 생성 과정에서 오류가 발생하여 요약이 등록되지 않았습니다. 텔레그램 봇의 <code>요약 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')"><span data-icon="repeat"></span> 웹에서 요약 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_summary', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>' })+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'summary\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_summary") + '</button></div>' : '')+'</div>';
   }
   if(dc.detail_html){
     const purifier=window.DOMPurify;
     const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-    h+='<div class=rsection>상세</div><div class="doc-content">'+cleanHtml+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+cleanHtml+'</div>';
   }else if(dc.detail){
-    h+='<div class=rsection>상세</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+renderContent(dc.detail, dc.detail_format)+'</div>';
   }else if(dc.summary){
-    h+='<div class=rsection>상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>상세 본문 누락 안내</strong>: 본문 생성 과정에서 시간 초과 또는 오류가 발생하여 상세 본문이 생성되지 않았습니다. 텔레그램 봇의 <code>본문 재생성</code> 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')"><span data-icon="repeat"></span> 웹에서 본문 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_detail', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>' })+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'detail\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_detail") + '</button></div>' : '')+'</div>';
   }
   if(!dc.summary && !dc.detail && !dc.detail_html){
-    h+='<div class=rsection>요약 및 상세</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> <strong>요약 및 본문 누락 안내</strong>: 요약 및 상세 본문 생성이 모두 누락되었습니다. 텔레그램 봇의 재생성 버튼 또는 CLI(<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>)를 통해 재생성할 수 있습니다.'+
-      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'all\')"><span data-icon="repeat"></span> 웹에서 전체 재생성</button></div>' : '')+'</div>';
+    h+='<div class=rsection>' + rtr("reader.section.summary_detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_both', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --all --apply</code>' })+
+      ((typeof canIngest === 'function' && canIngest()) ? '<div style="margin-top:6px"><button type="button" class="sec" style="font-size:12px;padding:3px 8px;cursor:pointer" onclick="openRegen('+jsArg(dc.id)+', \'all\')"><span data-icon="repeat"></span> ' + rtr("reader.regen_all") + '</button></div>' : '')+'</div>';
   }
   const body=document.getElementById('rbody'); body.innerHTML=h; body.scrollTop=0; body.scrollLeft=0;
   applyMathRendering(body);
@@ -1041,12 +1046,12 @@ function openSttReader(docId){
     if(!modal) return;
 
     if(!dc.is_stt && !(dc.meta && (dc.meta.is_stt || dc.meta.transcript_segments))){
-      alert('음성 전사(STT) 데이터가 없는 문서입니다.');
+      alert(rtr("reader.stt.none"));
       return;
     }
 
     const titleEl = document.getElementById('stttitle');
-    if(titleEl) titleEl.textContent = '음성 전사 (STT) — ' + (dc.title || '(제목 없음)');
+    if(titleEl) titleEl.textContent = rtr('reader.stt.title', { title: dc.title || rtr('home.recent.untitled') });
 
     const metaEl = document.getElementById('sttmeta');
     let metaTxt = '';
@@ -1054,11 +1059,11 @@ function openSttReader(docId){
     if(dur > 0){
       const m = Math.floor(dur / 60);
       const s = Math.floor(dur % 60);
-      metaTxt += '재생 시간: ' + m + '분 ' + s + '초';
+      metaTxt += rtr('reader.stt.duration', { minutes: m, seconds: s });
     }
     const segs = dc.transcript_segments || (dc.meta && dc.meta.transcript_segments) || [];
     if(segs.length > 0){
-      metaTxt += (metaTxt ? ' · ' : '') + '총 ' + segs.length.toLocaleString() + '개 발화 구간';
+      metaTxt += (metaTxt ? ' · ' : '') + rtr('reader.stt.segments', { count: segs.length.toLocaleString() });
     }
     if(metaEl) metaEl.textContent = metaTxt;
 
@@ -1079,7 +1084,7 @@ function openSttReader(docId){
     fetch(readerApiUrl('document?id=' + encodeURIComponent(did))).then(r=>r.json()).then(dc=>{
       _render(dc);
     }).catch(e=>{
-      alert('전사 데이터를 불러오지 못했습니다: ' + e);
+      alert(rtr('reader.stt.load_failed', { error: e }));
     });
   }
 }
@@ -1104,7 +1109,7 @@ function renderSttLines(){
   let h = '';
   const isTrunc = !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated));
   if(isTrunc){
-    h += '<div class="stt-trunc-banner"><span data-icon="warning"></span> <strong>전사 일부 절단 상태</strong>: 글자 수 상한 또는 오디오 구간 누락으로 인해 음성 전사의 일부만 반영되었습니다. 전체 내용을 복원하려면 <code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>를 실행하십시오.</div>';
+    h += '<div class="stt-trunc-banner"><span data-icon="warning"></span> ' + rtr('reader.stt.trunc_banner', { command: '<code>claire video-reprocess --doc-id ' + esc(dc.id||'') + ' --apply --full-content</code>' }) + '</div>';
   }
 
   const q = (curSttFilter || '').toLowerCase().trim();
@@ -1138,7 +1143,7 @@ function renderSttLines(){
           dispTxt = out;
         }
         h += '<div class="stt-line' + (q ? ' highlight' : '') + '">';
-        h += '<span class="stt-ts" title="클릭하여 타임스탬프 복사" data-ts="' + esc(ts) + '" onclick="copyTimestamp(this.dataset.ts)">[' + esc(ts) + ']</span>';
+        h += '<span class="stt-ts" title="' + rtr("reader.stt.copy_ts_title") + '" data-ts="' + esc(ts) + '" onclick="copyTimestamp(this.dataset.ts)">[' + esc(ts) + ']</span>';
         h += '<span class="stt-text">' + dispTxt + '</span>';
         h += '</div>';
       }
@@ -1168,15 +1173,15 @@ function renderSttLines(){
       }
     });
   } else {
-    h = '<p class="hint">저장된 전사 내용이 없습니다.</p>';
+    h = '<p class="hint">' + rtr("reader.stt.empty") + '</p>';
   }
 
   body.innerHTML = h;
   if(countEl){
     if(q){
-      countEl.textContent = matchCount.toLocaleString() + ' / ' + totalCount.toLocaleString() + '개 일치';
+      countEl.textContent = rtr('reader.stt.matches', { count: matchCount.toLocaleString(), total: totalCount.toLocaleString() });
     } else {
-      countEl.textContent = totalCount > 0 ? totalCount.toLocaleString() + '개 항목' : '';
+      countEl.textContent = totalCount > 0 ? rtr('reader.stt.items', { count: totalCount.toLocaleString() }) : '';
     }
   }
 }
@@ -1217,9 +1222,9 @@ function copySttText(withTs){
   }
   if(out){
     navigator.clipboard.writeText(out).then(()=>{
-      alert('클립보드에 전사 내용이 복사되었습니다.');
+      alert(rtr("reader.stt.copied"));
     }).catch(()=>{
-      alert('복사에 실패했습니다.');
+      alert(rtr("reader.copy_failed"));
     });
   }
 }
@@ -1239,7 +1244,7 @@ if(typeof window !== 'undefined' && typeof window.addEventListener === 'function
 function extraSourcesHtml(dc){
   const es=dc.extra_sources||[];
   if(!es.length) return '';
-  return '<div class=rsection>병합된 출처 ('+es.length+')</div><ul class=srclist>'+
+  return '<div class=rsection>'+rtr('reader.merged_sources', { count: es.length })+'</div><ul class=srclist>'+
     es.map(s=>'<li><a href="'+esc(s.url||'')+'" target=_blank rel=noopener>'+
       esc(s.title||s.url||'')+'</a></li>').join('')+'</ul>';
 }
@@ -1248,7 +1253,7 @@ function closeReader(focus=false){
     window.history.back();
     return;
   }
-  document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : 'Claire Bible — 홈';
+  document.title = typeof HOME_TITLE !== 'undefined' ? HOME_TITLE : rtr('home.title');
   hideNodePop();
   if(typeof clearEntityMarks === 'function'){
     clearEntityMarks();
@@ -1284,8 +1289,8 @@ function closeReader(focus=false){
 // /share 가 공유 토큰을 발급(인증 필요) → /p?s=token 은 비인증으로 그 문서만 보여준다.
 async function editDocTitle(){
   if(!canWrite() || !curReaderDoc) return;
-  const current = (curReaderDocData && curReaderDocData.title && curReaderDocData.title !== '(제목 없음)') ? curReaderDocData.title : '';
-  const newTitle = prompt('새 제목을 입력하세요:', current);
+  const current = (curReaderDocData && curReaderDocData.title && curReaderDocData.title !== rtr('home.recent.untitled')) ? curReaderDocData.title : '';
+  const newTitle = prompt(rtr("reader.new_title"), current);
   if(newTitle === null) return;
   const trimmed = newTitle.trim();
   try{
@@ -1296,16 +1301,16 @@ async function editDocTitle(){
     });
     if(r.status === 401 || r.status === 404){
       expireWriteAccess();
-      alert('세션 만료 또는 권한 없음 — 텔레그램 /web 으로 다시 접속하세요');
+      alert(rtr("ws.common.session_expired_or_denied"));
       return;
     }
     if(!r.ok){
       const err = await r.json().catch(()=>({}));
-      alert('제목 변경 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      alert(rtr('reader.title_failed', { reason: err.detail || err.error || ('HTTP ' + r.status) }));
       return;
     }
     const d = await r.json();
-    const updatedTitle = d.title || '(제목 없음)';
+    const updatedTitle = d.title || rtr("home.recent.untitled");
     if(curReaderDocData) curReaderDocData.title = d.title;
     document.getElementById('rtitle').innerHTML = esc(updatedTitle)
       + (curReaderDocData && curReaderDocData.source_type ? ' <span class=rmeta>' + esc(curReaderDocData.source_type) + '</span>' : '');
@@ -1315,28 +1320,28 @@ async function editDocTitle(){
       renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
     }
   }catch(e){
-    alert('제목 변경 실패: ' + String(e));
+    alert(rtr('reader.title_failed', { reason: String(e) }));
   }
 }
 async function shareDoc(){
   if(!curReaderDoc) return;
   const sb=document.getElementById('sharebox');
   if(!sb) return;
-  sb.className='sharebox on'; sb.innerHTML='<span class=pt>공유 링크 생성 중…</span>';
+  sb.className='sharebox on'; sb.innerHTML='<span class=pt>' + rtr("reader.share.making") + '</span>';
   try{
     const r=await fetch(readerApiUrl('share'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({doc_id:curReaderDoc})});
     if(r.status===401||r.status===404){
       if(typeof canWrite === 'function' && canWrite()){
         if(typeof expireWriteAccess === 'function') expireWriteAccess();
-        sb.innerHTML='<span class=pt>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>';
+        sb.innerHTML='<span class=pt>' + rtr("ws.common.session_expired") + '</span>';
       } else {
-        sb.innerHTML='<span class=pt>공유 링크를 생성할 수 없습니다</span>';
+        sb.innerHTML='<span class=pt>' + rtr("reader.share.unavailable") + '</span>';
       }
       return;
     }
     const d=await r.json();
-    if(d.error||!d.path){ sb.innerHTML='<span class=pt>공유 실패: '+esc(d.error||'알 수 없음')+'</span>'; return; }
+    if(d.error||!d.path){ sb.innerHTML='<span class=pt>'+esc(rtr('reader.share.failed', { reason: d.error || rtr('reader.pres.unknown') }))+'</span>'; return; }
     const url=location.origin+d.path;
     let copied=false;
     try{
@@ -1349,13 +1354,13 @@ async function shareDoc(){
       try{ window.gtag('event', 'share', { method: 'link', content_type: 'document', item_id: curReaderDoc }); }catch(_){}
     }
     sb.innerHTML='<input id="shareurl" readonly value="'+esc(url)+'" onclick="this.select()"/>'+
-      '<button onclick="copyShare()">'+(copied?'✓ 복사됨':'복사')+'</button>';
-  }catch(e){ sb.innerHTML='<span class=pt>공유 실패: '+esc(String(e))+'</span>'; }
+      '<button onclick="copyShare()">'+(copied?rtr("reader.copied"):rtr("reader.copy"))+'</button>';
+  }catch(e){ sb.innerHTML='<span class=pt>'+esc(rtr('reader.share.failed', { reason: String(e) }))+'</span>'; }
 }
 function copyShare(){
   const i=document.getElementById('shareurl'); if(!i) return;
   i.select();
-  const markCopied = () => { const b=document.querySelector('#sharebox button'); if(b) b.textContent='✓ 복사됨'; };
+  const markCopied = () => { const b=document.querySelector('#sharebox button'); if(b) b.textContent=rtr("reader.copied"); };
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(i.value).then(markCopied).catch(()=>{
       try{ document.execCommand('copy'); markCopied(); }catch(_){}
@@ -1383,7 +1388,7 @@ function updatePresentationView(docId){
   if(sharebox){ sharebox.className = 'sharebox'; sharebox.innerHTML = ''; }
 
   if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
-    if(titleEl) titleEl.textContent = '프레젠테이션 기능 비활성화됨';
+    if(titleEl) titleEl.textContent = rtr("reader.pres.off_title");
     if(toolsEl) toolsEl.style.display = 'none';
     const coordsEl = document.getElementById('presentation-coords');
     if(coordsEl) coordsEl.textContent = '';
@@ -1391,14 +1396,14 @@ function updatePresentationView(docId){
     frame.src = 'about:blank';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
-    if(emptyTitle) emptyTitle.textContent = '프레젠테이션 기능이 비활성화되어 있습니다';
-    if(emptyMsg) emptyMsg.textContent = '이 데이터베이스에서는 프레젠테이션 기능이 꺼져 있습니다. 테마 관리에서 기능을 활성화할 수 있습니다.';
+    if(emptyTitle) emptyTitle.textContent = rtr("reader.pres.off");
+    if(emptyMsg) emptyMsg.textContent = rtr("reader.pres.off_msg");
     if(genBtn) genBtn.style.display = 'none';
     return;
   }
 
   if(!targetId){
-    if(titleEl) titleEl.textContent = '문서를 선택하세요';
+    if(titleEl) titleEl.textContent = rtr("ws.reader.select_doc");
     if(toolsEl) toolsEl.style.display = 'none';
     const coordsEl = document.getElementById('presentation-coords');
     if(coordsEl) coordsEl.textContent = '';
@@ -1406,8 +1411,8 @@ function updatePresentationView(docId){
     frame.src = 'about:blank';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
-    if(emptyTitle) emptyTitle.textContent = '문서를 선택하세요';
-    if(emptyMsg) emptyMsg.textContent = '왼쪽 목록에서 문서를 선택하면 프레젠테이션이 표시됩니다.';
+    if(emptyTitle) emptyTitle.textContent = rtr("ws.reader.select_doc");
+    if(emptyMsg) emptyMsg.textContent = rtr("reader.pres.select_msg");
     if(genBtn) genBtn.style.display = 'none';
     return;
   }
@@ -1416,7 +1421,7 @@ function updatePresentationView(docId){
              (typeof curReaderDocData !== 'undefined' && curReaderDocData && curReaderDocData.id === targetId ? curReaderDocData : null);
 
   if(titleEl){
-    titleEl.textContent = dc ? (dc.title || '무제') : '문서 로딩…';
+    titleEl.textContent = dc ? (dc.title || rtr("reader.untitled")) : rtr("ws.list.docs_loading");
   }
 
   if(dc && dc.has_presentation === false){
@@ -1427,11 +1432,11 @@ function updatePresentationView(docId){
     frame.src = 'about:blank';
     if(empty) empty.style.display = 'flex';
     if(frame) frame.style.display = 'none';
-    if(emptyTitle) emptyTitle.textContent = '프레젠테이션이 아직 생성되지 않았습니다';
-    if(emptyMsg) emptyMsg.textContent = '이 문서의 내용을 바탕으로 프레젠테이션 슬라이드를 생성할 수 있습니다.';
+    if(emptyTitle) emptyTitle.textContent = rtr("reader.pres.not_made");
+    if(emptyMsg) emptyMsg.textContent = rtr("reader.pres.can_make");
     if(genBtn){
       genBtn.style.display = (typeof canWrite === 'function' && canWrite()) ? 'inline-block' : 'none';
-      genBtn.textContent = '프레젠테이션 생성';
+      genBtn.textContent = rtr("ws.presentation.generate");
       genBtn.disabled = false;
     }
     return;
@@ -1515,7 +1520,7 @@ function presentationOverview(){
 
 function presentationDownloadPdf(){
   if(typeof canWrite === 'function' && !canWrite()){
-    alert('PDF 저장은 소유자(인증된 세션)만 이용할 수 있습니다.');
+    alert(rtr("reader.pres.pdf_owner_only"));
     return;
   }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
@@ -1578,7 +1583,7 @@ function presentationDownloadPdf(){
 
 async function presentationShare(){
   if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
-    alert('이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.');
+    alert(rtr("reader.pres.off_db"));
     return;
   }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
@@ -1587,7 +1592,7 @@ async function presentationShare(){
   const sb = document.getElementById('presentation-sharebox');
   if(!sb) return;
   sb.className = 'sharebox on';
-  sb.innerHTML = '<span class="pt">공유 링크 생성 중…</span>';
+  sb.innerHTML = '<span class="pt">' + rtr("reader.share.making") + '</span>';
   try{
     const r = await fetch(readerApiUrl('share'), {
       method: 'POST',
@@ -1597,15 +1602,15 @@ async function presentationShare(){
     if(r.status === 401 || r.status === 404){
       if(typeof canWrite === 'function' && canWrite()){
         if(typeof expireWriteAccess === 'function') expireWriteAccess();
-        sb.innerHTML = '<span class="pt">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</span>';
+        sb.innerHTML = '<span class="pt">' + rtr("ws.common.session_expired") + '</span>';
       } else {
-        sb.innerHTML = '<span class="pt">공유 링크를 생성할 수 없습니다</span>';
+        sb.innerHTML = '<span class="pt">' + rtr("reader.share.unavailable") + '</span>';
       }
       return;
     }
     const d = await r.json();
     if(d.error || !d.path){
-      sb.innerHTML = '<span class="pt">공유 실패: ' + esc(d.error || '알 수 없음') + '</span>';
+      sb.innerHTML = '<span class="pt">' + esc(rtr('reader.share.failed', { reason: d.error || rtr('reader.pres.unknown') })) + '</span>';
       return;
     }
     const token = d.token || (d.path.includes('s=') ? d.path.split('s=')[1] : '');
@@ -1623,9 +1628,9 @@ async function presentationShare(){
       try{ window.gtag('event', 'share', { method: 'link', content_type: 'presentation', item_id: targetId }); }catch(_){}
     }
     sb.innerHTML = '<input id="pres-shareurl" readonly value="' + esc(url) + '" onclick="this.select()"/>' +
-      '<button onclick="copyPresentationShare()">' + (copied ? '✓ 복사됨' : '복사') + '</button>';
+      '<button onclick="copyPresentationShare()">' + (copied ? rtr("reader.copied") : rtr("reader.copy")) + '</button>';
   }catch(e){
-    sb.innerHTML = '<span class="pt">공유 실패: ' + esc(String(e)) + '</span>';
+    sb.innerHTML = '<span class="pt">' + esc(rtr('reader.share.failed', { reason: String(e) })) + '</span>';
   }
 }
 
@@ -1635,7 +1640,7 @@ function copyPresentationShare(){
   i.select();
   const markCopied = () => {
     const b = document.querySelector('#presentation-sharebox button');
-    if(b) b.textContent = '✓ 복사됨';
+    if(b) b.textContent = rtr("reader.copied");
   };
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(i.value).then(markCopied).catch(()=>{
@@ -1694,7 +1699,7 @@ function _onPresentationReady(targetId){
 
 async function generatePresentationForCurrentDoc(){
   if(typeof isPresentationEnabledForActiveTheme === 'function' && !isPresentationEnabledForActiveTheme()){
-    alert('이 데이터베이스에서는 프레젠테이션 기능이 비활성화되어 있습니다.');
+    alert(rtr("reader.pres.off_db"));
     return;
   }
   const targetId = (typeof curReaderDoc !== 'undefined' && curReaderDoc) ||
@@ -1704,9 +1709,9 @@ async function generatePresentationForCurrentDoc(){
   const emptyMsg = document.getElementById('presentation-empty-msg');
   if(genBtn){
     genBtn.disabled = true;
-    genBtn.textContent = '프레젠테이션 생성 중…';
+    genBtn.textContent = rtr("reader.pres.making");
   }
-  if(emptyMsg) emptyMsg.textContent = 'AsciiDoc 및 reveal.js 장표 작성을 요청하는 중입니다…';
+  if(emptyMsg) emptyMsg.textContent = rtr("reader.pres.requesting");
 
   stopPresentationPolling();
 
@@ -1722,7 +1727,7 @@ async function generatePresentationForCurrentDoc(){
     }
 
     if(res.status === 202 || res.status === 200){
-      if(emptyMsg) emptyMsg.textContent = 'AI가 문서 내용을 분석하여 AsciiDoc 슬라이드를 집필 중입니다 (0초 경과)…';
+      if(emptyMsg) emptyMsg.textContent = rtr('reader.pres.writing', { seconds: 0 });
       presPollTargetId = targetId;
 
       const pollStep = async () => {
@@ -1730,10 +1735,10 @@ async function generatePresentationForCurrentDoc(){
         const elapsed = Math.round((Date.now() - startTime) / 1000);
         if(elapsed > 120){
           stopPresentationPolling();
-          if(emptyMsg) emptyMsg.textContent = '생성 시간이 초과되었습니다 (120초 경과). 잠시 후 다시 확인하거나 재시도해주세요.';
+          if(emptyMsg) emptyMsg.textContent = rtr("reader.pres.timeout");
           if(genBtn){
             genBtn.disabled = false;
-            genBtn.textContent = '다시 시도';
+            genBtn.textContent = rtr("ws.common.retry");
           }
           return;
         }
@@ -1753,13 +1758,13 @@ async function generatePresentationForCurrentDoc(){
             _onPresentationReady(targetId);
           } else if(pollData.status === 'failed'){
             stopPresentationPolling();
-            if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (pollData.error_message || '원인 불명');
+            if(emptyMsg) emptyMsg.textContent = rtr('reader.pres.failed', { reason: pollData.error_message || rtr('reader.pres.unknown') });
             if(genBtn){
               genBtn.disabled = false;
-              genBtn.textContent = '다시 시도';
+              genBtn.textContent = rtr("ws.common.retry");
             }
           } else {
-            if(emptyMsg) emptyMsg.textContent = `AI가 슬라이드 덱을 작성하고 있습니다 (${elapsed}초 경과)…`;
+            if(emptyMsg) emptyMsg.textContent = rtr('reader.pres.writing', { seconds: elapsed });
             presPollTimer = setTimeout(pollStep, 2500);
           }
         } catch(_pollErr){
@@ -1771,17 +1776,17 @@ async function generatePresentationForCurrentDoc(){
 
       presPollTimer = setTimeout(pollStep, 2500);
     } else {
-      if(emptyMsg) emptyMsg.textContent = '생성에 실패했습니다: ' + (data.error || '잠시 후 다시 시도해주세요.');
+      if(emptyMsg) emptyMsg.textContent = rtr('reader.pres.failed', { reason: data.error || rtr('reader.pres.try_later') });
       if(genBtn){
         genBtn.disabled = false;
-        genBtn.textContent = '다시 시도';
+        genBtn.textContent = rtr("ws.common.retry");
       }
     }
   } catch(e) {
-    if(emptyMsg) emptyMsg.textContent = '네트워크 오류가 발생했습니다: ' + e;
+    if(emptyMsg) emptyMsg.textContent = rtr('reader.pres.network_error', { error: e });
     if(genBtn){
       genBtn.disabled = false;
-      genBtn.textContent = '다시 시도';
+      genBtn.textContent = rtr("ws.common.retry");
     }
   }
 }
@@ -1923,9 +1928,7 @@ function applyEntityMarks(dc){
   if(!body) return;
 
   if(typeof CSS === 'undefined' || !CSS.highlights){
-    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
-      ? ClaireI18n.t('reader.marks.unsupported')
-      : '사용 중인 브라우저가 CSS Custom Highlight API를 지원하지 않습니다.';
+    const msg = rtr('reader.marks.unsupported');
     updateReaderLegend(msg, true);
     return;
   }
@@ -1943,27 +1946,21 @@ function applyEntityMarks(dc){
   }catch(_){}
 
   if(!marksEnabled){
-    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
-      ? ClaireI18n.t('reader.marks.disabled')
-      : '엔티티 마크가 비활성화되어 있습니다.';
+    const msg = rtr('reader.marks.disabled');
     updateReaderLegend(msg, true);
     return;
   }
 
   const bodyText = body.textContent || '';
   if(bodyText.length > 400000){
-    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
-      ? ClaireI18n.t('reader.marks.limits_exceeded')
-      : '문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.';
+    const msg = rtr('reader.marks.limits_exceeded');
     updateReaderLegend(msg, true);
     return;
   }
 
   const { candidates, totalCandidateNames } = collectEntityCandidates(dc);
   if(totalCandidateNames > 300){
-    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
-      ? ClaireI18n.t('reader.marks.limits_exceeded')
-      : '문서가 너무 길거나 엔티티가 많아 엔티티 마크가 비활성화되었습니다.';
+    const msg = rtr('reader.marks.limits_exceeded');
     updateReaderLegend(msg, true);
     return;
   }
@@ -2031,9 +2028,7 @@ function applyEntityMarks(dc){
     const ranges = readerActiveMarkRanges.map(item => item.range);
     const highlight = new Highlight(...ranges);
     CSS.highlights.set('claire-entity', highlight);
-    const msg = (typeof ClaireI18n !== 'undefined' && ClaireI18n && typeof ClaireI18n.t === 'function')
-      ? ClaireI18n.t('reader.marks.legend')
-      : '점선 밑줄 = 이 문서의 엔티티 이름과 일치하는 문자열';
+    const msg = rtr('reader.marks.legend');
     updateReaderLegend(msg, true);
   } else {
     updateReaderLegend('', false);

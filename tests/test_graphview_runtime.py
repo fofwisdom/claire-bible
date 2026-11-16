@@ -19,7 +19,7 @@ import tempfile
 
 import pytest
 
-from claire.graphview import _SHARED_HTML, GRAPH_HTML
+from claire.graphview import _SHARED_HTML, GRAPH_HTML, _graph_html_for, _shared_html_for
 
 _PACKAGE_DIR = Path(__file__).resolve().parent.parent / "src" / "claire"
 _STATIC_JS_DIR = _PACKAGE_DIR / "static" / "js"
@@ -74,7 +74,8 @@ def test_graphview_bundle_js_syntax(node_available: bool) -> None:
     if not node_available:
         pytest.skip("Node.js is not installed on the system")
 
-    scripts = extract_scripts(GRAPH_HTML)
+    # The translation slots of the page are resolved for one locale before the scripts run (graphview.localize_page).
+    scripts = extract_scripts(_graph_html_for("en"))
     assert len(scripts) >= 1, "GRAPH_HTML should contain at least one <script> block"
 
     for i, script in enumerate(scripts):
@@ -97,7 +98,7 @@ def test_shared_html_bundle_js_syntax(node_available: bool) -> None:
     if not node_available:
         pytest.skip("Node.js is not installed on the system")
 
-    scripts = extract_scripts(_SHARED_HTML)
+    scripts = extract_scripts(_shared_html_for("en"))
     assert len(scripts) >= 1, "_SHARED_HTML should contain at least one <script> block"
 
     for i, script in enumerate(scripts):

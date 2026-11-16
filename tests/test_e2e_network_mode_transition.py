@@ -157,7 +157,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     # 6a. Verify service access in network mode
     root_res = app_env.client.get("/", headers=headers)
     assert root_res.status_code == 200
-    assert "공개 디렉터리" in root_res.text
+    assert "Public directory" in root_res.text
     assert f"/@{SECRET_ADMIN_USERNAME}/" in root_res.text
 
     root_doc_res = app_env.client.get("/?doc=sample", headers=headers, follow_redirects=False)
@@ -166,12 +166,12 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
 
     admin_ws_res = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/", headers=headers)
     assert admin_ws_res.status_code == 200
-    assert "지식 그래프" in admin_ws_res.text
-    assert "공개 디렉터리" not in admin_ws_res.text
+    assert "Knowledge graph" in admin_ws_res.text
+    assert "Public directory" not in admin_ws_res.text
 
     admin_doc_res = app_env.client.get(f"/@{SECRET_ADMIN_USERNAME}/?doc=sample", headers=headers, follow_redirects=False)
     assert admin_doc_res.status_code == 200
-    assert "지식 그래프" in admin_doc_res.text
+    assert "Knowledge graph" in admin_doc_res.text
 
     # 6b. While federation is on, the change to single mode is refused (Fedify sidecar design Section 8.1).
     from claire.store import accounts as _accounts_store

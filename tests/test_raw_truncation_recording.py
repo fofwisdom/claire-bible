@@ -12,6 +12,8 @@ from claire.ingest.fetchers.web import fetch_web
 from claire.ontology.base import Document
 from claire.store import db as dbm
 
+from tests.js_i18n import js_i18n_prelude
+
 
 def test_slice_text_with_table_exemption_info_short_text():
     text = "Short text under budget."
@@ -132,18 +134,18 @@ def test_graph_html_contains_truncation_ui_and_css():
     assert ".vlm-tag" in html
     assert "docMetaHtml" in html
     # The cut of the source text is one notice in the reader: the source badge has the counts, and its hover text has the reason.
-    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert "reader.trunc.limit" in html
     assert 'data-source-badge="partial"' in html
     assert '<span data-icon="target"></span>' in html
     assert '<span data-icon="mic"></span> STT' in html
     assert '<span data-icon="captions"></span> CC' in html
-    assert "이미지 전사" in html
-    assert "음성 인식(STT)을 적용하여 작성한 문서" in html
-    assert "영상 자막(CC)을 적용하여 작성한 문서" in html
-    assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
-    assert "적재 시 지정한 초점: " in html
-    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
-    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert "reader.tag.vlm_label" in html
+    assert "reader.tag.stt" in html
+    assert "reader.tag.cc" in html
+    assert "reader.tag.vlm" in html
+    assert "reader.tag.focus_tip" in html
+    assert "reader.trunc.appendix" in html
+    assert "reader.trunc.limit" in html
     assert "작성된 본문" not in html
     assert "적재되었습니다" not in html
     # 20,000자가 하드코딩되어 있지 않고 동적이어야 함
@@ -174,13 +176,13 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".cc-tag" in html
     assert ".vlm-tag" in html
     assert "docMetaHtml" in html
-    assert "원문 일부 절단" in html
+    assert "share.trunc_part" in html
     assert '<span data-icon="target"></span>' in html
     assert '<span data-icon="mic"></span> STT' in html
-    assert "음성 인식(STT)을 적용하여 작성한 문서" in html
-    assert "적재 시 지정한 초점: " in html
-    assert "원문의 부록(Appendix) 부분을 절단한 문서" in html
-    assert "글자 수 상한으로 원문 일부를 절단한 문서" in html
+    assert "reader.tag.stt" in html
+    assert "reader.tag.focus_tip" in html
+    assert "reader.trunc.appendix" in html
+    assert "reader.trunc.limit" in html
     assert "작성된 본문" not in html
     assert "적재되었습니다" not in html
     assert "h1 .rmeta" in html
@@ -217,8 +219,8 @@ def test_document_detail_and_ui_with_vlm():
 
     html = shared_html(detail)
     assert ".vlm-tag" in html
-    assert "이미지 전사" in html
-    assert "이미지 전사(VLM)를 적용하여 작성한 문서" in html
+    assert "reader.tag.vlm_label" in html
+    assert "reader.tag.vlm" in html
 
     # Node.js 런타임 평가 검증
     import json
@@ -233,11 +235,11 @@ def test_document_detail_and_ui_with_vlm():
     const d = {json.dumps(detail)};
     console.log(docMetaHtml(d));
     """
-    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    res = subprocess.run(["node", "-e", js_i18n_prelude() + js], capture_output=True, text=True, check=True)
     out = res.stdout
-    assert '<span data-icon="image"></span> 이미지 전사 (5장)' in out
+    assert '<span data-icon="image"></span> Image transcription (5 images)' in out
     assert "vlm-tag" in out
-    assert "이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in out
+    assert "Document written with image transcription (VLM) (5 images transcribed) · Model: gemini-3.5-flash-lite" in out
 
     msg_start = GRAPH_HTML.index("function getDocMetaMessages(dc){")
     msg_end = GRAPH_HTML.index("function docMetaMessageHtml(dc){")
@@ -248,9 +250,9 @@ def test_document_detail_and_ui_with_vlm():
     const d = {json.dumps(detail)};
     console.log(JSON.stringify(getDocMetaMessages(d)));
     """
-    res_msg = subprocess.run(["node", "-e", js_msg], capture_output=True, text=True, check=True)
+    res_msg = subprocess.run(["node", "-e", js_i18n_prelude() + js_msg], capture_output=True, text=True, check=True)
     msgs = json.loads(res_msg.stdout)
-    assert any("이미지 전사(VLM)를 적용하여 작성한 문서 (5장 이미지 전사) · 모델: gemini-3.5-flash-lite" in m for m in msgs)
+    assert any("Document written with image transcription (VLM) (5 images transcribed) · Model: gemini-3.5-flash-lite" in m for m in msgs)
 
     # With vlm_language and stt_language specified
     detail_lang = dict(detail)
@@ -262,10 +264,10 @@ def test_document_detail_and_ui_with_vlm():
     const d = {json.dumps(detail_lang)};
     console.log(JSON.stringify({{html: docMetaHtml(d), msgs: getDocMetaMessages(d)}}));
     """
-    res_l = subprocess.run(["node", "-e", js_lang], capture_output=True, text=True, check=True)
+    res_l = subprocess.run(["node", "-e", js_i18n_prelude() + js_lang], capture_output=True, text=True, check=True)
     out_l = json.loads(res_l.stdout)
-    assert "이미지 전사(VLM: ko)를 적용하여 작성한 문서 (5장 이미지 전사)" in out_l["html"]
-    assert any("이미지 전사(VLM: ko)를 적용하여 작성한 문서" in m for m in out_l["msgs"])
+    assert "Document written with image transcription (VLM: ko) (5 images transcribed)" in out_l["html"]
+    assert any("Document written with image transcription (VLM: ko)" in m for m in out_l["msgs"])
 
     # STT language
     stt_detail = {
@@ -282,10 +284,10 @@ def test_document_detail_and_ui_with_vlm():
     const d = {json.dumps(stt_detail)};
     console.log(JSON.stringify({{html: docMetaHtml(d), msgs: getDocMetaMessages(d)}}));
     """
-    res_stt = subprocess.run(["node", "-e", js_stt], capture_output=True, text=True, check=True)
+    res_stt = subprocess.run(["node", "-e", js_i18n_prelude() + js_stt], capture_output=True, text=True, check=True)
     out_stt = json.loads(res_stt.stdout)
-    assert "음성 인식(STT: ko)을 적용하여 작성한 문서" in out_stt["html"]
-    assert any("음성 인식(STT: ko)을 적용하여 작성한 문서" in m for m in out_stt["msgs"])
+    assert "Document written with speech recognition (STT: ko)" in out_stt["html"]
+    assert any("Document written with speech recognition (STT: ko)" in m for m in out_stt["msgs"])
 
 
 
@@ -365,8 +367,8 @@ def test_shared_html_contains_cc_docmeta_badge():
     html = shared_html(doc)
     assert ".cc-tag" in html
     assert '<span data-icon="captions"></span> CC' in html
-    assert "영상 자막(CC)을 적용하여 작성한 문서" in html
-    assert "영상 자막(CC: " in html
+    assert "reader.tag.cc" in html
+    assert "reader.tag.cc_lang" in html
 
     # Node.js 런타임 평가 검증
     start = GRAPH_HTML.index("function docMetaHtml(dc){")
@@ -378,11 +380,11 @@ def test_shared_html_contains_cc_docmeta_badge():
     const d = {json.dumps(doc)};
     console.log(docMetaHtml(d));
     """
-    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    res = subprocess.run(["node", "-e", js_i18n_prelude() + js], capture_output=True, text=True, check=True)
     out = res.stdout
     assert '<span data-icon="captions"></span> CC' in out
     assert "cc-tag" in out
-    assert "영상 자막(CC: ko_KR)을 적용하여 작성한 문서" in out
+    assert "Document written with video subtitles (CC: ko_KR)" in out
     assert '<span data-icon="mic"></span> STT' not in out
 
 
@@ -452,8 +454,8 @@ def test_docmeta_rollover_shows_total_character_count():
     console.log("OUT1:" + docMetaHtml(d1));
     console.log("OUT2:" + docMetaHtml(d2));
     """
-    res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
+    res = subprocess.run(["node", "-e", js_i18n_prelude() + js], capture_output=True, text=True, check=True)
     out = res.stdout
-    assert 'title="전체 문자 수: 15,420자"' in out
-    assert 'title="전체 문자 수: 50,000자 (적재: 20,000자)"' in out
+    assert 'title="Total characters: 15,420"' in out
+    assert 'title="Total characters: 50,000 (ingested: 20,000)"' in out
 

@@ -12,6 +12,8 @@ from claire.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 
+from tests.js_i18n import js_i18n_prelude
+
 
 def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
     """E2E test verifying complete pipeline: classification, HoYoLAB fetch, VLM transcription, and vault export."""
@@ -93,7 +95,7 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             assert detail["vlm_language"] == "ko"
             rendered_page = shared_html(detail)
             assert ".vlm-tag" in rendered_page
-            assert '<span data-icon="image"></span> ' in rendered_page and "이미지 전사" in rendered_page
+            assert '<span data-icon="image"></span> ' in rendered_page and "reader.tag.vlm_label" in rendered_page
             assert '"vlm_language": "ko"' in rendered_page
 
             import subprocess
@@ -108,10 +110,10 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
             const d = {json.dumps(detail)};
             console.log(docMetaHtml(d));
             """
-            res = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True)
-            assert '<span data-icon="image"></span> 이미지 전사 (2장)' in res.stdout
+            res = subprocess.run(["node", "-e", js_i18n_prelude() + js], capture_output=True, text=True, check=True)
+            assert '<span data-icon="image"></span> Image transcription (2 images)' in res.stdout
             assert "vlm-tag" in res.stdout
-            assert "이미지 전사(VLM: ko)" in res.stdout
+            assert "Document written with image transcription (VLM: ko)" in res.stdout
 
             # Entities and relationships created
             cur = conn.cursor()

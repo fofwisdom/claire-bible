@@ -8,6 +8,8 @@ from claire.ontology.base import Document, Entity
 from claire.store import db as dbm
 from claire.store.queries import document_detail, documents_list, node_detail
 
+from tests.js_i18n import js_i18n_prelude
+
 
 def test_fetch_file_does_not_set_local_file_url(tmp_path: Path, monkeypatch):
     """fetch_file() must set doc.url to None so local file paths are not exposed."""
@@ -144,7 +146,7 @@ def test_shared_html_preserves_valid_web_url():
 
     html = shared_html(web_doc, base_url="https://cb.example.com", share_token="test_token_2")
     assert "https://example.com/architecture" in html
-    assert "↗ 원문 열기" in html
+    assert "share.node_open_source" in html
 
 
 def test_client_docmeta_html_runtime_suppresses_local_uri(tmp_path: Path):
@@ -195,7 +197,7 @@ console.log(JSON.stringify({{ resLocal, resWeb }}));
 process.exit(0);
 """
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f_runner:
-        f_runner.write(runner_code)
+        f_runner.write(js_i18n_prelude() + runner_code)
         runner_file = f_runner.name
 
     try:
@@ -204,11 +206,11 @@ process.exit(0);
         out = json.loads(proc.stdout.strip())
         # Local file URI must not be rendered as link or present in html
         assert "file:///app" not in out["resLocal"]
-        assert "↗ 원문 열기" not in out["resLocal"]
+        assert "↗ Open the source" not in out["resLocal"]
 
         # Web URL must be rendered as link
         assert "https://example.com/article" in out["resWeb"]
-        assert "↗ 원문 열기" in out["resWeb"]
+        assert "↗ Open the source" in out["resWeb"]
     finally:
         Path(runner_file).unlink(missing_ok=True)
 

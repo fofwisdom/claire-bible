@@ -73,7 +73,7 @@ def test_theme_web_single_mode_inlining_and_cls_prevention(tmp_path: Path):
     )
     html = render_graph_html(s)
     assert 'themeMode: \'single\'' in html
-    assert 'id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)" style="display:none"' in html
+    assert 'id="theme-picker-wrap" title="Select the knowledge theme (change the database)" style="display:none"' in html
     assert '기본 지식베이스' in html
 
 
@@ -91,7 +91,7 @@ def test_theme_web_multi_mode_inlining(tmp_path: Path):
 
     html = render_graph_html(s)
     assert 'themeMode: \'multi\'' in html
-    assert 'id="theme-picker-wrap" title="지식 테마 선택 (데이터베이스 전환)" style="display:inline-flex"' in html
+    assert 'id="theme-picker-wrap" title="Select the knowledge theme (change the database)" style="display:inline-flex"' in html
     assert 'AI 및 로보틱스' in html
     assert '🤖' in html
 
@@ -175,7 +175,7 @@ def test_theme_web_default_focus(tmp_path: Path):
 
     # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
     assert "updateFocusPlaceholder" in graph_html
-    assert "기본 초점:" in graph_html
+    assert "ws.ingest.focus_default_placeholder" in graph_html
 
 
 def test_theme_web_knowledge_manager_display(tmp_path: Path):

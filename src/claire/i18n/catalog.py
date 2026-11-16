@@ -40,8 +40,8 @@ def load_catalog(locale: str) -> dict[str, str]:
     return read_catalog_file(LOCALES_DIR / f"{locale}.json")
 
 
-# Key domains that only the server renders: the auth pages have no script, and the bot, the push notifications and the CLI are not in a browser. The inline catalog of a page does not contain them.
-SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.")
+# Key domains that only the server renders: the auth pages and the public directory (explore.) have no script that reads the catalog, and the bot, the push notifications and the CLI are not in a browser. The inline catalog of a page does not contain them.
+SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.", "explore.")
 
 # The ``console.`` domain is the text of the console (/settings/*, /admin/*). The server renders it, thus a browser page does not get it. The exceptions are the keys that the console scripts read:
 # ``console.js.`` goes to each console page, and ``console.js.admin.`` goes only to a page of the administrator area (a member page has no text of the administrator scripts).
@@ -49,12 +49,17 @@ CONSOLE_KEY_PREFIX = "console."
 CONSOLE_SCRIPT_KEY_PREFIX = "console.js."
 CONSOLE_ADMIN_SCRIPT_KEY_PREFIX = "console.js.admin."
 
-BrowserCatalogScope = Literal["page", "console", "console_admin"]
+# The public share page (/p, share.html) has no workspace and no console: it gets only the keys of the document view.
+SHARE_KEY_PREFIXES = ("reader.", "share.")
+
+BrowserCatalogScope = Literal["page", "console", "console_admin", "share"]
 
 
 def _in_browser_catalog(key: str, scope: BrowserCatalogScope) -> bool:
     if key.startswith(SERVER_ONLY_KEY_PREFIXES):
         return False
+    if scope == "share":
+        return key.startswith(SHARE_KEY_PREFIXES)
     if not key.startswith(CONSOLE_KEY_PREFIX):
         return True
     if key.startswith(CONSOLE_ADMIN_SCRIPT_KEY_PREFIX):

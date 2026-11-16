@@ -3,39 +3,10 @@
  * Controls the ClaireGraph network (static/js/graph/), search, clustering, degree filtering, tabs, and workspace state.
  */
 
-// --- Client Loading Watchdog & Global Error Handlers ---
-window.__CLAIRE_CLEAR_LOADING = function(reason) {
-    try {
-      var auth = document.getElementById('authstate');
-      if (auth && (auth.textContent.indexOf('확인') !== -1 || auth.textContent.indexOf('로딩') !== -1)) {
-        auth.textContent = '익명 읽기전용' + (reason ? ' (' + reason + ')' : '');
-      }
-      var dl = document.getElementById('doclist');
-      if (dl && (dl.innerHTML.indexOf('문서 로딩…') !== -1 || dl.textContent.indexOf('문서 로딩') !== -1)) {
-        dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'')+
-          '<p class="hint" style="padding:10px">문서 목록 조회 지연 (새로고침 권장)</p>';
-      }
-      var st = document.getElementById('stat');
-      if (st && (st.textContent.indexOf('로딩…') !== -1 || st.textContent.indexOf('확인') !== -1)) {
-        st.textContent = reason ? '상태: ' + reason : '준비 완료';
-      }
-      var sk = document.getElementById('searchkind');
-      if (sk && sk.textContent.indexOf('확인') !== -1) {
-        sk.textContent = 'Full-Text Search';
-      }
-    } catch (_) {}
-  };
-  window.addEventListener('error', function(e) {
-    console.warn('Claire global error:', e.error || e.message);
-    window.__CLAIRE_CLEAR_LOADING('오류');
-  });
-  window.addEventListener('unhandledrejection', function(e) {
-    console.warn('Claire unhandled rejection:', e.reason);
-    window.__CLAIRE_CLEAR_LOADING('지연');
-  });
-  setTimeout(function() {
-    window.__CLAIRE_CLEAR_LOADING('');
-  }, 2500);
+// Catalog text (static/js/i18n.js). Without the runtime, the key shows.
+const tr = (key, params) => (window.ClaireI18n ? ClaireI18n.t(key, params) : key);
+
+// The loading watchdog and the global error handlers are in templates/index.html: they run before this bundle.
 
 // --- WebUI Surface & Bootstrap Metadata (§6.4) ---
 const _metaApiBase = (document.querySelector('meta[name="claire-api-base"]') || {}).content;
@@ -162,7 +133,6 @@ let curMinDeg = 0, activeDoc = null, highlightSet = null, selectedNodeId = null,
 // 노드(그래프·'이 문서의 노드' 버튼)에 커서를 이만큼 올려 두면 요약 팝업을 띄운다.
 const NODE_POP_DELAY_MS = 1000;
 const HOME_TITLE = (window.ClaireI18n ? ClaireI18n.t('home.title') : 'Claire Bible');
-const tr = (key, params) => (window.ClaireI18n ? ClaireI18n.t(key, params) : key);
 if(window.ClaireI18n) ClaireI18n.applyDom();
 if(centerView === 'home') document.title = HOME_TITLE;
 let activeJobs = [];
@@ -204,7 +174,7 @@ let availableThemes = (function(){
   if(window.__CLAIRE_CONFIG && Array.isArray(window.__CLAIRE_CONFIG.themes) && window.__CLAIRE_CONFIG.themes.length){
     return window.__CLAIRE_CONFIG.themes;
   }
-  return [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
+  return [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
 })();
 
 function findTheme(themeRef){
@@ -321,7 +291,7 @@ function renderThemeSelector(){
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
-    availableThemes = [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚', is_default: true}];
+    availableThemes = [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
   }
 
   const current = findTheme(activeThemeId) || availableThemes[0];
@@ -332,7 +302,7 @@ function renderThemeSelector(){
   // 일반 접속 시: 싱글 테마 모드이거나 테마가 1개뿐인 경우 숨김, 멀티 테마일 때 드롭다운 박스 표시
   if(wrap){
     wrap.style.display = (isMultiThemeEnabled() && availableThemes.length > 1) ? 'inline-flex' : 'none';
-    wrap.title = '지식 테마 선택 (데이터베이스 전환)';
+    wrap.title = tr("ws.bar.theme_title");
   }
   if(ctrl) ctrl.style.display = 'inline-flex';
   if(plainDisplay) plainDisplay.style.display = 'none';
@@ -343,7 +313,7 @@ function renderThemeSelector(){
   sel.innerHTML = availableThemes.map(t => {
     const key = getThemeKey(t);
     const label = esc(t.label);
-    const lockStr = t.is_public === false ? ' (비공개)' : '';
+    const lockStr = t.is_public === false ? ' ' + tr("ws.bar.private_suffix") : '';
     return `<option value="${key}" ${key === String(activeThemeId) ? 'selected' : ''}>${label}${lockStr}</option>`;
   }).join('');
   updateDrawerManager(current);
@@ -356,8 +326,8 @@ function updateDrawerManager(currentTheme){
   const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
   const rawMgr = currentTheme ? (currentTheme.sorcerer || currentTheme.knowledge_manager || '').trim() : '';
   const mgr = rawMgr || (currentTheme && currentTheme.effective_sorcerer) || defaultMgr;
-  el.textContent = '지식 관리자: ' + mgr;
-  el.title = '지식 관리자: ' + mgr;
+  el.textContent = tr("ws.ctx.manager") + ' ' + mgr;
+  el.title = tr("ws.ctx.manager") + ' ' + mgr;
 }
 
 function isPresentationEnabledForActiveTheme(){
@@ -395,7 +365,7 @@ function syncThemeSelectorUI(){
   if(current){
     if(iconEl) iconEl.textContent = current.icon || '📚';
     if(plainIcon) plainIcon.textContent = current.icon || '📚';
-    if(plainLabel) plainLabel.textContent = current.label || '기본 지식베이스';
+    if(plainLabel) plainLabel.textContent = current.label || tr("ws.bar.theme_default");
     updateDrawerManager(current);
   }
   syncPresentationFeatureUI();
@@ -404,13 +374,13 @@ function syncThemeSelectorUI(){
 function renderThemeOptions(selectedId){
   const themes = (availableThemes && availableThemes.length)
     ? availableThemes
-    : [{id: 0, seq: 0, number: '0', label: '기본 지식베이스', description: '일반 수집 자료 및 기본 지식', icon: '📚'}];
+    : [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚'}];
   const activeId = selectedId !== undefined ? String(selectedId) : String(activeThemeId);
   return themes.map(t => {
     const key = getThemeKey(t);
     const icon = esc(t.icon || '📚');
     const label = esc(t.label);
-    const lockStr = t.is_public === false ? ' (비공개)' : '';
+    const lockStr = t.is_public === false ? ' ' + tr("ws.bar.private_suffix") : '';
     return `<option value="${key}" ${key === activeId ? 'selected' : ''}>${icon} ${label}${lockStr}</option>`;
   }).join('');
 }
@@ -463,7 +433,7 @@ async function loadThemeDocuments(){
     if(main !== docMainPager) return;
     resetDocStore();
     const dl = document.getElementById('doclist');
-    if(dl) dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'') + '<p class="hint" style="padding:10px">문서 로드 실패</p>';
+    if(dl) dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'') + '<p class="hint" style="padding:10px">' + tr("ws.list.load_failed") + '</p>';
   }
 }
 
@@ -740,12 +710,12 @@ function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
   const synthLine = canWrite()
-    ? '• <b>Ctrl+클릭</b> 또는 상세의 <b><span data-icon="plus"></span> 종합에 추가</b>로 여러 노드를 모아 종합<br>'
+    ? '• ' + tr('ws.hint.synth') + '<br>'
     : '';
-  return '<p class="hint">노드를 클릭하면 관찰·출처 문서·연결이 표시됩니다.<br><br>'+synthLine+
-    '• 다른 노드에 <b>'+(NODE_POP_DELAY_MS/1000)+'초</b> 올리면 마우스 옆에 <b>요약 팝업</b>(더 끌면 출처 문서까지)<br>'+
-    '• <b>자료</b>에서 문서를 고르면 그래프가 강조되고, <b><span data-icon="book"></span></b>로 크게 읽습니다.<br>'+
-    '• 상단 <b>⋯ 도구</b>의 <b><span data-icon="moon"></span>/<span data-icon="sun"></span></b>로 라이트·다크를 전환합니다.</p>';
+  return '<p class="hint">'+tr('ws.hint.click_node')+'<br><br>'+synthLine+
+    '• '+tr('ws.hint.hover', { seconds: NODE_POP_DELAY_MS/1000 })+'<br>'+
+    '• '+tr('ws.hint.source_pick')+' <b><span data-icon="book"></span></b><br>'+
+    '• '+tr('ws.hint.theme')+' <b><span data-icon="moon"></span>/<span data-icon="sun"></span></b></p>';
 }
 if(panel) panel.innerHTML = defaultHint();
 
@@ -782,9 +752,9 @@ function showNodePop(id, x, y){
   const c=TYPE_COLORS[n.group]||'#8b949e';
   const isMobile = (compactMQ && compactMQ.matches) || (mobileMQ && mobileMQ.matches);
   const head='<div class=phead><div><b>'+esc(n.label)+'</b> <span class=pt>'+esc(n.group||'')+'</span></div>'+
-    '<button type="button" class=pclose onclick="event.stopPropagation();hideNodePop()" aria-label="닫기">✕</button></div>'+
-    '<div class=pt><i style="background:'+c+'"></i>연결 '+(n.degree||0)+'개</div>';
-  const foot=isMobile?'<div class=pact><button type="button" onclick="event.stopPropagation();hideNodePop();openDetailPane()">자세히 보기 ›</button></div>':'';
+    '<button type="button" class=pclose onclick="event.stopPropagation();hideNodePop()" aria-label="' + tr("common.action.close") + '">✕</button></div>'+
+    '<div class=pt><i style="background:'+c+'"></i>'+tr('ws.node.connections', { count: n.degree||0 })+'</div>';
+  const foot=isMobile?'<div class=pact><button type="button" onclick="event.stopPropagation();hideNodePop();openDetailPane()">' + tr("ws.node.more_details") + '</button></div>':'';
   nodepop.innerHTML=head+(n.obs?'<div class=po>'+esc(n.obs)+'</div>':'')+foot;
   nodepop.style.display='block';
   positionPop(px, py);                  // 표시 후(폭/높이 확정) 화면 밖으로 안 나가게 배치
@@ -806,7 +776,7 @@ function showNodePop(id, x, y){
 // 팝업 하단의 출처 문서 한 건 — 제목 + 요약 일부. (GET /node?docs=brief has no detail text.)
 function popSource(d){
   const body=((d.summary||'').replace(/\s+/g,' ').trim());
-  return '<div class=psrc><div class=ptt><span data-icon="doc"></span> '+esc(d.title||'(제목 없음)')+'</div>'+
+  return '<div class=psrc><div class=ptt><span data-icon="doc"></span> '+esc(d.title||tr("home.recent.untitled"))+'</div>'+
     (body?'<div class=psb>'+esc(body.slice(0,240))+(body.length>240?'…':'')+'</div>':'')+'</div>';
 }
 function positionPop(x, y){
@@ -1274,8 +1244,8 @@ function syncGraphDocNav(){
   const pick=document.getElementById('graphdocpick');
   if(!pick) return;
   const dc=activeDoc ? allDocs.find(item=>item.id===activeDoc) : null;
-  document.getElementById('graphdoclabel').textContent=dc ? dc.title : '전체 그래프';
-  pick.setAttribute('aria-label',dc ? '자료 전환, 현재 '+dc.title : '자료 선택, 현재 전체 그래프');
+  document.getElementById('graphdoclabel').textContent=dc ? dc.title : tr("ws.graph.all");
+  pick.setAttribute('aria-label',dc ? tr('ws.graph.pick_current', { title: dc.title }) : tr('ws.graph.pick_all'));
   const prev=document.getElementById('graphdocprev'), next=document.getElementById('graphdocnext');
   if(prev && next){
     const docs=graphSelectableDocs();
@@ -1285,14 +1255,14 @@ function syncGraphDocNav(){
     if(usable){
       const prevDoc=docs[(current-1+docs.length)%docs.length];
       const nextDoc=docs[(current+1)%docs.length];
-      prev.setAttribute('aria-label','이전 자료: '+prevDoc.title);
-      next.setAttribute('aria-label','다음 자료: '+nextDoc.title);
-      prev.title='이전 자료: '+prevDoc.title;
-      next.title='다음 자료: '+nextDoc.title;
+      prev.setAttribute('aria-label',tr('ws.graph.prev_doc', { title: prevDoc.title }));
+      next.setAttribute('aria-label',tr('ws.graph.next_doc', { title: nextDoc.title }));
+      prev.title=tr('ws.graph.prev_doc', { title: prevDoc.title });
+      next.title=tr('ws.graph.next_doc', { title: nextDoc.title });
     }else{
-      prev.setAttribute('aria-label','이전 자료');
-      next.setAttribute('aria-label','다음 자료');
-      prev.title='이전 자료'; next.title='다음 자료';
+      prev.setAttribute('aria-label',tr("ws.graph.prev"));
+      next.setAttribute('aria-label',tr("ws.graph.next"));
+      prev.title=tr("ws.graph.prev"); next.title=tr("ws.graph.next");
     }
   }
   const menu=document.getElementById('graphdocmenu');
@@ -1319,14 +1289,14 @@ function renderGraphDocPicker(filter='', fromServer=false){
   const docs=graphSelectableDocs().filter(dc=>
     !q || ((dc.title||'')+' '+(dc.summary||'')).toLowerCase().includes(q));
   let h='<button id="graphdocall" class="graphdocoption" data-graph-doc=""'+
-    (!activeDoc?' aria-current="true"':'')+'>전체 그래프</button>';
+    (!activeDoc?' aria-current="true"':'')+'>' + tr("ws.graph.all") + '</button>';
   h+=docs.map(dc=>'<button class="graphdocoption" data-graph-doc="'+esc(dc.id)+'"'+
       (dc.id===activeDoc?' aria-current="true"':'')+'>'+
-      (dc.pinned===1?'<span data-icon="star" class="filled"></span> ':'')+esc(dc.title||'(제목 없음)')+
+      (dc.pinned===1?'<span data-icon="star" class="filled"></span> ':'')+esc(dc.title||tr("home.recent.untitled"))+
       (dc.source_type?'<small>'+esc(dc.source_type)+'</small>':'')+'</button>').join('');
   const morePages = docMainPager.loaded && docMainPager.next != null;
-  if(!docs.length) h+='<div id="graphdocempty">'+((morePages && q && !fromServer) ? '찾는 중…' : '검색 결과가 없습니다.')+'</div>';
-  else if(morePages && !q) h+='<div id="graphdocmore" class="hint">더 오래된 자료는 제목으로 찾으세요.</div>';
+  if(!docs.length) h+='<div id="graphdocempty">'+((morePages && q && !fromServer) ? tr("ws.graph.searching") : tr("ws.graph.no_results"))+'</div>';
+  else if(morePages && !q) h+='<div id="graphdocmore" class="hint">' + tr("ws.graph.older_hint") + '</div>';
   document.getElementById('graphdoclist').innerHTML=h;
   if(morePages && q && !fromServer) queryGraphDocPicker(q, filter);
 }
@@ -1635,7 +1605,7 @@ function initGraph(onComplete){
     setupWheelZoom();
   } else {
     const st = document.getElementById('stat');
-    if(st) st.textContent = '데이터 준비 완료';
+    if(st) st.textContent = tr("ws.list.data_ready");
   }
   // pane 전환·주소창 접힘 등으로 viewport가 바뀌어도 fit 애니메이션 중 setSize가
   // 카메라를 흔들지 않게 한다. 드래그/애니메이션 중엔 relayout
@@ -1828,7 +1798,7 @@ function initGraph(onComplete){
 }).catch(err => {
   console.warn('graph load error:', err);
   const st=document.getElementById('stat');
-  if(st && st.textContent.indexOf('로딩')!==-1) st.textContent='그래프 준비 완료';
+  if(st && st.textContent === tr('ws.list.loading')) st.textContent=tr("ws.graph.ready");
   if(onComplete) onComplete();
 });
 }
@@ -1991,7 +1961,7 @@ function startAliasSelectMode(){
   const cancelBtn = document.getElementById('alias-cancel-btn');
   const chipsEl = document.getElementById('node-alias-chips');
   if(labelEl){
-    labelEl.innerHTML = '<span style="color:var(--accent);font-weight:600">대표로 지정할 별칭 선택</span>';
+    labelEl.innerHTML = '<span style="color:var(--accent);font-weight:600">' + tr("ws.node.alias_pick") + '</span>';
   }
   if(cancelBtn){
     cancelBtn.style.display = 'inline-flex';
@@ -1999,7 +1969,7 @@ function startAliasSelectMode(){
   if(chipsEl){
     chipsEl.classList.add('selecting');
     chipsEl.innerHTML = currentNodeData.aliases.map(al =>
-      '<button type="button" class="node-alias-chip selectable" title="\'' + esc(al) + '\'을(를) 대표 레이블로 지정" onclick="promoteEntityAlias(' + jsArg(currentNodeData.id) + ',' + jsArg(al) + ')">' +
+      '<button type="button" class="node-alias-chip selectable" title="' + esc(tr('ws.node.alias_promote_title', { alias: al })) + '" onclick="promoteEntityAlias(' + jsArg(currentNodeData.id) + ',' + jsArg(al) + ')">' +
       '<span class="alias-star" aria-hidden="true">★</span> <span class="alias-text">' + esc(al) + '</span>' +
       '</button>'
     ).join('');
@@ -2014,7 +1984,7 @@ function cancelAliasSelectMode(){
   const cancelBtn = document.getElementById('alias-cancel-btn');
   const chipsEl = document.getElementById('node-alias-chips');
   if(labelEl){
-    labelEl.textContent = '별칭 (' + currentNodeData.aliases.length + ')';
+    labelEl.textContent = tr('ws.node.aliases', { count: currentNodeData.aliases.length });
   }
   if(cancelBtn){
     cancelBtn.style.display = 'none';
@@ -2104,7 +2074,7 @@ function loadNode(id, hidePop=true){
   }).catch(()=>{
     if(seq !== nodeLoadSeq) return;
     currentNodeData = null;
-    panel.innerHTML='<p class=hint>노드 정보를 불러오지 못했습니다.</p>';
+    panel.innerHTML='<p class=hint>' + tr("ws.node.load_failed") + '</p>';
     setEntityRowDetail(id, {error:true, failed:true});
   });
 }
@@ -2118,12 +2088,12 @@ function srcRowHtml(dc, prev, index){
   h += '<button type="button" class="srctitle" aria-expanded="false" aria-controls="' + sid + '"><span class="srccaret" aria-hidden="true">▸</span><span class="srcname">' + esc(dc.title) + '</span>';
   h += '<span class="srcmeta">' + (day ? '<span class="srcdate">' + day + '</span>' : '') + (dc.source_type ? '<span class="srctype">' + esc(dc.source_type) + '</span>' : '') + '</span></button>';
   // The default response of GET /node has detail, and docs=brief has has_detail.
-  if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="본문 보기" aria-label="본문 보기"><span data-icon="book"></span></button>';
-  h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(dc.title) + ' 요약" hidden>';
-  h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">요약 없음</p>';
+  if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="' + tr("ws.node.read_doc") + '" aria-label="' + tr("ws.node.read_doc") + '"><span data-icon="book"></span></button>';
+  h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(tr('ws.node.src_summary', { title: dc.title })) + '" hidden>';
+  h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">' + tr("ws.node.no_summary") + '</p>';
   const links = [];
-  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target=_blank rel=noopener>↗ 원문 열기</a>');
-  if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener><span data-icon="doc"></span> 원본 열기</a>');
+  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target=_blank rel=noopener>' + tr("ws.node.open_source") + '</a>');
+  if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener><span data-icon="doc"></span> ' + tr("ws.node.open_raw") + '</a>');
   if(links.length) h += '<p class="src">' + links.join(' · ') + '</p>';
   return h + '</div></div>';
 }
@@ -2139,7 +2109,7 @@ function filterSourceList(v){
   if(!srcWindowList) return;
   const q = (v||'').trim().toLowerCase();
   const items = q ? srcDocsAll.filter(dc => String(dc.title||'').toLowerCase().includes(q)) : srcDocsAll;
-  srcWindowList.render(items, 'src:' + q, {empty: '<p class="hint">제목이 맞는 문서 없음</p>'});
+  srcWindowList.render(items, 'src:' + q, {empty: '<p class="hint">' + tr("ws.node.no_title_match") + '</p>'});
 }
 panel.addEventListener('input', e => { if(e.target && e.target.id === 'srcfilter') filterSourceList(e.target.value); });
 panel.addEventListener('click', e => {
@@ -2182,27 +2152,27 @@ function showNodeInList(id){
 }
 window.showNodeInList = showNodeInList;
 function renderPanel(d){
-  if(!d || d.error){ currentNodeData = null; panel.innerHTML='<p class=hint>노드를 찾을 수 없습니다.</p>'; return; }
+  if(!d || d.error){ currentNodeData = null; panel.innerHTML='<p class=hint>' + tr("ws.node.not_found") + '</p>'; return; }
   currentNodeData = d;
   const inSet = synthSet.has(d.id);
   // Provide a back link to document context when a document is open in reader view.
   const returnDocId = (centerView === 'reader') ? ((typeof curReaderDoc !== 'undefined' && curReaderDoc) || activeDoc) : null;
   const showBackLink = Boolean(returnDocId);
-  let h = showBackLink ? ('<button type="button" class="backlink" onclick="loadDocPanel(' + jsArg(returnDocId) + ', true)" aria-label="문서로 돌아가기">← 문서로 돌아가기</button>') : '';
+  let h = showBackLink ? ('<button type="button" class="backlink" onclick="loadDocPanel(' + jsArg(returnDocId) + ', true)" aria-label="' + tr("ws.node.back_to_doc_label") + '">' + tr("ws.node.back_to_doc") + '</button>') : '';
   // The node header (name, type, action buttons) stays in view while the panel scrolls.
   h+='<div class="nodehead">';
   h+='<h2>'+esc(d.name)+' <small>'+esc(d.type)+(d.provisional?' <span data-icon="warning"></span>provisional':'')+'</small></h2>';
   const isIsolated = (isolatedNodeId === d.id);
-  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="이 노드와 직접 연결된 이웃만 화면에 남깁니다">'+(isIsolated?'✕ 격리 해제':'<span data-icon="search"></span> 주변만 보기')+'</button>';
+  const isoBtn = '<button type="button" class="sec node-isolate-btn '+(isIsolated?'active':'')+'" onclick="toggleNodeIsolation('+jsArg(d.id)+')" title="' + tr("ws.node.isolate_title") + '">'+(isIsolated?tr("ws.node.isolate_off"):'<span data-icon="search"></span> ' + tr("ws.node.isolate_on"))+'</button>';
   h+='<div class="node-actions-bar">';
   h+=isoBtn;
   if(canWrite()){
-    h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?'✓ 종합 목록에 있음':'<span data-icon="plus"></span> 종합에 추가')+'</button>';
+    h+='<button class="sec" onclick="addToSynth('+jsArg(d.id)+')">'+(inSet?tr("ws.node.in_synth"):'<span data-icon="plus"></span> ' + tr("ws.node.add_synth"))+'</button>';
     if(d.aliases && d.aliases.length){
       h+='<div class="node-manage-dropdown">';
-      h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)"><span data-icon="settings"></span> 노드 관리 ▾</button>';
+      h+='<button type="button" class="sec node-manage-btn" id="node-manage-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleNodeManageMenu(event)"><span data-icon="settings"></span> ' + tr("ws.node.manage") + '</button>';
       h+='<div class="node-manage-menu" id="node-manage-menu" style="display:none">';
-      h+='<button type="button" class="node-manage-item" id="node-manage-alias-btn" onclick="startAliasSelectMode()"><span data-icon="tag"></span> 대표 별칭</button>';
+      h+='<button type="button" class="node-manage-item" id="node-manage-alias-btn" onclick="startAliasSelectMode()"><span data-icon="tag"></span> ' + tr("ws.node.primary_alias") + '</button>';
       h+='</div>';
       h+='</div>';
     }
@@ -2210,12 +2180,12 @@ function renderPanel(d){
   h+='</div></div>';
   // 관찰/주장 and 연결 are in the entity list row only. This button shows that row.
   const obsCount = (d.observations||[]).length, nbCount = (d.neighbors||[]).length;
-  h+='<button type="button" class="sec node-listrow-btn" id="node-listrow-btn" onclick="showNodeInList('+jsArg(d.id)+')" title="목록에서 이 엔티티의 관찰/주장과 연결을 엽니다">관찰/주장 · 연결 보기 ('+(obsCount+nbCount)+')</button>';
+  h+='<button type="button" class="sec node-listrow-btn" id="node-listrow-btn" onclick="showNodeInList('+jsArg(d.id)+')" title="' + tr("ws.node.show_in_list_title") + '">'+tr('ws.node.show_in_list', { count: obsCount+nbCount })+'</button>';
   if(d.aliases && d.aliases.length){
     h+='<div class="node-aliases-section" id="node-aliases-section">';
     h+='<div class="node-aliases-header">';
-    h+='<span class="al-label" id="node-aliases-label">별칭 ('+d.aliases.length+')</span>';
-    h+='<button type="button" class="alias-cancel-btn" id="alias-cancel-btn" style="display:none" onclick="cancelAliasSelectMode()">취소</button>';
+    h+='<span class="al-label" id="node-aliases-label">'+tr('ws.node.aliases', { count: d.aliases.length })+'</span>';
+    h+='<button type="button" class="alias-cancel-btn" id="alias-cancel-btn" style="display:none" onclick="cancelAliasSelectMode()">' + tr("common.action.cancel") + '</button>';
     h+='</div>';
     h+='<div class="node-alias-chips" id="node-alias-chips">';
     d.aliases.forEach(al=>{
@@ -2225,16 +2195,16 @@ function renderPanel(d){
   }
   // 맥락 확장 조사 — 읽다가 더 알고 싶은 키워드/문장을 지금 맥락으로 조사해 그래프 확장.
   // readonly 는 /research 도 서버에서 막혀있어 입력창·버튼 자체를 안 그림.
-  if(canWrite()) h+='<h3>더 알아보기</h3>'+
-    '<div class=research><input id="rq" placeholder="더 알고 싶은 키워드/문장" '+
+  if(canWrite()) h+='<h3>' + tr("ws.research.more") + '</h3>'+
+    '<div class=research><input id="rq" placeholder="' + tr("ws.research.placeholder") + '" '+
     'onkeydown="if(event.key===\'Enter\')doResearch()"/>'+
-    '<button onclick="doResearch()">조사</button></div>'+
-    '<p class=al>지금 보는 맥락에 맞춰 웹 조사 → 맥락 일치·품질 통과 시 그래프에 추가됩니다.</p>';
+    '<button onclick="doResearch()">' + tr("ws.research.run") + '</button></div>'+
+    '<p class=al>' + tr("ws.research.hint") + '</p>';
   // Source documents: the newest is first. Each row shows the title only; a click on the title shows the summary.
   const srcDocs = (d.documents||[]).slice().sort((x, y) => (y.fetched_at||0) - (x.fetched_at||0));
   if(srcDocs.length){
-    h+='<h3>출처 문서 ('+srcDocs.length+')</h3>';
-    if(srcDocs.length > LIST_PAGE) h+='<input id="srcfilter" class="srcfilter" type="search" placeholder="제목으로 찾기" aria-label="출처 문서 제목 필터" autocomplete="off"/>';
+    h+='<h3>'+tr('ws.node.source_docs', { count: srcDocs.length })+'</h3>';
+    if(srcDocs.length > LIST_PAGE) h+='<input id="srcfilter" class="srcfilter" type="search" placeholder="' + tr("ws.node.src_filter_placeholder") + '" aria-label="' + tr("ws.node.src_filter") + '" autocomplete="off"/>';
     h+='<div id="srclist" class="srclist" role="list"></div>';
   }
   panel.innerHTML=h;
@@ -2251,7 +2221,7 @@ function renderPanel(d){
 
 async function promoteEntityAlias(entityId, chosenAlias){
   if(!canWrite() || !entityId || !chosenAlias) return;
-  if(!confirm("'" + chosenAlias + "'을(를) 이 노드의 대표 레이블로 변경하시겠습니까?\n\n(기존 대표 명칭은 별칭 목록으로 보존되어 연결 무결성이 유지됩니다)")) return;
+  if(!confirm(tr('ws.node.alias_promote_confirm', { alias: chosenAlias }))) return;
   try{
     const r = await fetch(apiUrl('entity/primary-label'), {
       method: 'POST',
@@ -2260,12 +2230,12 @@ async function promoteEntityAlias(entityId, chosenAlias){
     });
     if(r.status === 401 || r.status === 403){
       expireWriteAccess();
-      alert('세션 만료 또는 권한 부족 — 텔레그램 /web 으로 다시 접속하세요');
+      alert(tr("ws.common.session_expired_or_denied"));
       return;
     }
     if(!r.ok){
       const err = await r.json().catch(() => ({}));
-      alert('대표 레이블 전환 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+      alert(tr("ws.node.alias_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
       return;
     }
     const updated = await r.json();
@@ -2274,7 +2244,7 @@ async function promoteEntityAlias(entityId, chosenAlias){
     }
     renderPanel(updated);
   }catch(e){
-    alert('요청 중 오류 발생: ' + e);
+    alert(tr("ws.common.request_error") + ' ' + e);
   }
 }
 
@@ -2284,25 +2254,25 @@ async function promoteEntityAlias(entityId, chosenAlias){
 async function doResearch(){
   if(!canWrite()) return;
   const q=((document.getElementById('rq')||{}).value||'').trim();
-  if(!q){ alert('조사할 키워드/문장을 입력하세요.'); return; }
-  if(!selectedNodeId && !activeDoc){ alert('노드를 선택하거나 문서를 연 뒤 조사하세요.'); return; }
+  if(!q){ alert(tr("ws.research.need_query")); return; }
+  if(!selectedNodeId && !activeDoc){ alert(tr("ws.research.need_context")); return; }
   const backId=selectedNodeId;
-  panel.innerHTML='<h2><span data-icon="search"></span> 조사: '+esc(q)+'</h2><p class="al" id="relapsed">시작…</p><ul id="rprog"></ul>';
+  panel.innerHTML='<h2><span data-icon="search"></span> '+esc(tr('ws.research.title', { query: q }))+'</h2><p class="al" id="relapsed">'+tr('ws.common.starting')+'</p><ul id="rprog"></ul>';
   openDetailPane();
   const t0=Date.now();
   const timer=setInterval(()=>{ const el=document.getElementById('relapsed');
-    if(el) el.textContent='경과 '+Math.round((Date.now()-t0)/1000)+'s'; else clearInterval(timer); },1000);
+    if(el) el.textContent=tr('ws.common.elapsed', { seconds: Math.round((Date.now()-t0)/1000) }); else clearInterval(timer); },1000);
   let result=null;
   try{
     // fetch('research'
     const r=await fetch(apiUrl('research'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({query:q, node_id:selectedNodeId, doc_id:activeDoc})});
     if(r.status===401||r.status===404){ clearInterval(timer); expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
     if(!r.ok){ clearInterval(timer); let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>조사 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return; }
-    if(!r.body) throw new Error('스트림 본문이 없습니다');
+      panel.innerHTML='<p class=hint>' + tr("ws.research.failed") + ' '+esc(d.error||('HTTP '+r.status))+'</p>'; return; }
+    if(!r.body) throw new Error(tr("ws.common.no_stream"));
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -2320,27 +2290,26 @@ async function doResearch(){
       }
     }
   }catch(e){ clearInterval(timer);
-    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return; }
+    panel.innerHTML='<p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; return; }
   clearInterval(timer);
-  if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
+  if(!result){ panel.innerHTML='<p class=hint>' + tr("ws.common.response_cut") + '</p>'; return; }
   renderResearchResult(result, backId);
 }
 function renderResearchResult(d, backId){
-  if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-  let h='<h2><span data-icon="search"></span> 조사: '+esc(d.query)+(d.context_focus?' <small>'+esc(d.context_focus)+' 맥락</small>':'')+'</h2>';
+  if(d.error){ panel.innerHTML='<p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
+  let h='<h2><span data-icon="search"></span> '+esc(tr('ws.research.title', { query: d.query }))+(d.context_focus?' <small>'+esc(tr('ws.research.context', { focus: d.context_focus }))+'</small>':'')+'</h2>';
   h+='<p class=al>'+(d.added?'<span data-icon="check-circle"></span> ':'<span data-icon="alert"></span> ')+esc(d.verdict||'')+
-    ' <span class=meter>맥락일치 '+(d.relevance!=null?(+d.relevance).toFixed(2):'-')+
-    ' · 품질 '+(d.quality!=null?(+d.quality).toFixed(2):'-')+'</span></p>';
-  if(d.interpretation) h+='<p class=al>해석: '+esc(d.interpretation)+'</p>';
+    ' <span class=meter>'+tr('ws.research.relevance')+' '+(d.relevance!=null?(+d.relevance).toFixed(2):'-')+
+    ' · '+tr('ws.research.quality')+' '+(d.quality!=null?(+d.quality).toFixed(2):'-')+'</span></p>';
+  if(d.interpretation) h+='<p class=al>' + tr("ws.research.interpretation") + ' '+esc(d.interpretation)+'</p>';
   if(d.report) h+='<div class=synth>'+esc(d.report)+'</div>';
-  if((d.sources||[]).length){ h+='<h3>출처</h3><ul>'+d.sources.map(s=>
+  if((d.sources||[]).length){ h+='<h3>' + tr("ws.research.sources") + '</h3><ul>'+d.sources.map(s=>
     '<li><a href="'+esc(s.url)+'" target=_blank>'+esc(s.title||s.url)+'</a></li>').join('')+'</ul>'; }
   if(d.added && d.ingest){
-    h+='<p class=al>그래프 반영: 신규 '+d.ingest.entities_created+' · 기존연결 '+
-      d.ingest.entities_linked+' · 관계 '+d.ingest.relations_added+'</p>';
+    h+='<p class=al>'+tr('ws.research.graph_result', { created: d.ingest.entities_created, linked: d.ingest.entities_linked, relations: d.ingest.relations_added })+'</p>';
     refreshGraph();
-  } else if(d.reason){ h+='<p class=al>판정: '+esc(d.reason)+'</p>'; }
-  if(backId) h+='<p><a href="#" onclick="loadNode('+jsArg(backId)+');return false">← 노드로 돌아가기</a></p>';
+  } else if(d.reason){ h+='<p class=al>' + tr("ws.research.decision") + ' '+esc(d.reason)+'</p>'; }
+  if(backId) h+='<p><a href="#" onclick="loadNode('+jsArg(backId)+');return false">' + tr("ws.research.back_to_node") + '</a></p>';
   panel.innerHTML=h;
 }
 
@@ -2354,7 +2323,7 @@ function updateIngestElapsed(){
   if(el){
     const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
     const opts = activeIngest.optionLabels || [];
-    el.textContent = '경과 ' + elapsedSec + 's' + (opts.length ? ' (' + opts.join(' · ') + ')' : '');
+    el.textContent = tr('ws.common.elapsed', { seconds: elapsedSec }) + (opts.length ? ' (' + opts.join(' · ') + ')' : '');
   }
 }
 
@@ -2368,10 +2337,10 @@ function renderIngestStatus(){
   }
   const elapsedSec = Math.max(0, Math.round((Date.now() - activeIngest.t0) / 1000));
   const elapsedText = elapsedSec > 0
-    ? '경과 ' + elapsedSec + 's' + (activeIngest.optionLabels && activeIngest.optionLabels.length ? ' (' + activeIngest.optionLabels.join(' · ') + ')' : '')
+    ? tr('ws.common.elapsed', { seconds: elapsedSec }) + (activeIngest.optionLabels && activeIngest.optionLabels.length ? ' (' + activeIngest.optionLabels.join(' · ') + ')' : '')
     : activeIngest.labelText;
   let h = '<div id="ingest-status-view">';
-  h += '<h2><span data-icon="plus"></span> 적재 상태 <small>적재 중</small></h2>';
+  h += '<h2><span data-icon="plus"></span> ' + tr("ws.ingest.state") + ' <small>' + tr("ws.ingest.in_progress") + '</small></h2>';
   h += '<p class="al" id="ielapsed">' + esc(elapsedText) + '</p>';
   h += '<ul id="iprog">';
   if(activeIngest.messages){
@@ -2396,7 +2365,7 @@ function openIngest(){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 적재 가능한 협업 테마가 없습니다. 지식 관리자(owner)에게 테마 공개를 요청하세요.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.ingest.no_collab_theme") + '</p></div>';
       } else {
         const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
@@ -2405,7 +2374,7 @@ function openIngest(){
           return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
         themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
           '<select id="ingtheme" class="ingest-theme-select">'+
             opts+
           '</select>'+
@@ -2413,45 +2382,45 @@ function openIngest(){
       }
     } else if(availableThemes.length > 1){
       themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingtheme">적재 대상 테마 <span class="ingest-help">지식 관리자가 정의한 테마</span></label>'+
+        '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.owner_themes") + '</span></label>'+
         '<select id="ingtheme" class="ingest-theme-select">'+
           renderThemeOptions(activeThemeId)+
         '</select>'+
       '</div>');
     }
   }
-  panel.innerHTML='<h2><span data-icon="plus"></span> 자료 적재</h2>'+
-    '<p class=al>URL 또는 메모 텍스트를 입력하고 적재 방식을 선택하세요.</p>'+
+  panel.innerHTML='<h2><span data-icon="plus"></span> ' + tr("ws.ingest.title") + '</h2>'+
+    '<p class=al>' + tr("ws.ingest.intro") + '</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingin">자료 <span class="ingest-help">URL 또는 텍스트</span></label>'+
+        '<label class="ingest-label" for="ingin">' + tr("ws.ingest.material") + ' <span class="ingest-help">' + tr("ws.ingest.url_or_text") + '</span></label>'+
         '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
       '</div>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">적재 분량</legend>'+
+        '<legend class="ingest-label">' + tr("ws.ingest.amount") + '</legend>'+
         '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked><label for="ingamount-standard" title="설정된 글자 수 상한을 적용합니다">일반</label></div>'+
-          '<div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"><label for="ingamount-full" title="원문을 절단하지 않고 전문을 수집하고 분석합니다">전문</label></div>'+
+          '<div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked><label for="ingamount-standard" title="' + tr("ws.ingest.amount_standard_title") + '">' + tr("ws.ingest.amount_standard") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"><label for="ingamount-full" title="' + tr("ws.ingest.amount_full_title") + '">' + tr("ws.ingest.amount_full") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
         '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked><label for="ingeffort-default">기본</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"><label for="ingeffort-none">없음</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"><label for="ingeffort-minimal">최소</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"><label for="ingeffort-low">낮음</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"><label for="ingeffort-medium">중간</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"><label for="ingeffort-high">높음</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"><label for="ingeffort-max">최대</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked><label for="ingeffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"><label for="ingeffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"><label for="ingeffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"><label for="ingeffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"><label for="ingeffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"><label for="ingeffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
+          '<div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"><label for="ingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingfocus">초점 <span class="ingest-help">선택 사항</span></label>'+
-        '<textarea id="ingfocus" rows="2" placeholder="예: 시스템 아키텍처와 내부 동작 중심"></textarea>'+
+        '<label class="ingest-label" for="ingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
+        '<textarea id="ingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
       '</div>'+
-      '<div class="ingest-submit"><button type="button" onclick="runIngest()">적재 시작</button></div>'+
+      '<div class="ingest-submit"><button type="button" onclick="runIngest()">' + tr("ws.ingest.start") + '</button></div>'+
     '</div>';
   openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
@@ -2463,9 +2432,9 @@ function openIngest(){
     const tid = ingthemeEl ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
     const themeObj = findTheme(tid);
     if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
-      ingfocusEl.placeholder = `기본 초점: ${themeObj.default_focus} (비워둘 시 자동 적용)`;
+      ingfocusEl.placeholder = tr('ws.ingest.focus_default_placeholder', { focus: themeObj.default_focus });
     } else {
-      ingfocusEl.placeholder = '예: 시스템 아키텍처와 내부 동작 중심';
+      ingfocusEl.placeholder = tr("ws.ingest.focus_placeholder");
     }
   }
   if(ingthemeEl){
@@ -2476,19 +2445,19 @@ function openIngest(){
 async function runIngest(){
   if(!canIngest()) return;
   if(activeIngest && activeIngest.running){
-    alert('이미 적재가 진행 중입니다.');
+    alert(tr("ws.ingest.busy"));
     renderIngestStatus();
     return;
   }
   const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
-  if(!payload){ alert('적재할 URL 또는 텍스트를 입력하세요.'); return; }
+  if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
   const ingthemeEl = document.getElementById('ingtheme');
   const targetThemeId = (isMulti && ingthemeEl) ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
-      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      alert(tr("ws.ingest.collab_default_denied"));
       return;
     }
   }
@@ -2497,19 +2466,19 @@ async function runIngest(){
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
   const fullContent=!!amountChoice && amountChoice.value==='full';
   const effort=effortChoice ? effortChoice.value : '';
-  let labelText = '시작…';
+  let labelText = tr("ws.common.starting");
   const optionLabels=[];
   const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
   if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
   }
-  if(fullContent) optionLabels.push('전문 적재');
-  if(effort) optionLabels.push('사고: '+effort);
+  if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
+  if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(focus){
-    optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
   } else if(targetThemeObj && getThemeKey(targetThemeObj) !== '0' && targetThemeObj.default_focus){
     const df = targetThemeObj.default_focus;
-    optionLabels.push('초점(기본): '+(df.length > 20 ? df.slice(0,20)+'…' : df));
+    optionLabels.push(tr('ws.ingest.opt_focus_default', { focus: df.length > 20 ? df.slice(0,20)+'…' : df }));
   }
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
@@ -2562,7 +2531,7 @@ async function runIngest(){
         activeIngest.running = false;
       }
       expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return;
     }
     if(!r.ok){
       if(activeIngest){
@@ -2572,9 +2541,9 @@ async function runIngest(){
       }
       let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.ingest.failed") + ' '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
     }
-    if(!r.body) throw new Error('스트림 본문이 없습니다');
+    if(!r.body) throw new Error(tr("ws.common.no_stream"));
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -2612,7 +2581,7 @@ async function runIngest(){
       activeIngest.timer = null;
       activeIngest.running = false;
     }
-    panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; return;
+    panel.innerHTML='<p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; return;
   }
   if(activeIngest){
     if(activeIngest.timer) clearInterval(activeIngest.timer);
@@ -2629,29 +2598,28 @@ async function runIngest(){
   if(result && typeof completeIngestMatrixView === 'function'){
     completeIngestMatrixView(result);
   }
-  if(!result){ panel.innerHTML='<p class=hint>응답이 끊겼습니다 — 잠시 후 다시 시도하세요.</p>'; return; }
+  if(!result){ panel.innerHTML='<p class=hint>' + tr("ws.common.response_cut") + '</p>'; return; }
   renderIngestResult(result);
 }
 function renderIngestResult(d){
-  if(d.error){ panel.innerHTML='<h2><span data-icon="plus"></span> 적재</h2><p class=hint>오류: '+esc(d.error)+'</p>'+
-    '<p class=al>원본은 보관되어 자동복구(recover) 대상이 됩니다.</p>'; return; }
-  let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> 이미 있는 자료':(d.updated?'<span data-icon="restore"></span> 내용 갱신':'<span data-icon="check-circle"></span> 적재 완료'))+'</h2>';
-  h+='<p class=al><b>'+esc(d.title||d.document_id||'(제목 없음)')+'</b>'+(d.partial?' <small><span data-icon="warning"></span> 부분 처리</small>':'')+'</p>';
-  if(d.focus) h+='<p class=al><b>초점:</b> '+esc(d.focus)+'</p>';
+  if(d.error){ panel.innerHTML='<h2><span data-icon="plus"></span> ' + tr("ws.ingest.title_short") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'+
+    '<p class=al>' + tr("ws.ingest.kept_for_recover") + '</p>'; return; }
+  let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
+  h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
+  if(d.focus) h+='<p class=al><b>' + tr("ws.ingest.focus_prefix") + '</b> '+esc(d.focus)+'</p>';
   const appliedOptions=[];
   if(d.theme_id !== undefined){
-    appliedOptions.push('테마: ' + esc(d.theme_label || ('#' + d.theme_id)));
+    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.theme_id) })));
   }
-  if(d.full_content) appliedOptions.push('전문 적재');
-  if(d.effort) appliedOptions.push('사고 수준 '+esc(d.effort));
-  if(appliedOptions.length) h+='<p class=al><b>적용 설정:</b> '+appliedOptions.join(' · ')+'</p>';
-  if(!d.duplicate) h+='<p class=al>노드 신규 '+(d.entities_created||0)+' · 기존연결 '+
-    (d.entities_linked||0)+' · 관계 '+(d.relations_added||0)+'</p>';
+  if(d.full_content) appliedOptions.push(tr("ws.ingest.opt_full"));
+  if(d.effort) appliedOptions.push(esc(tr('ws.ingest.opt_effort', { effort: d.effort })));
+  if(appliedOptions.length) h+='<p class=al><b>' + tr("ws.ingest.applied") + '</b> '+appliedOptions.join(' · ')+'</p>';
+  if(!d.duplicate) h+='<p class=al>'+tr('ws.ingest.counts', { created: d.entities_created||0, linked: d.entities_linked||0, relations: d.relations_added||0 })+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
   if(d.theme_id !== undefined && String(d.theme_id) !== String(activeThemeId)){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">'+esc(d.theme_label||('테마 #'+d.theme_id))+' 테마로 전환</button></p>';
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.theme_id) }))+'</button></p>';
   } else {
-    if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">문서 보기 →</a></p>';
+    if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">' + tr("ws.ingest.open_doc") + '</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
   }
   panel.innerHTML=h;
@@ -2674,7 +2642,7 @@ function openReingest(){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 재적재 가능한 협업 테마가 없습니다.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.reingest.no_collab_theme") + '</p></div>';
       } else {
         const selId = eligibleThemes.some(t => getThemeKey(t) === curDocThemeId) ? curDocThemeId : getThemeKey(eligibleThemes[0]);
         const opts = eligibleThemes.map(t => {
@@ -2684,13 +2652,13 @@ function openReingest(){
           return `<option value="${esc(tKey)}" ${tKey === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
         themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
           '<select id="reingtheme" class="ingest-theme-select">'+opts+'</select>'+
         '</div>');
       }
     } else if(availableThemes.length > 1){
       themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingtheme">재적재 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
+        '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
         '<select id="reingtheme" class="ingest-theme-select">'+
           renderThemeOptions(curDocThemeId)+
         '</select>'+
@@ -2698,45 +2666,45 @@ function openReingest(){
     }
   }
 
-  panel.innerHTML = '<h2><span data-icon="restore"></span> 자료 재적재</h2>'+
-    '<p class="al">문서 ID, URL 또는 텍스트를 입력하여 기존 문서를 다시 수집하고 지식그래프를 재적재합니다.</p>'+
+  panel.innerHTML = '<h2><span data-icon="restore"></span> ' + tr("ws.reingest.title") + '</h2>'+
+    '<p class="al">' + tr("ws.reingest.intro") + '</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingtarget">재적재 대상 <span class="ingest-help">문서 ID, URL 또는 텍스트</span></label>'+
-        '<textarea id="reingtarget" rows="4" placeholder="https://example.com/article 또는 문서 ID">'+esc(defTarget)+'</textarea>'+
-        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+        '<label class="ingest-label" for="reingtarget">' + tr("ws.reingest.target") + ' <span class="ingest-help">' + tr("ws.reingest.target_hint") + '</span></label>'+
+        '<textarea id="reingtarget" rows="4" placeholder="https://example.com/article 또는 ' + tr("list.documents") + ' ID">'+esc(defTarget)+'</textarea>'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
       '</div>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">적재 분량</legend>'+
+        '<legend class="ingest-label">' + tr("ws.ingest.amount") + '</legend>'+
         '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="reingamount-standard" type="radio" name="reingest-amount" value="standard" checked><label for="reingamount-standard" title="설정된 글자 수 상한을 적용합니다">일반</label></div>'+
-          '<div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"><label for="reingamount-full" title="원문을 절단하지 않고 전문을 수집하고 분석합니다">전문</label></div>'+
+          '<div class="ingest-choice"><input id="reingamount-standard" type="radio" name="reingest-amount" value="standard" checked><label for="reingamount-standard" title="' + tr("ws.ingest.amount_standard_title") + '">' + tr("ws.ingest.amount_standard") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"><label for="reingamount-full" title="' + tr("ws.ingest.amount_full_title") + '">' + tr("ws.ingest.amount_full") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
         '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked><label for="reingeffort-default">기본</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"><label for="reingeffort-none">없음</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"><label for="reingeffort-minimal">최소</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"><label for="reingeffort-low">낮음</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"><label for="reingeffort-medium">중간</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"><label for="reingeffort-high">높음</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"><label for="reingeffort-max">최대</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked><label for="reingeffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"><label for="reingeffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"><label for="reingeffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"><label for="reingeffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"><label for="reingeffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"><label for="reingeffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
+          '<div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"><label for="reingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingfocus">초점 <span class="ingest-help">선택 사항</span></label>'+
-        '<textarea id="reingfocus" rows="2" placeholder="예: 시스템 아키텍처와 내부 동작 중심"></textarea>'+
+        '<label class="ingest-label" for="reingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
+        '<textarea id="reingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
       '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
           '<input type="checkbox" id="reinguntombstone" checked> '+
-          '<span>소각 이력이 있는 경우 툼스톤 자동 해제 (Untombstone)</span>'+
+          '<span>' + tr("ws.reingest.untombstone") + '</span>'+
         '</label>'+
       '</div>'+
-      '<div class="ingest-submit"><button type="button" onclick="runReingest()">재적재 시작</button></div>'+
+      '<div class="ingest-submit"><button type="button" onclick="runReingest()">' + tr("ws.reingest.start") + '</button></div>'+
     '</div>';
   openDetailPane();
 }
@@ -2744,19 +2712,19 @@ function openReingest(){
 async function runReingest(){
   if(!canIngest()) return;
   if(activeIngest && activeIngest.running){
-    alert('이미 적재 또는 재적재가 진행 중입니다.');
+    alert(tr("ws.reingest.busy"));
     renderIngestStatus();
     return;
   }
   const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('reingtarget');
   const target=((ta||{}).value||'').trim();
-  if(!target){ alert('재적재할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
+  if(!target){ alert(tr("ws.reingest.need_target")); return; }
   const reingthemeEl = document.getElementById('reingtheme');
   const targetThemeId = (isMulti && reingthemeEl) ? String(reingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
-      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재적재할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      alert(tr("ws.reingest.collab_default_denied"));
       return;
     }
   }
@@ -2767,18 +2735,18 @@ async function runReingest(){
   const untombstone=!!(untombstoneChk && untombstoneChk.checked);
   const fullContent=!!amountChoice && amountChoice.value==='full';
   const effort=effortChoice ? effortChoice.value : '';
-  let labelText = '재적재 시작…';
+  let labelText = tr("ws.reingest.starting");
   const optionLabels=[];
   const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
   if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
   }
-  if(fullContent) optionLabels.push('전문 재적재');
-  if(effort) optionLabels.push('사고: '+effort);
+  if(fullContent) optionLabels.push(tr("ws.reingest.opt_full"));
+  if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(focus){
-    optionLabels.push('초점: '+(focus.length > 20 ? focus.slice(0,20)+'…' : focus));
+    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
   }
-  if(untombstone) optionLabels.push('툼스톤 해제');
+  if(untombstone) optionLabels.push(tr("ws.reingest.opt_untombstone"));
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
@@ -2830,7 +2798,7 @@ async function runReingest(){
         activeIngest.running = false;
       }
       expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return;
     }
     if(!r.ok){
       if(activeIngest){
@@ -2840,9 +2808,9 @@ async function runReingest(){
       }
       let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>재적재 요청 실패: '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.reingest.failed") + ' '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
     }
-    if(!r.body) throw new Error('스트림 본문이 없습니다');
+    if(!r.body) throw new Error(tr("ws.common.no_stream"));
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -2881,7 +2849,7 @@ async function runReingest(){
       activeIngest.running = false;
     }
     resumeGraphAfterIngest();
-    panel.innerHTML='<p class=hint>재적재 스트림 오류: '+esc(String(e))+'</p>'; return;
+    panel.innerHTML='<p class=hint>' + tr("ws.reingest.stream_error") + ' '+esc(String(e))+'</p>'; return;
   }
   if(activeIngest){
     if(activeIngest.timer) clearInterval(activeIngest.timer);
@@ -2890,7 +2858,7 @@ async function runReingest(){
   }
   resumeGraphAfterIngest();
   if(!result){
-    panel.innerHTML='<p class=hint>재적재 결과가 수신되지 않았습니다.</p>';
+    panel.innerHTML='<p class=hint>' + tr("ws.reingest.no_result") + '</p>';
     return;
   }
   renderIngestResult(result);
@@ -2914,7 +2882,7 @@ function openRegen(docIdOverride, compOverride){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
       if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> 재생성 가능한 협업 테마가 없습니다.</p></div>';
+        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.regen.no_collab_theme") + '</p></div>';
       } else {
         const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
         const opts = eligibleThemes.map(t => {
@@ -2923,13 +2891,13 @@ function openRegen(docIdOverride, compOverride){
           return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
         }).join('');
         themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="regentheme">재생성 대상 테마 <span class="ingest-help">협업이 허용된 지식 테마</span></label>'+
+          '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
           '<select id="regentheme" class="ingest-theme-select">'+opts+'</select>'+
         '</div>');
       }
     } else if(availableThemes.length > 1){
       themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="regentheme">재생성 대상 테마 <span class="ingest-help">지식 테마 선택</span></label>'+
+        '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
         '<select id="regentheme" class="ingest-theme-select">'+
           renderThemeOptions(curDocThemeId)+
         '</select>'+
@@ -2939,49 +2907,49 @@ function openRegen(docIdOverride, compOverride){
 
   const selectedComp = compOverride || 'all';
 
-  panel.innerHTML = '<h2><span data-icon="repeat"></span> 문서 컴포넌트 재생성</h2>'+
-    '<p class="al">기존 원문(raw_text)을 기반으로 요약, 가독 본문(상세), 지식 노드/관계를 LLM으로 다시 생성합니다.</p>'+
+  panel.innerHTML = '<h2><span data-icon="repeat"></span> ' + tr("ws.regen.title") + '</h2>'+
+    '<p class="al">' + tr("ws.regen.intro") + '</p>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="regentarget">재생성 대상 <span class="ingest-help">문서 ID, URL, 또는 공유 토큰</span></label>'+
-        '<input type="text" id="regentarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="문서 ID (예: doc_...) 또는 URL">'+
-        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+        '<label class="ingest-label" for="regentarget">' + tr("ws.regen.target") + ' <span class="ingest-help">' + tr("ws.regen.target_hint") + '</span></label>'+
+        '<input type="text" id="regentarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.regen.target_placeholder") + '">'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
       '</div>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">재생성 컴포넌트</legend>'+
+        '<legend class="ingest-label">' + tr("ws.regen.component") + '</legend>'+
         '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" '+(selectedComp==='all'?'checked':'')+'><label for="regencomp-all" title="요약, 본문, 지식그래프를 모두 재생성합니다">전체 (All)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail" '+(selectedComp==='detail'?'checked':'')+'><label for="regencomp-detail" title="가독 본문(상세 렌더)만 재생성합니다">본문 상세 (Detail)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary" '+(selectedComp==='summary'?'checked':'')+'><label for="regencomp-summary" title="요약문만 LLM 재추출합니다">요약 (Summary)</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph" '+(selectedComp==='graph'?'checked':'')+'><label for="regencomp-graph" title="엔티티와 지식 노드/관계만 재추출합니다">지식그래프 (Graph)</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" '+(selectedComp==='all'?'checked':'')+'><label for="regencomp-all" title="' + tr("ws.regen.comp_all_title") + '">' + tr("ws.regen.comp_all") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail" '+(selectedComp==='detail'?'checked':'')+'><label for="regencomp-detail" title="' + tr("ws.regen.comp_detail_title") + '">' + tr("ws.regen.comp_detail") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary" '+(selectedComp==='summary'?'checked':'')+'><label for="regencomp-summary" title="' + tr("ws.regen.comp_summary_title") + '">' + tr("ws.regen.comp_summary") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph" '+(selectedComp==='graph'?'checked':'')+'><label for="regencomp-graph" title="' + tr("ws.regen.comp_graph_title") + '">' + tr("ws.regen.comp_graph") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">사고 수준 <span class="ingest-help">미지정 시 서버 설정 사용</span></legend>'+
+        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
         '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked><label for="regeneffort-default">기본</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"><label for="regeneffort-none">없음</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"><label for="regeneffort-minimal">최소</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"><label for="regeneffort-low">낮음</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"><label for="regeneffort-medium">중간</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"><label for="regeneffort-high">높음</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"><label for="regeneffort-max">최대</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked><label for="regeneffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"><label for="regeneffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"><label for="regeneffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"><label for="regeneffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"><label for="regeneffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"><label for="regeneffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
+          '<div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"><label for="regeneffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="regenfocus">상세 초점 (Focus) <span class="ingest-help">선택 사항 — 특정 관점 중심 기술</span></label>'+
-        '<textarea id="regenfocus" rows="2" placeholder="예: 시스템 아키텍처 및 내부 동작 구조 중심"></textarea>'+
+        '<label class="ingest-label" for="regenfocus">' + tr("ws.regen.focus") + ' <span class="ingest-help">' + tr("ws.regen.focus_hint") + '</span></label>'+
+        '<textarea id="regenfocus" rows="2" placeholder="' + tr("ws.regen.focus_placeholder") + '"></textarea>'+
       '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
           '<input type="checkbox" id="regenrefetch"> '+
-          '<span>원본 웹 URL에서 최신 원문 재수집 후 재생성 (Refetch)</span>'+
+          '<span>' + tr("ws.regen.refetch") + '</span>'+
         '</label>'+
       '</div>'+
       '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
-        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="repeat"></span></span> <span class="btn-label">재생성 시작</span></button>'+
+        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">' + tr("ws.common.dry_run") + '</span></button>'+
+        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="repeat"></span></span> <span class="btn-label">' + tr("ws.regen.start") + '</span></button>'+
       '</div>'+
       '<div id="regenresult" style="margin-top:14px"></div>'+
     '</div>';
@@ -2992,19 +2960,19 @@ function openRegen(docIdOverride, compOverride){
 async function runRegen(isDryRun){
   if(!canIngest()) return;
   if(!isDryRun && activeIngest && activeIngest.running){
-    alert('이미 적재, 재적재 또는 재생성이 진행 중입니다.');
+    alert(tr("ws.regen.busy"));
     renderIngestStatus();
     return;
   }
   const isMulti = isMultiThemeEnabled();
   const ta = document.getElementById('regentarget');
   const target = ((ta||{}).value||'').trim();
-  if(!target){ alert('재생성할 대상(문서 ID 또는 URL)을 입력하세요.'); return; }
+  if(!target){ alert(tr("ws.regen.need_target")); return; }
   const regenthemeEl = document.getElementById('regentheme');
   const targetThemeId = (isMulti && regenthemeEl) ? String(regenthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
-      alert('기본 지식베이스(ID 0)에는 협업자 권한으로 재생성할 수 없습니다. 협업이 허용된 추가 지식 테마를 선택하세요.');
+      alert(tr("ws.regen.collab_default_denied"));
       return;
     }
   }
@@ -3019,7 +2987,7 @@ async function runRegen(isDryRun){
   const resDiv = document.getElementById('regenresult');
 
   if(isDryRun){
-    if(resDiv) resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> 재생성 영향 분석 중…</p>';
+    if(resDiv) resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> ' + tr("ws.regen.analyzing") + '</p>';
     try{
       const payload = {
         target: target,
@@ -3039,51 +3007,51 @@ async function runRegen(isDryRun){
       });
       if(r.status === 401 || r.status === 404){
         expireWriteAccess();
-        if(resDiv) resDiv.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+        if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.session_expired") + '</p>';
         return;
       }
       const d = await r.json();
       if(!r.ok || d.error){
-        if(resDiv) resDiv.innerHTML = '<p class="hint">영향 분석 실패: ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
+        if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.dry_run_failed") + ' ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
         return;
       }
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> 재생성 영향 분석 결과 (Dry-Run)</h3>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> ' + tr("ws.regen.dry_title") + '</h3>';
       const tgts = d.targets || [];
-      h += '<p class="al">진단 대상 문서: <b>' + (d.count || tgts.length) + '건</b> · 컴포넌트: <b>' + esc(component) + '</b></p>';
+      h += '<p class="al">' + tr('ws.regen.dry_counts', { count: d.count || tgts.length, component: esc(component) }) + '</p>';
       if(tgts.length > 0){
         h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
         tgts.forEach(t => {
           const acts = (t.actions || []).join(', ');
           h += '<li><b>' + esc(t.title || t.document_id) + '</b> <small class="al">(' + esc(t.document_id) + ')</small>';
-          if(acts) h += '<br><span style="color:var(--muted)">적용 예정 작업: ' + esc(acts) + '</span>';
-          if(t.current_summary) h += '<br><span style="color:var(--muted)">현재 요약: ' + esc(t.current_summary.slice(0, 100)) + (t.current_summary.length > 100 ? '…' : '') + '</span>';
+          if(acts) h += '<br><span style="color:var(--muted)">' + esc(tr('ws.regen.planned', { actions: acts })) + '</span>';
+          if(t.current_summary) h += '<br><span style="color:var(--muted)">' + tr('ws.regen.current_summary') + ' ' + esc(t.current_summary.slice(0, 100)) + (t.current_summary.length > 100 ? '…' : '') + '</span>';
           h += '</li>';
         });
         h += '</ul>';
-        h += '<button type="button" class="readbtn" onclick="runRegen(false)" style="margin-top:8px;background:var(--accent,#2da44e);color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">위 대상을 확인하고 재생성 실행</button>';
+        h += '<button type="button" class="readbtn" onclick="runRegen(false)" style="margin-top:8px;background:var(--accent,#2da44e);color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">' + tr("ws.regen.confirm_run") + '</button>';
       } else {
-        h += '<p class="hint">일치하는 문서를 찾을 수 없습니다.</p>';
+        h += '<p class="hint">' + tr("ws.common.no_matching_doc") + '</p>';
       }
       h += '</div>';
       if(resDiv) resDiv.innerHTML = h;
     }catch(e){
-      if(resDiv) resDiv.innerHTML = '<p class="hint">분석 요청 오류: ' + esc(String(e)) + '</p>';
+      if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.analysis_error") + ' ' + esc(String(e)) + '</p>';
     }
     return;
   }
 
   // 실제 재생성 실행 (스트리밍)
-  let labelText = '재생성 시작…';
+  let labelText = tr("ws.regen.starting");
   const optionLabels = [];
   const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
   if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push('테마: ' + (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label);
+    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
   }
-  optionLabels.push('컴포넌트: ' + component);
-  if(effort) optionLabels.push('사고: ' + effort);
-  if(focus) optionLabels.push('초점: ' + (focus.length > 20 ? focus.slice(0,20)+'…' : focus));
-  if(refetch) optionLabels.push('원문 재수집');
+  optionLabels.push(tr('ws.regen.opt_component', { component: component }));
+  if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
+  if(focus) optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
+  if(refetch) optionLabels.push(tr("ws.regen.opt_refetch"));
   if(optionLabels.length){
     labelText += ' (' + optionLabels.join(' · ') + ')';
   }
@@ -3126,7 +3094,7 @@ async function runRegen(isDryRun){
         activeIngest.running = false;
       }
       resumeGraphAfterIngest();
-      panel.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+      panel.innerHTML = '<p class="hint">' + tr("ws.common.session_expired") + '</p>';
       return;
     }
     if(!r.ok){
@@ -3171,7 +3139,7 @@ async function runRegen(isDryRun){
       activeIngest.running = false;
     }
     resumeGraphAfterIngest();
-    panel.innerHTML = '<p class="hint">재생성 스트림 오류: ' + esc(String(e)) + '</p>';
+    panel.innerHTML = '<p class="hint">' + tr("ws.regen.stream_error") + ' ' + esc(String(e)) + '</p>';
     return;
   }
   if(activeIngest){
@@ -3181,28 +3149,28 @@ async function runRegen(isDryRun){
   }
   resumeGraphAfterIngest();
   if(!result){
-    panel.innerHTML = '<p class="hint">재생성 결과가 수신되지 않았습니다.</p>';
+    panel.innerHTML = '<p class="hint">' + tr("ws.regen.no_result") + '</p>';
     return;
   }
 
   // 결과 화면 표시 및 지식그래프 갱신
   if(result.error){
-    panel.innerHTML = '<p class="hint">재생성 실패: ' + esc(result.error) + '</p>';
+    panel.innerHTML = '<p class="hint">' + tr("ws.regen.failed") + ' ' + esc(result.error) + '</p>';
     return;
   }
-  let h = '<h2><span data-icon="check-circle"></span> 컴포넌트 재생성 완료</h2>';
+  let h = '<h2><span data-icon="check-circle"></span> ' + tr("ws.regen.done") + '</h2>';
   const tgts = result.targets || [];
   h += '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-  h += '<p class="al">갱신 완료 문서: <b>' + (result.count || tgts.length) + '건</b></p>';
+  h += '<p class="al">' + tr('ws.regen.updated_docs', { count: result.count || tgts.length }) + '</p>';
   if(tgts.length > 0){
     h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
     tgts.forEach(t => {
       h += '<li><b>' + esc(t.title || t.document_id) + '</b> <small class="al">(' + esc(t.document_id) + ')</small>';
       if(t.entities_created !== undefined || t.entities_linked !== undefined){
-        h += '<br><span style="color:var(--muted)">지식 노드 신규: ' + (t.entities_created||0) + ' · 기존 연결: ' + (t.entities_linked||0) + ' · 관계: ' + (t.relations_added||0) + '</span>';
+        h += '<br><span style="color:var(--muted)">' + tr('ws.ingest.counts', { created: t.entities_created||0, linked: t.entities_linked||0, relations: t.relations_added||0 }) + '</span>';
       }
       if(t.new_summary){
-        h += '<br><span style="color:var(--muted)">새 요약: ' + esc(t.new_summary.slice(0, 120)) + (t.new_summary.length > 120 ? '…' : '') + '</span>';
+        h += '<br><span style="color:var(--muted)">' + tr('ws.regen.new_summary') + ' ' + esc(t.new_summary.slice(0, 120)) + (t.new_summary.length > 120 ? '…' : '') + '</span>';
       }
       h += '</li>';
     });
@@ -3223,7 +3191,7 @@ async function runRegen(isDryRun){
 
 function openPurge(){
   if(AUTH_SCOPE !== 'owner'){
-    alert('소각(Purge) 권한은 소유자(owner) 전용입니다.');
+    alert(tr("ws.purge.owner_only"));
     return;
   }
   const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
@@ -3233,37 +3201,37 @@ function openPurge(){
   let themeFieldHtml = '';
   if(isMulti && availableThemes && availableThemes.length > 1){
     themeFieldHtml = ('<div class="ingest-field">'+
-      '<label class="ingest-label" for="purgetheme">소각 대상 테마 <span class="ingest-help">테마 데이터베이스 선택</span></label>'+
+      '<label class="ingest-label" for="purgetheme">' + tr("ws.purge.target_theme") + ' <span class="ingest-help">' + tr("ws.purge.target_theme_hint") + '</span></label>'+
       '<select id="purgetheme" class="ingest-theme-select">'+
         renderThemeOptions(activeThemeId)+
       '</select>'+
     '</div>');
   }
 
-  panel.innerHTML = '<h2><span data-icon="flame"></span> 문서 소각 (Purge)</h2>'+
+  panel.innerHTML = '<h2><span data-icon="flame"></span> ' + tr("ws.purge.title") + '</h2>'+
     '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
-      '<span data-icon="warning"></span> <b>영구 파괴 작업 주의</b><br>문서 데이터, 원문 아티팩트 파일, 지식그래프 고아 엔티티와 관계가 영구 소각되고 DB 물리 압축(VACUUM)이 일괄 수행됩니다.'+
+      '<span data-icon="warning"></span> <b>' + tr("ws.purge.warning_title") + '</b><br>' + tr("ws.purge.warning")+
     '</div>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="purgetarget">소각 대상 <span class="ingest-help">문서 ID, URL, 또는 검색어</span></label>'+
-        '<input type="text" id="purgetarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="문서 ID, URL 또는 검색어">'+
-        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">현재 선택된 문서: <b>'+defTitle+'</b></small>' : '')+
+        '<label class="ingest-label" for="purgetarget">' + tr("ws.purge.target") + ' <span class="ingest-help">' + tr("ws.purge.target_hint") + '</span></label>'+
+        '<input type="text" id="purgetarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.purge.target_placeholder") + '">'+
+        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
       '</div>'+
       '<div class="ingest-field">'+
-        '<label class="ingest-label" for="purgereason">소각 사유 <span class="ingest-help">툼스톤 기록 사유</span></label>'+
+        '<label class="ingest-label" for="purgereason">' + tr("ws.purge.reason") + ' <span class="ingest-help">' + tr("ws.purge.reason_hint") + '</span></label>'+
         '<input type="text" id="purgereason" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="web_purge" placeholder="manual_purge">'+
       '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
           '<input type="checkbox" id="purgetombstone" checked> '+
-          '<span>재유입 방지 툼스톤(Tombstone) 등록 <small style="color:var(--muted)">(동일 URL/해시의 재적재 영구 차단)</small></span>'+
+          '<span>' + tr("ws.purge.tombstone") + ' <small style="color:var(--muted)">' + tr("ws.purge.tombstone_hint") + '</small></span>'+
         '</label>'+
       '</div>'+
       '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">영향 분석 (Dry-Run)</span></button>'+
-        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="flame"></span></span> <span class="btn-label">소각 실행</span></button>'+
+        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">' + tr("ws.common.dry_run") + '</span></button>'+
+        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="flame"></span></span> <span class="btn-label">' + tr("ws.purge.run") + '</span></button>'+
       '</div>'+
       '<div id="purgeresult" style="margin-top:14px"></div>'+
     '</div>';
@@ -3273,14 +3241,14 @@ function openPurge(){
 
 async function runPurgeCheck(isDryRun){
   if(AUTH_SCOPE !== 'owner'){
-    alert('소각(Purge) 권한은 소유자(owner) 전용입니다.');
+    alert(tr("ws.purge.owner_only"));
     return;
   }
   const isMulti = isMultiThemeEnabled();
   const targetInp = document.getElementById('purgetarget');
   const target = ((targetInp||{}).value||'').trim();
   if(!target){
-    alert('소각할 대상(문서 ID 또는 URL)을 입력하세요.');
+    alert(tr("ws.purge.need_target"));
     return;
   }
   const reasonInp = document.getElementById('purgereason');
@@ -3291,14 +3259,14 @@ async function runPurgeCheck(isDryRun){
   const targetThemeId = (isMulti && themeEl) ? String(themeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
 
   if(!isDryRun){
-    if(!confirm('정말 대상 문서를 영구 소각하시겠습니까?\n이 작업은 되돌릴 수 없으며 원본 문서와 파일, 관련 고아 지식 노드가 즉시 파괴됩니다.')){
+    if(!confirm(tr("ws.purge.confirm"))){
       return;
     }
   }
 
   const resDiv = document.getElementById('purgeresult');
   if(resDiv){
-    resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> 소각 ' + (isDryRun ? '영향 분석 중…' : '실행 중…') + '</p>';
+    resDiv.innerHTML = '<p class="al"><span data-icon="clock"></span> ' + tr(isDryRun ? 'ws.purge.analyzing' : 'ws.purge.running') + '</p>';
   }
 
   try {
@@ -3318,43 +3286,43 @@ async function runPurgeCheck(isDryRun){
     });
     if(r.status === 401 || r.status === 404){
       expireWriteAccess();
-      if(resDiv) resDiv.innerHTML = '<p class="hint">세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>';
+      if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.session_expired") + '</p>';
       return;
     }
     const d = await r.json();
     if(!r.ok || d.error){
-      if(resDiv) resDiv.innerHTML = '<p class="hint">소각 처리 실패: ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
+      if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.purge.failed") + ' ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
       return;
     }
 
     if(isDryRun){
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> 소각 영향 분석 결과 (Dry-Run)</h3>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="search"></span> ' + tr("ws.purge.dry_title") + '</h3>';
       const tgts = d.targets || [];
-      h += '<p class="al">소각 대상 문서: <b>' + tgts.length + '건</b> · 디스크 파일: <b>' + (d.disk_files_count || 0) + '개</b></p>';
-      h += '<p class="al">툼스톤 등록: <b>' + (tombstone ? '등록 (재적재 차단)' : '미등록 (재적재 허용)') + '</b></p>';
+      h += '<p class="al">' + tr('ws.purge.dry_counts', { docs: tgts.length, files: d.disk_files_count || 0 }) + '</p>';
+      h += '<p class="al">' + tr('ws.purge.tombstone_label') + ' <b>' + tr(tombstone ? 'ws.purge.tombstone_on' : 'ws.purge.tombstone_off') + '</b></p>';
       if(tgts.length > 0){
         h += '<ul style="margin:6px 0;padding-left:18px;font-size:12px">';
         tgts.forEach(t => {
           h += '<li><b>' + esc(t.title || t.id) + '</b> <small class="al">(' + esc(t.id) + ')</small></li>';
         });
         h += '</ul>';
-        h += '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="margin-top:8px;background:#e03131;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">위 대상을 확인하고 소각 실행</button>';
+        h += '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="margin-top:8px;background:#e03131;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer">' + tr("ws.purge.confirm_run") + '</button>';
       } else {
-        h += '<p class="hint">일치하는 문서를 찾을 수 없습니다.</p>';
+        h += '<p class="hint">' + tr("ws.common.no_matching_doc") + '</p>';
       }
       h += '</div>';
       if(resDiv) resDiv.innerHTML = h;
     } else {
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
-      h += '<h3 style="margin:0 0 6px"><span data-icon="check-circle"></span> 영구 소각 완료</h3>';
-      h += '<p class="al">소각된 문서: <b>' + (d.deleted_documents || 0) + '건</b> · 삭제된 파일: <b>' + (d.disk_files_unlinked || 0) + '개</b></p>';
+      h += '<h3 style="margin:0 0 6px"><span data-icon="check-circle"></span> ' + tr("ws.purge.done") + '</h3>';
+      h += '<p class="al">' + tr('ws.purge.done_counts', { docs: d.deleted_documents || 0, files: d.disk_files_unlinked || 0 }) + '</p>';
       if(d.purged_count){
-        h += '<p class="al">등록된 툼스톤: <b>' + d.purged_count + '건</b></p>';
+        h += '<p class="al">' + tr('ws.purge.tombstones', { count: d.purged_count }) + '</p>';
       }
       const gh = d.graph_healed || {};
       if(gh.ghost_entities_pruned || gh.dangling_relations_removed){
-        h += '<p class="al">지식그래프 수복: 고아 노드 <b>' + (gh.ghost_entities_pruned || 0) + '개</b> · 고아 관계 <b>' + (gh.dangling_relations_removed || 0) + '개</b> 정리</p>';
+        h += '<p class="al">' + tr('ws.purge.graph_repair', { nodes: gh.ghost_entities_pruned || 0, relations: gh.dangling_relations_removed || 0 }) + '</p>';
       }
       h += '</div>';
       if(resDiv) resDiv.innerHTML = h;
@@ -3367,7 +3335,7 @@ async function runPurgeCheck(isDryRun){
       refreshGraph();
     }
   } catch(e) {
-    if(resDiv) resDiv.innerHTML = '<p class="hint">소각 요청 오류: ' + esc(String(e)) + '</p>';
+    if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.purge.request_error") + ' ' + esc(String(e)) + '</p>';
   }
 }
 
@@ -3377,36 +3345,36 @@ async function runPurgeCheck(isDryRun){
 let dedupClusters=[];
 async function openDedup(){
   if(!canWrite()) return;
-  panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class="al">근사 중복 검사 중… '+
-    '<small>(문서가 많으면 잠시 걸립니다)</small></p>';
+  panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class="al">' + tr("ws.dedup.checking") + ' '+
+    '<small>' + tr("ws.dedup.slow_hint") + '</small></p>';
   openDetailPane();
   let d;
   try{
     const r=await fetch(apiUrl('dedup/scan'),{method:'POST'});
     if(r.status===401||r.status===404){ expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
     d=await r.json();
-  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class=hint>검사 실패: '+esc(String(e))+'</p>'; return; }
+  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class=hint>' + tr("ws.dedup.failed") + ' '+esc(String(e))+'</p>'; return; }
   renderDedup(d);
 }
 function renderDedup(d){
   if(!canWrite()) return;
-  if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> 중복 문서 정리</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
+  if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
   dedupClusters=d.clusters||[];
-  let h='<h2><span data-icon="merge"></span> 중복 문서 정리</h2>';
-  h+='<p class=al>검사 '+(d.documents||0)+'개 · 근사중복 클러스터 <b>'+dedupClusters.length+'</b>개</p>';
-  if(!dedupClusters.length){ h+='<p class=al>근사 중복 문서가 없습니다.</p>'; panel.innerHTML=h; return; }
-  h+='<p class=al><small>유지할 문서를 고르고 병합하세요. 나머지는 유지문서로 합쳐지고 참조는 보존됩니다(병합 전 내부 체크포인트 생성).</small></p>';
+  let h='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2>';
+  h+='<p class=al>'+tr('ws.dedup.counts', { docs: d.documents||0, clusters: dedupClusters.length })+'</p>';
+  if(!dedupClusters.length){ h+='<p class=al>' + tr("ws.dedup.none") + '</p>'; panel.innerHTML=h; return; }
+  h+='<p class=al><small>' + tr("ws.dedup.intro") + '</small></p>';
   dedupClusters.forEach((c,ci)=>{
-    h+='<div class=doc><p class=al>유사도 '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
+    h+='<div class=doc><p class=al>'+tr('ws.dedup.similarity')+' '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
     c.docs.forEach(dc=>{
       h+='<label style="display:block;margin:.3em 0">'+
         '<input type=radio name="keep'+ci+'" value="'+esc(dc.id)+'"'+(dc.id===c.keeper?' checked':'')+'> '+
-        '<b>'+esc(dc.title||'(제목 없음)')+'</b> <small class=al>'+(dc.len||0)+'자</small>'+
+        '<b>'+esc(dc.title||tr('home.recent.untitled'))+'</b> <small class=al>'+tr('ws.dedup.chars', { count: dc.len||0 })+'</small>'+
         (isWebUrl(dc.url)?'<br><small class=al style="margin-left:1.5em;word-break:break-all">'+esc(dc.url)+'</small>':'')+
         '</label>';
     });
-    h+='<button class=readbtn onclick="runDedupMerge('+ci+')">선택한 문서로 병합</button></div>';
+    h+='<button class=readbtn onclick="runDedupMerge('+ci+')">' + tr("ws.dedup.merge") + '</button></div>';
   });
   panel.innerHTML=h;
 }
@@ -3416,25 +3384,24 @@ async function runDedupMerge(ci){
   const sel=document.querySelector('input[name="keep'+ci+'"]:checked');
   const keeper=sel?sel.value:c.keeper;
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
-  if(!losers.length){ alert('합칠 문서가 없습니다.'); return; }
-  if(!confirm(losers.length+'개 문서를 유지문서로 합칩니다. 계속할까요?\n(병합 전 내부 체크포인트를 생성합니다)')) return;
-  panel.innerHTML='<h2><span data-icon="merge"></span> 병합 중…</h2><p class=al>체크포인트 생성 후 참조 재배치 중…</p>';
+  if(!losers.length){ alert(tr("ws.dedup.nothing")); return; }
+  if(!confirm(tr('ws.dedup.merge_confirm', { count: losers.length }))) return;
+  panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.merging") + '</h2><p class=al>' + tr("ws.dedup.merging_detail") + '</p>';
   try{
     const r=await fetch(apiUrl('dedup/merge'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
     if(r.status===401||r.status===404){ expireWriteAccess();
-      panel.innerHTML='<p class=hint>세션 만료 — 텔레그램 /web 으로 다시 접속하세요</p>'; return; }
+      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
     const d=await r.json();
     if(!canWrite()) return;
-    if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> 병합</h2><p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-    let h='<h2><span data-icon="check-circle"></span> 병합 완료</h2>';
-    h+='<p class=al>문서 '+(d.deleted||0)+'개를 합쳤습니다. 엔티티 '+(d.entities_repointed||0)+
-      ' · 관계 '+(d.relations_repointed||0)+' 참조 재배치.</p>';
-    if(d.checkpoint) h+='<p class=al><small>내부 체크포인트: '+esc(d.checkpoint)+'</small></p>';
-    h+='<p><a href="#" onclick="openDedup();return false">← 다시 검사</a></p>';
+    if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.stream.merge") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
+    let h='<h2><span data-icon="check-circle"></span> ' + tr("ws.dedup.done") + '</h2>';
+    h+='<p class=al>'+tr('ws.dedup.merged', { docs: d.deleted||0, entities: d.entities_repointed||0, relations: d.relations_repointed||0 })+'</p>';
+    if(d.checkpoint) h+='<p class=al><small>'+esc(tr('ws.dedup.checkpoint', { path: d.checkpoint }))+'</small></p>';
+    h+='<p><a href="#" onclick="openDedup();return false">' + tr("ws.dedup.again") + '</a></p>';
     panel.innerHTML=h;
     refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신
-  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> 병합</h2><p class=hint>요청 실패: '+esc(String(e))+'</p>'; }
+  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.stream.merge") + '</h2><p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; }
 }
 
 
@@ -3512,7 +3479,7 @@ function handleActiveIngestState(activeInfo){
   if(spin && activeInfo.active) spin.style.display = 'inline-block';
   if(activeInfo.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
-    if(docMetaEl) docMetaEl.textContent = '대조 대상: ' + activeInfo.title;
+    if(docMetaEl) docMetaEl.textContent = tr("ws.cockpit.target_prefix") + ' ' + activeInfo.title;
   }
   if(activeInfo.msg){
     updateMatrixProgress(activeInfo.msg);
@@ -3541,9 +3508,9 @@ function handleActiveIngestCompleted(activeInfo){
     }
     completeIngestMatrixView(result);
   } else if(activeInfo && activeInfo.stage === 'error'){
-    if(msgEl) msgEl.innerHTML = '<span data-icon="block"></span> <strong>' + esc(activeInfo.msg || '적재 중 오류 발생') + '</strong>';
+    if(msgEl) msgEl.innerHTML = '<span data-icon="block"></span> <strong>' + esc(activeInfo.msg || tr("ws.cockpit.error")) + '</strong>';
   } else {
-    if(msgEl) msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 및 적재 완료</strong>';
+    if(msgEl) msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr("ws.cockpit.done") + '</strong>';
   }
   if(activeInfo && activeInfo.heatmap_matrix){
     renderHeatmapMatrix(activeInfo.heatmap_matrix, activeInfo.title, false);
@@ -3606,8 +3573,8 @@ async function pollForUpdates(){
         const spin = document.getElementById('matrix-progress-spinner');
         if(spin && spin.style.display !== 'none') spin.style.display = 'none';
         const msgEl = document.getElementById('matrix-progress-msg');
-        if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
-          msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+        if(msgEl && cockpitMsgInProgress(msgEl)){
+          msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr("ws.cockpit.compare_done") + '</strong> ' + tr("ws.cockpit.compare_done_detail");
         }
       }
     }
@@ -3647,10 +3614,10 @@ function renderLegend(){
     '<span><i style="background:'+(TYPE_COLORS[t]||'#8b949e')+'"></i>'+esc(t)+'</span>').join('');
   let rel='';
   if(allRelTypes.length){
-    rel = '<span class=lgsep>관계:</span> ' + allRelTypes.map((t,i)=>{
+    rel = '<span class=lgsep>' + tr("ws.graph.relations_prefix") + '</span> ' + allRelTypes.map((t,i)=>{
       const on = !relFilter || relFilter.has(t);
       return '<button type=button class="reltog'+(on?'':' off')+'" onclick="toggleRel('+i+
-        ')" aria-pressed="'+(on?'true':'false')+'" title="이 관계만/제외 토글">'+esc(t)+'</button>';
+        ')" aria-pressed="'+(on?'true':'false')+'" title="' + tr("ws.graph.relation_toggle") + '">'+esc(t)+'</button>';
     }).join(' ');
   }
   document.getElementById('legendbar').innerHTML = nodeleg + rel;
@@ -3949,11 +3916,11 @@ function applyView(){
   if(edgeUpdates.length) allEdges.update(edgeUpdates);  // 1회 배치
   // The graph status is in span.graphstat: the document list hides it (it is not about the documents). A document status overwrites the span.
   document.getElementById('stat').innerHTML = '<span class="graphstat">' +
-    '표시 <b>'+shown+'</b>/'+allNodes.length
-    + (isolatedSet ? ' · <span data-icon="search"></span> 격리 뷰 ('+isolatedSet.size+'개)' : '')
-    + (curMinDeg>0 && !isolatedSet ? ' · 연결≥'+curMinDeg:'')
-    + (relFilter?' · 관계 '+relFilter.size+'/'+allRelTypes.length:'')
-    + (pathActive?' · <span data-icon="link"></span>경로 '+pathNodes.size+'노드':(hasFilter && !isolatedSet ?' · 강조 '+emph+'개':'')) + '</span>';
+    tr('ws.graph.status_shown', { shown: shown, total: allNodes.length })
+    + (isolatedSet ? ' · <span data-icon="search"></span> ' + tr('ws.graph.status_isolated', { count: isolatedSet.size }) : '')
+    + (curMinDeg>0 && !isolatedSet ? ' · ' + tr('ws.graph.status_degree', { count: curMinDeg }) : '')
+    + (relFilter ? ' · ' + tr('ws.graph.status_relations', { shown: relFilter.size, total: allRelTypes.length }) : '')
+    + (pathActive ? ' · <span data-icon="link"></span>' + tr('ws.graph.status_path', { count: pathNodes.size }) : (hasFilter && !isolatedSet ? ' · ' + tr('ws.graph.status_emphasis', { count: emph }) : '')) + '</span>';
   renderEntityList();
   if(typeof renderHome === 'function' && centerView === 'home') renderHome();
 }
@@ -3971,10 +3938,10 @@ function setGraphNotice(text){
 }
 function showPathHint(){
   const n=pathPicks.length;
-  panel.innerHTML='<h2><span data-icon="link"></span> 경로 찾기</h2><p class=al>'+
-    (n===0?'시작 노드를 클릭하세요.':'끝 노드를 클릭하세요. <small>(시작: '+esc(nodeLabel(pathPicks[0]))+')</small>')+
-    '</p><p class=al><small>관계 필터가 켜져 있으면 그 관계만 따라 경로를 찾습니다.</small></p>';
-  setGraphNotice(n===0?'경로 시작 노드를 선택하세요':'경로 끝 노드를 선택하세요');
+  panel.innerHTML='<h2><span data-icon="link"></span> ' + tr("ws.path.title") + '</h2><p class=al>'+
+    (n===0?tr('ws.path.click_start'):tr('ws.path.click_end')+' <small>('+esc(tr('ws.path.start_node', { label: nodeLabel(pathPicks[0]) }))+')</small>')+
+    '</p><p class=al><small>' + tr("ws.path.filter_hint") + '</small></p>';
+  setGraphNotice(n===0?tr("ws.path.select_start"):tr("ws.path.select_end"));
   setCenterView('graph');
   revealWorkspace('graph');
 }
@@ -3998,9 +3965,8 @@ function computePath(a, b){
   pathPicks=[];
   if(!seen.has(b)){ pathNodes=null; pathEdges=null; applyView();
     setGraphNotice('');
-    panel.innerHTML='<h2><span data-icon="link"></span> 경로</h2><p class=hint>두 노드 사이 연결 경로가 없습니다'+
-      (relFilter?' (현재 관계 필터 기준)':'')+'.</p>'+
-      '<p class=al><a href="#" onclick="restartPath();return false">다시 찾기</a></p>';
+    panel.innerHTML='<h2><span data-icon="link"></span> '+tr('ws.menu.path')+'</h2><p class=hint>'+tr(relFilter ? 'ws.path.none_filtered' : 'ws.path.none')+'</p>'+
+      '<p class=al><a href="#" onclick="restartPath();return false">' + tr("ws.path.again") + '</a></p>';
     openDetailPane();
     return; }
   pathNodes=new Set(); pathEdges=new Set();
@@ -4012,10 +3978,10 @@ function computePath(a, b){
   setGraphNotice('');
   applyView();
   if(net) net.fit({nodes:[...pathNodes], animation:graphAnimation(true)});
-  panel.innerHTML='<h2><span data-icon="link"></span> 경로 <small>'+(order.length-1)+'단계</small></h2>'+
+  panel.innerHTML='<h2><span data-icon="link"></span> '+tr('ws.menu.path')+' <small>'+tr('ws.path.steps', { count: order.length-1 })+'</small></h2>'+
     '<p class=al>'+order.map(id=>esc(nodeLabel(id))).join(' → ')+'</p>'+
-    '<p class=al><a href="#" onclick="restartPath();return false">다른 경로</a> · '+
-    '<a href="#" onclick="clearPath();return false">해제</a></p>';
+    '<p class=al><a href="#" onclick="restartPath();return false">' + tr("ws.path.other") + '</a> · '+
+    '<a href="#" onclick="clearPath();return false">' + tr("ws.path.clear") + '</a></p>';
   openDetailPane();
 }
 function restartPath(){ pathMode=true; pathPicks=[];
@@ -4025,7 +3991,7 @@ function clearPath(){ pathMode=false; pathPicks=[]; pathNodes=null; pathEdges=nu
   setGraphNotice(''); applyView(); panel.innerHTML=''; revealWorkspace('graph'); }
 
 // --- 좌측 문서 패널(일자별 그룹) ---
-function dayOf(ts){ if(!ts) return '(날짜 미상)';
+function dayOf(ts){ if(!ts) return tr("ws.list.no_date");
   const d=new Date(ts*1000);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // 문서 하나의 목록 아이템 HTML — 즐겨찾기/일반/숨김 목록이 모두 공유(중복 방지).
@@ -4033,16 +3999,16 @@ function dayOf(ts){ if(!ts) return '(날짜 미상)';
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   const pinBtn = canWrite()
-    ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
-      '" aria-label="'+(pinned?'즐겨찾기 해제':'즐겨찾기에 추가')+
+    ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
+      '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
       '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
-    : (pinned ? '<span class="docpin-icon pinned" title="즐겨찾기"><span data-icon="star" class="filled"></span></span>' : '');
+    : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
     pinBtn+
-    (watching?'<span class=wbadge title="주기 갱신 추적(watch)"><span data-icon="restore"></span></span>':'')+
-    (unread?'<span class=ubadge title="아직 안 본 문서">●</span>':'')+
+    (watching?'<span class=wbadge title="' + tr("ws.list.watch") + '"><span data-icon="restore"></span></span>':'')+
+    (unread?'<span class=ubadge title="' + tr("ws.list.unread") + '">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
     '</div>'+
     (dc.summary?'<p>'+esc(dc.summary.slice(0,110))+'</p>':'')+'</div>';
@@ -4105,7 +4071,7 @@ function renderServerDocs(){
 
     if(res.answer){
       html += '<div class="search-ai-card">' +
-        '<div class="search-ai-head"><span><span data-icon="info"></span></span> <b>AI 지식 요약</b></div>' +
+        '<div class="search-ai-head"><span><span data-icon="info"></span></span> <b>' + tr("ws.search.ai_summary") + '</b></div>' +
         '<div class="search-ai-body">' + esc(res.answer) + '</div>' +
         '</div>';
     }
@@ -4113,24 +4079,24 @@ function renderServerDocs(){
     const hitCount = (res.hits || []).length;
     html += '<div class="search-action-bar">' +
       (hitCount > 0
-        ? '<button type="button" class="sec search-graph-link-btn" onclick="highlightSearchInGraph()" title="지식 그래프에서 연관 개념 노드 하이라이트">' +
-          '<span class="btn-icon"><span data-icon="globe"></span></span> <span class="btn-label">그래프에서 맥락 보기 (' + hitCount + ')</span></button>'
+        ? '<button type="button" class="sec search-graph-link-btn" onclick="highlightSearchInGraph()" title="' + tr("ws.search.highlight_title") + '">' +
+          '<span class="btn-icon"><span data-icon="globe"></span></span> <span class="btn-label">' + tr('ws.search.show_in_graph', { count: hitCount }) + '</span></button>'
         : '') +
-      '<button type="button" class="sec search-reset-btn" onclick="clearServerSearch()" title="검색 결과 초기화">✕ 닫기</button>' +
+      '<button type="button" class="sec search-reset-btn" onclick="clearServerSearch()" title="' + tr("ws.search.reset_title") + '">' + tr("ws.common.close_x") + '</button>' +
       '</div>';
 
     if(res.docs && res.docs.length){
       html += res.docs.map(docItemHtml).join('');
     } else {
-      html += '<p class="hint" style="padding:24px 12px;text-align:center">일치하는 문서를 찾지 못했습니다.</p>';
+      html += '<p class="hint" style="padding:24px 12px;text-align:center">' + tr("ws.search.no_match") + '</p>';
     }
     dl.innerHTML = html;
   }
 
   const st = document.getElementById('stat');
   if(st){
-    const modeLabel = res.mode === 'hybrid' ? 'AI 의미 검색' : '전문(Full-Text) 검색';
-    st.textContent = modeLabel + ': ' + (res.docs ? res.docs.length : 0) + '건 발견';
+    const modeLabel = res.mode === 'hybrid' ? tr("ws.search.semantic") : tr("ws.search.fulltext");
+    st.textContent = tr('ws.search.found', { mode: modeLabel, count: res.docs ? res.docs.length : 0 });
   }
   syncGraphDocNav();
 }
@@ -4154,7 +4120,7 @@ async function doDocServerSearch(q){
 
   const statEl = document.getElementById('stat');
   if(statEl){
-    statEl.textContent = isSemantic ? 'AI 지식 검색 및 요약 생성 중…' : '전체 본문(FTS5) 검색 중…';
+    statEl.textContent = isSemantic ? tr("ws.search.ai_running") : tr("ws.search.fts_running");
   }
 
   let r;
@@ -4174,24 +4140,24 @@ async function doDocServerSearch(q){
   } catch(e){
     if(abortController && abortController.signal.aborted) return;
     if(seq !== currentSearchSeq) return;
-    if(statEl) statEl.textContent = '검색 실패';
+    if(statEl) statEl.textContent = tr("ws.search.failed");
     return;
   }
   if(seq !== currentSearchSeq) return;
   if(r.status === 401 || r.status === 404){
     expireWriteAccess();
-    if(statEl) statEl.textContent = '세션 만료';
+    if(statEl) statEl.textContent = tr("ws.common.session_expired_short");
     return;
   }
   if(r.status === 429){
-    if(statEl) statEl.textContent = '검색 요청이 많습니다 — 잠시 후 재시도';
+    if(statEl) statEl.textContent = tr("ws.search.rate_limited_short");
     return;
   }
   let d = {};
   try { d = await r.json(); } catch(_) {}
   if(seq !== currentSearchSeq) return;
   if(!r.ok){
-    if(statEl) statEl.textContent = '검색 오류 (HTTP ' + r.status + ')';
+    if(statEl) statEl.textContent = tr('ws.search.http_error', { status: r.status });
     return;
   }
 
@@ -4260,9 +4226,9 @@ function createWindowedList(opts){
   function tail(){
     if(count < items.length) return '<div class="list-sentinel" aria-hidden="true"></div>';
     const m = moreState();
-    if(m.error) return '<div class="list-more-error" role="status">다음 문서를 불러오지 못했습니다. <button type="button" class="sec list-retry">다시 시도</button></div>';
+    if(m.error) return '<div class="list-more-error" role="status">' + tr("ws.list.next_failed") + ' <button type="button" class="sec list-retry">' + tr("ws.common.retry") + '</button></div>';
     if(m.hasMore) return '<div class="list-sentinel" aria-hidden="true"></div>';
-    return items.length > pageSize ? '<div class="list-end">— 끝 (' + items.length + ') —</div>' : '';
+    return items.length > pageSize ? '<div class="list-end">— ' + tr('ws.list.end', { count: items.length }) + ' —</div>' : '';
   }
   function onSentinel(){
     if(count < items.length) growTo(count + pageSize);
@@ -4510,7 +4476,7 @@ function listMode(){
 }
 function updateListTitle(){
   const el = document.getElementById('listtitle'); if(!el) return;
-  const ent = listMode() === 'entities', w = ent ? entWindowList : docWindowList, name = ent ? '엔티티' : '문서';
+  const ent = listMode() === 'entities', w = ent ? entWindowList : docWindowList, name = ent ? tr("list.entities") : tr("list.documents");
   // The row with the mark 필터 밖 is not a matching entity, thus the two numbers do not include it.
   const extra = (ent && entOutId != null) ? 1 : 0;
   el.innerHTML = (w && w.active && w.total) ? name + ' <b>' + (w.count - extra) + '</b> / ' + (w.total - extra) : name;
@@ -4522,7 +4488,7 @@ function syncListPane(){
   if(lastListMode && lastListMode !== mode) resetListFilter(lastListMode);
   lastListMode = mode;
   docsEl.dataset.list = mode;
-  docsEl.setAttribute('aria-label', mode === 'entities' ? '엔티티 목록' : '문서 목록');
+  docsEl.setAttribute('aria-label', mode === 'entities' ? tr("ws.list.entities_label") : tr("ws.list.docs_label"));
   document.querySelectorAll('#listswitch .list-switch-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.list === mode ? 'true' : 'false'));
   if(mode === 'entities') renderEntityList();
   else if(net && typeof net.setHoverNode === 'function') net.setHoverNode(null);
@@ -4607,27 +4573,27 @@ function entItemHtml(n){
   let h = '<div class="entitem' + (open ? ' open' : '') + ((open || n.id === selectedNodeId) ? ' active' : '') + '" role="listitem" data-ent-id="' + esc(n.id) + '" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()">';
   h += '<button type="button" class="entrow" aria-expanded="' + (open ? 'true' : 'false') + '"' + (open ? ' aria-controls="entbody"' : '') + '>';
   h += '<span class="entline"><i class="entdot" style="background:' + c + '"></i><span class="entname">' + esc(n.label) + '</span>';
-  if(out) h += '<span class="entout" title="현재 필터에 없는 엔티티">필터 밖</span>';
-  h += '<small class="enttype">' + esc(n.group || '') + '</small><span class="entdeg" title="연결 ' + deg + '개">' + deg + '</span></span>';
+  if(out) h += '<span class="entout" title="' + tr("ws.ent.outside_title") + '">' + tr("ws.ent.outside") + '</span>';
+  h += '<small class="enttype">' + esc(n.group || '') + '</small><span class="entdeg" title="' + esc(tr('ws.node.connections', { count: deg })) + '">' + deg + '</span></span>';
   h += '<span class="entbar" aria-hidden="true"><i style="width:' + Math.round(100 * deg / entMaxDeg) + '%"></i></span></button>';
-  if(open) h += '<div id="entbody" class="entbody" role="region" aria-label="' + esc(n.label) + ' 관찰/주장과 연결">' + entBodyHtml(n) + '</div>';
+  if(open) h += '<div id="entbody" class="entbody" role="region" aria-label="' + esc(tr('ws.ent.body_label', { label: n.label })) + '">' + entBodyHtml(n) + '</div>';
   return h + '</div>';
 }
 function entBodyHtml(n){
   const d = entDetail;
-  let h = '<button type="button" class="sec entgo" data-ent-act="go">⌖ 그래프에서 보기</button>';
-  if(!d) return h + '<p class="hint">로딩…</p>';
-  if(d.error) return h + '<p class="hint">' + (d.failed ? '불러오지 못했습니다. 다시 눌러 주세요.' : '노드를 찾을 수 없습니다.') + '</p>';
+  let h = '<button type="button" class="sec entgo" data-ent-act="go">' + tr("ws.ent.show_in_graph") + '</button>';
+  if(!d) return h + '<p class="hint">' + tr("ws.list.loading") + '</p>';
+  if(d.error) return h + '<p class="hint">' + (d.failed ? tr("ws.ent.load_failed") : tr("ws.node.not_found")) + '</p>';
   const obs = d.observations || [], nb = d.neighbors || [];
-  h += '<h4>관찰/주장</h4>';
-  if(!obs.length) h += '<p class="hint">관찰/주장 없음</p>';
+  h += '<h4>' + tr("ws.ent.observations") + '</h4>';
+  if(!obs.length) h += '<p class="hint">' + tr("ws.ent.no_observations") + '</p>';
   else {
     const shownObs = entObsAll ? obs : obs.slice(0, ENT_OBS_PREVIEW);
     h += '<ul class="entobs">' + shownObs.map(o => '<li>' + esc(o) + '</li>').join('') + '</ul>';
-    if(obs.length > shownObs.length) h += '<button type="button" class="entmore" data-ent-act="more">더 보기 (' + (obs.length - shownObs.length) + ')</button>';
+    if(obs.length > shownObs.length) h += '<button type="button" class="entmore" data-ent-act="more">' + tr('ws.ent.more', { count: obs.length - shownObs.length }) + '</button>';
   }
-  h += '<h4>연결 (' + nb.length + ')</h4>';
-  if(!nb.length) return h + '<p class="hint">연결 없음</p>';
+  h += '<h4>' + tr('ws.ent.connections', { count: nb.length }) + '</h4>';
+  if(!nb.length) return h + '<p class="hint">' + tr("ws.ent.no_connections") + '</p>';
   // Groups by relation type. The group with the most items is first.
   const groups = new Map();
   nb.forEach(x => { if(!groups.has(x.rel)) groups.set(x.rel, []); groups.get(x.rel).push(x); });
@@ -4646,14 +4612,14 @@ function entRowEl(id){
 function renderEntityChips(ctx){
   const box = document.getElementById('entchips'); if(!box) return;
   const chips = [];
-  if(ctx.isolatedSet) chips.push('주변만 보기');
-  else if(curMinDeg > 0) chips.push('연결 ≥ ' + curMinDeg);
-  if(ctx.pathActive) chips.push('경로 ' + pathNodes.size + '노드');
+  if(ctx.isolatedSet) chips.push(tr("ws.node.isolate_on"));
+  else if(curMinDeg > 0) chips.push(tr('ws.ent.chip_degree', { count: curMinDeg }));
+  if(ctx.pathActive) chips.push(tr('ws.graph.status_path', { count: pathNodes.size }));
   else {
-    if(activeDoc){ const dc = allDocs.find(x => x.id === activeDoc); chips.push('문서: ' + ((dc && dc.title) || activeDoc)); }
-    if(highlightSet) chips.push('검색 ' + highlightSet.size + '개');
+    if(activeDoc){ const dc = allDocs.find(x => x.id === activeDoc); chips.push(tr('ws.ent.chip_doc', { title: (dc && dc.title) || activeDoc })); }
+    if(highlightSet) chips.push(tr('ws.ent.chip_search', { count: highlightSet.size }));
   }
-  const html = chips.length ? chips.map(t => '<span class="entchip" title="' + esc(t) + '">' + esc(t) + '</span>').join('') + '<button type="button" class="entchip-reset" onclick="resetEntityFilters()" title="목록 필터 초기화" aria-label="목록 필터 초기화">✕ 초기화</button>' : '';
+  const html = chips.length ? chips.map(t => '<span class="entchip" title="' + esc(t) + '">' + esc(t) + '</span>').join('') + '<button type="button" class="entchip-reset" onclick="resetEntityFilters()" title="' + tr("ws.ent.reset_title") + '" aria-label="' + tr("ws.ent.reset_title") + '">' + tr("ws.ent.reset") + '</button>' : '';
   // The container is a live region. It is written only when its content changes.
   if(html === entChipsHtml) return;
   entChipsHtml = html;
@@ -4714,7 +4680,7 @@ function renderEntityList(){
     // A render writes the rows again. Thus the keyboard focus goes back to the same row.
     const focusItem = (document.activeElement && el.contains(document.activeElement)) ? document.activeElement.closest('.entitem') : null;
     const focusId = focusItem ? focusItem.dataset.entId : null;
-    w.render(items, key, {empty: '<p class="hint" style="padding:10px">' + (allNodes.length ? '필터에 맞는 엔티티 없음' : '엔티티 없음') + '</p>'});
+    w.render(items, key, {empty: '<p class="hint" style="padding:10px">' + (allNodes.length ? tr("ws.ent.none_filtered") : tr("ws.ent.none")) + '</p>'});
     // The open row stays in the rendered window after a sort or a filter change. The list does not scroll to it.
     if(entOpenId != null){ const oi = items.findIndex(n => n.id === entOpenId); if(oi >= 0) w.ensureVisible(oi); }
     if(focusId != null && !el.contains(document.activeElement)){ const r = entRowEl(focusId); if(r) r.querySelector('.entrow').focus({preventScroll: true}); }
@@ -4817,7 +4783,7 @@ function renderDocs(filter){
     const ph = document.getElementById('pinnedhead'); if(ph) ph.style.display = 'none';
     const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = '';
     if(docWindowList) docWindowList.invalidate();
-    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center"><span data-icon="search"></span> 검색어를 입력하세요.</p>';
+    const dl = document.getElementById('doclist'); if(dl) dl.innerHTML = doclistToolbarHtml() + '<p class="hint" style="padding:16px 12px;text-align:center"><span data-icon="search"></span> ' + tr("ws.search.need_query") + '</p>';
     const sh = document.getElementById('showhidden'); if(sh){ sh.style.display = 'none'; sh.setAttribute('aria-expanded', 'false'); }
     const hl = document.getElementById('hiddenlist'); if(hl){ hl.innerHTML = ''; hl.style.display = 'none'; }
     syncGraphDocNav();
@@ -4857,14 +4823,14 @@ function renderDocs(filter){
   const ph = document.getElementById('pinnedhead');
   if(ph){
     ph.style.display = pinned.length ? '' : 'none';
-    ph.textContent = '즐겨찾기 (' + pinned.length + ')';
+    ph.textContent = tr('ws.list.pinned_count', { count: pinned.length });
   }
   const pl = document.getElementById('pinnedlist'); if(pl) pl.innerHTML = pinned.map(docItemHtml).join('');
 
   const dw = docWindow();
   if(dw){
     // The same search text keeps the rendered count and the scroll position. A new search text starts from the first 31 documents.
-    dw.render(rest, 'docs:' + q, {head: doclistToolbarHtml(), empty: pager.error ? '<div class="list-more-error" role="status">문서를 불러오지 못했습니다. <button type="button" class="sec list-retry">다시 시도</button></div>' : '<p class=hint style="padding:10px">문서 없음</p>'});
+    dw.render(rest, 'docs:' + q, {head: doclistToolbarHtml(), empty: pager.error ? '<div class="list-more-error" role="status">' + tr("ws.list.docs_failed") + ' <button type="button" class="sec list-retry">' + tr("ws.common.retry") + '</button></div>' : '<p class=hint style="padding:10px">' + tr("ws.list.no_docs") + '</p>'});
     const activeIndex = activeDoc ? rest.findIndex(dc => dc.id === activeDoc) : -1;
     if(activeIndex >= 0) dw.ensureVisible(activeIndex);
     // After a deep link, the list scrolls to the row of the open document one time, when the list is in view.
@@ -4889,7 +4855,7 @@ function renderDocs(filter){
     if(sh){
       sh.style.display='';
       sh.setAttribute('aria-expanded', showHidden ? 'true' : 'false');
-      sh.textContent = (showHidden?'▲ ':'▼ ')+'숨김 '+hiddenDocs.length+'개 '+(showHidden?'접기':'보기');
+      sh.textContent = (showHidden?'▲ ':'▼ ')+tr(showHidden ? 'ws.list.hidden_collapse' : 'ws.list.hidden_show', { count: hiddenDocs.length });
     }
     if(hl){
       const prevScroll = hl.scrollTop;
@@ -4901,10 +4867,10 @@ function renderDocs(filter){
   const st = document.getElementById('stat');
   if(st){
     if(q){
-      st.textContent = (docListTotal + pinned.length) + '개 발견';
+      st.textContent = tr('ws.list.found', { count: docListTotal + pinned.length });
     } else {
-      st.innerHTML = (docListTotal + pinned.length + hiddenDocs.length) + '개 문서' +
-        (allNodes && allNodes.length ? ' (' + allNodes.length + ' 엔티티)' : '');
+      st.innerHTML = tr('ws.list.doc_count', { count: docListTotal + pinned.length + hiddenDocs.length }) +
+        (allNodes && allNodes.length ? ' (' + tr('ws.list.entity_count', { count: allNodes.length }) + ')' : '');
     }
   }
   syncGraphDocNav();
@@ -4945,8 +4911,7 @@ async function toggleHide(id, val){
   // 숨기는 방향(val=true)만 컨펌 — 오클릭 방지(사용자 지적) + 되돌리는 방법을 그 자리에서
   // 안내(어디서 다시 꺼내는지 몰라 헤매지 않게). 숨김 해제(val=false)는 안전한 방향이라
   // 컨펌 없이 즉시. 반환값 = 실제로 적용됐는지(컨펌 취소 시 false — 호출측 버튼 갱신 판단용).
-  if(val && !confirm('이 문서를 목록에서 숨길까요?\n\n그래프 엔티티는 그대로 남고, 문서 '+
-      '목록 맨 아래 "숨김 N개 보기"를 누르면 언제든 다시 꺼내(숨김 해제) 볼 수 있습니다.')){
+  if(val && !confirm(tr('ws.list.hide_confirm'))){
     return false;
   }
   const d=allDocs.find(x=>x.id===id); if(d){ d.hidden = val?1:0; docListPlace(d); }
@@ -4970,7 +4935,7 @@ async function panelToggleHide(id, val){
     return;
   }
   if(chk) chk.checked = !!val;
-  if(lbl) lbl.textContent = val ? '숨김 처리됨' : '목록에서 숨기기';
+  if(lbl) lbl.textContent = val ? tr("ws.list.hidden_done") : tr("ws.list.hide");
 }
 function resetWorkspaceState(){
   cancelServerSearch();
@@ -5091,15 +5056,15 @@ function showOtherThemeJobBanner(stats){
     });
   if(!otherJobs.length) return;
   const job = otherJobs[0];
-  const tName = job.theme_label || ('테마 #' + (job.theme_id || 0));
+  const tName = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id || 0));
   if(typeof ClaireStatusBanner !== 'undefined' && ClaireStatusBanner && ClaireStatusBanner.show){
     ClaireStatusBanner.show('custom_notice', {
-      message: '다른 테마(' + tName + ')에서 ' + (job.title || '작업') + ' 진행 중입니다.'
+      message: tr('ws.jobs.other_theme', { theme: tName, job: job.title || tr('ws.jobs.job') })
     }, {
       level: 'info',
       icon: 'restore',
-      title: '백그라운드 작업',
-      actionLabel: '테마로 이동',
+      title: tr("ws.jobs.background"),
+      actionLabel: tr("ws.jobs.go_theme"),
       action: function(){
         switchKnowledgeTheme(String(job.theme_id || '0'));
       }
@@ -5239,10 +5204,10 @@ function loadDocPanel(id, focusTab = false){
     }
     return;
   }
-  panel.innerHTML='<p class=hint>문서 불러오는 중…</p>';
+  panel.innerHTML='<p class=hint>' + tr("ws.reader.loading") + '</p>';
   fetch(apiUrl('document?id='+encodeURIComponent(id))).then(r=>r.json()).then(dc=>{
     if(activeDoc!==id && (typeof curReaderDoc === 'undefined' || curReaderDoc !== id)) return;
-    if(!dc || dc.error){ panel.innerHTML='<p class=hint>문서를 찾을 수 없습니다.</p>'; return; }
+    if(!dc || dc.error){ panel.innerHTML='<p class=hint>' + tr("ws.reader.not_found") + '</p>'; return; }
     curReaderDocData=dc;
     const docInAll = allDocs && allDocs.find(d => d.id === id);
     if(docInAll && dc.has_presentation !== undefined){
@@ -5254,7 +5219,7 @@ function loadDocPanel(id, focusTab = false){
     if(typeof centerView !== 'undefined' && centerView === 'presentation'){
       if(typeof updatePresentationView === 'function') updatePresentationView(id);
     }
-  }).catch(()=>{ panel.innerHTML='<p class=hint>문서 로드 실패.</p>'; });
+  }).catch(()=>{ panel.innerHTML='<p class=hint>' + tr("ws.reader.load_failed") + '</p>'; });
 }
 // 한 문서(article)에 속한 노드 — dc.nodes(서버 실시간 DB 조회) 우선, allNodes fallback.
 function docNodes(docId, dc){
@@ -5513,7 +5478,7 @@ function renderDocLinksTab(dc){
 }
 
 function renderDocEntitiesTab(dc, ns){
-  let h = '<section aria-labelledby="ctx-entities-heading"><div id="ctx-entities-heading" class="ctx-sec-head"><span>이 문서의 지식 노드 (' + ns.length + ')</span></div>';
+  let h = '<section aria-labelledby="ctx-entities-heading"><div id="ctx-entities-heading" class="ctx-sec-head"><span>' + tr('ws.ctx.doc_nodes', { count: ns.length }) + '</span></div>';
   if(ns.length){
     h += '<div class="ctx-entity-list nodebtns" role="list">';
     ns.forEach(n => {
@@ -5526,7 +5491,7 @@ function renderDocEntitiesTab(dc, ns){
     });
     h += '</div>';
   } else {
-    h += '<p class="al">이 문서에서 추출된 노드가 없습니다.</p>';
+    h += '<p class="al">' + tr("ws.ctx.no_nodes") + '</p>';
   }
   h += '</section>';
   return h;
@@ -5544,9 +5509,9 @@ function renderDocSourceTab(dc, ns){
 
   let h = '<section aria-labelledby="ctx-src-heading"><div id="ctx-src-heading" class="ctx-sec-head"><span>' + esc(tr('context.doc.source_text')) + '</span>' + sourceBadgeHtml(dc) + '</div>';
   const links = [];
-  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target="_blank" rel="noopener">↗ 원문 열기</a>');
-  if(canAccessRaw && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target="_blank" rel="noopener"><span data-icon="doc"></span> 원본 열기</a>');
-  if(isStt) links.push('<a href="#" class="stt-link" onclick="openSttReader();return false;">↗ 전사 열기</a>');
+  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target="_blank" rel="noopener">' + tr("ws.node.open_source") + '</a>');
+  if(canAccessRaw && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target="_blank" rel="noopener"><span data-icon="doc"></span> ' + tr("ws.node.open_raw") + '</a>');
+  if(isStt) links.push('<a href="#" class="stt-link" onclick="openSttReader();return false;">' + tr("ws.ctx.open_transcript") + '</a>');
   if(hasPresentation) links.push('<a href="' + esc(presentation.public_url) + '" target="_blank" rel="noopener">↗ Presentation PDF</a>');
   if(links.length) h += '<div class="ctx-source-links">' + links.join(' ') + '</div>';
 
@@ -5669,13 +5634,13 @@ function renderDocPanel(dc){
   let h='<div class="ctx-doc-head"><h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
   const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   if(focus){
-    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)"><span data-icon="target"></span> 초점:</b> '+esc(focus)+'</div>';
+    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)"><span data-icon="target"></span> ' + tr("ws.ingest.focus_prefix") + '</b> '+esc(focus)+'</div>';
   }
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
       ' onchange="panelToggleHide('+jsArg(dc.id)+',this.checked)">'+
-      '<span id="panelhidelabel">'+(dc.hidden===1?'숨김 처리됨':'목록에서 숨기기')+'</span>'+
+      '<span id="panelhidelabel">'+(dc.hidden===1?tr("ws.list.hidden_done"):tr("ws.list.hide"))+'</span>'+
       '</label></div>';
   }
   h+='</div>';
@@ -5739,11 +5704,11 @@ function addToSynth(id){ if(!canWrite()) return; synthSet.add(id); renderChips()
 function renderChips(){
   const box=document.getElementById('synthchips');
   box.innerHTML=[...synthSet].map(id=>{ const n=allNodes&&allNodes.get(id);
-    return '<span class=chip onclick="toggleSynth('+jsArg(id)+')" title="제거">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
+    return '<span class=chip onclick="toggleSynth('+jsArg(id)+')" title="' + tr("ws.synth.remove") + '">'+esc(n?n.label:id)+' ✕</span>'; }).join('');
   const sb=document.getElementById('synthbtn');
   if(sb){
-    sb.innerHTML='<span class="btn-icon"><span data-icon="puzzle"></span></span> <span class="btn-label">종합 ('+synthSet.size+')</span>';
-    sb.title='종합 ('+synthSet.size+')';
+    sb.innerHTML='<span class="btn-icon"><span data-icon="puzzle"></span></span> <span class="btn-label">'+tr('ws.menu.synth')+' ('+synthSet.size+')</span>';
+    sb.title=tr("ws.menu.synth") + ' ('+synthSet.size+')';
   }
 }
 
@@ -5923,18 +5888,18 @@ function setAccessScope(scope, reason){
   document.body.classList.toggle('ro', READONLY);
   const label=document.getElementById('authstate');
   if(label) label.textContent =
-    AUTH_SCOPE==='owner' ? '인증됨' :
-    AUTH_SCOPE==='collaborator' ? '협업자' :
-    AUTH_SCOPE==='readonly' ? '읽기전용' :
-    AUTH_SCOPE==='anonymous' ? '익명 읽기전용' :
-    reason==='expired' ? '쓰기 세션 만료 — /web 재접속' : '권한 확인 실패';
+    AUTH_SCOPE==='owner' ? tr("ws.bar.auth_owner") :
+    AUTH_SCOPE==='collaborator' ? tr("ws.bar.auth_collaborator") :
+    AUTH_SCOPE==='readonly' ? tr("ws.bar.auth_readonly") :
+    AUTH_SCOPE==='anonymous' ? tr("ws.bar.auth_anonymous") :
+    reason==='expired' ? tr("ws.bar.auth_write_expired") : tr("ws.bar.auth_failed");
   // 관리·설정 기능은 콘솔(/admin/*, /settings/*)에 있다. 상단바의 아이콘 단추가 콘솔로 이동한다.
   const clBtn = document.getElementById('consolelinkbtn');
   if(clBtn){
     const showConsole = canWrite();
     clBtn.style.display = showConsole ? '' : 'none';
     if(showConsole){
-      const label = IS_ADMIN ? '관리자 콘솔' : '내 설정';
+      const label = IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings");
       clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings');
       clBtn.title = label;
       clBtn.setAttribute('aria-label', label);
@@ -5969,21 +5934,21 @@ function expireWriteAccess(){
 async function synth(){
   if(!canWrite()) return;
   const ids=[...synthSet];
-  if(!ids.length){ alert('종합할 노드를 먼저 모으세요 — Ctrl+클릭 또는 상세의 "종합에 추가".'); return; }
-  panel.innerHTML='<p class=hint><span data-icon="puzzle"></span> '+ids.length+'개 노드 종합 중… (LLM 호출)</p>';
+  if(!ids.length){ alert(tr("ws.synth.need_nodes")); return; }
+  panel.innerHTML='<p class=hint><span data-icon="puzzle"></span> '+tr('ws.synth.running', { count: ids.length })+'</p>';
   openDetailPane();
   // 인증은 claire_session 쿠키(/web 진입)로 자동 전송됨 — 별도 헤더 불필요.
   fetch(apiUrl('synthesize'),{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({node_ids:ids})})
-   .then(r=> { if(r.status===401||r.status===404){ expireWriteAccess(); return {error:'세션 만료 — 텔레그램 /web 으로 다시 접속하세요'}; } return r.json(); })
+   .then(r=> { if(r.status===401||r.status===404){ expireWriteAccess(); return {error:tr("ws.common.session_expired")}; } return r.json(); })
    .then(d=>{
-     if(d.error){ panel.innerHTML='<p class=hint>오류: '+esc(d.error)+'</p>'; return; }
-     let h='<h2><span data-icon="puzzle"></span> 종합 지식 <small>'+d.entities.length+'개 노드</small></h2>';
+     if(d.error){ panel.innerHTML='<p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
+     let h='<h2><span data-icon="puzzle"></span> '+tr('ws.synth.title')+' <small>'+tr('ws.synth.nodes', { count: d.entities.length })+'</small></h2>';
      h+='<div class=synth>'+esc(d.answer)+'</div>';
-     h+='<p class=al>대상: '+d.entities.map(esc).join(', ')+'</p>';
+     h+='<p class=al>'+tr('ws.synth.targets')+' '+d.entities.map(esc).join(', ')+'</p>';
      panel.innerHTML=h;
-   }).catch(e=>{ panel.innerHTML='<p class=hint>요청 실패: '+esc(String(e))+'</p>'; });
+   }).catch(e=>{ panel.innerHTML='<p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; });
 }
 async function semanticSearch(q){
   q=(q||'').trim(); if(!q) return;
@@ -5999,9 +5964,9 @@ async function semanticSearch(q){
   if(typeof window.gtag === 'function'){
     try{ window.gtag('event', 'search', { search_term: q, search_mode: searchMode }); }catch(_){}
   }
-  const requestedMode = isSemantic ? 'AI 지식 검색' : '전문(FTS5) 검색';
+  const requestedMode = isSemantic ? tr("ws.search.ai") : tr("ws.search.fts");
   const statEl = document.getElementById('stat');
-  if(statEl) statEl.textContent=''+requestedMode+' 중…';
+  if(statEl) statEl.textContent=tr('ws.search.in_progress', { mode: requestedMode });
   let r;
   try{
     const reqOpts = {
@@ -6015,24 +5980,24 @@ async function semanticSearch(q){
   catch(e){
     if(abortController && abortController.signal.aborted) return;
     if(seq !== currentSearchSeq) return;
-    if(statEl) statEl.textContent='검색 실패';
+    if(statEl) statEl.textContent=tr("ws.search.failed");
     return;
   }
   if(seq !== currentSearchSeq) return;
-  if(r.status===401||r.status===404){ expireWriteAccess(); if(statEl) statEl.textContent='세션 만료 — /web 으로 재접속'; return; }
-  if(r.status===429){ if(statEl) statEl.textContent='검색 요청이 많습니다 — 잠시 후 다시 시도하세요'; return; }
+  if(r.status===401||r.status===404){ expireWriteAccess(); if(statEl) statEl.textContent=tr("ws.common.session_expired_web"); return; }
+  if(r.status===429){ if(statEl) statEl.textContent=tr("ws.search.rate_limited"); return; }
   let d={}; try{ d=await r.json(); }catch(_){}
   if(seq !== currentSearchSeq) return;
-  if(!r.ok){ if(statEl) statEl.textContent='검색 실패: HTTP '+r.status; return; }
+  if(!r.ok){ if(statEl) statEl.textContent=tr('ws.search.http_error', { status: r.status }); return; }
   const ids=(d.hits||[]).map(h=>h.id).filter(Boolean);
   highlightSet = new Set(ids);   // 라벨 검색과 동일하게 강조+dim 방식 사용
   applyView();
   clusterMatches(ids, ()=>fitToMatches(ids));   // 의미검색 결과도 점차 뭉치게 + 한눈에 fit
-  const actualMode=(d.mode==='fts'||searchMode==='fts')?'전문(FTS5) 검색':'AI 지식 검색';
+  const actualMode=(d.mode==='fts'||searchMode==='fts')?tr("ws.search.fts"):tr("ws.search.ai");
   if(statEl){
     statEl.textContent=ids.length
-      ? ''+actualMode+': '+ids.length+'개'
-      : ''+actualMode+': 결과 없음';
+      ? tr('ws.search.mode_count', { mode: actualMode, count: ids.length })
+      : tr('ws.search.no_result', { mode: actualMode });
   }
 }
 
@@ -6042,7 +6007,7 @@ const ClaireStatusBanner = (function(){
     format_mismatch: {
       level: 'warning',
       icon: 'warning',
-      title: '렌더링 포맷 불일치',
+      title: tr("ws.banner.format_title"),
       render: function(data){
         const cfg = (data.configured || 'adoc').toUpperCase();
         const other = (data.configured === 'adoc' ? 'md' : 'adoc').toUpperCase();
@@ -6051,13 +6016,13 @@ const ClaireStatusBanner = (function(){
         if (count === 1 && samples.length > 0) {
           const doc = samples[0];
           const safeTitle = esc(doc.title || doc.id);
-          return `.env 설정은 <b>${cfg}</b>이나, 대상 문서(<b><a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);text-decoration:underline;">${safeTitle}</a></b>)가 <b>${other}</b> 포맷입니다.`;
+          return tr('ws.banner.format_one', { configured: cfg, other: other, doc: `<b><a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);text-decoration:underline;">${safeTitle}</a></b>` });
         }
-        return '.env 설정은 <b>' + cfg + '</b>이나, DB 문서 중 <b>' + count + '개</b>가 <b>' + other + '</b> 포맷입니다. <code>./cb-manuscript app format-migrate --apply</code> 실행이 필요합니다.';
+        return tr('ws.banner.format_many', { configured: cfg, count: count, other: other, command: '<code>./cb-manuscript app format-migrate --apply</code>' });
       },
       actionLabel: function(data){
         const count = (data && (data.mismatched || data.mismatched_docs)) || 0;
-        return count === 1 ? '대상 문서 열기' : '불일치 문서 필터';
+        return count === 1 ? tr("ws.banner.open_doc") : tr("ws.banner.filter_mismatch");
       },
       action: function(data){
         const count = (data && (data.mismatched || data.mismatched_docs)) || 0;
@@ -6073,20 +6038,20 @@ const ClaireStatusBanner = (function(){
     format_missing: {
       level: 'info',
       icon: 'info',
-      title: '가독 렌더링 미생성',
+      title: tr("ws.banner.detail_title"),
       render: function(data){
         const count = data.missing_detail_docs || 0;
         const samples = data.missing_docs_sample || [];
         if (count === 1 && samples.length > 0) {
           const doc = samples[0];
           const safeTitle = esc(doc.title || doc.id);
-          return `전체 문서 중 <b>1개</b>의 상세(detail)가 아직 생성되지 않았습니다: <a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);font-weight:600;text-decoration:underline;">${safeTitle}</a>`;
+          return tr('ws.banner.detail_one') + ` <a href="javascript:void(0)" onclick="selectDoc(${jsArg(doc.id)});setCenterView('reader')" style="color:var(--accent);font-weight:600;text-decoration:underline;">${safeTitle}</a>`;
         }
-        return '전체 문서 중 <b>' + count + '개</b>의 상세(detail)가 아직 생성되지 않았습니다. <code>./cb-manuscript app format-migrate --apply</code> 실행으로 자동 생성할 수 있습니다.';
+        return tr('ws.banner.detail_many', { count: count, command: '<code>./cb-manuscript app format-migrate --apply</code>' });
       },
       actionLabel: function(data){
         const count = (data && data.missing_detail_docs) || 0;
-        return count === 1 ? '대상 문서 열기' : '미생성 문서 필터';
+        return count === 1 ? tr("ws.banner.open_doc") : tr("ws.banner.filter_missing");
       },
       action: function(data){
         const count = (data && data.missing_detail_docs) || 0;
@@ -6102,29 +6067,29 @@ const ClaireStatusBanner = (function(){
     format_ok: {
       level: 'success',
       icon: 'check-circle',
-      title: '포맷 동기화 완료',
+      title: tr("ws.banner.format_ok_title"),
       render: function(data){
         const cfg = (data.configured || 'adoc').toUpperCase();
         const total = data.total_docs || data.matching_docs || 0;
-        return '모든 문서(' + total + '건)가 목표 포맷(<b>' + cfg + '</b>)으로 정상 렌더링되고 있습니다.';
+        return tr('ws.banner.format_ok', { count: total, format: cfg });
       }
     },
     readonly_mode: {
       level: 'info',
       icon: 'lock',
-      title: '읽기 전용 모드',
+      title: tr("ws.banner.readonly_title"),
       render: function(){
-        return '현재 게스트(읽기 전용) 권한으로 접속 중입니다. 지식그래프 탐색 및 검색이 가능합니다.';
+        return tr("ws.banner.readonly");
       }
     },
     network_error: {
       level: 'error',
       icon: 'bolt',
-      title: '연결 확인 필요',
+      title: tr("ws.banner.offline_title"),
       render: function(data){
-        return (data && data.message) || '서버와의 통신이 원활하지 않습니다. 네트워크 연결을 확인해 주세요.';
+        return (data && data.message) || tr("ws.banner.offline");
       },
-      actionLabel: '새로고침',
+      actionLabel: tr("ws.banner.reload"),
       action: function(){
         if (typeof window !== 'undefined' && window.location && window.location.reload) {
           window.location.reload();
@@ -6134,16 +6099,16 @@ const ClaireStatusBanner = (function(){
     refresh_pending: {
       level: 'warning',
       icon: 'clock',
-      title: '데이터 갱신 대기',
+      title: tr("ws.banner.queued_title"),
       render: function(data){
-        const count = (data && data.count) || '일부';
-        return '문서 갱신 작업(' + count + '건)이 대기열에 등록되어 백그라운드 처리 중입니다.';
+        const count = (data && data.count) || tr('ws.banner.some');
+        return tr('ws.banner.queued', { count: count });
       }
     },
     custom_notice: {
       level: 'info',
       icon: 'megaphone',
-      title: '안내',
+      title: tr("ws.banner.notice"),
       render: function(data){
         return (data && data.message) || '';
       }
@@ -6176,7 +6141,7 @@ const ClaireStatusBanner = (function(){
 
       banner.className = 'status-banner banner-' + (opts.level || 'warning');
       if (iconEl) iconEl.setAttribute('data-icon', opts.icon || 'info');
-      if (titleEl) titleEl.textContent = opts.title || '안내';
+      if (titleEl) titleEl.textContent = opts.title || tr("ws.banner.notice");
       if (badge && opts.title === '') badge.style.display = 'none';
       else if (badge) badge.style.display = 'inline-flex';
 
@@ -6803,29 +6768,29 @@ let currentMatrixData = null;
 
 const STAGES = ['fetch', 'extract', 'resolve', 'detail', 'done'];
 const STAGE_LABELS = {
-  init: '준비',
-  fetch: '수집',
-  extract: '추출',
-  resolve: '대조',
-  detail: '상세',
-  done: '완료',
-  error: '오류'
+  init: tr("ws.cockpit.st_prepare"),
+  fetch: tr("ws.cockpit.st_fetch"),
+  extract: tr("ws.cockpit.st_extract"),
+  resolve: tr("ws.cockpit.st_resolve"),
+  detail: tr("ws.cockpit.st_detail"),
+  done: tr("ws.cockpit.st_done"),
+  error: tr("ws.cockpit.st_error")
 };
 const STAGE_FULL_TITLES = {
-  init: '1. 수집 (Fetch)',
-  fetch: '1. 수집 (Fetch)',
-  extract: '2. 추출 (Extract)',
-  resolve: '3. 대조 (Resolve)',
-  detail: '4. 상세 (Detail)',
-  done: '5. 완료 (Done)',
-  error: '오류 발생 (Error)'
+  init: tr("ws.cockpit.stage1"),
+  fetch: tr("ws.cockpit.stage1"),
+  extract: tr("ws.cockpit.stage2"),
+  resolve: tr("ws.cockpit.stage3"),
+  detail: tr("ws.cockpit.stage4"),
+  done: tr("ws.cockpit.stage5"),
+  error: tr("ws.cockpit.stage_error")
 };
 const STAGE_DESCS = {
-  fetch: '원문 수집 및 정제',
-  extract: '엔티티/관계 구조화',
-  resolve: '전수 히트맵 텐서',
-  detail: 'ADOC 본문 컴파일',
-  done: '지식 그래프 반영'
+  fetch: tr("ws.cockpit.sub1"),
+  extract: tr("ws.cockpit.sub2"),
+  resolve: tr("ws.cockpit.sub3"),
+  detail: tr("ws.cockpit.sub4"),
+  done: tr("ws.cockpit.sub5")
 };
 const STAGE_PROGRESS = {
   init: 10,
@@ -6837,9 +6802,9 @@ const STAGE_PROGRESS = {
   error: 100
 };
 const KIND_LABELS = {
-  ingest: '적재',
-  reingest: '재적재',
-  regenerate: '재생성'
+  ingest: tr("ws.ingest.title_short"),
+  reingest: tr("ws.menu.reingest"),
+  regenerate: tr("ws.menu.regen")
 };
 
 function extractActiveJobs(d){
@@ -6858,9 +6823,9 @@ function extractActiveJobs(d){
       active: true,
       kind: 'ingest',
       theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
-      title: '적재 진행 중…',
+      title: tr("ws.cockpit.ingest_running"),
       stage: 'extract',
-      msg: '원문 분석 및 엔티티 대조 준비 중…'
+      msg: tr("ws.cockpit.analysis_preparing")
     }];
   }
   return [];
@@ -6873,14 +6838,14 @@ function getJobPct(job){
 }
 
 function formatJobElapsed(job){
-  if(!job) return '00:00 경과';
+  if(!job) return tr("ws.cockpit.elapsed_zero");
   if(job.started_at){
     const elapsedSec = Math.max(0, Math.floor((job.updated_at || (Date.now() / 1000)) - job.started_at));
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
     const ss = String(elapsedSec % 60).padStart(2, '0');
-    return mm + ':' + ss + ' 경과';
+    return tr('ws.cockpit.elapsed', { time: mm + ':' + ss });
   }
-  return job.active === false ? '완료' : '실시간 추적 중';
+  return job.active === false ? tr("ws.cockpit.st_done") : tr("ws.cockpit.tracking");
 }
 
 function buildDesktopStepperHtml(job){
@@ -6918,24 +6883,24 @@ function buildStepperHtml(job){
 
 function buildLiveStreamPlaceholderHtml(job){
   const curStage = (job && job.stage) ? job.stage : 'fetch';
-  const stageTitle = STAGE_FULL_TITLES[curStage] || STAGE_LABELS[curStage] || '진행 중';
-  const msg = (job && job.msg) ? job.msg : '원문 분석 및 엔티티 대조 준비 중…';
+  const stageTitle = STAGE_FULL_TITLES[curStage] || STAGE_LABELS[curStage] || tr("ws.cockpit.in_progress_word");
+  const msg = (job && job.msg) ? job.msg : tr("ws.cockpit.analysis_preparing");
   const pct = getJobPct(job);
   const curIdx = Math.max(0, STAGES.indexOf(curStage === 'init' ? 'fetch' : curStage));
 
   const logLines = [
-    { idx: 0, text: '[1/5 Fetch] 원문 수집 및 텍스트 정규화 파이프라인 가동' },
-    { idx: 1, text: '[2/5 Extract] 핵심 엔티티(Entity) 및 도메인 관계(Relation) 구조화 추출' },
-    { idx: 2, text: '[3/5 Resolve] 기존 지식베이스 후보군 전수 유사도 텐서(N×M) 산출' },
-    { idx: 3, text: '[4/5 Detail] AsciiDoc(ADOC) 상세 본문 컴파일 및 출처 검증' }
+    { idx: 0, text: tr("ws.cockpit.log1") },
+    { idx: 1, text: tr("ws.cockpit.log2") },
+    { idx: 2, text: tr("ws.cockpit.log3") },
+    { idx: 3, text: tr("ws.cockpit.log4") }
   ].map(item => {
     if(item.idx < curIdx){
-      return '<div class="cockpit-live-log-line done">✓ ' + esc(item.text) + ' (완료)</div>';
+      return '<div class="cockpit-live-log-line done">✓ ' + esc(item.text) + ' ' + tr("ws.cockpit.log_done") + '</div>';
     }
     if(item.idx === curIdx){
       return '<div class="cockpit-live-log-line active">▶ ' + esc(msg) + '</div>';
     }
-    return '<div class="cockpit-live-log-line">· ' + esc(item.text) + ' (대기)</div>';
+    return '<div class="cockpit-live-log-line">· ' + esc(item.text) + ' ' + tr("ws.cockpit.log_wait") + '</div>';
   }).join('');
 
   return '<div class="matrix-placeholder-wave" id="cockpit-live-placeholder">'
@@ -6949,7 +6914,7 @@ function buildLiveStreamPlaceholderHtml(job){
     + '  </div>'
     + '  <div class="cockpit-live-log-box">' + logLines + '</div>'
     + '  <div class="cockpit-live-sub">'
-    + '    <small class="wave-sub">3단계 대조(Resolve) 진입 시 이 영역이 실시간 N×M 히트맵 텐서로 즉시 전환됩니다.</small>'
+    + '    <small class="wave-sub">' + tr("ws.cockpit.tensor_hint") + '</small>'
     + '  </div>'
     + '</div>'
     + '</div>';
@@ -6961,21 +6926,21 @@ function updateCockpitChrome(job){
   const curStage = job.stage || 'fetch';
   const isDone = curStage === 'done' || (job.active === false && curStage !== 'error');
   const isError = curStage === 'error';
-  const kindTxt = KIND_LABELS[job.kind] || '적재';
-  const themeTxt = job.theme_label || ('테마 #' + (job.theme_id !== undefined ? job.theme_id : 0));
+  const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
+  const themeTxt = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id !== undefined ? job.theme_id : 0));
 
   const statusBadge = document.getElementById('cockpit-status-badge');
   const statusText = document.getElementById('cockpit-status-text');
   if(statusBadge && statusText){
     statusBadge.className = 'cockpit-status-badge' + (isError ? ' error' : (isDone ? ' done' : ''));
-    statusText.textContent = isError ? '적재 오류' : (isDone ? '적재 완료' : '적재 진행 중');
+    statusText.textContent = isError ? tr("ws.cockpit.status_error") : (isDone ? tr("ws.ingest.done") : tr("ws.cockpit.in_progress"));
   }
 
   const themeBadge = document.getElementById('cockpit-theme-badge');
   if(themeBadge) themeBadge.textContent = '' + themeTxt;
 
   const kindBadge = document.getElementById('cockpit-kind-badge');
-  if(kindBadge) kindBadge.textContent = kindTxt + ' 파이프라인';
+  if(kindBadge) kindBadge.textContent = kindTxt + ' ' + tr("ws.cockpit.pipeline");
 
   const bigPctEl = document.getElementById('cockpit-big-pct');
   if(bigPctEl){
@@ -7002,8 +6967,8 @@ function updateCockpitChrome(job){
   if(mobileStageEl){
     const fullTitle = STAGE_FULL_TITLES[curStage] || (STAGE_LABELS[curStage] || curStage);
     mobileStageEl.textContent = isDone
-      ? '단계 [5/5]: 5. 완료 (Done)'
-      : ('단계 [' + Math.min(stages.length, curIdx + 1) + '/' + stages.length + ']: ' + fullTitle);
+      ? tr('ws.cockpit.stage_done')
+      : tr('ws.cockpit.stage_n', { n: Math.min(stages.length, curIdx + 1), total: stages.length, title: fullTitle });
   }
   const mobilePctEl = document.getElementById('cockpit-mobile-pct');
   if(mobilePctEl) mobilePctEl.textContent = pct + '%';
@@ -7011,16 +6976,16 @@ function updateCockpitChrome(job){
   if(mobileFillEl) mobileFillEl.style.width = pct + '%';
 
   const engineEl = document.getElementById('cockpit-telemetry-engine');
-  if(engineEl) engineEl.textContent = kindTxt + ' 워커:';
+  if(engineEl) engineEl.textContent = tr('ws.cockpit.kind_worker', { kind: kindTxt });
 
   const metricsEl = document.getElementById('cockpit-telemetry-metrics');
   if(metricsEl){
     const stageShort = STAGE_LABELS[curStage] || curStage;
     const mat = job.heatmap_matrix;
     const secondPill = (mat && Array.isArray(mat.rows))
-      ? ('대조 행렬: <strong>' + mat.rows.length + '×' + (mat.cols ? mat.cols.length : 0) + '</strong>')
-      : ('진행률: <strong>' + pct + '%</strong>');
-    metricsEl.innerHTML = '<span class="cockpit-metric-pill">단계: <strong>' + esc(stageShort) + '</strong></span>'
+      ? (tr('ws.cockpit.matrix') + ' <strong>' + mat.rows.length + '×' + (mat.cols ? mat.cols.length : 0) + '</strong>')
+      : (tr('ws.cockpit.progress') + ' <strong>' + pct + '%</strong>');
+    metricsEl.innerHTML = '<span class="cockpit-metric-pill">' + tr('ws.cockpit.stage') + ' <strong>' + esc(stageShort) + '</strong></span>'
       + '<span class="cockpit-metric-pill">' + secondPill + '</span>';
   }
 }
@@ -7034,13 +6999,13 @@ function updateCenterJobView(job){
   if(!job) return;
   const titleEl = document.getElementById('matrix-title');
   if(titleEl){
-    titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(job.title || '작업 진행 중') + ')</small>';
+    titleEl.innerHTML = tr("ws.cockpit.title") + ' <small id="matrix-subtitle">| Ingest Cockpit (' + esc(job.title || tr("ws.cockpit.job_running")) + ')</small>';
   }
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
-    const kindTxt = KIND_LABELS[job.kind] || '적재';
+    const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
     const themeTxt = job.theme_label || ('#' + (job.theme_id !== undefined ? job.theme_id : 0));
-    docMetaEl.textContent = '대조 대상: ' + (job.title || '(제목 없음)') + ' · 테마: ' + themeTxt + ' (' + kindTxt + ')';
+    docMetaEl.textContent = tr('ws.cockpit.target_full', { title: job.title || tr('home.recent.untitled'), theme: themeTxt, kind: kindTxt });
   }
 
   const spinner = document.getElementById('matrix-progress-spinner');
@@ -7050,7 +7015,7 @@ function updateCenterJobView(job){
 
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.textContent = job.msg || (job.active ? '진행 중…' : '완료');
+    msgEl.textContent = job.msg || (job.active ? tr('ws.cockpit.in_progress_short') : tr('ws.cockpit.done_short'));
   }
 
   updateCockpitChrome(job);
@@ -7060,7 +7025,7 @@ function updateCenterJobView(job){
   } else {
     const theadRow = document.getElementById('matrix-thead-row');
     if(theadRow){
-      theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드</th>';
+      theadRow.innerHTML = '<th style="min-width:140px">' + tr("ws.cockpit.matrix_corner") + '</th>';
     }
     const tbody = document.getElementById('matrix-tbody');
     if(tbody){
@@ -7103,16 +7068,16 @@ function initIngestMatrixView(payload, focus, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');
-  if(titleEl) titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (실시간 파이프라인 콕핏)</small>';
+  if(titleEl) titleEl.innerHTML = esc(tr('ws.cockpit.title')) + ' <small id="matrix-subtitle">' + esc(tr('ws.cockpit.subtitle')) + '</small>';
   const cleanPayload = (payload || '').replace(/\s+/g, ' ').trim();
   const shortDesc = cleanPayload.length > 80 ? cleanPayload.slice(0, 80) + '…' : cleanPayload;
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
-    docMetaEl.textContent = '대조 대상: ' + shortDesc + (themeLabel ? ' (테마: ' + themeLabel + ')' : '');
+    docMetaEl.textContent = tr('ws.cockpit.target', { title: shortDesc }) + (themeLabel ? ' (' + tr('ws.ingest.opt_theme', { theme: themeLabel }) + ')' : '');
   }
   const spin = document.getElementById('matrix-progress-spinner');
   if(spin) spin.style.display = 'inline-block';
-  const defaultMsg = '원문 분석 및 엔티티 대조 준비 중…';
+  const defaultMsg = tr('ws.cockpit.analysis_preparing');
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl) msgEl.textContent = defaultMsg;
 
@@ -7120,8 +7085,8 @@ function initIngestMatrixView(payload, focus, themeLabel){
     active: true,
     kind: 'ingest',
     theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
-    theme_label: themeLabel || '기본 지식베이스',
-    title: shortDesc || '수집 대상',
+    theme_label: themeLabel || tr("ws.bar.theme_default"),
+    title: shortDesc || tr("ws.cockpit.collect_target"),
     stage: 'fetch',
     progress: 20,
     msg: defaultMsg,
@@ -7131,12 +7096,20 @@ function initIngestMatrixView(payload, focus, themeLabel){
 
   const theadRow = document.getElementById('matrix-thead-row');
   if(theadRow){
-    theadRow.innerHTML = '<th style="min-width:140px">추출 노드 \\ 기존 지식 노드</th>';
+    theadRow.innerHTML = '<th style="min-width:140px">' + tr("ws.cockpit.matrix_corner") + '</th>';
   }
   const tbody = document.getElementById('matrix-tbody');
   if(tbody){
     tbody.innerHTML = '<tr><td colspan="4" style="padding:0;border:0;">' + buildLiveStreamPlaceholderHtml(synthJob) + '</td></tr>';
   }
+}
+
+// True while the progress message of the cockpit is not a final message. The job messages come from the server and can be Korean (server text, not interface text).
+const COCKPIT_SERVER_PROGRESS_WORDS = ['준비 중', '진행 중'];
+function cockpitMsgInProgress(el){
+  const text = el.textContent || '';
+  if(!text) return true;
+  return COCKPIT_SERVER_PROGRESS_WORDS.concat([tr('ws.cockpit.preparing'), tr('ws.cockpit.analysis_preparing'), tr('ws.cockpit.in_progress_short')]).some(word => text.includes(word));
 }
 
 function updateMatrixProgress(msg){
@@ -7162,7 +7135,7 @@ function updateMatrixProgress(msg){
     active: inferredStage !== 'done',
     kind: 'ingest',
     theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
-    theme_label: '기본 지식베이스',
+    theme_label: tr("ws.bar.theme_default"),
     stage: inferredStage,
     progress: inferredPct,
     msg: text,
@@ -7189,7 +7162,7 @@ function addDecisionStreamCard(ev){
     decision: ev.decision || 'MERGE',
     reason: ev.reason || '',
     document_id: ev.document_id || (activeIngest ? 'live' : null),
-    document_title: ev.document_title || '실시간 적재',
+    document_title: ev.document_title || tr("ws.cockpit.live"),
     timestamp: Math.floor(Date.now() / 1000)
   });
   if(typeof centerView !== 'undefined' && centerView === 'stream'){
@@ -7211,7 +7184,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#059669',
       border: '2px solid #047857',
       fg: '#ffffff',
-      label: '자동 병합'
+      label: tr("ws.cockpit.lv_merge")
     };
   }
   if(numScore >= borderlineThresh){
@@ -7220,7 +7193,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#0284c7',
       border: '1.5px dashed #0369a1',
       fg: '#ffffff',
-      label: '경계선 탐색'
+      label: tr("ws.cockpit.lv_judge")
     };
   }
   if(numScore >= 0.55){
@@ -7229,7 +7202,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#3b82f6',
       border: '1px solid #2563eb',
       fg: '#ffffff',
-      label: '높은 유사도'
+      label: tr("ws.cockpit.lv_high")
     };
   }
   if(numScore >= 0.40){
@@ -7238,7 +7211,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#60a5fa',
       border: '1px solid #3b82f6',
       fg: '#ffffff',
-      label: '중상 유사도'
+      label: tr("ws.cockpit.lv_mid_high")
     };
   }
   if(numScore >= 0.25){
@@ -7247,7 +7220,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#93c5fd',
       border: '1px solid #60a5fa',
       fg: '#1e3a8a',
-      label: '중간 유사도'
+      label: tr("ws.cockpit.lv_mid")
     };
   }
   if(numScore >= 0.15){
@@ -7256,7 +7229,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#bfdbfe',
       border: '1px solid #93c5fd',
       fg: '#1e3a8a',
-      label: '중저 유사도'
+      label: tr("ws.cockpit.lv_mid_low")
     };
   }
   if(numScore >= 0.07){
@@ -7265,7 +7238,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
       bg: '#dbeafe',
       border: '1px solid #bfdbfe',
       fg: '#1e3a8a',
-      label: '낮은 유사도'
+      label: tr("ws.cockpit.lv_low")
     };
   }
   return {
@@ -7273,7 +7246,7 @@ function getMatrixCellVisual(score, autoMergeThresh, borderlineThresh){
     bg: '#eff6ff',
     border: '1px solid #e0e7ff',
     fg: '#64748b',
-    label: '기저 밀도'
+    label: tr("ws.cockpit.lv_base")
   };
 }
 
@@ -7285,7 +7258,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
   if(title){
     const docMetaEl = document.getElementById('matrix-target-doc');
     if(docMetaEl){
-      docMetaEl.innerHTML = '대조 대상: <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="문서 본문 보기">' + esc(title) + '</a>';
+      docMetaEl.innerHTML = tr("ws.cockpit.target_prefix") + ' <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="' + tr("ws.cockpit.read_doc") + '">' + esc(title) + '</a>';
     }
   }
 
@@ -7297,14 +7270,14 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
 
   const theadRow = document.getElementById('matrix-thead-row');
   if(theadRow){
-    theadRow.innerHTML = '<th class="matrix-corner-header" title="추출 노드 \\ 기존 지식 노드 (' + cols.length + ')"><div class="matrix-corner-label">추출 \\ 지식 (' + cols.length + ')</div></th>' +
+    theadRow.innerHTML = '<th class="matrix-corner-header" title="' + esc(tr('ws.cockpit.corner_title', { count: cols.length })) + '"><div class="matrix-corner-label">' + esc(tr('ws.cockpit.corner', { count: cols.length })) + '</div></th>' +
       cols.map(c => '<th class="matrix-col-header" title="' + esc(c) + '"><div class="matrix-col-label">' + esc(c.length > 8 ? c.slice(0, 7) + '…' : c) + '</div></th>').join('');
   }
 
   const tbody = document.getElementById('matrix-tbody');
   if(tbody){
     if(!rows.length || !cols.length){
-      tbody.innerHTML = '<tr><td colspan="' + Math.max(1, cols.length + 1) + '" style="text-align:center;padding:32px 16px;color:var(--muted)">비교 대상 후보 엔티티가 없거나 지식베이스 초기 상태입니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="' + Math.max(1, cols.length + 1) + '" style="text-align:center;padding:32px 16px;color:var(--muted)">' + tr("ws.cockpit.no_candidates") + '</td></tr>';
       return;
     }
 
@@ -7315,13 +7288,13 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
     const msgEl = document.getElementById('matrix-progress-msg');
     if(!isActivelyIngesting){
       if(spin) spin.style.display = 'none';
-      if(msgEl && (!msgEl.textContent || msgEl.textContent.includes('준비 중') || msgEl.textContent.includes('진행 중'))){
-        msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+      if(msgEl && cockpitMsgInProgress(msgEl)){
+        msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr("ws.cockpit.compare_done") + '</strong> ' + tr("ws.cockpit.compare_done_detail");
       }
     } else {
       if(spin) spin.style.display = 'inline-block';
-      if(msgEl && (!msgEl.textContent || msgEl.textContent === '적재 준비 중…')){
-        msgEl.textContent = '실시간 엔티티 대조 진행 중…';
+      if(msgEl && (!msgEl.textContent || msgEl.textContent === tr('ws.cockpit.preparing'))){
+        msgEl.textContent = tr("ws.cockpit.live_compare");
       }
     }
 
@@ -7330,7 +7303,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
         active: isActivelyIngesting,
         kind: 'ingest',
         theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
-        theme_label: '기본 지식베이스',
+        theme_label: tr("ws.bar.theme_default"),
         title: title || '',
         stage: isActivelyIngesting ? 'resolve' : 'done',
         progress: isActivelyIngesting ? 75 : 100,
@@ -7352,7 +7325,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
           animStyle = 'animation-delay:' + delay + 'ms;';
         }
 
-        const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n유사도: ' + score.toFixed(4) + ' (' + vis.label + ')';
+        const tooltip = esc(rName) + ' ↔ ' + esc(cName) + '\n' + tr('ws.cockpit.similarity', { score: score.toFixed(4) }) + ' (' + vis.label + ')';
 
         return '<td><div class="' + cellClass + '" data-tier="' + vis.tier + '" title="' + tooltip + '" style="background:' + vis.bg + ';color:' + vis.fg + ';border:' + vis.border + ';' + animStyle + '" onmouseenter="inspectMatrixCell(' + jsArg(rName) + ',' + jsArg(cName) + ',' + score + ',' + jsArg(vis.label) + ')" onclick="inspectMatrixCell(' + jsArg(rName) + ',' + jsArg(cName) + ',' + score + ',' + jsArg(vis.label) + ')"></div></td>';
       }).join('');
@@ -7368,13 +7341,13 @@ function completeIngestMatrixView(result){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 및 적재 완료</strong> (노드 신규 ' + ((result && result.entities_created)||0) + ' · 기존 연결 ' + ((result && result.entities_linked)||0) + ' · 관계 ' + ((result && result.relations_added)||0) + ')';
+    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr('ws.cockpit.done') + '</strong> (' + tr('ws.ingest.counts', { created: (result && result.entities_created)||0, linked: (result && result.entities_linked)||0, relations: (result && result.relations_added)||0 }) + ')';
   }
   updateCockpitChrome({
     active: false,
     kind: 'ingest',
     theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
-    theme_label: '기본 지식베이스',
+    theme_label: tr("ws.bar.theme_default"),
     title: (result && result.title) || '',
     stage: 'done',
     progress: 100,
@@ -7383,7 +7356,7 @@ function completeIngestMatrixView(result){
   if(result && result.title){
     const docMetaEl = document.getElementById('matrix-target-doc');
     if(docMetaEl){
-      docMetaEl.innerHTML = '대조 대상: <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="문서 본문 보기">' + esc(result.title) + '</a>';
+      docMetaEl.innerHTML = tr("ws.cockpit.target_prefix") + ' <a href="#" class="matrix-doc-link" onclick="openMatrixTargetDoc();return false;" title="' + tr("ws.cockpit.read_doc") + '">' + esc(result.title) + '</a>';
     }
   }
   if(result && result.heatmap_matrix){
@@ -7432,7 +7405,7 @@ function closeMatrixView(targetDocId){
 
 function inspectMatrixCell(rName, cName, score, tierLabel){
   const label = tierLabel || (typeof getMatrixCellVisual === 'function' ? getMatrixCellVisual(score).label : '');
-  const text = esc(rName) + ' ↔ ' + esc(cName) + ' · 유사도: ' + Number(score).toFixed(4) + (label ? ' (' + label + ')' : '');
+  const text = esc(rName) + ' ↔ ' + esc(cName) + ' · ' + tr('ws.cockpit.similarity', { score: Number(score).toFixed(4) }) + (label ? ' (' + label + ')' : '');
   const inspectEl = document.getElementById('matrix-inspect-text');
   if(inspectEl) inspectEl.innerHTML = '<strong>' + text + '</strong>';
   if(typeof setGraphNotice === 'function') setGraphNotice(rName + ' ↔ ' + cName + ': ' + Number(score).toFixed(3));
@@ -7552,9 +7525,9 @@ function getBrowserTimezoneInfo(){
     const sign = offsetMin >= 0 ? '+' : '-';
     const offH = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0');
     const offM = String(Math.abs(offsetMin) % 60).padStart(2, '0');
-    return `브라우저 타임존: ${tz || 'Local'} (UTC${sign}${offH}:${offM})`;
+    return tr('ws.stream.timezone', { zone: tz || 'Local', offset: `UTC${sign}${offH}:${offM}` });
   } catch(_) {
-    return '브라우저 로컬 타임존';
+    return tr("ws.stream.local_timezone");
   }
 }
 window.getBrowserTimezoneInfo = getBrowserTimezoneInfo;
@@ -7564,20 +7537,20 @@ function renderDecisionCardHtml(dec){
   const isRolledBack = dec.decision === 'ROLLED_BACK' || dec.rolled_back;
 
   let badgeClass = 'badge-new';
-  let badgeLabel = '신규 (CREATE)';
+  let badgeLabel = tr("ws.stream.kind_create");
   if(isMerge){
     badgeClass = 'badge-merge';
-    badgeLabel = '병합 (MERGE)';
+    badgeLabel = tr("ws.stream.kind_merge");
   } else if(isRolledBack){
     badgeClass = 'badge-rollback';
-    badgeLabel = '롤백됨 (REVERT)';
+    badgeLabel = tr("ws.stream.kind_revert");
   } else if(dec.decision === 'CROSS_LINK'){
     badgeClass = 'badge-cross';
-    badgeLabel = '관계 연결';
+    badgeLabel = tr("ws.stream.kind_relation");
   }
 
-  const scoreText = (dec.score !== undefined && dec.score !== null) ? ' · 유사도 ' + Number(dec.score).toFixed(3) : '';
-  const candText = dec.candidate ? ' ↔ 대상 [' + esc(dec.candidate) + ']' : '';
+  const scoreText = (dec.score !== undefined && dec.score !== null) ? ' · ' + tr('ws.dedup.similarity') + ' ' + Number(dec.score).toFixed(3) : '';
+  const candText = dec.candidate ? ' ↔ ' + tr('ws.stream.candidate') + ' [' + esc(dec.candidate) + ']' : '';
 
   let html = '<div class="decision-card">';
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
@@ -7610,12 +7583,12 @@ function renderDecisionCardHtml(dec){
 
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed var(--border);font-size:11.5px;color:var(--muted)">';
   if(dec.document_id){
-    html += '<span><span data-icon="doc"></span> 출처: <a href="javascript:void(0)" onclick="selectDoc(' + jsArg(dec.document_id) + ');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
+    html += '<span><span data-icon="doc"></span> ' + tr('ws.stream.source') + ' <a href="javascript:void(0)" onclick="selectDoc(' + jsArg(dec.document_id) + ');setCenterView(\'reader\')" style="color:var(--accent,#0284c7);text-decoration:underline">' + esc(dec.document_title || dec.document_id) + '</a></span>';
   } else {
     html += '<span></span>';
   }
   if(isMerge && !isRolledBack){
-    html += '<button type="button" class="sec" disabled title="원자적 롤백은 미시험 기능으로 현재 안전을 위해 비활성화되어 있습니다" style="font-size:11px;padding:3px 8px;color:var(--muted);border-color:var(--border);opacity:0.5;cursor:not-allowed;">↩ 병합 롤백 (비활성화)</button>';
+    html += '<button type="button" class="sec" disabled title="' + tr("ws.stream.rollback_off_title") + '" style="font-size:11px;padding:3px 8px;color:var(--muted);border-color:var(--border);opacity:0.5;cursor:not-allowed;">' + tr("ws.stream.rollback_disabled") + '</button>';
   }
   html += '</div>';
   html += '</div>';
@@ -7631,7 +7604,7 @@ async function renderDecisionStreamCenter(appendOnly){
 
   if(!cachedDecisions.length && !isFetchingDecisions){
     isFetchingDecisions = true;
-    if(listEl && !appendOnly) listEl.innerHTML = '<p class="hint" style="padding:40px;text-align:center">지식 엔티티 판단 기록을 불러오는 중…</p>';
+    if(listEl && !appendOnly) listEl.innerHTML = '<p class="hint" style="padding:40px;text-align:center">' + tr("ws.stream.loading_records") + '</p>';
     try {
       const r = await fetch(apiUrl('resolution/decisions?limit=500'));
       if(r.ok){
@@ -7665,7 +7638,7 @@ async function renderDecisionStreamCenter(appendOnly){
   const visible = filtered.slice(0, displayedStreamLimit);
 
   if(statEl){
-    statEl.textContent = '표시: ' + visible.length + ' / 총 ' + total + '건';
+    statEl.textContent = tr('ws.stream.shown', { shown: visible.length, total: total });
   }
 
   const fBar = document.getElementById('stream-filter-bar');
@@ -7674,14 +7647,14 @@ async function renderDecisionStreamCenter(appendOnly){
     const mergeCount = cachedDecisions.filter(d => d.decision === 'MERGE').length;
     const newCount = cachedDecisions.filter(d => d.decision === 'CREATE_NEW').length;
     const rollbackCount = cachedDecisions.filter(d => d.decision === 'ROLLED_BACK' || d.rolled_back).length;
-    fBar.innerHTML = '<button type="button" class="sec' + (currentDecisionFilter==='ALL'?' active':'') + '" onclick="filterDecisionStreamCenter(\'ALL\')">전체 (' + totalCount + ')</button>' +
-      '<button type="button" class="sec' + (currentDecisionFilter==='MERGE'?' active':'') + '" onclick="filterDecisionStreamCenter(\'MERGE\')">병합 (' + mergeCount + ')</button>' +
-      '<button type="button" class="sec' + (currentDecisionFilter==='CREATE_NEW'?' active':'') + '" onclick="filterDecisionStreamCenter(\'CREATE_NEW\')">신규 (' + newCount + ')</button>' +
-      '<button type="button" class="sec' + (currentDecisionFilter==='ROLLED_BACK'?' active':'') + '" onclick="filterDecisionStreamCenter(\'ROLLED_BACK\')">롤백됨 (' + rollbackCount + ')</button>';
+    fBar.innerHTML = '<button type="button" class="sec' + (currentDecisionFilter==='ALL'?' active':'') + '" onclick="filterDecisionStreamCenter(\'ALL\')">' + tr("ws.stream.all") + ' (' + totalCount + ')</button>' +
+      '<button type="button" class="sec' + (currentDecisionFilter==='MERGE'?' active':'') + '" onclick="filterDecisionStreamCenter(\'MERGE\')">' + tr("ws.stream.merge") + ' (' + mergeCount + ')</button>' +
+      '<button type="button" class="sec' + (currentDecisionFilter==='CREATE_NEW'?' active':'') + '" onclick="filterDecisionStreamCenter(\'CREATE_NEW\')">' + tr("ws.stream.new") + ' (' + newCount + ')</button>' +
+      '<button type="button" class="sec' + (currentDecisionFilter==='ROLLED_BACK'?' active':'') + '" onclick="filterDecisionStreamCenter(\'ROLLED_BACK\')">' + tr("ws.stream.rolled_back") + ' (' + rollbackCount + ')</button>';
   }
 
   if(!visible.length){
-    listEl.innerHTML = '<p class="hint" style="padding:40px;text-align:center">기록된 의사결정 로그가 없습니다.</p>';
+    listEl.innerHTML = '<p class="hint" style="padding:40px;text-align:center">' + tr("ws.stream.empty") + '</p>';
     if(sentinelEl) sentinelEl.textContent = '';
     return;
   }
@@ -7690,9 +7663,9 @@ async function renderDecisionStreamCenter(appendOnly){
 
   if(sentinelEl){
     if(visible.length < total){
-      sentinelEl.innerHTML = '<span>스크롤하여 10개 더 불러오기 (남은 기록: ' + (total - visible.length) + '개)</span>';
+      sentinelEl.innerHTML = '<span>' + tr('ws.stream.scroll_more', { count: total - visible.length }) + '</span>';
     } else {
-      sentinelEl.innerHTML = '<span>모든 의사결정 기록을 확인했습니다 (총 ' + total + '개)</span>';
+      sentinelEl.innerHTML = '<span>' + tr('ws.stream.all_seen', { count: total }) + '</span>';
     }
   }
 }
@@ -7701,13 +7674,13 @@ function renderDecisionStreamPanel(){
   const totalCount = cachedDecisions.length;
   let filtered = getFilteredDecisions();
   let ph = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">';
-  ph += '<h2><span data-icon="list"></span> 의사결정 스트림</h2>';
-  ph += '<span style="font-size:11px;color:var(--muted)">총 ' + totalCount + '건의 판단 기록</span>';
+  ph += '<h2><span data-icon="list"></span> ' + tr("ws.view.stream") + '</h2>';
+  ph += '<span style="font-size:11px;color:var(--muted)">' + tr('ws.stream.total', { count: totalCount }) + '</span>';
   ph += '</div>';
-  ph += '<p class="al"><small>지식 베이스 전체의 엔티티 해소(Entity Resolution), 불변식 차단 및 가역적 병합 감사 로그입니다.</small></p>';
+  ph += '<p class="al"><small>' + tr("ws.stream.intro") + '</small></p>';
 
   if(!filtered.length){
-    ph += '<p class="hint" style="padding:16px 0;text-align:center">기록된 의사결정 로그가 없습니다.</p>';
+    ph += '<p class="hint" style="padding:16px 0;text-align:center">' + tr("ws.stream.empty") + '</p>';
   } else {
     ph += '<div style="display:flex;flex-direction:column;gap:10px">';
     filtered.slice(0, 30).forEach(dec => {
@@ -7742,7 +7715,7 @@ function openHeatmapMatrix(docId){
   }
   if(!mat && window.latestHeatmapMatrix){
     mat = window.latestHeatmapMatrix;
-    title = window.latestHeatmapDocTitle || '최근 적재 자료';
+    title = window.latestHeatmapDocTitle || tr("ws.cockpit.recent");
   }
 
   if(!mat){
@@ -7751,7 +7724,7 @@ function openHeatmapMatrix(docId){
 
   const titleEl = document.getElementById('matrix-title');
   if(titleEl){
-    titleEl.innerHTML = '지식 적재 콕핏 <small id="matrix-subtitle">| Ingest Cockpit (' + esc(title || '전체화면') + ')</small>';
+    titleEl.innerHTML = tr("ws.cockpit.title") + ' <small id="matrix-subtitle">| Ingest Cockpit (' + esc(title || tr("ws.presentation.fullscreen")) + ')</small>';
   }
 
   renderHeatmapMatrix(mat, title, false);
@@ -7759,13 +7732,13 @@ function openHeatmapMatrix(docId){
   if(spin) spin.style.display = 'none';
   const msgEl = document.getElementById('matrix-progress-msg');
   if(msgEl){
-    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>대조 완료</strong> (온톨로지 대조 밀도 계산 완료)';
+    msgEl.innerHTML = '<span data-icon="check-circle"></span> <strong>' + tr("ws.cockpit.compare_done") + '</strong> ' + tr("ws.cockpit.compare_done_detail");
   }
   setCenterView('matrix');
 }
 
 async function triggerRollback(docId, entity){
-  alert('원자적 롤백 기능은 미시험 상태로 현재 안전을 위해 비활성화되어 있습니다.');
+  alert(tr("ws.stream.rollback_off_hint"));
   return;
 }
 
@@ -7790,16 +7763,16 @@ function renderMiniMatrixBannerHtml(docId, mat){
     miniGrid += '</div>';
   }
 
-  const confirmBtnHtml = '<button type="button" class="pri matrix-purge-btn" onclick="confirmPurgeMatrix(' + jsArg(docId) + ')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;" title="대조 확인 및 매트릭스 소각 파기">✓ 확인</button>';
+  const confirmBtnHtml = '<button type="button" class="pri matrix-purge-btn" onclick="confirmPurgeMatrix(' + jsArg(docId) + ')" style="padding:4px 10px;font-size:11px;font-weight:bold;background:var(--accent,#0284c7);color:#fff;border:none;border-radius:4px;cursor:pointer;" title="' + tr("ws.cockpit.confirm_title") + '">' + tr("ws.cockpit.confirm") + '</button>';
 
   return '<div id="doc-matrix-banner-' + esc(docId) + '" class="matrix-preview-banner" style="margin-bottom:16px;padding:12px 14px;background:var(--card-bg);border:2px solid var(--accent,#0284c7);border-radius:8px;">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span><span data-icon="bolt"></span></span> 지식 적재 대조 콕핏</strong>' +
-        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">적재 시점의 전수 대조 밀도 텐서입니다. 관리자 확인 시 완전히 파기됩니다.</p>' +
+        '<strong style="color:var(--accent,#0284c7);font-size:13px;display:inline-flex;align-items:center;gap:5px"><span><span data-icon="bolt"></span></span> ' + tr("ws.cockpit.compare_title") + '</strong>' +
+        '<p style="font-size:11.5px;color:var(--muted);margin:2px 0 0">' + tr("ws.cockpit.compare_intro") + '</p>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
-        '<button type="button" class="sec" onclick="openHeatmapMatrix(' + jsArg(docId) + ')" style="padding:4px 8px;font-size:11px;"><span data-icon="search"></span> 콕핏에서 보기</button>' +
+        '<button type="button" class="sec" onclick="openHeatmapMatrix(' + jsArg(docId) + ')" style="padding:4px 8px;font-size:11px;"><span data-icon="search"></span> ' + tr("ws.cockpit.show") + '</button>' +
         confirmBtnHtml +
       '</div>' +
     '</div>' +
