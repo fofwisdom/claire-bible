@@ -84,7 +84,7 @@ Rule now: each access to a knowledge table goes through a store function with th
 
 ## 5. Service of Themes of Accounts (RD29)
 
-1. **Collaborators.** A collaborator credential ingests into a theme of another account only after an invitation of the owner of that theme. Without an invitation, the theme of another account is read-only for a public theme and hidden for a private theme. *Replaced by CT4 and CT5 of [`COLLABORATIVE_THEMES_DESIGN.md`](COLLABORATIVE_THEMES_DESIGN.md) (2026-11-16).*
+1. **Collaborators.** A collaborator credential ingests into a theme of another account only after an invitation of the owner of that theme. Without an invitation, the theme of another account is read-only for a public theme and hidden for a private theme. *Replaced by CT4, CT5, and CT13 of [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (2026-11-16).*
 2. **Ingest limit.** At first, one limit that the admin sets (documents, storage, and LLM use for each account), the same for all accounts. Limits for each account are a later change.
 3. **Visibility outside the server.** A public theme is visible to other servers only through the actor of its account (published documents, FP3 and FP4). A theme actor (`Group`, idea I1) waits for its own design.
 
