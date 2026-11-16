@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Planned, not implemented (draft, Rev. 5). The owner direction of Section 2 is locked (CT31, CT33, CT35, CT36 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 16 has the open questions; the owner answers them later.
+- **Status**: Planned, not implemented (draft, Rev. 6). The owner direction of Section 2 and the decisions KD1 to KD8 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. Section 16 has the open question PQ2.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -10,6 +10,7 @@
   - Rev. 3 (2026-11-16): interoperation review for each kind of software; Fedify baseline; review of the need for a partnership.
   - Rev. 4 (2026-11-16): the terms follow Mastodon (Section 3): **federation** is the open exchange without an agreement, and **relay** is the server-level subscription. The term "partnership" is retired, with its bilateral agreement and its scopes. Themes share ingested documents between servers through federation (owner). The file is renamed.
   - Rev. 5 (2026-11-16): the relay and the history of the server-level partnership of Rev. 1 to Rev. 3 moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only. The mutual collaboration between accounts is not a part of that partnership and stays in the shared knowledge base design §9.10.
+  - Rev. 6 (2026-11-16): answers to PQ3 to PQ9 and PQ13 (KD1 to KD8, Section 2.1). Review of the owner proposal for PQ2 (the domain `claire.bible`) with the policy of the `.bible` registry (Section 16).
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -45,6 +46,19 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | Later work | Merge decisions differ between servers; federation of merge decisions waits for a later design. Links between duplicate knowledge wait until there is a real need. |
 
 Production state (owner, 2026-11-16): the production server is in network mode, and its admin has a USERNAME.
+
+### 2.1 Decisions (2026-11-16)
+
+| ID | Question | Decision |
+| :--- | :--- | :--- |
+| KD1 | PQ3: removal at the origin | The holder hides the copy at once and puts it in its review queue; its reviewers decide (Section 10.3). |
+| KD2 | PQ4: the account actor of the admin in single mode | It federates with the same rules as network mode (`profile_public`, step-up) (Section 15). |
+| KD3 | PQ5: public personal knowledge bases in `/kb` | No in v1. Only shared knowledge bases (Section 8.1). |
+| KD4 | PQ6: default of `kb_auto_contribution` | `off` (Section 14). |
+| KD5 | PQ7: knowledge bases as actors | Each shared knowledge base has a `Group` actor; holders and theme members follow it (Section 9.2). |
+| KD6 | PQ8: remote collaborators | `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 12.2). |
+| KD7 | PQ9: authority identifiers | Entities carry authority identifiers in `sameAs` when they have them; the receiver matches them first; linking to an authority is later work (Section 10.4). |
+| KD8 | PQ13: domain block level "limit" | Yes, as a later step after the existing block (Section 6.3). |
 
 ---
 
@@ -231,7 +245,7 @@ All controls are one-sided, as in Mastodon (Section 3.1).
 | `kb_auto_contribution` | Off: the accounts of this server send no automatic contributions, and this server accepts none (Section 12.3). |
 | Signed GET | Collections of shared knowledge answer only signed requests of server actors, so that domain blocks apply to reads (Section 14). |
 
-A level "limit" for domain blocks (offers from that domain always wait for approval; its knowledge bases do not join local themes) is **[proposal, PQ13]**.
+A level "limit" for domain blocks (offers from that domain always wait for approval; its knowledge bases do not join local themes) is decided as a later step after the existing block (KD8).
 
 ### 6.4 Authority
 
@@ -264,7 +278,7 @@ The relay is not part of this design. [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/
 1. The `/kb` collection of a server (shared knowledge base design §7) lists its shared knowledge bases: label, description, knowledge type, counts, the signature of §8.2 of that design, and the IRI. No documents (P3).
 2. At the first contact with a known server, this server reads its `/kb` collection once in full with a signed GET. Later changes come from the knowledge base actors (Section 9.2) or from a new read each day.
 3. This server keeps the records in a store of remote knowledge bases. A remote knowledge base is not a partition of the local `claire.db` and has no documents until a curation or a contribution.
-4. Public personal knowledge bases are not in the `/kb` collection **[proposal, PQ5]**.
+4. Public personal knowledge bases are not in the `/kb` collection (KD3).
 5. Themes are not exchanged: each server computes its own themes and links to the knowledge bases of other servers.
 
 ### 8.2 Themes Across Servers (CT35)
@@ -288,24 +302,24 @@ Single mode shows no root page (Section 15).
 
 ### 9.1 Vocabulary
 
-1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers **[proposal, PQ2]**. Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
-2. The vocabulary document is written for Claire only, in our own words (Section 4.2).
+1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers **[open, PQ2]**. Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
+2. **[proposal]** Claire never fetches the context over the network: the context document is part of the code. The document of `v1` never changes; new terms go to a new version.
+3. The vocabulary document is written for Claire only, in our own words (Section 4.2).
 
 | Type | Base type | Content |
 | :--- | :--- | :--- |
-| `claire:KnowledgeBase` | `Group` with a collection of documents **[proposal, PQ7]** | A shared knowledge base: label, description, knowledge type, counts, signature, documents collection, `followers` |
+| `claire:KnowledgeBase` | `Group` with a collection of documents (KD5) | A shared knowledge base: label, description, knowledge type, counts, signature, documents collection, `followers` |
 | Document | `Article` | Title, content, canonical URL, content hash, `attributedTo` (the actor with the credit), `origin` (the object it was copied from), `claire:root` (the root document) |
 | `claire:Extraction` | `Object` | Entities (keys `type` and `norm_name`, aliases, `sameAs` with authority identifiers) and relations of one document, so that the receiver builds its graph without an LLM call |
 | `claire:Contribution` | `Object` | A document with its extraction, offered to one shared knowledge base |
 
-### 9.2 Knowledge Bases as Actors **[proposal, PQ7]**
+### 9.2 Knowledge Bases as Actors (KD5)
 
 1. Each shared knowledge base has a `Group` actor with an inbox, an outbox, and `followers`. Its keys are in the sidecar like the other keys.
 2. A server that holds copies of the documents of a knowledge base, or that has it in a local theme, follows that actor with its server actor.
 3. The knowledge base actor sends `Update` of its own record, `Update` of a document (revision), and `Delete` (removal at the origin) to its followers.
 4. A contribution `Offer` goes to the inbox of the knowledge base actor (F1).
 5. Followers are only server actors of Claire servers in this design. A follow of a person of the open fediverse is idea I1 and stays outside this design; the same actor can serve it later.
-6. Alternative if PQ7 is rejected: no knowledge base actors; the holder sends `Add` (document IRI, target = its knowledge base) to the server actor of the origin, and the origin keeps the list of holders (as `CacheFile` in P4); changes of records come from the daily read.
 
 ### 9.3 Activities
 
@@ -335,14 +349,14 @@ Curation and the first read use signed GET requests of the collections of the ot
 
 The knowledge base actor of the origin sends `Update` for each revision of a document to its followers. The holders apply it automatically, as in CT20 and CT26 of the shared knowledge base design.
 
-### 10.3 Removal at the Origin **[proposal, PQ3]**
+### 10.3 Removal at the Origin (KD1)
 
 The holder hides the copy at once and puts it in its review queue with the reason code of the origin. Its reviewers decide to remove it or to show it again. A copy is not removed automatically, because a removal at the origin can have a local reason; the hide at once protects the holder when the reason is legal or spam. A removal on the holder never changes the origin (L2).
 
 ### 10.4 Entities Across Servers
 
 1. Each server resolves entities in its own merge job (CT24). No server changes the graph of another server. Different results on different servers are normal.
-2. **Authority identifiers** **[proposal, PQ9]**. An entity can carry identifiers of an authority in `sameAs`: Wikidata (`wd:Q…`), ISBN, ORCID, and similar (I1, N1). The merge job of the receiver matches an entity with the same authority identifier first, then by keys. v1 sends an identifier only when the entity already has one; a function that links entities to an authority is later work.
+2. **Authority identifiers** (KD7). An entity can carry identifiers of an authority in `sameAs`: Wikidata (`wd:Q…`), ISBN, ORCID, and similar (I1, N1). The merge job of the receiver matches an entity with the same authority identifier first, then by keys. v1 sends an identifier only when the entity already has one; a function that links entities to an authority is later work.
 3. Federation of merge decisions and links between duplicates are later work (owner direction).
 
 ---
@@ -365,7 +379,7 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 4. The credit on B is the remote actor. When B receives `Delete(Person)` for that actor, the credit becomes "deleted account" (CT7).
 5. B computes the reputation of the remote account only from the decisions of B.
 
-### 12.2 Remote Collaborators (F3, L2) **[proposal, PQ8]**
+### 12.2 Remote Collaborators (F3, L2) (KD6)
 
 1. A moderator of a shared knowledge base on B can give the role `collaborator` to an account of another server. B sends `Grant` (context = the knowledge base, target = the remote actor, object = `collaborator`, end time 6 months) from the knowledge base actor.
 2. Each `Offer` of that account carries the grant IRI as its capability. B checks the grant (its own actor, its context, its target, the time, not revoked) and then applies the rules of a collaborator: no approval (shared knowledge base design §6.2), unless the local reputation of the account is `low`.
@@ -399,7 +413,7 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 | KS2 | Another server sends large or bad objects | Size limits for each object, each domain, and each day; schema validation; HTML sanitization; the merge job makes no LLM call, so received text is not a prompt in the merge. |
 | KS3 | Another server floods the review queue | Pending limits for each remote account and each domain; domain block. |
 | KS4 | Another server tells a false reputation or merge decision | Neither is received; each server computes its own (Sections 10.4, 12.1). |
-| KS5 | Private data leaves the server | Only shared knowledge bases (always public) and their visible documents leave the server. Personal knowledge bases are not in `/kb` (PQ5). No IdP data goes into federation (existing rule). |
+| KS5 | Private data leaves the server | Only shared knowledge bases (always public) and their visible documents leave the server. Personal knowledge bases are not in `/kb` (KD3). No IdP data goes into federation (existing rule). |
 | KS7 | A domain block or a switch change by mistake or with a stolen token | Recent sign-in for each admin action; `admin_audit`. |
 | KS8 | A grant is used after it should end | End time of 6 months; `Revoke`; each use checks the grant (Section 12.2). |
 | KS9 | An activity is processed twice or lost | Inbox journal with idempotent processing (Section 13). |
@@ -407,7 +421,7 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 | Switch (`server_settings`, all in `/admin/federation`) | Values | Default |
 | :--- | :--- | :--- |
 | `federation` (exists) | `off`, `on` | `off` today; `on` when the ActivityPub functions are complete (owner direction). It also turns on the federation of shared knowledge. |
-| `kb_auto_contribution` | `off`, `on` | `off` until the admin turns it on **[proposal, PQ6]** |
+| `kb_auto_contribution` | `off`, `on` | `off` until the admin turns it on (KD4) |
 
 The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
@@ -419,7 +433,7 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 2. **Root.** `/` sends a temporary redirect (302) to `/@{username}/`. It is temporary because the meaning of `/` depends on the server mode, which the admin can change. Other root paths of the personal knowledge base of single mode get 308 to `/@{username}/…`; these targets stay valid in network mode.
 3. **Setup not complete.** While the admin account has the state `setup_required`, `/` with the admin credential goes to `/setup` (as today); other requests get a page "setup not complete". There is no other target.
 4. **USERNAME exposure.** Rule S9 of the namespace design (no USERNAME in single mode) is withdrawn. The test `tests/test_single_mode_no_username_leak.py` is replaced by a test of the redirects. The setup confirmation says that the USERNAME is public in both modes.
-5. **Federation in single mode.** The server actor and the federation of shared knowledge work in single mode. The readiness check GF1 (network mode) changes for them. The account actor of the admin in single mode: **[proposal, PQ4]**.
+5. **Federation in single mode.** The server actor and the federation of shared knowledge work in single mode. The readiness check GF1 (network mode) changes for them. The account actor of the admin federates in single mode with the same rules as network mode: `profile_public` and step-up (KD2).
 6. **Mode change.** The refusal of `network` → `single` while `federation` is `on` (FEDERATION.md §8.3) changes, because federation can be on in single mode. A change to single mode still needs no members.
 
 ---
@@ -428,17 +442,28 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
 Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnership) by the owner direction of Section 2: federation without an agreement, relay for the server-level subscription. PQ11 (the term "directory") is applied with the unification of terms: the text uses "the `/kb` collection of another server"; the owner can reverse it. PQ12 (relay) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) in Rev. 5.
 
-| ID | Question | Proposal |
+Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8).
+
+### PQ2: The IRI of the Claire JSON-LD Context (Section 9.1)
+
+**Owner proposal (2026-11-16):** the domain `claire.bible`. It is the first server, and the maintainer of the project manages it. When this server stops and the domain is not renewed, the maintenance of the project has ended.
+
+**Review (2026-11-16):**
+
+1. **Effect on Claire servers.** Small. Claire servers do not fetch the context (Section 9.1, rule 2), so a loss of the domain does not stop the exchange between Claire servers. The IRI stays an identifier.
+2. **Registry policy.** The `.bible` registry is the American Bible Society **[external]** (`nic.bible`). Its Acceptable Use Policy (version of 2018-02-22, read 2026-11-16) says, in summary:
+   - Its content rules apply to all content published with a `.bible` domain and to links from it to external content. Prohibited content includes content that advocates a faith tradition other than orthodox Christianity or Judaism, content that is disrespectful to the Bible, and content that can harm the reputation of the registry or the `.bible` name space.
+   - The registry can, at its own discretion and without notice, suspend, cancel, or end a registration, and can redirect or divert the traffic of a domain.
+   - Third-level domains need the permission of the registry; a list of common labels (for example `www`, `kb`, `help`) needs none.
+3. **Consequence.** The proposal makes "the domain stops" mean "the maintenance ended". The policy adds a second cause that the maintainer does not control: a suspension or a redirect by the registry while the project is alive. A Claire server shows content that its accounts ingest (any subject, fiction, other faiths) and links to it, so this cause is real for a server on `claire.bible`. When the registry redirects the domain, a JSON-LD processor of other software that fetches the context can get a different document under the Claire IRI.
+4. **Alternative.** `w3id.org` is a permanent URL redirection service of the W3C Permanent Identifier Community Group, operated by a group of organizations **[external]**. It separates the identifier from the host: a project adds redirect rules with a pull request and can change the target later. Fediverse vocabularies use it (for example `https://w3id.org/security/v1`). The paths `w3id.org/claire` and `w3id.org/claire-bible` were free on 2026-11-16.
+
+| Option | Identifier | When `claire.bible` stops or is suspended |
 | :--- | :--- | :--- |
-| PQ2 | The IRI of the Claire JSON-LD context (Section 9.1) | One IRI under a domain of the project that the owner selects; each server also serves a copy. |
-| PQ3 | Removal at the origin (Section 10.3) | The holder hides the copy at once and its reviewers decide. |
-| PQ4 | Does the account actor of the admin federate in single mode? It is necessary for contributions to other servers. | Yes, with the same rules as network mode (`profile_public`, step-up). |
-| PQ5 | Public personal knowledge bases in the `/kb` collection? | No in v1. Only shared knowledge bases. |
-| PQ6 | Default of `kb_auto_contribution` | `off`. |
-| PQ7 | Each shared knowledge base as a `Group` actor, with holders and theme members as its followers (Section 9.2)? | Yes. |
-| PQ8 | Remote collaborators with `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 12.2)? | Yes. |
-| PQ9 | Authority identifiers (Wikidata and others) in `sameAs` of entities, matched first by the receiver (Section 10.4)? | Yes, when the entity already has one; linking to an authority is later work. |
-| PQ13 | A domain block level "limit" (offers always wait for approval; its knowledge bases do not join local themes)? | Yes, as a later step after the existing block. |
+| A (owner proposal) | `https://claire.bible/ns/v1` | The identifier stays valid for Claire servers; other software can get a wrong document. |
+| B (proposal) | `https://w3id.org/claire-bible/ns/v1`, redirect to `https://claire.bible/ns/v1` | While the project is alive, a pull request moves the redirect to another host. When the maintenance ends, the redirect can point to an archive. |
+
+**Proposal:** B. The rule of the owner stays true for the project home and the first server; the identifier does not depend on the policy of one registry. The registration on `w3id.org` is a step of the owner (a pull request). A or B: the owner decides.
 
 ---
 

@@ -497,7 +497,7 @@ Each action writes a row in `kb_moderation_log`.
 
 Review of a contributor proposal (2026-11-16): "When a space about a subject appears, the documents that I collected and that fit go there automatically." This extends CT21 from one decision for each document to one decision for each rule.
 
-**Server switch.** The function works only while the switch `kb_auto_contribution` in `server_settings` is `on`. The admin sets it in `/admin/federation`. The default is `off` **[proposal, federation design PQ6]**. When the admin turns it off, all rules pause and keep their settings; no run starts. Automatic contributions to other servers also need the switch on the receiving server (federation design §12.3).
+**Server switch.** The function works only while the switch `kb_auto_contribution` in `server_settings` is `on`. The admin sets it in `/admin/federation`. The default is `off` (federation design KD4). When the admin turns it off, all rules pause and keep their settings; no run starts. Automatic contributions to other servers also need the switch on the receiving server (federation design §12.3).
 
 1. **Rule.** An account has at most one automatic rule (`kb_auto_rules`). The rule selects the targets:
    - `memberships`: the shared knowledge bases where the account is an active member, collaborator, or moderator;
@@ -913,7 +913,7 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 
 Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34), OQ29 (CT37).
 
-The open questions of the federation between servers (PQ2 to PQ9, PQ13) are in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §16.
+The open question of the federation between servers (PQ2) is in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §16; its decisions KD1 to KD8 are in its §2.1.
 
 No question of this design is open.
 
