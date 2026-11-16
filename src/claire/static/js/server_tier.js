@@ -3,13 +3,16 @@
 (function () {
   "use strict";
 
+  // Each text of this script is a catalog key (ClaireI18n, static/locales/{en,ko}.json).
+  var tr = function (key, params) { return window.ClaireI18n.t(key, params); };
+
   var ERROR_TEXT = {
-    reauth_required: "먼저 본인 확인을 하세요.",
-    step_up_requires_session: "로그인 세션에서만 저장할 수 있습니다.",
-    invalid_password: "비밀번호가 맞지 않습니다.",
-    too_many_attempts: "시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요.",
-    forbidden: "요청 출처를 확인하지 못했습니다.",
-    invalid_request: "요청 형식이 맞지 않습니다."
+    reauth_required: tr("console.js.admin.tier.error.reauth_required"),
+    step_up_requires_session: tr("console.js.admin.tier.error.step_up_requires_session"),
+    invalid_password: tr("console.js.common.error.invalid_password"),
+    too_many_attempts: tr("console.js.common.error.too_many_attempts"),
+    forbidden: tr("console.js.admin.error.forbidden"),
+    invalid_request: tr("console.js.common.error.invalid_request")
   };
   var INT_FIELDS = [
     "monthly_tokens", "daily_ingests", "storage_mb", "max_themes", "max_documents"
@@ -22,9 +25,9 @@
   }
 
   function errorText(status, body) {
-    if (body && body.error === "invalid_server_tier" && body.detail) return "값이 올바르지 않습니다: " + body.detail;
+    if (body && body.error === "invalid_server_tier" && body.detail) return tr("console.js.admin.tier.invalid", { detail: body.detail });
     if (body && body.error && ERROR_TEXT[body.error]) return ERROR_TEXT[body.error];
-    return "요청을 처리하지 못했습니다 (HTTP " + status + ").";
+    return tr("console.js.common.http_error", { status: status });
   }
 
   function send(method, url, payload) {
@@ -70,14 +73,14 @@
       event.preventDefault();
       send("PUT", "/api/admin/server-tier", collect(form)).then(function (r) {
         if (r.ok) {
-          show(out, "저장했습니다. 준비 검사(G5)는 화면을 새로 고치면 갱신됩니다.", false);
+          show(out, tr("console.js.admin.tier.saved"), false);
           if (reauth) reauth.hidden = true;
           return;
         }
         if (r.body && r.body.error === "reauth_required" && reauth) reauth.hidden = false;
         show(out, errorText(r.status, r.body), true);
       }).catch(function () {
-        show(out, "서버에 연결하지 못했습니다.", true);
+        show(out, tr("console.js.common.network_error"), true);
       });
     });
 
@@ -89,12 +92,12 @@
       send("POST", "/api/auth/reauth", { password: field.value }).then(function (r) {
         field.value = "";
         if (r.ok) {
-          show(reauthOut, "본인 확인을 마쳤습니다. 다시 저장하세요.", false);
+          show(reauthOut, tr("console.js.admin.tier.reauth_done"), false);
           return;
         }
         show(reauthOut, errorText(r.status, r.body), true);
       }).catch(function () {
-        show(reauthOut, "서버에 연결하지 못했습니다.", true);
+        show(reauthOut, tr("console.js.common.network_error"), true);
       });
     });
   }

@@ -474,7 +474,7 @@ def test_g5_requires_a_valid_stored_tier(kdb, tmp_path):
     kdb.execute("INSERT INTO instance_settings (key, value, updated_at) VALUES ('server_tier', '{\"provider\": \"codex\"}', 0)")
     kdb.commit()
     item = _g5(kdb, tmp_path)
-    assert item.passed is False and "유효하지 않" in item.detail
+    assert item.passed is False and "is not valid" in item.detail
     st.save_server_tier(kdb, ServerTier(), updated_by=1)  # none도 유효한 설정이다
     item = _g5(kdb, tmp_path)
     assert item.passed is True and "provider=none" in item.detail
@@ -676,6 +676,6 @@ def test_admin_instance_page_has_server_tier_section(client, app_settings):
         assert f'name="{name}"' in page.text
     for feature in ("expand", "stt", "vlm", "presentation", "synthesize"):
         assert f'name="features" value="{feature}"' in page.text
-    assert "미설정" in page.text
+    assert "Not set" in page.text
     js = _req(client, "GET", "/static/js/server_tier.js")
     assert js.status_code == 200 and "/api/admin/server-tier" in js.text

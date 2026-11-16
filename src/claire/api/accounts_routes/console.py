@@ -37,6 +37,7 @@ from .common import (
     open_db,
     prototype_badge,
     prototype_note,
+    t_code,
     render_template,
 )
 from .console_federation_panels import settings_federation_body
@@ -49,7 +50,7 @@ from ...store import auth_db
 from ...store import usage_ledger
 from . import features as feature_routes
 from . import keys as keys_routes
-from .admin import ROLE_TEXT, STATUS_TEXT
+from .admin import account_role_text, account_status_text
 from .common import icon_html, open_auth_db
 
 # 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
@@ -469,9 +470,9 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     if slug == "providers":
         body = (
-            '<div class="card" id="admin-providers-card" aria-label="프로바이더 설정">'
+            f'<div class="card" id="admin-providers-card" aria-label="{escape(t("console.admin.providers.label"))}">'
             '<div id="admin-providers-host" data-admin-panel-host="providers">'
-            '<p class="hint">프로바이더 설정 화면을 불러오는 중입니다...</p>'
+            f'<p class="hint">{escape(t("console.admin.providers.loading"))}</p>'
             "</div>"
             "</div>"
         )
@@ -479,9 +480,9 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     if slug == "limits":
         body = (
-            '<div class="card" id="admin-limits-card" aria-label="적재 제한 설정">'
+            f'<div class="card" id="admin-limits-card" aria-label="{escape(t("console.admin.limits.label"))}">'
             '<div id="admin-limits-host" data-admin-panel-host="limits">'
-            '<p class="hint">적재 제한 설정 화면을 불러오는 중입니다...</p>'
+            f'<p class="hint">{escape(t("console.admin.limits.loading"))}</p>'
             "</div>"
             "</div>"
         )
@@ -496,18 +497,18 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         finally:
             conn.close()
         body = (
-            '<section class="card" id="admin-themes-summary" aria-label="인스턴스 테마 슬롯 현황">'
-            '<h2><span data-icon="chart"></span> 인스턴스 전체 테마 슬롯 현황 <span class="badge">집계 전용 · 비공개 콘텐츠 비접근 (D5/K5)</span></h2>'
-            '<p class="hint">운영자는 인스턴스 전체 계정 수와 테마 슬롯 개수만 확인하며, 일반 멤버의 테마 이름·설명·문서 본문은 절대 열람하지 않습니다.</p>'
+            f'<section class="card" id="admin-themes-summary" aria-label="{escape(t("console.admin.themes.summary_label"))}">'
+            f'<h2><span data-icon="chart"></span> {escape(t("console.admin.themes.summary_title"))} <span class="badge">{escape(t("console.admin.themes.summary_badge"))}</span></h2>'
+            f'<p class="hint">{escape(t("console.admin.themes.summary_hint"))}</p>'
             '<div class="pref-stat-row" id="admin-themes-stats">'
-            f'<div class="pref-stat"><b data-stat="total_accounts">{total_accounts}</b><span>활성·등록 계정 수 (total_accounts)</span></div>'
-            f'<div class="pref-stat"><b data-stat="total_themes">{total_themes}</b><span>인스턴스 전체 테마 슬롯 (total_themes)</span></div>'
-            f'<div class="pref-stat"><b data-stat="admin_themes">{admin_themes}</b><span>관리자 소유 테마 수</span></div>'
+            f'<div class="pref-stat"><b data-stat="total_accounts">{total_accounts}</b><span>{escape(t("console.admin.themes.total_accounts"))}</span></div>'
+            f'<div class="pref-stat"><b data-stat="total_themes">{total_themes}</b><span>{escape(t("console.admin.themes.total_themes"))}</span></div>'
+            f'<div class="pref-stat"><b data-stat="admin_themes">{admin_themes}</b><span>{escape(t("console.admin.themes.admin_themes"))}</span></div>'
             "</div>"
             "</section>"
-            '<section class="card" id="admin-themes-manager-card" aria-label="관리자 지식 테마 관리">'
+            f'<section class="card" id="admin-themes-manager-card" aria-label="{escape(t("console.admin.themes.manager_label"))}">'
             '<div id="admin-themes-host" data-admin-panel-host="themes">'
-            '<p class="hint">관리자 지식 테마 목록을 불러오는 중입니다...</p>'
+            f'<p class="hint">{escape(t("console.admin.themes.loading"))}</p>'
             "</div>"
             "</section>"
         )
@@ -541,7 +542,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
                 ruris = [str(ruris_raw)] if ruris_raw else []
             ruri_str = ", ".join(str(u) for u in ruris) if ruris else "-"
             created_str = format_ts(created_at)
-            exp_str = format_ts(max_exp) if max_exp else "발급 토큰 없음"
+            exp_str = format_ts(max_exp) if max_exp else t("console.admin.tokens.no_token")
             client_trs.append(
                 f"<tr>"
                 f"<td><strong>{escape(cname or 'External MCP Client')}</strong></td>"
@@ -562,31 +563,31 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         clients_tbody = (
             "".join(client_trs)
             if client_trs
-            else '<tr><td colspan="4" style="color:var(--muted);text-align:center;">등록된 OAuth 2.1 클라이언트가 없습니다.</td></tr>'
+            else f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.admin.tokens.clients_empty"))}</td></tr>'
         )
         body = (
-            '<section class="card" id="admin-tokens-manager-card" aria-label="관리자 상시 이용 토큰 관리">'
+            f'<section class="card" id="admin-tokens-manager-card" aria-label="{escape(t("console.admin.tokens.manager_label"))}">'
             '<div id="admin-tokens-host" data-admin-panel-host="tokens">'
-            '<p class="hint">관리자 상시 이용 토큰 목록을 불러오는 중입니다...</p>'
+            f'<p class="hint">{escape(t("console.admin.tokens.loading"))}</p>'
             "</div>"
             "</section>"
-            '<section class="card" id="admin-oauth-clients-card" aria-label="OAuth 2.1 등록 클라이언트">'
-            '<h2><span data-icon="lock"></span> OAuth 2.1 등록 및 승인 클라이언트 현황</h2>'
-            '<p class="hint"><code>/oauth/register</code>(DCR) 및 <code>/oauth/authorize</code>로 등록된 원격 MCP 클라이언트 목록입니다. 토큰 원문은 저장·표시하지 않습니다.</p>'
+            f'<section class="card" id="admin-oauth-clients-card" aria-label="{escape(t("console.admin.tokens.clients_label"))}">'
+            f'<h2><span data-icon="lock"></span> {escape(t("console.admin.tokens.clients_title"))}</h2>'
+            f'<p class="hint">{t_code("console.admin.tokens.clients_hint", register="/oauth/register", authorize="/oauth/authorize")}</p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
-            '<thead><tr><th>클라이언트 이름</th><th>client_id · redirect_uris</th><th>등록 시각</th><th>만료 시각</th></tr></thead>'
+            f'<thead><tr><th>{escape(t("console.oauth.col_client_name"))}</th><th>client_id · redirect_uris</th><th>{escape(t("console.admin.tokens.col_registered"))}</th><th>{escape(t("console.admin.tokens.col_expires"))}</th></tr></thead>'
             f'<tbody id="pref-mcp-clients-tbody">{clients_tbody}</tbody>'
             "</table>"
             "</div>"
             "</section>"
-            '<section class="card" id="admin-token-policy-card" aria-label="인스턴스 토큰 정책 요약">'
-            f'<h2><span data-icon="shield"></span> 인스턴스 인증 채널 및 토큰 정책 {prototype_badge("admin-token-policy-summary", "static")}</h2>'
-            f'{prototype_note("admin-token-policy-summary", "코드 기본값을 옮겨 적은 고정 안내문입니다. 실행 중인 설정을 읽어 오지 않으며, 여기서 정책을 바꿀 수 없습니다.")}'
+            f'<section class="card" id="admin-token-policy-card" aria-label="{escape(t("console.admin.tokens.policy_label"))}">'
+            f'<h2><span data-icon="shield"></span> {escape(t("console.admin.tokens.policy_title"))} {prototype_badge("admin-token-policy-summary", "static")}</h2>'
+            f'{prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note"))}'
             '<dl>'
-            '<dt>상시 이용 토큰 (<code>cb_…</code>)</dt><dd>계정별 격리 발급 · <code>owner</code> / <code>collaborator</code> / <code>readonly</code> 권한 · 즉시 폐기(<code>/tokens/revoke</code>)</dd>'
-            '<dt>OAuth 2.1 원격 커넥터</dt><dd>PKCE(S256) 필수 · <code>readonly</code> 스코프 고정 · Access 30일 / Refresh 1년 회전</dd>'
-            '<dt>세션 쿠키</dt><dd>7일 슬라이딩 만료 · 민감 작업 시 15분 단계 인증(<code>/api/auth/reauth</code>) 요구</dd>'
+            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", collaborator="collaborator", readonly="readonly", revoke="/tokens/revoke")}</dd>'
+            f'<dt>{escape(t("console.admin.tokens.policy_oauth"))}</dt><dd>{t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")}</dd>'
+            f'<dt>{escape(t("console.admin.tokens.policy_session"))}</dt><dd>{t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")}</dd>'
             "</dl>"
             "</section>"
         )
@@ -594,73 +595,73 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     if slug == "mcp":
         body = (
-            '<section class="card" id="admin-mcp-telemetry-card" aria-label="MCP 호출 감사 기록">'
+            f'<section class="card" id="admin-mcp-telemetry-card" aria-label="{escape(t("console.admin.mcp.audit_label"))}">'
             '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-            '<h2><span data-icon="list"></span> 실시간 MCP 호출 감사 기록 (<code>mcp_telemetry</code>)</h2>'
+            f'<h2><span data-icon="list"></span> {t_code("console.admin.mcp.audit_title", table="mcp_telemetry")}</h2>'
             '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-            '<label style="font-size:12px;font-weight:600">상태 <select id="admin-mcp-filter-status" class="pref-select">'
-            '<option value="">전체 상태</option>'
+            f'<label style="font-size:12px;font-weight:600">{escape(t("console.common.status"))} <select id="admin-mcp-filter-status" class="pref-select">'
+            f'<option value="">{escape(t("console.admin.mcp.filter_all"))}</option>'
             '<option value="SUCCESS">SUCCESS</option>'
             '<option value="success">success</option>'
             '<option value="ERROR">ERROR</option>'
             '<option value="UNAUTHORIZED">UNAUTHORIZED</option>'
             '<option value="auth_error">auth_error</option>'
             "</select></label>"
-            '<label style="font-size:12px;font-weight:600">도구 <input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="예: search" style="width:130px"/></label>'
-            '<label style="font-size:12px;font-weight:600">표시 건수 <select id="admin-mcp-filter-limit" class="pref-select">'
-            '<option value="25">25건</option>'
-            '<option value="50" selected>50건</option>'
-            '<option value="100">100건</option>'
-            '<option value="200">200건</option>'
+            f'<label style="font-size:12px;font-weight:600">{escape(t("console.admin.mcp.filter_tool"))} <input type="text" id="admin-mcp-filter-tool" class="pref-input" placeholder="{escape(t("console.admin.mcp.filter_tool_placeholder"))}" style="width:130px"/></label>'
+            f'<label style="font-size:12px;font-weight:600">{escape(t("console.admin.mcp.filter_limit"))} <select id="admin-mcp-filter-limit" class="pref-select">'
+            f'<option value="25">{escape(t("console.admin.mcp.limit_25"))}</option>'
+            f'<option value="50" selected>{escape(t("console.admin.mcp.limit_50"))}</option>'
+            f'<option value="100">{escape(t("console.admin.mcp.limit_100"))}</option>'
+            f'<option value="200">{escape(t("console.admin.mcp.limit_200"))}</option>'
             "</select></label>"
-            '<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">↻ 새로고침</button>'
+            f'<button type="button" id="admin-mcp-refresh-btn" class="pref-btn">{escape(t("console.common.refresh"))}</button>'
             "</div>"
             "</div>"
-            '<p class="hint"><code>GET /api/admin/mcp/telemetry</code>에서 조회한 최신 도구 호출 및 인증 감사 기록입니다. 인자 및 응답 본문은 저장하지 않습니다.</p>'
+            f'<p class="hint">{t_code("console.admin.mcp.audit_hint", endpoint="GET /api/admin/mcp/telemetry")}</p>'
             '<p class="result" id="admin-mcp-telemetry-status" role="status" aria-live="polite"></p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
-            '<thead><tr><th>시각</th><th>call_type</th><th>tool_name</th><th>status</th><th>duration_ms</th><th>response_bytes</th><th>client_id</th></tr></thead>'
-            '<tbody id="pref-mcp-audit-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">감사 기록을 불러오는 중입니다...</td></tr></tbody>'
+            f'<thead><tr><th>{escape(t("console.admin.mcp.col_time"))}</th><th>call_type</th><th>tool_name</th><th>status</th><th>duration_ms</th><th>response_bytes</th><th>client_id</th></tr></thead>'
+            f'<tbody id="pref-mcp-audit-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.mcp.audit_loading"))}</td></tr></tbody>'
             "</table>"
             "</div>"
             "</section>"
-            '<section class="card" id="admin-mcp-rbac-card" aria-label="RBAC 설계 대조 진단">'
-            f'<h2><span data-icon="compass"></span> RBAC 설계 vs 현재 MCP 접근 판정 대조 {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
-            f'{prototype_note("admin-mcp-rbac-table", "고정 문구로 그린 설계 대조표입니다. 실제 권한 판정을 실행하거나 서버 정책을 읽어 오지 않으며, 판정 칸도 고정값입니다.")}'
-            '<p class="hint">권한 범위별 REST RBAC 정책과 <code>/mcp</code> 엔드포인트 도구 호출 권한 대조표입니다.</p>'
+            f'<section class="card" id="admin-mcp-rbac-card" aria-label="{escape(t("console.admin.mcp.rbac_label"))}">'
+            f'<h2><span data-icon="compass"></span> {escape(t("console.admin.mcp.rbac_title"))} {prototype_badge("admin-mcp-rbac-table", "static")}</h2>'
+            f'{prototype_note("admin-mcp-rbac-table", t("console.admin.mcp.rbac_note"))}'
+            f'<p class="hint">{t_code("console.admin.mcp.rbac_hint", endpoint="/mcp")}</p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
-            '<thead><tr><th>권한 (Scope)</th><th>RBAC 설계 (REST)</th><th>현재 MCP (/mcp)</th><th>판정</th></tr></thead>'
+            f'<thead><tr><th>{escape(t("console.admin.mcp.rbac_col_scope"))}</th><th>{escape(t("console.admin.mcp.rbac_col_design"))}</th><th>{escape(t("console.admin.mcp.rbac_col_current"))}</th><th>{escape(t("console.admin.mcp.rbac_col_result"))}</th></tr></thead>'
             '<tbody id="pref-mcp-rbac-tbody">'
-            '<tr><td><code class="pref-mono">owner</code></td><td>읽기 · 쓰기 (자신 소유 테마)</td><td>읽기 전용 도구 10종 실행</td><td><span class="pref-pill pref-pill-mcp">일치</span></td></tr>'
-            '<tr><td><code class="pref-mono">collaborator</code></td><td>협업 허용 테마 읽기 · 쓰기 (Theme 0 차단)</td><td>읽기 전용 도구 실행</td><td><span class="pref-pill pref-pill-mcp">점검 대상</span></td></tr>'
-            '<tr><td><code class="pref-mono">readonly</code></td><td>공개·허용 테마 읽기 전용</td><td>읽기 전용 도구 실행</td><td><span class="pref-pill pref-pill-mcp">일치</span></td></tr>'
-            '<tr><td><code class="pref-mono">anonymous</code></td><td>공개 테마 열람 (비공개 404 은폐)</td><td>항상 거부 (401 Unauthorized)</td><td><span class="pref-pill">더 엄격</span></td></tr>'
+            f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
+            f'<tr><td><code class="pref-mono">collaborator</code></td><td>{escape(t("console.admin.mcp.rbac_collaborator_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
+            f'<tr><td><code class="pref-mono">readonly</code></td><td>{escape(t("console.admin.mcp.rbac_readonly_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
+            f'<tr><td><code class="pref-mono">anonymous</code></td><td>{escape(t("console.admin.mcp.rbac_anonymous_design"))}</td><td>{escape(t("console.admin.mcp.rbac_anonymous_current"))}</td><td><span class="pref-pill">{escape(t("console.admin.mcp.rbac_stricter"))}</span></td></tr>'
             "</tbody>"
             "</table>"
             "</div>"
             "</section>"
-            '<section class="card" id="admin-webmcp-policy-card" aria-label="전역 WebMCP 정책">'
-            f'<h2><span data-icon="graph"></span> 전역 WebMCP 브라우저 페이지 도구 정책 (<code>Permissions-Policy</code>) {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
-            f'{prototype_note("admin-webmcp-global-switch", "이 스위치는 지금 보고 있는 브라우저(localStorage)에만 기억됩니다. 서버 설정을 바꾸지 않고 Permissions-Policy 헤더도 보내지 않으며, 다른 운영자·멤버 화면에 적용되지 않습니다.")}'
+            f'<section class="card" id="admin-webmcp-policy-card" aria-label="{escape(t("console.admin.mcp.webmcp_label"))}">'
+            f'<h2><span data-icon="graph"></span> {t_code("console.admin.mcp.webmcp_title", header="Permissions-Policy")} {prototype_badge("admin-webmcp-global-switch", "client_only")}</h2>'
+            f'{prototype_note("admin-webmcp-global-switch", t("console.admin.mcp.webmcp_note"))}'
             '<div class="pref-row">'
             '<div class="pref-row-label">'
-            '<strong>WebMCP 페이지 도구 전역 허용 (<code>document.modelContext</code>)</strong>'
-            '<span>비활성화 시 브라우저 에이전트의 페이지 도구 등록을 차단하고 <code>Permissions-Policy: tools=()</code> 헤더 정책을 적용하는 것이 설계 목표입니다(서버 쪽 미구현).</span>'
+            f'<strong>{t_code("console.admin.mcp.webmcp_switch", api="document.modelContext")}</strong>'
+            f'<span>{t_code("console.admin.mcp.webmcp_switch_desc", header="Permissions-Policy: tools=()")}</span>'
             "</div>"
-            '<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="WebMCP 도구 등록 전역 허용"/>'
+            f'<input id="pref-webmcp-enabled" type="checkbox" switch checked aria-label="{escape(t("console.admin.mcp.webmcp_switch_label"))}"/>'
             "</div>"
-            '<p class="hint" id="admin-webmcp-policy-hint">현재 상태: 활성 (테마별 상세 노출 설정은 <code>/settings/webmcp</code>에서 구성합니다).</p>'
+            f'<p class="hint" id="admin-webmcp-policy-hint">{t_code("console.admin.mcp.webmcp_state_hint", path="/settings/webmcp")}</p>'
             "</section>"
-            '<section class="card" id="admin-support-bundle-card" aria-label="진단 지원 번들 생성">'
-            '<h2><span data-icon="package"></span> 진단 지원 번들 (<code>POST /support/bundle</code>) 내보내기</h2>'
-            '<p class="hint">최근 텔레메트리, 스키마 상태, 환경 구성을 비밀정보 마스킹 후 압축 번들로 생성합니다.</p>'
+            f'<section class="card" id="admin-support-bundle-card" aria-label="{escape(t("console.admin.mcp.bundle_label"))}">'
+            f'<h2><span data-icon="package"></span> {t_code("console.admin.mcp.bundle_title", endpoint="POST /support/bundle")}</h2>'
+            f'<p class="hint">{escape(t("console.admin.mcp.bundle_hint"))}</p>'
             '<form id="admin-support-bundle-form" data-support-bundle-form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
-            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">수집 기간 (일)'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.mcp.bundle_days"))}'
             '<input type="number" name="days" id="admin-support-bundle-days" class="pref-input" min="1" max="30" value="7" style="width:90px" required/>'
             "</label>"
-            '<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> 지원 번들 생성</button>'
+            f'<button type="submit" class="pref-btn pref-btn-accent" id="admin-support-bundle-btn"><span data-icon="pulse"></span> {escape(t("console.admin.mcp.bundle_submit"))}</button>'
             "</form>"
             '<p class="result" id="admin-support-bundle-result" data-support-bundle-result role="status" aria-live="polite"></p>'
             "</section>"
@@ -669,16 +670,16 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
 
     return (
         f'<div class="console-placeholder" data-area="admin" data-slug="{escape(slug)}">'
-        f'<p class="console-desc">경로: <code>/admin/{escape(slug)}</code></p>'
+        f'<p class="console-desc">{t_code("console.admin.placeholder_path", path=f"/admin/{slug}")}</p>'
         "</div>"
     ), {}
 
 
-# /settings/account?notice= 안내문 (옛 /me?notice=). 목록에 없는 값은 아무것도 보여 주지 않는다(표시용 힌트일 뿐 식별자가 아니다).
+# Catalog keys of the notices of /settings/account?notice=. A value that is not in this map shows nothing: the value is a display hint, not an identifier.
 SETTINGS_ACCOUNT_NOTICE_TEXT = {
-    "password_not_saved": "계정 설정은 확정됐지만 비밀번호를 저장하지 못했습니다. 아래에서 비밀번호를 설정하세요.",
-    "already_linked": "이 외부 계정은 이미 현재 계정에 연결되어 있습니다.",
-    "identity_linked": "외부 계정이 성공적으로 연결되었습니다.",
+    "password_not_saved": "console.settings.account.notice.password_not_saved",
+    "already_linked": "console.settings.account.notice.already_linked",
+    "identity_linked": "console.settings.account.notice.identity_linked",
 }
 
 
@@ -773,18 +774,18 @@ def _settings_account_usage(ctx: AccountsContext, account_id: int) -> dict[str, 
 
 
 def _settings_tier_rows_html(tier: ServerTier) -> str:
-    features = ", ".join(sorted(tier.features)) if tier.features else "없음"
+    features = ", ".join(sorted(tier.features)) if tier.features else t("console.common.none")
     rows = (
-        ("서버 등급 프로바이더", "없음 (none)" if tier.provider == "none" else tier.provider),
-        ("모델", tier.model or "-"),
-        ("월 LLM 토큰 상한 (UTC 월)", f"{tier.monthly_tokens:,}"),
-        ("일 적재 건수 상한 (UTC 일)", f"{tier.daily_ingests:,}"),
-        ("최대 처리 강도 (max_effort)", tier.max_effort),
-        ("허용 기능", features),
-        ("저장 용량 상한", f"{tier.storage_mb:,} MB"),
-        ("테마 수 상한", f"{tier.max_themes:,}"),
-        ("문서 수 상한", f"{tier.max_documents:,}"),
-        ("BYOK 동시 작업 상한", f"{tier.byok_max_concurrency:,}"),
+        (t("console.tier.provider"), t("console.tier.provider_none") if tier.provider == "none" else tier.provider),
+        (t("console.tier.model"), tier.model or "-"),
+        (t("console.tier.monthly_tokens"), f"{tier.monthly_tokens:,}"),
+        (t("console.tier.daily_ingests"), f"{tier.daily_ingests:,}"),
+        (t("console.tier.max_effort"), tier.max_effort),
+        (t("console.tier.features"), features),
+        (t("console.tier.storage"), f"{tier.storage_mb:,} MB"),
+        (t("console.tier.max_themes"), f"{tier.max_themes:,}"),
+        (t("console.tier.max_documents"), f"{tier.max_documents:,}"),
+        (t("console.tier.byok_concurrency"), f"{tier.byok_max_concurrency:,}"),
     )
     return "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
 
@@ -793,17 +794,17 @@ def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> 
     tier: ServerTier = usage["tier"]
     if admin_viewer:
         stats = (
-            ("themes", f"{usage['themes']:,}", "내 테마 수"),
-            ("documents", f"{usage['documents']:,}", "내 문서 수"),
-            ("storage", _settings_format_bytes(usage["storage_bytes"]), "저장 용량 (근사)"),
+            ("themes", f"{usage['themes']:,}", t("console.usage.themes_own")),
+            ("documents", f"{usage['documents']:,}", t("console.usage.documents_own")),
+            ("storage", _settings_format_bytes(usage["storage_bytes"]), t("console.usage.storage_own")),
         )
     else:
         stats = (
-            ("themes", f"{usage['themes']:,} / {tier.max_themes:,}", "테마 수 / 상한"),
-            ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", "문서 수 / 상한"),
-            ("storage", f"{_settings_format_bytes(usage['storage_bytes'])} / {tier.storage_mb:,} MB", "저장 용량 (근사) / 상한"),
-            ("tokens", f"{usage['tokens_total']:,} / {tier.monthly_tokens:,}", f"이번 달 LLM 토큰 ({usage['period']} UTC) / 서버 등급 상한"),
-            ("ingests", f"{usage['daily_ingests']:,} / {tier.daily_ingests:,}", f"오늘 적재 건수 ({usage['daily_day']} UTC) / 상한"),
+            ("themes", f"{usage['themes']:,} / {tier.max_themes:,}", t("console.usage.themes")),
+            ("documents", f"{usage['documents']:,} / {tier.max_documents:,}", t("console.usage.documents")),
+            ("storage", f"{_settings_format_bytes(usage['storage_bytes'])} / {tier.storage_mb:,} MB", t("console.usage.storage")),
+            ("tokens", f"{usage['tokens_total']:,} / {tier.monthly_tokens:,}", t("console.usage.tokens", period=usage['period'])),
+            ("ingests", f"{usage['daily_ingests']:,} / {tier.daily_ingests:,}", t("console.usage.ingests", day=usage['daily_day'])),
         )
     return "".join(
         f'<div class="pref-stat" data-usage-stat="{escape(key)}"><b>{escape(value)}</b><span>{escape(label)}</span></div>'
@@ -814,17 +815,17 @@ def _settings_usage_stats_html(usage: dict[str, Any], *, admin_viewer: bool) -> 
 def _settings_reauth_form_html(*, has_password: bool, form_id: str) -> str:
     if not has_password:
         return (
-            f'<section class="console-subcard" id="{escape(form_id)}" data-settings-reauth="none" aria-label="본인 확인">'
-            "<h2><span data-icon='lock'></span> 본인 확인</h2>"
-            '<p class="hint">이 계정에는 아직 비밀번호가 없습니다. 로그인 링크로 방금 들어온 세션은 15분 동안 본인 확인을 대신합니다. 시간이 지났으면 새 로그인 링크로 다시 로그인하세요.</p>'
+            f'<section class="console-subcard" id="{escape(form_id)}" data-settings-reauth="none" aria-label="{escape(t("console.reauth.submit"))}">'
+            f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.submit'))}</h2>"
+            f'<p class="hint">{escape(t("console.reauth.no_password_hint"))}</p>'
             "</section>"
         )
     return (
-        f'<form class="console-subcard" id="{escape(form_id)}" data-settings-form="reauth" aria-label="본인 확인">'
-        "<h2><span data-icon='lock'></span> 본인 확인 (단계 인증)</h2>"
-        '<p class="hint">비밀번호 변경, 외부 계정 연결·해제, API 키 등록·삭제는 15분 안에 본인 확인을 해야 합니다.</p>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">현재 비밀번호<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>'
+        f'<form class="console-subcard" id="{escape(form_id)}" data-settings-form="reauth" aria-label="{escape(t("console.reauth.submit"))}">'
+        f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.form_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.reauth.form_hint"))}</p>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.current_password"))}<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
     )
@@ -862,19 +863,19 @@ def _settings_account_body(
     providers = _settings_enabled_idp_providers(ctx)
 
     # S9: 싱글 모드에서는 USERNAME과 profile_public 행을 내지 않는다.
-    info_rows: list[tuple[str, str, str]] = [("public_id", "번호", str(account.public_id))]
+    info_rows: list[tuple[str, str, str]] = [("public_id", t("console.settings.account.field.number"), str(account.public_id))]
     if mode == "network":
-        info_rows.append(("username", "USERNAME", f"@{account.username}" if account.username else "(설정 전)"))
+        info_rows.append(("username", "USERNAME", f"@{account.username}" if account.username else t("console.settings.account.username_unset")))
     info_rows.extend(
         (
-            ("display_name", "표시 이름", account.display_name),
-            ("role", "역할", ROLE_TEXT.get(account.role, account.role)),
-            ("status", "상태", STATUS_TEXT.get(account.status, account.status)),
-            ("password", "비밀번호", "설정됨" if has_password else "설정 안 됨"),
+            ("display_name", t("console.settings.account.display_name"), account.display_name),
+            ("role", t("console.settings.account.field.role"), account_role_text(account.role)),
+            ("status", t("console.common.status"), account_status_text(account.status)),
+            ("password", t("console.settings.account.password"), t("console.settings.account.password_set") if has_password else t("console.settings.account.password_unset")),
         )
     )
     if mode == "network":
-        info_rows.append(("profile_public", "프로필 공개", "공개 (공개 디렉터리에 표시)" if account.profile_public else "비공개"))
+        info_rows.append(("profile_public", t("console.settings.account.profile_public"), t("console.settings.account.profile_public_on") if account.profile_public else t("console.settings.account.profile_public_off")))
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-account-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in info_rows)
     # Fedify sidecar design Sections 8.1 and 8.4: with federation on, a public profile is a federation actor and the change to public needs a step-up.
     federation_on = mode == "network" and _federation_on(ctx)
@@ -882,14 +883,14 @@ def _settings_account_body(
     if federation_on:
         step_up_attr = ' data-step-up="password"' if has_password else ' data-step-up="session"'
     federation_hint_html = (
-        '<p class="hint" data-federation-hint>연합이 켜져 있습니다. 프로필을 공개하면 다른 서버에서 이 계정을 찾고 팔로우할 수 있으며, 공개로 바꿀 때 본인 확인이 필요합니다. 비공개로 바꾸면 연합이 일시 중지되지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.</p>'
+        f'<p class="hint" data-federation-hint>{escape(t("console.settings.account.federation_hint"))}</p>'
         if federation_on
         else ""
     )
     profile_toggle_html = (
         '<div style="margin-top:12px;display:flex;align-items:center;gap:8px">'
-        '<label for="pref-profile-public" style="font-size:12.5px;font-weight:600">프로필 공개</label>'
-        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{step_up_attr}{" checked" if account.profile_public else ""} aria-label="프로필 공개 여부"/>'
+        f'<label for="pref-profile-public" style="font-size:12.5px;font-weight:600">{escape(t("console.settings.account.profile_public"))}</label>'
+        f'<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"{step_up_attr}{" checked" if account.profile_public else ""} aria-label="{escape(t("console.settings.account.profile_public_label"))}"/>'
         '</div>'
         f'{federation_hint_html}'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
@@ -898,20 +899,20 @@ def _settings_account_body(
     )
 
     current_pw_html = (
-        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">현재 비밀번호<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.current_password"))}<input name="current_password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
         if has_password
-        else '<p class="hint">이 계정에는 아직 비밀번호가 없습니다. 본인 확인 시간(15분) 안에 새 비밀번호를 설정하세요.</p>'
+        else f'<p class="hint">{escape(t("console.settings.account.no_password_hint"))}</p>'
     )
     min_len = auth_db.MIN_PASSWORD_LENGTH
 
     provider_buttons = "".join(
-        f'<button type="button" class="pref-btn" data-identity-link="{escape(p.id)}">+ {escape(p.display_name)} 연결</button>'
+        f'<button type="button" class="pref-btn" data-identity-link="{escape(p.id)}">+ {escape(t("console.settings.account.identity_link", name=p.display_name))}</button>'
         for p in providers
     )
     link_html = (
         f'<div style="display:flex;gap:8px;flex-wrap:wrap" data-identity-link-list>{provider_buttons}</div>'
         if provider_buttons
-        else '<p class="hint" data-identity-link-empty>이 인스턴스에서 연결할 수 있는 외부 로그인 공급자가 없습니다.</p>'
+        else f'<p class="hint" data-identity-link-empty>{escape(t("console.settings.account.identity_link_empty"))}</p>'
     )
 
     bundle_options = "".join(
@@ -921,83 +922,84 @@ def _settings_account_body(
     if bundle_options:
         bundle_html = (
             '<form style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap" data-settings-form="bundle-export">'
-            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">내보낼 테마<select name="theme" class="pref-select" required>{bundle_options}</select></label>'
-            '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> 그래프 번들 만들기</button>'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.bundle_theme"))}<select name="theme" class="pref-select" required>{bundle_options}</select></label>'
+            f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.settings.account.bundle_submit"))}</button>'
             "</form>"
             '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
             '<div data-bundle-output aria-live="polite"></div>'
         )
     else:
-        bundle_html = '<p class="hint" data-bundle-empty>내 계정이 소유한 테마가 없어 내보낼 번들이 없습니다.</p>'
+        bundle_html = f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
 
     if admin_viewer:
-        lifecycle_html = '<p class="hint" data-lifecycle="admin">관리자 계정은 인스턴스 소유 계정이므로 삭제할 수 없습니다.</p>'
+        lifecycle_html = f'<p class="hint" data-lifecycle="admin">{escape(t("console.settings.account.lifecycle_admin"))}</p>'
     elif account.status == "deleting":
         lifecycle_html = (
             '<div class="pref-notice" data-tone="warn" data-lifecycle="deleting">'
-            f"이 계정은 삭제 예약 상태입니다. 예정 시각: {escape(format_ts(account.delete_after))}. 유예 기간 안에 취소하려면 인스턴스 운영자에게 요청하세요."
+            f"{escape(t('console.settings.account.lifecycle_deleting', when=format_ts(account.delete_after)))}"
             "</div>"
         )
     else:
         lifecycle_html = (
-            '<p class="hint" data-lifecycle="member">계정 삭제는 인스턴스 운영자가 예약합니다. 예약하면 즉시 로그인 세션과 토큰을 끊고, 7일 유예 뒤 내 테마·문서를 소각합니다.</p>'
-            '<p class="hint">이 화면에서 직접 보낼 수 있는 삭제 요청 API는 아직 없습니다. 삭제를 원하면 인스턴스 운영자에게 요청하세요. 삭제 전에 위의 그래프 번들로 내 테마를 내보낼 수 있습니다.</p>'
+            f'<p class="hint" data-lifecycle="member">{escape(t("console.settings.account.lifecycle_member"))}</p>'
+            f'<p class="hint">{escape(t("console.settings.account.lifecycle_member_hint"))}</p>'
         )
 
     quota_hint = (
-        "관리자 계정은 서버 등급 한도를 받지 않습니다. 아래는 내 계정의 현재 사용량입니다."
+        f"{escape(t('console.settings.account.quota_hint_admin'))}"
         if admin_viewer
-        else "서버 등급 한도는 BYOK 키를 등록해도 자원 한도(테마·문서·저장 용량·일 적재 건수)에 적용됩니다. 월 토큰 상한은 서버 등급 프로바이더를 쓸 때만 적용됩니다."
+        else t("console.settings.account.quota_hint")
     )
 
-    notice_text = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
+    notice_key = SETTINGS_ACCOUNT_NOTICE_TEXT.get(notice or "")
+    notice_text = t(notice_key) if notice_key else ""
     notice_html = f'<p class="pref-notice" data-account-notice="{escape(notice or "")}" role="status">{escape(notice_text)}</p>' if notice_text else ""
     body = (
         f"{notice_html}"
-        '<section class="console-subcard" id="settings-account-info" aria-label="계정 정보">'
-        "<h2><span data-icon='id'></span> 계정 정보</h2>"
+        f'<section class="console-subcard" id="settings-account-info" aria-label="{escape(t("console.settings.account.info_title"))}">'
+        f"<h2><span data-icon='id'></span> {escape(t('console.settings.account.info_title'))}</h2>"
         f"<dl>{info_html}</dl>"
         f"{profile_toggle_html}"
         "</section>"
-        '<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="표시 이름">'
-        "<h2><span data-icon='tag'></span> 표시 이름</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">표시 이름<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
+        f'<form class="console-subcard" id="settings-display-name" data-settings-form="display-name" aria-label="{escape(t("console.settings.account.display_name"))}">'
+        f"<h2><span data-icon='tag'></span> {escape(t('console.settings.account.display_name'))}</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.display_name"))}<input name="display_name" type="text" class="pref-input" value="{escape(account.display_name)}" maxlength="64" autocomplete="name"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         f"{_settings_locale_html(account)}"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
-        f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="비밀번호">'
-        f"<h2><span data-icon='key'></span> {'비밀번호 변경' if has_password else '비밀번호 설정'}</h2>"
+        f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="{escape(t("console.settings.account.password"))}">'
+        f"<h2><span data-icon='key'></span> {escape(t('console.settings.account.password_change') if has_password else t('console.settings.account.password_setup'))}</h2>"
         f"{current_pw_html}"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">새 비밀번호 확인<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
-        f"<p class=\"hint\">{min_len}자 이상. 영문 대소문자, 숫자, 표준 특수문자만 쓸 수 있고 공백·한글은 쓸 수 없습니다. USERNAME을 넣을 수 없습니다. 바꾸면 이 세션을 뺀 다른 로그인 세션은 모두 끊깁니다.</p>"
-        '<button type="submit" class="pref-btn pref-btn-accent">저장</button>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.new_password"))}<input name="new_password" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.account.new_password_confirm"))}<input name="new_password_confirm" type="password" class="pref-input" required minlength="{min_len}" autocomplete="new-password"/></label>'
+        f"<p class=\"hint\">{escape(t('console.settings.account.password_rules', min=min_len))}</p>"
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
-        '<section class="console-subcard" id="settings-identities" data-settings-identities aria-label="연결된 외부 로그인">'
-        "<h2><span data-icon='link'></span> 연결된 외부 로그인 (OIDC · GitHub)</h2>"
-        '<p class="hint">연결과 해제는 본인 확인을 먼저 해야 합니다. 비밀번호가 없으면 마지막 외부 로그인은 해제할 수 없습니다.</p>'
+        f'<section class="console-subcard" id="settings-identities" data-settings-identities aria-label="{escape(t("console.settings.account.identities_label"))}">'
+        f"<h2><span data-icon='link'></span> {escape(t('console.settings.account.identities_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.settings.account.identities_hint"))}</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        "<thead><tr><th>공급자</th><th>연결 시각</th><th>마지막 로그인</th><th></th></tr></thead>"
-        '<tbody data-identities-tbody><tr><td colspan="4" style="color:var(--muted);text-align:center;">연결 목록을 불러오는 중입니다...</td></tr></tbody>'
+        f"<thead><tr><th>{escape(t('console.settings.account.identities_col_provider'))}</th><th>{escape(t('console.settings.account.identities_col_linked'))}</th><th>{escape(t('console.settings.account.identities_col_last_login'))}</th><th></th></tr></thead>"
+        f'<tbody data-identities-tbody><tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.settings.account.identities_loading"))}</td></tr></tbody>'
         "</table></div>"
         f"{link_html}"
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
-        '<section class="console-subcard" id="settings-quota" aria-label="할당량 및 사용량">'
-        "<h2><span data-icon='ruler'></span> 할당량 및 사용량</h2>"
+        f'<section class="console-subcard" id="settings-quota" aria-label="{escape(t("console.settings.account.quota_title"))}">'
+        f"<h2><span data-icon='ruler'></span> {escape(t('console.settings.account.quota_title'))}</h2>"
         f'<p class="hint">{escape(quota_hint)}</p>'
         f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=admin_viewer)}</div>'
         "</section>"
-        '<section class="console-subcard" id="settings-bundle" aria-label="테마 그래프 번들 내보내기">'
-        "<h2><span data-icon='package'></span> 내 테마 그래프 번들 내보내기</h2>"
-        '<p class="hint">선택한 내 테마의 엔티티·관계·문서를 그래프 번들(<code>POST /graph/bundle</code>)로 묶고 본인 전용 내려받기 링크를 만듭니다. 링크는 만료 시각까지만 유효합니다.</p>'
+        f'<section class="console-subcard" id="settings-bundle" aria-label="{escape(t("console.settings.account.bundle_label"))}">'
+        f"<h2><span data-icon='package'></span> {escape(t('console.settings.account.bundle_title'))}</h2>"
+        f'<p class="hint">{t_code("console.settings.account.bundle_hint", endpoint="POST /graph/bundle")}</p>'
         f"{bundle_html}"
         "</section>"
-        '<section class="console-subcard" id="settings-account-lifecycle" aria-label="계정 삭제">'
-        "<h2><span data-icon='trash'></span> 계정 삭제</h2>"
+        f'<section class="console-subcard" id="settings-account-lifecycle" aria-label="{escape(t("console.settings.account.lifecycle_title"))}">'
+        f"<h2><span data-icon='trash'></span> {escape(t('console.settings.account.lifecycle_title'))}</h2>"
         f"{lifecycle_html}"
         "</section>"
     )
@@ -1036,26 +1038,26 @@ def _settings_keys_body(
 ) -> tuple[str, dict[str, Any]]:
     if admin_viewer:
         # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
-        notice = "서버 공용 프로바이더(Google AI Studio · ServerTier · Feature Routing)는 프로바이더 관리 화면에서 설정합니다. 개인 CLI 클라이언트(Antigravity · Codex)는 약관 분리 정책에 따라 이 관리자 개인 계정 화면에서만 선택·관리할 수 있습니다."
+        notice = t("console.settings.keys.admin_notice")
         body = (
-            '<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="프로바이더 설정 안내">'
-            "<h2><span data-icon='bolt'></span> 서버 공용 프로바이더 설정</h2>"
+            f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="{escape(t("console.settings.keys.admin_label"))}">'
+            f"<h2><span data-icon='bolt'></span> {escape(t('console.settings.keys.admin_title'))}</h2>"
             f'<p class="hint">{escape(notice)}</p>'
-            '<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> 프로바이더 설정 열기</a>'
+            f'<a class="pref-btn pref-btn-accent" href="/admin/providers"><span data-icon="bolt"></span> {escape(t("console.settings.keys.admin_open"))}</a>'
             "</section>"
-            '<section class="console-subcard" id="admin-personal-cli-host" data-admin-personal-cli aria-label="관리자 개인 CLI 클라이언트 설정">'
-            "<h2><span data-icon='terminal'></span> 관리자 개인 CLI 클라이언트</h2>"
-            '<p class="hint">호스트에 설치된 Antigravity CLI(agy) 또는 Codex CLI는 최상위 관리자 개인 계정 범위에서만 선택하여 사용할 수 있습니다. 일반 멤버와 ServerTier에는 노출되지 않습니다.</p>'
-            '<p class="hint" data-personal-cli-loading>CLI 상태와 지원 모델 목록을 불러오는 중입니다...</p>'
+            f'<section class="console-subcard" id="admin-personal-cli-host" data-admin-personal-cli aria-label="{escape(t("console.settings.keys.cli_label"))}">'
+            f"<h2><span data-icon='terminal'></span> {escape(t('console.settings.keys.cli_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.settings.keys.cli_hint"))}</p>'
+            f'<p class="hint" data-personal-cli-loading>{escape(t("console.settings.keys.cli_loading"))}</p>'
             "</section>"
         )
         return body, {"keys_mode": "admin"}
     if mode != "network" or principal.instance_role != "member":
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
-            '<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="API 키 안내">'
-            "<h2><span data-icon='lock'></span> 외부 API 키</h2>"
-            '<p class="hint">이 인스턴스는 싱글 모드로 운영 중이므로 개인 API 키(BYOK)를 등록할 수 없습니다. LLM·STT·VLM 프로바이더는 인스턴스 운영자가 관리합니다.</p>'
+            f'<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="{escape(t("console.settings.keys.unavailable_label"))}">'
+            f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.unavailable_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.settings.keys.unavailable_hint"))}</p>'
             "</section>"
         )
         return body, {"keys_mode": "unavailable"}
@@ -1071,41 +1073,41 @@ def _settings_keys_body(
         f'<option value="{escape(p)}">{escape(keys_routes.PROVIDER_TEXT.get(p, p))}</option>' for p in MEMBER_KEY_PROVIDERS
     )
     body = (
-        '<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="등록한 API 키">'
-        "<h2><span data-icon='lock'></span> 내 API 키 (쓰기 전용 · Split-Key 봉인)</h2>"
-        '<p class="hint">LLM 작업에 쓸 본인 API 키입니다. 등록한 키는 암호화해 저장하고, 다시 보거나 복사할 수 없습니다. 화면과 API에는 키에서 파생한 fingerprint만 나옵니다. 키가 거부되거나 할당량이 다 되면 작업은 실패하며, 서버 등급이나 다른 키로 바꿔 쓰지 않습니다.</p>'
-        '<p class="hint" data-split-key-notice>분할 키 암호화(Split-Key Envelope): 저장 키는 서버 마스터 키와 이용자 브라우저의 휘발성 봉인(seal) 쿠키를 결합해 암호화하므로, 서버 관리자나 유지보수 담당자라도 디스크·DB만으로는 키를 복호화할 수 없습니다. (호스트 메모리 실행 시점 복호화는 root 권한을 막지 못합니다.)</p>'
+        f'<section class="console-subcard" id="settings-keys-meta" data-keys-mode="byok" aria-label="{escape(t("console.settings.keys.meta_label"))}">'
+        f"<h2><span data-icon='lock'></span> {escape(t('console.settings.keys.meta_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.settings.keys.meta_hint"))}</p>'
+        f'<p class="hint" data-split-key-notice>{escape(t("console.settings.keys.split_key_notice"))}</p>'
         f'<div data-provider-key-meta aria-live="polite">{keys_routes._meta_rows(items)}</div>'
         "</section>"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-keys-reauth')}"
-        '<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="키 등록·교체">'
-        "<h2><span data-icon='plus'></span> 키 등록·교체</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
+        f'<form class="console-subcard" id="settings-keys-put" data-settings-form="provider-key-put" aria-label="{escape(t("console.settings.keys.put_title"))}">'
+        f"<h2><span data-icon='plus'></span> {escape(t('console.settings.keys.put_title'))}</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
         '<div data-byok-policy-summary class="hint" aria-live="polite"></div>'
-        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">모델 선택 (관리자 기준선 이상 · mock 제외)<select name="model" class="pref-select" data-byok-model-select><option value="">관리자 기본 모델 이상 자동 적용</option></select></label>'
-        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">추론 수준 (Effort)<select name="effort" class="pref-select" data-byok-effort-select><option value="">관리자 기본 추론 수준 이상 자동 적용</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">API 키<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
-        '<p class="hint">저장하기 전에 시험 호출로 키를 확인하고, 실패하면 저장하지 않습니다. 이미 등록한 키가 있으면 새 키로 바꿉니다.</p>'
-        '<button type="submit" class="pref-btn pref-btn-accent">확인 후 저장</button>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.model"))}<select name="model" class="pref-select" data-byok-model-select><option value="">{escape(t("console.settings.keys.model_auto"))}</option></select></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.effort"))}<select name="effort" class="pref-select" data-byok-effort-select><option value="">{escape(t("console.settings.keys.effort_auto"))}</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.api_key"))}<input name="api_key" type="password" class="pref-input" required autocomplete="off" spellcheck="false" maxlength="{keys_routes.API_KEY_MAX_LENGTH}"/></label>'
+        f'<p class="hint">{escape(t("console.settings.keys.put_hint"))}</p>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.settings.keys.put_submit"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
-        '<form class="console-subcard" id="settings-keys-verify" data-settings-form="provider-key-verify" aria-label="키 다시 확인">'
-        "<h2><span data-icon='repeat'></span> 키 다시 확인</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
-        '<p class="hint">저장한 키로 시험 호출을 다시 해서 상태를 갱신합니다.</p>'
-        '<button type="submit" class="pref-btn">다시 확인</button>'
+        f'<form class="console-subcard" id="settings-keys-verify" data-settings-form="provider-key-verify" aria-label="{escape(t("console.settings.keys.verify_title"))}">'
+        f"<h2><span data-icon='repeat'></span> {escape(t('console.settings.keys.verify_title'))}</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
+        f'<p class="hint">{escape(t("console.settings.keys.verify_hint"))}</p>'
+        f'<button type="submit" class="pref-btn">{escape(t("console.settings.keys.verify_submit"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
-        '<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="키 삭제">'
-        "<h2><span data-icon='trash'></span> 키 삭제</h2>"
-        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">프로바이더<select name="provider" class="pref-select">{provider_options}</select></label>'
-        '<p class="hint">삭제하면 서버 등급이 허용하는 범위에서만 LLM 작업을 합니다.</p>'
-        '<button type="submit" class="pref-btn pref-btn-danger">삭제</button>'
+        f'<form class="console-subcard" id="settings-keys-delete" data-settings-form="provider-key-delete" aria-label="{escape(t("console.settings.keys.delete_title"))}">'
+        f"<h2><span data-icon='trash'></span> {escape(t('console.settings.keys.delete_title'))}</h2>"
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{escape(t("console.settings.keys.provider"))}<select name="provider" class="pref-select">{provider_options}</select></label>'
+        f'<p class="hint">{escape(t("console.settings.keys.delete_hint"))}</p>'
+        f'<button type="submit" class="pref-btn pref-btn-danger">{escape(t("common.action.delete"))}</button>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
-        '<section class="console-subcard" id="settings-keys-tier" aria-label="서버 등급 허용량">'
-        "<h2><span data-icon='chart'></span> 현재 서버 등급 허용량 (ServerTier)</h2>"
-        '<p class="hint">키를 등록하지 않으면 아래 서버 등급으로 작업합니다. 자원 한도는 키를 등록해도 적용됩니다.</p>'
+        f'<section class="console-subcard" id="settings-keys-tier" aria-label="{escape(t("console.settings.keys.tier_label"))}">'
+        f"<h2><span data-icon='chart'></span> {escape(t('console.settings.keys.tier_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.settings.keys.tier_hint"))}</p>'
         f"<dl data-server-tier>{_settings_tier_rows_html(usage['tier'])}</dl>"
         f'<div class="pref-stat-row" data-usage-stats>{_settings_usage_stats_html(usage, admin_viewer=False)}</div>'
         "</section>"
@@ -1125,12 +1127,12 @@ def _settings_themes_body(
     finally:
         conn.close()
     body = (
-        '<section class="console-subcard" id="settings-themes-quota" aria-label="테마 슬롯">'
-        f'<p class="hint" data-theme-slots>내 테마 {len(owned_themes):,}개 / 서버 등급 상한 {tier.max_themes:,}개</p>'
+        f'<section class="console-subcard" id="settings-themes-quota" aria-label="{escape(t("console.settings.themes.slots_label"))}">'
+        f'<p class="hint" data-theme-slots>{escape(t("console.settings.themes.slots", owned=f"{len(owned_themes):,}", limit=f"{tier.max_themes:,}"))}</p>'
         "</section>"
-        '<section class="console-subcard" id="settings-themes-manager-card" aria-label="내 지식 테마 관리">'
+        f'<section class="console-subcard" id="settings-themes-manager-card" aria-label="{escape(t("console.settings.themes.manager_label"))}">'
         '<div id="settings-themes-host" data-settings-panel-host="themes">'
-        '<p class="hint">내 지식 테마 목록을 불러오는 중입니다...</p>'
+        f'<p class="hint">{escape(t("console.settings.themes.loading"))}</p>'
         "</div>"
         "</section>"
     )
@@ -1179,18 +1181,18 @@ def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Accou
         "</tr>"
         for c in clients
     )
-    tbody = trs or '<tr><td colspan="5" style="color:var(--muted);text-align:center;">내 계정으로 승인한 OAuth 2.1 클라이언트가 없습니다.</td></tr>'
+    tbody = trs or f'<tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
     body = (
-        '<section class="console-subcard" id="settings-tokens-manager-card" aria-label="내 상시 이용 토큰">'
+        f'<section class="console-subcard" id="settings-tokens-manager-card" aria-label="{escape(t("console.settings.tokens.manager_label"))}">'
         '<div id="settings-tokens-host" data-settings-panel-host="tokens">'
-        '<p class="hint">내 상시 이용 토큰 목록을 불러오는 중입니다...</p>'
+        f'<p class="hint">{escape(t("console.settings.tokens.loading"))}</p>'
         "</div>"
         "</section>"
-        '<section class="console-subcard" id="settings-oauth-clients" aria-label="내가 승인한 OAuth 클라이언트">'
-        "<h2><span data-icon='lock'></span> 내가 승인한 OAuth 2.1 클라이언트</h2>"
-        '<p class="hint">내 계정으로 <code>/oauth/authorize</code> 승인을 받아 토큰을 발급받은 원격 MCP 클라이언트입니다. 토큰 원문은 표시하지 않습니다.</p>'
+        f'<section class="console-subcard" id="settings-oauth-clients" aria-label="{escape(t("console.settings.tokens.clients_label"))}">'
+        f"<h2><span data-icon='lock'></span> {escape(t('console.settings.tokens.clients_title'))}</h2>"
+        f'<p class="hint">{t_code("console.settings.tokens.clients_hint", authorize="/oauth/authorize")}</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        "<thead><tr><th>클라이언트 이름</th><th>client_id · redirect_uris</th><th>첫 발급 시각</th><th>마지막 만료 시각</th><th>토큰 수</th></tr></thead>"
+        f"<thead><tr><th>{escape(t('console.oauth.col_client_name'))}</th><th>client_id · redirect_uris</th><th>{escape(t('console.settings.tokens.col_first_issued'))}</th><th>{escape(t('console.settings.tokens.col_last_expiry'))}</th><th>{escape(t('console.settings.tokens.col_count'))}</th></tr></thead>"
         f"<tbody data-oauth-clients-tbody>{tbody}</tbody>"
         "</table></div>"
         "</section>"

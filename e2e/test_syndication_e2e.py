@@ -87,7 +87,7 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         assert r_prefs.headers["location"].startswith("/settings/connections?theme=")
         r_console = client.get(r_prefs.headers["location"], headers=owner)
         assert r_console.status_code == 200
-        assert "연결 서버 계정" in r_console.text
+        assert "Connected server accounts" in r_console.text
         assert 'href="/syndication' in r_console.text
 
         r_robots = client.get("/robots.txt")

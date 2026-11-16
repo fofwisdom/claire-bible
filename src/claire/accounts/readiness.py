@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..api import security
+from ..i18n import t
 from ..api.host_router import HostRoles
 from ..store import accounts as accounts_store
 from . import server_tier
@@ -68,9 +69,9 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     items.append(
         ReadinessItem(
             id="G1",
-            name="엄격한 테마 조회 (S2)",
+            name=t("console.readiness.network.g1.name"),
             passed=NETWORK_MODE_AVAILABLE,
-            detail="모든 진입점에서 테마 조회가 엄격합니다" if NETWORK_MODE_AVAILABLE else "CI 게이트: 네트워크 모드 릴리스 필요 (NETWORK_MODE_AVAILABLE=False)",
+            detail=t("console.readiness.network.g1.ok") if NETWORK_MODE_AVAILABLE else t("console.readiness.network.release_gate"),
         )
     )
 
@@ -78,9 +79,9 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     items.append(
         ReadinessItem(
             id="G2",
-            name="theme_id 명시 AST 테스트 (S3)",
+            name=t("console.readiness.network.g2.name"),
             passed=NETWORK_MODE_AVAILABLE,
-            detail="theme_id 명시 AST 테스트 통과" if NETWORK_MODE_AVAILABLE else "CI 게이트: 네트워크 모드 릴리스 필요 (NETWORK_MODE_AVAILABLE=False)",
+            detail=t("console.readiness.network.g2.ok") if NETWORK_MODE_AVAILABLE else t("console.readiness.network.release_gate"),
         )
     )
 
@@ -88,9 +89,9 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     items.append(
         ReadinessItem(
             id="G3",
-            name="계정 격리 행렬 테스트",
+            name=t("console.readiness.network.g3.name"),
             passed=NETWORK_MODE_AVAILABLE,
-            detail="계정 격리 행렬 테스트 통과" if NETWORK_MODE_AVAILABLE else "CI 게이트: 네트워크 모드 릴리스 필요 (NETWORK_MODE_AVAILABLE=False)",
+            detail=t("console.readiness.network.g3.ok") if NETWORK_MODE_AVAILABLE else t("console.readiness.network.release_gate"),
         )
     )
 
@@ -99,14 +100,14 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     usercontent_fqdn = str(getattr(settings, "usercontent_fqdn", "") or "").strip()
     if env == "production":
         g4_passed = bool(usercontent_fqdn)
-        g4_detail = f"운영 환경 usercontent FQDN 설정됨 ({usercontent_fqdn})" if g4_passed else "운영 환경에서는 CLAIRE_USERCONTENT_FQDN 설정이 필요합니다"
+        g4_detail = t("console.readiness.network.g4.ok", fqdn=usercontent_fqdn) if g4_passed else t("console.readiness.network.g4.missing")
     else:
         g4_passed = True
-        g4_detail = f"개발/테스트 환경 ({env})"
+        g4_detail = t("console.readiness.network.g4.development", env=env)
     items.append(
         ReadinessItem(
             id="G4",
-            name="usercontent 호스트 설정 (N5)",
+            name=t("console.readiness.network.g4.name"),
             passed=g4_passed,
             detail=g4_detail,
         )
@@ -117,20 +118,20 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     raw_tier = server_tier.read_stored_server_tier(conn)
     if raw_tier is None:
         g5_passed = False
-        g5_detail = "서버 등급이 정해지지 않았습니다 (/admin/instance에서 none 포함 저장 필요)"
+        g5_detail = t("console.readiness.network.g5.unset")
     else:
         try:
             tier = server_tier.parse_server_tier(raw_tier)
         except ValueError as exc:
             g5_passed = False
-            g5_detail = f"저장된 서버 등급이 유효하지 않습니다 ({exc})"
+            g5_detail = t("console.readiness.network.g5.invalid", error=str(exc))
         else:
             g5_passed = True
-            g5_detail = f"서버 등급 설정됨 (provider={tier.provider})"
+            g5_detail = t("console.readiness.network.g5.ok", provider=tier.provider)
     items.append(
         ReadinessItem(
             id="G5",
-            name="서버 등급 설정 (none 포함)",
+            name=t("console.readiness.network.g5.name"),
             passed=g5_passed,
             detail=g5_detail,
         )
@@ -140,9 +141,9 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     items.append(
         ReadinessItem(
             id="G6",
-            name="공용 파일 상태와 번들·백업 계정 격리",
+            name=t("console.readiness.network.g6.name"),
             passed=NETWORK_MODE_AVAILABLE,
-            detail="공용 파일·번들·백업 계정 격리 확인됨" if NETWORK_MODE_AVAILABLE else "CI 게이트: 네트워크 모드 릴리스 필요 (NETWORK_MODE_AVAILABLE=False)",
+            detail=t("console.readiness.network.g6.ok") if NETWORK_MODE_AVAILABLE else t("console.readiness.network.release_gate"),
         )
     )
 
@@ -168,15 +169,15 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
 
     g7_passed = bool(has_username and has_password)
     if g7_passed:
-        g7_detail = f"관리자 USERNAME(@{admin.username if admin else ''}) 및 비밀번호 설정됨"
+        g7_detail = t("console.readiness.network.g7.ok", username=admin.username if admin else "")
     elif not has_username:
-        g7_detail = "관리자 USERNAME이 설정되지 않았거나 활성 상태가 아닙니다"
+        g7_detail = t("console.readiness.network.g7.no_username")
     else:
-        g7_detail = "관리자 비밀번호가 설정되지 않았습니다"
+        g7_detail = t("console.readiness.network.g7.no_password")
     items.append(
         ReadinessItem(
             id="G7",
-            name="관리자 USERNAME 및 비밀번호 설정",
+            name=t("console.readiness.network.g7.name"),
             passed=g7_passed,
             detail=g7_detail,
         )
@@ -188,9 +189,9 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
     items.append(
         ReadinessItem(
             id="G8",
-            name="/syndication public 해제 여부",
+            name=t("console.readiness.network.g8.name"),
             passed=g8_passed,
-            detail="syndication public 해제 완료" if g8_passed else "/syndication 라우트가 아직 public으로 열려 있습니다 (P6 예정)",
+            detail=t("console.readiness.network.g8.ok") if g8_passed else t("console.readiness.network.g8.public"),
         )
     )
 
@@ -204,14 +205,14 @@ def check_readiness(conn: sqlite3.Connection, settings: Any) -> ReadinessReport:
 
     if env == "production" and has_role_hosts:
         g9_passed = fallback_removed
-        g9_detail = "운영 환경 __Host- 전용 쿠키 (레거시 폴백 제거됨)" if g9_passed else "운영 환경에서 레거시 세션 쿠키(claire_session) 폴백이 아직 활성화되어 있습니다 (P3 G9 예정)"
+        g9_detail = t("console.readiness.network.g9.ok_production") if g9_passed else t("console.readiness.network.g9.fallback_production")
     else:
         g9_passed = fallback_removed
-        g9_detail = "__Host- 전용 쿠키" if g9_passed else "레거시 쿠키 폴백 미제거 (P3 G9 예정)"
+        g9_detail = t("console.readiness.network.g9.ok") if g9_passed else t("console.readiness.network.g9.fallback")
     items.append(
         ReadinessItem(
             id="G9",
-            name="__Host- 세션 쿠키 전용 (레거시 쿠키 폴백 제거)",
+            name=t("console.readiness.network.g9.name"),
             passed=g9_passed,
             detail=g9_detail,
         )

@@ -22,7 +22,8 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from ...accounts.username_policy import instance_reserved_labels
-from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, t
+from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, interpolate, t
+from ...i18n.catalog import BrowserCatalogScope
 from ...presentation.favicon import inject_favicon_head_tags
 from ...store import auth_db
 from ...store import client_db
@@ -236,12 +237,7 @@ def escape(value: Any) -> str:
 
 # /admin/* 화면 중 실제 서버 설정에 닿지 않는 요소(프로토타입·시뮬레이션·브라우저 저장·정적 표)의 표식.
 # 운영자가 실제 인스턴스 설정으로 오인하지 않도록 서버가 그린다(JS 없이도 보임). 모양은 console_shell.html의 .proto-badge/.proto-note.
-PROTOTYPE_KIND_LABELS = {
-    "prototype": "프로토타입",
-    "simulation": "시뮬레이션",
-    "client_only": "브라우저에만 저장",
-    "static": "정적 안내",
-}
+PROTOTYPE_KINDS = ("prototype", "simulation", "client_only", "static")
 
 
 def icon_html(name: str) -> str:
@@ -250,11 +246,18 @@ def icon_html(name: str) -> str:
 
 
 def prototype_badge(marker: str, kind: str) -> str:
-    return f'<span class="proto-badge" data-prototype="{escape(marker)}" data-prototype-kind="{escape(kind)}">{escape(PROTOTYPE_KIND_LABELS[kind])}</span>'
+    if kind not in PROTOTYPE_KINDS:
+        raise KeyError(kind)
+    return f'<span class="proto-badge" data-prototype="{escape(marker)}" data-prototype-kind="{escape(kind)}">{escape(t(f"console.prototype.{kind}"))}</span>'
 
 
 def prototype_note(marker: str, text: str) -> str:
     return f'<p class="proto-note" data-prototype-note="{escape(marker)}"><span data-icon="warning"></span> {escape(text)}</p>'
+
+
+def t_code(key: str, **codes: Any) -> str:
+    """The escaped translation of ``key`` as HTML. Each parameter is literal text (a path, a field name, a value) and becomes a ``<code>`` element."""
+    return interpolate(escape(t(key)), {name: f"<code>{escape(value)}</code>" for name, value in codes.items()})
 
 
 # 계정 양식 화면의 ``Referrer-Policy``. 전역 기본값 ``no-referrer``(`security.SafeAccessLogMiddleware`)이면
@@ -268,9 +271,9 @@ FORM_PAGE_REFERRER_POLICY = "same-origin"
 _TRANSLATION_SLOT = re.compile(r"\$\{t:([a-z0-9_.]+)\}")
 
 
-def i18n_bootstrap_html() -> str:
-    """The inline catalog of the active locale and the browser runtime. The catalog is in the document, thus ``ClaireI18n.t`` works before all network requests (I18N design Section 6.3)."""
-    return f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script><script src="/static/js/i18n.js"></script>'
+def i18n_bootstrap_html(scope: BrowserCatalogScope = "page") -> str:
+    """The inline catalog of the active locale and the browser runtime. The catalog is in the document, thus ``ClaireI18n.t`` works before all network requests (I18N design Section 6.3). ``scope`` selects the console script keys (``i18n.catalog.browser_catalog``)."""
+    return f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json(scope=scope)}</script><script src="/static/js/i18n.js"></script>'
 
 
 # Pages that have no JavaScript on purpose (credential isolation). Their language switch is a plain form, and ``POST /api/locale`` sends the browser back to one of these paths only.
@@ -306,7 +309,11 @@ def render_template(
     source = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **(text or {}))).replace("$", "$$"), (TEMPLATES_DIR / name).read_text(encoding="utf-8"))
     template = string.Template(source)
     return_path = LOCALE_FORM_RETURN_PATHS.get(name)
-    values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
+    # The console shell gets the keys of the console scripts; only a page of the administrator area gets the keys of the administrator scripts.
+    scope: BrowserCatalogScope = "page"
+    if name == "console_shell.html":
+        scope = "console_admin" if (text or {}).get("active_area") == "admin" else "console"
+    values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
     values.update({k: escape(v) for k, v in (text or {}).items()})
     values.update(markup or {})
     body = template.substitute(values)

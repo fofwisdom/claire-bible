@@ -9,7 +9,7 @@ import json
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .context import get_locale
 from .locales import DEFAULT_LOCALE, SUPPORTED_LOCALE_SET, LocaleCode
@@ -43,17 +43,35 @@ def load_catalog(locale: str) -> dict[str, str]:
 # Key domains that only the server renders: the auth pages have no script, and the bot, the push notifications and the CLI are not in a browser. The inline catalog of a page does not contain them.
 SERVER_ONLY_KEY_PREFIXES = ("auth.", "bot.", "cli.", "notify.")
 
+# The ``console.`` domain is the text of the console (/settings/*, /admin/*). The server renders it, thus a browser page does not get it. The exceptions are the keys that the console scripts read:
+# ``console.js.`` goes to each console page, and ``console.js.admin.`` goes only to a page of the administrator area (a member page has no text of the administrator scripts).
+CONSOLE_KEY_PREFIX = "console."
+CONSOLE_SCRIPT_KEY_PREFIX = "console.js."
+CONSOLE_ADMIN_SCRIPT_KEY_PREFIX = "console.js.admin."
 
-def browser_catalog(locale: LocaleCode | None = None) -> dict[str, str]:
-    """The catalog that a browser page gets: the keys of ``locale`` (default: the active locale) over the ``en`` keys, without the server-only domains."""
+BrowserCatalogScope = Literal["page", "console", "console_admin"]
+
+
+def _in_browser_catalog(key: str, scope: BrowserCatalogScope) -> bool:
+    if key.startswith(SERVER_ONLY_KEY_PREFIXES):
+        return False
+    if not key.startswith(CONSOLE_KEY_PREFIX):
+        return True
+    if key.startswith(CONSOLE_ADMIN_SCRIPT_KEY_PREFIX):
+        return scope == "console_admin"
+    return key.startswith(CONSOLE_SCRIPT_KEY_PREFIX) and scope != "page"
+
+
+def browser_catalog(locale: LocaleCode | None = None, *, scope: BrowserCatalogScope = "page") -> dict[str, str]:
+    """The catalog that a browser page gets: the keys of ``locale`` (default: the active locale) over the ``en`` keys, without the server-only domains. ``scope`` selects the console script keys: ``page`` (not a console page) gets none of them."""
     active = locale if locale is not None else get_locale()
     merged = {**load_catalog(DEFAULT_LOCALE), **load_catalog(active)}
-    return {key: value for key, value in merged.items() if not key.startswith(SERVER_ONLY_KEY_PREFIXES)}
+    return {key: value for key, value in merged.items() if _in_browser_catalog(key, scope)}
 
 
-def browser_catalog_json(locale: LocaleCode | None = None) -> str:
+def browser_catalog_json(locale: LocaleCode | None = None, *, scope: BrowserCatalogScope = "page") -> str:
     """``browser_catalog`` as JSON for ``<script id="claire-i18n-catalog" type="application/json">``. The characters ``<``, ``>`` and ``&`` are Unicode escapes, thus the text cannot close the script element."""
-    return json.dumps(browser_catalog(locale), ensure_ascii=False, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return json.dumps(browser_catalog(locale, scope=scope), ensure_ascii=False, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
 def interpolate(template: str, params: dict[str, Any]) -> str:

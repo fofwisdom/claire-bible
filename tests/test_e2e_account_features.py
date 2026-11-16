@@ -164,7 +164,7 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     assert set(supervisor.running) == {("account", env.member)}
     assert supervisor.running[("account", env.member)].profile.allowed_user_ids == (555001,)
     page = _call(env, "GET", "/settings/telegram", alice).text
-    assert "@alice_notes_bot" in page and "실행 중" in page and BOT_TOKEN not in page
+    assert "@alice_notes_bot" in page and "Running" in page and BOT_TOKEN not in page
     assert _call(env, "PATCH", "/api/me/telegram", alice, json={"enabled": False}).status_code == 200
     asyncio.run(supervisor.sync())
     assert supervisor.running == {}

@@ -19,6 +19,7 @@ from starlette.routing import Route
 from ...accounts import readiness
 from ...accounts import server_tier
 from ...accounts.provider_policy import EFFORT_ORDER, TIER_FEATURES, TIER_PROVIDERS, ServerTier
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import legacy_hosts
@@ -38,6 +39,7 @@ from .common import (
     open_db,
     require_recent_auth,
     same_origin,
+    t_code,
 )
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 
@@ -47,13 +49,12 @@ ADMIN_INSTANCE_MODE_PATH = "/api/admin/instance/mode"
 ADMIN_INSTANCE_SUNSET_PATH = "/api/admin/instance/legacy-hosts/sunset"
 ADMIN_SERVER_TIER_PATH = "/api/admin/server-tier"
 
-_FEATURE_LABELS = {
-    "expand": "확장(expand)",
-    "stt": "음성 전사(stt)",
-    "vlm": "이미지 해석(vlm)",
-    "presentation": "프레젠테이션",
-    "synthesize": "종합(synthesize)",
-}
+_LABELLED_FEATURES = ("expand", "stt", "vlm", "presentation", "synthesize")
+
+
+def _feature_label(feature: str) -> str:
+    """The name of a server tier feature in the active locale (catalog key ``console.admin.tier.feature.<feature>``)."""
+    return t(f"console.admin.tier.feature.{feature}") if feature in _LABELLED_FEATURES else feature
 
 
 def _server_tier_state(conn: Any) -> dict[str, Any]:
@@ -94,11 +95,11 @@ def _usage_summary(conn: Any, auth_conn: Any) -> list[dict[str, Any]]:
 def _render_server_tier_section(state: dict[str, Any]) -> str:
     tier = ServerTier.from_dict(state["tier"])
     if not state["configured"]:
-        status = '<span style="color:#c53030;font-weight:bold;">미설정</span> (저장하면 G5가 통과합니다. <code>none</code>도 유효한 설정입니다)'
+        status = f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.tier.state.unset"))}</span> {t_code("console.admin.tier.state.unset_hint", none="none")}'
     elif not state["valid"]:
-        status = '<span style="color:#c53030;font-weight:bold;">저장값 손상</span> (실행 중에는 <code>none</code>으로 동작합니다. 다시 저장하세요)'
+        status = f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.tier.state.invalid"))}</span> {t_code("console.admin.tier.state.invalid_hint", none="none")}'
     else:
-        status = '<span style="color:#2f855a;font-weight:bold;">설정됨</span>'
+        status = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.tier.state.set"))}</span>'
     provider_options = "".join(
         f'<option value="{escape(p)}"{" selected" if p == tier.provider else ""}>{escape(p)}</option>'
         for p in TIER_PROVIDERS
@@ -109,7 +110,7 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
     )
     feature_boxes = "".join(
         f'<label class="check"><input type="checkbox" name="features" value="{escape(f)}"'
-        f'{" checked" if f in tier.features else ""}> {escape(_FEATURE_LABELS.get(f, f))}</label>'
+        f'{" checked" if f in tier.features else ""}> {escape(_feature_label(f))}</label>'
         for f in TIER_FEATURES
     )
 
@@ -120,37 +121,37 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
             f'value="{value}" required>{hint_html}</label>'
         )
 
-    feat_summary = ", ".join(_FEATURE_LABELS.get(f, f) for f in tier.features) if tier.features else "(없음)"
-    prov_summary = "Google AI Studio (gemini)" if tier.provider == "gemini" else "미제공 (none)"
+    feat_summary = ", ".join(_feature_label(f) for f in tier.features) if tier.features else t("console.admin.tier.features_none")
+    prov_summary = "Google AI Studio (gemini)" if tier.provider == "gemini" else t("console.admin.tier.provider_none")
 
     return f"""
-      <section class="card" aria-label="서버 등급" id="server-tier">
-        <h2>서버 등급 할당량 (§10.3)</h2>
-        <p class="hint">상태: {status}</p>
-        <p class="hint">멤버의 자원 상한(토큰·적재·테마·문서·용량)을 관리합니다. 서버 등급이 제공하는 프로바이더·기준 모델·effort·허용 기능은 <a href="/admin/providers"><strong>프로바이더 설정</strong></a>에서 통합 관리합니다.</p>
+      <section class="card" aria-label="{escape(t("console.admin.tier.label"))}" id="server-tier">
+        <h2>{escape(t("console.admin.tier.title"))}</h2>
+        <p class="hint">{escape(t("console.common.status"))}: {status}</p>
+        <p class="hint">{escape(t("console.admin.tier.hint"))} <a href="/admin/providers"><strong>{escape(t("console.admin.providers.label"))}</strong></a></p>
         <dl>
-          <dt>제공 프로바이더 / 모델</dt><dd>{escape(prov_summary)}{f" · {escape(tier.model)}" if tier.model else ""} (최대 effort: {escape(tier.max_effort)})</dd>
-          <dt>허용 기능</dt><dd>{escape(feat_summary)}</dd>
+          <dt>{escape(t("console.admin.tier.provider_model"))}</dt><dd>{escape(prov_summary)}{f" · {escape(tier.model)}" if tier.model else ""} ({escape(t("console.admin.tier.max_effort_value", effort=tier.max_effort))})</dd>
+          <dt>{escape(t("console.tier.features"))}</dt><dd>{escape(feat_summary)}</dd>
         </dl>
         <form class="tier-form" data-server-tier-form>
           <div hidden>
-            <label>프로바이더<select name="provider">{provider_options}</select></label>
-            <label>모델<input type="text" name="model" value="{escape(tier.model)}" maxlength="128" autocomplete="off"></label>
-            <label>최대 effort<select name="max_effort">{effort_options}</select></label>
-            <fieldset><legend>허용 기능</legend>{feature_boxes}</fieldset>
+            <label>{escape(t("console.settings.keys.provider"))}<select name="provider">{provider_options}</select></label>
+            <label>{escape(t("console.tier.model"))}<input type="text" name="model" value="{escape(tier.model)}" maxlength="128" autocomplete="off"></label>
+            <label>{escape(t("console.admin.tier.max_effort"))}<select name="max_effort">{effort_options}</select></label>
+            <fieldset><legend>{escape(t("console.tier.features"))}</legend>{feature_boxes}</fieldset>
           </div>
-          {num("monthly_tokens", "월 토큰 상한 (UTC 달)", tier.monthly_tokens, 0, "서버 등급 사용 멤버에게만 적용")}
-          {num("daily_ingests", "일 적재 건수 (UTC 날)", tier.daily_ingests, 0)}
-          {num("storage_mb", "저장 용량 (MB)", tier.storage_mb, 0)}
-          {num("max_themes", "최대 테마 수", tier.max_themes, 1)}
-          {num("max_documents", "최대 문서 수", tier.max_documents, 0)}
-          {num("byok_max_concurrency", "자기 키 동시 작업 수", tier.byok_max_concurrency, 1)}
-          <button type="submit">할당량 저장</button>
+          {num("monthly_tokens", t("console.admin.tier.monthly_tokens"), tier.monthly_tokens, 0, t("console.admin.tier.monthly_tokens_hint"))}
+          {num("daily_ingests", t("console.admin.tier.daily_ingests"), tier.daily_ingests, 0)}
+          {num("storage_mb", t("console.admin.accounts.userdb.quota_storage"), tier.storage_mb, 0)}
+          {num("max_themes", t("console.admin.tier.max_themes"), tier.max_themes, 1)}
+          {num("max_documents", t("console.admin.tier.max_documents"), tier.max_documents, 0)}
+          {num("byok_max_concurrency", t("console.admin.tier.byok_concurrency"), tier.byok_max_concurrency, 1)}
+          <button type="submit">{escape(t("console.admin.tier.submit"))}</button>
           <p class="result" role="status" aria-live="polite" data-server-tier-result></p>
         </form>
         <form class="tier-form" data-server-tier-reauth hidden>
-          <label>저장하려면 비밀번호로 본인 확인을 하세요<input type="password" name="password" autocomplete="current-password" required></label>
-          <button type="submit">본인 확인</button>
+          <label>{escape(t("console.admin.tier.reauth"))}<input type="password" name="password" autocomplete="current-password" required></label>
+          <button type="submit">{escape(t("console.reauth.submit"))}</button>
           <p class="result" role="status" aria-live="polite" data-server-tier-reauth-result></p>
         </form>
       </section>"""
@@ -176,100 +177,100 @@ def _render_instance_html(
     tier_state: dict[str, Any],
 ) -> str:
     tier_section = _render_server_tier_section(tier_state)
-    mode_text = "싱글 모드 (Single Mode)" if mode == "single" else "네트워크 모드 (Network Mode)"
+    mode_text = t("console.admin.instance.mode_single") if mode == "single" else t("console.admin.instance.mode_network")
     target_mode = "network" if mode == "single" else "single"
 
     if mode == "single":
         if not network_mode_available:
-            mode_notice = '<p class="hint" style="color:var(--error);font-weight:600;">현재 릴리스에서는 네트워크 모드 전환이 제한되어 있습니다 (NETWORK_MODE_AVAILABLE=False).</p>'
+            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.instance.notice.limited"))}</p>'
             can_switch = False
         elif not readiness_report.passed:
             failed_ids = [item.id for item in readiness_report.items if not item.passed]
-            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">준비 검사 미통과 ({", ".join(failed_ids)}): 준비 검사(G1–G9)를 모두 통과해야 네트워크 모드로 전환할 수 있습니다.</p>'
+            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.instance.notice.not_ready", items=", ".join(failed_ids)))}</p>'
             can_switch = False
         else:
-            mode_notice = '<p class="hint" style="color:#2f855a;font-weight:600;">준비 검사 완료: 네트워크 모드로 전환할 수 있습니다.</p>'
+            mode_notice = f'<p class="hint" style="color:#2f855a;font-weight:600;">{escape(t("console.admin.instance.notice.ready"))}</p>'
             can_switch = True
 
-        mode_desc = """
+        mode_desc = f"""
           <div class="notice">
-            <strong>네트워크 모드 전환 시 변경 사항</strong>
+            <strong>{escape(t("console.admin.instance.to_network.title"))}</strong>
             <ul>
-              <li>관리자 홈이 <code>/@{admin_username}/</code>으로 옮겨 가고, 관리자 USERNAME이 외부에 공개됩니다.</li>
-              <li>싱글 모드 콘텐츠 URL(<code>/?doc=…</code>, <code>/themes/{번호}/…</code>)은 관리자 네임스페이스로 308 영구 리다이렉트됩니다.</li>
-              <li>등록된 레거시 테마 호스트의 30일 일몰 시계가 활성화됩니다.</li>
+              <li>{t_code("console.admin.instance.to_network.home", path="/@{admin_username}/")}</li>
+              <li>{t_code("console.admin.instance.to_network.redirect", doc="/?doc=…", theme="/themes/{number}/…")}</li>
+              <li>{escape(t("console.admin.instance.to_network.sunset"))}</li>
             </ul>
           </div>
           <label class="check">
             <input type="checkbox" name="confirm" required>
-            위 주의사항을 확인했으며 네트워크 모드로 전환합니다.
+            {escape(t("console.admin.instance.to_network.confirm"))}
           </label>
         """
         btn_class = ""
-        btn_text = "네트워크 모드로 전환"
+        btn_text = t("console.admin.instance.switch_to_network")
     else:
         can_switch = True
-        mode_notice = '<p class="hint">현재 네트워크 모드로 동작 중입니다. 모든 멤버(초대·활성·정지)를 정리한 후 싱글 모드로 복귀할 수 있습니다.</p>'
-        mode_desc = """
+        mode_notice = f'<p class="hint">{escape(t("console.admin.instance.notice.network"))}</p>'
+        mode_desc = f"""
           <div class="notice danger">
-            <strong>싱글 모드 복귀 시 주의사항</strong>
+            <strong>{escape(t("console.admin.instance.to_single.title"))}</strong>
             <ul>
-              <li>초대·활성·정지 상태의 일반 멤버가 1명이라도 존재하면 싱글 모드로 전환할 수 없습니다.</li>
-              <li>이미 외부에 공개된 관리자 USERNAME은 싱글 모드로 전환되어도 되돌릴 수 없습니다.</li>
-              <li>관리자 네임스페이스(<code>/@{admin}/…</code>)는 다시 루트 경로(<code>/…</code>)로 308 영구 리다이렉트됩니다.</li>
+              <li>{escape(t("console.admin.instance.to_single.members"))}</li>
+              <li>{escape(t("console.admin.instance.to_single.username"))}</li>
+              <li>{t_code("console.admin.instance.to_single.redirect", namespace="/@{admin}/…", root="/…")}</li>
             </ul>
           </div>
           <label class="check">
             <input type="checkbox" name="confirm" required>
-            일반 멤버가 없음을 확인했으며 싱글 모드로 전환합니다.
+            {escape(t("console.admin.instance.to_single.confirm"))}
           </label>
         """
         btn_class = ' class="btn-danger"'
-        btn_text = "싱글 모드로 전환"
+        btn_text = t("console.admin.instance.switch_to_single")
 
     check_rows = []
     for item in readiness_report.items:
-        status_tag = '<span style="color:#2f855a;font-weight:bold;">통과</span>' if item.passed else '<span style="color:#c53030;font-weight:bold;">실패</span>'
+        status_tag = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.readiness.passed"))}</span>' if item.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.readiness.failed"))}</span>'
         check_rows.append(f"<tr><td><code>{escape(item.id)}</code></td><td>{escape(item.name)}</td><td>{status_tag}</td><td>{escape(item.detail)}</td></tr>")
     checks_tbody = "".join(check_rows)
 
     hosts_rows = []
     for h in hosts:
-        activated = format_ts(h.activated_at) if h.activated_at is not None else "(미시작)"
-        sunset = format_ts(h.sunset_at) if h.sunset_at is not None else "(무기한)"
-        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{activated}</td><td>{sunset}</td></tr>")
-    hosts_tbody = "".join(hosts_rows) if hosts_rows else '<tr><td colspan="4" style="text-align:center;color:var(--muted);">(등록된 레거시 호스트가 없습니다)</td></tr>'
+        activated = format_ts(h.activated_at) if h.activated_at is not None else t("console.admin.instance.legacy.not_started")
+        sunset = format_ts(h.sunset_at) if h.sunset_at is not None else t("console.admin.instance.legacy.no_limit")
+        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
+    hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.instance.legacy.empty"))}</td></tr>'
 
-    readiness_summary = '<span style="color:#2f855a;font-weight:bold;">9/9 통과</span>' if readiness_report.passed else '<span style="color:#c53030;font-weight:bold;">미통과</span>'
+    readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.instance.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.instance.readiness_not_passed"))}</span>'
 
     return f"""
-      <section class="card" aria-label="인스턴스 모드" id="instance-mode">
-        <h2>인스턴스 모드</h2>
+      <section class="card" aria-label="{escape(t("console.mode.title"))}" id="instance-mode">
+        <h2>{escape(t("console.mode.title"))}</h2>
         <dl>
-          <dt>현재 모드</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
-          <dt>네트워크 가용</dt><dd><strong>{"사용 가능" if network_mode_available else "릴리스 제한 (NETWORK_MODE_AVAILABLE=False)"}</strong></dd>
-          <dt>준비 검사</dt><dd>{readiness_summary}</dd>
+          <dt>{escape(t("console.admin.instance.current_mode"))}</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
+          <dt>{escape(t("console.admin.instance.network_availability"))}</dt><dd><strong>{escape(t("console.admin.instance.network_available") if network_mode_available else t("console.admin.instance.network_limited"))}</strong></dd>
+          <dt>{escape(t("console.admin.instance.readiness"))}</dt><dd>{readiness_summary}</dd>
         </dl>
         {mode_notice}
         <form class="mode-form" data-mode-switch-form>
           <input type="hidden" name="target_mode" value="{target_mode}">
           {mode_desc}
-          <button type="submit"{btn_class}{"" if can_switch else " disabled"}>{btn_text}</button>
+          <button type="submit"{btn_class}{"" if can_switch else " disabled"}>{escape(btn_text)}</button>
           <p class="result" role="status" aria-live="polite" data-mode-switch-result></p>
         </form>
         <form class="mode-form" data-mode-switch-reauth hidden>
-          <p class="hint">모드 전환을 위해 관리자 본인 확인(비밀번호)이 필요합니다.</p>
-          <label>비밀번호<input type="password" name="password" autocomplete="current-password" required></label>
-          <button type="submit">본인 확인 후 전환</button>
+          <p class="hint">{escape(t("console.admin.instance.reauth_hint"))}</p>
+          <label>{escape(t("console.settings.account.password"))}<input type="password" name="password" autocomplete="current-password" required></label>
+          <button type="submit">{escape(t("console.admin.instance.reauth_submit"))}</button>
           <p class="result" role="status" aria-live="polite" data-mode-switch-reauth-result></p>
         </form>
       </section>
 
-      <section class="card" aria-label="준비 검사 G1–G9">
-        <h2>네트워크 모드 준비 검사 (G1–G9)</h2>
+      <section class="card" aria-label="{escape(t("console.admin.instance.readiness_label"))}">
+        <h2>{escape(t("console.admin.instance.readiness_title"))}</h2>
         <table>
           <thead>
-            <tr><th>항목</th><th>이름</th><th>상태</th><th>세부 내용</th></tr>
+            <tr><th>{escape(t("console.readiness.col_item"))}</th><th>{escape(t("console.readiness.col_name"))}</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.readiness.col_detail"))}</th></tr>
           </thead>
           <tbody>
             {checks_tbody}
@@ -277,15 +278,15 @@ def _render_instance_html(
         </table>
       </section>
 
-      <section class="card" aria-label="레거시 호스트 일몰 시계">
-        <h2>레거시 호스트 일몰 시계 (§5.3)</h2>
+      <section class="card" aria-label="{escape(t("console.admin.instance.legacy.label"))}">
+        <h2>{escape(t("console.admin.instance.legacy.title"))}</h2>
         <dl>
-          <dt>일몰 후 응답 상태</dt><dd>HTTP {policy.after_sunset_status}</dd>
-          <dt>기본 일몰 유예 기간</dt><dd>{policy.sunset_days}일</dd>
+          <dt>{escape(t("console.admin.instance.legacy.after_status"))}</dt><dd>HTTP {policy.after_sunset_status}</dd>
+          <dt>{escape(t("console.admin.instance.legacy.grace"))}</dt><dd>{escape(t("console.admin.instance.legacy.days", days=policy.sunset_days))}</dd>
         </dl>
         <table>
           <thead>
-            <tr><th>호스트</th><th>테마 ID</th><th>일몰 기산</th><th>일몰 예정 시각</th></tr>
+            <tr><th>{escape(t("console.admin.instance.legacy.col_host"))}</th><th>{escape(t("console.admin.instance.legacy.col_theme"))}</th><th>{escape(t("console.admin.instance.legacy.col_start"))}</th><th>{escape(t("console.admin.instance.legacy.col_sunset"))}</th></tr>
           </thead>
           <tbody>
             {hosts_tbody}

@@ -204,7 +204,7 @@ def test_switch_markup_shows_the_step_up_only_when_federation_is_on(env):
     _set_federation(env.settings, "on")
     on = env.client.request("GET", "/settings/account", session=session).text
     assert 'data-settings-toggle="profile-public" data-step-up="password"' in on
-    assert "data-federation-hint" in on and "지워지지 않습니다" in on
+    assert "data-federation-hint" in on and "are not deleted" in on
 
 
 # --- Alternate link on the profile page ---

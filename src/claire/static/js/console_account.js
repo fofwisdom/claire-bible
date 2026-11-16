@@ -5,27 +5,30 @@
 (function () {
   "use strict";
 
+  // Each text of this script is a catalog key (ClaireI18n, static/locales/{en,ko}.json).
+  var tr = function (key, params) { return window.ClaireI18n.t(key, params); };
+
   var ERROR_TEXT = {
-    reauth_required: "먼저 이 화면의 '본인 확인'을 마치고 다시 시도하세요.",
-    step_up_requires_session: "로그인 세션에서만 할 수 있습니다. API 토큰으로는 할 수 없습니다.",
-    invalid_password: "비밀번호가 맞지 않습니다.",
-    password_not_set: "비밀번호가 아직 없습니다. 비밀번호 설정을 바로 하세요.",
-    too_many_attempts: "시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요.",
-    invalid_display_name: "표시 이름은 64자 이하이고 제어 문자를 넣을 수 없습니다.",
-    account_not_active: "계정이 활성 상태가 아닙니다.",
-    invalid_request: "요청 형식이 맞지 않습니다.",
-    admin_uses_provider_settings: "관리자는 프로바이더 설정 화면에서 키를 관리합니다.",
-    unsupported_provider: "이 프로바이더의 키는 등록할 수 없습니다.",
-    invalid_api_key: "API 키 형식이 맞지 않습니다. 공백 없이 붙여 넣으세요.",
-    key_not_found: "등록한 키가 없습니다.",
-    key_unreadable: "저장한 키를 읽지 못했습니다. 키를 다시 등록하세요.",
-    model_below_admin_baseline: "관리자가 제공하는 기준 모델·추론 수준보다 낮은 설정은 선택할 수 없습니다.",
-    follower_not_found: "이미 목록에 없는 팔로워입니다.",
-    cannot_unlink_last_credential: "마지막 로그인 수단은 해제할 수 없습니다. 먼저 비밀번호를 설정하거나 다른 외부 로그인을 연결하세요.",
-    unauthorized: "로그인이 필요합니다."
+    reauth_required: tr("console.js.common.error.reauth_required"),
+    step_up_requires_session: tr("console.js.common.error.step_up_requires_session"),
+    invalid_password: tr("console.js.common.error.invalid_password"),
+    password_not_set: tr("console.js.account.error.password_not_set"),
+    too_many_attempts: tr("console.js.common.error.too_many_attempts"),
+    invalid_display_name: tr("console.js.account.error.invalid_display_name"),
+    account_not_active: tr("console.js.account.error.account_not_active"),
+    invalid_request: tr("console.js.common.error.invalid_request"),
+    admin_uses_provider_settings: tr("console.js.account.error.admin_uses_provider_settings"),
+    unsupported_provider: tr("console.js.account.error.unsupported_provider"),
+    invalid_api_key: tr("console.js.account.error.invalid_api_key"),
+    key_not_found: tr("console.js.account.keys.empty"),
+    key_unreadable: tr("console.js.account.error.key_unreadable"),
+    model_below_admin_baseline: tr("console.js.account.error.model_below_admin_baseline"),
+    follower_not_found: tr("console.js.account.error.follower_not_found"),
+    cannot_unlink_last_credential: tr("console.js.account.error.cannot_unlink_last_credential"),
+    unauthorized: tr("console.js.common.error.unauthorized")
   };
 
-  var KEY_STATUS_TEXT = { active: "사용 중", rejected: "거부됨", unverified: "확인 전" };
+  var KEY_STATUS_TEXT = { active: tr("console.js.account.keys.status.active"), rejected: tr("console.js.account.keys.status.rejected"), unverified: tr("console.js.account.keys.status.unverified") };
   var KEY_PROVIDER_TEXT = { gemini: "Google AI Studio" };
 
   function parseBootstrap() {
@@ -57,14 +60,14 @@
   function errorText(status, body) {
     if (body && body.error === "password_rejected" && body.message) return body.message;
     if (body && body.error === "key_verification_unavailable") {
-      return "지금은 키를 확인할 수 없습니다(네트워크·프로바이더 일시 장애). 키는 바뀌지 않았습니다. 잠시 뒤에 다시 시도하세요.";
+      return tr("console.js.account.error.key_verification_unavailable");
     }
     if (body && body.error === "key_verification_failed") {
-      return "키 확인에 실패해 저장하지 않았습니다." + (body.message ? " " + body.message : "");
+      return tr("console.js.account.error.key_verification_failed") + (body.message ? " " + body.message : "");
     }
     if (body && typeof body.error === "string" && ERROR_TEXT[body.error]) return ERROR_TEXT[body.error];
     if (body && typeof body.detail === "string" && body.detail) return body.detail + " (HTTP " + status + ")";
-    return "요청을 처리하지 못했습니다 (HTTP " + status + ").";
+    return tr("console.js.common.http_error", { status: status });
   }
 
   function focusReauth() {
@@ -98,7 +101,7 @@
       var empty = document.createElement("p");
       empty.className = "hint";
       empty.setAttribute("data-provider-key-empty", "");
-      empty.textContent = "등록한 키가 없습니다.";
+      empty.textContent = tr("console.js.account.keys.empty");
       box.appendChild(empty);
       return;
     }
@@ -106,12 +109,12 @@
       var dl = document.createElement("dl");
       dl.setAttribute("data-provider-key", String(k.provider));
       [
-        ["프로바이더", KEY_PROVIDER_TEXT[k.provider] || k.provider],
+        [tr("console.js.account.keys.field.provider"), KEY_PROVIDER_TEXT[k.provider] || k.provider],
         ["fingerprint", k.fingerprint],
-        ["상태", KEY_STATUS_TEXT[k.status] || k.status],
-        ["등록", formatTs(k.created_at)],
-        ["마지막 확인", formatTs(k.last_verified_at)],
-        ["마지막 사용", formatTs(k.last_used_at)]
+        [tr("console.js.account.keys.field.status"), KEY_STATUS_TEXT[k.status] || k.status],
+        [tr("console.js.account.keys.field.created"), formatTs(k.created_at)],
+        [tr("console.js.account.keys.field.last_verified"), formatTs(k.last_verified_at)],
+        [tr("console.js.account.keys.field.last_used"), formatTs(k.last_used_at)]
       ].forEach(function (row) {
         var dt = document.createElement("dt");
         dt.textContent = row[0];
@@ -132,17 +135,17 @@
     var prefs = policy.model_prefs || {};
     var summaryEl = document.querySelector("[data-byok-policy-summary]");
     if (summaryEl) {
-      var bMod = baseline.model || "기본";
+      var bMod = baseline.model || tr("console.js.account.byok.model_default");
       var bEff = baseline.effort || "medium";
-      var sealText = policy.has_cookie_seal ? "브라우저 봉인 쿠키 활성" : "키 저장 시 봉인 쿠키 자동 발급";
-      summaryEl.textContent = "관리자 기준선: " + bMod + " (" + bEff + ") 이상만 허용 · Split-Key 상태: " + sealText;
+      var sealText = policy.has_cookie_seal ? tr("console.js.account.byok.seal_active") : tr("console.js.account.byok.seal_pending");
+      summaryEl.textContent = tr("console.js.account.byok.policy_summary", { model: bMod, effort: bEff, seal: sealText });
     }
     var modelSel = document.querySelector("[data-byok-model-select]");
     if (modelSel) {
       while (modelSel.firstChild) modelSel.removeChild(modelSel.firstChild);
       var defOpt = document.createElement("option");
       defOpt.value = "";
-      defOpt.textContent = "관리자 기본 모델 이상 자동 적용 (" + (baseline.model || "-") + ")";
+      defOpt.textContent = tr("console.js.account.byok.model_auto", { model: baseline.model || "-" });
       modelSel.appendChild(defOpt);
       var baseRank = typeof ranks[baseline.model] === "number" ? ranks[baseline.model] : 0;
       (Array.isArray(policy.allowed_models) ? policy.allowed_models : []).forEach(function (m) {
@@ -151,7 +154,7 @@
         opt.value = String(m);
         var mRank = typeof ranks[m] === "number" ? ranks[m] : 0;
         var allowed = mRank >= baseRank || baseRank === 0;
-        opt.textContent = allowed ? String(m) : String(m) + " (기준선 미만 · 잠금)";
+        opt.textContent = allowed ? String(m) : tr("console.js.account.byok.model_locked", { model: String(m) });
         if (!allowed) opt.disabled = true;
         if (prefs.model && prefs.model === m && allowed) opt.selected = true;
         modelSel.appendChild(opt);
@@ -197,7 +200,7 @@
       td0.colSpan = 4;
       td0.style.color = "var(--muted)";
       td0.style.textAlign = "center";
-      td0.textContent = "연결된 외부 로그인이 없습니다.";
+      td0.textContent = tr("console.js.account.identities.empty");
       tr0.appendChild(td0);
       tbody.appendChild(tr0);
       return;
@@ -214,7 +217,7 @@
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "pref-btn pref-btn-danger";
-      btn.textContent = "해제";
+      btn.textContent = tr("console.js.account.identities.unlink");
       btn.setAttribute("data-identity-unlink", String(ident.provider_id));
       btn.setAttribute("data-identity-sub", String(ident.sub));
       tdBtn.appendChild(btn);
@@ -230,7 +233,7 @@
       if (r.ok && Array.isArray(r.body)) {
         renderIdentities(r.body, providerNames);
       } else {
-        show(box, "연결 목록을 불러오지 못했습니다. " + errorText(r.status, r.body), true);
+        show(box, tr("console.js.account.identities.load_failed") + " " + errorText(r.status, r.body), true);
       }
     });
   }
@@ -243,7 +246,7 @@
       providerNames[p.id] = p.display_name;
     });
     loadIdentities(providerNames).catch(function () {
-      show(box, "서버에 연결하지 못했습니다.", true);
+      show(box, tr("console.js.common.network_error"), true);
     });
     box.addEventListener("click", function (ev) {
       var linkBtn = ev.target.closest("[data-identity-link]");
@@ -256,9 +259,9 @@
             window.location.assign(target);
             return;
           }
-          show(box, r.ok ? "공급자가 올바른 인증 주소를 돌려주지 않았습니다." : errorText(r.status, r.body), true);
+          show(box, r.ok ? tr("console.js.account.identities.bad_auth_url") : errorText(r.status, r.body), true);
         }).catch(function () {
-          show(box, "서버에 연결하지 못했습니다.", true);
+          show(box, tr("console.js.common.network_error"), true);
         }).then(function () {
           linkBtn.disabled = false;
         });
@@ -268,17 +271,17 @@
       if (unlinkBtn) {
         var providerId = unlinkBtn.getAttribute("data-identity-unlink") || "";
         var sub = unlinkBtn.getAttribute("data-identity-sub") || "";
-        if (!window.confirm("이 외부 로그인 연결을 해제할까요?")) return;
+        if (!window.confirm(tr("console.js.account.identities.unlink_confirm"))) return;
         unlinkBtn.disabled = true;
         var url = "/api/me/identities/oidc/" + encodeURIComponent(providerId) + "?sub=" + encodeURIComponent(sub);
         request("DELETE", url).then(function (r) {
           if (r.ok) {
-            show(box, "연결을 해제했습니다.", false);
+            show(box, tr("console.js.account.identities.unlinked"), false);
             return loadIdentities(providerNames);
           }
           show(box, errorText(r.status, r.body), true);
         }).catch(function () {
-          show(box, "서버에 연결하지 못했습니다.", true);
+          show(box, tr("console.js.common.network_error"), true);
         }).then(function () {
           unlinkBtn.disabled = false;
         });
@@ -290,11 +293,11 @@
 
   // The server has the same table (console_federation_panels.ACTOR_STATE_TEXT).
   var ACTOR_STATE_TEXT = {
-    active: "연합 중",
-    account_not_active: "일시 중지 · 계정이 활성 상태가 아닙니다",
-    no_username: "일시 중지 · USERNAME이 아직 없습니다",
-    federation_off: "꺼짐 · 인스턴스 운영자가 연합을 켜지 않았습니다",
-    profile_not_public: "일시 중지 · 프로필이 비공개입니다"
+    active: tr("console.js.account.federation.state.active"),
+    account_not_active: tr("console.js.account.federation.state.account_not_active"),
+    no_username: tr("console.js.account.federation.state.no_username"),
+    federation_off: tr("console.js.account.federation.state.federation_off"),
+    profile_not_public: tr("console.js.account.federation.state.profile_not_public")
   };
 
   function setFederationField(name, text) {
@@ -303,7 +306,7 @@
   }
 
   function renderFederationStatus(status) {
-    setFederationField("handle", status.handle || "(USERNAME 설정 전)");
+    setFederationField("handle", status.handle || tr("console.js.account.federation.handle_unset"));
     setFederationField("actor_id", status.actor_id || "-");
     setFederationField("actor_state", ACTOR_STATE_TEXT[status.actor_state] || String(status.actor_state));
     if (status.followers && typeof status.followers.total === "number") {
@@ -327,7 +330,7 @@
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "pref-btn pref-btn-danger";
-    btn.textContent = "제거";
+    btn.textContent = tr("console.js.account.followers.remove");
     btn.setAttribute("data-follower-remove", String(item.actor_iri));
     tdBtn.appendChild(btn);
     [tdActor, tdTime, tdBtn].forEach(function (td) { tr.appendChild(td); });
@@ -391,7 +394,7 @@
       td.colSpan = 3;
       td.style.color = "var(--muted)";
       td.style.textAlign = "center";
-      td.textContent = "팔로워가 없습니다.";
+      td.textContent = tr("console.js.account.followers.empty");
       tr.appendChild(td);
       tbody.appendChild(tr);
     }
@@ -401,7 +404,7 @@
       var url = "/api/federation/followers" + (maxId ? "?max_id=" + encodeURIComponent(maxId) : "");
       return request("GET", url).then(function (r) {
         if (!r.ok || !r.body || !Array.isArray(r.body.items)) {
-          show(box, "팔로워 목록을 불러오지 못했습니다. " + errorText(r.status, r.body), true);
+          show(box, tr("console.js.account.followers.load_failed") + " " + errorText(r.status, r.body), true);
           return;
         }
         if (!maxId) {
@@ -422,14 +425,14 @@
     }
 
     loadPage(null).catch(function () {
-      show(box, "서버에 연결하지 못했습니다.", true);
+      show(box, tr("console.js.common.network_error"), true);
     });
     if (more) {
       more.addEventListener("click", function () {
         if (!nextMaxId) return;
         more.disabled = true;
         loadPage(nextMaxId).catch(function () {
-          show(box, "서버에 연결하지 못했습니다.", true);
+          show(box, tr("console.js.common.network_error"), true);
         }).then(function () {
           more.disabled = false;
         });
@@ -439,18 +442,18 @@
       var btn = ev.target.closest("[data-follower-remove]");
       if (!btn) return;
       var actorIri = btn.getAttribute("data-follower-remove") || "";
-      if (!window.confirm("이 팔로워를 제거할까요?")) return;
+      if (!window.confirm(tr("console.js.account.followers.remove_confirm"))) return;
       btn.disabled = true;
       request("DELETE", "/api/federation/followers", { actor_iri: actorIri }).then(function (r) {
         // An unknown follower means that the row left the list in the meantime. The list is read again in the two cases.
         if (r.ok || (r.body && r.body.error === "follower_not_found")) {
-          show(box, r.ok ? "팔로워를 제거했습니다." : errorText(r.status, r.body), !r.ok);
+          show(box, r.ok ? tr("console.js.account.followers.removed") : errorText(r.status, r.body), !r.ok);
           return loadPage(null).then(refreshStatus);
         }
         show(box, errorText(r.status, r.body), true);
         btn.disabled = false;
       }).catch(function () {
-        show(box, "서버에 연결하지 못했습니다.", true);
+        show(box, tr("console.js.common.network_error"), true);
         btn.disabled = false;
       });
     });
@@ -464,12 +467,12 @@
     while (out.firstChild) out.removeChild(out.firstChild);
     var dl = document.createElement("dl");
     [
-      ["파일", info.filename],
-      ["엔티티", info.entities_count],
-      ["관계", info.relations_count],
-      ["문서", info.documents_count],
-      ["크기 (바이트)", info.size_bytes],
-      ["만료", info.expires_at]
+      [tr("console.js.account.bundle.file"), info.filename],
+      [tr("console.js.account.bundle.entities"), info.entities_count],
+      [tr("console.js.account.bundle.relations"), info.relations_count],
+      [tr("console.js.account.bundle.documents"), info.documents_count],
+      [tr("console.js.account.bundle.size"), info.size_bytes],
+      [tr("console.js.account.bundle.expires"), info.expires_at]
     ].forEach(function (row) {
       var dt = document.createElement("dt");
       dt.textContent = row[0];
@@ -487,7 +490,7 @@
       var mark = document.createElement("span");
       mark.setAttribute("data-icon", "download");
       a.appendChild(mark);
-      a.appendChild(document.createTextNode(" 번들 내려받기"));
+      a.appendChild(document.createTextNode(" " + tr("console.js.account.bundle.download")));
       out.appendChild(a);
     }
   }
@@ -498,7 +501,7 @@
     "display-name": function (form) {
       var value = form.elements.namedItem("display_name").value;
       return request("PATCH", "/api/me", { display_name: value }).then(function (r) {
-        show(form, r.ok ? "저장했습니다." : errorText(r.status, r.body), !r.ok);
+        show(form, r.ok ? tr("console.js.common.saved") : errorText(r.status, r.body), !r.ok);
         if (r.ok && r.body) {
           var dd = document.querySelector("[data-account-field='display_name']");
           if (dd) dd.textContent = String(r.body.display_name);
@@ -511,7 +514,7 @@
       field.value = "";
       return request("POST", "/api/auth/reauth", { password: value }).then(function (r) {
         value = "";
-        show(form, r.ok ? "본인 확인을 마쳤습니다. 15분 동안 민감한 작업을 할 수 있습니다." : errorText(r.status, r.body), !r.ok);
+        show(form, r.ok ? tr("console.js.account.reauth.done") : errorText(r.status, r.body), !r.ok);
       });
     },
     "password": function (form) {
@@ -519,7 +522,7 @@
       var next = form.elements.namedItem("new_password");
       var confirm = form.elements.namedItem("new_password_confirm");
       if (next.value !== confirm.value) {
-        show(form, "새 비밀번호 확인이 일치하지 않습니다.", true);
+        show(form, tr("console.js.account.password.mismatch"), true);
         return Promise.resolve();
       }
       var payload = { new_password: next.value };
@@ -530,9 +533,9 @@
         confirm.value = "";
         if (r.ok) {
           var n = r.body && typeof r.body.other_sessions_revoked === "number" ? r.body.other_sessions_revoked : 0;
-          show(form, "비밀번호를 저장했습니다. 다른 세션 " + n + "개를 끊었습니다.", false);
+          show(form, tr("console.js.account.password.saved", { count: n }), false);
           var dd = document.querySelector("[data-account-field='password']");
-          if (dd) dd.textContent = "설정됨";
+          if (dd) dd.textContent = tr("console.js.account.password.set");
         } else {
           show(form, errorText(r.status, r.body), true);
         }
@@ -542,13 +545,13 @@
       var section = form.closest("section") || form;
       var theme = form.elements.namedItem("theme").value;
       if (!theme) {
-        show(section, "내보낼 테마를 고르세요.", true);
+        show(section, tr("console.js.account.bundle.select_theme"), true);
         return Promise.resolve();
       }
-      show(section, "그래프 번들을 만드는 중입니다...", false);
+      show(section, tr("console.js.account.bundle.making"), false);
       return request("POST", "/graph/bundle", { theme: theme }).then(function (r) {
         if (r.ok && r.body) {
-          show(section, "그래프 번들을 만들었습니다.", false);
+          show(section, tr("console.js.account.bundle.made"), false);
           renderBundle(section, r.body);
         } else {
           show(section, errorText(r.status, r.body), true);
@@ -567,7 +570,7 @@
       if (effortEl && effortEl.value) payload.effort = effortEl.value;
       return request("PUT", "/api/me/keys", payload).then(function (r) {
         value = "";
-        show(form, r.ok ? "키를 확인하고 저장했습니다." : errorText(r.status, r.body), !r.ok);
+        show(form, r.ok ? tr("console.js.account.keys.saved") : errorText(r.status, r.body), !r.ok);
         if (r.ok) return refreshKeys();
       });
     },
@@ -575,7 +578,7 @@
       var provider = form.elements.namedItem("provider").value;
       return request("POST", "/api/me/keys/verify", { provider: provider }).then(function (r) {
         if (r.ok && r.body) {
-          show(form, (r.body.ok ? "키가 유효합니다. " : "키가 거부되었습니다. ") + (r.body.message || ""), !r.body.ok);
+          show(form, (r.body.ok ? tr("console.js.account.keys.valid") + " " : tr("console.js.account.keys.rejected") + " ") + (r.body.message || ""), !r.body.ok);
           return refreshKeys();
         }
         show(form, errorText(r.status, r.body), true);
@@ -583,10 +586,10 @@
     },
     "provider-key-delete": function (form) {
       var provider = form.elements.namedItem("provider").value;
-      if (!window.confirm("등록한 API 키를 삭제할까요?")) return Promise.resolve();
+      if (!window.confirm(tr("console.js.account.keys.delete_confirm"))) return Promise.resolve();
       return request("DELETE", "/api/me/keys?provider=" + encodeURIComponent(provider)).then(function (r) {
         if (r.ok) {
-          show(form, "키를 삭제했습니다.", false);
+          show(form, tr("console.js.account.keys.deleted"), false);
           return refreshKeys();
         }
         show(form, errorText(r.status, r.body), true);
@@ -605,7 +608,7 @@
         if (button) button.disabled = true;
         handler(form).catch(function () {
           var scope = form.getAttribute("data-settings-form") === "bundle-export" ? (form.closest("section") || form) : form;
-          show(scope, "서버에 연결하지 못했습니다.", true);
+          show(scope, tr("console.js.common.network_error"), true);
         }).then(function () {
           if (button) button.disabled = false;
         });
@@ -626,12 +629,12 @@
       form.setAttribute("method", "dialog");
       var title = document.createElement("h2");
       title.id = "step-up-title";
-      title.textContent = "본인 확인";
+      title.textContent = tr("console.js.account.stepup.title");
       var text = document.createElement("p");
       text.className = "hint";
-      text.textContent = "프로필을 공개하면 다른 서버에서 이 계정을 찾고 팔로우할 수 있습니다. 계속하려면 현재 비밀번호를 입력하세요.";
+      text.textContent = tr("console.js.account.stepup.text");
       var label = document.createElement("label");
-      label.textContent = "현재 비밀번호";
+      label.textContent = tr("console.js.account.stepup.password");
       var field = document.createElement("input");
       field.type = "password";
       field.name = "password";
@@ -648,12 +651,12 @@
       confirm.type = "submit";
       confirm.className = "pref-btn pref-btn-accent";
       confirm.setAttribute("data-step-up-confirm", "");
-      confirm.textContent = "확인하고 공개";
+      confirm.textContent = tr("console.js.account.stepup.confirm");
       var cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "pref-btn";
       cancel.setAttribute("data-step-up-cancel", "");
-      cancel.textContent = "취소";
+      cancel.textContent = tr("common.action.cancel");
       [title, text, label, result, confirm, cancel].forEach(function (node) { form.appendChild(node); });
       dialog.appendChild(form);
       document.body.appendChild(dialog);
@@ -680,7 +683,7 @@
           show(form, errorText(r.status, r.body), true);
           field.focus();
         }).catch(function () {
-          show(form, "서버에 연결하지 못했습니다.", true);
+          show(form, tr("console.js.common.network_error"), true);
         }).then(function () {
           confirm.disabled = false;
         });
@@ -706,9 +709,9 @@
           }
           return request("PATCH", "/api/me", { profile_public: checked ? 1 : 0 }).then(function (r) {
             if (r.ok) {
-              show(section, "저장했습니다.", false);
+              show(section, tr("console.js.common.saved"), false);
               var dd = document.querySelector("[data-account-field='profile_public']");
-              if (dd) dd.textContent = checked ? "공개 (공개 디렉터리에 표시)" : "비공개";
+              if (dd) dd.textContent = checked ? tr("console.js.account.profile.public") : tr("console.js.account.profile.private");
             } else {
               input.checked = !checked;
               show(section, errorText(r.status, r.body), true);
@@ -716,7 +719,7 @@
           });
         }).catch(function () {
           input.checked = !checked;
-          show(section, "서버에 연결하지 못했습니다.", true);
+          show(section, tr("console.js.common.network_error"), true);
         }).then(function () {
           input.disabled = false;
         });
@@ -740,11 +743,11 @@
         }
         select.value = saved;
         select.disabled = false;
-        show(section, i18n ? i18n.t("console.account.locale_error") : errorText(r.status, r.body), true);
+        show(section, tr("console.js.account.locale_error"), true);
       }).catch(function () {
         select.value = saved;
         select.disabled = false;
-        show(section, i18n ? i18n.t("console.account.locale_error") : "서버에 연결하지 못했습니다.", true);
+        show(section, tr("console.js.account.locale_error"), true);
       });
     });
   }
@@ -780,12 +783,12 @@
     var iconSpan = document.createElement("span");
     iconSpan.setAttribute("data-icon", "terminal");
     header.appendChild(iconSpan);
-    header.appendChild(document.createTextNode(" 관리자 개인 CLI 클라이언트"));
+    header.appendChild(document.createTextNode(" " + tr("console.js.account.cli.title")));
     host.appendChild(header);
 
     var intro = document.createElement("p");
     intro.className = "hint";
-    intro.textContent = "개인 CLI 약관 준수를 위해 Antigravity CLI 및 Codex CLI는 관리자 개인 계정 작업에만 적용되며 서버 공용 프로바이더·ServerTier에는 노출되지 않습니다.";
+    intro.textContent = tr("console.js.account.cli.intro");
     host.appendChild(intro);
 
     var form = document.createElement("form");
@@ -805,7 +808,7 @@
     enabledCb.id = "pcli-enabled";
     enabledCb.checked = Boolean(pcli.enabled);
     toggleLabel.appendChild(enabledCb);
-    toggleLabel.appendChild(document.createTextNode("관리자 개인 작업에 개인 CLI 클라이언트 사용"));
+    toggleLabel.appendChild(document.createTextNode(tr("console.js.account.cli.enable")));
     form.appendChild(toggleLabel);
 
     var activeRow = document.createElement("label");
@@ -813,14 +816,14 @@
     activeRow.style.flexDirection = "column";
     activeRow.style.gap = "4px";
     activeRow.style.fontWeight = "600";
-    activeRow.appendChild(document.createTextNode("기본 개인 CLI 클라이언트"));
+    activeRow.appendChild(document.createTextNode(tr("console.js.account.cli.active")));
     var activeSel = document.createElement("select");
     activeSel.id = "pcli-active";
     activeSel.className = "pref-select";
     [
-      ["none", "선택 안 함 (서버 기본 Google AI Studio 사용)"],
-      ["antigravity", agyCap.selectable ? "Antigravity CLI (agy)" : "Antigravity CLI (사용 불가 - 점검 필요)"],
-      ["codex", cdxCap.selectable ? "Codex CLI (codex)" : "Codex CLI (사용 불가 - 점검 필요)"]
+      ["none", tr("console.js.account.cli.none")],
+      ["antigravity", agyCap.selectable ? "Antigravity CLI (agy)" : "Antigravity CLI (" + tr("console.js.account.cli.unavailable") + ")"],
+      ["codex", cdxCap.selectable ? "Codex CLI (codex)" : "Codex CLI (" + tr("console.js.account.cli.unavailable") + ")"]
     ].forEach(function (pair) {
       var opt = document.createElement("option");
       opt.value = pair[0];
@@ -865,7 +868,7 @@
     agyBin.id = "pcli-agy-bin";
     agyBin.className = "pref-input";
     agyBin.value = agy.bin || "agy";
-    agyBox.appendChild(makeField("실행 경로 (Binary)", agyBin));
+    agyBox.appendChild(makeField(tr("console.js.account.cli.binary"), agyBin));
 
     var agyModel = document.createElement("select");
     agyModel.id = "pcli-agy-model";
@@ -874,7 +877,7 @@
     if (!agyModels.length) {
       var emptyAgy = document.createElement("option");
       emptyAgy.value = agy.model || "";
-      emptyAgy.textContent = agy.model ? agy.model + " (agy models 조회 필요)" : "CLI 확인 후 모델 목록을 조회하세요";
+      emptyAgy.textContent = agy.model ? agy.model + " (" + tr("console.js.account.cli.models_needed") + ")" : tr("console.js.account.cli.models_after_check");
       agyModel.appendChild(emptyAgy);
     } else {
       agyModels.forEach(function (m) {
@@ -886,13 +889,13 @@
         agyModel.appendChild(opt);
       });
     }
-    agyBox.appendChild(makeField("지원 모델 (agy models 동적 조회)", agyModel));
+    agyBox.appendChild(makeField(tr("console.js.account.cli.models_dynamic"), agyModel));
 
     var agyTestBtn = document.createElement("button");
     agyTestBtn.type = "button";
     agyTestBtn.className = "pref-btn";
     agyTestBtn.style.marginTop = "6px";
-    agyTestBtn.textContent = "Antigravity CLI 확인 및 모델 조회";
+    agyTestBtn.textContent = tr("console.js.account.cli.check_agy");
     agyTestBtn.setAttribute("data-pcli-test", "antigravity");
     agyBox.appendChild(agyTestBtn);
     form.appendChild(agyBox);
@@ -903,7 +906,7 @@
     cdxBox.style.borderRadius = "6px";
     cdxBox.style.padding = "10px 12px";
     var cdxLegend = document.createElement("legend");
-    cdxLegend.textContent = "Codex CLI (codex)" + (inContainer ? " - 컨테이너 미지원" : "");
+    cdxLegend.textContent = "Codex CLI (codex)" + (inContainer ? " - " + tr("console.js.account.cli.no_container") : "");
     cdxBox.appendChild(cdxLegend);
     if (cdxCap.locked_reason) {
       var cdxLock = document.createElement("p");
@@ -917,7 +920,7 @@
     cdxBin.id = "pcli-codex-bin";
     cdxBin.className = "pref-input";
     cdxBin.value = cdx.bin || "codex";
-    cdxBox.appendChild(makeField("실행 경로 (Binary)", cdxBin));
+    cdxBox.appendChild(makeField(tr("console.js.account.cli.binary"), cdxBin));
 
     var cdxModel = document.createElement("select");
     cdxModel.id = "pcli-codex-model";
@@ -926,17 +929,17 @@
       var mid = typeof m === "string" ? m : (m.id || "");
       var opt = document.createElement("option");
       opt.value = mid;
-      opt.textContent = (typeof m === "object" && m.label) ? m.label : (mid || "계정 기본");
+      opt.textContent = (typeof m === "object" && m.label) ? m.label : (mid || tr("console.js.account.cli.account_default"));
       if ((cdx.model || "") === mid) opt.selected = true;
       cdxModel.appendChild(opt);
     });
-    cdxBox.appendChild(makeField("지원 모델", cdxModel));
+    cdxBox.appendChild(makeField(tr("console.js.account.cli.models"), cdxModel));
 
     var cdxTestBtn = document.createElement("button");
     cdxTestBtn.type = "button";
     cdxTestBtn.className = "pref-btn";
     cdxTestBtn.style.marginTop = "6px";
-    cdxTestBtn.textContent = "Codex CLI 확인";
+    cdxTestBtn.textContent = tr("console.js.account.cli.check_codex");
     cdxTestBtn.setAttribute("data-pcli-test", "codex");
     cdxBox.appendChild(cdxTestBtn);
     form.appendChild(cdxBox);
@@ -944,7 +947,7 @@
     var saveBtn = document.createElement("button");
     saveBtn.type = "submit";
     saveBtn.className = "pref-btn pref-btn-accent";
-    saveBtn.textContent = "개인 CLI 설정 저장";
+    saveBtn.textContent = tr("console.js.account.cli.save");
     form.appendChild(saveBtn);
 
     var result = document.createElement("p");
@@ -967,12 +970,12 @@
       };
       request("POST", "/api/me/personal-cli/test", payload).then(function (r) {
         if (r.ok && r.body && r.body.ok) {
-          show(form, r.body.message || "CLI 확인 완료", false);
+          show(form, r.body.message || tr("console.js.account.cli.check_done"), false);
           return initAdminPersonalCli();
         }
-        show(form, (r.body && (r.body.error || r.body.detail)) || "CLI 확인 실패", true);
+        show(form, (r.body && (r.body.error || r.body.detail)) || tr("console.js.account.cli.check_failed"), true);
       }).catch(function () {
-        show(form, "서버에 연결하지 못했습니다.", true);
+        show(form, tr("console.js.common.network_error"), true);
       }).then(function () {
         btn.disabled = false;
       });
@@ -992,12 +995,12 @@
         if (r.ok && r.body) {
           renderPersonalCliCard(host, r.body);
           var newForm = host.querySelector("[data-personal-cli-form]");
-          if (newForm) show(newForm, "개인 CLI 설정을 저장했습니다.", false);
+          if (newForm) show(newForm, tr("console.js.account.cli.saved"), false);
         } else {
           show(form, errorText(r.status, r.body), true);
         }
       }).catch(function () {
-        show(form, "서버에 연결하지 못했습니다.", true);
+        show(form, tr("console.js.common.network_error"), true);
       });
     });
   }
@@ -1010,11 +1013,11 @@
         renderPersonalCliCard(host, r.body);
       } else {
         var msg = host.querySelector("[data-personal-cli-loading]");
-        if (msg) msg.textContent = "개인 CLI 정보를 불러오지 못했습니다. (" + errorText(r.status, r.body) + ")";
+        if (msg) msg.textContent = tr("console.js.account.cli.load_failed") + " (" + errorText(r.status, r.body) + ")";
       }
     }).catch(function () {
       var msg = host.querySelector("[data-personal-cli-loading]");
-      if (msg) msg.textContent = "서버에 연결하지 못했습니다.";
+      if (msg) msg.textContent = tr("console.js.common.network_error");
     });
   }
 

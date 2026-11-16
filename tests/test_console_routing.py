@@ -268,8 +268,8 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     assert 'href="/settings/tokens"' in member_resp.text
     assert 'href="/settings/feeds"' in member_resp.text
     assert "/admin/" not in member_resp.text
-    assert "시스템 관리 및 설정 (관리자)" not in member_resp.text
-    assert "인스턴스 · 계정 · 인증 (관리자)" not in member_resp.text
+    assert "System administration and settings (administrator)" not in member_resp.text
+    assert "Instance · Accounts · Authentication (administrator)" not in member_resp.text
 
     # Admin response on both /settings/reader and /admin/providers has unified sidebar without duplicate /settings/themes or /settings/tokens
     for path in ("/settings/reader", "/admin/providers", "/admin/limits", "/admin/mcp"):
@@ -409,7 +409,7 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
     """실제 서버 설정에 닿지 않는 /admin/* 요소는 서버가 그린 표식(data-prototype)과 안내문을 단다. /settings/*에는 표식이 없다."""
     _set_mode(console_env.db_file, "network")
     client = console_env.client
-    labels = {"prototype": "프로토타입", "simulation": "시뮬레이션", "client_only": "브라우저에만 저장", "static": "정적 안내"}
+    labels = {"prototype": "Prototype", "simulation": "Simulation", "client_only": "Stored in the browser only", "static": "Fixed text"}
     for path, markers in ADMIN_PROTOTYPE_MARKERS.items():
         body = client.get(path, headers=console_env.admin_owner).text
         assert ".proto-badge{" in body, path
@@ -418,7 +418,7 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
             assert badge in body, (path, marker)
             # 격리 설명표는 표 caption 안에 안내문을 함께 둔다. 나머지는 별도 안내문(무엇을 하지 않는지)을 단다.
             if marker == "admin-accounts-isolation-table":
-                assert "실제 디렉터리·DB 상태를 읽어 오지 않습니다" in body
+                assert "It does not read the real state of the directories and the databases." in body
             else:
                 assert f'data-prototype-note="{marker}"' in body, (path, marker)
     # 실제로 동작하는 화면에는 표식을 달지 않는다.
@@ -430,3 +430,29 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
         assert "data-prototype" not in resp.text, path
         assert 'data-active-area="admin"' not in resp.text, path
         assert "console_admin.js" not in resp.text, path
+
+
+def test_each_console_page_follows_the_interface_locale(console_env):
+    """I18N design unit IP2-2 (end to end): the server renders each console page, administrator and member, in the locale of the request. An English page has no Korean text."""
+    import re
+
+    from claire.api.accounts_routes import console as console_routes
+
+    _set_mode(console_env.db_file, "network")
+    client = console_env.client
+    hangul = re.compile("[가-힣]+")
+    catalog = re.compile(r'<script id="claire-i18n-catalog" type="application/json">.*?</script>', re.S)
+    # Not interface text: the name of the Korean locale in the language selector, and the label of the default theme (data of the account).
+    permitted = {"한국어", "기본", "지식베이스"}
+    admin_paths = [spec.path for spec in console_routes.ALL_ADMIN_SPECS] + [spec.path for spec in console_routes.ALL_SETTINGS_SPECS if spec.slug not in {"themes", "tokens"}]
+    member_paths = [spec.path for spec in console_routes.ALL_SETTINGS_SPECS if spec.area != "admin"]
+    assert len(admin_paths) >= 20 and len(member_paths) >= 15
+    for headers, paths in ((console_env.admin_owner, admin_paths), (console_env.alice_owner, member_paths)):
+        for path in paths:
+            english = client.get(path, headers={**headers, "Accept-Language": "en"})
+            assert english.status_code == 200, path
+            assert '<html lang="en">' in english.text, path
+            left = set(hangul.findall(catalog.sub("", english.text))) - permitted
+            assert not left, (path, sorted(left)[:8])
+            korean = client.get(path, headers={**headers, "Accept-Language": "ko"})
+            assert korean.status_code == 200 and '<html lang="ko">' in korean.text and hangul.search(catalog.sub("", korean.text)), path

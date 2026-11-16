@@ -300,7 +300,7 @@ def test_themes_page_member_hosts_theme_manager_without_admin_markup(env):
     html = _get(env, "/settings/themes", env.alice).text
     assert 'id="settings-themes-host"' in html
     assert 'data-settings-panel-host="themes"' in html
-    assert "내 테마 1개" in html
+    assert "My themes: 1 /" in html
     assert "/admin/" not in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html

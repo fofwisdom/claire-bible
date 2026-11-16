@@ -30,6 +30,7 @@ from ...accounts.provider_policy import (
     is_model_equal_or_higher,
     normalize_model_and_effort,
 )
+from ...i18n import t
 from ...secret_scrub import register_secret, scrub_text
 from ...store import accounts as accounts_store
 from ...store import auth_db
@@ -56,7 +57,8 @@ ME_PERSONAL_CLI_PATH = "/api/me/personal-cli"
 ME_PERSONAL_CLI_TEST_PATH = "/api/me/personal-cli/test"
 API_KEY_MAX_LENGTH = 512
 
-STATUS_TEXT = {"active": "사용 중", "rejected": "거부됨", "unverified": "확인 전"}
+# The text of a key status is the catalog key ``console.settings.keys.status.<status>``.
+KEY_STATUSES = ("active", "rejected", "unverified")
 PROVIDER_TEXT = {"gemini": "Google AI Studio"}
 
 
@@ -283,16 +285,16 @@ def remove_keys(ctx: AccountsContext, account_id: int, provider: str | None) -> 
 
 def _meta_rows(items: list[dict[str, Any]]) -> str:
     if not items:
-        return '<p class="hint" data-provider-key-empty>등록한 키가 없습니다.</p>'
+        return f'<p class="hint" data-provider-key-empty>{escape(t("console.settings.keys.meta_empty"))}</p>'
     parts = []
     for item in items:
         rows = [
-            ("프로바이더", PROVIDER_TEXT.get(item["provider"], item["provider"])),
+            (t("console.settings.keys.provider"), PROVIDER_TEXT.get(item["provider"], item["provider"])),
             ("fingerprint", item["fingerprint"]),
-            ("상태", STATUS_TEXT.get(item["status"], item["status"])),
-            ("등록", format_ts(item["created_at"])),
-            ("마지막 확인", format_ts(item["last_verified_at"])),
-            ("마지막 사용", format_ts(item["last_used_at"])),
+            (t("console.common.status"), t(f"console.settings.keys.status.{item['status']}") if item["status"] in KEY_STATUSES else item["status"]),
+            (t("console.settings.keys.field.created"), format_ts(item["created_at"])),
+            (t("console.settings.keys.field.last_verified"), format_ts(item["last_verified_at"])),
+            (t("console.settings.keys.field.last_used"), format_ts(item["last_used_at"])),
         ]
         body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
         parts.append(f'<dl data-provider-key="{escape(item["provider"])}">{body}</dl>')

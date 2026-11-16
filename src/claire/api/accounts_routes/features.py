@@ -41,6 +41,7 @@ from ...store import auth_db
 from ...store import telegram_bots
 from ..principal import Principal, request_principal
 from ..security import read_json_body
+from ...i18n import t
 from .common import (
     AccountsContext,
     escape,
@@ -50,6 +51,7 @@ from .common import (
     open_auth_db,
     open_db,
     require_recent_auth,
+    t_code,
 )
 
 ME_TELEGRAM_PATH = "/api/me/telegram"
@@ -64,8 +66,9 @@ ADMIN_ACCOUNT_BACKUPS_PATH = "/api/admin/account-backups"
 ADMIN_ACCOUNT_BACKUPS_RESTORE_PATH = "/api/admin/account-backups/restore"
 
 NO_STORE = {"Cache-Control": "no-store"}
-BOT_STATUS_TEXT = {"pending": "시작 대기", "running": "실행 중", "error": "오류", "disabled": "꺼짐"}
-SCHEDULE_TEXT = {"off": "끔", "daily": "매일", "weekly": "매주"}
+# The text of each value is the catalog key ``console.telegram.status.<value>`` or ``console.backups.schedule.<value>``.
+BOT_STATUSES = ("pending", "running", "error", "disabled")
+BACKUP_SCHEDULES = ("off", "daily", "weekly")
 
 
 # --- 공용 -----------------------------------------------------------------------------
@@ -625,17 +628,17 @@ def _reauth_html(ctx: AccountsContext, account_id: int) -> str:
         auth.close()
     if not has_pw:
         return (
-            '<section class="console-subcard" data-feature-reauth="none" aria-label="본인 확인">'
-            "<h2><span data-icon='lock'></span> 본인 확인</h2>"
-            '<p class="hint">이 계정에는 비밀번호가 없습니다. 로그인한 뒤 15분 동안은 본인 확인을 대신합니다. 시간이 지났으면 다시 로그인하세요.</p>'
+            f'<section class="console-subcard" data-feature-reauth="none" aria-label="{escape(t("console.reauth.submit"))}">'
+            f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.submit'))}</h2>"
+            f'<p class="hint">{escape(t("console.reauth.feature_no_password_hint"))}</p>'
             "</section>"
         )
     return (
-        '<form class="console-subcard" data-feature-form="reauth" aria-label="본인 확인">'
-        "<h2><span data-icon='lock'></span> 본인 확인 (단계 인증)</h2>"
-        '<p class="hint">봇 등록·삭제, 허용 사용자 변경, 백업 삭제, 복원은 15분 안에 본인 확인을 해야 합니다.</p>'
-        '<label class="feature-field">현재 비밀번호<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">본인 확인</button>'
+        f'<form class="console-subcard" data-feature-form="reauth" aria-label="{escape(t("console.reauth.submit"))}">'
+        f"<h2><span data-icon='lock'></span> {escape(t('console.reauth.form_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.reauth.feature_hint"))}</p>'
+        f'<label class="feature-field">{escape(t("console.settings.account.current_password"))}<input name="password" type="password" class="pref-input" required autocomplete="current-password"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.reauth.submit"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
     )
@@ -645,18 +648,18 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
     state = telegram_state(ctx, account.id)
     bot = state["bot"]
     if bot is None:
-        status_html = '<p class="hint" data-telegram-empty>등록한 봇이 없습니다. 아래에서 BotFather 토큰을 등록하세요.</p>'
+        status_html = f'<p class="hint" data-telegram-empty>{escape(t("console.telegram.empty"))}</p>'
         allowed_value = ""
         enabled_checked = ""
         manage_disabled = " disabled"
     else:
         rows = [
-            ("봇", f"@{bot['bot_username']}" if bot["bot_username"] else str(bot["bot_id"])),
+            (t("console.telegram.field.bot"), f"@{bot['bot_username']}" if bot["bot_username"] else str(bot["bot_id"])),
             ("fingerprint", bot["fingerprint"]),
-            ("상태", BOT_STATUS_TEXT.get(bot["status"], bot["status"])),
-            ("마지막 오류", bot["last_error"] or "-"),
-            ("상태 시각", format_ts(bot["status_at"])),
-            ("허용 사용자 수", str(len(bot["allowed_user_ids"]))),
+            (t("console.common.status"), t(f"console.telegram.status.{bot['status']}") if bot["status"] in BOT_STATUSES else bot["status"]),
+            (t("console.telegram.field.last_error"), bot["last_error"] or "-"),
+            (t("console.telegram.field.status_at"), format_ts(bot["status_at"])),
+            (t("console.telegram.field.allowed_count"), str(len(bot["allowed_user_ids"]))),
         ]
         status_html = "<dl data-telegram-meta>" + "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows) + "</dl>"
         allowed_value = ", ".join(str(i) for i in bot["allowed_user_ids"])
@@ -665,31 +668,31 @@ def settings_telegram_body(ctx: AccountsContext, *, account: accounts_store.Acco
     return (
         '<div class="settings-features" data-feature-section="telegram">'
         f"{_reauth_html(ctx, account.id)}"
-        '<section class="card" aria-label="내 텔레그램 봇 상태">'
-        "<h2><span data-icon='bot'></span> 내 텔레그램 봇</h2>"
-        '<p class="hint">이 봇은 내 계정의 테마에만 적재·검색합니다. 봇 러너가 15초 안에 설정 변경을 반영합니다. 토큰은 암호화해 저장하고 다시 보여 주지 않습니다.</p>'
+        f'<section class="card" aria-label="{escape(t("console.telegram.state_label"))}">'
+        f"<h2><span data-icon='bot'></span> {escape(t('console.telegram.state_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.telegram.state_hint"))}</p>'
         f'<div data-telegram-status>{status_html}</div>'
-        '<div class="pref-row"><div class="pref-row-label"><strong>봇 켜기</strong><span>끄면 봇이 메시지를 받지 않습니다.</span></div>'
-        f'<input id="pref-telegram-enabled" type="checkbox" switch data-feature-toggle="telegram-enabled"{enabled_checked}{manage_disabled} aria-label="텔레그램 봇 켜기"/></div>'
+        f'<div class="pref-row"><div class="pref-row-label"><strong>{escape(t("console.telegram.enable"))}</strong><span>{escape(t("console.telegram.enable_desc"))}</span></div>'
+        f'<input id="pref-telegram-enabled" type="checkbox" switch data-feature-toggle="telegram-enabled"{enabled_checked}{manage_disabled} aria-label="{escape(t("console.telegram.enable_label"))}"/></div>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</section>"
-        '<form class="card" data-feature-form="telegram-register" aria-label="봇 등록 또는 교체">'
-        "<h2>봇 등록 · 교체</h2>"
-        '<label class="feature-field">BotFather 토큰<input name="bot_token" type="password" class="pref-input" required autocomplete="off" spellcheck="false" placeholder="123456789:AA..."/></label>'
-        f'<label class="feature-field">허용할 텔레그램 사용자 ID (쉼표로 구분, 최대 {telegram_bots.MAX_ALLOWED_USERS}개)<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}" placeholder="12345678"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">토큰 확인 후 저장</button>'
+        f'<form class="card" data-feature-form="telegram-register" aria-label="{escape(t("console.telegram.register_label"))}">'
+        f"<h2>{escape(t('console.telegram.register_title'))}</h2>"
+        f'<label class="feature-field">{escape(t("console.telegram.token"))}<input name="bot_token" type="password" class="pref-input" required autocomplete="off" spellcheck="false" placeholder="123456789:AA..."/></label>'
+        f'<label class="feature-field">{escape(t("console.telegram.allowed_ids_max", max=telegram_bots.MAX_ALLOWED_USERS))}<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}" placeholder="12345678"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.telegram.register_submit"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
-        f'<form class="card" data-feature-form="telegram-allowed" aria-label="허용 사용자 변경"{" hidden" if bot is None else ""}>'
-        "<h2>허용 사용자 변경</h2>"
-        f'<label class="feature-field">텔레그램 사용자 ID<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}"/></label>'
-        '<button type="submit" class="pref-btn">변경 저장</button>'
+        f'<form class="card" data-feature-form="telegram-allowed" aria-label="{escape(t("console.telegram.allowed_title"))}"{" hidden" if bot is None else ""}>'
+        f"<h2>{escape(t('console.telegram.allowed_title'))}</h2>"
+        f'<label class="feature-field">{escape(t("console.telegram.allowed_ids"))}<input name="allowed_user_ids" class="pref-input" required value="{escape(allowed_value)}"/></label>'
+        f'<button type="submit" class="pref-btn">{escape(t("console.telegram.allowed_submit"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
-        f'<section class="card" aria-label="봇 삭제"{" hidden" if bot is None else ""}>'
-        "<h2>봇 삭제</h2>"
-        '<p class="hint">저장한 토큰과 설정을 지웁니다. 봇은 다음 주기에 멈춥니다.</p>'
-        '<button type="button" class="pref-btn" data-feature-action="telegram-delete"><span data-icon="trash"></span> 봇 삭제</button>'
+        f'<section class="card" aria-label="{escape(t("console.telegram.delete_title"))}"{" hidden" if bot is None else ""}>'
+        f"<h2>{escape(t('console.telegram.delete_title'))}</h2>"
+        f'<p class="hint">{escape(t("console.telegram.delete_hint"))}</p>'
+        f'<button type="button" class="pref-btn" data-feature-action="telegram-delete"><span data-icon="trash"></span> {escape(t("console.telegram.delete_title"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</section>"
         "</div>"
@@ -704,30 +707,29 @@ def settings_bundles_body(ctx: AccountsContext, *, account: accounts_store.Accou
     )
     data_form = (
         '<form class="feature-inline" data-feature-form="data-bundle-create">'
-        f'<label class="feature-field">테마<select name="theme" class="pref-select" required>{options}</select></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> 데이터 번들 만들기</button>'
+        f'<label class="feature-field">{escape(t("console.common.theme"))}<select name="theme" class="pref-select" required>{options}</select></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="download"></span> {escape(t("console.bundles.data.submit"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
         if options
-        else '<p class="hint" data-bundle-empty>내 계정이 소유한 테마가 없어 내보낼 번들이 없습니다.</p>'
+        else f'<p class="hint" data-bundle-empty>{escape(t("console.settings.account.bundle_empty"))}</p>'
     )
     return (
         '<div class="settings-features" data-feature-section="bundles">'
-        '<section class="card" aria-label="서포트 번들">'
-        "<h2><span data-icon='pulse'></span> 서포트 번들 (내 계정 범위)</h2>"
-        '<p class="hint">내 테마의 적재 실패 기록, 프로바이더 호출 기록, 계정 상태 요약을 묶습니다. 문서 본문, 비밀, 다른 계정 정보, 서버 진단은 넣지 않습니다. '
-        f"6시간 뒤 자동으로 지워지며 동시에 {MAX_ACTIVE_ACCOUNT_BUNDLES}개까지 둘 수 있습니다.</p>"
+        f'<section class="card" aria-label="{escape(t("console.bundles.support.label"))}">'
+        f"<h2><span data-icon='pulse'></span> {escape(t('console.bundles.support.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.bundles.support.hint", max=MAX_ACTIVE_ACCOUNT_BUNDLES))}</p>'
         '<form class="feature-inline" data-feature-form="support-bundle-create">'
-        '<label class="feature-field">수집 기간 (일)<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/></label>'
-        '<label class="feature-field">추적 대상 (선택: 문서 ID·URL·공유 토큰)<input name="target" class="pref-input" maxlength="2048"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> 서포트 번들 만들기</button>'
+        f'<label class="feature-field">{escape(t("console.admin.mcp.bundle_days"))}<input type="number" name="days" class="pref-input" min="1" max="30" value="1" required/></label>'
+        f'<label class="feature-field">{escape(t("console.bundles.support.target"))}<input name="target" class="pref-input" maxlength="2048"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent"><span data-icon="pulse"></span> {escape(t("console.bundles.support.submit"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
         '<div data-feature-list="support-bundles" aria-live="polite"></div>'
         "</section>"
-        '<section class="card" aria-label="데이터 번들">'
-        "<h2><span data-icon='package'></span> 데이터 번들 (테마 그래프 내보내기)</h2>"
-        '<p class="hint">내 테마의 엔티티·관계·문서 메타데이터를 묶습니다. 임베딩과 비밀은 넣지 않습니다. 24시간 뒤 자동으로 지워집니다.</p>'
+        f'<section class="card" aria-label="{escape(t("console.bundles.data.label"))}">'
+        f"<h2><span data-icon='package'></span> {escape(t('console.bundles.data.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.bundles.data.hint"))}</p>'
         f"{data_form}"
         '<div data-feature-list="data-bundles" aria-live="polite"></div>'
         "</section>"
@@ -740,25 +742,24 @@ def settings_backups_body(ctx: AccountsContext, *, account: accounts_store.Accou
 
     policy = load_policy(_settings(ctx), account_id=account.id)
     schedule_options = "".join(
-        f'<option value="{key}"{" selected" if policy.schedule == key else ""}>{escape(text)}</option>' for key, text in SCHEDULE_TEXT.items()
+        f'<option value="{key}"{" selected" if policy.schedule == key else ""}>{escape(t(f"console.backups.schedule.{key}"))}</option>' for key in BACKUP_SCHEDULES
     )
     return (
         '<div class="settings-features" data-feature-section="backups">'
         f"{_reauth_html(ctx, account.id)}"
-        '<section class="card" aria-label="계정 백업">'
-        "<h2><span data-icon='save'></span> 내 계정 백업</h2>"
-        '<p class="hint">내 계정이 소유한 모든 테마의 지식 데이터(문서·엔티티·관계·임베딩·공유 링크 등)를 한 파일로 백업합니다. 비밀번호·API 키·봇 토큰은 넣지 않습니다. '
-        "복원은 운영자에게 요청하세요(운영자 전용 메뉴에서만 복원할 수 있습니다).</p>"
-        '<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create"><span data-icon="save"></span> 지금 백업</button>'
+        f'<section class="card" aria-label="{escape(t("console.backups.label"))}">'
+        f"<h2><span data-icon='save'></span> {escape(t('console.backups.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.backups.hint"))}</p>'
+        f'<button type="button" class="pref-btn pref-btn-accent" data-feature-action="backup-create"><span data-icon="save"></span> {escape(t("console.backups.create"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         '<div data-feature-list="backups" aria-live="polite"></div>'
         "</section>"
-        '<form class="card" data-feature-form="backup-policy" aria-label="자동 백업">'
-        "<h2><span data-icon='clock'></span> 자동 백업</h2>"
+        f'<form class="card" data-feature-form="backup-policy" aria-label="{escape(t("console.backups.policy_title"))}">'
+        f"<h2><span data-icon='clock'></span> {escape(t('console.backups.policy_title'))}</h2>"
         '<p class="hint" data-backup-policy-status></p>'
-        f'<label class="feature-field">주기<select name="schedule" class="pref-select">{schedule_options}</select></label>'
-        f'<label class="feature-field">보존 개수 ({MIN_KEEP}–{MAX_KEEP}, 넘으면 오래된 백업부터 지움)<input type="number" name="keep" class="pref-input" min="{MIN_KEEP}" max="{MAX_KEEP}" value="{policy.keep}" required/></label>'
-        '<button type="submit" class="pref-btn">저장</button>'
+        f'<label class="feature-field">{escape(t("console.backups.schedule"))}<select name="schedule" class="pref-select">{schedule_options}</select></label>'
+        f'<label class="feature-field">{escape(t("console.backups.keep", min=MIN_KEEP, max=MAX_KEEP))}<input type="number" name="keep" class="pref-input" min="{MIN_KEEP}" max="{MAX_KEEP}" value="{policy.keep}" required/></label>'
+        f'<button type="submit" class="pref-btn">{escape(t("common.action.save"))}</button>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</form>"
         "</div>"
@@ -770,11 +771,10 @@ def admin_backups_body(ctx: AccountsContext, *, principal: Principal) -> str:
     return (
         '<div class="settings-features" data-feature-section="admin-backups">'
         f"{_reauth_html(ctx, principal.account_id)}"
-        '<section class="card" aria-label="계정 백업 복원">'
-        "<h2><span data-icon='restore'></span> 계정 백업 복원 (운영자 전용)</h2>"
-        '<p class="hint">계정 소유자가 만든 백업을 그 계정에 되돌립니다. 백업에 있는 테마만 백업 시점으로 바꾸고, 그 뒤에 만든 테마는 그대로 둡니다. '
-        "복원 전에 지식 DB 전체 checkpoint를 <code>data/checkpoints/</code>에 만듭니다. 인스턴스 전체 복원은 <code>./cb-manuscript restore</code>를 쓰세요.</p>"
-        '<div data-feature-list="admin-backups" aria-live="polite"><p class="hint">목록을 불러오는 중입니다...</p></div>'
+        f'<section class="card" aria-label="{escape(t("console.backups.restore_label"))}">'
+        f"<h2><span data-icon='restore'></span> {escape(t('console.backups.restore_title'))}</h2>"
+        f'<p class="hint">{t_code("console.backups.restore_hint", checkpoints="data/checkpoints/", command="./cb-manuscript restore")}</p>'
+        f'<div data-feature-list="admin-backups" aria-live="polite"><p class="hint">{escape(t("console.common.loading_list"))}</p></div>'
         '<p class="result" data-feature-result role="status" aria-live="polite"></p>'
         "</section>"
         "</div>"

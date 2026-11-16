@@ -300,8 +300,8 @@ def test_member_isolation_in_network_mode(console_e2e):
         assert "admin-themes-summary" not in body, path
         assert "pref-mcp-audit-tbody" not in body, path
         assert "pref-idp-tbody" not in body, path
-        assert "시스템 관리 및 설정 (관리자)" not in body, path
-        assert "인스턴스 · 계정 · 인증 (관리자)" not in body, path
+        assert "System administration and settings (administrator)" not in body, path
+        assert "Instance · Accounts · Authentication (administrator)" not in body, path
         for slug2 in MEMBER_SETTINGS_SECTIONS:
             assert f'href="/settings/{slug2}"' in body, (path, slug2)
         assert "Bob Console Secret" not in body, path

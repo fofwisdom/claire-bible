@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  // Each text of this script is a catalog key (ClaireI18n, static/locales/{en,ko}.json).
+  var tr = function (key, params) { return window.ClaireI18n.t(key, params); };
+
   function parseBootstrap() {
     var el = document.getElementById("console-bootstrap");
     if (!el || !el.textContent) return null;
@@ -69,7 +72,7 @@
         var password = pwInput ? pwInput.value : "";
         if (!password) {
           if (errEl) {
-            errEl.textContent = "비밀번호를 입력해 주세요.";
+            errEl.textContent = tr("console.js.admin.reauth.password_needed");
             errEl.hidden = false;
           }
           return;
@@ -91,12 +94,12 @@
             return;
           }
           if (errEl) {
-            errEl.textContent = (res.body && (res.body.detail || res.body.error)) ? String(res.body.detail || res.body.error) : "재인증에 실패했습니다.";
+            errEl.textContent = (res.body && (res.body.detail || res.body.error)) ? String(res.body.detail || res.body.error) : tr("console.js.admin.reauth.failed");
             errEl.hidden = false;
           }
         }).catch(function () {
           if (errEl) {
-            errEl.textContent = "네트워크 오류가 발생했습니다.";
+            errEl.textContent = tr("console.js.admin.network_error");
             errEl.hidden = false;
           }
         });
@@ -148,7 +151,7 @@
             });
           }).then(function (res) {
             if (res.status === 200) {
-              showStatusBanner(statusEl, "계정 상태가 업데이트되었습니다: " + publicId + " (" + action + ")", false);
+              showStatusBanner(statusEl, tr("console.js.admin.accounts.updated") + " " + publicId + " (" + action + ")", false);
               window.location.reload();
               return;
             }
@@ -156,9 +159,9 @@
               openReauthModal(performPatch);
               return;
             }
-            showStatusBanner(statusEl, "계정 작업 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+            showStatusBanner(statusEl, tr("console.js.admin.accounts.failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
           }).catch(function () {
-            showStatusBanner(statusEl, "네트워크 오류로 계정 작업을 완료하지 못했습니다.", true);
+            showStatusBanner(statusEl, tr("console.js.admin.accounts.network_error"), true);
           });
         };
         performPatch();
@@ -182,12 +185,12 @@
       }).then(function (res) {
         if (res.status !== 200 || !res.body || !Array.isArray(res.body.items)) return;
         if (res.body.items.length === 0) {
-          invitesTbody.innerHTML = '<tr><td colspan="7" class="empty">발급된 초대 코드가 없습니다.</td></tr>';
+          invitesTbody.innerHTML = '<tr><td colspan="7" class="empty">' + tr("console.js.admin.invites.empty") + '</td></tr>';
           return;
         }
         invitesTbody.innerHTML = res.body.items.map(function (inv) {
           var statusBadge = inv.status === "active" ? '<span class="badge badge-ok">active</span>' : '<span class="badge badge-muted">' + escHtml(inv.status) + "</span>";
-          var revokeBtn = inv.status === "active" ? '<button type="button" class="pref-btn pref-btn-danger" data-invite-revoke="' + escHtml(inv.code) + '">폐기</button>' : "—";
+          var revokeBtn = inv.status === "active" ? '<button type="button" class="pref-btn pref-btn-danger" data-invite-revoke="' + escHtml(inv.code) + '">' + tr("console.js.admin.invites.revoke") + '</button>' : "—";
           return '<tr data-invite-code="' + escHtml(inv.code) + '"><td><code>' + escHtml(inv.public_id || "—") + "</code></td><td><code>" + escHtml(inv.code) + "</code></td><td>" + statusBadge + "</td><td>" + escHtml(inv.uses_count) + " / " + escHtml(inv.max_uses) + "</td><td>" + escHtml(inv.reserved_username || "—") + "</td><td>" + escHtml(inv.note || "—") + "</td><td>" + revokeBtn + "</td></tr>";
         }).join("");
       }).catch(function () {});
@@ -211,13 +214,13 @@
           });
         }).then(function (res) {
           if (res.status === 200) {
-            showStatusBanner(inviteStatusEl, "초대 코드가 폐기되었습니다: " + code, false);
+            showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoked") + " " + code, false);
             loadInvites();
             return;
           }
-          showStatusBanner(inviteStatusEl, "초대 코드 폐기 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoke_failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
         }).catch(function () {
-          showStatusBanner(inviteStatusEl, "네트워크 오류로 초대 코드를 폐기하지 못했습니다.", true);
+          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.revoke_network_error"), true);
         });
       });
     }
@@ -242,14 +245,14 @@
           });
         }).then(function (res) {
           if ((res.status === 200 || res.status === 201) && res.body) {
-            showStatusBanner(inviteStatusEl, "초대 코드 발급 완료: " + (res.body.code || ""), false);
+            showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issued") + " " + (res.body.code || ""), false);
             inviteForm.reset();
             loadInvites();
             return;
           }
-          showStatusBanner(inviteStatusEl, "초대 코드 발급 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issue_failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
         }).catch(function () {
-          showStatusBanner(inviteStatusEl, "네트워크 오류로 초대 코드를 발급하지 못했습니다.", true);
+          showStatusBanner(inviteStatusEl, tr("console.js.admin.invites.issue_network_error"), true);
         });
       });
     }
@@ -263,7 +266,7 @@
     function runUsernameRelease(uname, applyFlag) {
       var clean = String(uname || "").trim();
       if (!clean) {
-        showStatusBanner(usernameResult, "조치할 사용자 이름을 입력해 주세요.", true);
+        showStatusBanner(usernameResult, tr("console.js.admin.usernames.needed"), true);
         return;
       }
       var execRelease = function () {
@@ -278,7 +281,7 @@
           });
         }).then(function (res) {
           if (res.status === 200 && res.body) {
-            var label = applyFlag ? "해제 완료: " : "미리보기 결과: ";
+            var label = applyFlag ? tr("console.js.admin.usernames.released") + " " : tr("console.js.admin.usernames.preview") + " ";
             showStatusBanner(usernameResult, label + JSON.stringify(res.body), false);
             return;
           }
@@ -286,9 +289,9 @@
             openReauthModal(execRelease);
             return;
           }
-          showStatusBanner(usernameResult, "사용자 이름 해제 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+          showStatusBanner(usernameResult, tr("console.js.admin.usernames.failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
         }).catch(function () {
-          showStatusBanner(usernameResult, "네트워크 오류가 발생했습니다.", true);
+          showStatusBanner(usernameResult, tr("console.js.admin.network_error"), true);
         });
       };
       execRelease();
@@ -341,7 +344,7 @@
       }
       if (tbody) {
         if (providers.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;">등록된 공급자가 없습니다.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;">' + tr("console.js.admin.idp.empty") + '</td></tr>';
         } else {
           tbody.innerHTML = providers.map(function (p) {
             var cbUri = origin.replace(/\/$/, "") + "/auth/oidc/" + p.id + "/callback";
@@ -352,10 +355,10 @@
       if (loginPreview) {
         var enabledProviders = providers.filter(function (p) { return p.enabled; });
         if (enabledProviders.length === 0) {
-          loginPreview.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">활성화된 외부 IdP 버튼이 없습니다.</span>';
+          loginPreview.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">' + tr("console.js.admin.idp.preview_empty") + '</span>';
         } else {
           loginPreview.innerHTML = enabledProviders.map(function (p) {
-            return '<a class="pref-login-btn" href="/auth/oidc/' + escHtml(p.id) + '/start">' + escHtml(p.display_name) + "로 계속하기</a>";
+            return '<a class="pref-login-btn" href="/auth/oidc/' + escHtml(p.id) + '/start">' + escHtml(tr("console.js.admin.idp.continue_with", { name: p.display_name })) + "</a>";
           }).join(" ");
         }
       }
@@ -375,12 +378,12 @@
         if (res.status === 200) {
           providers = nextProviders;
           renderIdpViews();
-          showStatusBanner(statusEl, msg || "외부 IdP 설정이 저장되었습니다.", false);
+          showStatusBanner(statusEl, msg || tr("console.js.admin.idp.saved"), false);
           return;
         }
-        showStatusBanner(statusEl, "IdP 저장 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+        showStatusBanner(statusEl, tr("console.js.admin.idp.save_failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
       }).catch(function () {
-        showStatusBanner(statusEl, "네트워크 오류로 IdP 설정을 저장하지 못했습니다.", true);
+        showStatusBanner(statusEl, tr("console.js.admin.idp.save_network_error"), true);
       });
     }
 
@@ -393,7 +396,7 @@
             if (p.id === id) return Object.assign({}, p, { enabled: Boolean(toggleInput.checked) });
             return p;
           });
-          saveProviders(next, "공급자 활성 상태가 변경되었습니다: " + id);
+          saveProviders(next, tr("console.js.admin.idp.toggled") + " " + id);
           return;
         }
         var signupInput = ev.target.closest("[data-idp-signup]");
@@ -403,7 +406,7 @@
             if (p.id === sid) return Object.assign({}, p, { allow_signup: Boolean(signupInput.checked) });
             return p;
           });
-          saveProviders(nextSignup, "공급자 초대 가입 정책이 변경되었습니다: " + sid);
+          saveProviders(nextSignup, tr("console.js.admin.idp.signup_changed") + " " + sid);
         }
       });
       tbody.addEventListener("click", function (ev) {
@@ -411,7 +414,7 @@
         if (removeBtn) {
           var rid = removeBtn.getAttribute("data-idp-remove");
           var nextRem = providers.filter(function (p) { return p.id !== rid; });
-          saveProviders(nextRem, "공급자가 삭제되었습니다: " + rid);
+          saveProviders(nextRem, tr("console.js.admin.idp.removed") + " " + rid);
         }
       });
     }
@@ -430,7 +433,7 @@
         var pissuer = issuerEl ? issuerEl.value.trim() : "";
         var pclient = clientEl ? clientEl.value.trim() : "";
         if (!pid || !pclient) {
-          showStatusBanner(statusEl, "공급자 ID와 Client ID를 입력해 주세요.", true);
+          showStatusBanner(statusEl, tr("console.js.admin.idp.ids_needed"), true);
           return;
         }
         var filtered = providers.filter(function (p) { return p.id !== pid; });
@@ -445,7 +448,7 @@
           scopes: ["openid", "email", "profile"],
           secret_configured: false
         });
-        saveProviders(filtered, "새 IdP 공급자가 등록되었습니다: " + pname);
+        saveProviders(filtered, tr("console.js.admin.idp.added") + " " + pname);
         addForm.reset();
       });
     }
@@ -493,7 +496,7 @@
       }).then(function (res) {
         if (res.status !== 200 || !res.body || !Array.isArray(res.body.records)) return;
         if (res.body.records.length === 0) {
-          auditTbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;">조건에 일치하는 MCP 호출 감사 기록이 없습니다.</td></tr>';
+          auditTbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;">' + tr("console.js.admin.mcp.audit_empty") + '</td></tr>';
           return;
         }
         auditTbody.innerHTML = res.body.records.map(function (r) {
@@ -523,7 +526,7 @@
       } catch (_e) {}
       var syncHint = function () {
         if (!webmcpHint) return;
-        webmcpHint.textContent = webmcpToggle.checked ? "현재 상태: 활성 (테마별 상세 노출 설정은 /settings/webmcp에서 구성합니다)." : "현재 상태: 비활성 (document.modelContext 등록 차단).";
+        webmcpHint.textContent = webmcpToggle.checked ? tr("console.js.admin.mcp.webmcp_on") : tr("console.js.admin.mcp.webmcp_off");
       };
       syncHint();
       webmcpToggle.addEventListener("change", function () {
@@ -555,13 +558,13 @@
             if (bundleResult) {
               bundleResult.hidden = false;
               bundleResult.className = "result ok";
-              bundleResult.innerHTML = '지원 번들이 준비되었습니다 (' + escHtml(res.body.size_bytes) + ' bytes): <a href="/support/bundle?token=' + encodeURIComponent(res.body.token) + '">다운로드 (.tar.gz)</a>';
+              bundleResult.innerHTML = tr("console.js.admin.bundle.ready") + ' (' + escHtml(res.body.size_bytes) + ' bytes): <a href="/support/bundle?token=' + encodeURIComponent(res.body.token) + '">' + tr("console.js.admin.bundle.download") + '</a>';
             }
             return;
           }
-          showStatusBanner(bundleResult, "지원 번들 생성 실패: " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
+          showStatusBanner(bundleResult, tr("console.js.admin.bundle.failed") + " " + ((res.body && (res.body.detail || res.body.error)) || res.status), true);
         }).catch(function () {
-          showStatusBanner(bundleResult, "네트워크 오류로 지원 번들을 생성하지 못했습니다.", true);
+          showStatusBanner(bundleResult, tr("console.js.admin.bundle.network_error"), true);
         });
       });
     }
@@ -678,12 +681,12 @@
 
   function initFederationSection() {
     var FED_ERROR_TEXT = {
-      step_up_requires_session: "로그인 세션에서만 할 수 있습니다. API 토큰으로는 할 수 없습니다.",
-      forbidden: "요청 출처(Origin)를 확인하지 못했습니다.",
-      invalid_domain: "도메인 형식이 맞지 않습니다. 스킴·포트·경로 없이 호스트 이름만 넣으세요 (예: spam.example).",
-      invalid_note: "메모는 200자 이하이고 제어 문자를 넣을 수 없습니다.",
-      invalid_request: "요청 형식이 맞지 않습니다.",
-      domain_block_not_found: "이미 목록에 없는 도메인입니다."
+      step_up_requires_session: tr("console.js.common.error.step_up_requires_session"),
+      forbidden: tr("console.js.admin.error.forbidden"),
+      invalid_domain: tr("console.js.admin.federation.error.invalid_domain"),
+      invalid_note: tr("console.js.admin.federation.error.invalid_note"),
+      invalid_request: tr("console.js.common.error.invalid_request"),
+      domain_block_not_found: tr("console.js.admin.federation.error.domain_block_not_found")
     };
     var switchCard = document.getElementById("admin-federation-switch");
     var switchResult = document.getElementById("admin-federation-switch-result");
@@ -739,11 +742,11 @@
       var body = res.body;
       if (body && body.error === "readiness_failed") {
         var fails = (body.failures || []).map(function (f) { return f.id + " (" + (f.detail || f.name) + ")"; });
-        return "준비 검사를 통과하지 못했습니다: " + (fails.join(", ") || body.detail || "");
+        return tr("console.js.admin.mode.readiness_failed") + " " + (fails.join(", ") || body.detail || "");
       }
       if (body && typeof body.error === "string" && FED_ERROR_TEXT[body.error]) return FED_ERROR_TEXT[body.error];
       if (body && typeof body.detail === "string" && body.detail) return body.detail;
-      return "요청을 처리하지 못했습니다 (HTTP " + res.status + ").";
+      return tr("console.js.common.http_error", { status: res.status });
     }
 
     // Sends a change. When the server asks for recent authentication, the shared dialog opens and the change is sent again after it.
@@ -751,13 +754,13 @@
       var attempt = function () {
         send(method, url, payload).then(function (res) {
           if (res.status === 401 && res.body && res.body.error === "reauth_required") {
-            setResult(resultEl, "본인 확인(비밀번호)이 필요합니다.", true);
+            setResult(resultEl, tr("console.js.admin.federation.reauth_needed"), true);
             openReauthModal(attempt);
             return;
           }
           onDone(res);
         }).catch(function () {
-          setResult(resultEl, "네트워크 오류로 요청을 완료하지 못했습니다.", true);
+          setResult(resultEl, tr("console.js.admin.federation.network_error"), true);
         });
       };
       attempt();
@@ -778,13 +781,13 @@
         var tdState = document.createElement("td");
         var pill = document.createElement("span");
         pill.className = item.passed ? "badge badge-enabled" : "badge badge-disabled";
-        pill.textContent = item.passed ? "통과" : "실패";
+        pill.textContent = item.passed ? tr("console.js.admin.readiness.passed") : tr("console.js.admin.readiness.failed");
         tdState.appendChild(pill);
         [tdId, cell(item.name), tdState, cell(item.detail)].forEach(function (td) { tr.appendChild(td); });
         readinessTbody.appendChild(tr);
       });
-      if (!items.length) messageRow(readinessTbody, 4, "준비 검사 결과가 없습니다.");
-      setResult(readinessResult, readiness && readiness.passed ? "모든 준비 검사를 통과했습니다." : "통과하지 못한 준비 검사가 있습니다.", !(readiness && readiness.passed));
+      if (!items.length) messageRow(readinessTbody, 4, tr("console.js.admin.readiness.empty"));
+      setResult(readinessResult, readiness && readiness.passed ? tr("console.js.admin.readiness.all_passed") : tr("console.js.admin.readiness.some_failed"), !(readiness && readiness.passed));
     }
 
     function renderHeartbeat(heartbeat) {
@@ -792,15 +795,15 @@
       clear(heartbeatDl);
       var rows;
       if (!heartbeat) {
-        rows = [["하트비트", "받은 기록이 없습니다. 사이드카가 실행 중인지 확인하세요."]];
+        rows = [[tr("console.js.admin.sidecar.heartbeat"), tr("console.js.admin.sidecar.no_heartbeat")]];
       } else {
         var check = heartbeat.self_check || {};
         rows = [
-          ["마지막 하트비트", formatTs(heartbeat.received_at)],
-          ["계약 버전", heartbeat.contract_version],
-          ["사이드카 버전", heartbeat.sidecar_version],
-          ["대기열 깊이", heartbeat.queue_depth],
-          ["공개 경로 자가 검사", check.ok === true ? "통과" : (check.ok === false ? "실패" : "아직 실행 전")]
+          [tr("console.js.admin.sidecar.last_heartbeat"), formatTs(heartbeat.received_at)],
+          [tr("console.js.admin.sidecar.contract_version"), heartbeat.contract_version],
+          [tr("console.js.admin.sidecar.sidecar_version"), heartbeat.sidecar_version],
+          [tr("console.js.admin.sidecar.queue_depth"), heartbeat.queue_depth],
+          [tr("console.js.admin.sidecar.self_check"), check.ok === true ? tr("console.js.admin.readiness.passed") : (check.ok === false ? tr("console.js.admin.readiness.failed") : tr("console.js.admin.sidecar.self_check_pending"))]
         ];
       }
       heartbeatDl.setAttribute("data-heartbeat", heartbeat ? "present" : "absent");
@@ -847,13 +850,13 @@
       if (refreshBtn) refreshBtn.disabled = true;
       return send("GET", "/api/admin/federation").then(function (res) {
         if (!res.ok || !res.body) {
-          setResult(readinessResult, "연합 상태를 불러오지 못했습니다. " + errorText(res), true);
+          setResult(readinessResult, tr("console.js.admin.federation.load_failed") + " " + errorText(res), true);
           return;
         }
         renderReadiness(res.body.readiness);
         renderHeartbeat(res.body.heartbeat);
       }).catch(function () {
-        setResult(readinessResult, "네트워크 오류로 연합 상태를 불러오지 못했습니다.", true);
+        setResult(readinessResult, tr("console.js.admin.federation.load_network_error"), true);
       }).then(function () {
         if (refreshBtn) refreshBtn.disabled = false;
       });
@@ -863,7 +866,7 @@
       if (!blocksTbody) return;
       clear(blocksTbody);
       if (!blocks.length) {
-        messageRow(blocksTbody, 4, "차단한 도메인이 없습니다.", "data-domain-block-empty");
+        messageRow(blocksTbody, 4, tr("console.js.admin.federation.blocks_empty"), "data-domain-block-empty");
         return;
       }
       blocks.forEach(function (block) {
@@ -878,7 +881,7 @@
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "pref-btn pref-btn-danger";
-        btn.textContent = "차단 해제";
+        btn.textContent = tr("console.js.admin.federation.unblock");
         btn.setAttribute("data-domain-block-remove", String(block.domain));
         tdBtn.appendChild(btn);
         [tdDomain, cell(block.note), cell(formatTs(block.created_at)), tdBtn].forEach(function (td) { tr.appendChild(td); });
@@ -897,11 +900,11 @@
         var btn = ev.target.closest("[data-federation-switch]");
         if (!btn) return;
         var target = btn.getAttribute("data-federation-switch");
-        if (target === "off" && !window.confirm("연합을 끌까요? 모든 액터 경로가 404를 돌려줍니다.")) return;
-        setResult(switchResult, "처리 중입니다...", false);
+        if (target === "off" && !window.confirm(tr("console.js.admin.federation.off_confirm"))) return;
+        setResult(switchResult, tr("console.js.admin.in_work"), false);
         sendChange("POST", "/api/admin/federation", { federation: target }, switchResult, function (res) {
           if (res.ok) {
-            setResult(switchResult, target === "on" ? "연합을 켰습니다. 화면을 새로 고칩니다..." : "연합을 껐습니다. 화면을 새로 고칩니다...", false);
+            setResult(switchResult, target === "on" ? tr("console.js.admin.federation.on_done") : tr("console.js.admin.federation.off_done"), false);
             window.location.reload();
             return;
           }
@@ -912,7 +915,7 @@
 
     if (refreshBtn) {
       refreshBtn.addEventListener("click", function () {
-        setResult(readinessResult, "준비 검사를 실행하는 중입니다...", false);
+        setResult(readinessResult, tr("console.js.admin.readiness.in_work"), false);
         loadState();
       });
     }
@@ -926,7 +929,7 @@
         if (!payload.domain) return;
         sendChange("POST", "/api/admin/federation/domain-blocks", payload, blocksResult, function (res) {
           if (res.ok && res.body) {
-            setResult(blocksResult, res.body.created ? "도메인을 차단했습니다: " + res.body.domain_block.domain : "이미 차단한 도메인입니다: " + res.body.domain_block.domain, false);
+            setResult(blocksResult, res.body.created ? tr("console.js.admin.federation.blocked") + " " + res.body.domain_block.domain : tr("console.js.admin.federation.already_blocked") + " " + res.body.domain_block.domain, false);
             domainInput.value = "";
             noteInput.value = "";
             loadBlocks();
@@ -942,10 +945,10 @@
         var btn = ev.target.closest("[data-domain-block-remove]");
         if (!btn) return;
         var domain = btn.getAttribute("data-domain-block-remove") || "";
-        if (!window.confirm("이 도메인의 차단을 해제할까요? " + domain)) return;
+        if (!window.confirm(tr("console.js.admin.federation.unblock_confirm") + " " + domain)) return;
         sendChange("DELETE", "/api/admin/federation/domain-blocks", { domain: domain }, blocksResult, function (res) {
           if (res.ok) {
-            setResult(blocksResult, "차단을 해제했습니다: " + domain, false);
+            setResult(blocksResult, tr("console.js.admin.federation.unblocked") + " " + domain, false);
           } else {
             setResult(blocksResult, errorText(res), true);
           }

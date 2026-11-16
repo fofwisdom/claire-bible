@@ -228,12 +228,12 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     # 3. Initial page in Single Mode with G5 unconfigured
     init_page = app_env.client.get("/admin/instance", headers=headers)
     assert init_page.status_code == 200
-    assert '<section class="card" aria-label="인스턴스 모드" id="instance-mode">' in init_page.text
+    assert '<section class="card" aria-label="Instance mode" id="instance-mode">' in init_page.text
     assert 'data-mode-switch-form' in init_page.text
     assert 'data-mode-switch-reauth' in init_page.text
     assert 'name="target_mode" value="network"' in init_page.text
     assert '<script src="/static/js/instance_mode.js" defer></script>' in init_page.text
-    assert "준비 검사 미통과" in init_page.text
+    assert "Readiness checks not passed (" in init_page.text
     form_slice = init_page.text.split("data-mode-switch-form")[1].split("</form>")[0]
     assert "disabled" in form_slice
 
@@ -244,11 +244,11 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     # 5. Page in Single Mode is now ready for transition
     ready_page = app_env.client.get("/admin/instance", headers=headers)
     assert ready_page.status_code == 200
-    assert "9/9 통과" in ready_page.text
-    assert "준비 검사 완료: 네트워크 모드로 전환할 수 있습니다." in ready_page.text
+    assert "9/9 passed" in ready_page.text
+    assert "The readiness checks are complete: the switch to network mode is possible." in ready_page.text
     ready_form_slice = ready_page.text.split("data-mode-switch-form")[1].split("</form>")[0]
     assert "disabled" not in ready_form_slice
-    assert "네트워크 모드로 전환</button>" in ready_form_slice
+    assert "Switch to network mode</button>" in ready_form_slice
 
     # 6. Execute transition to Network Mode
     switch_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "network"}, headers=headers)
@@ -258,11 +258,11 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     # 7. Page now renders Network Mode controls
     net_page = app_env.client.get("/admin/instance", headers=headers)
     assert net_page.status_code == 200
-    assert "네트워크 모드 (Network Mode)" in net_page.text
+    assert '<span class="badge">Network mode</span>' in net_page.text
     assert 'name="target_mode" value="single"' in net_page.text
     assert "btn-danger" in net_page.text
-    assert "싱글 모드로 전환</button>" in net_page.text
-    assert "일반 멤버가 1명이라도 존재하면" in net_page.text
+    assert "Switch to single mode</button>" in net_page.text
+    assert "If one or more members are invited, active, or suspended" in net_page.text
 
     # 8. Add a non-admin member and verify rollback rejection
     conn = dbm.connect_existing(app_env.db_file)
@@ -296,6 +296,6 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     # 10. Page is back in Single Mode
     final_page = app_env.client.get("/admin/instance", headers=headers)
     assert final_page.status_code == 200
-    assert "싱글 모드 (Single Mode)" in final_page.text
+    assert '<span class="badge">Single mode</span>' in final_page.text
     assert 'name="target_mode" value="network"' in final_page.text
 

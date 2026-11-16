@@ -44,6 +44,7 @@ from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
 from ... import ids
+from ...i18n import get_locale, t
 from .common import (
     AccountsContext,
     client_ip,
@@ -56,6 +57,7 @@ from .common import (
     retry_after_seconds,
     same_origin,
     set_session_cookie,
+    t_code,
     validate_display_name,
 )
 
@@ -80,17 +82,17 @@ def _wants_json(request: Request) -> bool:
 
 
 def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> str:
-    reserved_note = f"<p>이 초대는 <strong>@{escape(info.reserved_username)}</strong> 전용입니다.</p>" if info.reserved_username else ""
+    reserved_note = f"<p>{escape(t('auth.invite.reserved', username='@' + info.reserved_username))}</p>" if info.reserved_username else ""
     readonly_attr = ' readonly' if info.reserved_username else ''
     val_username = escape(info.reserved_username or '')
     return (
         "<!doctype html>"
-        "<html lang=\"ko\">"
+        f"<html lang=\"{get_locale()}\">"
         "<head>"
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<meta name=\"robots\" content=\"noindex, nofollow\">"
-        f"<title>{escape(instance_name)} 초대 가입</title>"
+        f"<title>{escape(t('auth.invite.page_title', instance=instance_name))}</title>"
         "<style>"
         "body { font-family: system-ui, -apple-system, sans-serif; max-width: 440px; margin: 40px auto; padding: 20px; line-height: 1.5; color: #222; }"
         "h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }"
@@ -102,17 +104,17 @@ def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> 
         "</style>"
         "</head>"
         "<body>"
-        f"<h1>{escape(instance_name)} 가입</h1>"
-        f"<p>초대 코드: <code>{escape(code)}</code></p>"
+        f"<h1>{escape(t('auth.invite.title', instance=instance_name))}</h1>"
+        f"<p>{t_code('auth.invite.code', code=code)}</p>"
         f"{reserved_note}"
         f"<form method=\"POST\" action=\"/invite/{escape(code)}\">"
         f"<label for=\"username\">USERNAME</label>"
         f"<input id=\"username\" name=\"username\" type=\"text\" value=\"{val_username}\" required autocomplete=\"username\"{readonly_attr}>"
-        "<label for=\"display_name\">표시 이름</label>"
-        "<input id=\"display_name\" name=\"display_name\" type=\"text\" placeholder=\"홍길동\" required autocomplete=\"name\">"
-        "<label for=\"password\">비밀번호</label>"
+        f"<label for=\"display_name\">{escape(t('auth.invite.display_name'))}</label>"
+        f"<input id=\"display_name\" name=\"display_name\" type=\"text\" placeholder=\"{escape(t('auth.invite.display_name_placeholder'))}\" required autocomplete=\"name\">"
+        f"<label for=\"password\">{escape(t('auth.invite.password'))}</label>"
         "<input id=\"password\" name=\"password\" type=\"password\" required autocomplete=\"new-password\" minlength=\"12\">"
-        "<button type=\"submit\">계정 만들기</button>"
+        f"<button type=\"submit\">{escape(t('auth.invite.submit'))}</button>"
         "</form>"
         "<div class=\"footer\">"
         "<a href=\"https://github.com/kim-home/claire-bible\" target=\"_blank\" rel=\"noreferrer noopener\">Claire Bible</a>"
@@ -123,25 +125,20 @@ def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> 
 
 
 def _render_inactive_html(reason: str) -> str:
-    messages = {
-        "expired": "만료된 초대 링크입니다.",
-        "exhausted": "모두 사용된 초대 링크입니다.",
-        "revoked": "관리자에 의해 비활성화된 초대 링크입니다.",
-    }
-    msg = messages.get(reason, "사용할 수 없는 초대 링크입니다.")
+    msg = t(f"auth.invite.inactive.{reason}") if reason in ("expired", "exhausted", "revoked") else t("auth.invite.inactive.other")
     return (
         "<!doctype html>"
-        "<html lang=\"ko\">"
+        f"<html lang=\"{get_locale()}\">"
         "<head>"
         "<meta charset=\"utf-8\">"
         "<meta name=\"robots\" content=\"noindex, nofollow\">"
-        "<title>초대 링크 비활성</title>"
+        f"<title>{escape(t('auth.invite.inactive.page_title'))}</title>"
         "<style>body { font-family: system-ui, sans-serif; max-width: 440px; margin: 40px auto; padding: 20px; line-height: 1.5; color: #444; }</style>"
         "</head>"
         "<body>"
-        "<h1>초대 링크를 사용할 수 없습니다</h1>"
+        f"<h1>{escape(t('auth.invite.inactive.title'))}</h1>"
         f"<p>{escape(msg)}</p>"
-        "<p><a href=\"/\" rel=\"noreferrer noopener\">홈으로 이동</a></p>"
+        f"<p><a href=\"/\" rel=\"noreferrer noopener\">{escape(t('auth.invite.inactive.home'))}</a></p>"
         "</body>"
         "</html>"
     )

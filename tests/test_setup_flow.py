@@ -353,8 +353,8 @@ def test_password_store_failure_keeps_setup_and_points_to_me(client, settings, m
     page = client.request("GET", "/settings/account?notice=password_not_saved", session=new)
     assert page.status_code == 200
     assert 'data-account-notice="password_not_saved"' in page.text
-    assert "비밀번호를 저장하지 못했습니다" in page.text
-    assert "설정 안 됨" in page.text
+    assert "the password was not saved" in page.text
+    assert "Not set" in page.text
     # 목록에 없는 notice 값은 아무것도 그리지 않는다.
     unknown = client.request("GET", "/settings/account?notice=<script>", session=new)
     assert unknown.status_code == 200

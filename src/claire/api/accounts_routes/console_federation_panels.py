@@ -16,10 +16,10 @@ from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
-from .common import AccountsContext, escape, format_ts, open_db
+from .common import AccountsContext, escape, format_ts, open_db, t_code
 
 __all__ = [
-    "ACTOR_STATE_TEXT",
+    "ACTOR_STATES",
     "ActorState",
     "account_federation_status",
     "actor_state",
@@ -30,14 +30,8 @@ __all__ = [
 
 ActorState = Literal["active", "account_not_active", "no_username", "federation_off", "profile_not_public"]
 
-# Text of each actor state on the console. ``console_account.js`` has the same table.
-ACTOR_STATE_TEXT: dict[str, str] = {
-    "active": "연합 중",
-    "account_not_active": "일시 중지 · 계정이 활성 상태가 아닙니다",
-    "no_username": "일시 중지 · USERNAME이 아직 없습니다",
-    "federation_off": "꺼짐 · 인스턴스 운영자가 연합을 켜지 않았습니다",
-    "profile_not_public": "일시 중지 · 프로필이 비공개입니다",
-}
+# The text of each actor state is the catalog key ``console.federation.actor_state.<state>``. ``console_account.js`` reads the same keys.
+ACTOR_STATES = ("active", "account_not_active", "no_username", "federation_off", "profile_not_public")
 
 
 def actor_state(account: accounts_store.Account, *, federation: str) -> ActorState:
@@ -89,9 +83,9 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
     """Return the body and the bootstrap data of ``/settings/federation``. In single mode the body has a notice only and shows no USERNAME (S9)."""
     if mode != "network":
         body = (
-            '<section class="console-subcard" id="settings-federation-unavailable" data-federation-mode="unavailable" aria-label="연합 안내">'
-            "<h2><span data-icon='globe'></span> 연합 (ActivityPub)</h2>"
-            '<p class="hint">이 인스턴스는 싱글 모드로 운영 중이므로 연합을 쓸 수 없습니다. 연합은 네트워크 모드에서만 동작합니다.</p>'
+            f'<section class="console-subcard" id="settings-federation-unavailable" data-federation-mode="unavailable" aria-label="{escape(t("console.federation.unavailable_label"))}">'
+            f"<h2><span data-icon='globe'></span> {escape(t('console.federation.unavailable_title'))}</h2>"
+            f'<p class="hint">{escape(t("console.federation.unavailable_hint"))}</p>'
             "</section>"
         )
         return body, {"federation_mode": "unavailable"}
@@ -103,26 +97,26 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
         conn.close()
     state = status["actor_state"]
     rows = (
-        ("handle", "핸들", status["handle"] or "(USERNAME 설정 전)"),
-        ("actor_id", "액터 ID", status["actor_id"] or "-"),
-        ("actor_state", "액터 상태", ACTOR_STATE_TEXT[state]),
-        ("followers_total", "팔로워 수", f"{status['followers']['total']:,}"),
+        ("handle", t("console.federation.actor.handle"), status["handle"] or t("console.federation.actor.handle_unset")),
+        ("actor_id", t("console.federation.actor.id"), status["actor_id"] or "-"),
+        ("actor_state", t("console.federation.actor.state"), t(f"console.federation.actor_state.{state}")),
+        ("followers_total", t("console.federation.actor.followers"), f"{status['followers']['total']:,}"),
     )
     info_html = "".join(f'<dt>{escape(label)}</dt><dd data-federation-field="{escape(key)}">{escape(value)}</dd>' for key, label, value in rows)
     body = (
-        f'<section class="console-subcard" id="settings-federation-status" data-federation-mode="network" data-actor-state="{escape(state)}" aria-label="연합 상태">'
-        "<h2><span data-icon='globe'></span> 내 연합 액터</h2>"
-        '<p class="hint">연합이 켜져 있고 프로필이 공개이면 다른 서버(Mastodon 등)에서 아래 핸들로 이 계정을 찾고 팔로우할 수 있습니다. 프로필 공개 여부는 <a href="/settings/account">내 계정</a>에서 바꿉니다. 비공개로 바꾸면 연합이 일시 중지되지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.</p>'
+        f'<section class="console-subcard" id="settings-federation-status" data-federation-mode="network" data-actor-state="{escape(state)}" aria-label="{escape(t("console.federation.actor.label"))}">'
+        f"<h2><span data-icon='globe'></span> {escape(t('console.federation.actor.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.federation.actor.hint"))} <a href="/settings/account">{escape(t("console.federation.actor.hint_link"))}</a></p>'
         f"<dl>{info_html}</dl>"
         "</section>"
-        '<section class="console-subcard" id="settings-federation-followers" data-federation-followers aria-label="팔로워">'
-        "<h2><span data-icon='users'></span> 팔로워</h2>"
-        '<p class="hint">이 계정을 팔로우하는 다른 서버의 계정입니다. 제거하면 이 서버의 팔로워 목록에서 지웁니다. 상대 서버에 알림(<code>Reject</code>)을 보내는 기능은 아직 없으므로, 상대 서버 화면에는 팔로우 상태가 남을 수 있습니다.</p>'
+        f'<section class="console-subcard" id="settings-federation-followers" data-federation-followers aria-label="{escape(t("console.federation.followers.title"))}">'
+        f"<h2><span data-icon='users'></span> {escape(t('console.federation.followers.title'))}</h2>"
+        f'<p class="hint">{t_code("console.federation.followers.hint", reject="Reject")}</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        "<thead><tr><th>액터</th><th>팔로우 시각</th><th></th></tr></thead>"
-        '<tbody data-followers-tbody><tr><td colspan="3" style="color:var(--muted);text-align:center;">팔로워 목록을 불러오는 중입니다...</td></tr></tbody>'
+        f"<thead><tr><th>{escape(t('console.federation.followers.col_actor'))}</th><th>{escape(t('console.federation.followers.col_time'))}</th><th></th></tr></thead>"
+        f'<tbody data-followers-tbody><tr><td colspan="3" style="color:var(--muted);text-align:center;">{escape(t("console.federation.followers.loading"))}</td></tr></tbody>'
         "</table></div>"
-        '<div><button type="button" class="pref-btn" data-followers-more hidden>더 보기</button></div>'
+        f'<div><button type="button" class="pref-btn" data-followers-more hidden>{escape(t("console.common.more"))}</button></div>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
         # FP4-5 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the retention of the received posts of this account. console_account.js reads and saves the value with /api/federation/settings.
@@ -145,13 +139,13 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
 
 def _domain_block_rows_html(blocks: list[federation_store.DomainBlock]) -> str:
     if not blocks:
-        return '<tr data-domain-block-empty><td colspan="4" style="color:var(--muted);text-align:center;">차단한 도메인이 없습니다.</td></tr>'
+        return f'<tr data-domain-block-empty><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.federation.blocks.empty"))}</td></tr>'
     return "".join(
         f'<tr data-domain-block="{escape(block.domain)}">'
         f'<td><code class="pref-mono">{escape(block.domain)}</code></td>'
         f"<td>{escape(block.note)}</td>"
         f"<td>{escape(format_ts(block.created_at))}</td>"
-        f'<td><button type="button" class="pref-btn pref-btn-danger" data-domain-block-remove="{escape(block.domain)}">차단 해제</button></td>'
+        f'<td><button type="button" class="pref-btn pref-btn-danger" data-domain-block-remove="{escape(block.domain)}">{escape(t("console.federation.blocks.remove"))}</button></td>'
         "</tr>"
         for block in blocks
     )
@@ -208,46 +202,46 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
         conn.close()
     reading_html = _reading_settings_html(reading)
     target = "off" if federation == "on" else "on"
-    switch_label = "연합 끄기" if federation == "on" else "연합 켜기"
+    switch_label = t("console.federation.switch.turn_off") if federation == "on" else t("console.federation.switch.turn_on")
     switch_class = "pref-btn pref-btn-danger" if federation == "on" else "pref-btn pref-btn-accent"
     body = (
-        f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="연합 스위치">'
-        "<h2><span data-icon='globe'></span> 연합 스위치</h2>"
+        f'<section class="card" id="admin-federation-switch" data-federation-state="{escape(federation)}" aria-label="{escape(t("console.federation.switch.title"))}">'
+        f"<h2><span data-icon='globe'></span> {escape(t('console.federation.switch.title'))}</h2>"
         "<dl>"
-        f'<dt>현재 상태</dt><dd><span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{"켜짐 (on)" if federation == "on" else "꺼짐 (off)"}</span></dd>'
-        f'<dt>인스턴스 모드</dt><dd data-federation-field="mode">{"네트워크 모드" if mode == "network" else "싱글 모드"}</dd>'
+        f'<dt>{escape(t("console.federation.switch.state"))}</dt><dd><span class="badge {"badge-enabled" if federation == "on" else "badge-disabled"}" data-federation-field="federation">{escape(t("console.federation.switch.on") if federation == "on" else t("console.federation.switch.off"))}</span></dd>'
+        f'<dt>{escape(t("console.mode.title"))}</dt><dd data-federation-field="mode">{escape(t("console.mode.network") if mode == "network" else t("console.mode.single"))}</dd>'
         "</dl>"
-        '<p class="hint">연합을 켜면 프로필이 공개인 활성 계정이 다른 서버에서 찾고 팔로우할 수 있는 액터가 됩니다. 켜려면 아래 준비 검사(GF1–GF7)를 모두 통과해야 하고, 본인 확인이 필요합니다. 끄면 액터 경로가 404를 돌려주지만, 다른 서버에 이미 전달된 사본은 지워지지 않습니다.</p>'
-        f'<div><button type="button" class="{switch_class}" data-federation-switch="{target}">{switch_label}</button></div>'
+        f'<p class="hint">{escape(t("console.federation.switch.hint"))}</p>'
+        f'<div><button type="button" class="{switch_class}" data-federation-switch="{target}">{escape(switch_label)}</button></div>'
         '<p class="result" id="admin-federation-switch-result" role="status" aria-live="polite"></p>'
         "</section>"
-        '<section class="card" id="admin-federation-readiness" aria-label="연합 준비 검사">'
+        f'<section class="card" id="admin-federation-readiness" aria-label="{escape(t("console.federation.readiness.label"))}">'
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-        "<h2><span data-icon='check-circle'></span> 연합 준비 검사 (GF1–GF7)</h2>"
-        '<button type="button" class="pref-btn" id="admin-federation-refresh">↻ 다시 검사</button>'
+        f"<h2><span data-icon='check-circle'></span> {escape(t('console.federation.readiness.title'))}</h2>"
+        f'<button type="button" class="pref-btn" id="admin-federation-refresh">{escape(t("console.federation.readiness.refresh"))}</button>'
         "</div>"
         '<p class="result" id="admin-federation-readiness-result" role="status" aria-live="polite"></p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        "<thead><tr><th>항목</th><th>이름</th><th>상태</th><th>세부 내용</th></tr></thead>"
-        '<tbody id="admin-federation-readiness-tbody"><tr><td colspan="4" style="color:var(--muted);text-align:center;">준비 검사를 실행하는 중입니다...</td></tr></tbody>'
+        f"<thead><tr><th>{escape(t('console.readiness.col_item'))}</th><th>{escape(t('console.readiness.col_name'))}</th><th>{escape(t('console.common.status'))}</th><th>{escape(t('console.readiness.col_detail'))}</th></tr></thead>"
+        f'<tbody id="admin-federation-readiness-tbody"><tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.federation.readiness.loading"))}</td></tr></tbody>'
         "</table></div>"
         "</section>"
-        '<section class="card" id="admin-federation-sidecar" aria-label="사이드카 상태">'
-        "<h2><span data-icon='pulse'></span> 사이드카 상태 (Fedify)</h2>"
-        '<p class="hint">사이드카가 30초마다 보내는 마지막 하트비트입니다.</p>'
-        '<dl id="admin-federation-heartbeat"><dt>하트비트</dt><dd>불러오는 중입니다...</dd></dl>'
+        f'<section class="card" id="admin-federation-sidecar" aria-label="{escape(t("console.federation.sidecar.label"))}">'
+        f"<h2><span data-icon='pulse'></span> {escape(t('console.federation.sidecar.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.federation.sidecar.hint"))}</p>'
+        f'<dl id="admin-federation-heartbeat"><dt>{escape(t("console.federation.sidecar.heartbeat"))}</dt><dd>{escape(t("console.common.loading"))}</dd></dl>'
         "</section>"
-        '<section class="card" id="admin-federation-domain-blocks" aria-label="차단 도메인">'
-        "<h2><span data-icon='block'></span> 차단 도메인</h2>"
-        '<p class="hint">차단한 도메인과 그 하위 도메인에서 오는 활동은 거부합니다. 추가와 해제는 본인 확인이 필요합니다. 이미 있는 팔로워는 차단해도 자동으로 지워지지 않습니다.</p>'
+        f'<section class="card" id="admin-federation-domain-blocks" aria-label="{escape(t("console.federation.blocks.title"))}">'
+        f"<h2><span data-icon='block'></span> {escape(t('console.federation.blocks.title'))}</h2>"
+        f'<p class="hint">{escape(t("console.federation.blocks.hint"))}</p>'
         '<div class="pref-table-wrap"><table class="pref-table">'
-        "<thead><tr><th>도메인</th><th>메모</th><th>차단 시각</th><th></th></tr></thead>"
+        f"<thead><tr><th>{escape(t('console.federation.blocks.domain'))}</th><th>{escape(t('console.admin.accounts.invites.col_note'))}</th><th>{escape(t('console.federation.blocks.col_time'))}</th><th></th></tr></thead>"
         f'<tbody id="admin-federation-domain-blocks-tbody">{_domain_block_rows_html(blocks)}</tbody>'
         "</table></div>"
         '<form id="admin-federation-domain-block-form" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">'
-        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">도메인<input type="text" name="domain" class="pref-input" placeholder="예: spam.example" maxlength="253" required autocomplete="off" spellcheck="false"/></label>'
-        '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">메모 (선택)<input type="text" name="note" class="pref-input" maxlength="200" autocomplete="off"/></label>'
-        '<button type="submit" class="pref-btn pref-btn-accent">차단 추가</button>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.federation.blocks.domain"))}<input type="text" name="domain" class="pref-input" placeholder="{escape(t("console.federation.blocks.domain_placeholder"))}" maxlength="253" required autocomplete="off" spellcheck="false"/></label>'
+        f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.note"))}<input type="text" name="note" class="pref-input" maxlength="200" autocomplete="off"/></label>'
+        f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.federation.blocks.add"))}</button>'
         "</form>"
         '<p class="result" id="admin-federation-domain-blocks-result" role="status" aria-live="polite"></p>'
         "</section>"

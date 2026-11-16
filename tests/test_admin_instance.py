@@ -93,9 +93,9 @@ def test_admin_instance_renders_inside_console_shell(settings: Settings) -> None
         assert 'data-active-area="admin"' in body
         assert 'data-active-section="instance"' in body
         assert 'action="/logout"' in body
-        assert '<section class="card" aria-label="인스턴스 모드" id="instance-mode">' in body
-        assert "준비 검사 (G1–G9)" in body
-        assert "레거시 호스트 일몰 시계" in body
+        assert '<section class="card" aria-label="Instance mode" id="instance-mode">' in body
+        assert "Readiness checks for network mode (G1–G9)" in body
+        assert "Sunset clock of legacy hosts" in body
         assert 'id="server-tier"' in body
         assert "data-server-tier-form" in body
         assert '<script src="/static/js/instance_mode.js" defer></script>' in body

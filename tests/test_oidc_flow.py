@@ -531,7 +531,7 @@ def test_admin_idp_management(test_env):
     # Admin GET HTML
     resp_html = test_env.client.get("/admin/idp")
     assert resp_html.status_code == 200
-    assert "외부 IdP 관리" in resp_html.text
+    assert "External IdPs" in resp_html.text
     assert "Google Workspace" in resp_html.text
     assert 'data-active-area="admin"' in resp_html.text
     assert 'data-active-section="idp"' in resp_html.text

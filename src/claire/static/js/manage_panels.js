@@ -86,7 +86,7 @@
     const el = document.getElementById(inputId);
     if (el) {
       el.value = '';
-      el.placeholder = 'API Key 입력 (비어있음)';
+      el.placeholder = trKey("console.js.panels.providers.key_placeholder_empty");
       el.dataset.cleared = 'true';
     }
     runProviderCapabilityCheck();
@@ -112,9 +112,9 @@
     if (items.length === 0) {
       let optionsHtml = '';
       if (cur !== '') {
-        optionsHtml += `<option value="${esc(cur)}" selected disabled>${esc(cur)} (미검증 · 실행 불가)</option>`;
+        optionsHtml += `<option value="${esc(cur)}" selected disabled>${esc(cur)} (${esc(trKey("console.js.panels.providers.model_unverified"))})</option>`;
       }
-      optionsHtml += `<option value="" ${cur === '' ? 'selected ' : ''}disabled>지원 모델 조회 불가 (잠금)</option>`;
+      optionsHtml += `<option value="" ${cur === '' ? 'selected ' : ''}disabled>${esc(trKey("console.js.panels.providers.models_unavailable"))}</option>`;
       return { optionsHtml, selected: cur, unsupportedCurrent: cur !== '', locked: true, previousVal: cur };
     }
     let selected = cur;
@@ -129,10 +129,10 @@
     }
     let optionsHtml = '';
     if (unsupportedCurrent) {
-      optionsHtml += `<option value="${esc(cur)}" selected>${esc(cur)} (미지원 · 교체 필요)</option>`;
+      optionsHtml += `<option value="${esc(cur)}" selected>${esc(cur)} (${esc(trKey("console.js.panels.providers.model_replace"))})</option>`;
     }
     for (const m of items) {
-      const text = m.id === '' ? (m.label || '계정 기본') : m.id;
+      const text = m.id === '' ? (m.label || trKey("console.js.panels.providers.account_default")) : m.id;
       optionsHtml += `<option value="${esc(m.id)}" ${selected === m.id ? 'selected' : ''}>${esc(text)}</option>`;
     }
     return { optionsHtml, selected, unsupportedCurrent, locked: false, previousVal: cur };
@@ -143,15 +143,15 @@
     const disabledAttr = res.locked ? ' disabled' : '';
     let html = `<select id="${esc(id)}"${disabledAttr} style="width:100%;box-sizing:border-box;margin-top:2px;">${res.optionsHtml}</select>`;
     if (res.unsupportedCurrent) {
-      html += `<div style="margin-top:3px;font-size:10px;color:var(--err,#cf222e);">현재 값(<code>${esc(res.previousVal)}</code>)은 지원 목록에 없어 실행할 수 없습니다. 지원되는 모델을 선택해 주세요.</div>`;
+      html += `<div style="margin-top:3px;font-size:10px;color:var(--err,#cf222e);">${esc(trKey("console.js.panels.providers.model_unsupported", { model: res.previousVal }))}</div>`;
     }
     return html;
   }
 
   let _capAbortCtrl = null;
   const PROVIDER_LABELS = {
-    gemini: 'Google AI Studio (권장 - 고품질 LLM 및 임베딩)',
-    mock: 'Mock (가상 테스트 프로바이더 - 외부 호출 없음)'
+    gemini: trKey("console.js.panels.providers.gemini_label"),
+    mock: trKey("console.js.panels.providers.mock_label")
   };
 
   function collectProviderFormPayload() {
@@ -232,12 +232,12 @@
     const chip = (label, ok, note) => {
       const color = ok ? 'var(--accent2,#1a7f37)' : 'var(--muted,#6e7781)';
       const bg = ok ? 'rgba(26,127,55,0.1)' : 'rgba(136,136,136,0.1)';
-      return `<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:${bg};color:${color};margin-right:4px;margin-bottom:3px;" title="${esc(note || '')}">${ok ? '지원' : '미지원'} · ${esc(label)}</span>`;
+      return `<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:${bg};color:${color};margin-right:4px;margin-bottom:3px;" title="${esc(note || '')}">${ok ? esc(trKey("console.js.panels.providers.supported")) : esc(trKey("console.js.panels.providers.unsupported"))} · ${esc(label)}</span>`;
     };
     let out = '<div style="margin:4px 0 6px;">';
-    out += chip('적재·요약', Boolean(f.extract));
-    out += chip('웹 리서치', Boolean(f.research));
-    out += chip('벡터 임베딩', Boolean(f.embedding), cap.embedding_note || '');
+    out += chip(trKey("console.js.panels.providers.cap_extract"), Boolean(f.extract));
+    out += chip(trKey("console.js.panels.providers.cap_research"), Boolean(f.research));
+    out += chip(trKey("console.js.panels.providers.cap_embedding"), Boolean(f.embedding), cap.embedding_note || '');
     out += chip('STT·VLM', Boolean(f.stt_vlm));
     out += '</div>';
     return out;
@@ -254,7 +254,7 @@
         const baseLabel = PROVIDER_LABELS[opt.value] || opt.value;
         if (cap && cap.selectable === false) {
           opt.disabled = opt.value !== currentVal;
-          opt.textContent = `${baseLabel} [사용 불가 · 잠금]`;
+          opt.textContent = `${baseLabel} [${trKey("console.js.panels.providers.locked_option")}]`;
         } else {
           opt.disabled = false;
           opt.textContent = baseLabel;
@@ -272,13 +272,13 @@
           lockEl.style.color = 'var(--err,#cf222e)';
           lockEl.style.background = 'rgba(207,34,46,0.08)';
           lockEl.style.borderColor = 'rgba(207,34,46,0.35)';
-          lockEl.textContent = '잠금: ' + cap.locked_reason;
+          lockEl.textContent = trKey("console.js.panels.providers.locked_prefix") + ' ' + cap.locked_reason;
         } else if (cap.embedding_note) {
           lockEl.style.display = 'block';
           lockEl.style.color = 'var(--warn,#9a6700)';
           lockEl.style.background = 'rgba(154,103,0,0.08)';
           lockEl.style.borderColor = 'rgba(154,103,0,0.35)';
-          lockEl.textContent = '기능 안내: ' + cap.embedding_note;
+          lockEl.textContent = trKey("console.js.panels.providers.advisory") + ' ' + cap.embedding_note;
         } else if (cap.advisory) {
           lockEl.style.display = 'block';
           lockEl.style.color = 'var(--warn,#9a6700)';
@@ -309,7 +309,7 @@
       const tierModelSel = document.getElementById('prov-tier-model');
       if (tierModelSel && tierModelSel.tagName === 'SELECT') {
         const resT = buildModelSelectResult(gemCap.available_models, null, tierModelSel.value, 'gemini-3.5-flash-lite');
-        tierModelSel.innerHTML = '<option value="">선택 안 함 (ServerTier provider=none)</option>' + resT.optionsHtml;
+        tierModelSel.innerHTML = '<option value="">' + esc(trKey("console.js.panels.providers.tier_none_option")) + '</option>' + resT.optionsHtml;
         if (tierModelSel.querySelector(`option[value="${CSS.escape(resT.selected)}"]`)) {
           tierModelSel.value = resT.selected;
         }
@@ -326,7 +326,7 @@
     if (sttEl && caps.stt) {
       if (caps.stt.enabled && caps.stt.provider === 'gemini' && !caps.stt.ready) {
         sttEl.style.display = 'block';
-        sttEl.textContent = '경고: STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.';
+        sttEl.textContent = trKey("console.js.panels.providers.stt_warning");
       } else {
         sttEl.style.display = 'none';
         sttEl.textContent = '';
@@ -342,19 +342,19 @@
         sumEl.style.color = 'var(--err,#cf222e)';
         sumEl.style.background = 'rgba(207,34,46,0.08)';
         sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
-        sumEl.innerHTML = `<strong>저장 잠금 (기능성 미충족):</strong><ul style="margin:4px 0 0;padding-left:18px;">${locks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`;
+        sumEl.innerHTML = '<strong>' + esc(trKey("console.js.panels.providers.save_locked")) + '</strong><ul style="margin:4px 0 0;padding-left:18px;">' + locks.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul>';
       } else if (warns.length > 0) {
         sumEl.style.display = 'block';
         sumEl.style.color = 'var(--warn,#9a6700)';
         sumEl.style.background = 'rgba(154,103,0,0.08)';
         sumEl.style.borderColor = 'rgba(154,103,0,0.35)';
-        sumEl.innerHTML = `<strong>기능 안내:</strong><ul style="margin:4px 0 0;padding-left:18px;">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>`;
+        sumEl.innerHTML = '<strong>' + esc(trKey("console.js.panels.providers.advisory")) + '</strong><ul style="margin:4px 0 0;padding-left:18px;">' + warns.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>';
       } else {
         sumEl.style.display = 'block';
         sumEl.style.color = 'var(--accent2,#1a7f37)';
         sumEl.style.background = 'rgba(26,127,55,0.08)';
         sumEl.style.borderColor = 'rgba(26,127,55,0.35)';
-        sumEl.textContent = '기능성 체크 통과: 선택한 프로바이더와 모델을 저장할 수 있습니다.';
+        sumEl.textContent = trKey("console.js.panels.providers.check_passed");
       }
     }
 
@@ -381,7 +381,7 @@
       sumEl.style.color = 'var(--muted,#6e7781)';
       sumEl.style.background = 'rgba(136,136,136,0.08)';
       sumEl.style.borderColor = 'var(--border)';
-      sumEl.textContent = '기능성 체크 진행 중…';
+      sumEl.textContent = trKey("console.js.panels.providers.check_in_work");
     }
     const payload = collectProviderFormPayload();
     if (opts.live) payload.live = true;
@@ -399,7 +399,7 @@
         sumEl.style.color = 'var(--err,#cf222e)';
         sumEl.style.background = 'rgba(207,34,46,0.08)';
         sumEl.style.borderColor = 'rgba(207,34,46,0.35)';
-        sumEl.textContent = '기능성 체크 실패로 저장이 잠겼습니다: ' + (e.message || e);
+        sumEl.textContent = trKey("console.js.panels.providers.check_failed") + ' ' + (e.message || e);
       }
       if (saveBtn) {
         saveBtn.disabled = true;
@@ -477,7 +477,7 @@
     if (resEl) {
       resEl.style.display = 'block';
       resEl.style.color = 'var(--muted,#888)';
-      resEl.textContent = '테스트 실행 중…';
+      resEl.textContent = trKey("console.js.panels.providers.test_in_work");
     }
     const payload = { provider: provName, config: {} };
     if (provName === 'gemini') {
@@ -502,7 +502,7 @@
       if (resEl) {
         if (d.ok) {
           resEl.style.color = 'var(--accent2,#1a7f37)';
-          resEl.textContent = '' + (d.message || '연결 성공');
+          resEl.textContent = '' + (d.message || trKey("console.js.panels.providers.test_ok"));
           if (provName === 'gemini' && d.details && Array.isArray(d.details.models) && d.details.models.length) {
             if (_provState.config && _provState.config.providers && _provState.config.providers.gemini) {
               _provState.config.providers.gemini.available_models = d.details.models;
@@ -534,14 +534,14 @@
           }
         } else {
           resEl.style.color = 'var(--err,#cf222e)';
-          resEl.textContent = '' + (d.error || '연결 실패');
+          resEl.textContent = '' + (d.error || trKey("console.js.panels.providers.test_failed"));
         }
       }
       await runProviderCapabilityCheck({ live: provName === 'gemini', refreshAgy: provName === 'antigravity' });
     } catch (e) {
       if (resEl) {
         resEl.style.color = 'var(--err,#cf222e)';
-        resEl.textContent = '통신 오류: ' + (e.message || e);
+        resEl.textContent = trKey("console.js.panels.comm_error") + ' ' + (e.message || e);
       }
     }
   }
@@ -556,30 +556,30 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatePayload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        renderProviderManagerDOM('저장 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+        renderProviderManagerDOM(trKey("console.js.panels.save_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
       const resData = await r.json();
       _provState.config = resData.config;
-      renderProviderManagerDOM('프로바이더 설정이 성공적으로 저장되었습니다 (data/providers.json 반영 완료).', true);
+      renderProviderManagerDOM(trKey("console.js.panels.providers.saved"), true);
       if (_provState.opts && typeof _provState.opts.onSave === 'function') {
         _provState.opts.onSave(resData);
       }
     } catch (e) {
-      renderProviderManagerDOM('오류 발생: ' + (e.message || e), false);
+      renderProviderManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
     }
   }
 
   const FEATURE_SLOT_DEFS = [
-    { slot: 'extract_graph', label: '지식 추출 · 적재', note: '엔티티·관계 구조화 추출' },
-    { slot: 'summarize', label: '요약 · 가독 상세', note: '적재와 분리해 별도 요약 모델 지정 가능' },
-    { slot: 'entity_judge', label: '엔티티 병합 판정', note: 'System 2 LLM 병합 심사 (JEV 이후)' },
-    { slot: 'relation_judge', label: '관계 연결 판정', note: 'Phase 2 교차 관계 방향·타입 판정' },
-    { slot: 'classify', label: '문서 · 논문 분류', note: 'PDF 논문 및 감시 정책 판정' },
-    { slot: 'research', label: '웹 리서치 · 종합', note: '검색 질의 종합 및 후속 링크 평가' },
-    { slot: 'embed', label: '벡터 임베딩', note: '엔티티·문서 임베딩 (CLI는 gemini 키 사용)' },
-    { slot: 'stt', label: '음성 전사 (STT)', note: '영상·오디오 자막 생성' },
-    { slot: 'vlm', label: '시각 전사 (VLM)', note: '이미지 내용 텍스트 변환' }
+    { slot: 'extract_graph', label: trKey("console.js.panels.slot.extract_graph"), note: trKey("console.js.panels.slot.extract_graph_note") },
+    { slot: 'summarize', label: trKey("console.js.panels.slot.summarize"), note: trKey("console.js.panels.slot.summarize_note") },
+    { slot: 'entity_judge', label: trKey("console.js.panels.slot.entity_judge"), note: trKey("console.js.panels.slot.entity_judge_note") },
+    { slot: 'relation_judge', label: trKey("console.js.panels.slot.relation_judge"), note: trKey("console.js.panels.slot.relation_judge_note") },
+    { slot: 'classify', label: trKey("console.js.panels.slot.classify"), note: trKey("console.js.panels.slot.classify_note") },
+    { slot: 'research', label: trKey("console.js.panels.slot.research"), note: trKey("console.js.panels.slot.research_note") },
+    { slot: 'embed', label: trKey("console.js.panels.providers.cap_embedding"), note: trKey("console.js.panels.slot.embed_note") },
+    { slot: 'stt', label: trKey("console.js.panels.slot.stt"), note: trKey("console.js.panels.slot.stt_note") },
+    { slot: 'vlm', label: trKey("console.js.panels.slot.vlm"), note: trKey("console.js.panels.slot.vlm_note") }
   ];
 
   function resolveEffectiveRouteProvider(cfg, selectedRouteProv) {
@@ -595,29 +595,29 @@
     if (slot === 'embed') {
       if (effProv === 'openai') {
         const list = normalizeModelOptions((provs.openai || {}).available_embed_models, ['text-embedding-3-small', 'text-embedding-3-large']);
-        return [{ id: '', label: '기본 임베딩 모델 상속' }, ...list];
+        return [{ id: '', label: trKey("console.js.panels.routing.inherit_embed") }, ...list];
       }
-      if (effProv === 'mock') return [{ id: '', label: 'mock-embed-64d (기본)' }];
+      if (effProv === 'mock') return [{ id: '', label: trKey("console.js.panels.routing.mock_embed") }];
       const gemList = normalizeModelOptions((provs.gemini || {}).available_embed_models, ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview']);
-      return [{ id: '', label: '기본 임베딩 모델 상속' }, ...gemList];
+      return [{ id: '', label: trKey("console.js.panels.routing.inherit_embed") }, ...gemList];
     }
     if (effProv === 'gemini') {
       const list = normalizeModelOptions((provs.gemini || {}).available_models, ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-2.5-flash']);
-      return [{ id: '', label: '기본 모델 상속' }, ...list];
+      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
     if (effProv === 'antigravity') {
       const list = normalizeModelOptions((provs.antigravity || {}).available_models, []);
-      return [{ id: '', label: '기본 모델 상속' }, ...list];
+      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
     if (effProv === 'codex') {
       const list = normalizeModelOptions((provs.codex || {}).available_models, ['gpt-5.4', 'gpt-5.3-codex', 'o3', 'o4-mini']);
-      return [{ id: '', label: '기본 모델 상속' }, ...list];
+      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
     if (effProv === 'openai') {
       const list = normalizeModelOptions((provs.openai || {}).available_models, ['gpt-4o-mini', 'gpt-4o', 'gpt-5']);
-      return [{ id: '', label: '기본 모델 상속' }, ...list];
+      return [{ id: '', label: trKey("console.js.panels.routing.inherit_model") }, ...list];
     }
-    return [{ id: '', label: 'mock (기본)' }];
+    return [{ id: '', label: trKey("console.js.panels.routing.mock") }];
   }
 
   function updateRouteSlotModelOptions(slot) {
@@ -633,11 +633,11 @@
     let hasPrev = false;
     for (const item of items) {
       if (item.id === prev) hasPrev = true;
-      const text = item.id === '' ? (item.label || '기본 모델 상속') : item.id;
+      const text = item.id === '' ? (item.label || trKey("console.js.panels.routing.inherit_model")) : item.id;
       html += `<option value="${esc(item.id)}" ${item.id === prev ? 'selected' : ''}>${esc(text)}</option>`;
     }
     if (prev && !hasPrev) {
-      html += `<option value="${esc(prev)}" selected>${esc(prev)} (현재 값)</option>`;
+      html += `<option value="${esc(prev)}" selected>${esc(prev)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
     }
     mEl.innerHTML = html;
     if (eEl) eEl.disabled = (slot === 'embed' || effProv === 'mock');
@@ -688,26 +688,26 @@
     const em = slotText('embed');
     const ej = slotText('entity_judge');
     const rj = slotText('relation_judge');
-    const jevLabel = jevCfg && jevCfg.enabled ? `jev:${jevCfg.mode || 'filter'} (Gate2·3 후)` : 'jev:off (LLM 직행)';
-    const jevSub = jevCfg && jevCfg.enabled ? `<${jevCfg.filter_threshold ?? 0.2} 제외 / 단독>=${jevCfg.auto_merge_threshold ?? 0.9}` : 'LLM 판정 직접 실행';
+    const jevLabel = jevCfg && jevCfg.enabled ? `jev:${jevCfg.mode || 'filter'} (${trKey("console.js.panels.lineage.after_gates")})` : "jev:off (" + trKey("console.js.panels.lineage.llm_direct") + ")";
+    const jevSub = jevCfg && jevCfg.enabled ? trKey("console.js.panels.lineage.jev_thresholds", { filter: jevCfg.filter_threshold ?? 0.2, merge: jevCfg.auto_merge_threshold ?? 0.9 }) : trKey("console.js.panels.lineage.llm_judge");
     const box = (x, y, w, h, title, sub1, sub2, stroke) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="var(--sec-bg,#f6f8fa)" stroke="${stroke || '#6e7781'}" stroke-width="1.4"/><text x="${x + w / 2}" y="${y + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${esc(title)}</text><text x="${x + w / 2}" y="${y + 34}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.85">${esc(sub1)}</text><text x="${x + w / 2}" y="${y + 49}" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.72">${esc(sub2)}</text>`;
     const arrow = (x1, y1, x2, y2, label) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6e7781" stroke-width="1.4" marker-end="url(#prov-lineage-arrow)"/>${label ? `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 6}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity="0.78">${esc(label)}</text>` : ''}`;
     let svg = '<svg id="prov-lineage-svg" viewBox="0 0 920 196" width="100%" style="max-width:920px;height:auto;display:block;border:1px solid var(--border);border-radius:6px;background:var(--card-bg,#fff);color:var(--fg,#1f2328);">';
     svg += '<defs><marker id="prov-lineage-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#6e7781"/></marker></defs>';
-    svg += box(10, 62, 118, 64, '1. 입력·파싱', 'F10 비-LLM', 'PDF/Web/STT/VLM', '#6e7781');
+    svg += box(10, 62, 118, 64, trKey("console.js.panels.lineage.box_input"), trKey("console.js.panels.lineage.box_input_sub"), 'PDF/Web/STT/VLM', '#6e7781');
     svg += arrow(128, 82, 152, 46);
     svg += arrow(128, 104, 152, 138);
-    svg += box(154, 14, 156, 64, '2A. 지식 추출', eg.line1, eg.line2, '#0969da');
-    svg += box(154, 108, 156, 64, '2B. 요약·상세', sm.line1, sm.line2, '#8250df');
+    svg += box(154, 14, 156, 64, trKey("console.js.panels.lineage.box_extract"), eg.line1, eg.line2, '#0969da');
+    svg += box(154, 108, 156, 64, trKey("console.js.panels.lineage.box_summary"), sm.line1, sm.line2, '#8250df');
     svg += arrow(310, 46, 338, 72);
     svg += arrow(310, 140, 338, 106);
-    svg += box(340, 54, 166, 68, '3. 벡터 임베딩 (1차)', `${em.line1}:${em.line2}`, 'DOC색인/QUERY질의 >=0.72', '#1a7f37');
-    svg += arrow(506, 88, 558, 88, '자연어JSON');
+    svg += box(340, 54, 166, 68, trKey("console.js.panels.lineage.box_embed"), `${em.line1}:${em.line2}`, trKey("console.js.panels.lineage.box_embed_sub"), '#1a7f37');
+    svg += arrow(506, 88, 558, 88, trKey("console.js.panels.lineage.arrow_json"));
     svg += box(560, 54, 168, 68, '4. JEV System 1', jevLabel, jevSub, '#9a6700');
     svg += arrow(728, 76, 752, 46);
     svg += arrow(728, 98, 752, 136);
-    svg += box(754, 14, 156, 64, '5A. 병합·관계 판정', `${ej.line1} / ${rj.line1}`, `${ej.line2}`, '#bf3989');
-    svg += box(754, 108, 156, 64, '5B. 최종 지식 그래프', 'doc.meta.model_lineage', 'LLM 폴백 0건 (엄격 실패)', '#1f883d');
+    svg += box(754, 14, 156, 64, trKey("console.js.panels.lineage.box_judge"), `${ej.line1} / ${rj.line1}`, `${ej.line2}`, '#bf3989');
+    svg += box(754, 108, 156, 64, trKey("console.js.panels.lineage.box_graph"), 'doc.meta.model_lineage', trKey("console.js.panels.lineage.box_graph_sub"), '#1f883d');
     svg += '</svg>';
     return svg;
   }
@@ -734,18 +734,18 @@
     const jev = provs.jev || {};
     const lineage = cfg.lineage_summary || {};
     let h = '<div id="prov-lineage-visualizer-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="git-branch"></span> 파이프라인 모델 계보 및 아키텍처 명세 (Pipeline Lineage)</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">문서 적재·요약·임베딩(1차 후보 검색)·JEV System 1(자연어 동일성 판정)에서 최종 산출까지 실제로 어떤 모델과 고정 파라미터가 관여하는지 시각화합니다.</p>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="git-branch"></span> ' + esc(trKey("console.js.panels.lineage.title")) + '</strong>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.lineage.desc")) + '</p>';
     h += `<div id="prov-lineage-svg-host" style="margin-bottom:10px;">${renderLineageSvg(computeEffectiveSlotsFromDom(cfg), jev)}</div>`;
 
     const jevStats = lineage.jev || {};
-    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">JEV 텔레메트리: 누적 쌍 <b>${Number(jevStats.shadow_pairs || 0)}</b> · 정상 응답 <b>${Number(jevStats.ok_calls || 0)}</b> · 평균 지연 <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b> · 필터 임계값 미만 <b>${Number(jevStats.below_filter_threshold || 0)}</b></div>`;
+    h += `<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg,#fff);">${esc(trKey("console.js.panels.lineage.jev_telemetry"))} ${esc(trKey("console.js.panels.lineage.jev_pairs"))} <b>${Number(jevStats.shadow_pairs || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_ok"))} <b>${Number(jevStats.ok_calls || 0)}</b> · ${esc(trKey("console.js.panels.lineage.jev_latency"))} <b>${jevStats.avg_latency_ms != null ? jevStats.avg_latency_ms + 'ms' : '-'}</b> · ${esc(trKey("console.js.panels.lineage.jev_below"))} <b>${Number(jevStats.below_filter_threshold || 0)}</b></div>`;
 
     const specs = Array.isArray(lineage.architecture_specs) ? lineage.architecture_specs : [];
     if (specs.length > 0) {
-      h += '<details open style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">아키텍처 고정 정책 · 파라미터 명세 (코드 기여·이슈 리포트 기준)</summary>';
+      h += '<details open style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.fixed_title")) + '</summary>';
       h += '<table id="prov-architecture-spec-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">단계</th><th style="padding:3px 5px;">고정 값 / 정책</th><th style="padding:3px 5px;">코드 위치</th><th style="padding:3px 5px;">설계 근거</th></tr></thead><tbody>';
+      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_stage")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_fixed")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_code")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_reason")) + '</th></tr></thead><tbody>';
       for (const sp of specs) {
         h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;font-weight:600;">${esc(sp.stage)}</td><td style="padding:3px 5px;"><code>${esc(sp.fixed_value)}</code></td><td style="padding:3px 5px;"><code>${esc(sp.scope)}</code></td><td style="padding:3px 5px;">${esc(sp.rationale)}</td></tr>`;
       }
@@ -754,23 +754,23 @@
 
     const fallbacks = Array.isArray(lineage.fallbacks) ? lineage.fallbacks : [];
     if (fallbacks.length > 0) {
-      h += '<details style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">폴백 감사 카탈로그 (F1–F10 현황)</summary>';
+      h += '<details style="margin-bottom:8px;font-size:11px;"><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.fallback_title")) + '</summary>';
       h += '<table id="prov-fallback-catalog-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">ID</th><th style="padding:3px 5px;">위치</th><th style="padding:3px 5px;">상태</th><th style="padding:3px 5px;">설명</th></tr></thead><tbody>';
+      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">ID</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_location")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.col_status")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.col_description")) + '</th></tr></thead><tbody>';
       for (const fb of fallbacks) {
-        const badge = fb.status === 'REMOVED' ? '제거됨 (엄격 실패)' : '대상 제외 (비-LLM)';
+        const badge = fb.status === 'REMOVED' ? trKey("console.js.panels.lineage.fallback_removed") : trKey("console.js.panels.lineage.fallback_excluded");
         h += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 5px;"><code>${esc(fb.id)}</code></td><td style="padding:3px 5px;"><code>${esc(fb.location)}</code></td><td style="padding:3px 5px;">${esc(badge)}</td><td style="padding:3px 5px;">${esc(fb.description)}</td></tr>`;
       }
       h += '</tbody></table></details>';
     }
 
     const recDocs = Array.isArray(lineage.recent_documents) ? lineage.recent_documents : [];
-    h += '<details style="font-size:11px;"' + (recDocs.length > 0 ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600;">최근 적재 문서 모델 계보 (' + recDocs.length + '건)</summary>';
+    h += '<details style="font-size:11px;"' + (recDocs.length > 0 ? ' open' : '') + '><summary style="cursor:pointer;font-weight:600;">' + esc(trKey("console.js.panels.lineage.recent_title", { count: recDocs.length })) + '</summary>';
     if (recDocs.length === 0) {
-      h += '<p style="margin:6px 0 0;opacity:0.75;">아직 <code>model_lineage</code>가 기록된 최근 문서가 없습니다. 문서를 적재하면 단계별 실제 실행 모델이 이곳에 표시됩니다.</p>';
+      h += '<p style="margin:6px 0 0;opacity:0.75;">' + esc(trKey("console.js.panels.lineage.recent_empty")) + '</p>';
     } else {
       h += '<table id="prov-recent-lineage-table" style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">';
-      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">문서</th><th style="padding:3px 5px;">최종 단계별 모델</th><th style="padding:3px 5px;">JEV</th><th style="padding:3px 5px;">폴백</th></tr></thead><tbody>';
+      h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_document")) + '</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_models")) + '</th><th style="padding:3px 5px;">JEV</th><th style="padding:3px 5px;">' + esc(trKey("console.js.panels.lineage.col_fallback")) + '</th></tr></thead><tbody>';
       for (const d of recDocs.slice(0, 8)) {
         const lin = d.lineage || {};
         const finals = lin.final_output_models || {};
@@ -789,16 +789,16 @@
   function renderFeatureRoutingHtml(cfg) {
     const routing = cfg.feature_routing || {};
     const routeProvChoices = [
-      { id: 'inherit', label: '메인 프로바이더 상속' },
+      { id: 'inherit', label: trKey("console.js.panels.routing.inherit_provider") },
       { id: 'gemini', label: 'Google AI Studio (gemini)' },
       { id: 'mock', label: 'Mock' }
     ];
 
     let h = '<div id="prov-feature-routing-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="layers"></span> 기능별 모델 라우팅 (Feature Routing)</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">적재(extract_graph)와 요약(summarize), 판정(judge), 임베딩을 기능별로 다른 모델에 배정합니다. 멤버 BYOK 사용자는 여기서 관리자가 지정한 기준선 동등 이상 모델만 선택할 수 있습니다.</p>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="layers"></span> ' + esc(trKey("console.js.panels.routing.title")) + '</strong>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.routing.desc")) + '</p>';
     h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11.5px;">';
-    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">기능 슬롯</th><th style="padding:4px 6px;">프로바이더</th><th style="padding:4px 6px;">모델</th><th style="padding:4px 6px;">추론 수준</th></tr></thead><tbody>';
+    h += '<thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.routing.col_slot")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_provider")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_model")) + '</th><th style="padding:4px 6px;">' + esc(trKey("console.js.panels.col_effort")) + '</th></tr></thead><tbody>';
     for (const def of FEATURE_SLOT_DEFS) {
       const r = routing[def.slot] || { provider: 'inherit', model: '', effort: '' };
       const rProv = r.provider || 'inherit';
@@ -815,16 +815,16 @@
       let matchedModel = false;
       for (const m of modelOpts) {
         if (m.id === (r.model || '')) matchedModel = true;
-        const mLabel = m.id === '' ? (m.label || '기본 모델 상속') : m.id;
+        const mLabel = m.id === '' ? (m.label || trKey("console.js.panels.routing.inherit_model")) : m.id;
         h += `<option value="${esc(m.id)}" ${(r.model || '') === m.id ? 'selected' : ''}>${esc(mLabel)}</option>`;
       }
       if (r.model && !matchedModel) {
-        h += `<option value="${esc(r.model)}" selected>${esc(r.model)} (현재 값)</option>`;
+        h += `<option value="${esc(r.model)}" selected>${esc(r.model)} (${esc(trKey("console.js.panels.routing.current"))})</option>`;
       }
       h += '</select></td>';
       const effortDis = (def.slot === 'embed' || effProv === 'mock') ? ' disabled' : '';
       h += `<td style="padding:5px 6px;"><select id="prov-route-${esc(def.slot)}-effort"${effortDis} style="width:100%;box-sizing:border-box;">`;
-      for (const eOpt of [['', '기본 상속'], ['low', 'low'], ['medium', 'medium'], ['high', 'high']]) {
+      for (const eOpt of [['', trKey("console.js.panels.routing.inherit_effort")], ['low', 'low'], ['medium', 'medium'], ['high', 'high']]) {
         h += `<option value="${esc(eOpt[0])}" ${(r.effort || '') === eOpt[0] ? 'selected' : ''}>${esc(eOpt[1])}</option>`;
       }
       h += '</select></td>';
@@ -844,24 +844,24 @@
     ]);
     const tierFeats = Array.isArray(tier.features) ? tier.features : [];
     const featLabels = [
-      ['expand', '확장 (expand)'],
-      ['stt', '음성 전사 (stt)'],
-      ['vlm', '이미지 해석 (vlm)'],
-      ['presentation', '프레젠테이션'],
-      ['synthesize', '종합 (synthesize)']
+      ['expand', trKey("console.js.panels.tier.feature_expand")],
+      ['stt', trKey("console.js.panels.tier.feature_stt")],
+      ['vlm', trKey("console.js.panels.tier.feature_vlm")],
+      ['presentation', trKey("console.js.panels.tier.feature_presentation")],
+      ['synthesize', trKey("console.js.panels.tier.feature_synthesize")]
     ];
     let h = '<div id="prov-member-tier-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="shield"></span> 멤버 서버 등급 제공 정책 (ServerTier)</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">자체 BYOK 키가 없는 멤버에게 제공할 서버 등급 프로바이더, 기준 모델, 최대 추론 수준과 허용 기능을 이곳에서 통합 관리합니다. (토큰·저장량 수치 한도는 <a href="/admin/instance">인스턴스 관리</a>에서 설정)</p>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="shield"></span> ' + esc(trKey("console.js.panels.tier.title")) + '</strong>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.desc")) + ' <a href="/admin/instance">' + esc(trKey("console.js.panels.tier.desc_link")) + '</a></p>';
     h += '<div style="display:flex;gap:8px;font-size:12px;margin-bottom:8px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">제공 프로바이더</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.provider")) + '</label>';
     h += '<select id="prov-tier-provider" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>제공 안 함 (none - BYOK 필수)</option>`;
+    h += `<option value="none" ${(tier.provider || 'none') === 'none' ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.provider_none"))}</option>`;
     h += `<option value="gemini" ${tier.provider === 'gemini' ? 'selected' : ''}>Google AI Studio (gemini)</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1.2;"><label style="font-size:11px;opacity:0.8;">서버 등급 모델</label>';
+    h += '<div style="flex:1.2;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.model")) + '</label>';
     h += '<select id="prov-tier-model" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="" ${!tier.model ? 'selected' : ''}>선택 안 함</option>`;
+    h += `<option value="" ${!tier.model ? 'selected' : ''}>${esc(trKey("console.js.panels.tier.model_none"))}</option>`;
     let matched = false;
     for (const m of geminiModels) {
       if (m.id === tier.model) matched = true;
@@ -871,14 +871,14 @@
       h += `<option value="${esc(tier.model)}" selected>${esc(tier.model)}</option>`;
     }
     h += '</select></div>';
-    h += '<div style="flex:0.8;"><label style="font-size:11px;opacity:0.8;">최대 추론 수준 (Effort)</label>';
+    h += '<div style="flex:0.8;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.max_effort")) + '</label>';
     h += '<select id="prov-tier-max-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     for (const eff of ['none', 'minimal', 'low', 'medium', 'high']) {
       h += `<option value="${eff}" ${(tier.max_effort || 'medium') === eff ? 'selected' : ''}>${eff}</option>`;
     }
     h += '</select></div>';
     h += '</div>';
-    h += '<div style="font-size:11px;"><span style="opacity:0.8;display:block;margin-bottom:4px;">멤버 허용 기능</span><div style="display:flex;flex-wrap:wrap;gap:10px;">';
+    h += '<div style="font-size:11px;"><span style="opacity:0.8;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tier.features")) + '</span><div style="display:flex;flex-wrap:wrap;gap:10px;">';
     for (const [fKey, fLabel] of featLabels) {
       const checked = tierFeats.includes(fKey) ? ' checked' : '';
       h += `<label style="cursor:pointer;"><input type="checkbox" name="prov-tier-feature" value="${esc(fKey)}"${checked} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(fLabel)}</label>`;
@@ -905,24 +905,24 @@
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2><span data-icon="bolt"></span> LLM &amp; 프로바이더 관리</h2>';
-    h += '<p class="al">서버 공용 하이퍼스케일러(Google AI Studio), 기능별 모델 라우팅, 멤버 ServerTier 제공 정책을 설정합니다. 변경 사항은 <code>data/providers.json</code>에 영구 저장됩니다.</p>';
+    let h = '<h2><span data-icon="bolt"></span> ' + esc(trKey("console.js.panels.providers.title_full")) + '</h2>';
+    h += '<p class="al">' + esc(trKey("console.js.panels.providers.desc")) + ' <code>data/providers.json</code></p>';
     h += alertHtml;
 
     h += renderPipelineLineageHtml(cfg);
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">서버 공용 메인 LLM 프로바이더</label>';
+    h += '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">' + esc(trKey("console.js.panels.providers.main_provider")) + '</label>';
     h += '<select id="prov-active-select" style="width:100%;padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--card-bg);color:var(--fg);box-sizing:border-box;">';
     const opts = [
-      {val: 'gemini', label: 'Google AI Studio (권장 - 고품질 LLM 및 임베딩)'},
-      {val: 'mock', label: 'Mock (가상 테스트 프로바이더 - 외부 호출 없음)'}
+      {val: 'gemini', label: trKey("console.js.panels.providers.gemini_label")},
+      {val: 'mock', label: trKey("console.js.panels.providers.mock_label")}
     ];
     for (const opt of opts) {
       h += `<option value="${opt.val}" ${active === opt.val ? 'selected' : ''}>${opt.label}</option>`;
     }
     h += '</select>';
-    h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">현재 동작 중: <b>${esc(cfg.effective_provider || active)}</b> · STT 동작: <b>${esc(cfg.effective_stt_provider || 'mock')}</b> · 개인 CLI(Antigravity · Codex)는 약관 정책상 <a href="/settings/keys">개인 계정 설정(/settings/keys)</a>에서 별도 관리합니다.</div>`;
+    h += `<div style="margin-top:6px;font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.active_now"))} <b>${esc(cfg.effective_provider || active)}</b> · ${esc(trKey("console.js.panels.providers.active_stt"))} <b>${esc(cfg.effective_stt_provider || 'mock')}</b> · ${esc(trKey("console.js.panels.providers.cli_note"))} <a href="/settings/keys">${esc(trKey("console.js.panels.providers.cli_note_link"))}</a></div>`;
     h += '<div id="prov-feat-mock" style="margin-top:6px;"></div>';
     h += '<div id="prov-cap-mock" style="display:none;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
     h += '</div>';
@@ -930,16 +930,16 @@
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
     h += '<strong style="font-size:13px;"><span data-icon="globe"></span> Google AI Studio</strong>';
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">API 확인 · 모델 조회</button>';
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 8px;" onclick="testProviderConnection(\'gemini\')">' + esc(trKey("console.js.panels.providers.check_api")) + '</button>';
     h += '</div>';
     h += '<div id="prov-feat-gemini"></div>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div><label style="font-size:11px;opacity:0.8;">Google AI Studio API Key</label>';
     h += '<div style="display:flex;gap:4px;margin-top:2px;">';
-    h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '설정됨 (••••••••)' : 'Google AI Studio API Key 입력'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="'+esc(trKey('console.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
+    h += `<input id="prov-gemini-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${gemini.has_api_key ? '" + esc(trKey("console.js.panels.providers.key_set")) + "' : '" + esc(trKey("console.js.panels.providers.key_placeholder")) + "'}"/>`;
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-gemini-key\')" title="'+esc(trKey('console.js.panels.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.js.panels.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     if (gemini.has_api_key) {
-      h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">삭제</button>';
+      h += '<button type="button" class="sec danger-btn" style="font-size:11px;padding:2px 6px;color:var(--err,#cf222e);" onclick="clearApiKeyInput(\'prov-gemini-key\', \'gemini\')">' + esc(trKey("common.action.delete")) + '</button>';
     }
     h += '</div></div>';
     const geminiModelFallback = [
@@ -955,23 +955,23 @@
       'gemini-2.5-pro'
     ];
     const geminiEmbedFallback = ['gemini-embedding-001', 'gemini-embedding-2', 'gemini-embedding-2-preview'];
-    h += '<div><label style="font-size:11px;opacity:0.8;">모델 (Model · API 확인 시 지원 목록 자동 갱신)</label>';
+    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.model_label")) + '</label>';
     h += renderModelSelectField('prov-gemini-model', gemini.available_models, geminiModelFallback, gemini.model || 'gemini-3.8-flash', 'gemini-3.8-flash');
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">추론 수준 (Effort)</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.effort_label")) + '</label>';
     h += '<select id="prov-gemini-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     h += `<option value="low" ${gemini.effort==='low'?'selected':''}>low</option>`;
     h += `<option value="medium" ${gemini.effort==='medium'||!gemini.effort?'selected':''}>medium</option>`;
     h += `<option value="high" ${gemini.effort==='high'?'selected':''}>high</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 모델 (문서 색인: RETRIEVAL_DOCUMENT / 검색: RETRIEVAL_QUERY 고정)</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.embed_model_label")) + '</label>';
     h += renderModelSelectField('prov-gemini-embed', gemini.available_embed_models, geminiEmbedFallback, gemini.embed_model || 'gemini-embedding-001', 'gemini-embedding-001');
     h += '</div>';
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최소 간격 (초)</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">최대 재시도 (회)</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.min_interval"))}</label><input id="prov-gemini-interval" type="number" step="0.5" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.min_interval||4.0}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.max_retries"))}</label><input id="prov-gemini-retries" type="number" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${gemini.max_retries||5}"/></div>`;
     h += '</div>';
     h += '</div>';
     h += '<div id="prov-cap-gemini" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;"></div>';
@@ -982,37 +982,37 @@
     h += renderMemberTierCardHtml(cfg);
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> 보조 엔진 (Jev &amp; 음성 전사)</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> ' + esc(trKey("console.js.panels.providers.aux_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">';
     h += '<div>';
-    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>TypeSafe AI Jev (System 1 엔티티 판정 가속 · Filter / Hybrid / Shadow)</label>`;
+    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-jev-enabled" type="checkbox" ${jev.enabled?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.providers.jev_label"))}</label>`;
     h += '<div style="margin-top:6px;display:flex;gap:4px;">';
-    h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? 'Jev 키 설정됨 (••••••••)' : 'Jev API Key'}"/>`;
-    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="'+esc(trKey('console.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
+    h += `<input id="prov-jev-key" type="password" style="flex:1;box-sizing:border-box;" placeholder="${jev.has_api_key ? '" + esc(trKey("console.js.panels.providers.jev_key_set")) + "' : 'Jev API Key'}"/>`;
+    h += '<button type="button" class="sec" style="font-size:11px;padding:2px 6px;" onclick="togglePassVisibility(\'prov-jev-key\')" title="'+esc(trKey('console.js.panels.providers.toggle_key'))+'" aria-label="'+esc(trKey('console.js.panels.providers.toggle_key'))+'"><span data-icon="eye"></span></button>';
     h += '</div>';
     h += `<input id="prov-jev-url" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="Base URL" value="${esc(jev.base_url||'https://api.typesafe.ai/v1')}"/>`;
     const curJevMode = jev.mode || 'filter';
     const curFilterThr = jev.filter_threshold != null ? jev.filter_threshold : 0.20;
     const curAutoThr = jev.auto_merge_threshold != null ? jev.auto_merge_threshold : 0.90;
     h += '<div style="display:flex;gap:8px;margin-top:6px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">JEV 판정 모드</label><select id="prov-jev-mode" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="filter" ${curJevMode==='filter'?'selected':''}>filter (임계값 미만 LLM 생략 · 권장)</option>`;
-    h += `<option value="hybrid" ${curJevMode==='hybrid'?'selected':''}>hybrid (필터 + 단독 고신뢰 자동 병합)</option>`;
-    h += `<option value="shadow" ${curJevMode==='shadow'?'selected':''}>shadow (평가 기록만 · 비관여)</option>`;
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.jev_mode")) + '</label><select id="prov-jev-mode" style="width:100%;box-sizing:border-box;margin-top:2px;">';
+    h += `<option value="filter" ${curJevMode==='filter'?'selected':''}>filter (${esc(trKey("console.js.panels.providers.jev_mode_filter"))})</option>`;
+    h += `<option value="hybrid" ${curJevMode==='hybrid'?'selected':''}>hybrid (${esc(trKey("console.js.panels.providers.jev_mode_hybrid"))})</option>`;
+    h += `<option value="shadow" ${curJevMode==='shadow'?'selected':''}>shadow (${esc(trKey("console.js.panels.providers.jev_mode_shadow"))})</option>`;
     h += '</select></div>';
-    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">필터 임계값 (&lt; 생략)</label><input id="prov-jev-filter-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curFilterThr))}"/></div>`;
-    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">자동 병합 임계값 (&gt;=)</label><input id="prov-jev-auto-merge-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curAutoThr))}"/></div>`;
+    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.jev_filter_threshold"))}</label><input id="prov-jev-filter-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curFilterThr))}"/></div>`;
+    h += `<div style="flex:0.7;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.jev_merge_threshold"))}</label><input id="prov-jev-auto-merge-threshold" type="number" step="0.05" min="0" max="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(String(curAutoThr))}"/></div>`;
     h += '</div>';
     h += '</div>';
     h += '<div style="border-top:1px dashed var(--border);padding-top:8px;">';
-    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>비디오 &amp; 오디오 음성 전사 (STT)</label>`;
+    h += `<label style="cursor:pointer;font-weight:600;"><input id="prov-stt-enabled" type="checkbox" ${stt.enabled!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.providers.stt_label"))}</label>`;
     h += '<div style="display:flex;gap:8px;margin-top:6px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">STT 프로바이더</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.providers.stt_provider")) + '</label>';
     h += '<select id="prov-stt-prov" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     h += `<option value="gemini" ${stt.provider==='gemini'?'selected':''}>Google AI Studio (API)</option>`;
     h += `<option value="mock" ${stt.provider==='mock'?'selected':''}>Mock</option>`;
     h += '</select></div>';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">언어 코드</label><input id="prov-stt-lang" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(stt.language||'ko')}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.providers.stt_language"))}</label><input id="prov-stt-lang" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${esc(stt.language||'ko')}"/></div>`;
     h += '</div>';
     h += '<div id="prov-cap-stt" style="display:none;margin-top:6px;padding:6px 8px;border:1px solid rgba(154,103,0,0.35);background:rgba(154,103,0,0.08);color:var(--warn,#9a6700);border-radius:4px;font-size:11px;"></div>';
     h += '</div>';
@@ -1023,9 +1023,9 @@
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     h += '<div id="prov-cap-summary" style="display:none;margin-top:12px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>';
     h += '<div style="display:flex;gap:8px;margin-top:12px;">';
-    h += '<button id="prov-save-btn" type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> 설정 저장</button>';
+    h += '<button id="prov-save-btn" type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveProviderSettings()"><span data-icon="save"></span> ' + esc(trKey("console.js.panels.save_settings")) + '</button>';
     if (canClose) {
-      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeProviderManager()">닫기</button>';
+      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeProviderManager()">' + esc(trKey("common.action.close")) + '</button>';
     }
     h += '</div>';
 
@@ -1046,7 +1046,7 @@
     }
     const target = _provState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="bolt"></span> 프로바이더 관리</h2><p class="hint">설정 로딩 중…</p>';
+    target.innerHTML = '<h2><span data-icon="bolt"></span> ' + esc(trKey("console.js.panels.providers.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.loading_settings")) + '</p>';
     try {
       const url = resolveRootUrl(_provState.opts, 'providers');
       const r = await fetch(url);
@@ -1054,7 +1054,7 @@
       _provState.config = await r.json();
       renderProviderManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="bolt"></span> 프로바이더 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="bolt"></span> ${esc(trKey("console.js.panels.providers.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.load_failed"))} ${esc(e.message || e)}</p>`;
     }
   }
 
@@ -1128,22 +1128,22 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        renderLimitManagerDOM('저장 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+        renderLimitManagerDOM(trKey("console.js.panels.save_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
       const resData = await r.json();
       _limitState.config = resData.config;
-      renderLimitManagerDOM('적재 제한 설정이 성공적으로 저장되었습니다 (data/ingest_limits.json 반영 완료).', true);
+      renderLimitManagerDOM(trKey("console.js.panels.limits.saved"), true);
       if (_limitState.opts && typeof _limitState.opts.onSave === 'function') {
         _limitState.opts.onSave(resData);
       }
     } catch (e) {
-      renderLimitManagerDOM('오류 발생: ' + (e.message || e), false);
+      renderLimitManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
     }
   }
 
   async function resetLimitSettings() {
-    if (!confirm('적재 제한 설정을 시스템 표준 기본값으로 복원하시겠습니까?')) return;
+    if (!confirm(trKey("console.js.panels.limits.reset_confirm"))) return;
     const defaults = {
       limits: {
         raw_char_budget: 20000,
@@ -1174,17 +1174,17 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(defaults) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        renderLimitManagerDOM('기본값 복원 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+        renderLimitManagerDOM(trKey("console.js.panels.limits.reset_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
       const resData = await r.json();
       _limitState.config = resData.config;
-      renderLimitManagerDOM('적재 제한 설정이 기본값으로 초기화되었습니다.', true);
+      renderLimitManagerDOM(trKey("console.js.panels.limits.reset_done"), true);
       if (_limitState.opts && typeof _limitState.opts.onSave === 'function') {
         _limitState.opts.onSave(resData);
       }
     } catch (e) {
-      renderLimitManagerDOM('오류 발생: ' + (e.message || e), false);
+      renderLimitManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
     }
   }
 
@@ -1202,52 +1202,52 @@
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2><span data-icon="ruler"></span> 상황 별 적재 제한 관리</h2>';
-    h += '<p class="al">수집 경로 및 문서 유형(웹, PDF, 슬라이싱, 벡터 임베딩, 확장, 미디어 등)별 적재 제한과 글자 수 예산을 단독 기능으로 설정합니다. 저장된 설정은 <code>data/ingest_limits.json</code>에 즉시 영구 저장됩니다.</p>';
+    let h = '<h2><span data-icon="ruler"></span> ' + esc(trKey("console.js.panels.limits.title_full")) + '</h2>';
+    h += '<p class="al">' + esc(trKey("console.js.panels.limits.desc")) + ' <code>data/ingest_limits.json</code></p>';
     h += alertHtml;
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="globe"></span> 일반 웹 / 텍스트 수집 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="globe"></span> ' + esc(trKey("console.js.panels.limits.web_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">원문 수집 본문 상한 (raw_char_budget, 글자 수)</label>';
+    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.raw_budget")) + '</label>';
     h += `<input id="limit-raw-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.raw_char_budget ?? 20000}"/>`;
-    h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">웹, 일반 텍스트 파일, X, 유튜브 수집 시 보관할 최대 본문 분량</div>';
+    h += '<div style="font-size:10px;opacity:0.7;margin-top:2px;">' + esc(trKey("console.js.panels.limits.raw_budget_hint")) + '</div>';
     h += '</div>';
     h += '</div>';
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="doc"></span> PDF 문서 수집 및 논문 판정 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="doc"></span> ' + esc(trKey("console.js.panels.limits.pdf_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">PDF 최대 추출 분량 (글자 수)</label><input id="limit-pdf-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_max_extract_chars ?? 50000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">논문 판정 기준 분량 (글자 수)</label><input id="limit-pdf-paper-threshold" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_paper_threshold_chars ?? 15000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.pdf_max_extract"))}</label><input id="limit-pdf-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_max_extract_chars ?? 50000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.pdf_paper_threshold"))}</label><input id="limit-pdf-paper-threshold" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.pdf_paper_threshold_chars ?? 15000}"/></div>`;
     h += '</div>';
-    h += '<div><label style="font-size:11px;opacity:0.8;">PDF 파서 엔진</label>';
+    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_parser")) + '</label>';
     h += '<select id="limit-pdf-parser" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += '<option value="default" selected>기본 Chromium PDFium 고속 파서</option>';
+    h += '<option value="default" selected>' + esc(trKey("console.js.panels.limits.pdf_parser_default")) + '</option>';
     h += '</select></div>';
     h += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">';
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-appendix" type="checkbox" ${lims.pdf_exclude_appendix!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 부록(Appendix) 자동 제외</label>`;
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-references" type="checkbox" ${lims.pdf_exclude_references!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>논문 참고문헌(References) 자동 제외</label>`;
-    h += `<label style="cursor:pointer;"><input id="limit-pdf-detect-encoding-flaws" type="checkbox" ${lims.pdf_detect_encoding_flaws!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>텍스트 인코딩 결함 및 스캔본 자동 감지</label>`;
+    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-appendix" type="checkbox" ${lims.pdf_exclude_appendix!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_exclude_appendix"))}</label>`;
+    h += `<label style="cursor:pointer;"><input id="limit-pdf-exclude-references" type="checkbox" ${lims.pdf_exclude_references!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_exclude_references"))}</label>`;
+    h += `<label style="cursor:pointer;"><input id="limit-pdf-detect-encoding-flaws" type="checkbox" ${lims.pdf_detect_encoding_flaws!==false?'checked':''} style="width:auto;margin-right:6px;vertical-align:middle;"/>${esc(trKey("console.js.panels.limits.pdf_detect_flaws"))}</label>`;
     h += '</div>';
     h += '<div style="display:flex;gap:8px;margin-top:4px;">';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">논문 추론 수준</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_paper_effort")) + '</label>';
     h += '<select id="limit-pdf-paper-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     h += `<option value="low" ${lims.pdf_paper_effort==='low'?'selected':''}>low</option>`;
     h += `<option value="medium" ${lims.pdf_paper_effort==='medium'?'selected':''}>medium</option>`;
     h += `<option value="high" ${(lims.pdf_paper_effort||'high')==='high'?'selected':''}>high</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">단문/일반 추론 수준</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_default_effort")) + '</label>';
     h += '<select id="limit-pdf-default-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="" ${!lims.pdf_default_effort?'selected':''}>기본값(공란)</option>`;
+    h += `<option value="" ${!lims.pdf_default_effort?'selected':''}>${esc(trKey("console.js.panels.limits.effort_default"))}</option>`;
     h += `<option value="low" ${lims.pdf_default_effort==='low'?'selected':''}>low</option>`;
     h += `<option value="medium" ${lims.pdf_default_effort==='medium'?'selected':''}>medium</option>`;
     h += `<option value="high" ${lims.pdf_default_effort==='high'?'selected':''}>high</option>`;
     h += '</select></div>';
-    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1차 분류 추론 수준</label>';
+    h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.pdf_classify_effort")) + '</label>';
     h += '<select id="limit-pdf-classifier-effort" style="width:100%;box-sizing:border-box;margin-top:2px;">';
     h += `<option value="low" ${(lims.pdf_classifier_effort||'low')==='low'?'selected':''}>low</option>`;
     h += `<option value="medium" ${lims.pdf_classifier_effort==='medium'?'selected':''}>medium</option>`;
@@ -1258,47 +1258,47 @@
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> 지식 그래프(KG) 추출 및 슬라이싱 예산</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="puzzle"></span> ' + esc(trKey("console.js.panels.limits.kg_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">단일 문서 추출 투입 상한 (글자 수)</label><input id="limit-extract-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.extract_char_budget ?? 20000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">병합 문서 투입 상한 (0=2배 자동)</label><input id="limit-merged-extract-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.merged_extract_char_budget ?? 0}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.extract_budget"))}</label><input id="limit-extract-char-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.extract_char_budget ?? 20000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.merged_budget"))}</label><input id="limit-merged-extract-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.merged_extract_char_budget ?? 0}"/></div>`;
     h += '</div>';
-    h += '<div><label style="font-size:11px;opacity:0.8;">본문 슬라이싱 전략</label>';
+    h += '<div><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.limits.slicing")) + '</label>';
     h += '<select id="limit-slicing-strategy" style="width:100%;box-sizing:border-box;margin-top:2px;">';
-    h += `<option value="table-exemption" ${(lims.slicing_strategy||'table-exemption')==='table-exemption'?'selected':''}>표 보존형 (table-exemption, 테이블 데이터 완전 보존)</option>`;
-    h += `<option value="strict" ${lims.slicing_strategy==='strict'?'selected':''}>단순 절단형 (strict, 글자 수 한도 엄격 절단)</option>`;
+    h += `<option value="table-exemption" ${(lims.slicing_strategy||'table-exemption')==='table-exemption'?'selected':''}>${esc(trKey("console.js.panels.limits.slicing_table"))}</option>`;
+    h += `<option value="strict" ${lims.slicing_strategy==='strict'?'selected':''}>${esc(trKey("console.js.panels.limits.slicing_strict"))}</option>`;
     h += '</select></div>';
     h += '</div>';
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="compass"></span> 임베딩·1홉 확장·리서치 맥락 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="compass"></span> ' + esc(trKey("console.js.panels.limits.context_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">임베딩 벡터 본문 상한 (글자 수)</label><input id="limit-embed-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.embed_char_budget ?? 8000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">심층 리서치 맥락 상한 (글자 수)</label><input id="limit-research-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.research_context_budget ?? 8000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.embed_budget"))}</label><input id="limit-embed-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.embed_char_budget ?? 8000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.research_budget"))}</label><input id="limit-research-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.research_context_budget ?? 8000}"/></div>`;
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1홉 확장 선별 컨텍스트 (글자 수)</label><input id="limit-expand-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_char_budget ?? 2000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">1홉 확장 최대 링크 수</label><input id="limit-expand-max" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_max ?? 5}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.expand_budget"))}</label><input id="limit-expand-budget" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_char_budget ?? 2000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.expand_max"))}</label><input id="limit-expand-max" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.expand_max ?? 5}"/></div>`;
     h += '</div>';
     h += '</div>';
     h += '</div>';
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
-    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="film"></span> 미디어 및 첨부파일 적재 제한</strong>';
+    h += '<strong style="font-size:13px;display:block;margin-bottom:8px;"><span data-icon="film"></span> ' + esc(trKey("console.js.panels.limits.media_title")) + '</strong>';
     h += '<div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">';
     h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">프레젠테이션 PDF 첨부파일 용량 상한 (bytes, 기본 64MiB = 67,108,864)</label>';
+    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.presentation_pdf_max")) + '</label>';
     h += `<input id="limit-presentation-pdf-bytes" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.presentation_pdf_max_bytes ?? 67108864}"/>`;
     h += '</div>';
     h += '<div style="display:flex;gap:8px;">';
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">비디오 STT 최대 추출 분량</label><input id="limit-video-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_max_extract_chars ?? 200000}"/></div>`;
-    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">비디오 분할 단위 (초)</label><input id="limit-video-chunk-sec" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_chunk_duration_sec ?? 240}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.video_max_extract"))}</label><input id="limit-video-max-extract" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_max_extract_chars ?? 200000}"/></div>`;
+    h += `<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">${esc(trKey("console.js.panels.limits.video_chunk"))}</label><input id="limit-video-chunk-sec" type="number" min="1" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.video_chunk_duration_sec ?? 240}"/></div>`;
     h += '</div>';
     h += '<div>';
-    h += '<label style="font-size:11px;opacity:0.8;display:block;">VLM 시각 자료 최대 이미지 수</label>';
+    h += '<label style="font-size:11px;opacity:0.8;display:block;">' + esc(trKey("console.js.panels.limits.vlm_max_images")) + '</label>';
     h += `<input id="limit-vlm-max-images" type="number" min="0" style="width:100%;box-sizing:border-box;margin-top:2px;" value="${lims.vlm_max_images ?? 20}"/>`;
     h += '</div>';
     h += '</div>';
@@ -1307,10 +1307,10 @@
     const optsState = _limitState.opts || {};
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     h += '<div style="display:flex;gap:8px;margin-top:16px;">';
-    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()"><span data-icon="save"></span> 설정 저장</button>';
-    h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()"><span data-icon="restore"></span> 기본값 복원</button>';
+    h += '<button type="button" class="btn" style="flex:1;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="saveLimitSettings()"><span data-icon="save"></span> ' + esc(trKey("console.js.panels.save_settings")) + '</button>';
+    h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="resetLimitSettings()"><span data-icon="restore"></span> ' + esc(trKey("console.js.panels.limits.reset")) + '</button>';
     if (canClose) {
-      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeLimitManager()">닫기</button>';
+      h += '<button type="button" class="sec" style="padding:8px 12px;" onclick="closeLimitManager()">' + esc(trKey("common.action.close")) + '</button>';
     }
     h += '</div>';
 
@@ -1329,7 +1329,7 @@
     }
     const target = _limitState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="ruler"></span> 적재 제한 관리</h2><p class="hint">설정 로딩 중…</p>';
+    target.innerHTML = '<h2><span data-icon="ruler"></span> ' + esc(trKey("console.js.panels.limits.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.loading_settings")) + '</p>';
     try {
       const url = resolveRootUrl(_limitState.opts, 'limits');
       const r = await fetch(url);
@@ -1337,7 +1337,7 @@
       _limitState.config = await r.json();
       renderLimitManagerDOM();
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="ruler"></span> 적재 제한 관리</h2><p class="hint" style="color:var(--err,#cf222e)">설정을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="ruler"></span> ${esc(trKey("console.js.panels.limits.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.load_failed"))} ${esc(e.message || e)}</p>`;
     }
   }
 
@@ -1386,7 +1386,7 @@
     const sorcererEl = document.getElementById('editthemep-sorcerer-' + themeId);
 
     const label = ((labelEl || {}).value || '').trim();
-    if (!label) { alert('테마 이름을 입력하세요.'); return; }
+    if (!label) { alert(trKey("console.js.panels.themes.name_needed")); return; }
     const description = ((descEl || {}).value || '').trim();
     const icon = ((iconEl || {}).value || '📁').trim() || '📁';
     const is_public = pubEl ? pubEl.checked : true;
@@ -1415,7 +1415,7 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('테마 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.update_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
@@ -1426,7 +1426,7 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
@@ -1438,7 +1438,7 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, is_public: newVisibility }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('테마 공개 여부 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.visibility_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
@@ -1449,7 +1449,7 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
@@ -1461,7 +1461,7 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, is_collaborator_accessible: newAccess }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('협업자 공개 여부 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.collab_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
@@ -1472,7 +1472,7 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
@@ -1484,7 +1484,7 @@
       const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, presentation_enabled: Boolean(newPres) }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('프레젠테이션 설정 수정 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.presentation_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
@@ -1495,7 +1495,7 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
@@ -1511,7 +1511,7 @@
     const sorcererEl = document.getElementById('newthemep-sorcerer');
 
     const label = ((labelEl || {}).value || '').trim();
-    if (!label) { alert('테마 이름을 입력하세요.'); return; }
+    if (!label) { alert(trKey("console.js.panels.themes.name_needed")); return; }
     const description = ((descEl || {}).value || '').trim();
     const default_focus = ((focusEl || {}).value || '').trim();
     const icon = ((iconEl || {}).value || '📁').trim() || '📁';
@@ -1530,7 +1530,7 @@
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('테마 생성 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.create_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       const resData = await r.json().catch(() => ({}));
@@ -1542,17 +1542,17 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
   async function deleteThemeFromUI(themeId, label) {
     const themeStr = String(themeId);
     if (themeStr === '0') {
-      alert('기본 지식베이스(기본 테마)는 삭제할 수 없습니다.');
+      alert(trKey("console.js.panels.themes.default_no_delete"));
       return;
     }
-    const confirmed = confirm(`'${label}' 테마를 완전히 삭제하시겠습니까?\n\n이 테마에 저장된 데이터베이스 및 모든 파일이 영구 삭제(소각)됩니다.`);
+    const confirmed = confirm(trKey("console.js.panels.themes.delete_confirm", { label: label }));
     if (!confirmed) return;
 
     try {
@@ -1560,7 +1560,7 @@
       const r = await fetch(url, { method: 'DELETE' });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        alert('테마 삭제 실패: ' + (err.detail || err.error || ('HTTP ' + r.status)));
+        alert(trKey("console.js.panels.themes.delete_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
         return;
       }
       if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
@@ -1571,7 +1571,7 @@
       }
       await renderThemeManager(_themeState.container, _themeState.opts);
     } catch (e) {
-      alert('오류: ' + e);
+      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
     }
   }
 
@@ -1584,30 +1584,30 @@
     const isCollab = evalBool(optsState.isCollaborator, false);
     const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
 
-    let h = '<h2><span data-icon="folder"></span> 지식 테마 관리</h2>';
+    let h = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2>';
     if (isOwner) {
-      h += '<p class="al">지식 관리자(owner)는 테마별로 공개 여부 및 협업자 접근을 설정할 수 있습니다. 비공개 테마는 익명 사용자에게 노출되지 않습니다.</p>';
+      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_owner")) + '</p>';
     } else {
-      h += '<p class="al">협업자(collaborator)는 권한이 부여된 테마의 상세 설정 및 옵션을 확인할 수 있습니다. (테마 수정/생성/삭제는 소유자 전용)</p>';
+      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_collaborator")) + '</p>';
     }
 
     h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
     for (const t of themes) {
       const themeKey = getThemeKey(t);
       const isPub = t.is_public !== false;
-      const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">공개</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">비공개</span>';
-      const toggleBtn = isPub ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">비공개로 전환</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">공개로 전환</button>`;
+      const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.public")) + '</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.private")) + '</span>';
+      const toggleBtn = isPub ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.make_private"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.make_public"))}</button>`;
       const isCollabAcc = t.is_collaborator_accessible !== false;
-      const collabBadge = isCollabAcc ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">협업자 공개</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">협업자 차단</span>';
-      const toggleCollabBtn = isCollabAcc ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, false)">협업자 차단</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, true)">협업자 공개</button>`;
+      const collabBadge = isCollabAcc ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.collab_open")) + '</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.collab_blocked")) + '</span>';
+      const toggleCollabBtn = isCollabAcc ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.collab_blocked"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.collab_open"))}</button>`;
       const isPres = t.presentation_enabled === true;
-      const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 활성화됨"><span data-icon="screen"></span> 발표 ON</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="프레젠테이션 기능 비활성화됨"><span data-icon="block"></span> 발표 OFF</span>';
-      const togglePresBtn = isPres ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">발표 끄기</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">발표 켜기</button>`;
+      const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_on_title")) + '"><span data-icon="screen"></span> ' + esc(trKey("console.js.panels.themes.presentation_on")) + '</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_off_title")) + '"><span data-icon="block"></span> ' + esc(trKey("console.js.panels.themes.presentation_off")) + '</span>';
+      const togglePresBtn = isPres ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.presentation_turn_off"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.presentation_turn_on"))}</button>`;
       const canIngestHere = themeKey !== '0' && isCollabAcc;
-      const idLabel = themeKey === '0' ? '기본 (ID 0)' : (t.number ? `테마 ${t.number}` : `테마 #${t.id}`);
+      const idLabel = themeKey === '0' ? trKey("console.js.panels.themes.id_default") : trKey("console.js.panels.themes.id_label", { id: t.number ? t.number : '#' + t.id });
       const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
-      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="구 도메인 리다이렉트"><span data-icon="globe"></span> 구 도메인 ${t.legacy_hosts.length}개</span>` : '';
+      const legacyHostsBadge = (t.legacy_hosts && t.legacy_hosts.length) ? `<span style="color:#a78bfa;font-weight:600;font-size:12px;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px" title="${esc(trKey("console.js.panels.themes.legacy_title"))}"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_count", { count: t.legacy_hosts.length }))}</span>` : '';
 
       h += '<div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);">';
       h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">';
@@ -1623,59 +1623,59 @@
       if (isOwner && themeKey !== '0') h += toggleCollabBtn;
       h += presBadge;
       if (isOwner) h += togglePresBtn;
-      if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> 수정</button>`;
-      h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})"><span data-icon="settings"></span> 옵션 보기</button>`;
+      if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}</button>`;
+      h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeOptionsView(${jsArg(themeKey)})"><span data-icon="settings"></span> ${esc(trKey("console.js.panels.themes.show_options"))}</button>`;
       if (isOwner && themeKey !== '0') {
-        h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> 삭제</button>`;
+        h += `<button type="button" class="sec danger-btn" style="font-size:11px;padding:3px 8px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("common.action.delete"))}</button>`;
       }
       h += '</div></div>';
       if (t.description) h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>`;
-      h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">지식 관리자: ${esc(effMgr)}</p>`;
+      h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}</p>`;
       if (themeKey !== '0' && t.default_focus) {
-        h += `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;"><span data-icon="target"></span> 기본 초점: ${esc(t.default_focus)}</p>`;
+        h += `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;"><span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))} ${esc(t.default_focus)}</p>`;
       }
 
       h += `<div id="theme-options-view-${themeKey}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
-      h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> 테마 설정 옵션</div>';
-      h += `<div>• <b>레이블(이름)</b>: ${esc(t.label)}</div>`;
-      h += `<div>• <b>지식 관리자</b>: ${esc(effMgr)}</div>`;
-      h += `<div>• <b>아이콘</b>: ${esc(t.icon || '📁')}</div>`;
-      h += `<div>• <b>설명</b>: ${esc(t.description || '(설명 없음)')}</div>`;
-      h += `<div>• <b>구 도메인 리다이렉트 (legacy_hosts)</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => `${esc(lh.host)} (활성: ${esc(lh.activated_at || '-')}, 일몰: ${esc(lh.sunset_at || '-')})`).join(', ') : '(없음)'}</div>`;
-      h += `<div>• <b>GA4 측정 ID</b>: ${esc(t.ga_measurement_id || '(미지정 - 비활성)')}</div>`;
-      if (themeKey !== '0') h += `<div>• <b>기본 초점</b>: ${esc(t.default_focus || '(미지정 - 기본 분석 적용)')}</div>`;
-      h += `<div>• <b>공개 여부</b>: ${isPub ? '익명 사용자 공개' : '비공개'}</div>`;
-      if (themeKey !== '0') h += `<div>• <b>협업자 공개 여부</b>: ${isCollabAcc ? '협업자 공개 (접근 및 적재 허용)' : '협업자 차단'}</div>`;
-      h += `<div>• <b>협업자 적재 권한</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">허용됨 (자료 적재 가능)</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">제한됨 (소유자 기본 지식베이스)</span>' : '<span style="color:var(--warn);font-weight:600;">제한됨 (소유자 미허용)</span>')}</div>`;
-      h += `<div>• <b>프레젠테이션 기능</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">활성화됨 (발표 기능 사용 가능)</span>' : '<span style="color:var(--muted);font-weight:600;">비활성화됨 (발표 기능 숨김)</span>'}</div>`;
-      if (t.stats) h += `<div>• <b>지식 현황</b>: 문서 ${t.stats.documents || 0}건 · 엔티티 ${t.stats.entities || 0}개 · 관계 ${t.stats.relations || 0}개</div>`;
+      h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> ' + esc(trKey("console.js.panels.themes.options_title")) + '</div>';
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_label"))}</b>: ${esc(t.label)}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_manager"))}</b>: ${esc(effMgr)}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_icon"))}</b>: ${esc(t.icon || '📁')}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.col_description"))}</b>: ${esc(t.description || esc(trKey("console.js.panels.themes.no_description")))}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_legacy"))}</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => esc(trKey("console.js.panels.themes.legacy_host", { host: lh.host, activated: lh.activated_at || '-', sunset: lh.sunset_at || '-' }))).join(', ') : esc(trKey("console.js.panels.themes.none"))}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_ga"))}</b>: ${esc(t.ga_measurement_id || esc(trKey("console.js.panels.themes.ga_unset")))}</div>`;
+      if (themeKey !== '0') h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_focus"))}</b>: ${esc(t.default_focus || esc(trKey("console.js.panels.themes.focus_unset")))}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_visibility"))}</b>: ${isPub ? esc(trKey("console.js.panels.themes.visibility_public")) : esc(trKey("console.js.panels.themes.private"))}</div>`;
+      if (themeKey !== '0') h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab"))}</b>: ${isCollabAcc ? esc(trKey("console.js.panels.themes.collab_open_detail")) : esc(trKey("console.js.panels.themes.collab_blocked"))}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab_ingest"))}</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_allowed")) + '</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_default")) + '</span>' : '<span style="color:var(--warn);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_owner")) + '</span>')}</div>`;
+      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_presentation"))}</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_enabled")) + '</span>' : '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_disabled")) + '</span>'}</div>`;
+      if (t.stats) h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_stats"))}</b>: ${esc(trKey("console.js.panels.themes.stats", { documents: t.stats.documents || 0, entities: t.stats.entities || 0, relations: t.stats.relations || 0 }))}</div>`;
       h += '</div>';
 
       if (isOwner) {
         h += `<div id="theme-edit-form-${themeKey}" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);flex-direction:column;gap:8px;">`;
-        h += `<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="editthemep-label-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>`;
-        h += `<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="editthemep-sorcerer-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="지식 관리자" value="${esc(rawMgr)}"/></div>`;
-        h += `<div><label style="font-size:11px;opacity:0.8">설명</label><input id="editthemep-desc-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>`;
+        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_label"))}</label><input id="editthemep-label-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.label)}"/></div>`;
+        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_manager"))}</label><input id="editthemep-sorcerer-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.opt_manager"))}" value="${esc(rawMgr)}"/></div>`;
+        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.col_description"))}</label><input id="editthemep-desc-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.description || '')}"/></div>`;
         if (t.legacy_hosts && t.legacy_hosts.length) {
-          h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;"><span data-icon="globe"></span> 구 도메인(FQDN)은 폐지되었으며 읽기 전용 리다이렉트로 관리됩니다: ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
+          h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_note"))} ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
         }
-        h += `<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX" value="${esc(t.ga_measurement_id || '')}"/></div>`;
+        h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.ga_label"))}</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.ga_placeholder"))}" value="${esc(t.ga_measurement_id || '')}"/></div>`;
         if (themeKey !== '0') {
-          h += `<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="editthemep-focus-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="예: 시스템 아키텍처 및 핵심 API 사양 중심" value="${esc(t.default_focus || '')}"/></div>`;
+          h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.focus_label"))}</label><input id="editthemep-focus-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.focus_placeholder_edit"))}" value="${esc(t.default_focus || '')}"/></div>`;
         }
         h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-        h += `<div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>`;
-        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>`;
+        h += `<div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_icon"))}</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>`;
+        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.public_checkbox"))}</label></div>`;
         if (themeKey !== '0') {
-          h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${themeKey}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>`;
+          h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${themeKey}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.collab_checkbox"))}</label></div>`;
         }
-        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${themeKey}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div>`;
+        h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${themeKey}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.presentation_checkbox"))}</label></div>`;
         h += '</div>';
         h += '<div style="display:flex;gap:6px;margin-top:4px;align-items:center;">';
-        h += `<button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">저장</button>`;
-        h += `<button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">취소</button>`;
+        h += `<button type="button" style="padding:4px 12px;" onclick="updateThemeFromUI(${jsArg(themeKey)})">${esc(trKey("common.action.save"))}</button>`;
+        h += `<button type="button" class="sec" style="padding:4px 12px;" onclick="hideThemeEditForm(${jsArg(themeKey)})">${esc(trKey("common.action.cancel"))}</button>`;
         if (themeKey !== '0') {
-          h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> 테마 완전 삭제</button>`;
+          h += `<button type="button" class="sec danger-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;color:var(--err,#cf222e);border-color:rgba(207,34,46,0.3);" onclick="deleteThemeFromUI(${jsArg(themeKey)}, ${jsArg(t.label)})"><span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}</button>`;
         }
         h += '</div></div>';
       }
@@ -1684,27 +1684,27 @@
     h += '</div>';
 
     if (isOwner) {
-      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;"><span data-icon="plus"></span> 새 테마 추가</summary>';
+      h += '<details style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--sec-bg);"><summary style="cursor:pointer;font-weight:600;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.themes.add_title")) + '</summary>';
       h += '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">';
-      h += '<div><label style="font-size:11px;opacity:0.8">레이블(이름)</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="예: 경제 및 금융"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">지식 관리자</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="지식 관리자"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">설명</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 및 시장 분석"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">Google Analytics 4 측정 ID (예: G-XXXXXXXXXX)</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="예: G-XXXXXXXXXX"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">기본 초점 (적재 시 기본 적용할 방향/지침)</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="예: 거시경제 지표 및 시장 영향 중심"/></div>';
-      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">아이콘</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>익명 사용자에게 공개</label></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>협업자에게 공개</label></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pres" type="checkbox" style="width:auto;margin-right:4px;vertical-align:middle;"/>프레젠테이션 기능 활성화</label></div></div>';
-      h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">테마 생성</button>';
+      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_label")) + '</label><input id="newthemep-label" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.label_placeholder")) + '"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_manager")) + '</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.opt_manager")) + '"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.col_description")) + '</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.desc_placeholder")) + '"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.ga_label")) + '</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.ga_placeholder")) + '"/></div>';
+      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.focus_label")) + '</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.focus_placeholder_new")) + '"/></div>';
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_icon")) + '</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.public_checkbox")) + '</label></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.collab_checkbox")) + '</label></div>';
+      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pres" type="checkbox" style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.presentation_checkbox")) + '</label></div></div>';
+      h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">' + esc(trKey("console.js.panels.themes.create")) + '</button>';
       h += '</div></details>';
     } else {
-      h += '<p class="hint" style="margin-top:14px;font-size:12px;"><span data-icon="info"></span> 새로운 지식 테마 생성 또는 설정 변경이 필요한 경우 지식 관리자(owner)에게 요청하세요.</p>';
+      h += '<p class="hint" style="margin-top:14px;font-size:12px;"><span data-icon="info"></span> ' + esc(trKey("console.js.panels.themes.ask_owner")) + '</p>';
     }
 
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     if (canClose) {
       h += '<div style="margin-top:16px;">';
-      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeThemeManager()">닫기</button>';
+      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeThemeManager()">' + esc(trKey("common.action.close")) + '</button>';
       h += '</div>';
     }
 
@@ -1718,7 +1718,7 @@
     }
     const target = _themeState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="folder"></span> 지식 테마 관리</h2><p class="hint">테마 목록 조회 중…</p>';
+    target.innerHTML = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.themes.loading")) + '</p>';
     try {
       const url = resolveApiUrl(_themeState.opts, 'themes');
       const r = await fetch(url);
@@ -1727,7 +1727,7 @@
       _themeState.themes = data.themes || [];
       renderThemeManagerDOM();
     } catch (e) {
-      target.innerHTML = '<p class="hint">테마 목록 조회 실패: ' + esc(String(e)) + '</p>';
+      target.innerHTML = '<p class="hint">' + esc(trKey("console.js.panels.themes.load_failed")) + ' ' + esc(String(e)) + '</p>';
     }
   }
 
@@ -1748,16 +1748,16 @@
     if (!el) return;
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
       navigator.clipboard.writeText(el.value).then(() => {
-        alert('토큰이 클립보드에 복사되었습니다.');
+        alert(trKey("console.js.panels.tokens.copied"));
       }).catch(() => {
         el.select();
         document.execCommand('copy');
-        alert('토큰이 클립보드에 복사되었습니다.');
+        alert(trKey("console.js.panels.tokens.copied"));
       });
     } else {
       el.select();
       document.execCommand('copy');
-      alert('토큰이 클립보드에 복사되었습니다.');
+      alert(trKey("console.js.panels.tokens.copied"));
     }
   }
 
@@ -1766,7 +1766,7 @@
     const scopeSelect = document.getElementById('new-token-scope');
     const expirySelect = document.getElementById('new-token-expiry');
     if (!nameInput || !nameInput.value.trim()) {
-      alert('토큰 이름을 입력하세요.');
+      alert(trKey("console.js.panels.tokens.name_needed"));
       return;
     }
     const name = nameInput.value.trim();
@@ -1778,7 +1778,7 @@
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, scope: scope, expires_in_days: expDays > 0 ? expDays : null }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        renderTokenManagerDOM('발급 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+        renderTokenManagerDOM(trKey("console.js.panels.tokens.issue_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
       const data = await r.json();
@@ -1791,18 +1791,18 @@
       }
       await renderTokenManager(_tokenState.container, _tokenState.opts, data.token);
     } catch (e) {
-      renderTokenManagerDOM('오류 발생: ' + (e.message || e), false);
+      renderTokenManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
     }
   }
 
   async function revokeApiToken(id, name) {
-    if (!confirm(`정말 #${id} '${name}' 토큰을 폐기하시겠습니까? 즉시 모든 API 및 MCP 연결이 차단됩니다.`)) return;
+    if (!confirm(trKey("console.js.panels.tokens.revoke_confirm", { id: id, name: name }))) return;
     try {
       const url = resolveRootUrl(_tokenState.opts, 'tokens/revoke');
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        renderTokenManagerDOM('폐기 실패: ' + (err.detail || ('HTTP ' + r.status)), false);
+        renderTokenManagerDOM(trKey("console.js.panels.tokens.revoke_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
         return;
       }
       if (_tokenState.opts && typeof _tokenState.opts.onTokenRevoked === 'function') {
@@ -1812,9 +1812,9 @@
         _tokenState.opts.onTokenChange('revoke', id);
       }
       await renderTokenManager(_tokenState.container, _tokenState.opts);
-      renderTokenManagerDOM(`토큰 #${id} '${name}'이(가) 즉시 폐기되었습니다.`, true);
+      renderTokenManagerDOM(trKey("console.js.panels.tokens.revoked_done", { id: id, name: name }), true);
     } catch (e) {
-      renderTokenManagerDOM('오류 발생: ' + (e.message || e), false);
+      renderTokenManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
     }
   }
 
@@ -1832,8 +1832,8 @@
       alertHtml = `<div style="padding:8px 10px;border-radius:6px;background:${bg};color:${color};font-size:12px;margin-bottom:12px;border:1px solid ${color};">${icon} ${esc(msg)}</div>`;
     }
 
-    let h = '<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2>';
-    h += '<p class="al">Claude Desktop, Cursor, 백그라운드 데몬 및 외부 API 연동을 위한 상시 이용(24/7) 토큰을 관리합니다. 환경변수 의존 없이 즉시 생성 및 폐기됩니다.</p>';
+    let h = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2>';
+    h += '<p class="al">' + esc(trKey("console.js.panels.tokens.desc")) + '</p>';
     h += alertHtml;
 
     if (activeNewToken) {
@@ -1842,73 +1842,73 @@
       const mcpUrl = `${mcpOrigin}/mcp`;
       const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-everything'], env: { CLAIRE_URL: mcpUrl, CLAIRE_TOKEN: rawVal } } } }, null, 2);
       h += '<div style="background:rgba(26,127,55,0.08);border:2px solid var(--accent2,#1a7f37);border-radius:8px;padding:12px;margin-bottom:16px;">';
-      h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);"><span data-icon="check-circle"></span> 새 토큰이 발급되었습니다</h3>';
-      h += '<p style="margin:0 0 8px 0;font-size:12px;">이 토큰은 다시 전체 문자열로 표시되지 않습니다. 지금 복사하여 보관하세요.</p>';
+      h += '<h3 style="margin:0 0 6px 0;font-size:14px;color:var(--accent2,#1a7f37);"><span data-icon="check-circle"></span> ' + esc(trKey("console.js.panels.tokens.minted_title")) + '</h3>';
+      h += '<p style="margin:0 0 8px 0;font-size:12px;">' + esc(trKey("console.js.panels.tokens.minted_hint")) + '</p>';
       h += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
       h += `<input type="text" id="newly-minted-token" readonly value="${esc(rawVal)}" style="flex:1;font-family:monospace;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);" onclick="this.select();"/>`;
-      h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="copyMintedToken()"><span data-icon="clipboard"></span> 복사</button>';
+      h += '<button type="button" class="btn" style="padding:6px 10px;font-size:12px;background:var(--btn-bg,#1f883d);color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="copyMintedToken()"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.copy")) + '</button>';
       h += '</div>';
-      h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;"><span data-icon="clipboard"></span> Claude Desktop / Cursor MCP 연동 JSON 보기</summary>';
+      h += '<details style="font-size:12px;color:var(--fg);"><summary style="cursor:pointer;font-weight:600;margin-bottom:4px;"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.mcp_json")) + '</summary>';
       h += `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:11px;border:1px solid var(--border);">${esc(mcpSnippet)}</pre></details>`;
       h += '</div>';
     }
 
     h += '<div style="border:1px solid var(--border);border-radius:6px;padding:12px;background:var(--sec-bg);margin-bottom:16px;">';
-    h += '<h3 style="margin:0 0 10px 0;font-size:13px;"><span data-icon="plus"></span> 새 API &amp; MCP 토큰 발급</h3>';
+    h += '<h3 style="margin:0 0 10px 0;font-size:13px;"><span data-icon="plus"></span> ' + esc(trKey("console.js.panels.tokens.new_title")) + '</h3>';
     h += '<div style="display:flex;flex-direction:column;gap:10px;">';
     h += '<div>';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">토큰 이름 (용도 / 클라이언트 명칭)</label>';
-    h += '<input type="text" id="new-token-name" placeholder="예: Claude Desktop, Cursor Agent, Backup Script" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
+    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.name_label")) + '</label>';
+    h += '<input type="text" id="new-token-name" placeholder="' + esc(trKey("console.js.panels.tokens.name_placeholder")) + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:13px;"/>';
     h += '</div>';
 
     h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
     h += '<div style="flex:1;min-width:130px;">';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">권한 스코프 (Scope)</label>';
+    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.scope_label")) + '</label>';
     h += '<select id="new-token-scope" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
-    h += '<option value="readonly" selected>읽기 전용 (readonly - MCP 조회 및 검색)</option>';
-    h += '<option value="collaborator">협력자 (collaborator - 추가 테마 적재)</option>';
-    h += '<option value="owner">소유자 (owner - 전체 읽기/쓰기/관리)</option>';
+    h += '<option value="readonly" selected>' + esc(trKey("console.js.panels.tokens.scope_readonly")) + '</option>';
+    h += '<option value="collaborator">' + esc(trKey("console.js.panels.tokens.scope_collaborator")) + '</option>';
+    h += '<option value="owner">' + esc(trKey("console.js.panels.tokens.scope_owner")) + '</option>';
     h += '</select>';
     h += '</div>';
 
     h += '<div style="flex:1;min-width:130px;">';
-    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">유효기간 (Expiration)</label>';
+    h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.expiry_label")) + '</label>';
     h += '<select id="new-token-expiry" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
-    h += '<option value="0" selected>무기한 (상시 이용 가능)</option>';
-    h += '<option value="30">30일</option>';
-    h += '<option value="90">90일</option>';
-    h += '<option value="365">1년 (365일)</option>';
+    h += '<option value="0" selected>' + esc(trKey("console.js.panels.tokens.expiry_none")) + '</option>';
+    h += '<option value="30">' + esc(trKey("console.js.panels.tokens.expiry_30")) + '</option>';
+    h += '<option value="90">' + esc(trKey("console.js.panels.tokens.expiry_90")) + '</option>';
+    h += '<option value="365">' + esc(trKey("console.js.panels.tokens.expiry_365")) + '</option>';
     h += '</select>';
     h += '</div>';
     h += '</div>';
 
-    h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()"><span data-icon="key"></span> 토큰 발급</button>';
+    h += '<button type="button" class="btn" style="margin-top:4px;background:var(--btn-bg,#1f883d);color:#fff;font-weight:600;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;" onclick="createApiToken()"><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.issue")) + '</button>';
     h += '</div>';
     h += '</div>';
 
-    h += '<h3 style="margin:0 0 8px 0;font-size:13px;"><span data-icon="clipboard"></span> 발급된 토큰 목록 (' + tokens.length + '개)</h3>';
+    h += '<h3 style="margin:0 0 8px 0;font-size:13px;"><span data-icon="clipboard"></span> ' + esc(trKey("console.js.panels.tokens.list_title", { count: tokens.length })) + '</h3>';
     if (!tokens.length) {
-      h += '<p class="hint">등록된 토큰이 없습니다.</p>';
+      h += '<p class="hint">' + esc(trKey("console.js.panels.tokens.empty")) + '</p>';
     } else {
       h += '<div style="display:flex;flex-direction:column;gap:8px;">';
       for (const tok of tokens) {
         const isRevoked = tok.revoked_at !== null && tok.revoked_at !== undefined;
         const nowTs = Date.now() / 1000;
         const isExpired = tok.expires_at && tok.expires_at < nowTs;
-        let statusBadge = '<span style="color:#1a7f37;background:rgba(26,127,55,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">활성</span>';
+        let statusBadge = '<span style="color:#1a7f37;background:rgba(26,127,55,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_active")) + '</span>';
         if (isRevoked) {
-          statusBadge = '<span style="color:#cf222e;background:rgba(207,34,46,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">폐기됨</span>';
+          statusBadge = '<span style="color:#cf222e;background:rgba(207,34,46,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_revoked")) + '</span>';
         } else if (isExpired) {
-          statusBadge = '<span style="color:#9a6700;background:rgba(154,103,0,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">만료됨</span>';
+          statusBadge = '<span style="color:#9a6700;background:rgba(154,103,0,0.1);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">' + esc(trKey("console.js.panels.tokens.status_expired")) + '</span>';
         }
 
-        let expStr = '무기한 (상시)';
+        let expStr = trKey("console.js.panels.tokens.expiry_none_short");
         if (tok.expires_at) {
           const d = new Date(tok.expires_at * 1000);
           expStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         }
 
-        let lastUsedStr = '사용 기록 없음';
+        let lastUsedStr = trKey("console.js.panels.tokens.never_used");
         if (tok.last_used_at) {
           const lu = new Date(tok.last_used_at * 1000);
           lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -1921,13 +1921,13 @@
         h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
         h += `<div><strong style="font-size:13px;">#${tok.id} ${esc(tok.name)}</strong> <span style="font-size:11px;font-weight:600;color:${scopeCol};border:1px solid ${scopeCol};padding:1px 5px;border-radius:4px;margin-left:4px;">${esc(tok.scope)}</span> ${statusBadge}</div>`;
         if (!isRevoked) {
-          h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, ${jsArg(tok.name)})">폐기</button>`;
+          h += `<button type="button" class="sec" style="font-size:11px;padding:2px 8px;color:var(--err,#cf222e);border-color:var(--err,#cf222e);" onclick="revokeApiToken(${tok.id}, ${jsArg(tok.name)})">${esc(trKey("console.js.panels.tokens.revoke"))}</button>`;
         }
         h += '</div>';
 
         h += '<div style="font-size:12px;color:var(--sec-fg,#57606a);display:flex;flex-direction:column;gap:2px;">';
-        h += `<div>식별자: <code style="font-size:11px;background:var(--sec-bg);padding:1px 4px;border-radius:3px;">${esc(tok.token_masked || 'cb_...')}</code></div>`;
-        h += `<div>만료: ${esc(expStr)} · 최근 사용: ${esc(lastUsedStr)}</div>`;
+        h += `<div>${esc(trKey("console.js.panels.tokens.identifier"))} <code style="font-size:11px;background:var(--sec-bg);padding:1px 4px;border-radius:3px;">${esc(tok.token_masked || 'cb_...')}</code></div>`;
+        h += `<div>${esc(trKey("console.js.panels.tokens.expires"))}: ${esc(expStr)} · ${esc(trKey("console.js.panels.tokens.last_used"))}: ${esc(lastUsedStr)}</div>`;
         h += '</div>';
         h += '</div>';
       }
@@ -1938,7 +1938,7 @@
     const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
     if (canClose) {
       h += '<div style="margin-top:16px;">';
-      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeTokenManager()">닫기</button>';
+      h += '<button type="button" class="sec" style="padding:8px 12px;width:100%;" onclick="closeTokenManager()">' + esc(trKey("common.action.close")) + '</button>';
       h += '</div>';
     }
 
@@ -1960,7 +1960,7 @@
     }
     const target = _tokenState.container;
     if (!target) return;
-    target.innerHTML = '<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2><p class="hint">토큰 목록 조회 중…</p>';
+    target.innerHTML = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.tokens.loading")) + '</p>';
     try {
       const url = resolveRootUrl(_tokenState.opts, 'tokens');
       const r = await fetch(url);
@@ -1971,7 +1971,7 @@
       const initialSuccess = (_tokenState.opts && _tokenState.opts.initialSuccess) || false;
       renderTokenManagerDOM(initialMsg, initialSuccess, _tokenState.newCreatedToken);
     } catch (e) {
-      target.innerHTML = `<h2><span data-icon="key"></span> API &amp; MCP 상시 이용 키 관리</h2><p class="hint" style="color:var(--err,#cf222e)">토큰 목록을 불러올 수 없습니다: ${esc(e.message || e)}</p>`;
+      target.innerHTML = `<h2><span data-icon="key"></span> ${esc(trKey("console.js.panels.tokens.title"))}</h2><p class="hint" style="color:var(--err,#cf222e)">${esc(trKey("console.js.panels.tokens.load_failed"))} ${esc(e.message || e)}</p>`;
     }
   }
 

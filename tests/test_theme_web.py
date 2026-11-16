@@ -145,13 +145,13 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     assert "editthemep-desc-" in html
     assert "editthemep-icon-" in html
     assert "editthemep-pub-" in html
-    assert '<span data-icon="edit"></span> 수정' in html
+    assert '<span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}' in html
 
     # 3. 기본 지식베이스(ID 0) 제외 추가 테마 삭제 UI(삭제 버튼 및 deleteThemeFromUI 함수) 탑재 확인
     assert "deleteThemeFromUI" in html
-    assert "기본 지식베이스(기본 테마)는 삭제할 수 없습니다" in html
-    assert '<span data-icon="trash"></span> 삭제' in html
-    assert '<span data-icon="trash"></span> 테마 완전 삭제' in html
+    assert 'alert(trKey("console.js.panels.themes.default_no_delete"))' in html
+    assert '<span data-icon="trash"></span> ${esc(trKey("common.action.delete"))}' in html
+    assert '<span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}' in html
 
 
 def test_theme_web_default_focus(tmp_path: Path):
@@ -171,7 +171,7 @@ def test_theme_web_default_focus(tmp_path: Path):
     assert 'editthemep-focus-' in html
 
     # 3. 테마 카드에 기본 초점 표시 템플릿 확인
-    assert '<span data-icon="target"></span> 기본 초점:' in html
+    assert '<span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))}' in html
 
     # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
     assert "updateFocusPlaceholder" in graph_html
@@ -196,10 +196,10 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
     html = MANAGE_PANELS_JS
 
     # 1. 테마 관리 UI 렌더링 내 지식 관리자 표시 로직 탑재 확인
-    assert "지식 관리자:" in html
+    assert '${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}' in html
 
     # 2. 테마 설정 옵션 상세 뷰(theme-options-view)에 지식 관리자 항목 확인
-    assert "<div>• <b>지식 관리자</b>:" in html
+    assert '<div>• <b>${esc(trKey("console.js.panels.themes.opt_manager"))}</b>:' in html
 
     # 3. 테마 수정 폼 및 새 테마 추가 폼에 지식 관리자 입력 필드 확인
     assert "editthemep-sorcerer-" in html

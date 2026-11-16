@@ -6,31 +6,31 @@
   "use strict";
 
   var ERROR_TEXT = {
-    reauth_required: "먼저 이 화면의 '본인 확인'을 마치고 다시 시도하세요.",
-    step_up_requires_session: "로그인 세션에서만 할 수 있습니다. API 토큰으로는 할 수 없습니다.",
-    invalid_password: "비밀번호가 맞지 않습니다.",
-    too_many_attempts: "시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요.",
-    invalid_request: "요청 형식이 맞지 않습니다.",
-    invalid_bot_token: "봇 토큰 형식이 맞지 않습니다. BotFather가 준 토큰을 그대로 붙여 넣으세요.",
-    invalid_allowed_user_ids: "허용 사용자 ID는 숫자로 1개 이상 적으세요(쉼표로 구분).",
-    bot_token_rejected: "텔레그램이 이 토큰을 거부했습니다. 토큰을 다시 확인하세요.",
-    bot_verification_unavailable: "지금은 텔레그램에 연결할 수 없습니다. 설정은 바뀌지 않았습니다. 잠시 뒤에 다시 시도하세요.",
-    bot_in_use: "이 봇은 이미 다른 계정이나 인스턴스 봇이 쓰고 있습니다.",
-    bot_not_found: "등록한 봇이 없습니다.",
-    bundle_limit_reached: "활성 번들 수 한도에 이르렀습니다. 기존 번들을 지운 뒤 다시 시도하세요.",
-    bundle_not_found: "번들이 없거나 만료되었습니다.",
-    theme_not_found: "내 계정의 테마가 아닙니다.",
-    invalid_days: "수집 기간이 맞지 않습니다.",
-    invalid_target: "추적 대상 값이 맞지 않습니다.",
-    backup_failed: "백업을 만들지 못했습니다.",
-    backup_not_found: "백업이 없습니다.",
-    invalid_policy: "자동 백업 설정 값이 맞지 않습니다.",
-    restore_conflict: "복원 대상과 충돌해 아무것도 바꾸지 않았습니다.",
-    restore_failed: "복원하지 못했습니다.",
-    account_not_found: "계정이 없습니다.",
-    unauthorized: "로그인이 필요합니다."
+    reauth_required: tr("console.js.common.error.reauth_required"),
+    step_up_requires_session: tr("console.js.common.error.step_up_requires_session"),
+    invalid_password: tr("console.js.common.error.invalid_password"),
+    too_many_attempts: tr("console.js.common.error.too_many_attempts"),
+    invalid_request: tr("console.js.common.error.invalid_request"),
+    invalid_bot_token: tr("console.js.features.error.invalid_bot_token"),
+    invalid_allowed_user_ids: tr("console.js.features.error.invalid_allowed_user_ids"),
+    bot_token_rejected: tr("console.js.features.error.bot_token_rejected"),
+    bot_verification_unavailable: tr("console.js.features.error.bot_verification_unavailable"),
+    bot_in_use: tr("console.js.features.error.bot_in_use"),
+    bot_not_found: tr("console.js.features.error.bot_not_found"),
+    bundle_limit_reached: tr("console.js.features.error.bundle_limit_reached"),
+    bundle_not_found: tr("console.js.features.error.bundle_not_found"),
+    theme_not_found: tr("console.js.features.error.theme_not_found"),
+    invalid_days: tr("console.js.features.error.invalid_days"),
+    invalid_target: tr("console.js.features.error.invalid_target"),
+    backup_failed: tr("console.js.features.error.backup_failed"),
+    backup_not_found: tr("console.js.features.backups.empty"),
+    invalid_policy: tr("console.js.features.error.invalid_policy"),
+    restore_conflict: tr("console.js.features.error.restore_conflict"),
+    restore_failed: tr("console.js.features.error.restore_failed"),
+    account_not_found: tr("console.js.features.error.account_not_found"),
+    unauthorized: tr("console.js.common.error.unauthorized")
   };
-  var SCHEDULE_TEXT = { off: "끔", daily: "매일", weekly: "매주" };
+  var SCHEDULE_TEXT = { off: tr("console.js.features.schedule.off"), daily: tr("console.js.features.schedule.daily"), weekly: tr("console.js.features.schedule.weekly") };
 
   function parseBootstrap() {
     var el = document.getElementById("console-bootstrap");
@@ -46,7 +46,7 @@
   }
 
   function errorText(status, body) {
-    var base = body && typeof body.error === "string" && ERROR_TEXT[body.error] ? ERROR_TEXT[body.error] : "요청을 처리하지 못했습니다 (HTTP " + status + ").";
+    var base = body && typeof body.error === "string" && ERROR_TEXT[body.error] ? ERROR_TEXT[body.error] : tr("console.js.common.http_error", { status: status });
     if (body && typeof body.message === "string" && body.message) return base + " " + body.message;
     return base;
   }
@@ -102,7 +102,7 @@
     var table = el("table", null, { "class": "pref-table" });
     var head = el("tr");
     columns.forEach(function (c) { head.appendChild(el("th", c[0])); });
-    head.appendChild(el("th", "작업"));
+    head.appendChild(el("th", tr("console.js.features.col_action")));
     var thead = el("thead");
     thead.appendChild(head);
     table.appendChild(thead);
@@ -151,8 +151,8 @@
       var value = field ? field.value : "";
       request("POST", "/api/auth/reauth", { password: value }).then(function (r) {
         if (field) field.value = "";
-        show(form, r.ok ? "본인 확인을 마쳤습니다. 15분 안에 작업하세요." : errorText(r.status, r.body), !r.ok);
-      }).catch(function () { show(form, "서버에 연결하지 못했습니다.", true); });
+        show(form, r.ok ? tr("console.js.features.reauth.done") : errorText(r.status, r.body), !r.ok);
+      }).catch(function () { show(form, tr("console.js.common.network_error"), true); });
     });
   }
 
@@ -164,13 +164,13 @@
         ev.preventDefault();
         var tokenField = reg.querySelector("input[name='bot_token']");
         var allowed = reg.querySelector("input[name='allowed_user_ids']").value;
-        show(reg, "텔레그램에 토큰을 확인하는 중입니다...", false);
+        show(reg, tr("console.js.features.telegram.checking"), false);
         request("PUT", "/api/me/telegram", { bot_token: tokenField.value, allowed_user_ids: allowed }).then(function (r) {
           tokenField.value = "";
           if (!r.ok) { show(reg, errorText(r.status, r.body), true); return; }
-          show(reg, "저장했습니다. 봇이 곧 시작됩니다.", false);
+          show(reg, tr("console.js.features.telegram.saved"), false);
           window.setTimeout(function () { window.location.reload(); }, 800);
-        }).catch(function () { show(reg, "서버에 연결하지 못했습니다.", true); });
+        }).catch(function () { show(reg, tr("console.js.common.network_error"), true); });
       });
     }
     var allowedForm = document.querySelector("form[data-feature-form='telegram-allowed']");
@@ -179,8 +179,8 @@
         ev.preventDefault();
         var allowed = allowedForm.querySelector("input[name='allowed_user_ids']").value;
         request("PATCH", "/api/me/telegram", { allowed_user_ids: allowed }).then(function (r) {
-          show(allowedForm, r.ok ? "허용 사용자를 바꿨습니다. 봇이 곧 다시 시작됩니다." : errorText(r.status, r.body), !r.ok);
-        }).catch(function () { show(allowedForm, "서버에 연결하지 못했습니다.", true); });
+          show(allowedForm, r.ok ? tr("console.js.features.telegram.allowed_saved") : errorText(r.status, r.body), !r.ok);
+        }).catch(function () { show(allowedForm, tr("console.js.common.network_error"), true); });
       });
     }
     var toggle = document.querySelector("[data-feature-toggle='telegram-enabled']");
@@ -191,10 +191,10 @@
         toggle.disabled = true;
         request("PATCH", "/api/me/telegram", { enabled: checked }).then(function (r) {
           if (!r.ok) { toggle.checked = !checked; show(section, errorText(r.status, r.body), true); return; }
-          show(section, checked ? "봇을 켰습니다." : "봇을 껐습니다.", false);
+          show(section, checked ? tr("console.js.features.telegram.on") : tr("console.js.features.telegram.off"), false);
         }).catch(function () {
           toggle.checked = !checked;
-          show(section, "서버에 연결하지 못했습니다.", true);
+          show(section, tr("console.js.common.network_error"), true);
         }).then(function () { toggle.disabled = false; });
       });
     }
@@ -202,12 +202,12 @@
     if (del) {
       del.addEventListener("click", function () {
         var section = del.closest("section");
-        if (!window.confirm("봇 토큰과 설정을 지웁니다. 계속할까요?")) return;
+        if (!window.confirm(tr("console.js.features.telegram.delete_confirm"))) return;
         request("DELETE", "/api/me/telegram").then(function (r) {
           if (!r.ok) { show(section, errorText(r.status, r.body), true); return; }
-          show(section, "봇을 지웠습니다.", false);
+          show(section, tr("console.js.features.telegram.deleted"), false);
           window.setTimeout(function () { window.location.reload(); }, 600);
-        }).catch(function () { show(section, "서버에 연결하지 못했습니다.", true); });
+        }).catch(function () { show(section, tr("console.js.common.network_error"), true); });
       });
     }
   }
@@ -219,16 +219,16 @@
     return request("GET", "/api/me/support-bundles").then(function (r) {
       if (!r.ok) { clear(host); host.appendChild(el("p", errorText(r.status, r.body), { "class": "hint" })); return; }
       renderTable(host, r.body.bundles, [
-        ["번들", function (b) { return b.bundle_id; }],
-        ["기간", function (b) { return b.days_covered + "일"; }],
-        ["크기", function (b) { return formatSize(b.size_bytes); }],
-        ["만료", function (b) { return formatIso(b.expires_at); }]
+        [tr("console.js.features.bundles.col_bundle"), function (b) { return b.bundle_id; }],
+        [tr("console.js.features.bundles.col_period"), function (b) { return tr("console.js.features.bundles.days", { days: b.days_covered }); }],
+        [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }],
+        [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
+        cell.appendChild(downloadLink("/api/me/support-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/support-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadSupport);
         }, "trash", tr("common.action.delete")));
-      }, "활성 서포트 번들이 없습니다.");
+      }, tr("console.js.features.bundles.support_empty"));
     });
   }
 
@@ -240,17 +240,17 @@
       var labels = {};
       (r.body.themes || []).forEach(function (t) { labels[t.theme_id] = t.icon + " " + t.label; });
       renderTable(host, r.body.bundles, [
-        ["번들", function (b) { return b.bundle_id; }],
-        ["테마", function (b) { return labels[b.theme_id] || String(b.theme_id); }],
-        ["엔티티·관계", function (b) { return b.entities_count + " · " + b.relations_count; }],
-        ["크기", function (b) { return formatSize(b.size_bytes); }],
-        ["만료", function (b) { return formatIso(b.expires_at); }]
+        [tr("console.js.features.bundles.col_bundle"), function (b) { return b.bundle_id; }],
+        [tr("console.js.features.col_theme"), function (b) { return labels[b.theme_id] || String(b.theme_id); }],
+        [tr("console.js.features.bundles.col_counts"), function (b) { return b.entities_count + " · " + b.relations_count; }],
+        [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }],
+        [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), "받기", "download"));
+        cell.appendChild(downloadLink("/api/me/data-bundles/download?bundle_id=" + encodeURIComponent(b.bundle_id), tr("console.js.features.download"), "download"));
         cell.appendChild(actionButton("", function () {
           request("DELETE", "/api/me/data-bundles?bundle_id=" + encodeURIComponent(b.bundle_id)).then(loadData);
         }, "trash", tr("common.action.delete")));
-      }, "활성 데이터 번들이 없습니다.");
+      }, tr("console.js.features.bundles.data_empty"));
     });
   }
 
@@ -278,27 +278,27 @@
     if (!bundle || !bundle.download_url) { panel.hidden = true; return; }
     panel.hidden = false;
     var row = el("div", null, { "class": "feature-inline" });
-    var label = el("label", tr("console.bundles.share.label"), { "class": "feature-field" });
+    var label = el("label", tr("console.js.bundles.share.label"), { "class": "feature-field" });
     var field = el("input", null, { type: "text", readonly: "", "class": "pref-input", "data-bundle-share-url": "" });
     field.value = bundle.download_url;
     field.addEventListener("focus", function () { field.select(); });
     label.appendChild(field);
     row.appendChild(label);
     var status = el("p", null, { "class": "result", role: "status", "aria-live": "polite", "data-bundle-share-status": "" });
-    row.appendChild(actionButton(tr("console.bundles.share.copy"), function () {
+    row.appendChild(actionButton(tr("console.js.bundles.share.copy"), function () {
       copyText(bundle.download_url, field).then(function () {
-        status.textContent = tr("console.bundles.share.copied");
+        status.textContent = tr("console.js.bundles.share.copied");
         status.setAttribute("data-state", "ok");
       }).catch(function () {
         field.select();
-        status.textContent = tr("console.bundles.share.copy_failed");
+        status.textContent = tr("console.js.bundles.share.copy_failed");
         status.setAttribute("data-state", "error");
       });
     }, "clipboard"));
-    row.appendChild(downloadLink(bundle.download_url, tr("console.bundles.share.download"), "download"));
+    row.appendChild(downloadLink(bundle.download_url, tr("console.js.bundles.share.download"), "download"));
     panel.appendChild(row);
     panel.appendChild(status);
-    panel.appendChild(el("p", tr("console.bundles.share.hint", { expires: formatIso(bundle.expires_at) }), { "class": "hint" }));
+    panel.appendChild(el("p", tr("console.js.bundles.share.hint", { expires: formatIso(bundle.expires_at) }), { "class": "hint" }));
   }
 
   function initBundles() {
@@ -310,12 +310,12 @@
         var target = sForm.querySelector("input[name='target']").value.trim();
         var payload = { days: isFinite(days) ? days : 1 };
         if (target) payload.target = target;
-        show(sForm, "번들을 만드는 중입니다...", false);
+        show(sForm, tr("console.js.features.bundles.making"), false);
         request("POST", "/api/me/support-bundles", payload).then(function (r) {
-          show(sForm, r.ok ? "서포트 번들을 만들었습니다." : errorText(r.status, r.body), !r.ok);
+          show(sForm, r.ok ? tr("console.js.features.bundles.support_made") : errorText(r.status, r.body), !r.ok);
           showShare(sForm, r.ok ? r.body.bundle : null);
           return loadSupport();
-        }).catch(function () { show(sForm, "서버에 연결하지 못했습니다.", true); });
+        }).catch(function () { show(sForm, tr("console.js.common.network_error"), true); });
       });
     }
     var dForm = document.querySelector("form[data-feature-form='data-bundle-create']");
@@ -323,12 +323,12 @@
       dForm.addEventListener("submit", function (ev) {
         ev.preventDefault();
         var theme = dForm.querySelector("select[name='theme']").value;
-        show(dForm, "번들을 만드는 중입니다...", false);
+        show(dForm, tr("console.js.features.bundles.making"), false);
         request("POST", "/api/me/data-bundles", { theme: theme }).then(function (r) {
-          show(dForm, r.ok ? "데이터 번들을 만들었습니다." : errorText(r.status, r.body), !r.ok);
+          show(dForm, r.ok ? tr("console.js.features.bundles.data_made") : errorText(r.status, r.body), !r.ok);
           showShare(dForm, r.ok ? r.body.bundle : null);
           return loadData();
-        }).catch(function () { show(dForm, "서버에 연결하지 못했습니다.", true); });
+        }).catch(function () { show(dForm, tr("console.js.common.network_error"), true); });
       });
     }
     loadSupport();
@@ -339,10 +339,10 @@
   function renderPolicy(policy) {
     var status = document.querySelector("[data-backup-policy-status]");
     if (!status || !policy) return;
-    var parts = ["현재: " + (SCHEDULE_TEXT[policy.schedule] || policy.schedule) + ", " + policy.keep + "개 보존"];
-    if (policy.next_run_at) parts.push("다음 자동 백업: " + formatIso(policy.next_run_at));
-    if (policy.last_run_at) parts.push("마지막 자동 백업: " + formatIso(policy.last_run_at) + " (" + (policy.last_status || "-") + ")");
-    if (policy.last_error) parts.push("오류: " + policy.last_error);
+    var parts = [tr("console.js.features.backups.policy_now", { schedule: SCHEDULE_TEXT[policy.schedule] || policy.schedule, keep: policy.keep })];
+    if (policy.next_run_at) parts.push(tr("console.js.features.backups.policy_next", { when: formatIso(policy.next_run_at) }));
+    if (policy.last_run_at) parts.push(tr("console.js.features.backups.policy_last", { when: formatIso(policy.last_run_at), status: policy.last_status || "-" }));
+    if (policy.last_error) parts.push(tr("console.js.features.backups.policy_error", { error: policy.last_error }));
     status.textContent = parts.join(" · ");
   }
 
@@ -353,22 +353,22 @@
       if (!r.ok) { clear(host); host.appendChild(el("p", errorText(r.status, r.body), { "class": "hint" })); return; }
       renderPolicy(r.body.policy);
       renderTable(host, r.body.backups, [
-        ["백업", function (b) { return b.backup_id; }],
-        ["종류", function (b) { return b.reason === "scheduled" ? "자동" : "수동"; }],
-        ["만든 시각", function (b) { return formatIso(b.created_at); }],
-        ["테마", function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
-        ["크기", function (b) { return formatSize(b.size_bytes); }]
+        [tr("console.js.features.backups.col_backup"), function (b) { return b.backup_id; }],
+        [tr("console.js.features.backups.col_kind"), function (b) { return b.reason === "scheduled" ? tr("console.js.features.backups.kind_auto") : tr("console.js.features.backups.kind_manual"); }],
+        [tr("console.js.features.backups.col_created"), function (b) { return formatIso(b.created_at); }],
+        [tr("console.js.features.col_theme"), function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
+        [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }]
       ], function (b, cell) {
-        cell.appendChild(downloadLink("/api/me/backups/download?backup_id=" + encodeURIComponent(b.backup_id), "받기", "download"));
+        cell.appendChild(downloadLink("/api/me/backups/download?backup_id=" + encodeURIComponent(b.backup_id), tr("console.js.features.download"), "download"));
         cell.appendChild(actionButton("", function () {
-          if (!window.confirm("이 백업을 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) return;
+          if (!window.confirm(tr("console.js.features.backups.delete_confirm"))) return;
           var section = host.closest("section");
           request("DELETE", "/api/me/backups?backup_id=" + encodeURIComponent(b.backup_id)).then(function (res) {
             if (!res.ok) show(section, errorText(res.status, res.body), true);
             return loadBackups();
           });
         }, "trash", tr("common.action.delete")));
-      }, "백업이 없습니다.");
+      }, tr("console.js.features.backups.empty"));
     });
   }
 
@@ -378,11 +378,11 @@
       create.addEventListener("click", function () {
         var section = create.closest("section");
         create.disabled = true;
-        show(section, "백업하는 중입니다...", false);
+        show(section, tr("console.js.features.backups.making"), false);
         request("POST", "/api/me/backups", {}).then(function (r) {
-          show(section, r.ok ? "백업을 만들었습니다." : errorText(r.status, r.body), !r.ok);
+          show(section, r.ok ? tr("console.js.features.backups.made") : errorText(r.status, r.body), !r.ok);
           return loadBackups();
-        }).catch(function () { show(section, "서버에 연결하지 못했습니다.", true); }).then(function () { create.disabled = false; });
+        }).catch(function () { show(section, tr("console.js.common.network_error"), true); }).then(function () { create.disabled = false; });
       });
     }
     var policy = document.querySelector("form[data-feature-form='backup-policy']");
@@ -392,10 +392,10 @@
         var schedule = policy.querySelector("select[name='schedule']").value;
         var keep = parseInt(policy.querySelector("input[name='keep']").value, 10);
         request("PUT", "/api/me/backups/policy", { schedule: schedule, keep: keep }).then(function (r) {
-          show(policy, r.ok ? "자동 백업 설정을 저장했습니다." : errorText(r.status, r.body), !r.ok);
+          show(policy, r.ok ? tr("console.js.features.backups.policy_saved") : errorText(r.status, r.body), !r.ok);
           if (r.ok) renderPolicy(r.body.policy);
           return loadBackups();
-        }).catch(function () { show(policy, "서버에 연결하지 못했습니다.", true); });
+        }).catch(function () { show(policy, tr("console.js.common.network_error"), true); });
       });
     }
     loadBackups();
@@ -410,30 +410,30 @@
       clear(host);
       if (!r.ok) { host.appendChild(el("p", errorText(r.status, r.body), { "class": "hint" })); return; }
       var accounts = r.body.accounts || [];
-      if (!accounts.length) { host.appendChild(el("p", "계정 백업이 없습니다.", { "class": "hint", "data-feature-empty": "" })); return; }
+      if (!accounts.length) { host.appendChild(el("p", tr("console.js.features.restore.empty"), { "class": "hint", "data-feature-empty": "" })); return; }
       accounts.forEach(function (entry) {
         var who = entry.account || {};
-        var title = (who.display_name || who.username || "계정") + " (#" + (who.public_id || "?") + ", " + (who.status || "-") + ")";
+        var title = (who.display_name || who.username || tr("console.js.features.restore.account")) + " (#" + (who.public_id || "?") + ", " + (who.status || "-") + ")";
         host.appendChild(el("h3", title));
         var box = el("div");
         host.appendChild(box);
         renderTable(box, entry.backups, [
-          ["백업", function (b) { return b.backup_id; }],
-          ["만든 시각", function (b) { return formatIso(b.created_at); }],
-          ["테마", function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
-          ["크기", function (b) { return formatSize(b.size_bytes); }]
+          [tr("console.js.features.backups.col_backup"), function (b) { return b.backup_id; }],
+          [tr("console.js.features.backups.col_created"), function (b) { return formatIso(b.created_at); }],
+          [tr("console.js.features.col_theme"), function (b) { return (b.themes || []).map(function (t) { return t.label; }).join(", "); }],
+          [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }]
         ], function (b, cell) {
-          cell.appendChild(actionButton("복원", function (btn) {
-            if (!window.confirm(title + " 계정에 백업 " + b.backup_id + "을(를) 복원합니다. 백업에 있는 테마의 현재 데이터를 백업 시점으로 바꿉니다. 계속할까요?")) return;
+          cell.appendChild(actionButton(tr("console.js.features.restore.action"), function (btn) {
+            if (!window.confirm(tr("console.js.features.restore.confirm", { account: title, backup: b.backup_id }))) return;
             btn.disabled = true;
-            show(section, "복원하는 중입니다...", false);
+            show(section, tr("console.js.features.restore.in_work"), false);
             request("POST", "/api/admin/account-backups/restore", { account: String(who.public_id), backup_id: b.backup_id }).then(function (res) {
               if (!res.ok) { show(section, errorText(res.status, res.body), true); return; }
               var names = (res.body.restored_themes || []).map(function (t) { return t.label; }).join(", ");
-              show(section, "복원했습니다: " + names + " (checkpoint: " + res.body.checkpoint + ")", false);
-            }).catch(function () { show(section, "서버에 연결하지 못했습니다.", true); }).then(function () { btn.disabled = false; });
+              show(section, tr("console.js.features.restore.done", { themes: names, checkpoint: res.body.checkpoint }), false);
+            }).catch(function () { show(section, tr("console.js.common.network_error"), true); }).then(function () { btn.disabled = false; });
           }, "restore"));
-        }, "백업이 없습니다.");
+        }, tr("console.js.features.backups.empty"));
       });
     });
   }

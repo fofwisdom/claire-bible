@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import provider_keys
@@ -32,6 +33,7 @@ from .common import (
     prototype_note,
     render_template,
     require_recent_auth,
+    t_code,
 )
 
 ADMIN_ACCOUNTS_PATH = "/admin/accounts"
@@ -39,14 +41,18 @@ ADMIN_ACCOUNTS_API_PATH = "/api/admin/accounts"
 ADMIN_USERNAMES_RETIRED_PATH = "/api/admin/usernames/retired"
 ADMIN_USERNAMES_RELEASE_PATH = "/api/admin/usernames/release"
 
-STATUS_TEXT = {
-    "setup_required": "설정 필요",
-    "active": "활성",
-    "suspended": "정지",
-    "deleting": "삭제 예약",
-    "purged": "삭제됨",
-}
-ROLE_TEXT = {"admin": "관리자", "member": "멤버"}
+ACCOUNT_STATUSES = ("setup_required", "active", "suspended", "deleting", "purged")
+ACCOUNT_ROLES = ("admin", "member")
+
+
+def account_status_text(status: str) -> str:
+    """The name of an account status in the active locale. A status that is not known shows as it is."""
+    return t(f"console.account_status.{status}") if status in ACCOUNT_STATUSES else status
+
+
+def account_role_text(role: str) -> str:
+    """The name of an account role in the active locale."""
+    return t(f"console.account_role.{role}") if role in ACCOUNT_ROLES else role
 
 
 def is_admin(principal: Principal) -> bool:
@@ -104,16 +110,16 @@ def list_account_summaries(ctx: AccountsContext) -> list[dict[str, Any]]:
 
 def _admin_card(item: dict[str, Any]) -> str:
     rows = [
-        ("번호", item["public_id"]),
-        ("USERNAME", item["username"] if item["username"] is not None else "(설정 전)"),
-        ("상태", STATUS_TEXT.get(item["status"], item["status"])),
-        ("역할", ROLE_TEXT.get(item["role"], item["role"])),
-        ("생성", format_ts(item["created_at"])),
-        ("활성", format_ts(item["activated_at"])),
-        ("테마 수", item["theme_count"]),
+        (t("console.admin.accounts.field.number"), item["public_id"]),
+        ("USERNAME", item["username"] if item["username"] is not None else t("console.settings.account.username_unset")),
+        (t("console.common.status"), account_status_text(item["status"])),
+        (t("console.settings.account.field.role"), account_role_text(item["role"])),
+        (t("console.admin.accounts.field.created"), format_ts(item["created_at"])),
+        (t("console.admin.accounts.field.activated"), format_ts(item["activated_at"])),
+        (t("console.admin.accounts.field.themes"), item["theme_count"]),
     ]
     body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v)}</dd>" for k, v in rows)
-    return f'<section class="card" aria-label="관리자 계정"><h2>관리자 계정</h2><dl>{body}</dl></section>'
+    return f'<section class="card" aria-label="{escape(t("console.admin.accounts.admin_card"))}"><h2>{escape(t("console.admin.accounts.admin_card"))}</h2><dl>{body}</dl></section>'
 
 
 def _render_admin_accounts_html(
@@ -130,10 +136,10 @@ def _render_admin_accounts_html(
     member_trs: list[str] = []
     for m in member_items:
         pub_id = str(m["public_id"])
-        uname = m.get("username") or "(미설정)"
+        uname = m.get("username") or t("console.admin.accounts.username_unset")
         st = m.get("status", "")
-        st_label = STATUS_TEXT.get(st, st)
-        key_tag = "등록됨" if m.get("has_provider_key") else "없음"
+        st_label = account_status_text(st)
+        key_tag = t("console.admin.accounts.key_registered") if m.get("has_provider_key") else t("console.common.none")
         member_trs.append(
             f'<tr data-account-public-id="{escape(pub_id)}" data-account-status="{escape(st)}">'
             f'<td><code class="pref-mono">{escape(pub_id)}</code></td>'
@@ -142,52 +148,52 @@ def _render_admin_accounts_html(
             f'<td>{int(m.get("theme_count", 0))}</td>'
             f"<td>{escape(key_tag)}</td>"
             f'<td data-member-actions="{escape(pub_id)}">'
-            f'<button type="button" class="pref-btn" data-account-action="suspend" data-public-id="{escape(pub_id)}">정지</button> '
-            f'<button type="button" class="pref-btn" data-account-action="resume" data-public-id="{escape(pub_id)}">재개</button> '
-            f'<button type="button" class="pref-btn" data-account-action="schedule_delete" data-public-id="{escape(pub_id)}">삭제 예약</button> '
-            f'<button type="button" class="pref-btn" data-account-action="cancel_delete" data-public-id="{escape(pub_id)}">예약 취소</button> '
-            f'<button type="button" class="pref-btn pref-btn-danger" data-account-action="purge" data-public-id="{escape(pub_id)}">즉시 소각</button> '
-            f'<button type="button" class="pref-btn" data-account-action="reset_password_link" data-public-id="{escape(pub_id)}">비밀번호 재설정 링크</button>'
+            f'<button type="button" class="pref-btn" data-account-action="suspend" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.suspend"))}</button> '
+            f'<button type="button" class="pref-btn" data-account-action="resume" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.resume"))}</button> '
+            f'<button type="button" class="pref-btn" data-account-action="schedule_delete" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.schedule_delete"))}</button> '
+            f'<button type="button" class="pref-btn" data-account-action="cancel_delete" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.cancel_delete"))}</button> '
+            f'<button type="button" class="pref-btn pref-btn-danger" data-account-action="purge" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.purge"))}</button> '
+            f'<button type="button" class="pref-btn" data-account-action="reset_password_link" data-public-id="{escape(pub_id)}">{escape(t("console.admin.accounts.action.reset_password_link"))}</button>'
             f"</td>"
             f"</tr>"
         )
     members_tbody = (
         "".join(member_trs)
         if member_trs
-        else '<tr><td colspan="6" style="color:var(--muted);text-align:center;">등록된 일반 멤버 계정이 없습니다.</td></tr>'
+        else f'<tr><td colspan="6" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.members_empty"))}</td></tr>'
     )
 
     if mode == "network":
         invites_section = (
-            '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
-            '<h2><span data-icon="mail"></span> 가입 초대 코드 관리 (<code>/api/invites</code>)</h2>'
-            '<p class="hint">네트워크 모드에서 신규 멤버 가입을 위한 일회용·다회용 초대 코드를 발급하고 비활성화합니다.</p>'
+            f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
+            f'<h2><span data-icon="mail"></span> {t_code("console.admin.accounts.invites.title_api", endpoint="/api/invites")}</h2>'
+            f'<p class="hint">{escape(t("console.admin.accounts.invites.hint"))}</p>'
             '<form id="admin-invite-create-form" data-invite-create-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">최대 사용 횟수 (1~5)'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.max_uses"))}'
             '<input type="number" name="max_uses" class="pref-input" min="1" max="5" value="1" style="width:90px" required/>'
             "</label>"
-            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">예약 USERNAME (선택)'
-            '<input type="text" name="reserved_username" class="pref-input" placeholder="예: alice" style="width:140px"/>'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.reserved_username"))}'
+            f'<input type="text" name="reserved_username" class="pref-input" placeholder="{escape(t("console.admin.accounts.invites.reserved_placeholder"))}" style="width:140px"/>'
             "</label>"
-            '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">메모 (선택)'
-            '<input type="text" name="note" class="pref-input" placeholder="초대 대상 메모" style="width:180px"/>'
+            f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.invites.note"))}'
+            f'<input type="text" name="note" class="pref-input" placeholder="{escape(t("console.admin.accounts.invites.note_placeholder"))}" style="width:180px"/>'
             "</label>"
-            '<button type="submit" class="pref-btn pref-btn-accent">+ 초대 코드 발급</button>'
+            f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.accounts.invites.submit"))}</button>'
             "</form>"
             '<p class="result" id="admin-invite-result" data-invite-result role="status" aria-live="polite"></p>'
             '<div class="pref-table-wrap">'
             '<table class="pref-table">'
-            '<thead><tr><th>번호</th><th>코드 · 링크</th><th>상태</th><th>사용량</th><th>예약 이름</th><th>메모</th><th>관리</th></tr></thead>'
-            '<tbody id="admin-invites-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">초대 목록을 불러오는 중입니다...</td></tr></tbody>'
+            f'<thead><tr><th>{escape(t("console.admin.accounts.field.number"))}</th><th>{escape(t("console.admin.accounts.invites.col_code"))}</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.invites.col_usage"))}</th><th>{escape(t("console.admin.accounts.invites.col_reserved"))}</th><th>{escape(t("console.admin.accounts.invites.col_note"))}</th><th>{escape(t("console.common.manage"))}</th></tr></thead>'
+            f'<tbody id="admin-invites-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.invites.loading"))}</td></tr></tbody>'
             "</table>"
             "</div>"
             "</section>"
         )
     else:
         invites_section = (
-            '<section class="card" id="admin-invites-section" aria-label="가입 초대 관리">'
-            '<h2><span data-icon="mail"></span> 가입 초대 코드 관리</h2>'
-            '<div class="notice">싱글 모드에서는 가입 초대 경로(<code>/api/invites</code>)가 비활성화(404)되어 있습니다. 네트워크 모드로 전환한 뒤 초대를 발급할 수 있습니다.</div>'
+            f'<section class="card" id="admin-invites-section" aria-label="{escape(t("console.admin.accounts.invites.label"))}">'
+            f'<h2><span data-icon="mail"></span> {escape(t("console.admin.accounts.invites.title"))}</h2>'
+            f'<div class="notice">{t_code("console.admin.accounts.invites.single_notice", endpoint="/api/invites")}</div>'
             "</section>"
         )
 
@@ -202,15 +208,15 @@ def _render_admin_accounts_html(
             f"<td>{escape(ret_at)}</td>"
             f"<td>{escape(reason)}</td>"
             f"<td>"
-            f'<button type="button" class="pref-btn" data-retired-preview="{escape(uname)}">초기화 미리보기</button> '
-            f'<button type="button" class="pref-btn pref-btn-danger" data-retired-release="{escape(uname)}">퇴역 해제 실행</button>'
+            f'<button type="button" class="pref-btn" data-retired-preview="{escape(uname)}">{escape(t("console.admin.accounts.retired.preview_row"))}</button> '
+            f'<button type="button" class="pref-btn pref-btn-danger" data-retired-release="{escape(uname)}">{escape(t("console.admin.accounts.retired.release_row"))}</button>'
             f"</td>"
             f"</tr>"
         )
     retired_tbody = (
         "".join(retired_trs)
         if retired_trs
-        else '<tr><td colspan="4" style="color:var(--muted);text-align:center;">퇴역 처리된 USERNAME이 없습니다.</td></tr>'
+        else f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.admin.accounts.retired.empty"))}</td></tr>'
     )
 
     storage_mb = int(tier_dict.get("storage_mb", 0))
@@ -224,65 +230,65 @@ def _render_admin_accounts_html(
 
     return f"""
       {cards}
-      <section class="card" id="admin-members-section" aria-label="멤버 계정 목록 및 수명주기">
-        <h2><span data-icon="users"></span> 멤버 계정 디렉터리 및 수명주기 관리 (<code>/api/admin/accounts</code>)</h2>
-        <p class="hint">계정 상태 전환(정지·재개·삭제 예약·즉시 소각) 및 비밀번호 재설정 링크 발급은 관리자 단계 인증(15분)을 거칩니다. 멤버의 비공개 콘텐츠는 조회하지 않습니다(D5, K5).</p>
+      <section class="card" id="admin-members-section" aria-label="{escape(t("console.admin.accounts.members.label"))}">
+        <h2><span data-icon="users"></span> {t_code("console.admin.accounts.members.title", endpoint="/api/admin/accounts")}</h2>
+        <p class="hint">{escape(t("console.admin.accounts.members.hint"))}</p>
         <p class="result" id="admin-accounts-result" data-accounts-result role="status" aria-live="polite"></p>
         <div class="pref-table-wrap">
           <table class="pref-table">
             <thead>
-              <tr><th>번호 (public_id)</th><th>USERNAME</th><th>상태</th><th>테마 수</th><th>BYOK 키</th><th>수명주기 작업</th></tr>
+              <tr><th>{escape(t("console.admin.accounts.members.col_number"))}</th><th>USERNAME</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.admin.accounts.field.themes"))}</th><th>{escape(t("console.admin.accounts.members.col_key"))}</th><th>{escape(t("console.admin.accounts.members.col_actions"))}</th></tr>
             </thead>
             <tbody id="admin-accounts-tbody">{members_tbody}</tbody>
           </table>
         </div>
       </section>
       {invites_section}
-      <section class="card" id="admin-retired-usernames-section" aria-label="퇴역 USERNAME 관리">
-        <h2><span data-icon="restore"></span> 퇴역 USERNAME 조회 및 해제 (<code>/api/admin/usernames/*</code>)</h2>
-        <p class="hint">삭제된 계정의 USERNAME은 사칭 방지를 위해 퇴역 목록에 잠깁니다. 미리보기 확인 후 단계 인증을 거쳐 잠금을 해제할 수 있습니다.</p>
+      <section class="card" id="admin-retired-usernames-section" aria-label="{escape(t("console.admin.accounts.retired.label"))}">
+        <h2><span data-icon="restore"></span> {t_code("console.admin.accounts.retired.title", endpoint="/api/admin/usernames/*")}</h2>
+        <p class="hint">{escape(t("console.admin.accounts.retired.hint"))}</p>
         <form id="admin-retired-release-form" data-retired-release-form style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">대상 USERNAME
-            <input type="text" name="username" id="admin-retired-username-input" class="pref-input" placeholder="퇴역 username 입력" style="width:180px" required/>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.admin.accounts.retired.target"))}
+            <input type="text" name="username" id="admin-retired-username-input" class="pref-input" placeholder="{escape(t("console.admin.accounts.retired.target_placeholder"))}" style="width:180px" required/>
           </label>
-          <button type="button" class="pref-btn" id="admin-retired-preview-btn">영향 미리보기 (apply=false)</button>
-          <button type="submit" class="pref-btn pref-btn-danger" id="admin-retired-apply-btn">퇴역 해제 실행 (apply=true)</button>
+          <button type="button" class="pref-btn" id="admin-retired-preview-btn">{escape(t("console.admin.accounts.retired.preview"))}</button>
+          <button type="submit" class="pref-btn pref-btn-danger" id="admin-retired-apply-btn">{escape(t("console.admin.accounts.retired.release"))}</button>
         </form>
         <p class="result" id="admin-retired-result" data-retired-result role="status" aria-live="polite"></p>
         <div class="pref-table-wrap">
           <table class="pref-table">
             <thead>
-              <tr><th>퇴역 USERNAME</th><th>퇴역 시각</th><th>사유</th><th>관리</th></tr>
+              <tr><th>{escape(t("console.admin.accounts.retired.col_username"))}</th><th>{escape(t("console.admin.accounts.retired.col_time"))}</th><th>{escape(t("console.admin.accounts.retired.col_reason"))}</th><th>{escape(t("console.common.manage"))}</th></tr>
             </thead>
             <tbody id="admin-retired-tbody">{retired_tbody}</tbody>
           </table>
         </div>
       </section>
-      <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="사용자별 워크스페이스 운영자 보기">
-        <h2><span data-icon="database"></span> 사용자별 워크스페이스 · 디렉터리 격리 구조 (운영자 보기)</h2>
-        <p class="hint">계정별 테마 레지스트리와 데이터베이스 격리 구조 및 기본 할당량 요약입니다. 세부 할당량 수정은 <a href="/admin/instance"><span data-icon="server"></span> 인스턴스 모드 · 서버 등급</a>에서 수행합니다.</p>
+      <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="{escape(t("console.admin.accounts.userdb.label"))}">
+        <h2><span data-icon="database"></span> {escape(t("console.admin.accounts.userdb.title"))}</h2>
+        <p class="hint">{escape(t("console.admin.accounts.userdb.hint"))} <a href="/admin/instance"><span data-icon="server"></span> {escape(t("console.admin.accounts.userdb.hint_link"))}</a></p>
         <div class="pref-stat-row" id="pref-userdb-stats">
-          <div class="pref-stat"><b>{active_count}</b><span>활성 계정</span></div>
-          <div class="pref-stat"><b>{suspended_count}</b><span>정지 · 삭제 예약</span></div>
-          <div class="pref-stat"><b>{len(retired)}</b><span>퇴역 USERNAME</span></div>
-          <div class="pref-stat"><b>{total_themes_count}</b><span>전체 테마 슬롯 합계</span></div>
+          <div class="pref-stat"><b>{active_count}</b><span>{escape(t("console.admin.accounts.userdb.active"))}</span></div>
+          <div class="pref-stat"><b>{suspended_count}</b><span>{escape(t("console.admin.accounts.userdb.suspended"))}</span></div>
+          <div class="pref-stat"><b>{len(retired)}</b><span>{escape(t("console.admin.accounts.retired.col_username"))}</span></div>
+          <div class="pref-stat"><b>{total_themes_count}</b><span>{escape(t("console.admin.accounts.userdb.total_themes"))}</span></div>
         </div>
         <div class="pref-quota-grid">
-          <label>저장 용량 (MB)<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
-          <label>문서 수<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
-          <label>테마 수<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
-          <label>월 LLM 토큰<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
-          <label>일 적재 건수<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
-          <label class="pref-quota-switch"><span>멤버 BYOK 외부 키 허용 {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
+          <label>{escape(t("console.admin.accounts.userdb.quota_storage"))}<input id="pref-quota-storage" type="number" class="pref-input" value="{storage_mb}" readonly/></label>
+          <label>{escape(t("console.admin.accounts.userdb.quota_docs"))}<input id="pref-quota-docs" type="number" class="pref-input" value="{max_docs}" readonly/></label>
+          <label>{escape(t("console.admin.accounts.field.themes"))}<input id="pref-quota-themes" type="number" class="pref-input" value="{max_themes}" readonly/></label>
+          <label>{escape(t("console.admin.accounts.userdb.quota_tokens"))}<input id="pref-quota-llm" type="number" class="pref-input" value="{monthly_tokens}" readonly/></label>
+          <label>{escape(t("console.admin.accounts.userdb.quota_ingests"))}<input id="pref-quota-feeds" type="number" class="pref-input" value="{daily_ingests}" readonly/></label>
+          <label class="pref-quota-switch"><span>{escape(t("console.admin.accounts.userdb.byok_switch"))} {prototype_badge("admin-accounts-byok-switch", "prototype")}</span><input id="pref-quota-byo" type="checkbox" switch checked disabled/></label>
         </div>
-        {prototype_note("admin-accounts-byok-switch", "'멤버 BYOK 외부 키 허용' 스위치는 항상 켜짐으로 고정된 표시입니다. 서버 등급에 이 설정이 없으며 서버 설정을 읽거나 바꾸지 않습니다. 위 한도 값은 실제 서버 등급에서 읽은 값입니다.")}
+        {prototype_note("admin-accounts-byok-switch", t("console.admin.accounts.userdb.byok_note"))}
         <div class="pref-table-wrap">
           <table class="pref-table">
-            <caption style="caption-side:top;text-align:left;padding:0 0 6px">{prototype_badge("admin-accounts-isolation-table", "static")} <span class="proto-note-inline">고정 문구로 그린 설명표이며 실제 디렉터리·DB 상태를 읽어 오지 않습니다.</span></caption>
-            <thead><tr><th>구분</th><th>격리 경로</th><th>테마 · 콘텐츠 접근</th><th>할당량 적용</th></tr></thead>
+            <caption style="caption-side:top;text-align:left;padding:0 0 6px">{prototype_badge("admin-accounts-isolation-table", "static")} <span class="proto-note-inline">{escape(t("console.admin.accounts.userdb.table_note"))}</span></caption>
+            <thead><tr><th>{escape(t("console.admin.accounts.userdb.col_kind"))}</th><th>{escape(t("console.admin.accounts.userdb.col_path"))}</th><th>{escape(t("console.admin.accounts.userdb.col_access"))}</th><th>{escape(t("console.admin.accounts.userdb.col_quota"))}</th></tr></thead>
             <tbody id="pref-userdb-tbody">
-              <tr><td><strong>관리자 워크스페이스</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>관리자 전용 소유</td><td>제한 없음 (providers.json 직접 사용)</td></tr>
-              <tr><td><strong>일반 멤버 계정</strong></td><td><code class="pref-mono">account_id 귀속 테마 격리</code></td><td>소유자만 열람 (운영자 내용 열람 불가 · D5/K5)</td><td>서버 등급(ServerTier) 및 BYOK 정책 적용</td></tr>
+              <tr><td><strong>{escape(t("console.admin.accounts.userdb.row_admin"))}</strong></td><td><code class="pref-mono">data/claire.db · themes/</code></td><td>{escape(t("console.admin.accounts.userdb.row_admin_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_admin_quota"))}</td></tr>
+              <tr><td><strong>{escape(t("console.admin.accounts.userdb.row_member"))}</strong></td><td><code class="pref-mono">{escape(t("console.admin.accounts.userdb.row_member_path"))}</code></td><td>{escape(t("console.admin.accounts.userdb.row_member_access"))}</td><td>{escape(t("console.admin.accounts.userdb.row_member_quota"))}</td></tr>
             </tbody>
           </table>
         </div>

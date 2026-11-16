@@ -10,11 +10,13 @@
 
 from __future__ import annotations
 
+import re
 import string
 from dataclasses import dataclass, field
 from typing import Any
 
 from ... import ids
+from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store.theme import ThemeInfo
 from .common import TEMPLATES_DIR, AccountsContext, escape
@@ -30,7 +32,8 @@ PARTIALS_DIR = TEMPLATES_DIR / "partials" / "settings_syndication"
 CONSOLE_SYNDICATION_SCRIPT_HTML = '<script src="/static/js/console_syndication.js" defer></script>'
 
 # 레거시 패널과 같은 저장 알림(토스트) 요소. JS가 텍스트만 바꾼다.
-_TOAST_HTML = '<div id="pref-toast" class="pref-toast" role="status" aria-live="polite">설정이 저장되었습니다</div>'
+def _toast_html() -> str:
+    return f'<div id="pref-toast" class="pref-toast" role="status" aria-live="polite">{escape(t("console.synd.toast_saved"))}</div>'
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,8 +61,17 @@ def _syndication_base_href(mode: accounts_store.InstanceMode, account: accounts_
     return "/syndication"
 
 
+# Translation slots of a partial. ``${t:key}`` becomes the escaped translation. ``${th:key}`` becomes the translation as it is: the catalog value of such a key is HTML (inline ``<b>``, ``<code>``, ``<kbd>``) that the repository owns.
+_PARTIAL_SLOT = re.compile(r"\$\{(t|th):([a-z0-9_.]+)\}")
+
+
+def _partial_slot(match: re.Match[str]) -> str:
+    text = t(match.group(2))
+    return (escape(text) if match.group(1) == "t" else text).replace("$", "$$")
+
+
 def _render_partial(slug: str, values: dict[str, str]) -> str:
-    template = string.Template((PARTIALS_DIR / f"{slug}.html").read_text(encoding="utf-8"))
+    template = string.Template(_PARTIAL_SLOT.sub(_partial_slot, (PARTIALS_DIR / f"{slug}.html").read_text(encoding="utf-8")))
     # 빠진 자리가 있으면 KeyError를 낸다(C1).
     return template.substitute(values)
 
@@ -67,8 +79,7 @@ def _render_partial(slug: str, values: dict[str, str]) -> str:
 def _no_theme_body(slug: str, *, themes_href: str) -> str:
     return (
         f'<div class="pref-notice" data-tone="warn" id="settings-syndication-no-theme" data-section="{escape(slug)}">'
-        "이 섹션은 테마별 설정입니다. 소유한 지식 테마가 없어서 표시할 수 없습니다. "
-        f'<a href="{escape(themes_href)}">테마 관리</a>에서 테마를 먼저 만드세요.'
+        f'{escape(t("console.synd.no_theme"))} <a href="{escape(themes_href)}">{escape(t("console.synd.no_theme_link"))}</a>'
         "</div>"
     )
 
@@ -104,7 +115,7 @@ def build_syndication_section(
 
     client_href = f"{_syndication_base_href(mode, account)}?tab=client&theme={ref}"
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
-    tokens_label = "관리자 콘솔 → API/MCP 키" if admin_viewer else "내 설정 → API · MCP 상시 이용 토큰"
+    tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     values = {
         "client_href": escape(client_href),
         "tokens_href": escape(tokens_href),
@@ -123,7 +134,7 @@ def build_syndication_section(
         "data-theme-seed": str(seed_index),
     }
     attrs = " ".join(f'{name}="{escape(value)}"' for name, value in root_attrs.items())
-    body_html = f"<div {attrs}>\n{panel_html}\n{_TOAST_HTML}\n</div>"
+    body_html = f"<div {attrs}>\n{panel_html}\n{_toast_html()}\n</div>"
     return SettingsSectionRender(
         body_html=body_html,
         extra_bootstrap={

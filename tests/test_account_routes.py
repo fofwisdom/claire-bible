@@ -158,7 +158,7 @@ def test_admin_accounts_api_and_single_mode_card(client, settings):
 
     page = client.request("GET", "/admin/accounts", session=token)
     assert page.status_code == 200
-    assert "관리자 계정" in page.text and admin["public_id"] in page.text and USERNAME in page.text
+    assert "Administrator account" in page.text and admin["public_id"] in page.text and USERNAME in page.text
     assert 'data-active-area="admin"' in page.text and 'data-active-section="accounts"' in page.text
     assert '<script id="console-bootstrap" type="application/json">' in page.text
     assert '<script src="/static/js/console_admin.js" defer></script>' in page.text
@@ -303,7 +303,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     assert 'data-settings-toggle="profile-public"' in page.text
     assert '<input id="pref-profile-public" type="checkbox" switch data-settings-toggle="profile-public"' in page.text
     assert 'switch data-settings-toggle="profile-public" checked' not in page.text
-    assert '<dd data-account-field="profile_public">비공개</dd>' in page.text
+    assert '<dd data-account-field="profile_public">Private</dd>' in page.text
     assert "data-profile-public-hint" not in page.text
 
     patch_res = client.request("PATCH", "/api/me", session=token, json={"profile_public": 1})
@@ -316,7 +316,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     page2 = client.request("GET", "/settings/account", session=token)
     assert page2.status_code == 200
     assert 'switch data-settings-toggle="profile-public" checked' in page2.text
-    assert '<dd data-account-field="profile_public">공개 (공개 디렉터리에 표시)</dd>' in page2.text
+    assert '<dd data-account-field="profile_public">Public (shown in the public directory)</dd>' in page2.text
 
     patch_res2 = client.request("PATCH", "/api/me", session=token, json={"profile_public": 0})
     assert patch_res2.status_code == 200
@@ -325,7 +325,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
     page3 = client.request("GET", "/settings/account", session=token)
     assert page3.status_code == 200
     assert 'switch data-settings-toggle="profile-public" checked' not in page3.text
-    assert '<dd data-account-field="profile_public">비공개</dd>' in page3.text
+    assert '<dd data-account-field="profile_public">Private</dd>' in page3.text
 
     conn = _db(settings)
     try:

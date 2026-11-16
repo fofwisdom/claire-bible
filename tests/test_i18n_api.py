@@ -370,9 +370,11 @@ def test_settings_account_has_the_language_selector_and_the_inline_catalog(clien
     bootstrap = _bootstrap_json(page.text, "console-bootstrap")
     assert bootstrap["locale"] is None and bootstrap["effective_locale"] == "en"
     inline = _bootstrap_json(page.text, "claire-i18n-catalog")
-    # The inline catalog has no server-only domains (auth pages, bot, CLI).
-    assert inline == browser_catalog("en") and inline["common.action.save"] == "Save"
+    # The inline catalog has no server-only domains (auth pages, bot, CLI). Of the console domain, it has only the keys of the console scripts; a page that is not in the administrator area does not get the keys of the administrator scripts.
+    assert inline == browser_catalog("en", scope="console") and inline["common.action.save"] == "Save"
     assert not [key for key in inline if key.startswith(("auth.", "bot.", "cli."))]
+    assert not [key for key in inline if key.startswith("console.") and not key.startswith("console.js.")] and not [key for key in inline if key.startswith("console.js.admin.")]
+    assert "console.js.account.locale_error" in inline and "console.js.account.locale_error" not in browser_catalog("en")
     # i18n.js comes after the inline catalog and before the deferred console scripts.
     assert page.text.index('id="claire-i18n-catalog"') < page.text.index('<script src="/static/js/i18n.js"></script>') < page.text.index("/static/js/console_account.js")
 
@@ -382,7 +384,7 @@ def test_settings_account_has_the_language_selector_and_the_inline_catalog(clien
     assert '<option value="">자동 (브라우저 / 시스템)</option><option value="en">English (en)</option><option value="ko" selected>한국어 (ko)</option>' in page.text
     bootstrap = _bootstrap_json(page.text, "console-bootstrap")
     assert bootstrap["locale"] == "ko" and bootstrap["effective_locale"] == "ko"
-    assert _bootstrap_json(page.text, "claire-i18n-catalog") == browser_catalog("ko")
+    assert _bootstrap_json(page.text, "claire-i18n-catalog") == browser_catalog("ko", scope="console")
 
     script = client.request("GET", "/static/js/i18n.js")
     assert script.status_code == 200 and "ClaireI18n" in script.text

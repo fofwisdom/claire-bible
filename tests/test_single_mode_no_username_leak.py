@@ -375,8 +375,8 @@ def test_get_admin_instance_page_requires_admin(app_env):
     admin_resp = app_env.client.get("/admin/instance", headers=_admin_headers(token))
     assert admin_resp.status_code == 200
     assert "Instance settings" in admin_resp.text
-    assert "준비 검사 (G1–G9)" in admin_resp.text
-    assert "레거시 호스트 일몰 시계" in admin_resp.text
+    assert "Readiness checks for network mode (G1–G9)" in admin_resp.text
+    assert "Sunset clock of legacy hosts" in admin_resp.text
 
 
 def test_get_api_admin_instance_json(app_env):

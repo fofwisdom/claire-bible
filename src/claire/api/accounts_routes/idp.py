@@ -49,6 +49,7 @@ from ..oidc import (
     OidcVerificationError,
     generate_pkce_pair,
 )
+from ...i18n import get_locale, t
 from .common import (
     AccountsContext,
     client_ip,
@@ -62,6 +63,7 @@ from .common import (
     prototype_badge,
     prototype_note,
     render_template,
+    t_code,
     require_recent_auth,
     retry_after_seconds,
     same_origin,
@@ -177,21 +179,21 @@ def verify_signup_token(
 
 def _render_admin_idp_cards(providers: list[IdpProviderMeta]) -> str:
     if not providers:
-        return '<p class="hint">등록된 외부 공급자가 없습니다.</p>'
+        return f'<p class="hint">{escape(t("console.admin.idp.cards_empty"))}</p>'
     cards = []
     for p in providers:
-        status_badge = '<span class="badge badge-enabled">활성</span>' if p.enabled else '<span class="badge badge-disabled">비활성</span>'
-        signup_badge = '<span class="badge badge-enabled">가입 허용</span>' if p.allow_signup else '<span class="badge badge-disabled">가입 불허</span>'
-        secret_badge = '<span class="badge badge-enabled">비밀 설정됨</span>' if p.secret_configured else '<span class="badge badge-disabled">비밀 미설정</span>'
+        status_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.enabled"))}</span>' if p.enabled else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.disabled"))}</span>'
+        signup_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.signup"))}</span>' if p.allow_signup else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.no_signup"))}</span>'
+        secret_badge = f'<span class="badge badge-enabled">{escape(t("console.admin.idp.badge.secret"))}</span>' if p.secret_configured else f'<span class="badge badge-disabled">{escape(t("console.admin.idp.badge.no_secret"))}</span>'
         rows = [
-            ("종류", p.type.upper()),
-            ("표시 이름", p.display_name),
-            ("클라이언트 ID", p.client_id),
-            ("상태", f"{status_badge} {signup_badge} {secret_badge}"),
-            ("발급자 URL", p.issuer or "-"),
-            ("스코프", ", ".join(p.scopes)),
-            ("호스트 도메인(hd)", p.hosted_domain or "-"),
-            ("테넌트 ID", p.tenant_id or "-"),
+            (t("console.admin.idp.field.type"), p.type.upper()),
+            (t("console.settings.account.display_name"), p.display_name),
+            (t("console.admin.idp.field.client_id"), p.client_id),
+            (t("console.common.status"), f"{status_badge} {signup_badge} {secret_badge}"),
+            (t("console.admin.idp.field.issuer"), p.issuer or "-"),
+            (t("console.admin.idp.field.scopes"), ", ".join(p.scopes)),
+            (t("console.admin.idp.field.hosted_domain"), p.hosted_domain or "-"),
+            (t("console.admin.idp.field.tenant"), p.tenant_id or "-"),
         ]
         body = "".join(f"<dt>{escape(k)}</dt><dd>{escape(v) if not '<span' in v else v}</dd>" for k, v in rows)
         cards.append(f'<section class="card" aria-label="{escape(p.display_name)}"><h2>{escape(p.display_name)} ({escape(p.id)})</h2><dl>{body}</dl></section>')
@@ -205,49 +207,49 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
         callback = f"{public_origin.rstrip('/')}/auth/oidc/{p.id}/callback"
         trs.append(
             f'<tr data-idp-id="{escape(p.id)}">'
-            f'<td><input type="checkbox" switch data-idp-toggle="{escape(p.id)}"{" checked" if p.enabled else ""} aria-label="{escape(p.display_name)} 사용"/></td>'
+            f'<td><input type="checkbox" switch data-idp-toggle="{escape(p.id)}"{" checked" if p.enabled else ""} aria-label="{escape(t("console.admin.idp.toggle_label", name=p.display_name))}"/></td>'
             f"<td><strong>{escape(p.display_name)}</strong> (<code>{escape(p.id)}</code>)</td>"
             f'<td><span class="pref-mono">{escape(p.issuer or "https://github.com")}</span><br/><span style="color:var(--muted);font-size:11px">{escape(p.type.upper())}</span></td>'
             f'<td><code class="pref-mono">{escape(p.client_id)}</code></td>'
             f'<td><code class="pref-mono" style="white-space:normal">{escape(callback)}</code></td>'
-            f'<td><input type="checkbox" switch data-idp-signup="{escape(p.id)}"{" checked" if p.allow_signup else ""} aria-label="{escape(p.display_name)} 가입 허용"/></td>'
-            f'<td><button type="button" class="pref-btn" data-idp-remove="{escape(p.id)}">삭제</button></td>'
+            f'<td><input type="checkbox" switch data-idp-signup="{escape(p.id)}"{" checked" if p.allow_signup else ""} aria-label="{escape(t("console.admin.idp.signup_label", name=p.display_name))}"/></td>'
+            f'<td><button type="button" class="pref-btn" data-idp-remove="{escape(p.id)}">{escape(t("common.action.delete"))}</button></td>'
             f"</tr>"
         )
     tbody = (
         "".join(trs)
         if trs
-        else '<tr><td colspan="7" style="color:var(--muted);text-align:center;">등록된 공급자가 없습니다.</td></tr>'
+        else f'<tr><td colspan="7" style="color:var(--muted);text-align:center;">{escape(t("console.admin.idp.table_empty"))}</td></tr>'
     )
 
     return f"""
-      <section class="card" aria-label="외부 IdP 관리 요약">
-        <h2>외부 IdP 관리</h2>
-        <p class="hint">OpenID Connect 및 GitHub OAuth 공급자를 관리합니다. Client Secret은 환경변수(<code>CLAIRE_OIDC_&lt;ID&gt;_CLIENT_SECRET</code>) 또는 비밀 저장소로 관리됩니다.</p>
+      <section class="card" aria-label="{escape(t("console.admin.idp.summary_label"))}">
+        <h2>{escape(t("console.admin.idp.summary_title"))}</h2>
+        <p class="hint">{t_code("console.admin.idp.summary_hint", variable="CLAIRE_OIDC_<ID>_CLIENT_SECRET")}</p>
       </section>
       <div id="admin-idp-cards">{cards}</div>
-      <section class="card" aria-label="공급자 레지스트리 및 CRUD">
-        <h2><span data-icon="link"></span> IdP 공급자 레지스트리 (<code>/api/admin/idp</code>)</h2>
+      <section class="card" aria-label="{escape(t("console.admin.idp.registry_label"))}">
+        <h2><span data-icon="link"></span> {t_code("console.admin.idp.registry_title", endpoint="/api/admin/idp")}</h2>
         <div class="pref-table-wrap">
           <table class="pref-table">
             <thead>
-              <tr><th style="width:52px">사용</th><th>공급자</th><th>issuer · 방식</th><th>client_id</th><th>리디렉트 URI</th><th>가입 허용</th><th>관리</th></tr>
+              <tr><th style="width:52px">{escape(t("console.admin.idp.col_use"))}</th><th>{escape(t("console.settings.account.identities_col_provider"))}</th><th>{escape(t("console.admin.idp.col_issuer"))}</th><th>client_id</th><th>{escape(t("console.admin.idp.col_redirect"))}</th><th>{escape(t("console.admin.idp.badge.signup"))}</th><th>{escape(t("console.common.manage"))}</th></tr>
             </thead>
             <tbody id="pref-idp-tbody">{tbody}</tbody>
           </table>
         </div>
         <form id="pref-idp-add-form" class="pref-idp-form">
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">공급자 ID
-            <input id="new-idp-id" name="id" type="text" class="pref-input" placeholder="예: keycloak" required/>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.admin.idp.new_id"))}
+            <input id="new-idp-id" name="id" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_id_placeholder"))}" required/>
           </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">종류
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.admin.idp.field.type"))}
             <select id="new-idp-type" name="type" class="pref-select">
               <option value="oidc">OIDC (Google · Keycloak · Entra)</option>
               <option value="github">GitHub OAuth 2.0</option>
             </select>
           </label>
-          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">표시 이름
-            <input id="new-idp-name" name="display_name" type="text" class="pref-input" placeholder="예: Company SSO"/>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">{escape(t("console.settings.account.display_name"))}
+            <input id="new-idp-name" name="display_name" type="text" class="pref-input" placeholder="{escape(t("console.admin.idp.new_name_placeholder"))}"/>
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">issuer URL
             <input id="new-idp-issuer" name="issuer" type="text" class="pref-input" placeholder="https://sso.example.org/realms/claire"/>
@@ -255,67 +257,67 @@ def _render_admin_idp_section_html(providers: list[IdpProviderMeta], public_orig
           <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700">client_id
             <input id="new-idp-client" name="client_id" type="text" class="pref-input" placeholder="claire-bible" required/>
           </label>
-          <button type="submit" class="pref-btn pref-btn-accent">Discovery 확인 후 추가 · 저장</button>
+          <button type="submit" class="pref-btn pref-btn-accent">{escape(t("console.admin.idp.new_submit"))}</button>
         </form>
         <p class="result" id="admin-idp-result" data-idp-result role="status" aria-live="polite"></p>
         <pre id="pref-idp-discovery" class="pref-code" hidden></pre>
       </section>
-      <section class="card" aria-label="계정 매핑 및 가입 정책">
-        <h2><span data-icon="clipboard"></span> 로그인 방식 · 계정 매핑 · 가입 정책 {prototype_badge("admin-idp-login-policy", "prototype")}</h2>
-        {prototype_note("admin-idp-login-policy", "이 카드의 선택지·스위치·도메인 값은 고정 예시이며 저장되지 않습니다. 서버 설정을 바꾸지 않고, 실제 로그인·가입 처리와 다를 수 있습니다.")}
+      <section class="card" aria-label="{escape(t("console.admin.idp.policy_label"))}">
+        <h2><span data-icon="clipboard"></span> {escape(t("console.admin.idp.policy_title"))} {prototype_badge("admin-idp-login-policy", "prototype")}</h2>
+        {prototype_note("admin-idp-login-policy", t("console.admin.idp.policy_note"))}
         <div class="pref-row">
           <div class="pref-row-label">
-            <strong>로그인 방식</strong>
-            <span>운영자 계정은 IdP 클레임으로 승격할 수 없으며, 일반 사용자는 연결된 <code>(iss, sub)</code> 식별자로 로그인합니다.</span>
+            <strong>{escape(t("console.admin.idp.policy_mode"))}</strong>
+            <span>{t_code("console.admin.idp.policy_mode_desc", pair="(iss, sub)")}</span>
           </div>
-          <select id="pref-idp-mode" class="pref-select" aria-label="로그인 방식">
-            <option value="telegram_only">텔레그램 · 로컬 비밀번호만</option>
-            <option value="telegram_and_idp" selected>텔레그램 · 로컬 + 외부 IdP</option>
+          <select id="pref-idp-mode" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_mode"))}">
+            <option value="telegram_only">{escape(t("console.admin.idp.policy_mode_local"))}</option>
+            <option value="telegram_and_idp" selected>{escape(t("console.admin.idp.policy_mode_idp"))}</option>
           </select>
         </div>
         <div class="pref-row">
           <div class="pref-row-label">
-            <strong>가입 처리 방식</strong>
-            <span>신규 외부 IdP 인증 사용자의 워크스페이스 생성 정책입니다.</span>
+            <strong>{escape(t("console.admin.idp.policy_provisioning"))}</strong>
+            <span>{escape(t("console.admin.idp.policy_provisioning_desc"))}</span>
           </div>
-          <select id="pref-idp-provisioning" class="pref-select" aria-label="가입 처리">
-            <option value="invite" selected>초대 코드 보유자만 가입</option>
-            <option value="approval">운영자 승인 후 생성</option>
-            <option value="auto">허용 도메인 즉시 생성</option>
+          <select id="pref-idp-provisioning" class="pref-select" aria-label="{escape(t("console.admin.idp.policy_provisioning_label"))}">
+            <option value="invite" selected>{escape(t("console.admin.idp.policy_provisioning_invite"))}</option>
+            <option value="approval">{escape(t("console.admin.idp.policy_provisioning_approval"))}</option>
+            <option value="auto">{escape(t("console.admin.idp.policy_provisioning_auto"))}</option>
           </select>
         </div>
         <div class="pref-row">
           <div class="pref-row-label">
-            <strong>허용 이메일 도메인</strong>
-            <span>쉼표 구분 도메인 목록입니다. Google Workspace의 경우 <code>hd</code> 클레임도 함께 대조합니다.</span>
+            <strong>{escape(t("console.admin.idp.policy_domains"))}</strong>
+            <span>{t_code("console.admin.idp.policy_domains_desc", claim="hd")}</span>
           </div>
-          <input id="pref-idp-domains" type="text" class="pref-input" style="min-width:260px" value="example.ac.kr, example.org" aria-label="허용 이메일 도메인"/>
+          <input id="pref-idp-domains" type="text" class="pref-input" style="min-width:260px" value="example.ac.kr, example.org" aria-label="{escape(t("console.admin.idp.policy_domains"))}"/>
         </div>
         <div class="pref-row">
           <div class="pref-row-label">
-            <strong>검증된 이메일 필수 (<code>email_verified=true</code>)</strong>
-            <span>미검증 이메일 클레임은 가입 및 연결을 거부합니다.</span>
+            <strong>{t_code("console.admin.idp.policy_verified", claim="email_verified=true")}</strong>
+            <span>{escape(t("console.admin.idp.policy_verified_desc"))}</span>
           </div>
-          <input id="pref-idp-verified" type="checkbox" switch checked aria-label="검증된 이메일 필수"/>
+          <input id="pref-idp-verified" type="checkbox" switch checked aria-label="{escape(t("console.admin.idp.policy_verified_label"))}"/>
         </div>
         <div class="pref-row">
           <div class="pref-row-label">
-            <strong>OIDC Back-Channel Logout 연동</strong>
-            <span>IdP 로그아웃 이벤트 수신 시 해당 계정의 세션과 토큰을 함께 만료 처리합니다.</span>
+            <strong>{escape(t("console.admin.idp.policy_backchannel"))}</strong>
+            <span>{escape(t("console.admin.idp.policy_backchannel_desc"))}</span>
           </div>
           <input id="pref-idp-bcl" type="checkbox" switch checked aria-label="Back-Channel Logout"/>
         </div>
       </section>
-      <section class="card" aria-label="로그인 흐름 시뮬레이터">
-        <h2><span data-icon="play"></span> 로그인 화면 · 흐름 시뮬레이터 {prototype_badge("admin-idp-login-simulator", "simulation")}</h2>
-        {prototype_note("admin-idp-login-simulator", "시뮬레이션 실행은 선택값을 문장으로 보여 줄 뿐 실제 IdP 로그인·클레임 검증을 수행하지 않으며 서버 설정을 바꾸지 않습니다. 단, 왼쪽 미리보기의 공급자 버튼은 실제 로그인 시작 링크입니다.")}
-        <p class="hint">현재 설정된 공급자 및 정책에 따른 로그인 화면 미리보기와 클레임 검증 시뮬레이터입니다.</p>
+      <section class="card" aria-label="{escape(t("console.admin.idp.sim_label"))}">
+        <h2><span data-icon="play"></span> {escape(t("console.admin.idp.sim_title"))} {prototype_badge("admin-idp-login-simulator", "simulation")}</h2>
+        {prototype_note("admin-idp-login-simulator", t("console.admin.idp.sim_note"))}
+        <p class="hint">{escape(t("console.admin.idp.sim_hint"))}</p>
         <div class="pref-sim">
           <div id="pref-idp-login-preview" class="pref-login"></div>
           <div style="display:flex;flex-direction:column;gap:8px">
-            <label for="pref-idp-persona" style="font-size:12px;font-weight:700">가상 사용자 시나리오</label>
+            <label for="pref-idp-persona" style="font-size:12px;font-weight:700">{escape(t("console.admin.idp.sim_persona"))}</label>
             <select id="pref-idp-persona" class="pref-select"></select>
-            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start"><span data-icon="play"></span> 로그인 시뮬레이션 실행</button>
+            <button type="button" id="btn-idp-sim-run" class="pref-btn pref-btn-accent" style="align-self:flex-start"><span data-icon="play"></span> {escape(t("console.admin.idp.sim_run"))}</button>
             <div id="pref-idp-sim-output" style="display:flex;flex-direction:column;gap:6px"></div>
           </div>
         </div>
@@ -327,12 +329,12 @@ def _render_invite_complete_html(token: str, prefilled_name: str) -> str:
     val_token = escape(token)
     return (
         "<!doctype html>"
-        "<html lang=\"ko\">"
+        f"<html lang=\"{get_locale()}\">"
         "<head>"
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<meta name=\"robots\" content=\"noindex, nofollow\">"
-        "<title>가입 완료 · Claire</title>"
+        f"<title>{escape(t('auth.signup.complete_page_title'))}</title>"
         "<style>"
         "body { font-family: system-ui, -apple-system, sans-serif; max-width: 440px; margin: 40px auto; padding: 20px; line-height: 1.5; color: #222; }"
         "h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }"
@@ -343,16 +345,16 @@ def _render_invite_complete_html(token: str, prefilled_name: str) -> str:
         "</style>"
         "</head>"
         "<body>"
-        "<h1>계정 생성 완료</h1>"
-        "<p>인증이 확인되었습니다. 사용할 사용자 이름을 정해 주세요.</p>"
+        f"<h1>{escape(t('auth.signup.complete_title'))}</h1>"
+        f"<p>{escape(t('auth.signup.complete_intro'))}</p>"
         "<form method=\"post\" action=\"/invite/complete\">"
         f"<input type=\"hidden\" name=\"token\" value=\"{val_token}\">"
-        "<label for=\"username\">사용자 이름 (USERNAME)</label>"
+        f"<label for=\"username\">{escape(t('auth.signup.username'))}</label>"
         "<input id=\"username\" name=\"username\" type=\"text\" required autofocus autocomplete=\"username\">"
-        "<p class=\"hint\">영문 소문자, 숫자, 하이픈 3~32자. 생성 후에는 변경할 수 없습니다.</p>"
-        "<label for=\"display_name\">표시 이름</label>"
+        f"<p class=\"hint\">{escape(t('auth.signup.username_hint'))}</p>"
+        f"<label for=\"display_name\">{escape(t('console.settings.account.display_name'))}</label>"
         f"<input id=\"display_name\" name=\"display_name\" type=\"text\" value=\"{val_name}\" autocomplete=\"name\">"
-        "<button type=\"submit\">가입 완료 및 로그인</button>"
+        f"<button type=\"submit\">{escape(t('auth.signup.complete_submit'))}</button>"
         "</form>"
         "</body>"
         "</html>"
@@ -598,11 +600,11 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 existing = auth_db.find_account_identity(auth_conn, iss=identity.iss, sub=identity.sub)
                 if existing is None:
                     if _wants_json(request):
-                        resp = json_error(403, "invite_required", message="초대가 필요합니다 (invite required)")
+                        resp = json_error(403, "invite_required", message=t("auth.invite.required"))
                     else:
                         resp = HTMLResponse(
-                            "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>초대 필요</title></head>"
-                            "<body><h1>초대가 필요합니다</h1><p>초대가 필요합니다 (invite required). 등록된 계정이 없습니다.</p></body></html>",
+                            f"<!doctype html><html lang=\"{get_locale()}\"><head><meta charset=\"utf-8\"><title>{escape(t('auth.invite.required_title'))}</title></head>"
+                            f"<body><h1>{escape(t('auth.invite.required'))}</h1><p>{escape(t('auth.invite.required_detail'))}</p></body></html>",
                             status_code=403,
                         )
                     resp.delete_cookie(OIDC_COOKIE_NAME, path=OIDC_COOKIE_PATH)
@@ -689,8 +691,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         payload = verify_signup_token(ctx, token)
         if payload is None:
             return HTMLResponse(
-                "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>오류</title></head>"
-                "<body><h1>유효하지 않은 가입 토큰</h1><p>가입 링크가 만료되었거나 유효하지 않습니다.</p></body></html>",
+                f"<!doctype html><html lang=\"{get_locale()}\"><head><meta charset=\"utf-8\"><title>{escape(t('auth.signup.error_title'))}</title></head>"
+                f"<body><h1>{escape(t('auth.signup.token_invalid'))}</h1><p>{escape(t('auth.signup.token_invalid_detail'))}</p></body></html>",
                 status_code=400,
             )
         prefilled = payload.get("display_name") or ""

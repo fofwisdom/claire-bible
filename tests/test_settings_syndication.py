@@ -180,11 +180,11 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
     reader = get("reader")
     for control in ("pref-app-tab", "pref-list-style", "pref-layout-mode", "pref-show-excerpt", "pref-default-content-tab", "pref-reader-font", "pref-reader-fontsize", "pref-auto-read"):
         assert f'id="{control}"' in reader, control
-    assert '<option value="list">목록 — 한 줄 행</option>' in reader
+    assert '<option value="list">List — one line for each row</option>' in reader
 
     connections = get("connections")
-    assert "ActivityPub 클라이언트 기능 기준: Mastodon 5.0 이상" in connections
-    assert "Mastodon 5.0 기준 클라이언트 기능" in connections
+    assert "Baseline of the ActivityPub client functions: Mastodon 5.0 or later." in connections
+    assert "Client functions of the Mastodon 5.0 baseline" in connections
     assert 'id="pref-accounts-tbody"' in connections
     assert f'href="/syndication?tab=client&amp;theme={env.alice_def.number}"' in connections
     assert f"/@{MEMBER_USERNAME}/syndication" not in connections

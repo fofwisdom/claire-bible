@@ -4,15 +4,18 @@
 (function () {
   "use strict";
 
+  // Each text of this script is a catalog key (ClaireI18n, static/locales/{en,ko}.json).
+  var tr = function (key, params) { return window.ClaireI18n.t(key, params); };
+
   var ERROR_TEXT = {
-    reauth_required: "관리자 본인 확인(비밀번호)이 필요합니다.",
-    step_up_requires_session: "로그인 세션에서만 모드를 전환할 수 있습니다.",
-    invalid_password: "비밀번호가 맞지 않습니다.",
-    too_many_attempts: "시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요.",
-    forbidden: "요청 출처(Origin)를 확인하지 못했습니다.",
-    network_mode_not_available: "현재 릴리스에서는 네트워크 모드 전환이 제한되어 있습니다 (NETWORK_MODE_AVAILABLE=False).",
-    multi_theme_required: "네트워크 모드로 전환하려면 CLAIRE_MULTI_THEME=1 설정이 필요합니다.",
-    invalid_mode: "유효하지 않은 모드 값입니다."
+    reauth_required: tr("console.js.admin.mode.error.reauth_required"),
+    step_up_requires_session: tr("console.js.admin.mode.error.step_up_requires_session"),
+    invalid_password: tr("console.js.common.error.invalid_password"),
+    too_many_attempts: tr("console.js.common.error.too_many_attempts"),
+    forbidden: tr("console.js.admin.error.forbidden"),
+    network_mode_not_available: tr("console.js.admin.mode.error.network_mode_not_available"),
+    multi_theme_required: tr("console.js.admin.mode.error.multi_theme_required"),
+    invalid_mode: tr("console.js.admin.mode.error.invalid_mode")
   };
 
   function show(out, text, isError) {
@@ -35,10 +38,10 @@
   }
 
   function formatErrorMessage(status, body) {
-    if (!body) return "요청을 처리하지 못했습니다 (HTTP " + status + ").";
+    if (!body) return tr("console.js.common.http_error", { status: status });
     if (body.error === "readiness_failed") {
       var fails = body.failures || [];
-      var msg = "준비 검사를 통과하지 못했습니다: ";
+      var msg = tr("console.js.admin.mode.readiness_failed") + " ";
       if (fails.length > 0) {
         msg += fails.map(function (f) { return f.id + "(" + (f.detail || f.name) + ")"; }).join(", ");
       } else if (body.detail) {
@@ -49,7 +52,7 @@
     if (body.error === "members_exist") {
       var members = body.members || [];
       var mNames = members.map(function (m) { return m.username || "(ID:" + m.id + ")"; }).join(", ");
-      return "일반 멤버가 등록되어 있어 싱글 모드로 전환할 수 없습니다 (대상: " + (mNames || "멤버 존재") + ").";
+      return tr("console.js.admin.mode.members_exist", { members: mNames || tr("console.js.admin.mode.members_exist_fallback") });
     }
     if (body.error && ERROR_TEXT[body.error]) {
       return ERROR_TEXT[body.error];
@@ -57,7 +60,7 @@
     if (body.detail) {
       return body.detail;
     }
-    return "요청을 처리하지 못했습니다 (HTTP " + status + ").";
+    return tr("console.js.common.http_error", { status: status });
   }
 
   function init() {
@@ -72,12 +75,11 @@
 
     function executeSwitch(targetMode) {
       if (submitBtn) submitBtn.disabled = true;
-      show(out, "모드 전환을 처리 중입니다...", false);
+      show(out, tr("console.js.admin.mode.in_work"), false);
 
       return send("POST", "/api/admin/instance/mode", { mode: targetMode }).then(function (r) {
         if (r.ok) {
-          var modeLabel = targetMode === "network" ? "네트워크 모드" : "싱글 모드";
-          show(out, modeLabel + "로 성공적으로 전환되었습니다. 화면을 새로 고칩니다...", false);
+          show(out, tr(targetMode === "network" ? "console.js.admin.mode.switched_network" : "console.js.admin.mode.switched_single"), false);
           if (reauth) reauth.hidden = true;
           setTimeout(function () {
             window.location.reload();
@@ -100,19 +102,19 @@
         show(out, formatErrorMessage(r.status, r.body), true);
       }).catch(function () {
         if (submitBtn) submitBtn.disabled = false;
-        show(out, "서버와의 통신에 실패했습니다.", true);
+        show(out, tr("console.js.common.network_error"), true);
       });
     }
 
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       if (confirmCheckbox && !confirmCheckbox.checked) {
-        show(out, "전환 주의사항 확인 체크박스에 체크해 주세요.", true);
+        show(out, tr("console.js.admin.mode.confirm_needed"), true);
         return;
       }
       var targetMode = targetModeInput ? targetModeInput.value : "";
       if (!targetMode) {
-        show(out, "전환 대상 모드가 올바르지 않습니다.", true);
+        show(out, tr("console.js.admin.mode.bad_target"), true);
         return;
       }
       executeSwitch(targetMode);
@@ -127,19 +129,19 @@
       var pwField = reauth.elements.namedItem("password");
       var password = pwField ? pwField.value : "";
       if (!password) {
-        show(reauthOut, "비밀번호를 입력하세요.", true);
+        show(reauthOut, tr("console.js.admin.mode.password_needed"), true);
         return;
       }
 
       if (reauthBtn) reauthBtn.disabled = true;
-      show(reauthOut, "본인 확인 중입니다...", false);
+      show(reauthOut, tr("console.js.admin.mode.reauth_in_work"), false);
 
       send("POST", "/api/auth/reauth", { password: password }).then(function (r) {
         if (pwField) pwField.value = "";
         if (reauthBtn) reauthBtn.disabled = false;
 
         if (r.ok) {
-          show(reauthOut, "본인 확인을 완료했습니다. 모드 전환을 실행합니다...", false);
+          show(reauthOut, tr("console.js.admin.mode.reauth_done"), false);
           reauth.hidden = true;
           var targetMode = targetModeInput ? targetModeInput.value : "";
           if (targetMode) {
@@ -148,11 +150,11 @@
           return;
         }
 
-        var err = (r.body && ERROR_TEXT[r.body.error]) || "본인 확인에 실패했습니다 (HTTP " + r.status + ").";
+        var err = (r.body && ERROR_TEXT[r.body.error]) || tr("console.js.admin.mode.reauth_failed", { status: r.status });
         show(reauthOut, err, true);
       }).catch(function () {
         if (reauthBtn) reauthBtn.disabled = false;
-        show(reauthOut, "서버와의 통신에 실패했습니다.", true);
+        show(reauthOut, tr("console.js.common.network_error"), true);
       });
     });
   }
