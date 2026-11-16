@@ -4,7 +4,7 @@ import pytest
 
 from claire import cli
 from claire.config import Settings
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def _unwrap_json(raw: str) -> dict:
@@ -31,8 +31,8 @@ def cli_theme_env(tmp_path, monkeypatch):
         CLAIRE_MULTI_THEME=True,
     )
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    tm = ThemeManager(settings)
-    monkeypatch.setattr("claire.store.theme.get_theme_manager", lambda s=None: tm)
+    tm = KnowledgeBaseManager(settings)
+    monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
     return settings, tm
 
 
@@ -50,8 +50,8 @@ def test_cli_theme_single_mode(tmp_path, monkeypatch, capsys):
         CLAIRE_MULTI_THEME=False,
     )
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    tm = ThemeManager(settings)
-    monkeypatch.setattr("claire.store.theme.get_theme_manager", lambda s=None: tm)
+    tm = KnowledgeBaseManager(settings)
+    monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
 
     # 1. list 명령 -> 안내문구 및 기본 지식베이스 출력
     ret = cli.main(["theme", "list"])
@@ -133,7 +133,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     captured = capsys.readouterr().out
     assert "Dry-Run" in captured
     tm.reload()
-    assert 1 in [t.id for t in tm.list_themes()]
+    assert 1 in [t.id for t in tm.list_kbs()]
 
     # 6. 테마 삭제 (purge)
     ret = cli.main(["theme", "delete", "1", "--purge", "--apply", "--yes"])
@@ -143,7 +143,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
 
     # 7. 목록에서 제거되었는지 확인
     tm.reload()
-    assert 1 not in [t.id for t in tm.list_themes()]
+    assert 1 not in [t.id for t in tm.list_kbs()]
 
 
 def test_cli_theme_visibility_flags(cli_theme_env, capsys):
@@ -247,10 +247,10 @@ def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
     from claire.store import db as dbm
 
     settings, tm = cli_theme_env
-    t1 = tm.define_theme("클라우드 엔지니어링")
+    t1 = tm.define_kb("클라우드 엔지니어링")
     assert t1.id == 1
 
-    t1_settings = tm.get_settings_for_theme(1)
+    t1_settings = tm.get_settings_for_kb(1)
     conn1 = dbm.connect(t1_settings.db_file)
     dbm.init_db(conn1)
     doc = Document(
@@ -263,7 +263,7 @@ def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
         source_type="web",
         content_hash="h_auto_1",
     )
-    dbm.insert_document(conn1, doc, theme_id=1)
+    dbm.insert_document(conn1, doc, kb_id=1)
     conn1.close()
 
     # 1. args.target에 doc_id 전달 시 자동 해소
@@ -324,8 +324,8 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     settings, tm = cli_theme_env
     settings.allow_purge = True
-    t1 = tm.define_theme("데이터베이스 테마")
-    t1_settings = tm.get_settings_for_theme(1)
+    t1 = tm.define_kb("데이터베이스 테마")
+    t1_settings = tm.get_settings_for_kb(1)
 
     conn1 = dbm.connect(t1_settings.db_file)
     dbm.init_db(conn1)
@@ -339,7 +339,7 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
         source_type="web",
         content_hash="h_theme_test_1",
     )
-    dbm.insert_document(conn1, doc, theme_id=1)
+    dbm.insert_document(conn1, doc, kb_id=1)
     conn1.close()
 
     # 1. doc-title with -t 1
@@ -378,8 +378,8 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     from pathlib import Path
 
     settings, tm = cli_theme_env
-    t1 = tm.define_theme("리셋 대상 테마", description="리셋 테스트용")
-    t1_settings = tm.get_settings_for_theme(1)
+    t1 = tm.define_kb("리셋 대상 테마", description="리셋 테스트용")
+    t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 DB 및 볼트에 데이터 적재
     conn = dbm.connect(t1_settings.db_file)
@@ -394,9 +394,9 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
         source_type="web",
         content_hash="h_reset_cli",
     )
-    dbm.insert_document(conn, doc, theme_id=1)
+    dbm.insert_document(conn, doc, kb_id=1)
     e = Entity(id="ent_reset_cli", name="Target Node", type="Concept", sources=["doc_reset_cli"])
-    dbm.upsert_entity(conn, e, theme_id=1)
+    dbm.upsert_entity(conn, e, kb_id=1)
     r = Relation(
         id="rel_reset_cli",
         source_id="ent_reset_cli",
@@ -404,7 +404,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
         type="RELATED_TO",
         sources=["doc_reset_cli"],
     )
-    dbm.upsert_relation(conn, r, theme_id=1)
+    dbm.upsert_relation(conn, r, kb_id=1)
     conn.commit()
     conn.close()
 
@@ -464,7 +464,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     conn.close()
 
     # 테마 메타데이터 및 ID 영구 보존 검증
-    t1_after = tm.get_theme(1)
+    t1_after = tm.get_kb(1)
     assert t1_after is not None
     assert t1_after.id == 1
     assert t1_after.label == "리셋 대상 테마"
@@ -474,7 +474,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert ret == 0
     json_out = _unwrap_json(capsys.readouterr().out)
     assert json_out["ok"] is True
-    assert json_out["reset"]["theme_id"] == 1
+    assert json_out["reset"]["kb_id"] == 1
     assert json_out["reset"]["deleted_documents"] == 0
 
 

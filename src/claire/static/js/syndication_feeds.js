@@ -460,7 +460,7 @@
     const item = findItem(id);
     if (!item || !item.linked || !F.host) return;
     F.host.setStage(thenPublish ? "publish" : "ingest");
-    bridge.showDocument(item.linked.theme_id, item.linked.document_id).then(() => {
+    bridge.showDocument(item.linked.kb_id, item.linked.document_id).then(() => {
       if (thenPublish) bridge.openDispatchModal(item.linked.document_id);
     });
   }

@@ -585,7 +585,7 @@ class Settings(BaseSettings):
     allow_purge: bool = Field(default=True, alias="CLAIRE_ALLOW_PURGE")
     # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
     multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
-    theme_id: int = Field(default=0, alias="CLAIRE_THEME_ID")
+    kb_id: int = Field(default=0, alias="CLAIRE_KB_ID")
 
     # --- expansion ---
     expand_max: int = Field(default=5, alias="CLAIRE_EXPAND_MAX")
@@ -1266,9 +1266,9 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             is_match = True
         elif getattr(s, "multi_theme", False):
             try:
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
+                tm = get_kb_manager(s)
                 if tm.has_registered_fqdn(host):
                     is_match = True
             except Exception:

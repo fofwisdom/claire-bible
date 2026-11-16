@@ -85,7 +85,7 @@
 - **[코드] 익명**: 자격증명 없이 `read` 규칙 라우트에 익명 대체가 일어나면 `ANONYMOUS`.
 - **[코드] [결정] public 라우트**: 자격증명을 검증하지 않고 `ANONYMOUS`를 둔다. 정적 자산 요청마다 DB를 열지 않기 위해서다(설계 §16.3 (e)). 그래서 계정을 알아야 하는 화면(`/setup`, `GET /`)은 public이 아닌 규칙이고, `/login`·`/logout` 핸들러는 쿠키 값을 검증 없이 읽기만 한다(`common.cookie_session_token`).
 - **[코드] v15 이관**은 `account_id`가 NULL인 `themes`, `auth_sessions`, `oauth_codes`, `oauth_tokens`, `oauth_auth_requests` 행을 1로 채운다. `authenticated_at`은 채우지 않는다.
-- **[코드] 테마 소유**: `ThemeInfo.account_id`. `themes.json` 항목에 키가 없으면 1, 값이 정수가 아니면 `ValueError`(`src/claire/store/theme.py`의 `_owner_account_id`).
+- **[코드] 테마 소유**: `KnowledgeBaseInfo.account_id`. `themes.json` 항목에 키가 없으면 1, 값이 정수가 아니면 `ValueError`(`src/claire/store/knowledge_base.py`의 `_owner_account_id`).
 
 ## 5. 라우트 동작
 
@@ -189,7 +189,7 @@
      WHERE id = :id AND revoked_at IS NULL AND expires_at > :now AND uses_count < max_uses;
      ```
      영향받은 행이 1개인지 원자적으로 확인 후 `invitation_redemptions(status='pending')` 기록. 동시 다중 요청 시에도 조건부 UPDATE에 의해 정확히 잔여 횟수만큼만 성공한다.
-  2. `claire.db`에 신규 계정(`role='member'`, `status='active'`) 및 기본 테마(`is_default=1`) 생성.
+  2. `claire.db`에 신규 계정(`role='member'`, `status='active'`) 및 기본 테마(`is_personal=1`) 생성.
   3. `invitation_redemptions`를 `completed`로 전환하고 `account_id` 기록. 2단계 실패 시 `uses_count`를 롤백하고 `failed` 마킹.
 - **GET/HEAD 무부작용 (Safe Links & Robots Policy)**:
   - 메신저 링크 미리보기 봇이나 정찰 요청의 `GET /invite/{code}` 또는 `HEAD /invite/{code}`는 일절 `uses_count`를 차감하거나 실패 카운트를 올리지 않는다 (No side-effects).
@@ -315,7 +315,7 @@
 | `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | MCP 연결 안내와 WebMCP 설정 |
 
 - **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?theme=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?theme=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
-- **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `ThemeManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
+- **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
 - **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
 - **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
 - **콘솔 셸 레이아웃과 내비게이션 (`console_shell.html`, `console_shell.js`, `command_palette.js`)**:
@@ -482,7 +482,7 @@
 
 ### 14.5 Account backup and restore
 
-- **[코드]** A backup contains `manifest.json` (format version, account public ID, schema version and lineage of the knowledge DB, theme list and row counts, SHA-256 of each member file) and one SQLite snapshot for each owned theme (`themes/<theme_id>.db`). A snapshot has the theme row, the rows of that theme in each table with a `theme_id` column, and the `entities_fts` rows of the theme entities. One read transaction reads all themes, thus the snapshots agree with each other.
+- **[코드]** A backup contains `manifest.json` (format version, account public ID, schema version and lineage of the knowledge DB, theme list and row counts, SHA-256 of each member file) and one SQLite snapshot for each owned theme (`themes/<kb_id>.db`). A snapshot has the theme row, the rows of that theme in each table with a `kb_id` column, and the `entities_fts` rows of the theme entities. One read transaction reads all themes, thus the snapshots agree with each other.
 - **[코드]** A backup does not contain auth.db, `master.key`, rows of other accounts, or files in `data/raw` and `data/images`. Document text is in the DB.
 - **[코드]** A manual backup is refused less than 60 seconds after the last backup (`MANUAL_BACKUP_COOLDOWN_SECONDS`). After each backup, the backups above `keep` are deleted, oldest first (`prune_account_backups`).
 - **[코드]** The API process runs `run_due_backups` every 10 minutes (`ACCOUNT_BACKUP_SCHEDULER_INTERVAL` in `src/claire/api/server.py`). The first run is one minute after start.

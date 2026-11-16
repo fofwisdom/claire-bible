@@ -474,10 +474,10 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         store.set_federation_state("on", updated_by=1)
         conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
         alice = store.find_by_username("alice").id
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         for doc_id, title in (("doc-1", "First Post"), ("doc-2", "Second Post")):
             # The body has Markdown marks and a script; RD21 keeps both out of the object.
-            conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', ?, 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
+            conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', ?, 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
         for host in ("remote.example", "blocked.example"):
             federation_store.upsert_follower(conn, account_id=alice, actor_iri=f"https://{host}/users/bob", inbox_iri=f"https://{host}/users/bob/inbox", shared_inbox_iri=f"https://{host}/inbox", salt=store.id_salt(), now=time.time())
@@ -534,7 +534,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         conn = dbm.connect_existing(data_dir / "claire.db", readonly=True)
         try:
             rows = [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status FROM federation_outbox ORDER BY id")][3:]
-            assert conn.execute("SELECT is_public FROM themes WHERE id=31").fetchone()[0] == 0
+            assert conn.execute("SELECT is_public FROM knowledge_bases WHERE id=31").fetchone()[0] == 0
         finally:
             conn.close()
         assert rows == [("delete", int(object_id), "handed_off"), ("update_actor", None, "handed_off")]

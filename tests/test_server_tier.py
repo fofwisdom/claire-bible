@@ -99,16 +99,16 @@ def _add_member_row(conn: sqlite3.Connection, account_id: int, public_id: int) -
     conn.commit()
 
 
-def _add_theme(conn: sqlite3.Connection, theme_id: int, account_id: int) -> None:
+def _add_theme(conn: sqlite3.Connection, kb_id: int, account_id: int) -> None:
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)",
-        (theme_id, theme_id, f"t{theme_id}", account_id),
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)",
+        (kb_id, kb_id, f"t{kb_id}", account_id),
     )
     conn.commit()
 
 
-def _add_doc(conn: sqlite3.Connection, doc_id: str, theme_id: int, raw_text: str = "x") -> None:
-    conn.execute("INSERT INTO documents (id, theme_id, raw_text) VALUES (?, ?, ?)", (doc_id, theme_id, raw_text))
+def _add_doc(conn: sqlite3.Connection, doc_id: str, kb_id: int, raw_text: str = "x") -> None:
+    conn.execute("INSERT INTO documents (id, kb_id, raw_text) VALUES (?, ?, ?)", (doc_id, kb_id, raw_text))
     conn.commit()
 
 
@@ -352,9 +352,9 @@ def test_document_count_and_storage_quota(kdb, tmp_path):
     assert st.account_document_count(kdb, 2) == 2
     original = tmp_path / "orig.pdf"
     original.write_bytes(b"p" * 100)
-    kdb.execute("INSERT INTO raw_inbox (theme_id, payload, file_ref) VALUES (20, 'hello', ?)", (str(original),))
-    kdb.execute("INSERT INTO raw_inbox (theme_id, payload, file_ref) VALUES (20, '', ?)", (str(original),))
-    kdb.execute("INSERT INTO raw_inbox (theme_id, payload, file_ref) VALUES (20, '', 'relative/ignored.pdf')")
+    kdb.execute("INSERT INTO raw_inbox (kb_id, payload, file_ref) VALUES (20, 'hello', ?)", (str(original),))
+    kdb.execute("INSERT INTO raw_inbox (kb_id, payload, file_ref) VALUES (20, '', ?)", (str(original),))
+    kdb.execute("INSERT INTO raw_inbox (kb_id, payload, file_ref) VALUES (20, '', 'relative/ignored.pdf')")
     kdb.commit()
     assert st.account_storage_bytes(kdb, 2) == 30 + 3 + 5 + 100
 

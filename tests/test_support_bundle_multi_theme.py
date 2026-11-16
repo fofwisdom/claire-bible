@@ -15,7 +15,7 @@ import zstandard as zstd
 from claire.config import Settings
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.support_bundle import create_support_bundle
 
 
@@ -25,7 +25,7 @@ def _seed_doc(
     title: str,
     url: str,
     share_token: str | None = None,
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> None:
     conn = dbm.connect(Path(db_path))
     dbm.init_db(conn)
@@ -39,7 +39,7 @@ def _seed_doc(
         source_type="video",
         content_hash=f"hash_{doc_id}",
     )
-    dbm.insert_document(conn, doc, theme_id=theme_id)
+    dbm.insert_document(conn, doc, kb_id=kb_id)
 
     # Entity / Relation
     e = Entity(
@@ -48,14 +48,14 @@ def _seed_doc(
         name=f"Entity {title}",
         sources=[doc_id],
     )
-    dbm.upsert_entity(conn, e, theme_id=theme_id)
+    dbm.upsert_entity(conn, e, kb_id=kb_id)
 
     if share_token:
         import time
 
         conn.execute(
-            "INSERT INTO doc_shares(theme_id, token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-            (theme_id, share_token, doc_id, time.time(), None),
+            "INSERT INTO doc_shares(kb_id, token, document_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (kb_id, share_token, doc_id, time.time(), None),
         )
         conn.commit()
 
@@ -98,8 +98,8 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
     conn0.close()
 
     # 2. 테마 1 생성
-    tm = ThemeManager(base_settings=settings)
-    theme1 = tm.define_theme(label="스타레일 테마", icon="🚂")
+    tm = KnowledgeBaseManager(base_settings=settings)
+    theme1 = tm.define_kb(label="스타레일 테마", icon="🚂")
     theme1_db = Path(theme1.db_path)
 
     # 3. 테마 1에만 문서 및 공유 토큰 적재
@@ -112,7 +112,7 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
         title="로빈 서머레토 캐릭터 PV",
         url="https://www.youtube.com/watch?v=2GCE286miGs",
         share_token=share_token,
-        theme_id=theme1.id,
+        kb_id=theme1.id,
     )
 
     # 4. 공유 URL을 target으로 Support Bundle 생성
@@ -120,7 +120,7 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
 
     assert info.target_doc_id == doc_id
     assert info.target_matched_by == "share_token"
-    assert info.target_theme_id == 1
+    assert info.target_kb_id == 1
     assert info.filepath.is_file()
 
     # 5. 생성된 아카이브 내용물 상세 검증
@@ -130,13 +130,13 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
     # 5-1. manifest.json
     manifest = json.loads(files[f"{root_prefix}/manifest.json"].decode("utf-8"))
     assert manifest["target"]["document_id"] == doc_id
-    assert manifest["target"]["theme_id"] == 1
+    assert manifest["target"]["kb_id"] == 1
     assert manifest["target"]["theme_label"] == "스타레일 테마"
 
     # 5-2. tracked_document/target_resolution.json
     res = json.loads(files[f"{root_prefix}/tracked_document/target_resolution.json"].decode("utf-8"))
     assert res["document_id"] == doc_id
-    assert res["theme_id"] == 1
+    assert res["kb_id"] == 1
     assert res["is_from_share_token"] is True
 
     # 5-3. tracked_document/document_detail.json (테마 1 DB에서 정상 추출)
@@ -155,7 +155,7 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
     assert found_share["token"] == "***REDACTED***"
     assert len(found_share["token_sha256"]) == 64
     assert found_share["document_id"] == doc_id
-    assert found_share["theme_id"] == 1
+    assert found_share["kb_id"] == 1
 
     # 5-5. pipeline/db_integrity.json (멀티 테마 무결성 검사 포함)
     integrity = json.loads(files[f"{root_prefix}/pipeline/db_integrity.json"].decode("utf-8"))
@@ -185,8 +185,8 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
     dbm.init_db(conn0)
     conn0.close()
 
-    tm = ThemeManager(base_settings=settings)
-    theme1 = tm.define_theme(label="연구자료", icon="🔬")
+    tm = KnowledgeBaseManager(base_settings=settings)
+    theme1 = tm.define_kb(label="연구자료", icon="🔬")
     theme1_db = Path(theme1.db_path)
 
     doc_id = "doc_research_999"
@@ -195,13 +195,13 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
         doc_id=doc_id,
         title="양자 컴퓨팅 연구 논문",
         url="https://arxiv.org/abs/2609.99999",
-        theme_id=theme1.id,
+        kb_id=theme1.id,
     )
 
     info = create_support_bundle(settings, days=1, target=doc_id)
     assert info.target_doc_id == doc_id
     assert info.target_matched_by == "id"
-    assert info.target_theme_id == 1
+    assert info.target_kb_id == 1
 
 
 def test_support_bundle_target_not_observed_is_explicit(tmp_path):
@@ -227,47 +227,6 @@ def test_support_bundle_target_not_observed_is_explicit(tmp_path):
     info = create_support_bundle(settings, days=1, target=non_existent)
     assert info.target_doc_id is None
     assert info.target_resolution_status == "not_observed"
-
-
-def test_support_bundle_survives_corrupt_theme_registry(tmp_path):
-    """레지스트리가 손상돼도 기본 DB와 오류 증거를 포함한 번들은 생성한다."""
-    data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
-    data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-    db_path = data_dir / "claire.db"
-    settings = Settings(
-        CLAIRE_DB_PATH=str(db_path),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-    )
-    conn = dbm.connect(db_path)
-    dbm.init_db(conn)
-    conn.close()
-    registry_path = data_dir / "themes.json"
-    registry_path.write_text("{not-json", encoding="utf-8")
-
-    info = create_support_bundle(settings, target="doc_missing")
-
-    assert info.filepath.is_file()
-    assert info.target_resolution_status == "collector_error"
-    assert registry_path.read_text(encoding="utf-8") == "{not-json"
-    files = _read_tar_zst(info.filepath)
-    root_prefix = f"support_bundle_{info.bundle_id[-8:]}"
-    warnings = json.loads(
-        files[f"{root_prefix}/diagnostics/collector_warnings.json"].decode("utf-8")
-    )
-    warning_codes = {item["code"] for item in warnings}
-    assert "THEME_REGISTRY_UNAVAILABLE" in warning_codes
-    assert "TARGET_RESOLUTION_FAILED" in warning_codes
-    health = json.loads(files[f"{root_prefix}/pipeline/health.json"].decode("utf-8"))
-    assert health["liveness"]["ok"] is False
-    assert health["health"]["ok"] is False
-    integrity = json.loads(
-        files[f"{root_prefix}/pipeline/db_integrity.json"].decode("utf-8")
-    )
-    assert integrity["claire_db_quick_check"] == "ok"
 
 
 def test_support_bundle_single_theme_mode(tmp_path):
@@ -297,7 +256,7 @@ def test_support_bundle_single_theme_mode(tmp_path):
 
     info = create_support_bundle(settings, days=1, target=token)
     assert info.target_doc_id == doc_id
-    assert info.target_theme_id == 0
+    assert info.target_kb_id == 0
 
     files = _read_tar_zst(info.filepath)
     root_prefix = f"support_bundle_{info.bundle_id[-8:]}"

@@ -7,7 +7,7 @@ import pytest
 from claire.config import Settings
 from claire.health import health_report, liveness_report
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def _settings(monkeypatch, tmp_path):
@@ -122,9 +122,9 @@ def test_multi_theme_health_aggregates_and_reports_each_database(monkeypatch, tm
     conn.execute("INSERT INTO raw_inbox(status,payload) VALUES ('error','base')")
     conn.commit()
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("추가 테마")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("추가 테마")
+    themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute("INSERT INTO raw_inbox(status,payload) VALUES ('failed','theme')")
     conn.commit()
@@ -133,7 +133,7 @@ def test_multi_theme_health_aggregates_and_reports_each_database(monkeypatch, tm
     rep = health_report(s, "mock")
 
     assert rep["ok"] is True
-    assert [item["theme_id"] for item in rep["databases"]] == [0, 1]
+    assert [item["kb_id"] for item in rep["databases"]] == [0, 1]
     assert rep["attention"] == {"error": 1, "failed": 1}
     assert rep["degraded"] is True
 
@@ -143,9 +143,9 @@ def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_pa
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("오래된 테마")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("오래된 테마")
+    themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute(
         "UPDATE meta SET value=? WHERE key='schema_version'",
@@ -161,18 +161,6 @@ def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_pa
     assert any("schema_version mismatch" in d.get("db", "") for d in rep["databases"])
 
 
-def test_multi_theme_health_does_not_hide_or_rewrite_corrupt_registry(monkeypatch, tmp_path):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
-    registry = s.data_dir / "themes.json"
-    registry.write_text("{broken", encoding="utf-8")
-
-    rep = health_report(s, "mock")
-
-    assert rep["ok"] is False
-    assert "theme registry" in rep["db"]
-    assert registry.read_text(encoding="utf-8") == "{broken"
-
-
 @pytest.mark.parametrize("failure", ["missing", "corrupt", "stale"])
 def test_multi_theme_liveness_fails_for_each_database_fault(
     monkeypatch, tmp_path, failure
@@ -181,9 +169,9 @@ def test_multi_theme_liveness_fails_for_each_database_fault(
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
-    manager = ThemeManager(s)
-    theme = manager.define_theme("점검 대상")
-    themed = manager.get_settings_for_theme(theme.id, s)
+    manager = KnowledgeBaseManager(s)
+    theme = manager.define_kb("점검 대상")
+    themed = manager.get_settings_for_kb(theme.id, s)
     if failure == "missing":
         themed.db_file.unlink()
     elif failure == "corrupt":

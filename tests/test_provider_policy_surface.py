@@ -33,7 +33,7 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import provider_keys
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeInfo, ThemeManager, ThemeNotFound
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
 from claire.store.token_store import get_token_store, reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -99,24 +99,24 @@ def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role:
     conn.commit()
 
 
-def _setup_theme(tm: ThemeManager, db_file: Path, *, theme_id: int, seq: int, label: str, account_id: int,
-                 is_default: bool = False, presentation: bool = False) -> ThemeInfo:
+def _setup_theme(tm: KnowledgeBaseManager, db_file: Path, *, kb_id: int, seq: int, label: str, account_id: int,
+                 is_personal: bool = False, presentation: bool = False) -> KnowledgeBaseInfo:
     conn = dbm.connect(db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, "
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, "
             "is_collaborator_accessible, account_id, db_path, default_focus, presentation_enabled, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, '', '📁', ?, 1, 1, ?, ?, '', ?, ?, ?)",
-            (theme_id, seq, (account_id << 56) | seq, label, 1 if is_default else 0, account_id,
+            (kb_id, seq, (account_id << 56) | seq, label, 1 if is_personal else 0, account_id,
              str(db_file), 1 if presentation else 0, now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 def _build_env(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
@@ -143,11 +143,11 @@ def _build_env(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
     if gemini_key:
         kwargs["GEMINI_API_KEY"] = gemini_key
     settings = Settings(**kwargs)
-    tm = ThemeManager(settings)
-    admin_theme = _setup_theme(tm, db_file, theme_id=10, seq=1, label="Admin Notes", account_id=1, presentation=True)
-    alice_def = _setup_theme(tm, db_file, theme_id=20, seq=2, label="Alice Default", account_id=2, is_default=True)
-    alice_pub = _setup_theme(tm, db_file, theme_id=21, seq=3, label="Alice Talks", account_id=2, presentation=True)
-    bob_def = _setup_theme(tm, db_file, theme_id=30, seq=4, label="Bob Default", account_id=3, is_default=True)
+    tm = KnowledgeBaseManager(settings)
+    admin_theme = _setup_theme(tm, db_file, kb_id=10, seq=1, label="Admin Notes", account_id=1, presentation=True)
+    alice_def = _setup_theme(tm, db_file, kb_id=20, seq=2, label="Alice Default", account_id=2, is_personal=True)
+    alice_pub = _setup_theme(tm, db_file, kb_id=21, seq=3, label="Alice Talks", account_id=2, presentation=True)
+    bob_def = _setup_theme(tm, db_file, kb_id=30, seq=4, label="Bob Default", account_id=3, is_personal=True)
 
     toks = get_token_store(data_dir=data_dir)
     admin_tok = toks.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
@@ -226,8 +226,8 @@ def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 def synth_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     calls: list[Any] = []
 
-    def _fake(conn: Any, provider: Any, entity_ids: list, query: Any, theme_id: int = 0) -> dict:
-        calls.append((provider, entity_ids, theme_id))
+    def _fake(conn: Any, provider: Any, entity_ids: list, query: Any, kb_id: int = 0) -> dict:
+        calls.append((provider, entity_ids, kb_id))
         return {"answer": "synthesized"}
 
     monkeypatch.setattr(graphview, "synthesize", _fake, raising=False)
@@ -391,10 +391,10 @@ def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
 # --- re-embed 표시 (§10.4) ----------------------------------------------------------
 
 
-def _pin(e: SimpleNamespace, theme_id: int, provider: str, model: str) -> None:
+def _pin(e: SimpleNamespace, kb_id: int, provider: str, model: str) -> None:
     conn = dbm.connect_existing(e.db_file)
     try:
-        conn.execute("UPDATE themes SET embed_provider=?, embed_model=? WHERE id=?", (provider, model, theme_id))
+        conn.execute("UPDATE knowledge_bases SET embed_provider=?, embed_model=? WHERE id=?", (provider, model, kb_id))
         conn.commit()
     finally:
         conn.close()
@@ -438,15 +438,15 @@ def test_telegram_theme_selection_limited_to_admin_themes(env):
     # 감싸지 않은 관리자에서도 account_id를 주면 같다.
     assert parse_message_theme("hello #Alice", env.tm, account_id=1)[1] is None
 
-    with pytest.raises(ThemeNotFound):
-        scoped.get_theme(env.alice_pub.id)
-    assert scoped.get_theme(env.admin_theme.id).id == env.admin_theme.id
-    assert {t.account_id for t in scoped.list_themes()} == {1}
+    with pytest.raises(KnowledgeBaseNotFound):
+        scoped.get_kb(env.alice_pub.id)
+    assert scoped.get_kb(env.admin_theme.id).id == env.admin_theme.id
+    assert {t.account_id for t in scoped.list_kbs()} == {1}
 
     from claire.ingest.service import IngestServicePool
 
     pool = IngestServicePool(env.settings, theme_manager=scoped, account_id=1)
-    with pytest.raises(ThemeNotFound):
+    with pytest.raises(KnowledgeBaseNotFound):
         pool.get_service(env.alice_pub.id)
     svc = pool.get_service(env.admin_theme.id)
     assert svc.provider_context.is_admin

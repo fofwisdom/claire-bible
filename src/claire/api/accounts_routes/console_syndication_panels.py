@@ -18,7 +18,7 @@ from typing import Any
 from ... import ids
 from ...i18n import t
 from ...store import accounts as accounts_store
-from ...store.theme import ThemeInfo
+from ...store.knowledge_base import KnowledgeBaseInfo
 from .common import TEMPLATES_DIR, AccountsContext, escape
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
@@ -45,7 +45,7 @@ class SettingsSectionRender:
     extra_scripts_html: str = ""
 
 
-def theme_ref(theme: ThemeInfo) -> str:
+def theme_ref(theme: KnowledgeBaseInfo) -> str:
     """콘솔 테마 선택기와 같은 테마 참조값(외부 번호, 없으면 내부 id)."""
     return ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
 
@@ -91,8 +91,8 @@ def build_syndication_section(
     path: str,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    selected_theme: ThemeInfo | None,
-    owned_themes: list[ThemeInfo],
+    selected_theme: KnowledgeBaseInfo | None,
+    owned_themes: list[KnowledgeBaseInfo],
     theme_query: str | None,
 ) -> SettingsSectionRender:
     if slug not in SYNDICATION_SECTION_SLUGS:

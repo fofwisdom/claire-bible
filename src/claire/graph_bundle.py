@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 GRAPH_BUNDLE_TTL_SECONDS = 24 * 3600  # 86400 seconds (24 hours)
 _GRAPH_BUNDLE_TOKEN_PREFIX = "gb3_"
-GRAPH_BUNDLE_FORMAT_VERSION = 2
+GRAPH_BUNDLE_FORMAT_VERSION = 3  # 3: the manifest key ``kb_id`` (claire.db version 27). 1 and 2 have ``theme_id``.
 _BUNDLE_REGISTRY_DIRNAME = ".registry"
-_BUNDLE_REGISTRY_FORMAT_VERSION = 1
+_BUNDLE_REGISTRY_FORMAT_VERSION = 2  # 2: the key ``kb_id``. Version 1 sidecars have ``theme_id`` and stay readable.
 
 _EXCLUDED_TABLES = frozenset({
     "embeddings",
@@ -71,7 +71,7 @@ class GraphBundleInfo:
     token: str
     filename: str
     filepath: Path
-    theme_id: int
+    kb_id: int
     entities_count: int
     relations_count: int
     documents_count: int
@@ -89,7 +89,7 @@ class GraphBundleInfo:
             "token": self.token,
             "filename": self.filename,
             "filepath": str(self.filepath),
-            "theme_id": self.theme_id,
+            "kb_id": self.kb_id,
             "entities_count": self.entities_count,
             "relations_count": self.relations_count,
             "documents_count": self.documents_count,
@@ -113,7 +113,7 @@ class GraphBundleInfo:
             token=str(value["token"]),
             filename=str(value["filename"]),
             filepath=Path(str(value.get("filepath") or "")),
-            theme_id=int(value.get("theme_id", 0)),
+            kb_id=int(value.get("kb_id", 0)),
             entities_count=int(value.get("entities_count", 0)),
             relations_count=int(value.get("relations_count", 0)),
             documents_count=int(value.get("documents_count", 0)),
@@ -211,8 +211,11 @@ def _read_bundle_sidecar(
         raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             return None
-        if raw.get("registry_format_version") != _BUNDLE_REGISTRY_FORMAT_VERSION:
+        registry_version = raw.get("registry_format_version")
+        if registry_version not in (1, _BUNDLE_REGISTRY_FORMAT_VERSION):
             return None
+        if registry_version == 1 and "theme_id" in raw:
+            raw["kb_id"] = raw.pop("theme_id")
         if not secrets.compare_digest(
             str(raw.get("token_sha256") or ""), _bundle_token_digest(token)
         ):
@@ -223,7 +226,7 @@ def _read_bundle_sidecar(
                 "bundle_id",
                 "filename",
                 "filepath",
-                "theme_id",
+                "kb_id",
                 "entities_count",
                 "relations_count",
                 "documents_count",
@@ -342,7 +345,7 @@ def _public_bundle_record(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "bundle_id": record.get("bundle_id"),
         "filename": record.get("filename"),
-        "theme_id": record.get("theme_id"),
+        "kb_id": record.get("kb_id"),
         "entities_count": record.get("entities_count"),
         "relations_count": record.get("relations_count"),
         "documents_count": record.get("documents_count"),
@@ -470,7 +473,7 @@ def purge_expired_graph_bundles(
 
 def create_graph_bundle(
     settings: Settings | Any | None = None,
-    theme_id: int | str = 0,
+    kb_id: int | str = 0,
     request_context: dict[str, Any] | None = None,
     output_path: str | Path | None = None,
     now_epoch: float | None = None,
@@ -490,22 +493,22 @@ def create_graph_bundle(
 
     # Resolve theme id integer
     try:
-        resolved_theme_id = int(theme_id)
+        resolved_kb_id = int(kb_id)
     except (ValueError, TypeError):
-        resolved_theme_id = 0
+        resolved_kb_id = 0
 
     # Resolve theme database path
     db_file: Path | None = None
-    if getattr(s, "multi_theme", False) or resolved_theme_id != 0:
+    if getattr(s, "multi_theme", False) or resolved_kb_id != 0:
         try:
-            from .store.theme import get_theme_manager
-            tm = get_theme_manager(s)
-            theme_info = tm.get_theme(resolved_theme_id)
+            from .store.knowledge_base import get_kb_manager
+            tm = get_kb_manager(s)
+            theme_info = tm.get_kb(resolved_kb_id)
             db_file = Path(theme_info.db_path)
             if account_id is None:
                 account_id = getattr(theme_info, "account_id", None)
         except Exception as exc:
-            logger.warning("Theme lookup failed for %s (%s). Fall back to settings.db_file.", theme_id, exc)
+            logger.warning("Theme lookup failed for %s (%s). Fall back to settings.db_file.", kb_id, exc)
 
     if db_file is None:
         db_file = getattr(s, "db_file", None) or Path(getattr(s, "db_path", "data/claire.db"))
@@ -611,9 +614,9 @@ def create_graph_bundle(
         if "entities" in source_tables:
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(entities)").fetchall()}
             has_norm = "norm_name" in src_cols
-            has_theme = "theme_id" in src_cols
-            query = "SELECT * FROM entities WHERE theme_id = ?" if has_theme else "SELECT * FROM entities"
-            params = (resolved_theme_id,) if has_theme else ()
+            has_theme = "kb_id" in src_cols
+            query = "SELECT * FROM entities WHERE kb_id = ?" if has_theme else "SELECT * FROM entities"
+            params = (resolved_kb_id,) if has_theme else ()
             rows_ent = []
             for r in source_conn.execute(query, params):
                 rows_ent.append((
@@ -643,9 +646,9 @@ def create_graph_bundle(
         # Export relations
         if "relations" in source_tables:
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(relations)").fetchall()}
-            has_theme = "theme_id" in src_cols
-            query = "SELECT * FROM relations WHERE theme_id = ?" if has_theme else "SELECT * FROM relations"
-            params = (resolved_theme_id,) if has_theme else ()
+            has_theme = "kb_id" in src_cols
+            query = "SELECT * FROM relations WHERE kb_id = ?" if has_theme else "SELECT * FROM relations"
+            params = (resolved_kb_id,) if has_theme else ()
             rows_rel = []
             for r in source_conn.execute(query, params):
                 rows_rel.append((
@@ -674,9 +677,9 @@ def create_graph_bundle(
             src_cols = {r["name"] for r in source_conn.execute("PRAGMA table_info(documents)").fetchall()}
             has_created = "created_at" in src_cols
             has_fetched = "fetched_at" in src_cols
-            has_theme = "theme_id" in src_cols
-            query = "SELECT * FROM documents WHERE theme_id = ?" if has_theme else "SELECT * FROM documents"
-            params = (resolved_theme_id,) if has_theme else ()
+            has_theme = "kb_id" in src_cols
+            query = "SELECT * FROM documents WHERE kb_id = ?" if has_theme else "SELECT * FROM documents"
+            params = (resolved_kb_id,) if has_theme else ()
             rows_doc = []
             for r in source_conn.execute(query, params):
                 created_val = 0.0
@@ -735,7 +738,7 @@ def create_graph_bundle(
         manifest_data = {
             "bundle_version": GRAPH_BUNDLE_FORMAT_VERSION,
             "bundle_id": bundle_id,
-            "theme_id": resolved_theme_id,
+            "kb_id": resolved_kb_id,
             "created_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
             "created_at_epoch": now,
             "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
@@ -775,7 +778,7 @@ def create_graph_bundle(
         "token": token,
         "filename": filename,
         "filepath": str(archive_path),
-        "theme_id": resolved_theme_id,
+        "kb_id": resolved_kb_id,
         "size_bytes": size_bytes,
         "entities_count": entities_count,
         "relations_count": relations_count,
@@ -794,7 +797,7 @@ def create_graph_bundle(
         token=token,
         filename=filename,
         filepath=archive_path,
-        theme_id=resolved_theme_id,
+        kb_id=resolved_kb_id,
         entities_count=entities_count,
         relations_count=relations_count,
         documents_count=documents_count,
@@ -809,7 +812,7 @@ def create_graph_bundle(
 def import_graph_bundle(
     target_db_path: Path | str,
     bundle_path: Path | str,
-    target_theme_id: int | None = None,
+    target_kb_id: int | None = None,
 ) -> dict[str, Any]:
     """Import graph bundle archive into target database."""
     bundle_file = Path(bundle_path).resolve()
@@ -840,8 +843,10 @@ def import_graph_bundle(
         export_db_file = db_candidates[0]
 
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-        bundle_theme_id = int(manifest.get("theme_id", 0))
-        dest_theme_id = target_theme_id if target_theme_id is not None else bundle_theme_id
+        # Each format version has its own key: 1 and 2 have ``theme_id``, 3 has ``kb_id``.
+        manifest_kb_key = "kb_id" if int(manifest.get("bundle_version", 1)) >= 3 else "theme_id"
+        bundle_kb_id = int(manifest.get(manifest_kb_key, 0))
+        dest_kb_id = target_kb_id if target_kb_id is not None else bundle_kb_id
 
         # Verify checksum
         hasher = hashlib.sha256()
@@ -869,13 +874,13 @@ def import_graph_bundle(
         # Inspect target columns
         target_ent_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(entities)").fetchall()}
         target_has_norm = "norm_name" in target_ent_cols
-        target_has_theme_ent = "theme_id" in target_ent_cols
+        target_has_theme_ent = "kb_id" in target_ent_cols
 
         target_rel_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(relations)").fetchall()}
-        target_has_theme_rel = "theme_id" in target_rel_cols
+        target_has_theme_rel = "kb_id" in target_rel_cols
 
         target_doc_cols = {r["name"] for r in target_conn.execute("PRAGMA table_info(documents)").fetchall()}
-        target_has_theme_doc = "theme_id" in target_doc_cols
+        target_has_theme_doc = "kb_id" in target_doc_cols
 
         # 1. Import entities
         ent_rows = export_conn.execute("SELECT * FROM entities").fetchall()
@@ -884,15 +889,15 @@ def import_graph_bundle(
             if target_has_theme_ent:
                 for r in ent_rows:
                     row_id = str(r["id"])
-                    existing = target_conn.execute("SELECT theme_id FROM entities WHERE id = ?", (row_id,)).fetchone()
-                    if existing is not None and int(existing[0]) != dest_theme_id:
+                    existing = target_conn.execute("SELECT kb_id FROM entities WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_kb_id:
                         raise ValueError(f"Cannot import bundle: entity {row_id} already exists in another theme {existing[0]}")
             batch_ent = []
             for r in ent_rows:
                 norm_val = r["norm_name"] if ("norm_name" in r.keys() and r["norm_name"]) else r["name"]
                 batch_ent.append((
                     r["id"],
-                    dest_theme_id,
+                    dest_kb_id,
                     r["type"],
                     r["name"],
                     norm_val if target_has_norm else None,
@@ -909,7 +914,7 @@ def import_graph_bundle(
                     target_conn.executemany(
                         """
                         INSERT OR REPLACE INTO entities (
-                            id, theme_id, type, name, norm_name, aliases, props, observations, sources, provisional, created_at, updated_at
+                            id, kb_id, type, name, norm_name, aliases, props, observations, sources, provisional, created_at, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         batch_ent,
@@ -918,7 +923,7 @@ def import_graph_bundle(
                     target_conn.executemany(
                         """
                         INSERT OR REPLACE INTO entities (
-                            id, theme_id, type, name, aliases, props, observations, sources, provisional, created_at, updated_at
+                            id, kb_id, type, name, aliases, props, observations, sources, provisional, created_at, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         [(b[0], b[1], b[2], b[3], b[5], b[6], b[7], b[8], b[9], b[10], b[11]) for b in batch_ent],
@@ -951,14 +956,14 @@ def import_graph_bundle(
             if target_has_theme_rel:
                 for r in rel_rows:
                     row_id = str(r["id"])
-                    existing = target_conn.execute("SELECT theme_id FROM relations WHERE id = ?", (row_id,)).fetchone()
-                    if existing is not None and int(existing[0]) != dest_theme_id:
+                    existing = target_conn.execute("SELECT kb_id FROM relations WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_kb_id:
                         raise ValueError(f"Cannot import bundle: relation {row_id} already exists in another theme {existing[0]}")
             batch_rel = []
             for r in rel_rows:
                 batch_rel.append((
                     r["id"],
-                    dest_theme_id,
+                    dest_kb_id,
                     r["type"],
                     r["source_id"],
                     r["target_id"],
@@ -972,7 +977,7 @@ def import_graph_bundle(
                 target_conn.executemany(
                     """
                     INSERT OR REPLACE INTO relations (
-                        id, theme_id, type, source_id, target_id, confidence, props, sources, provisional, created_at
+                        id, kb_id, type, source_id, target_id, confidence, props, sources, provisional, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     batch_rel,
@@ -995,15 +1000,15 @@ def import_graph_bundle(
             if target_has_theme_doc:
                 for r in doc_rows:
                     row_id = str(r["id"])
-                    existing = target_conn.execute("SELECT theme_id FROM documents WHERE id = ?", (row_id,)).fetchone()
-                    if existing is not None and int(existing[0]) != dest_theme_id:
+                    existing = target_conn.execute("SELECT kb_id FROM documents WHERE id = ?", (row_id,)).fetchone()
+                    if existing is not None and int(existing[0]) != dest_kb_id:
                         raise ValueError(f"Cannot import bundle: document {row_id} already exists in another theme {existing[0]}")
             batch_doc = []
             for r in doc_rows:
                 created_val = r["created_at"] or 0.0
                 batch_doc.append((
                     r["id"],
-                    dest_theme_id,
+                    dest_kb_id,
                     r["title"],
                     r["url"],
                     r["source_type"],
@@ -1014,7 +1019,7 @@ def import_graph_bundle(
                     target_conn.executemany(
                         """
                         INSERT OR REPLACE INTO documents (
-                            id, theme_id, title, url, source_type, fetched_at
+                            id, kb_id, title, url, source_type, fetched_at
                         ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         batch_doc,
@@ -1023,7 +1028,7 @@ def import_graph_bundle(
                     target_conn.executemany(
                         """
                         INSERT OR REPLACE INTO documents (
-                            id, theme_id, title, url, source_type, created_at
+                            id, kb_id, title, url, source_type, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         batch_doc,
@@ -1058,7 +1063,7 @@ def import_graph_bundle(
 
     return {
         "bundle_id": manifest.get("bundle_id"),
-        "theme_id": dest_theme_id,
+        "kb_id": dest_kb_id,
         "entities_count": entities_imported,
         "relations_count": relations_imported,
         "documents_count": documents_imported,

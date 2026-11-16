@@ -61,7 +61,7 @@ def is_admin(principal: Principal) -> bool:
 
 def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
     rows = conn.execute(
-        "SELECT account_id, COUNT(*) FROM themes WHERE account_id IS NOT NULL GROUP BY account_id"
+        "SELECT account_id, COUNT(*) FROM knowledge_bases WHERE account_id IS NOT NULL GROUP BY account_id"
     ).fetchall()
     return {int(r[0]): int(r[1]) for r in rows}
 

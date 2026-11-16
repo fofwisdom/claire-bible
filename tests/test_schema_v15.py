@@ -31,10 +31,10 @@ def _make_v14_database(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         try:
             dbm.init_db(conn)
             assert dbm.stored_schema_version(conn) == 14
-            assert "account_id" not in dbm._column_names(conn, "themes")
+            assert "account_id" not in dbm._column_names(conn, "knowledge_bases")
             now = time.time()
             conn.execute(
-                "INSERT INTO themes (id, seq, label, is_default, created_at, updated_at) VALUES (1, 1, 'one', 0, ?, ?)",
+                "INSERT INTO knowledge_bases (id, seq, label, is_personal, created_at, updated_at) VALUES (1, 1, 'one', 0, ?, ?)",
                 (now, now),
             )
             conn.execute(
@@ -76,10 +76,10 @@ def test_fresh_database_declares_v15_objects() -> None:
         "server_settings",
         "idx_accounts_single_admin",
         "accounts_username_immutable",
-        "idx_themes_account_default",
+        "idx_knowledge_bases_account_personal",
         "users",  # v14 테이블은 남긴다
     } <= names
-    assert "account_id" in dbm._column_names(conn, "themes")
+    assert "account_id" in dbm._column_names(conn, "knowledge_bases")
     assert {"account_id", "authenticated_at"} <= dbm._column_names(conn, "auth_sessions")
     for tbl in ("oauth_codes", "oauth_tokens", "oauth_auth_requests"):
         assert "account_id" in dbm._column_names(conn, tbl)
@@ -102,7 +102,7 @@ def test_admin_row_and_salt() -> None:
     )
     assert admin["public_id"] > ids.MIN_CURRENT_NUMBER
     # 기본 테마 0은 관리자 것이다.
-    assert conn.execute("SELECT account_id FROM themes WHERE id=0").fetchone()["account_id"] == 1
+    assert conn.execute("SELECT account_id FROM knowledge_bases WHERE id=0").fetchone()["account_id"] == 1
 
 
 def test_migration_is_idempotent(tmp_path: Path) -> None:
@@ -134,7 +134,7 @@ def test_v14_database_upgrades_and_binds_rows_to_admin(tmp_path: Path, monkeypat
     try:
         dbm.init_db(conn)
         assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
-        themes = conn.execute("SELECT id, account_id FROM themes ORDER BY id").fetchall()
+        themes = conn.execute("SELECT id, account_id FROM knowledge_bases ORDER BY id").fetchall()
         assert [(r["id"], r["account_id"]) for r in themes] == [(0, 1), (1, 1)]
         session = conn.execute("SELECT account_id, authenticated_at FROM auth_sessions").fetchone()
         assert session["account_id"] == 1
@@ -160,9 +160,9 @@ def test_multiple_default_themes_fail_migration_without_changes(
     _make_v14_database(path, monkeypatch)
     conn = dbm.connect(path)
     try:
-        conn.execute("UPDATE themes SET is_default=1 WHERE id=1")
+        conn.execute("UPDATE knowledge_bases SET is_personal=1 WHERE id=1")
         conn.commit()
-        with pytest.raises(RuntimeError, match=r"more than one default theme.*themes\.id=\[0,1\]"):
+        with pytest.raises(RuntimeError, match=r"more than one default theme.*knowledge_bases\.id=\[0,1\]"):
             dbm.init_db(conn)
         conn.rollback()
         assert dbm.stored_schema_version(conn) == 14
@@ -205,7 +205,7 @@ def test_one_default_theme_per_account() -> None:
     now = time.time()
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO themes (id, seq, label, is_default, created_at, updated_at, account_id) "
+            "INSERT INTO knowledge_bases (id, seq, label, is_personal, created_at, updated_at, account_id) "
             "VALUES (5, 5, 'x', 1, ?, ?, 1)",
             (now, now),
         )
@@ -281,13 +281,13 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
     import json
 
     from claire.config import Settings
-    from claire.store.theme import ThemeInfo, ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
     # §13.1: themes.json 항목에 account_id가 없으면 v15 이전 관리자 테마(1)다.
-    assert ThemeInfo.from_dict({"id": 3, "label": "x"}).account_id == 1
-    assert ThemeInfo.from_dict({"id": 3, "label": "x", "account_id": 2}).account_id == 2
+    assert KnowledgeBaseInfo.from_legacy_registry_entry({"id": 3, "label": "x"}).account_id == 1
+    assert KnowledgeBaseInfo.from_legacy_registry_entry({"id": 3, "label": "x", "account_id": 2}).account_id == 2
     with pytest.raises(ValueError):
-        ThemeInfo.from_dict({"id": 3, "label": "x", "account_id": None})
+        KnowledgeBaseInfo.from_legacy_registry_entry({"id": 3, "label": "x", "account_id": None})
 
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -312,13 +312,14 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
-    manager = ThemeManager(base_settings=settings)
-    assert {t.id: t.account_id for t in manager.list_themes(include_private=True)} == {0: 1, 1: 1}
-    manager.define_theme("new one")
-    written = json.loads((data_dir / "themes.json").read_text(encoding="utf-8"))
-    assert all(entry["account_id"] == 1 for entry in written["themes"])
+    manager = KnowledgeBaseManager(base_settings=settings)
+    assert {t.id: t.account_id for t in manager.list_kbs(include_private=True)} == {0: 1, 1: 1}
+    manager.define_kb("new one")
+    # v27: the file is retired after its entries are in the database.
+    assert not (data_dir / "themes.json").exists()
+    assert (data_dir / "themes.json.retired").is_file()
     conn = dbm.connect(data_dir / "claire.db")
     try:
-        assert {r["account_id"] for r in conn.execute("SELECT account_id FROM themes")} == {1}
+        assert {r["account_id"] for r in conn.execute("SELECT account_id FROM knowledge_bases")} == {1}
     finally:
         conn.close()

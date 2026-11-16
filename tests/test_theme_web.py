@@ -79,15 +79,15 @@ def test_theme_web_single_mode_inlining_and_cls_prevention(tmp_path: Path):
 
 def test_theme_web_multi_mode_inlining(tmp_path: Path):
     """멀티 테마 모드: 2개 이상 테마 존재 시 인라인 렌더링 및 디스플레이 활성화 검증."""
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
         vault_path=str(tmp_path / "vault"),
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(s)
-    tm.define_theme("AI 및 로보틱스", description="인공지능 연구", icon="🤖")
+    tm = KnowledgeBaseManager(s)
+    tm.define_kb("AI 및 로보틱스", description="인공지능 연구", icon="🤖")
 
     html = render_graph_html(s)
     assert 'themeMode: \'multi\'' in html
@@ -98,15 +98,15 @@ def test_theme_web_multi_mode_inlining(tmp_path: Path):
 
 def test_render_graph_html_visibility_isolation(tmp_path: Path):
     """비공개 테마는 익명 사용자용 render_graph_html(include_private=False)에서 배제됨을 검증."""
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
         vault_path=str(tmp_path / "vault"),
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(s)
-    tm.define_theme("비밀 연구", description="내부 전용", icon="🔒", is_public=False)
+    tm = KnowledgeBaseManager(s)
+    tm.define_kb("비밀 연구", description="내부 전용", icon="🔒", is_public=False)
 
     # 1. 익명 사용자 (include_private=False) -> 비공개 테마 제외되어 공개 테마가 기본 테마 1개뿐이므로 피커 숨김
     anon_html = render_graph_html(s, include_private=False)
@@ -156,7 +156,7 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
 
 def test_theme_web_knowledge_manager_display(tmp_path: Path):
     """테마 관리에서 테마 지식베이스의 '지식 관리자' 표시 및 UI 요소 검증."""
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
@@ -164,9 +164,9 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
         CLAIRE_SORCERER="default_owner",
     )
-    tm = ThemeManager(s)
-    tm.define_theme("일반 테마")  # 기본 관리자 상속
-    tm.define_theme("특화 테마", sorcerer="specialist_lee")  # 개별 관리자 지정
+    tm = KnowledgeBaseManager(s)
+    tm.define_kb("일반 테마")  # 기본 관리자 상속
+    tm.define_kb("특화 테마", sorcerer="specialist_lee")  # 개별 관리자 지정
 
     graph_html = render_graph_html(s, include_private=True)
     html = MANAGE_PANELS_JS

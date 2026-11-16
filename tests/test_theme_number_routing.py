@@ -3,7 +3,7 @@
 검증 항목:
 1. v16 테마 번호 하한 (MIN_CURRENT_NUMBER >= 2^56, created_at=0 하한 고정 포함)
 2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /themes/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
-3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_theme_id 바인딩
+3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 4. 고정과 다른 ?theme= 가 들어오면 400 거부
 5. 다른 계정의 테마 번호 요청 시 404
 6. 루트 해석기 308 (기존 SPA 쿼리 doc/node/theme 있을 때 /@{admin}/?... 리다이렉트)
@@ -27,7 +27,7 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import reset_token_stores
 
 ADMIN_LEGACY_UNIX_MS = dbm.ADMIN_LEGACY_PUBLIC_ID_UNIX_MS
@@ -50,7 +50,7 @@ def _init_test_db(db_file: Path) -> sqlite3.Connection:
     return conn
 
 
-def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, ThemeInfo]:
+def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, KnowledgeBaseInfo]:
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     conn.close()
@@ -63,20 +63,20 @@ def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, T
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_ANONYMOUS_READONLY=True,
     )
-    theme_mgr = ThemeManager(s)
-    theme0 = theme_mgr.get_theme(0)
+    theme_mgr = KnowledgeBaseManager(s)
+    theme0 = theme_mgr.get_kb(0)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
     return client, s, theme0
 
 
-def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, ThemeInfo, ThemeInfo]:
+def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, KnowledgeBaseInfo, KnowledgeBaseInfo]:
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     now = time.time()
-    num1 = ids.timestamp_id("themes", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 10)
+    num1 = ids.timestamp_id("knowledge_bases", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (1, 1, ?, 'Theme Alpha', 1, 0, 1, ?, ?)",
         (num1, now, now),
     )
@@ -91,9 +91,9 @@ def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, Th
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_ANONYMOUS_READONLY=True,
     )
-    theme_mgr = ThemeManager(s)
-    theme0 = theme_mgr.get_theme(0)
-    theme1 = theme_mgr.get_theme(1)
+    theme_mgr = KnowledgeBaseManager(s)
+    theme0 = theme_mgr.get_kb(0)
+    theme1 = theme_mgr.get_kb(1)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
     return client, s, theme0, theme1
@@ -125,23 +125,23 @@ def _create_network_mode_client(tmp_path: Path) -> tuple[TestClient, Settings, d
     )
     carol_id = int(cur.lastrowid)
 
-    num_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 10)
+    num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Public Theme', ?, 1, 1, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
 
-    num_alice_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 11)
+    num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (11, 11, ?, 'Alice Private Theme', ?, 0, 0, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
-    num_carol_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 20)
+    num_carol_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (20, 20, ?, 'Carol Public Theme', ?, 1, 1, ?, ?)",
         (num_carol_pub, carol_id, now, now),
     )
@@ -183,11 +183,11 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
 
     # created_at이 0, 0.0 인 레거시 테마 생성 후 번호 백필 검증
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) "
         "VALUES (101, 101, 'Theme Zero Time', 1, 0, 0)"
     )
     conn.execute(
-        "INSERT INTO themes (id, seq, label, account_id, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, label, account_id, created_at, updated_at) "
         "VALUES (102, 102, 'Theme Float Zero', 1, 0.0, 0.0)"
     )
     conn.commit()
@@ -201,7 +201,7 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
     assert filled == 2
     conn.commit()
 
-    rows = conn.execute("SELECT id, number FROM themes WHERE id IN (101, 102)").fetchall()
+    rows = conn.execute("SELECT id, number FROM knowledge_bases WHERE id IN (101, 102)").fetchall()
     for row in rows:
         num = row["number"]
         assert num is not None
@@ -218,8 +218,8 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
     )
-    mgr = ThemeManager(s)
-    new_theme = mgr.define_theme("Fresh Theme")
+    mgr = KnowledgeBaseManager(s)
+    new_theme = mgr.define_kb("Fresh Theme")
     assert new_theme.number is not None
     assert new_theme.number >= MIN_NUMBER
     assert ids.parse_public_id(new_theme.number) == new_theme.number
@@ -258,9 +258,9 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     # DB에 Theme 1 등 추가 테마가 있어도 CLAIRE_MULTI_THEME=0 에서는 404
     conn = dbm.connect(Path(s.db_file))
     now = time.time()
-    num1 = ids.timestamp_id("themes", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 100)
+    num1 = ids.timestamp_id("knowledge_bases", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 100)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (1, 1, ?, 'Forbidden Second', 1, 0, 1, ?, ?)",
         (num1, now, now),
     )
@@ -275,22 +275,22 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
 
 
 # ============================================================================
-# 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_theme_id 바인딩
+# 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 # ============================================================================
 
 
-def test_theme_pinning_binds_pinned_theme_id(tmp_path: Path) -> None:
+def test_theme_pinning_binds_pinned_kb_id(tmp_path: Path) -> None:
     client, _, theme0, theme1 = _create_multi_theme_client(tmp_path)
 
     # 경로에 테마 번호가 포함되면 graph API에서 해당 테마의 내부 ID를 반환
     r0 = client.get(f"/themes/{theme0.number}/graph")
     assert r0.status_code == 200
-    assert r0.json().get("theme_id") == 0
+    assert r0.json().get("kb_id") == 0
     assert r0.json().get("theme_label") == theme0.label
 
     r1 = client.get(f"/themes/{theme1.number}/graph")
     assert r1.status_code == 200
-    assert r1.json().get("theme_id") == 1
+    assert r1.json().get("kb_id") == 1
     assert r1.json().get("theme_label") == theme1.label
 
 

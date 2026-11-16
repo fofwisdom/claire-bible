@@ -157,14 +157,14 @@ def internal(tmp_path):
             conn.execute("INSERT INTO federation_followers (public_id, account_id, actor_iri, inbox_iri, shared_inbox_iri, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (int(item["id"]), alice, item["actor_iri"], item["inbox_iri"], item["shared_inbox_iri"], 1800000300.0, 1800000300.0))
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=1800000300.0)
         bob = conn.execute("SELECT id FROM accounts WHERE username='private_bob'").fetchone()[0]
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, 'alice public', 0, 1, 1, 1, 1, ?, 516412345678901234)", (ALICE_THEME_ID, ALICE_THEME_ID, alice))
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (32, 32, 'bob public', 0, 1, 1, 1, 1, ?, 516412345678901235)", (bob,))
-        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-published', ?, 'Published Title', 'Hello **world**', 'md', ?, 0, 1)", (ALICE_THEME_ID, '<p>Hello <strong>world</strong></p><script>alert(1)</script>'))
-        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-second', ?, 'Second', 'Second *body*', 'md', 0, 1)", (ALICE_THEME_ID,))
-        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-bob', 32, 'Of Bob', 'x', 'md', 0, 1)")
-        conn.execute("INSERT INTO doc_shares (token, theme_id, document_id, created_at, expires_at) VALUES ('sharetoken123456', ?, 'doc-published', 1, NULL)", (ALICE_THEME_ID,))
-        for public_id, document_id, account_id, theme_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-bob", bob, 32, 1800000350.0, 1800000350.0)):
-            conn.execute("INSERT INTO federation_objects (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, theme_id, document_id, account_id, published_at, updated_at))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, 'alice public', 0, 1, 1, 1, 1, ?, 516412345678901234)", (ALICE_THEME_ID, ALICE_THEME_ID, alice))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (32, 32, 'bob public', 0, 1, 1, 1, 1, ?, 516412345678901235)", (bob,))
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-published', ?, 'Published Title', 'Hello **world**', 'md', ?, 0, 1)", (ALICE_THEME_ID, '<p>Hello <strong>world</strong></p><script>alert(1)</script>'))
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-second', ?, 'Second', 'Second *body*', 'md', 0, 1)", (ALICE_THEME_ID,))
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-bob', 32, 'Of Bob', 'x', 'md', 0, 1)")
+        conn.execute("INSERT INTO doc_shares (token, kb_id, document_id, created_at, expires_at) VALUES ('sharetoken123456', ?, 'doc-published', 1, NULL)", (ALICE_THEME_ID,))
+        for public_id, document_id, account_id, kb_id, published_at, updated_at in ((OBJECT_ID, "doc-published", alice, ALICE_THEME_ID, 1800000310.0, 1800000320.0), (SECOND_OBJECT_ID, "doc-second", alice, ALICE_THEME_ID, 1800000340.0, 1800000340.0), (816412345678901236, "doc-bob", bob, 32, 1800000350.0, 1800000350.0)):
+            conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, kb_id, document_id, account_id, published_at, updated_at))
         federation_store.add_tombstone(conn, GONE_OBJECT_ID, "object", gone_at=1800000330.0)
         federation_store.add_tombstone(conn, GONE_ACTOR_ID, "actor", gone_at=1800000350.0)
         federation_store.add_outbox_task(conn, account_id=alice, kind="create", object_public_id=OBJECT_ID, now=1800000310.0)
@@ -711,7 +711,7 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
 @pytest.mark.parametrize(
     "change",
     [
-        "UPDATE themes SET is_public=0 WHERE id=31",
+        "UPDATE knowledge_bases SET is_public=0 WHERE id=31",
         "UPDATE documents SET hidden=1 WHERE id='doc-published'",
         "DELETE FROM documents WHERE id='doc-published'",
         "UPDATE accounts SET profile_public=0 WHERE username='alice'",
@@ -758,7 +758,7 @@ def test_outbox_collection_has_cursor_pages_of_public_objects_only(internal):
 
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
-        conn.execute("UPDATE themes SET is_public=0 WHERE id=?", (ALICE_THEME_ID,))
+        conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=?", (ALICE_THEME_ID,))
         conn.commit()
     finally:
         conn.close()
@@ -798,9 +798,9 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice")
-        conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         # The body has Markdown marks and a script; RD21 keeps both out of the object.
-        conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', ?, 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
+        conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', ?, 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         conn.commit()
         session = accounts_store.create_account_session(conn, account_id=alice, scope="owner", now=time.time())
         readonly = accounts_store.create_account_session(conn, account_id=alice, scope="readonly", now=time.time())

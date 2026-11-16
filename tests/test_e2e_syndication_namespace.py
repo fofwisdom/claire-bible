@@ -32,7 +32,7 @@ from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
 
 ADMIN_TOKEN = "adm-" + ("a" * 32)
@@ -41,30 +41,30 @@ BOB_TOKEN = "bob-" + ("b" * 32)
 
 
 def _setup_theme(
-    tm: ThemeManager,
+    tm: KnowledgeBaseManager,
     settings: Settings,
     *,
-    theme_id: int,
+    kb_id: int,
     seq: int,
     label: str,
     account_id: int,
-    is_default: bool = False,
+    is_personal: bool = False,
     is_public: bool = True,
     is_collaborator_accessible: bool = True,
-) -> ThemeInfo:
+) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, ?, '', ?, ?)",
             (
-                theme_id,
+                kb_id,
                 seq,
                 (account_id << 56) | seq,
                 label,
                 f"Description for {label}",
-                1 if is_default else 0,
+                1 if is_personal else 0,
                 1 if is_public else 0,
                 1 if is_collaborator_accessible else 0,
                 account_id,
@@ -78,8 +78,8 @@ def _setup_theme(
         conn.close()
 
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role: str = "member") -> None:
@@ -196,26 +196,26 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         store.set_setting("mode", "network", updated_by=1)
         conn.close()
 
-        tm = ThemeManager(settings)
+        tm = KnowledgeBaseManager(settings)
         alice_theme = _setup_theme(
             tm,
             settings,
-            theme_id=20,
+            kb_id=20,
             seq=1,
             label="Alice Theme",
             account_id=2,
-            is_default=True,
+            is_personal=True,
             is_public=False,
             is_collaborator_accessible=True,
         )
         bob_theme = _setup_theme(
             tm,
             settings,
-            theme_id=30,
+            kb_id=30,
             seq=2,
             label="Bob Theme",
             account_id=3,
-            is_default=True,
+            is_personal=True,
             is_public=False,
             is_collaborator_accessible=True,
         )
@@ -223,7 +223,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         conn = dbm.connect(settings.db_file)
         # Seed a source document in Alice's theme
         conn.execute(
-            "INSERT INTO documents (id, title, raw_text, detail, theme_id, fetched_at) "
+            "INSERT INTO documents (id, title, raw_text, detail, kb_id, fetched_at) "
             "VALUES ('doc_alice_1', 'Alice Post', 'Test content from Alice', 'Detail', ?, ?)",
             (alice_theme.id, time.time()),
         )
@@ -304,8 +304,8 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         # 2. Alice dispatches within her own theme at root /api/syndication/dispatch -> records dispatched_by_account_id=2
         dispatch_payload = {
             "document_id": "doc_alice_1",
-            "source_theme_id": alice_theme.id,
-            "target_theme_id": alice_theme.id,
+            "source_kb_id": alice_theme.id,
+            "target_kb_id": alice_theme.id,
         }
         assert client.post("/@alice/api/syndication/dispatch", json=dispatch_payload, headers=alice_headers).status_code == 404
         res_dispatch = client.post(
@@ -323,17 +323,17 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             "/api/syndication/dispatch",
             json={
                 "document_id": "doc_alice_1",
-                "source_theme_id": alice_theme.id,
-                "target_theme_id": alice_theme.id,
+                "source_kb_id": alice_theme.id,
+                "target_kb_id": alice_theme.id,
             },
             headers=bob_headers,
         )
         assert res_cross_forbidden.status_code in (403, 404)
 
         # 4. Verify dispatches list at root /api/syndication/dispatches
-        assert client.get("/@alice/api/syndication/dispatches?theme_id=" + str(alice_theme.id), headers=alice_headers).status_code == 404
+        assert client.get("/@alice/api/syndication/dispatches?kb_id=" + str(alice_theme.id), headers=alice_headers).status_code == 404
         res_dispatches = client.get(
-            "/api/syndication/dispatches?theme_id=" + str(alice_theme.id),
+            "/api/syndication/dispatches?kb_id=" + str(alice_theme.id),
             headers=alice_headers,
         )
         assert res_dispatches.status_code == 200

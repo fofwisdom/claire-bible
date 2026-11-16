@@ -107,8 +107,8 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
         "/api/syndication/dispatch",
         json={
             "document_id": doc_id,
-            "source_theme_id": theme1_id,
-            "target_theme_id": theme2_id,
+            "source_kb_id": theme1_id,
+            "target_kb_id": theme2_id,
             "focus": applied_focus,
         },
         headers=OWNER_HEADERS,
@@ -117,8 +117,8 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     d_data = dispatch_resp.json()
     assert d_data["ok"] is True
     assert d_data["status"] == "done"
-    assert d_data["source_theme_id"] == theme1_id
-    assert d_data["target_theme_id"] == theme2_id
+    assert d_data["source_kb_id"] == theme1_id
+    assert d_data["target_kb_id"] == theme2_id
     assert d_data["document_id"] == doc_id
     assert "applied_focus" not in d_data  # CT28: the focus field is ignored
     dispatch_id = d_data["dispatch_id"]
@@ -135,9 +135,9 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["id"] == target_doc_id
-    assert detail_data["theme_id"] == theme2_id
+    assert detail_data["kb_id"] == theme2_id
     assert "focus" not in detail_data["meta"]
-    assert detail_data["meta"]["syndication"]["source_theme_id"] == theme1_id
+    assert detail_data["meta"]["syndication"]["source_kb_id"] == theme1_id
     assert detail_data["meta"]["syndication"]["source_document_id"] == doc_id
 
     # 7. Verify source document in Theme 1 is intact
@@ -149,20 +149,20 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     conn = dbm.connect_existing(settings.db_file)
     try:
         rows = conn.execute(
-            "SELECT id, theme_id FROM documents WHERE id IN (?, ?) ORDER BY theme_id ASC",
+            "SELECT id, kb_id FROM documents WHERE id IN (?, ?) ORDER BY kb_id ASC",
             (doc_id, target_doc_id),
         ).fetchall()
         assert len(rows) == 2
         assert rows[0]["id"] == doc_id
-        assert rows[0]["theme_id"] == theme1_id
+        assert rows[0]["kb_id"] == theme1_id
         assert rows[1]["id"] == target_doc_id
-        assert rows[1]["theme_id"] == theme2_id
+        assert rows[1]["kb_id"] == theme2_id
 
         # Verify syndication_dispatches row in database
         disp_row = dbm.get_syndication_dispatch(conn, dispatch_id)
         assert disp_row is not None
-        assert disp_row["theme_id"] == theme1_id
-        assert disp_row["target_theme_id"] == theme2_id
+        assert disp_row["kb_id"] == theme1_id
+        assert disp_row["target_kb_id"] == theme2_id
         assert disp_row["document_id"] == doc_id
         assert disp_row["remote_ref"] == target_doc_id
         assert disp_row["mode"] == "cross_theme"
@@ -174,7 +174,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
 
     # 9. Verify GET /api/syndication/dispatches
     dispatches_resp = client.get(
-        f"/api/syndication/dispatches?theme_id={theme1_id}",
+        f"/api/syndication/dispatches?kb_id={theme1_id}",
         headers=OWNER_HEADERS,
     )
     assert dispatches_resp.status_code == 200
@@ -183,7 +183,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert disp_list["count"] >= 1
     matched = [d for d in disp_list["dispatches"] if d["id"] == dispatch_id]
     assert len(matched) == 1
-    assert matched[0]["target_theme_id"] == theme2_id
+    assert matched[0]["target_kb_id"] == theme2_id
 
     # 10. Verify alternate paths: POST /syndication/dispatch with auto-resolution of source theme
     dispatch2_resp = client.post(
@@ -197,12 +197,12 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert dispatch2_resp.status_code == 200
     d2_data = dispatch2_resp.json()
     assert d2_data["ok"] is True
-    assert d2_data["source_theme_id"] == theme1_id
-    assert d2_data["target_theme_id"] == theme2_id
+    assert d2_data["source_kb_id"] == theme1_id
+    assert d2_data["target_kb_id"] == theme2_id
 
     # Verify alternate paths: GET /syndication/dispatches
     list2_resp = client.get(
-        f"/syndication/dispatches?target_theme_id={theme2_id}",
+        f"/syndication/dispatches?target_kb_id={theme2_id}",
         headers=OWNER_HEADERS,
     )
     assert list2_resp.status_code == 200
@@ -215,7 +215,7 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     # 1. Anonymous request to POST /api/syndication/dispatch is rejected
     anon_post = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": "doc_test", "target_theme_id": 1},
+        json={"document_id": "doc_test", "target_kb_id": 1},
     )
     assert anon_post.status_code in (403, 404)
 
@@ -226,12 +226,12 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     # 3. Missing document_id returns 400
     err_doc = client.post(
         "/api/syndication/dispatch",
-        json={"target_theme_id": 1},
+        json={"target_kb_id": 1},
         headers=OWNER_HEADERS,
     )
     assert err_doc.status_code == 400
 
-    # 4. Missing target_theme_id returns 400
+    # 4. Missing target_kb_id returns 400
     err_target = client.post(
         "/api/syndication/dispatch",
         json={"document_id": "doc_xyz"},
@@ -242,7 +242,7 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     # 5. Non-existent document returns 404
     err_nonexistent = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": "doc_does_not_exist", "target_theme_id": 0},
+        json={"document_id": "doc_does_not_exist", "target_kb_id": 0},
         headers=OWNER_HEADERS,
     )
     assert err_nonexistent.status_code == 404

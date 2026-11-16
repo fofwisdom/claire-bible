@@ -51,7 +51,7 @@
   const cfg = window.__CLAIRE_CONFIG || {};
   const RAW_THEMES = Array.isArray(cfg.themes) && cfg.themes.length
     ? cfg.themes
-    : [{ id: 0, seq: 0, number: "0", label: tr("synd.kb.default_theme"), icon: "📚", is_default: true, is_public: true }];
+    : [{ id: 0, seq: 0, number: "0", label: tr("synd.kb.default_theme"), icon: "📚", is_personal: true, is_public: true }];
 
   const THEMES = {};
   RAW_THEMES.forEach((srv) => {
@@ -383,7 +383,7 @@
     } else {
       const safeDetail = sanitizeContentHtml(doc.detailHtml || `<p>${esc(doc.summary || doc.title || "")}</p>`);
       const syndNote = doc.syndicationMeta
-        ? ` · ${esc(tr("synd.kb.reader.cross_source", { theme: doc.syndicationMeta.source_theme_id, document: doc.syndicationMeta.source_document_id }))}`
+        ? ` · ${esc(tr("synd.kb.reader.cross_source", { theme: doc.syndicationMeta.source_kb_id, document: doc.syndicationMeta.source_document_id }))}`
         : "";
       bodySection = `<div class="tt-reader-body ${fontCls}" style="--read-fs:${prefs.readerFontSize}px">
         <div class="tt-summary-callout"><strong>${ic("pin")} ${esc(tr("synd.kb.reader.summary_title", { id: doc.id }))}</strong> — ${esc(doc.summary || doc.title)}<div style="margin-top:4px;font-size:11.5px;color:var(--muted)">${esc(tr("synd.kb.reader.summary_meta", { time: doc.timeAgo, entities: doc.entityCount || 0, relations: doc.relationCount || 0 }))}${syndNote}</div></div>
@@ -457,7 +457,7 @@
           <div class="tt-card-meta-left">
             ${statusBadge}
             <span class="tt-feed-pill proto-rss">${esc(d.mode || "cross_theme")}</span>
-            <span class="tt-card-feed-title">Theme #${esc(d.theme_id)} → Theme #${esc(d.target_theme_id)}</span>
+            <span class="tt-card-feed-title">Theme #${esc(d.kb_id)} → Theme #${esc(d.target_kb_id)}</span>
           </div>
           <div class="tt-card-meta-right">
             <span class="tt-card-time">${esc(formatTimestamp(d.created_at))}</span>
@@ -687,8 +687,8 @@
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify({
               document_id: doc.id,
-              source_theme_id: Number(theme.id),
-              target_theme_id: Number(targetThemeId)
+              source_kb_id: Number(theme.id),
+              target_kb_id: Number(targetThemeId)
             })
           });
           const data = await resp.json().catch(() => ({}));
@@ -828,7 +828,7 @@
       const [gResp, dResp, dispResp] = await Promise.all([
         fetch(`/graph${q}`, { headers: { Accept: "application/json" } }),
         fetch(`/documents${q}`, { headers: { Accept: "application/json" } }),
-        fetch(`/api/syndication/dispatches?theme_id=${encodeURIComponent(theme.id)}`, { headers: { Accept: "application/json" } })
+        fetch(`/api/syndication/dispatches?kb_id=${encodeURIComponent(theme.id)}`, { headers: { Accept: "application/json" } })
       ]);
 
       if (gResp.ok) {

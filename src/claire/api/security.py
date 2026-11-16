@@ -2208,7 +2208,7 @@ class SafeAccessLogMiddleware:
     def _csp_for(self, state: Mapping[str, Any]) -> bytes:
         """§5.3: 경로가 테마를 고정했으면 그 테마의 GA 측정 ID로 고른다. 고정이 없으면 기존 전역 설정이다."""
         namespace = state.get(NAMESPACE_STATE_KEY)
-        if getattr(namespace, "pinned_theme_id", None) is not None:
+        if getattr(namespace, "pinned_kb_id", None) is not None:
             extra = state.get(NAMESPACE_EXTRA_STATE_KEY) or {}
             if extra.get("ga_measurement_id"):
                 return self._ga_csp_header_value
@@ -2336,9 +2336,9 @@ def wrap_web_app(
 
     if theme_manager is None and getattr(settings, "multi_theme", False):
         try:
-            from ..store.theme import get_theme_manager
+            from ..store.knowledge_base import get_kb_manager
 
-            theme_manager = get_theme_manager(settings)
+            theme_manager = get_kb_manager(settings)
         except Exception:
             pass
 

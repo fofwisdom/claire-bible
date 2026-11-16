@@ -15,7 +15,7 @@ from claire.api import server
 from claire.config import Settings
 from claire.ingest.active import clear_active_ingest, set_active_ingest
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def _client(tmp_path: Path):
@@ -34,9 +34,9 @@ def _client(tmp_path: Path):
         inject_token=owner_tok,
         multi_theme=True,
     )
-    tm = ThemeManager(s)
-    public = tm.define_theme("공개 테마")
-    private = tm.define_theme("비공개 테마", is_public=False)
+    tm = KnowledgeBaseManager(s)
+    public = tm.define_kb("공개 테마")
+    private = tm.define_kb("비공개 테마", is_public=False)
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")
     return client, data_dir, public, private, {"Authorization": f"Bearer {owner_tok}"}
@@ -47,7 +47,7 @@ def test_private_theme_job_hidden_from_anonymous(tmp_path):
     set_active_ingest(
         data_dir,
         payload="https://secret.example.com/doc",
-        theme_id=private.id,
+        kb_id=private.id,
         theme_label=private.label,
         title="비공개 문서",
     )
@@ -63,13 +63,13 @@ def test_private_theme_job_hidden_from_anonymous(tmp_path):
             assert r.status_code == 200, path
             body = r.text
             assert "secret.example.com" not in body, path
-            assert all(j.get("theme_id") != private.id for j in r.json()["active_jobs"]), path
+            assert all(j.get("kb_id") != private.id for j in r.json()["active_jobs"]), path
         for path in (f"/stats?theme={private.id}", f"/ingest/active?theme={private.id}"):
             r = client.get(path)
             assert r.status_code == 404, path
             assert "secret.example.com" not in r.text, path
 
         r = client.get("/stats", headers=owner)
-        assert any(j.get("theme_id") == private.id for j in r.json()["active_jobs"])
+        assert any(j.get("kb_id") == private.id for j in r.json()["active_jobs"])
     finally:
         clear_active_ingest(data_dir)

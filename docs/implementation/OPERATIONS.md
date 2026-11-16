@@ -36,7 +36,7 @@
 
 ### 멀티 테마 단일 DB 통합 및 서비스 시작 자동 마이그레이션
 
-Schema v14부터 모든 지식 테마는 단일 데이터베이스 파일(`data/claire.db`)에 통합 관리되며, 각 테마의 데이터는 `theme_id` 컬럼으로 완전 격리된다. 이전 버전의 분리형 테마 DB 파일(`data/themes/*/claire.db`)이 디스크에 남아 있는 경우, 서비스 시작 시 `ThemeManager.reload()`가 이를 자동으로 감지하여 단일 DB로 병합 마이그레이션을 수행하고 원본 파일은 `claire.db.migrated`로 안전하게 백업 및 이름 변경한다.
+Schema v14부터 모든 지식 테마는 단일 데이터베이스 파일(`data/claire.db`)에 통합 관리되며, 각 테마의 데이터는 `kb_id` 컬럼으로 완전 격리된다. 이전 버전의 분리형 테마 DB 파일(`data/themes/*/claire.db`)이 디스크에 남아 있는 경우, 서비스 시작 시 `KnowledgeBaseManager.reload()`가 이를 자동으로 감지하여 단일 DB로 병합 마이그레이션을 수행하고 원본 파일은 `claire.db.migrated`로 안전하게 백업 및 이름 변경한다.
 
 `CLAIRE_ENVIRONMENT`는 exact `development` 또는 `production` 값이 필수다. bare 명령의 선택은 프로세스 값을 먼저 보지만 파일의 역할을 재해석하지는 않는다. `.env`는 `production`, `.env.dev`는 `development`를 선언해야 한다. development가 선택되면 `.env` 다음에 `.env.dev`와 `docker-compose.dev.yml`을 적용한다. public URL과 CORS는 선택된 env 파일의 값이 사전 검사와 컨테이너 실행에 똑같이 사용된다. `CLAIRE_ANONYMOUS_READONLY`도 host process 값이 아니라 선택된 파일의 exact `0|1`만 사용한다.
 
@@ -302,4 +302,4 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 참고문헌
 
-[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

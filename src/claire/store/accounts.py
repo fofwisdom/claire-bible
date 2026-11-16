@@ -162,17 +162,17 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
     stats = {"artifacts": 0, "images": 0, "attachments": 0, "files": 0, "bundles": 0}
     ddir = Path(data_dir) if data_dir is not None else _detect_data_dir(conn)
 
-    owned_rows = conn.execute("SELECT id FROM themes WHERE account_id=?", (account_id,)).fetchall()
-    owned_theme_ids = [int(r[0]) for r in owned_rows]
+    owned_rows = conn.execute("SELECT id FROM knowledge_bases WHERE account_id=?", (account_id,)).fetchall()
+    owned_kb_ids = [int(r[0]) for r in owned_rows]
 
-    if owned_theme_ids:
-        ph_owned = ",".join("?" for _ in owned_theme_ids)
-        owned_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE theme_id IN ({ph_owned})", owned_theme_ids).fetchall()}
-        other_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE theme_id NOT IN ({ph_owned})", owned_theme_ids).fetchall()}
+    if owned_kb_ids:
+        ph_owned = ",".join("?" for _ in owned_kb_ids)
+        owned_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE kb_id IN ({ph_owned})", owned_kb_ids).fetchall()}
+        other_docs = {r[0] for r in conn.execute(f"SELECT id FROM documents WHERE kb_id NOT IN ({ph_owned})", owned_kb_ids).fetchall()}
         orphan_docs = owned_docs - other_docs
 
-        owned_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE theme_id IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_theme_ids).fetchall()}
-        other_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE theme_id NOT IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_theme_ids).fetchall()}
+        owned_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE kb_id IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_kb_ids).fetchall()}
+        other_files = {r[0] for r in conn.execute(f"SELECT file_ref FROM raw_inbox WHERE kb_id NOT IN ({ph_owned}) AND file_ref IS NOT NULL AND trim(file_ref) != ''", owned_kb_ids).fetchall()}
         orphan_files = owned_files - other_files
 
         if ddir is not None and ddir.exists():
@@ -207,7 +207,7 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
                 for reg_file in registry_dir.glob("*.json"):
                     try:
                         data = json.loads(reg_file.read_text(encoding="utf-8"))
-                        if data.get("theme_id") in owned_theme_ids:
+                        if data.get("kb_id") in owned_kb_ids:
                             filename = data.get("filename")
                             if filename and (bundles_dir / filename).exists():
                                 (bundles_dir / filename).unlink(missing_ok=True)
@@ -216,8 +216,8 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
                     except Exception:
                         pass
 
-        for tid in owned_theme_ids:
-            dbm.reset_graph(conn, theme_id=tid)
+        for tid in owned_kb_ids:
+            dbm.reset_graph(conn, kb_id=tid)
             for tbl in (
                 "documents", "document_snapshots", "document_presentations", "raw_inbox",
                 "extractions", "proposals", "jobs", "refresh_queue", "expand_queue",
@@ -225,14 +225,14 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
                 *dbm.V20_RETIRED_SYNDICATION_TABLES,
             ):
                 try:
-                    conn.execute(f"DELETE FROM {tbl} WHERE theme_id=?", (tid,))
+                    conn.execute(f"DELETE FROM {tbl} WHERE kb_id=?", (tid,))
                 except sqlite3.OperationalError:
                     pass
             try:
-                conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (tid,))
+                conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (tid,))
             except sqlite3.OperationalError:
                 pass
-            conn.execute("DELETE FROM themes WHERE id=?", (tid,))
+            conn.execute("DELETE FROM knowledge_bases WHERE id=?", (tid,))
 
     try:
         conn.execute("DELETE FROM public_directory_counters WHERE account_id=?", (account_id,))

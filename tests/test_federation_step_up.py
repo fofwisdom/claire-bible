@@ -19,7 +19,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 OWNER_TOKEN = "owner-" + "o" * 32
@@ -78,7 +78,7 @@ def _prepare(tmp_path: Path, **overrides: Any) -> tuple[_Settings, int]:
     finally:
         auth.close()
     # The profile page shows a theme. A member without a theme has no page.
-    get_theme_manager(settings).define_theme("Alpha notes", account_id=member, is_default=True)
+    get_kb_manager(settings).define_kb("Alpha notes", account_id=member, is_personal=True)
     return settings, member
 
 

@@ -41,7 +41,7 @@ __all__ = [
 ]
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 6
+CLIENT_SCHEMA_VERSION = 7
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -104,6 +104,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     if version is not None and version > CLIENT_SCHEMA_VERSION:
         raise RuntimeError(f"client.db schema is newer than this code: actual={version}, expected<={CLIENT_SCHEMA_VERSION}")
     conn.execute("CREATE TABLE IF NOT EXISTS client_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    _migrate_v7_linked_kb_id(conn)
     _migrate_v1(conn)
     _migrate_v2(conn)
     _migrate_v3(conn)
@@ -113,6 +114,18 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
+
+
+def _migrate_v7_linked_kb_id(conn: sqlite3.Connection) -> None:
+    """v7 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1): the column ``linked_theme_id`` becomes ``linked_kb_id`` with its values. Idempotent (A3).
+
+    The step runs first, because the later steps already use the new name.
+    """
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()]
+    for table in tables:
+        cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+        if "linked_theme_id" in cols and "linked_kb_id" not in cols:
+            conn.execute(f'ALTER TABLE "{table}" RENAME COLUMN linked_theme_id TO linked_kb_id')
 
 
 def _migrate_v1(conn: sqlite3.Connection) -> None:
@@ -162,7 +175,7 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
             fetched_at REAL NOT NULL,
             unread INTEGER NOT NULL DEFAULT 1 CHECK (unread IN (0, 1)),
             starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
-            linked_theme_id INTEGER,
+            linked_kb_id INTEGER,
             linked_doc_id TEXT,
             UNIQUE (feed_id, item_key)
         )
@@ -247,7 +260,7 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
             received_at REAL NOT NULL,
             unread INTEGER NOT NULL DEFAULT 1,
             starred INTEGER NOT NULL DEFAULT 0,
-            linked_theme_id INTEGER,
+            linked_kb_id INTEGER,
             linked_doc_id TEXT,
             mention INTEGER NOT NULL DEFAULT 0,
             quote_of_iri TEXT,

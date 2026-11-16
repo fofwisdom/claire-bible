@@ -129,7 +129,7 @@ def get_resolution_log_from_meta(meta: dict[str, Any] | None) -> list[Resolution
 def rollback_resolution(
     conn: Any,
     decision: ResolutionDecision,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> bool:
     """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복."""
     if decision.decision != "MERGE" or not decision.target_entity_id:
@@ -141,7 +141,7 @@ def rollback_resolution(
     from ..store import db as dbm
 
     target_id = decision.target_entity_id
-    cand = dbm.get_entity(conn, target_id, theme_id=theme_id)
+    cand = dbm.get_entity(conn, target_id, kb_id=kb_id)
     if not cand:
         return False
 
@@ -172,7 +172,7 @@ def rollback_resolution(
         changed = True
 
     if changed:
-        dbm.upsert_entity(conn, cand, theme_id=0 if theme_id is None else theme_id)
+        dbm.upsert_entity(conn, cand, kb_id=0 if kb_id is None else kb_id)
         return True
     return False
 
@@ -181,22 +181,22 @@ def get_all_resolution_decisions(
     conn: Any,
     limit: int = 100,
     offset: int = 0,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """모든 문서의 meta에서 엔티티 변경/해소 결정 스트림(Decision Stream)을 최신순으로 집계 조회."""
     import json
 
     cur = conn.cursor()
-    if theme_id is not None:
+    if kb_id is not None:
         cur.execute(
             """
             SELECT id, title, fetched_at, meta
             FROM documents
-            WHERE theme_id = ? AND meta LIKE '%"resolution_log"%'
+            WHERE kb_id = ? AND meta LIKE '%"resolution_log"%'
             ORDER BY fetched_at DESC, id DESC
             LIMIT 200
             """,
-            (theme_id,),
+            (kb_id,),
         )
     else:
         cur.execute(

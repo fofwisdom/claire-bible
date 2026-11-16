@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from claire.config import Settings
-from claire.store.theme import ThemeManager, ThemeInfo, ThemeNotFound
+from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseInfo, KnowledgeBaseNotFound
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def temp_theme_env(tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
-    manager = ThemeManager(base_settings=settings)
+    manager = KnowledgeBaseManager(base_settings=settings)
     yield manager, data_dir, vault_dir
 
 
@@ -40,8 +40,8 @@ def test_theme_manager_single_mode(tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
-    manager = ThemeManager(base_settings=settings)
-    themes = manager.list_themes()
+    manager = KnowledgeBaseManager(base_settings=settings)
+    themes = manager.list_kbs()
     assert len(themes) == 1
     assert themes[0].id == 0
     assert themes[0].label == "기본 지식베이스"
@@ -51,13 +51,13 @@ def test_theme_manager_single_mode(tmp_path):
     assert not registry_file.exists()
 
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.define_theme("새 테마")
+        manager.define_kb("새 테마")
 
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.update_theme(0, label="수정")
+        manager.update_kb(0, label="수정")
 
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.delete_theme(0)
+        manager.delete_kb(0)
 
 
 def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
@@ -72,8 +72,8 @@ def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
         CLAIRE_MULTI_THEME=False,
     )
 
-    manager = ThemeManager(base_settings=settings)
-    active = manager.active_theme_settings(settings)
+    manager = KnowledgeBaseManager(base_settings=settings)
+    active = manager.active_kb_settings(settings)
 
     assert [(theme.id, themed.db_file) for theme, themed in active] == [
         (0, settings.db_file)
@@ -83,10 +83,10 @@ def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
 
 def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_env):
     manager, _, _ = temp_theme_env
-    manager.define_theme("첫 번째")
-    manager.define_theme("두 번째")
+    manager.define_kb("첫 번째")
+    manager.define_kb("두 번째")
 
-    active = manager.active_theme_settings(manager.settings)
+    active = manager.active_kb_settings(manager.settings)
 
     assert [theme.id for theme, _ in active] == [0, 1, 2]
     for theme, themed in active:
@@ -95,41 +95,57 @@ def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_e
         assert themed.multi_theme == manager.settings.multi_theme
 
 
-def test_corrupt_registry_is_not_overwritten_or_hidden(temp_theme_env):
-    manager, _, _ = temp_theme_env
+def test_corrupt_legacy_registry_stays_and_start_continues(temp_theme_env):
+    manager, data_dir, _ = temp_theme_env
     original = "{not-json"
-    manager.registry_path.write_text(original, encoding="utf-8")
+    legacy = manager.settings.data_dir / "themes.json"
+    legacy.write_text(original, encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="테마 레지스트리를 읽을 수 없습니다"):
-        manager.active_theme_settings()
+    manager.reload()
 
-    assert manager.registry_path.read_text(encoding="utf-8") == original
+    assert legacy.read_text(encoding="utf-8") == original
+    assert 0 in {t.id for t in manager.list_kbs()}
+
+
+def test_legacy_registry_entries_are_inserted_once_and_the_file_is_retired(temp_theme_env):
+    import json as _json
+
+    manager, data_dir, _ = temp_theme_env
+    legacy = manager.settings.data_dir / "themes.json"
+    legacy.write_text(_json.dumps({"next_seq": 9, "themes": [{"id": 7, "seq": 7, "label": "only in the file", "is_default": False}]}), encoding="utf-8")
+
+    manager.reload()
+
+    assert not legacy.exists()
+    assert (manager.settings.data_dir / "themes.json.retired").is_file()
+    kb = manager.get_kb(7)
+    assert kb.label == "only in the file" and kb.account_id == 1 and kb.is_personal is False
 
 
 def test_default_theme_initialization(temp_theme_env):
     manager, data_dir, _ = temp_theme_env
-    themes = manager.list_themes()
+    themes = manager.list_kbs()
     assert len(themes) == 1
     t0 = themes[0]
     assert t0.id == 0
     assert t0.seq == 0
-    assert t0.is_default is True
+    assert t0.is_personal is True
     assert t0.label == "기본 지식베이스"
     assert "claire.db" in t0.db_path
 
 
 def test_define_new_theme_uses_sequence(temp_theme_env):
     manager, data_dir, vault_dir = temp_theme_env
-    t1 = manager.define_theme("기술 및 AI", description="테크 연구", icon="💻")
+    t1 = manager.define_kb("기술 및 AI", description="테크 연구", icon="💻")
     assert t1.id == 1
     assert t1.seq == 1
     assert t1.label == "기술 및 AI"
-    assert t1.is_default is False
+    assert t1.is_personal is False
     # 단일 DB 아키텍처에서는 db_path 가 통합 claire.db 를 가리킴
     assert "claire.db" in t1.db_path.replace("\\", "/")
 
     # 두 번째 테마 정의 시 seq 2 발급
-    t2 = manager.define_theme("철학 및 인문학", icon="🏛️")
+    t2 = manager.define_kb("철학 및 인문학", icon="🏛️")
     assert t2.id == 2
     assert t2.seq == 2
     assert "claire.db" in t2.db_path.replace("\\", "/")
@@ -137,20 +153,20 @@ def test_define_new_theme_uses_sequence(temp_theme_env):
 
 def test_update_theme_label_does_not_change_folder(temp_theme_env):
     manager, _, _ = temp_theme_env
-    t1 = manager.define_theme("초기 레이블", icon="📁")
+    t1 = manager.define_kb("초기 레이블", icon="📁")
     orig_db_path = t1.db_path
 
     # 레이블 및 아이콘 수정
-    updated = manager.update_theme(1, label="수정된 새 레이블", icon="🤖")
+    updated = manager.update_kb(1, label="수정된 새 레이블", icon="🤖")
     assert updated.label == "수정된 새 레이블"
     assert updated.icon == "🤖"
     # 물리 폴더 경로는 절대 변경되지 않아야 함
     assert updated.db_path == orig_db_path
 
-    # get_theme 으로 조회 시에도 레이블로 찾을 수 있음
-    found_by_label = manager.get_theme("수정된 새 레이블")
+    # get_kb 으로 조회 시에도 레이블로 찾을 수 있음
+    found_by_label = manager.get_kb("수정된 새 레이블")
     assert found_by_label.id == 1
-    found_by_id = manager.get_theme(1)
+    found_by_id = manager.get_kb(1)
     assert found_by_id.label == "수정된 새 레이블"
 
 
@@ -158,35 +174,35 @@ def test_cannot_delete_default_theme(temp_theme_env):
     manager, _, _ = temp_theme_env
     # 1. 숫자 0으로 삭제 시도 -> ValueError 차단
     with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
-        manager.delete_theme(0)
+        manager.delete_kb(0)
 
     # 2. 문자열 "0"으로 삭제 시도 -> ValueError 차단
     with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
-        manager.delete_theme("0")
+        manager.delete_kb("0")
 
     # 3. 레이블 이름("기본 지식베이스")으로 삭제 시도 -> ValueError 차단
     with pytest.raises(ValueError, match="기본 테마.*삭제할 수 없습니다"):
-        manager.delete_theme("기본 지식베이스")
+        manager.delete_kb("기본 지식베이스")
 
 
 def test_delete_and_purge_custom_theme(temp_theme_env):
     manager, _, _ = temp_theme_env
-    t1 = manager.define_theme("임시 테마")
-    assert manager.get_theme(t1.id).id == t1.id
+    t1 = manager.define_kb("임시 테마")
+    assert manager.get_kb(t1.id).id == t1.id
 
     # 테마 이름(레이블)으로 삭제 및 소각(purge)
-    deleted = manager.delete_theme("임시 테마", purge=True)
+    deleted = manager.delete_kb("임시 테마", purge=True)
     assert deleted.id == 1
     assert deleted.label == "임시 테마"
-    assert len(manager.list_themes()) == 1
+    assert len(manager.list_kbs()) == 1
 
-    # 삭제된 ID 조회는 기본 테마 0으로 대신하지 않고 ThemeNotFound
-    with pytest.raises(ThemeNotFound):
-        manager.get_theme(t1.id)
+    # 삭제된 ID 조회는 기본 테마 0으로 대신하지 않고 KnowledgeBaseNotFound
+    with pytest.raises(KnowledgeBaseNotFound):
+        manager.get_kb(t1.id)
 
     # 존재하지 않는 테마 삭제 시도 시 KeyError
     with pytest.raises(KeyError):
-        manager.delete_theme("존재하지않는테마")
+        manager.delete_kb("존재하지않는테마")
 
 
 
@@ -195,40 +211,40 @@ def test_theme_visibility_define_and_update(temp_theme_env):
     manager, _, _ = temp_theme_env
 
     # 1. 비공개 테마 생성 (is_public=False)
-    t1 = manager.define_theme("비공개 전략", is_public=False)
+    t1 = manager.define_kb("비공개 전략", is_public=False)
     assert t1.id == 1
     assert t1.is_public is False
 
     # 2. 공개 테마 생성 (is_public=True)
-    t2 = manager.define_theme("공개 브리핑", is_public=True)
+    t2 = manager.define_kb("공개 브리핑", is_public=True)
     assert t2.id == 2
     assert t2.is_public is True
 
     # 3. include_private=True 시 전체 조회
-    all_themes = manager.list_themes(include_private=True)
+    all_themes = manager.list_kbs(include_private=True)
     assert len(all_themes) == 3
     assert any(t.id == 1 and not t.is_public for t in all_themes)
     assert any(t.id == 2 and t.is_public for t in all_themes)
 
     # 4. include_private=False 시 비공개 테마(t1) 배제
-    public_themes = manager.list_themes(include_private=False)
+    public_themes = manager.list_kbs(include_private=False)
     assert len(public_themes) == 2
     assert not any(t.id == 1 for t in public_themes)
     assert any(t.id == 2 for t in public_themes)
 
-    # 5. get_theme 에서 include_private=False 동작: 기본 공개 테마로 대신하지 않고 ThemeNotFound
-    with pytest.raises(ThemeNotFound) as private_exc:
-        manager.get_theme(1, include_private=False)
+    # 5. get_kb 에서 include_private=False 동작: 기본 공개 테마로 대신하지 않고 KnowledgeBaseNotFound
+    with pytest.raises(KnowledgeBaseNotFound) as private_exc:
+        manager.get_kb(1, include_private=False)
     # 비공개 테마의 존재가 드러나지 않도록 없는 테마와 같은 메시지
-    with pytest.raises(ThemeNotFound) as missing_exc:
-        manager.get_theme(999, include_private=False)
+    with pytest.raises(KnowledgeBaseNotFound) as missing_exc:
+        manager.get_kb(999, include_private=False)
     assert str(private_exc.value) == "테마를 찾을 수 없습니다: 1"
     assert str(missing_exc.value) == "테마를 찾을 수 없습니다: 999"
 
     # 6. 테마 공개 여부 업데이트 (비공개 -> 공개)
-    updated = manager.update_theme(1, is_public=True)
+    updated = manager.update_kb(1, is_public=True)
     assert updated.is_public is True
-    public_themes_after = manager.list_themes(include_private=False)
+    public_themes_after = manager.list_kbs(include_private=False)
     assert len(public_themes_after) == 3
     assert any(t.id == 1 for t in public_themes_after)
 
@@ -236,11 +252,11 @@ def test_theme_visibility_define_and_update(temp_theme_env):
 def test_theme_update_all_options_and_by_label(temp_theme_env):
     """테마 생성 시 제공되는 모든 옵션(label, description, icon, is_public)에 대한 변경 및 레이블 검색 수정 검증."""
     manager, _, _ = temp_theme_env
-    t1 = manager.define_theme("초기 테마", description="초기 설명", icon="📁", is_public=True)
+    t1 = manager.define_kb("초기 테마", description="초기 설명", icon="📁", is_public=True)
     assert t1.id == 1
 
     # 1. 모든 옵션을 한 번에 변경
-    updated = manager.update_theme(
+    updated = manager.update_kb(
         1,
         label="완전 개편 테마",
         description="완전 개편 설명",
@@ -253,13 +269,13 @@ def test_theme_update_all_options_and_by_label(temp_theme_env):
     assert updated.is_public is False
 
     # 2. 레이블(이름)을 인자로 넘겨서 수정 가능한지 검증
-    by_name = manager.update_theme("완전 개편 테마", description="이름으로 찾아서 바꾼 설명", icon="⚡")
+    by_name = manager.update_kb("완전 개편 테마", description="이름으로 찾아서 바꾼 설명", icon="⚡")
     assert by_name.id == 1
     assert by_name.description == "이름으로 찾아서 바꾼 설명"
     assert by_name.icon == "⚡"
 
     # 3. 기본 테마(0)의 메타데이터 수정 가능 여부 검증
-    t0_updated = manager.update_theme(0, label="마스터 지식베이스", description="수정된 기본 설명", icon="📖")
+    t0_updated = manager.update_kb(0, label="마스터 지식베이스", description="수정된 기본 설명", icon="📖")
     assert t0_updated.id == 0
     assert t0_updated.label == "마스터 지식베이스"
     assert t0_updated.description == "수정된 기본 설명"
@@ -272,11 +288,11 @@ def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
     from claire.store import db as dbm
 
     manager, data_dir, vault_dir = temp_theme_env
-    t1 = manager.define_theme("보조 지식베이스")
+    t1 = manager.define_kb("보조 지식베이스")
     assert t1.id == 1
 
-    t0_settings = manager.get_settings_for_theme(0)
-    t1_settings = manager.get_settings_for_theme(1)
+    t0_settings = manager.get_settings_for_kb(0)
+    t1_settings = manager.get_settings_for_kb(1)
 
     # 1. 테마 0 DB 초기화 및 오배정된 토큰만 발급 (문서는 미삽입)
     conn0 = dbm.connect(t0_settings.db_file)
@@ -297,14 +313,14 @@ def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
         source_type="web",
         content_hash="hash_cross_1",
     )
-    dbm.insert_document(conn1, doc, theme_id=1)
+    dbm.insert_document(conn1, doc, kb_id=1)
     conn1.close()
 
     # 3. resolve_share_token 호출 시 테마 1로 자동 해소 및 세부 정보 반환 검증
     res = manager.resolve_share_token(tok)
     assert res is not None
-    theme_id, doc_id, doc_dict = res
-    assert theme_id == 1
+    kb_id, doc_id, doc_dict = res
+    assert kb_id == 1
     assert doc_id == "doc_cross_test"
     assert doc_dict["title"] == "Cross Theme Document"
 
@@ -321,7 +337,7 @@ def test_resolve_share_token_single_mode_fallback(tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
-    manager = ThemeManager(base_settings=settings)
+    manager = KnowledgeBaseManager(base_settings=settings)
 
     conn0 = dbm.connect(settings.db_file)
     dbm.init_db(conn0)
@@ -341,27 +357,27 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     manager, data_dir, vault_dir = temp_theme_env
 
     # 1. 새 테마 생성
-    theme = manager.define_theme("Honkai", icon="🌑", description="붕괴 시리즈")
+    theme = manager.define_kb("Honkai", icon="🌑", description="붕괴 시리즈")
     tid = theme.id
     assert tid == 1
-    t_settings = manager.get_settings_for_theme(tid)
+    t_settings = manager.get_settings_for_kb(tid)
 
     # 2. 테마 1 DB 및 Vault에 데이터 삽입
     conn = dbm.connect(t_settings.db_file)
     dbm.init_db(conn)
 
     doc = Document(id="doc_robin", title="Robin Character", raw_text="Robin content", source_type="text")
-    dbm.insert_document(conn, doc, theme_id=tid)
+    dbm.insert_document(conn, doc, kb_id=tid)
     ent = Entity(id="ent_robin", type="Person", name="Robin", sources=["doc_robin"])
-    dbm.upsert_entity(conn, ent, theme_id=tid)
+    dbm.upsert_entity(conn, ent, kb_id=tid)
     rel = Relation(id="rel_1", type="related_to", source_id="ent_robin", target_id="ent_robin", sources=["doc_robin"])
-    dbm.upsert_relation(conn, rel, theme_id=tid)
+    dbm.upsert_relation(conn, rel, kb_id=tid)
     conn.commit()
     conn.close()
 
-    # 3. reset_theme 실행
-    stats = manager.reset_theme(tid)
-    assert stats["theme_id"] == 1
+    # 3. reset_kb 실행
+    stats = manager.reset_kb(tid)
+    assert stats["kb_id"] == 1
     assert stats["theme_label"] == "Honkai"
     assert stats["deleted_documents"] == 1
     assert stats["deleted_entities"] == 1
@@ -370,7 +386,7 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
 
     # 4. 검증: 메타데이터 및 고유 ID/URI 보존 확인
     manager.reload()
-    reloaded_theme = manager.get_theme(tid)
+    reloaded_theme = manager.get_kb(tid)
     assert reloaded_theme.id == 1
     assert reloaded_theme.seq == 1
     assert reloaded_theme.label == "Honkai"
@@ -387,7 +403,7 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     conn2.close()
 
     # 6. 다음 테마 생성 시 ID 시퀀스가 건너뛰지 않고 정상 발급되는지 검증
-    next_theme = manager.define_theme("Zenless", icon="⚡")
+    next_theme = manager.define_kb("Zenless", icon="⚡")
     assert next_theme.id == 2
 
 
@@ -396,37 +412,37 @@ def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
     manager, _, _ = temp_theme_env
 
     # 1. 지식 관리자 지정하여 테마 생성
-    t1 = manager.define_theme("AI 아키텍처", sorcerer="alice_architect")
+    t1 = manager.define_kb("AI 아키텍처", sorcerer="alice_architect")
     assert t1.sorcerer == "alice_architect"
     assert t1.knowledge_manager == "alice_architect"
     assert t1.to_dict()["sorcerer"] == "alice_architect"
     assert t1.to_dict()["knowledge_manager"] == "alice_architect"
 
     # 2. active_theme_settings에서 테마별 sorcerer 설정 오버라이드 확인
-    active = manager.active_theme_settings(manager.settings)
+    active = manager.active_kb_settings(manager.settings)
     themed_settings = {t.id: s for t, s in active}
     assert themed_settings[0].effective_sorcerer == manager.settings.effective_sorcerer
     assert themed_settings[t1.id].effective_sorcerer == "alice_architect"
     assert themed_settings[t1.id].effective_knowledge_manager == "alice_architect"
 
     # 3. 테마 수정으로 지식 관리자 변경
-    t1_updated = manager.update_theme(t1.id, sorcerer="bob_curator")
+    t1_updated = manager.update_kb(t1.id, sorcerer="bob_curator")
     assert t1_updated.sorcerer == "bob_curator"
     assert t1_updated.knowledge_manager == "bob_curator"
 
     # 4. knowledge_manager 별칭으로 수정 가능 확인
-    t1_updated2 = manager.update_theme(t1.id, knowledge_manager="carol_lead")
+    t1_updated2 = manager.update_kb(t1.id, knowledge_manager="carol_lead")
     assert t1_updated2.sorcerer == "carol_lead"
 
     # 5. 레지스트리 재로딩 후에도 영속성 유지 검증
     manager.reload()
-    reloaded = manager.get_theme(t1.id)
+    reloaded = manager.get_kb(t1.id)
     assert reloaded.sorcerer == "carol_lead"
     assert reloaded.knowledge_manager == "carol_lead"
 
 
 def test_theme_manager_auto_migration_on_startup(tmp_path):
-    """Verify that ThemeManager automatically runs migrate_multi_db_to_single_db on init."""
+    """Verify that KnowledgeBaseManager automatically runs migrate_multi_db_to_single_db on init."""
     from claire.store import db as dbm
 
     data_dir = tmp_path / "data"
@@ -440,14 +456,14 @@ def test_theme_manager_auto_migration_on_startup(tmp_path):
     dbm.insert_document(
         s_conn,
         dbm.Document(id="doc-legacy-1", title="Legacy Doc 1", url="https://legacy.org/1"),
-        theme_id=0,
+        kb_id=0,
     )
     dbm.upsert_entity(
         s_conn,
         dbm.Entity(id="ent-legacy-1", type="Concept", name="Legacy Concept", observations=["Note 1"]),
-        theme_id=0,
+        kb_id=0,
     )
-    dbm.log_inbox(s_conn, source="test", user_id=1, kind="text", payload="legacy inbox payload", theme_id=0)
+    dbm.log_inbox(s_conn, source="test", user_id=1, kind="text", payload="legacy inbox payload", kb_id=0)
     s_conn.close()
 
     settings = Settings(
@@ -456,8 +472,8 @@ def test_theme_manager_auto_migration_on_startup(tmp_path):
         CLAIRE_MULTI_THEME=True,
     )
 
-    # Initialize ThemeManager, which should trigger reload() and auto-migration
-    manager = ThemeManager(base_settings=settings)
+    # Initialize KnowledgeBaseManager, which should trigger reload() and auto-migration
+    manager = KnowledgeBaseManager(base_settings=settings)
 
     # Verify that the legacy db was migrated and renamed
     assert not src_db.exists()
@@ -465,15 +481,15 @@ def test_theme_manager_auto_migration_on_startup(tmp_path):
 
     # Verify data in unified claire.db
     u_conn = dbm.connect(data_dir / "claire.db")
-    doc = dbm.get_document_row(u_conn, "doc-legacy-1", theme_id=1)
+    doc = dbm.get_document_row(u_conn, "doc-legacy-1", kb_id=1)
     assert doc is not None
     assert doc["title"] == "Legacy Doc 1"
 
-    ent = dbm.get_entity(u_conn, "ent-legacy-1", theme_id=1)
+    ent = dbm.get_entity(u_conn, "ent-legacy-1", kb_id=1)
     assert ent is not None
     assert ent.name == "Legacy Concept"
 
-    inbox_counts = dbm.inbox_status_counts(u_conn, theme_id=1)
+    inbox_counts = dbm.inbox_status_counts(u_conn, kb_id=1)
     assert inbox_counts.get("received", 0) == 1
 
     u_conn.close()

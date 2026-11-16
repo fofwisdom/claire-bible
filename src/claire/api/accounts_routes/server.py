@@ -160,7 +160,7 @@ def _render_server_tier_section(state: dict[str, Any]) -> str:
 def _legacy_host_to_dict(h: LegacyHost) -> dict[str, Any]:
     return {
         "host": h.host,
-        "theme_id": h.theme_id,
+        "kb_id": h.kb_id,
         "created_at": h.created_at,
         "activated_at": h.activated_at,
         "sunset_at": h.sunset_at,
@@ -238,7 +238,7 @@ def _render_server_html(
     for h in hosts:
         activated = format_ts(h.activated_at) if h.activated_at is not None else t("console.admin.server.legacy.not_started")
         sunset = format_ts(h.sunset_at) if h.sunset_at is not None else t("console.admin.server.legacy.no_limit")
-        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
+        hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.kb_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
     hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.server.legacy.empty"))}</td></tr>'
 
     readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.server.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.server.readiness_not_passed"))}</span>'

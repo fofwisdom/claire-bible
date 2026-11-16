@@ -29,7 +29,7 @@ FEED_COLUMNS = (
 )
 ITEM_COLUMNS = (
     "id", "account_id", "feed_id", "item_key", "url", "title", "author", "summary", "content", "categories", "published_at", "modified_at",
-    "fetched_at", "unread", "starred", "linked_theme_id", "linked_doc_id",
+    "fetched_at", "unread", "starred", "linked_kb_id", "linked_doc_id",
 )
 
 
@@ -327,9 +327,9 @@ def get_item(conn: sqlite3.Connection, account_id: int, item_id: int) -> dict[st
     return item
 
 
-def link_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, theme_id: int, doc_id: str) -> bool:
+def link_item(conn: sqlite3.Connection, account_id: int, item_id: int, *, kb_id: int, doc_id: str) -> bool:
     """Record the document of an ingested item. The values are not foreign keys: a purge of the document does not change the item."""
-    return conn.execute("UPDATE feed_items SET linked_theme_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (theme_id, doc_id, item_id, account_id)).rowcount == 1
+    return conn.execute("UPDATE feed_items SET linked_kb_id=?, linked_doc_id=? WHERE id=? AND account_id=?", (kb_id, doc_id, item_id, account_id)).rowcount == 1
 
 
 def _urls(values: Any) -> list[str]:
@@ -388,12 +388,12 @@ def mark_items_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, u
     return int(conn.execute(f"UPDATE feed_items SET {', '.join(sets)} WHERE account_id=? AND url IN ({marks})", (*params, account_id, *wanted)).rowcount)
 
 
-def link_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, theme_id: int, doc_id: str, timeline: bool) -> int:
+def link_by_url(conn: sqlite3.Connection, account_id: int, urls: Any, *, kb_id: int, doc_id: str, timeline: bool) -> int:
     """Give the document link of an ingested item to the rows of the other list with the same URL, where they have no document yet. ``timeline`` selects the target: the timeline items, or the feed items."""
     wanted = _urls(urls)
     if not wanted:
         return 0
     marks = ",".join("?" for _ in wanted)
     if timeline:
-        return int(conn.execute(f"UPDATE federation_timeline_items SET linked_theme_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND (url IN ({marks}) OR object_iri IN ({marks}))", (theme_id, doc_id, account_id, *wanted, *wanted)).rowcount)
-    return int(conn.execute(f"UPDATE feed_items SET linked_theme_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND url IN ({marks})", (theme_id, doc_id, account_id, *wanted)).rowcount)
+        return int(conn.execute(f"UPDATE federation_timeline_items SET linked_kb_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND (url IN ({marks}) OR object_iri IN ({marks}))", (kb_id, doc_id, account_id, *wanted, *wanted)).rowcount)
+    return int(conn.execute(f"UPDATE feed_items SET linked_kb_id=?, linked_doc_id=? WHERE account_id=? AND linked_doc_id IS NULL AND url IN ({marks})", (kb_id, doc_id, account_id, *wanted)).rowcount)

@@ -163,7 +163,7 @@ function isMultiThemeEnabled(){
 
 function getThemeKey(t){
   if(!t) return '0';
-  if(t.is_default || String(t.id) === '0' || t.number === '0') return '0';
+  if(t.is_personal || String(t.id) === '0' || t.number === '0') return '0';
   if(t.number !== null && t.number !== undefined && String(t.number).trim() !== ''){
     return String(t.number).trim();
   }
@@ -174,14 +174,14 @@ let availableThemes = (function(){
   if(window.__CLAIRE_CONFIG && Array.isArray(window.__CLAIRE_CONFIG.themes) && window.__CLAIRE_CONFIG.themes.length){
     return window.__CLAIRE_CONFIG.themes;
   }
-  return [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
+  return [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_personal: true}];
 })();
 
 function findTheme(themeRef){
   if(!availableThemes || !availableThemes.length) return null;
   const ref = String(themeRef ?? '').trim();
   if(!ref || ref === '0'){
-    return availableThemes.find(t => t.is_default || String(t.id) === '0' || t.number === '0') || availableThemes[0];
+    return availableThemes.find(t => t.is_personal || String(t.id) === '0' || t.number === '0') || availableThemes[0];
   }
   return availableThemes.find(t => String(t.number) === ref)
     || availableThemes.find(t => String(t.id) === ref)
@@ -291,7 +291,7 @@ function renderThemeSelector(){
   if(!sel) return;
 
   if(!availableThemes || !availableThemes.length){
-    availableThemes = [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_default: true}];
+    availableThemes = [{id: 0, seq: 0, number: '0', label: tr("ws.bar.theme_default"), description: tr("ws.bar.theme_default_desc"), icon: '📚', is_personal: true}];
   }
 
   const current = findTheme(activeThemeId) || availableThemes[0];
@@ -2579,16 +2579,16 @@ function renderIngestResult(d){
   let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
   const appliedOptions=[];
-  if(d.theme_id !== undefined){
-    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.theme_id) })));
+  if(d.kb_id !== undefined){
+    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.kb_id) })));
   }
   if(d.full_content) appliedOptions.push(tr("ws.ingest.opt_full"));
   if(d.effort) appliedOptions.push(esc(tr('ws.ingest.opt_effort', { effort: d.effort })));
   if(appliedOptions.length) h+='<p class=al><b>' + tr("ws.ingest.applied") + '</b> '+appliedOptions.join(' · ')+'</p>';
   if(!d.duplicate) h+='<p class=al>'+tr('ws.ingest.counts', { created: d.entities_created||0, linked: d.entities_linked||0, relations: d.relations_added||0 })+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.theme_id !== undefined && String(d.theme_id) !== String(activeThemeId)){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.theme_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.theme_id) }))+'</button></p>';
+  if(d.kb_id !== undefined && String(d.kb_id) !== String(activeThemeId)){
+    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.kb_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.kb_id) }))+'</button></p>';
   } else {
     if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">' + tr("ws.ingest.open_doc") + '</a></p>';
     refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
@@ -2608,7 +2608,7 @@ function openReingest(){
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
-  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? String(curDoc.theme_id) : String(activeThemeId || '0');
+  const curDocThemeId = (curDoc && curDoc.kb_id !== undefined && curDoc.kb_id !== null) ? String(curDoc.kb_id) : String(activeThemeId || '0');
   if(isMulti && availableThemes && availableThemes.length > 0){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
@@ -2839,7 +2839,7 @@ function openRegen(docIdOverride, compOverride){
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
   let themeFieldHtml = '';
-  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
+  const curDocThemeId = (curDoc && curDoc.kb_id !== undefined && curDoc.kb_id !== null) ? curDoc.kb_id : activeThemeId;
   if(isMulti && availableThemes && availableThemes.length > 0){
     if(AUTH_SCOPE === 'collaborator'){
       const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
@@ -4981,11 +4981,11 @@ function resolveHomeView(stats, activeThemeId){
   } else if(stats.active_ingest && stats.active_ingest.active){
     jobs = [stats.active_ingest];
   } else if(stats.ingesting){
-    jobs = [{ active: true, theme_id: targetTheme }];
+    jobs = [{ active: true, kb_id: targetTheme }];
   }
   if(jobs.length === 0) return 'home';
   const matchesCurrent = jobs.some(j => {
-    const jTheme = String((j.theme_id !== undefined && j.theme_id !== null) ? j.theme_id : '0');
+    const jTheme = String((j.kb_id !== undefined && j.kb_id !== null) ? j.kb_id : '0');
     const curThemeObj = findTheme(targetTheme);
     const jThemeObj = findTheme(jTheme);
     if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
@@ -5002,7 +5002,7 @@ function showOtherThemeJobBanner(stats){
   const otherJobs = (stats && Array.isArray(stats.active_jobs) ? stats.active_jobs : (stats && stats.active_ingest ? [stats.active_ingest] : []))
     .filter(j => {
       if(!j || !j.active) return false;
-      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const jThemeStr = String(j.kb_id !== undefined ? j.kb_id : '0');
       const curThemeObj = findTheme(curThemeStr);
       const jThemeObj = findTheme(jThemeStr);
       if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return false;
@@ -5010,7 +5010,7 @@ function showOtherThemeJobBanner(stats){
     });
   if(!otherJobs.length) return;
   const job = otherJobs[0];
-  const tName = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id || 0));
+  const tName = job.theme_label || (tr("ws.jobs.theme_hash") + (job.kb_id || 0));
   if(typeof ClaireStatusBanner !== 'undefined' && ClaireStatusBanner && ClaireStatusBanner.show){
     ClaireStatusBanner.show('custom_notice', {
       message: tr('ws.jobs.other_theme', { theme: tName, job: job.title || tr('ws.jobs.job') })
@@ -5020,7 +5020,7 @@ function showOtherThemeJobBanner(stats){
       title: tr("ws.jobs.background"),
       actionLabel: tr("ws.jobs.go_theme"),
       action: function(){
-        switchKnowledgeTheme(String(job.theme_id || '0'));
+        switchKnowledgeTheme(String(job.kb_id || '0'));
       }
     });
   }
@@ -5080,7 +5080,7 @@ async function enterHome({reason = 'brand'} = {}){
     try{
       window.gtag('event', 'home_navigate', {
         reason: 'brand',
-        theme_id: activeThemeId
+        kb_id: activeThemeId
       });
     }catch(_){}
   }
@@ -6772,7 +6772,7 @@ function extractActiveJobs(d){
       job_id: 'default_ingest',
       active: true,
       kind: 'ingest',
-      theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+      kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
       title: tr("ws.cockpit.ingest_running"),
       stage: 'extract',
       msg: tr("ws.cockpit.analysis_preparing")
@@ -6877,7 +6877,7 @@ function updateCockpitChrome(job){
   const isDone = curStage === 'done' || (job.active === false && curStage !== 'error');
   const isError = curStage === 'error';
   const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
-  const themeTxt = job.theme_label || (tr("ws.jobs.theme_hash") + (job.theme_id !== undefined ? job.theme_id : 0));
+  const themeTxt = job.theme_label || (tr("ws.jobs.theme_hash") + (job.kb_id !== undefined ? job.kb_id : 0));
 
   const statusBadge = document.getElementById('cockpit-status-badge');
   const statusText = document.getElementById('cockpit-status-text');
@@ -6954,7 +6954,7 @@ function updateCenterJobView(job){
   const docMetaEl = document.getElementById('matrix-target-doc');
   if(docMetaEl){
     const kindTxt = KIND_LABELS[job.kind] || tr("ws.ingest.title_short");
-    const themeTxt = job.theme_label || ('#' + (job.theme_id !== undefined ? job.theme_id : 0));
+    const themeTxt = job.theme_label || ('#' + (job.kb_id !== undefined ? job.kb_id : 0));
     docMetaEl.textContent = tr('ws.cockpit.target_full', { title: job.title || tr('home.recent.untitled'), theme: themeTxt, kind: kindTxt });
   }
 
@@ -6994,7 +6994,7 @@ function renderMultiSlotUI(jobs){
     const curThemeStr = String(activeThemeId || '0');
     const curThemeObj = findTheme(curThemeStr);
     const themeMatch = jobs.find(j => {
-      const jThemeStr = String(j.theme_id !== undefined ? j.theme_id : '0');
+      const jThemeStr = String(j.kb_id !== undefined ? j.kb_id : '0');
       const jThemeObj = findTheme(jThemeStr);
       if(curThemeObj && jThemeObj && curThemeObj === jThemeObj) return true;
       return jThemeStr === curThemeStr;
@@ -7034,7 +7034,7 @@ function initIngestMatrixView(payload, themeLabel){
   const synthJob = {
     active: true,
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: themeLabel || tr("ws.bar.theme_default"),
     title: shortDesc || tr("ws.cockpit.collect_target"),
     stage: 'fetch',
@@ -7084,7 +7084,7 @@ function updateMatrixProgress(msg){
   const synthJob = {
     active: inferredStage !== 'done',
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: tr("ws.bar.theme_default"),
     stage: inferredStage,
     progress: inferredPct,
@@ -7252,7 +7252,7 @@ function renderHeatmapMatrix(matrixData, title, isIngesting){
       updateCockpitChrome({
         active: isActivelyIngesting,
         kind: 'ingest',
-        theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+        kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
         theme_label: tr("ws.bar.theme_default"),
         title: title || '',
         stage: isActivelyIngesting ? 'resolve' : 'done',
@@ -7296,7 +7296,7 @@ function completeIngestMatrixView(result){
   updateCockpitChrome({
     active: false,
     kind: 'ingest',
-    theme_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
+    kb_id: (typeof activeThemeId !== 'undefined' ? activeThemeId : 0),
     theme_label: tr("ws.bar.theme_default"),
     title: (result && result.title) || '',
     stage: 'done',

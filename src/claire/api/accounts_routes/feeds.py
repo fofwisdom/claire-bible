@@ -97,13 +97,13 @@ def _feed_view(feed: dict[str, Any]) -> dict[str, Any]:
 
 
 def _item_view(item: dict[str, Any], *, with_content: bool, timeline: dict[str, int] | None = None) -> dict[str, Any]:
-    keys = ["id", "feed_id", "feed_title", "feed_folder", "url", "title", "author", "summary", "categories", "published_at", "modified_at", "fetched_at", "unread", "starred", "linked_theme_id", "linked_doc_id"]
+    keys = ["id", "feed_id", "feed_title", "feed_folder", "url", "title", "author", "summary", "categories", "published_at", "modified_at", "fetched_at", "unread", "starred", "linked_kb_id", "linked_doc_id"]
     if with_content:
         keys.append("content")
     view = {key: item.get(key) for key in keys}
     # Plain text for a list: the tags are removed on the server (design Section 8 rule 1). A client puts no feed HTML into its page.
     view["text"] = usercontent.remote_item_text(item.get("summary") or item.get("content") or "", 400)
-    view["linked"] = None if item.get("linked_doc_id") is None else {"theme_id": item.get("linked_theme_id"), "document_id": item.get("linked_doc_id")}
+    view["linked"] = None if item.get("linked_doc_id") is None else {"kb_id": item.get("linked_kb_id"), "document_id": item.get("linked_doc_id")}
     # Merge by URL (design Section 1.3 rule 7): the timeline item of the account with the address of this item.
     match = (timeline or {}).get(item.get("url") or "")
     view["timeline_item_id"] = None if match is None else str(match)

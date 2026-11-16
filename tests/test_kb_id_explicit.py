@@ -1,14 +1,14 @@
-"""요청 경로는 `theme_id`를 반드시 명시한다 (설계 S3, THEMES.md §0 항목 2).
+"""요청 경로는 `kb_id`를 반드시 명시한다 (설계 S3, THEMES.md §0 항목 2).
 
-`claire.store.db`·`claire.store.queries`의 함수 상당수는 `theme_id` 기본값이 0(테마 0)이거나 None(모든 테마)이다.
+`claire.store.db`·`claire.store.queries`의 함수 상당수는 `kb_id` 기본값이 0(테마 0)이거나 None(모든 테마)이다.
 계정이 생기면 테마 0은 관리자 테마이므로, 인자를 빠뜨리면 계정 사이로 읽기·쓰기가 샌다.
 
 이 테스트는 실행하지 않고 소스만 본다 (`ast` + `inspect.signature`).
-- `theme_id` 매개변수가 있는 store 함수를 모은다.
+- `kb_id` 매개변수가 있는 store 함수를 모은다.
 - 요청 경로 모듈에서 그 함수 호출을 찾는다. 이름은 각 모듈의 import 별칭으로 푼다.
-- `theme_id=` 키워드나 그 매개변수 위치의 위치 인자가 없으면 위반이다.
-  `**kwargs`는 dict 리터럴·`dict(...)`에 `theme_id`가 보일 때만 인정한다.
-- "모든 테마"가 의도라면 호출 지점에서 `theme_id=None`처럼 명시한다. 주석 기반 허용 목록은 없다.
+- `kb_id=` 키워드나 그 매개변수 위치의 위치 인자가 없으면 위반이다.
+  `**kwargs`는 dict 리터럴·`dict(...)`에 `kb_id`가 보일 때만 인정한다.
+- "모든 테마"가 의도라면 호출 지점에서 `kb_id=None`처럼 명시한다. 주석 기반 허용 목록은 없다.
 - 예외 목록은 없다. `except TypeError:` 처리부 안의 재시도 호출도 똑같이 위반이다.
 """
 
@@ -43,7 +43,7 @@ REQUEST_PATH_GLOBS = (
     "claire/retrieval/*.py",
     "claire/presentation/*.py",
     "claire/graph_bundle.py",
-    # Fedify 사이드카 설계 §10.1: federation_objects 질의도 theme_id를 명시한다.
+    # Fedify 사이드카 설계 §10.1: federation_objects 질의도 kb_id를 명시한다.
     "claire/api/accounts_routes/federation.py",
     "claire/api/federation_routes.py",
 )
@@ -68,7 +68,7 @@ class ThemeParam:
 
 
 def _theme_functions() -> dict[str, ThemeParam]:
-    """`theme_id` 매개변수가 있는 store 함수: 정규 이름 -> 매개변수 위치."""
+    """`kb_id` 매개변수가 있는 store 함수: 정규 이름 -> 매개변수 위치."""
     found: dict[str, ThemeParam] = {}
     for module in STORE_MODULES:
         for name, fn in inspect.getmembers(module, inspect.isfunction):
@@ -76,12 +76,12 @@ def _theme_functions() -> dict[str, ThemeParam]:
                 continue
             params = list(inspect.signature(fn).parameters.values())
             names = [p.name for p in params]
-            if "theme_id" not in names:
+            if "kb_id" not in names:
                 continue
-            p = params[names.index("theme_id")]
+            p = params[names.index("kb_id")]
             index: int | None = None
             if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                index = names.index("theme_id")
+                index = names.index("kb_id")
             found[f"{module.__name__}.{name}"] = ThemeParam(index)
     return found
 
@@ -215,19 +215,19 @@ def _resolve(expr: ast.expr, scopes: list[dict[str, str]]) -> str | None:
     return None
 
 
-def _kwargs_has_theme_id(value: ast.expr) -> bool:
+def _kwargs_has_kb_id(value: ast.expr) -> bool:
     if isinstance(value, ast.Dict):
-        return any(isinstance(k, ast.Constant) and k.value == "theme_id" for k in value.keys)
+        return any(isinstance(k, ast.Constant) and k.value == "kb_id" for k in value.keys)
     if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "dict":
-        return any(kw.arg == "theme_id" for kw in value.keywords)
+        return any(kw.arg == "kb_id" for kw in value.keywords)
     return False
 
 
-def _passes_theme_id(call: ast.Call, param: ThemeParam) -> bool:
+def _passes_kb_id(call: ast.Call, param: ThemeParam) -> bool:
     for kw in call.keywords:
-        if kw.arg == "theme_id":
+        if kw.arg == "kb_id":
             return True
-        if kw.arg is None and _kwargs_has_theme_id(kw.value):
+        if kw.arg is None and _kwargs_has_kb_id(kw.value):
             return True
     if param.index is None:
         return False
@@ -281,7 +281,7 @@ def _violations_in(
         name = _canonical(resolved, theme_fns) if resolved else None
         if name is None:
             return
-        if not _passes_theme_id(node, theme_fns[name]):
+        if not _passes_kb_id(node, theme_fns[name]):
             out.append(Violation(rel, node.lineno, ".".join(names), name.rsplit(".", 1)[-1], fallback))
 
     module_scope = _scope_bindings(tree.body, module, is_package, [])
@@ -317,12 +317,12 @@ def test_detector_resolves_import_aliases() -> None:
         "    from ..store.db import get_document\n"
         "    dbm.get_document(conn, 1)\n"  # 위반
         "    dbm.get_document(conn, 1, t)\n"
-        "    get_document(conn, 1, theme_id=None)\n"
-        "    ts(conn, None)\n"  # 위반: 위치 2가 theme_id
+        "    get_document(conn, 1, kb_id=None)\n"
+        "    ts(conn, None)\n"  # 위반: 위치 2가 kb_id
         "    ts(conn, None, t)\n"
         "    dbm.add_edge(conn, 1, 2, 'r', 'd', 1.0, None, None, t)\n"  # 위반: 키워드 전용
         "    dbm.get_document(conn, 1, **kw)\n"  # 위반
-        "    dbm.get_document(conn, 1, **{'theme_id': t})\n"
+        "    dbm.get_document(conn, 1, **{'kb_id': t})\n"
         "    from ..store.queries import node_detail as _detail\n"
         "    _detail = _resolve_query_func('node_detail', _detail)\n"
         "    _detail(conn, 'e1')\n"  # 위반: 래퍼로 받은 별칭
@@ -340,7 +340,7 @@ def test_detector_resolves_import_aliases() -> None:
         "from ..store import db as dbm\n"
         "def g(conn, t):\n"
         "    try:\n"
-        "        dbm.get_document(conn, 1, theme_id=t)\n"
+        "        dbm.get_document(conn, 1, kb_id=t)\n"
         "    except TypeError:\n"
         "        dbm.get_document(conn, 1)\n"
     )
@@ -348,9 +348,9 @@ def test_detector_resolves_import_aliases() -> None:
     assert [(v.line, v.in_typeerror_fallback) for v in found] == [(6, True)]
 
 
-def test_request_paths_pass_theme_id_explicitly() -> None:
+def test_request_paths_pass_kb_id_explicitly() -> None:
     violations = [str(v) for v in _all_violations()]
     assert not violations, (
-        "theme_id를 명시하지 않은 store 호출 (기본값이 테마 0이거나 모든 테마다):\n  "
+        "kb_id를 명시하지 않은 store 호출 (기본값이 테마 0이거나 모든 테마다):\n  "
         + "\n  ".join(violations)
     )

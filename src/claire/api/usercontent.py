@@ -5,7 +5,7 @@ in an isolated origin (설계 §5.1–§5.2, §15 S1, §16.4 Rev. 2.3).
 
 Key security features:
 1. Capability viewing tokens: Short-term (default 1-hour / 3600s) capability URLs signed with HMAC-SHA256
-   bound to (account_id, theme_id, doc_id, visibility_epoch, exp) via SecretService. Invalidated immediately
+   bound to (account_id, kb_id, doc_id, visibility_epoch, exp) via SecretService. Invalidated immediately
    upon visibility changes or expiration.
 2. Sanitization: All HTML in static render profiles is sanitized via nh3 (allowlist sanitizer),
    completely stripping user scripts and inline event handlers (onerror, onload, onclick, etc.).
@@ -62,7 +62,7 @@ DISALLOWED_STATIC_PREFIXES = ("js/",)
 
 def create_viewing_token(
     account_id: int,
-    theme_id: int,
+    kb_id: int,
     doc_id: int,
     visibility_epoch: int,
     expires_in: int = DEFAULT_VIEWING_TOKEN_TTL,
@@ -70,12 +70,12 @@ def create_viewing_token(
     secret_service: SecretService | None = None,
     now: float | None = None,
 ) -> str:
-    """Create a capability viewing token binding (account_id, theme_id, doc_id, visibility_epoch, exp)."""
+    """Create a capability viewing token binding (account_id, kb_id, doc_id, visibility_epoch, exp)."""
     current_time = int(now if now is not None else time.time())
     exp = current_time + int(expires_in)
     svc = secret_service or get_secret_service()
     derived_key = svc.derive_hmac_key("viewing_token")
-    message = f"{int(account_id)}:{int(theme_id)}:{int(doc_id)}:{int(visibility_epoch)}:{exp}"
+    message = f"{int(account_id)}:{int(kb_id)}:{int(doc_id)}:{int(visibility_epoch)}:{exp}"
     sig = hmac.new(derived_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{exp}.{sig}"
 
@@ -83,14 +83,14 @@ def create_viewing_token(
 def verify_viewing_token(
     token: str,
     account_id: int,
-    theme_id: int,
+    kb_id: int,
     doc_id: int,
     visibility_epoch: int,
     *,
     secret_service: SecretService | None = None,
     now: float | None = None,
 ) -> bool:
-    """Verify a capability viewing token against binding (account_id, theme_id, doc_id, visibility_epoch)."""
+    """Verify a capability viewing token against binding (account_id, kb_id, doc_id, visibility_epoch)."""
     if not token or not isinstance(token, str):
         return False
     # If full URL parameter string was passed
@@ -112,7 +112,7 @@ def verify_viewing_token(
         return False
     svc = secret_service or get_secret_service()
     derived_key = svc.derive_hmac_key("viewing_token")
-    message = f"{int(account_id)}:{int(theme_id)}:{int(doc_id)}:{int(visibility_epoch)}:{exp}"
+    message = f"{int(account_id)}:{int(kb_id)}:{int(doc_id)}:{int(visibility_epoch)}:{exp}"
     expected_sig = hmac.new(derived_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
     return hmac.compare_digest(sig, expected_sig)
 
@@ -412,12 +412,12 @@ def create_usercontent_app(
             if row is None:
                 return None
             doc_dict = dict(row)
-            theme_id = doc_dict.get("theme_id", 0)
-            theme_row = conn.execute("SELECT * FROM themes WHERE id = ?", (theme_id,)).fetchone()
+            kb_id = doc_dict.get("kb_id", 0)
+            theme_row = conn.execute("SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)).fetchone()
             if theme_row is not None:
                 theme_dict = dict(theme_row)
             else:
-                theme_dict = {"id": theme_id, "account_id": 1, "visibility_epoch": 1, "is_public": 1}
+                theme_dict = {"id": kb_id, "account_id": 1, "visibility_epoch": 1, "is_public": 1}
             return doc_dict, theme_dict
         finally:
             conn.close()
@@ -454,7 +454,7 @@ def create_usercontent_app(
 
         doc_dict, theme_dict = resolved
         account_id = theme_dict.get("account_id") or 1
-        theme_id = theme_dict.get("id") or 0
+        kb_id = theme_dict.get("id") or 0
         visibility_epoch = theme_dict.get("visibility_epoch") or 1
         is_theme_public = bool(theme_dict.get("is_public", 1))
         is_hidden = bool(doc_dict.get("hidden", 0))
@@ -470,7 +470,7 @@ def create_usercontent_app(
             is_valid = verify_viewing_token(
                 token=token,
                 account_id=account_id,
-                theme_id=theme_id,
+                kb_id=kb_id,
                 doc_id=doc_id,
                 visibility_epoch=visibility_epoch,
                 secret_service=secret_service,
@@ -487,7 +487,7 @@ def create_usercontent_app(
             raw_content,
             is_public=not is_private,
             account_id=account_id,
-            theme_id=theme_id,
+            kb_id=kb_id,
             visibility_epoch=visibility_epoch,
             roles=roles,
             secret_service=secret_service,
@@ -573,7 +573,7 @@ def create_usercontent_app(
 
         if doc_dict is not None and theme_dict is not None and doc_id is not None:
             account_id = theme_dict.get("account_id") or 1
-            theme_id = theme_dict.get("id") or 0
+            kb_id = theme_dict.get("id") or 0
             visibility_epoch = theme_dict.get("visibility_epoch") or 1
             is_theme_public = bool(theme_dict.get("is_public", 1))
             is_hidden = bool(doc_dict.get("hidden", 0))
@@ -589,7 +589,7 @@ def create_usercontent_app(
                 is_valid = verify_viewing_token(
                     token=token,
                     account_id=account_id,
-                    theme_id=theme_id,
+                    kb_id=kb_id,
                     doc_id=doc_id,
                     visibility_epoch=visibility_epoch,
                     secret_service=secret_service,
@@ -611,7 +611,7 @@ def create_usercontent_app(
                 content,
                 is_public=not is_private,
                 account_id=account_id if doc_dict else 1,
-                theme_id=theme_id if doc_dict else 0,
+                kb_id=kb_id if doc_dict else 0,
                 visibility_epoch=visibility_epoch if doc_dict else 1,
                 roles=roles,
                 secret_service=secret_service,

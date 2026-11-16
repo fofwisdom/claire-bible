@@ -157,7 +157,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `PATCH` | `/api/feeds/items` | 본문 `{"item_ids": [...], "unread"?, "starred"?}`(1–500개) 또는 `{"feed_id", "unread"}`. 200 `{"changed": n}` | 400 `invalid_request`, 404 `feed_not_found` |
 | `GET` | `/api/feeds/items/{item_id}` | 200 `{"item"}`: the keys of the list, `has_body`, `render_url` (FP4-F3, [FEDERATION.md](FEDERATION.md) §23) | 404 `item_not_found` |
 | `POST` | `/api/feeds/discover` | Body `{"url"}`. 200 `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}` | 400 `invalid_request`, 400 `invalid_url` |
-| `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"theme"}`. 200: the ingest report with `linked` (`{"theme_id", "document_id"}` or `null`) | 400 `invalid_request`, 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"theme"}`. 200: the ingest report with `linked` (`{"kb_id", "document_id"}` or `null`) | 400 `invalid_request`, 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
 | `GET` | `/render/feed/{item_id}?t={token}` | 200 HTML for a sandbox `iframe`. On the app origin only without a `usercontent` host | 404 |
 
 ## 8. 연합 클라이언트 발신 상호작용 경로 (FP4-9)
@@ -180,7 +180,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 |---|---|---|---|
 | `GET` | `/api/federation/quotes` | 200 `{"requests": [...], "authorizations": [...], "counts": {"pending", "approved"}}`. `requests`는 소유자의 결정을 기다리는 인용 요청, `authorizations`는 승인한 요청이다. 각각 최신 100개까지. 요청 키: `id`, `state`, `object`(`id`, `url`, `kind`, `text`), `quoting_object`, `quoting_actor`, `authorization`, `created_at`, `updated_at` | 404 |
 | `PATCH` | `/api/federation/quotes/{quote_id}` | 본문 `{"state"}`: `approved`·`refused`(기다리는 요청), `revoked`(승인한 요청). 200 `{"quote"}`. 사이드카가 `Accept`(`QuoteAuthorization` 포함), `Reject`, 또는 승인의 `Delete`를 보낸다 | 400 `invalid_request`, 404 `quote_not_found`, 409 `invalid_state`(`state`), 409 `not_actor` |
-| `PATCH` | `/api/federation/objects/{object_id}` | 본문 `{"quote_policy"}`: `public`·`followers`·`manual`·`nobody`. 200 `{"object": {"id", "theme_id", "document_id", "quote_policy"}}`. 값이 바뀌면 객체의 `Update`를 보낸다 | 400 `invalid_request`, 400 `invalid_quote_policy`, 404 `object_not_found` |
+| `PATCH` | `/api/federation/objects/{object_id}` | 본문 `{"quote_policy"}`: `public`·`followers`·`manual`·`nobody`. 200 `{"object": {"id", "kb_id", "document_id", "quote_policy"}}`. 값이 바뀌면 객체의 `Update`를 보낸다 | 400 `invalid_request`, 400 `invalid_quote_policy`, 404 `object_not_found` |
 
 - 타임라인 항목(`GET /api/federation/timeline`, `GET /api/federation/timeline/{item_id}`)에는 `quote` 키가 있다: `null`, 또는 `{"iri", "item_id", "state"}`. `state`는 자기 노트의 인용 상태(`pending`, `approved`, `refused`, `revoked`)이고, 원격 게시물이면 `null`이다.
 - `note`에는 `quote_policy`, `quotes`(승인한 인용 수), `quote`(`{"iri", "state"}` 또는 `null`)가 있다. `GET /api/federation/objects`의 항목에는 `quote_policy`와 `quotes`가 있다.

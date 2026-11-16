@@ -22,7 +22,7 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import federation as fed
 from claire.store.secrets import get_secret_service, reset_secret_service
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ALPHA_PUBLIC_ID = 116412345678901234
@@ -92,12 +92,12 @@ def env(tmp_path):
             cur = conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 0, 0)", (public_id, username, username))
             members.append(int(cur.lastrowid))
         alpha, beta = members
-        for theme_id in (11, 12):
-            conn.execute("INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, 0, 1, 1, 1, 1, ?, ?)", (theme_id, theme_id, f"theme-{theme_id}", alpha, 316412345678901200 + theme_id))
+        for kb_id in (11, 12):
+            conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, 0, 1, 1, 1, 1, ?, ?)", (kb_id, kb_id, f"theme-{kb_id}", alpha, 316412345678901200 + kb_id))
         objects = {}
-        for document_id, theme_id in (("doc-a", 11), ("doc-b", 11), ("doc-c", 12)):
-            conn.execute("INSERT INTO documents (id, theme_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, ?, ?, 'Body', 'md', 0, 1)", (document_id, theme_id, document_id))
-            obj, _task, _made = fed.publish_document(conn, account_id=alpha, theme_id=theme_id, document_id=document_id, published_by_account_id=alpha, salt=store.id_salt(), now=1000.0)
+        for document_id, kb_id in (("doc-a", 11), ("doc-b", 11), ("doc-c", 12)):
+            conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, ?, ?, 'Body', 'md', 0, 1)", (document_id, kb_id, document_id))
+            obj, _task, _made = fed.publish_document(conn, account_id=alpha, kb_id=kb_id, document_id=document_id, published_by_account_id=alpha, salt=store.id_salt(), now=1000.0)
             objects[document_id] = obj.public_id
         # The tasks of the publish calls are done. The tests look at the tasks that a trigger makes.
         conn.execute("UPDATE federation_outbox SET status='handed_off', handed_off_at=1001")
@@ -116,27 +116,27 @@ def _new_tasks(settings: _Settings) -> list[tuple]:
 
 
 def test_theme_change_to_private_makes_delete_tasks_with_the_visibility_epoch(env, monkeypatch):
-    manager = ThemeManager(env.settings)
-    before = manager.get_theme(11).visibility_epoch
+    manager = KnowledgeBaseManager(env.settings)
+    before = manager.get_kb(11).visibility_epoch
 
     # The tasks and the epoch are one transaction: a failure of the task insert leaves the theme public.
     with monkeypatch.context() as m:
         m.setattr(fed, "add_outbox_task", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no task")))
         with pytest.raises(RuntimeError):
-            manager.update_theme(11, is_public=False)
+            manager.update_kb(11, is_public=False)
     conn = _connect(env.settings)
     try:
-        assert tuple(conn.execute("SELECT is_public, visibility_epoch FROM themes WHERE id=11").fetchone()) == (1, before)
-        assert conn.execute("SELECT COUNT(*) FROM federation_objects WHERE theme_id=11").fetchone()[0] == 2
+        assert tuple(conn.execute("SELECT is_public, visibility_epoch FROM knowledge_bases WHERE id=11").fetchone()) == (1, before)
+        assert conn.execute("SELECT COUNT(*) FROM federation_objects WHERE kb_id=11").fetchone()[0] == 2
     finally:
         conn.close()
     assert _new_tasks(env.settings) == [] and _tombstones(env.settings) == {}
 
-    manager = ThemeManager(env.settings)
-    manager.update_theme(11, is_public=False)
+    manager = KnowledgeBaseManager(env.settings)
+    manager.update_kb(11, is_public=False)
     conn = _connect(env.settings)
     try:
-        assert tuple(conn.execute("SELECT is_public, visibility_epoch FROM themes WHERE id=11").fetchone()) == (0, before + 1)
+        assert tuple(conn.execute("SELECT is_public, visibility_epoch FROM knowledge_bases WHERE id=11").fetchone()) == (0, before + 1)
         assert [r[0] for r in conn.execute("SELECT document_id FROM federation_objects")] == ["doc-c"]
     finally:
         conn.close()
@@ -144,20 +144,20 @@ def test_theme_change_to_private_makes_delete_tasks_with_the_visibility_epoch(en
     assert _tombstones(env.settings) == {env.objects["doc-a"]: "object", env.objects["doc-b"]: "object"}
 
     # A change that does not make the theme private makes no task: a label change, and the change back to public.
-    manager.update_theme(11, label="new label")
-    manager.update_theme(11, is_public=True)
-    manager.update_theme(12, description="still public")
+    manager.update_kb(11, label="new label")
+    manager.update_kb(11, is_public=True)
+    manager.update_kb(12, description="still public")
     assert len(_new_tasks(env.settings)) == 2
 
 
 @pytest.mark.parametrize("purge", [False, True])
 def test_theme_deletion_makes_delete_tasks_and_tombstones(env, purge):
-    ThemeManager(env.settings).delete_theme(12, purge=purge)
+    KnowledgeBaseManager(env.settings).delete_kb(12, purge=purge)
     assert _new_tasks(env.settings) == [(env.alpha, "delete", env.objects["doc-c"], "pending", None)]
     assert _tombstones(env.settings) == {env.objects["doc-c"]: "object"}
     conn = _connect(env.settings)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM themes WHERE id=12").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE id=12").fetchone()[0] == 0
         assert sorted(r[0] for r in conn.execute("SELECT document_id FROM federation_objects")) == ["doc-a", "doc-b"]
     finally:
         conn.close()
@@ -166,9 +166,9 @@ def test_theme_deletion_makes_delete_tasks_and_tombstones(env, purge):
 def test_document_purge_makes_a_delete_task_for_that_document_only(env):
     conn = dbm.connect(env.settings.db_file)
     try:
-        dry = dbm.purge_document_cascade(conn, env.settings.data_dir, ["doc-a"], dry_run=True, theme_id=11)
+        dry = dbm.purge_document_cascade(conn, env.settings.data_dir, ["doc-a"], dry_run=True, kb_id=11)
         assert dry["dry_run"] is True and _new_tasks(env.settings) == []
-        report = dbm.purge_document_cascade(conn, env.settings.data_dir, ["doc-a"], theme_id=11)
+        report = dbm.purge_document_cascade(conn, env.settings.data_dir, ["doc-a"], kb_id=11)
     finally:
         conn.close()
     assert report["federation_delete_tasks"] == 1

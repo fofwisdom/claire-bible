@@ -89,8 +89,8 @@ def quoted_object(conn: Any, client: Any, public_id: int, actor_ids: list[int]) 
     """The account and the quote policy of an own object that is public now: a published document (its account is an actor, its theme is public, and its document is not hidden) or a note that is not deleted (its account is an actor). If not, ``None``."""
     obj = federation_store.get_object(conn, public_id)
     if obj is not None:
-        theme = conn.execute("SELECT is_public FROM themes WHERE id=?", (obj.theme_id,)).fetchone()
-        document = dbm.get_document_row(conn, obj.document_id, theme_id=obj.theme_id)
+        theme = conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
+        document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
         if obj.account_id not in actor_ids or theme is None or not theme["is_public"] or document is None or document["hidden"]:
             return None
         return obj.account_id, obj.quote_policy

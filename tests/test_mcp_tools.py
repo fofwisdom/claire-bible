@@ -27,7 +27,7 @@ from claire.api.mcp_tools import (
 from claire.config import Settings
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 
 def _db():
@@ -368,7 +368,7 @@ def test_build_mcp_app_tools_have_optional_theme(tmp_path):
     conn0 = dbm.connect(s.db_file)
     dbm.init_db(conn0)
     conn0.close()
-    tm = ThemeManager(s)
+    tm = KnowledgeBaseManager(s)
     app = build_mcp_app(s, theme_mgr=tm)
 
     with TestClient(app, base_url="http://localhost:8765") as client:
@@ -418,9 +418,9 @@ def test_build_mcp_app_document_cross_theme_resolution(tmp_path):
     conn0.close()
 
     # 2. 테마 1 정의 및 문서 doc1 적재
-    tm = ThemeManager(s)
-    t1 = tm.define_theme("AI 테마")
-    t1_s = tm.get_settings_for_theme(t1.id, s)
+    tm = KnowledgeBaseManager(s)
+    t1 = tm.define_kb("AI 테마")
+    t1_s = tm.get_settings_for_kb(t1.id, s)
     conn1 = dbm.connect(t1_s.db_file)
     dbm.init_db(conn1)
     dbm.insert_document(
@@ -433,7 +433,7 @@ def test_build_mcp_app_document_cross_theme_resolution(tmp_path):
             source_type="web",
             content_hash="h1",
         ),
-        theme_id=t1.id,
+        kb_id=t1.id,
     )
     conn1.close()
 
@@ -522,9 +522,9 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
     dbm.init_db(conn0)
     conn0.close()
 
-    tm = ThemeManager(s)
-    t1 = tm.define_theme("격리 테마 1")
-    t1_s = tm.get_settings_for_theme(t1.id, s)
+    tm = KnowledgeBaseManager(s)
+    t1 = tm.define_kb("격리 테마 1")
+    t1_s = tm.get_settings_for_kb(t1.id, s)
     conn1 = dbm.connect(t1_s.db_file)
     dbm.init_db(conn1)
     dbm.insert_document(
@@ -537,7 +537,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
             source_type="web",
             content_hash="hiso1",
         ),
-        theme_id=t1.id,
+        kb_id=t1.id,
     )
     conn1.close()
 

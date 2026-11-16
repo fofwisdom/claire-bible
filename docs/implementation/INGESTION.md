@@ -305,7 +305,7 @@ YouTube has its own fetcher (`fetch_youtube`): `youtube-transcript-api` first, t
 
 ### 11.2 Service and composer
 
-- `IngestService.ingest_composite(file_path, file_name, url, …)` writes a `raw_inbox` row with `kind="composite"`, `file_ref`, `file_name`, and a JSON payload (`url`, `attachment_name`, `effort`, `full_content`, `theme_id`). The replay of failed rows reads this payload. [code]
+- `IngestService.ingest_composite(file_path, file_name, url, …)` writes a `raw_inbox` row with `kind="composite"`, `file_ref`, `file_name`, and a JSON payload (`url`, `attachment_name`, `effort`, `full_content`, `kb_id`). The replay of failed rows reads this payload. [code]
 - `fetch_composite_components` in `src/claire/ingest/composite.py` reads the file with `fetch_file` and the URL with `router.fetch`. A missing file, a zero-byte file, an empty file text, a URL fetch error, or an empty URL text raises `FetchError`. Then the row gets `status="error"` and no document is written. [code]
 - `compose_composite_document(file_doc, url_doc, file_name, …)` always uses the URL document as the primary document. [code]
   - Video or YouTube URL plus PDF: the PDF block follows the transcript; meta gets `presentation_pdf`, `presentation_pdfs`, and `content_components`.

@@ -45,7 +45,7 @@ PROD_ORIGIN = f"https://{PROD_HOST}"
 LEGACY_HOSTS_DDL = """
 CREATE TABLE IF NOT EXISTS legacy_hosts (
     host TEXT PRIMARY KEY,
-    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     created_at REAL NOT NULL,
     activated_at REAL,
     sunset_at REAL
@@ -561,7 +561,7 @@ def _legacy_router(tmp_path, directory, *, now: float = 1000.0) -> HostRouter:
 
 
 def _row(host="ai.example.com", *, activated_at=None, sunset_at=None) -> LegacyHost:
-    return LegacyHost(host=host, theme_id=3, created_at=1.0, activated_at=activated_at, sunset_at=sunset_at)
+    return LegacyHost(host=host, kb_id=3, created_at=1.0, activated_at=activated_at, sunset_at=sunset_at)
 
 
 @pytest.mark.asyncio
@@ -617,19 +617,19 @@ def _legacy_db(tmp_path: Path) -> Path:
     try:
         dbm.init_db(conn)
         conn.execute(LEGACY_HOSTS_DDL)
-        conn.execute("INSERT OR IGNORE INTO themes (id, seq, label) VALUES (3, 3, 'AI')")
+        conn.execute("INSERT OR IGNORE INTO knowledge_bases (id, seq, label) VALUES (3, 3, 'AI')")
         conn.commit()
     finally:
         conn.close()
     return db_file
 
 
-def _insert(db_file: Path, host: str, *, theme_id: int = 3) -> None:
+def _insert(db_file: Path, host: str, *, kb_id: int = 3) -> None:
     conn = sqlite3.connect(db_file)
     try:
         conn.execute(
-            "INSERT INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) VALUES (?, ?, ?, NULL, NULL)",
-            (host, theme_id, time.time()),
+            "INSERT INTO legacy_hosts (host, kb_id, created_at, activated_at, sunset_at) VALUES (?, ?, ?, NULL, NULL)",
+            (host, kb_id, time.time()),
         )
         conn.commit()
     finally:
@@ -645,7 +645,7 @@ def test_sqlite_directory_caches_and_sees_external_changes(tmp_path):
     old_db = tmp_path / "old" / "claire.db"
     old_db.parent.mkdir()
     conn = sqlite3.connect(old_db)
-    conn.execute("CREATE TABLE themes (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE knowledge_bases (id INTEGER PRIMARY KEY)")
     conn.commit()
     conn.close()
     old_directory = lh.SqliteLegacyHostDirectory(old_db)
@@ -653,11 +653,11 @@ def test_sqlite_directory_caches_and_sees_external_changes(tmp_path):
     assert old_directory.policy() == LegacyHostPolicy()
 
     db_file = _legacy_db(tmp_path)
-    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: f"/themes/{row.theme_id}/")
+    directory = lh.SqliteLegacyHostDirectory(db_file, theme_location=lambda row: f"/themes/{row.kb_id}/")
     assert directory.lookup("ai.example.com") is None
     _insert(db_file, "ai.example.com")  # 다른 연결(이관·다른 프로세스)이 쓴다
     found = directory.lookup("AI.Example.com")
-    assert found is not None and found.theme_id == 3 and found.sunset_at is None
+    assert found is not None and found.kb_id == 3 and found.sunset_at is None
     assert directory.theme_location(found) == "/themes/3/"
     assert lh.SqliteLegacyHostDirectory(db_file).theme_location(found) is None
 
@@ -699,7 +699,7 @@ def test_sunset_clock_activation_extension_and_indefinite_hold(tmp_path):
         held = lh.keep_indefinitely(conn, "ai.example.com")
         assert held.sunset_at is None and held.activated_at == now
         assert directory.lookup("ai.example.com").sunset_at is None
-        assert [row.host for row in lh.list_legacy_hosts(conn, theme_id=3)] == ["ai.example.com", "finance.example.com"]
+        assert [row.host for row in lh.list_legacy_hosts(conn, kb_id=3)] == ["ai.example.com", "finance.example.com"]
 
         with pytest.raises(KeyError):
             lh.extend_sunset(conn, "absent.example.com", days=1)

@@ -179,7 +179,7 @@ def test_shell_bootstrap_helper_uses_storage_key_public_id(app_env):
                 mode="single",
                 account_id=1,
                 username=None,
-                pinned_theme_id=0,
+                pinned_kb_id=0,
                 prefix="",
                 via_prefix=False,
             ),
@@ -515,7 +515,7 @@ def test_post_api_admin_server_legacy_hosts_sunset_actions(app_env):
     conn = dbm.connect_existing(app_env.db_file)
     try:
         conn.execute(
-            "INSERT INTO legacy_hosts (host, theme_id, created_at, activated_at, sunset_at) VALUES ('old.example.com', 0, ?, NULL, NULL)",
+            "INSERT INTO legacy_hosts (host, kb_id, created_at, activated_at, sunset_at) VALUES ('old.example.com', 0, ?, NULL, NULL)",
             (time.time(),),
         )
         conn.commit()

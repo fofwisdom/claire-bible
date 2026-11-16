@@ -51,7 +51,7 @@
 
   function getThemeKey(t) {
     if (!t) return '0';
-    if (t.is_default || String(t.id) === '0' || t.number === '0') return '0';
+    if (t.is_personal || String(t.id) === '0' || t.number === '0') return '0';
     if (t.number !== null && t.number !== undefined && String(t.number).trim() !== '') {
       return String(t.number).trim();
     }
@@ -67,7 +67,7 @@
     const themes = _themeState.themes || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themes) || [];
     const ref = String(themeRef ?? '').trim();
     if (!ref || ref === '0') {
-      return themes.find(t => t.is_default || String(t.id) === '0' || t.number === '0') || themes[0] || null;
+      return themes.find(t => t.is_personal || String(t.id) === '0' || t.number === '0') || themes[0] || null;
     }
     return themes.find(t => String(t.number) === ref) || themes.find(t => String(t.id) === ref) || null;
   }

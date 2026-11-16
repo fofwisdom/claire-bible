@@ -34,7 +34,7 @@ log = logging.getLogger("claire.telegram")
 class AccountThemeScope:
     """텔레그램 봇이 보는 테마 관리자. 봇 소유 계정의 테마만 드러낸다(유저 단위 봇).
 
-    다른 계정의 테마는 없는 테마와 같게 다룬다(``ThemeNotFound``). 그래서 ``#태그``·``/theme`` 선택·재생성 대상·공유 토큰 어느 경로로도
+    다른 계정의 테마는 없는 테마와 같게 다룬다(``KnowledgeBaseNotFound``). 그래서 ``#태그``·``/theme`` 선택·재생성 대상·공유 토큰 어느 경로로도
     다른 계정 테마에 적재하거나 다른 계정의 컨텍스트로 작업하지 않는다. 나머지 메서드는 감싼 관리자에게 넘긴다.
     """
 
@@ -48,36 +48,36 @@ class AccountThemeScope:
     def _owned(self, theme: Any) -> bool:
         return getattr(theme, "account_id", dbm.ADMIN_ACCOUNT_ID) == self.account_id
 
-    def get_theme(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
-        from .store.theme import ThemeNotFound
+    def get_kb(self, theme_ref: Any = None, *args: Any, **kwargs: Any) -> Any:
+        from .store.knowledge_base import KnowledgeBaseNotFound
 
         if theme_ref is None or str(theme_ref).strip() == "":
-            return self._inner.default_theme_for(self.account_id)
-        theme = self._inner.get_theme(theme_ref, *args, **kwargs)
+            return self._inner.personal_kb_for(self.account_id)
+        theme = self._inner.get_kb(theme_ref, *args, **kwargs)
         if not self._owned(theme):
-            raise ThemeNotFound(theme_ref)
+            raise KnowledgeBaseNotFound(theme_ref)
         return theme
 
-    def list_themes(self, *args: Any, **kwargs: Any) -> list[Any]:
-        return [t for t in self._inner.list_themes(*args, **kwargs) if self._owned(t)]
+    def list_kbs(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return [t for t in self._inner.list_kbs(*args, **kwargs) if self._owned(t)]
 
-    def _theme_id_owned(self, theme_id: Any) -> bool:
-        from .store.theme import ThemeNotFound
+    def _kb_id_owned(self, kb_id: Any) -> bool:
+        from .store.knowledge_base import KnowledgeBaseNotFound
 
-        if theme_id is None:
+        if kb_id is None:
             return False
         try:
-            return self._owned(self._inner.get_theme(theme_id))
-        except (ThemeNotFound, KeyError, ValueError):
+            return self._owned(self._inner.get_kb(kb_id))
+        except (KnowledgeBaseNotFound, KeyError, ValueError):
             return False
 
     def resolve_document_targets(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         targets = self._inner.resolve_document_targets(*args, **kwargs) or []
-        return [tg for tg in targets if self._theme_id_owned(tg.get("theme_id"))]
+        return [tg for tg in targets if self._kb_id_owned(tg.get("kb_id"))]
 
     def resolve_share_token(self, *args: Any, **kwargs: Any) -> Any:
         resolved = self._inner.resolve_share_token(*args, **kwargs)
-        if resolved is None or not self._theme_id_owned(resolved[0]):
+        if resolved is None or not self._kb_id_owned(resolved[0]):
             return None
         return resolved
 
@@ -270,7 +270,7 @@ async def _settle_status(
     is_duplicate: bool = False,
     retry_doc_id: str | None = None,
     cands_markup: Any = None,
-    theme_id: int | None = 0,
+    kb_id: int | None = 0,
     db_file: str | Path | None = None,
     inbox_id: int | None = None,
     service_pool: Any = None,
@@ -295,8 +295,8 @@ async def _settle_status(
         cands = []
 
     log.info(
-        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_detail_failed=%s, is_summary_failed=%s, is_duplicate=%s, cands=%d, theme_id=%s",
-        retry_doc_id, has_error, is_stt_failed, is_detail_failed, is_summary_failed, is_duplicate, len(cands), theme_id,
+        "Settle status: doc_id=%s, has_error=%s, is_stt_failed=%s, is_detail_failed=%s, is_summary_failed=%s, is_duplicate=%s, cands=%d, kb_id=%s",
+        retry_doc_id, has_error, is_stt_failed, is_detail_failed, is_summary_failed, is_duplicate, len(cands), kb_id,
     )
 
     async def _safe_send_or_edit(text: str, reply_markup: Any = None) -> None:
@@ -398,21 +398,21 @@ async def _settle_status(
 
                 if theme_mgr is None:
                     try:
-                        from .store.theme import get_theme_manager
+                        from .store.knowledge_base import get_kb_manager
 
-                        theme_mgr = get_theme_manager(cfg)
+                        theme_mgr = get_kb_manager(cfg)
                     except Exception:
                         theme_mgr = None
 
                 target_db: Path | None = None
-                target_theme_id: int = theme_id if theme_id is not None else 0
+                target_kb_id: int = kb_id if kb_id is not None else 0
                 if db_file:
                     target_db = Path(db_file)
-                elif theme_mgr is not None and target_theme_id == 0:
+                elif theme_mgr is not None and target_kb_id == 0:
                     try:
                         matches = theme_mgr.resolve_document_targets(doc_id=retry_doc_id)
                         if matches:
-                            target_theme_id = matches[0].get("theme_id", 0)
+                            target_kb_id = matches[0].get("kb_id", 0)
                             if matches[0].get("db_file"):
                                 target_db = Path(matches[0]["db_file"])
                     except Exception:
@@ -424,7 +424,7 @@ async def _settle_status(
                 if base_url and target_db and target_db.exists():
                     conn = dbm.connect_existing(target_db, readonly=False)
                     try:
-                        share_tok = dbm.create_doc_share(conn, retry_doc_id, theme_id=target_theme_id)
+                        share_tok = dbm.create_doc_share(conn, retry_doc_id, kb_id=target_kb_id)
                     finally:
                         conn.close()
                     if share_tok:
@@ -585,7 +585,7 @@ def parse_caption_composite(
     caption: str | None,
     theme_mgr: Any | None = None,
 ) -> tuple[str | None, str | None, int | None, bool, str | None]:
-    """파일 첨부 캡션에서 (composite_url, clean_focus, theme_id, has_refetch_full, has_effort) 추출.
+    """파일 첨부 캡션에서 (composite_url, clean_focus, kb_id, has_refetch_full, has_effort) 추출.
 
     캡션에 유효한 HTTP(S) URL이 포함된 경우 composite_url을 반환하여 복합 적재로 분기한다.
     URL이 없으면 composite_url은 None이다 (기존 단건 파일 적재 경로 유지).
@@ -594,7 +594,7 @@ def parse_caption_composite(
     if not c:
         return None, None, None, False, None
 
-    clean_text, explicit_theme_id = parse_message_theme(c, theme_mgr)
+    clean_text, explicit_kb_id = parse_message_theme(c, theme_mgr)
     text_no_flags, _, has_refetch_full, has_effort = parse_regenerate_flags(clean_text)
 
     from .ingest.router import _URL_RE
@@ -602,7 +602,7 @@ def parse_caption_composite(
     m = _URL_RE.search(text_no_flags)
     if not m:
         focus = parse_caption_focus(text_no_flags)
-        return None, (focus or None), explicit_theme_id, has_refetch_full, has_effort
+        return None, (focus or None), explicit_kb_id, has_refetch_full, has_effort
 
     target_url = m.group(0).rstrip(".,;)。")
     rem_before = text_no_flags[:m.start()].strip()
@@ -617,7 +617,7 @@ def parse_caption_composite(
         focus = re.sub(r"[\s|｜¦—–:：]+$", "", focus).strip()
         focus = parse_caption_focus(focus)
 
-    return target_url, (focus or None), explicit_theme_id, has_refetch_full, has_effort
+    return target_url, (focus or None), explicit_kb_id, has_refetch_full, has_effort
 
 
 _THEME_TAG_RE = re.compile(
@@ -637,8 +637,8 @@ def parse_message_theme(
     t = (text or "").strip()
     if not t:
         return "", None
-    from .store.theme import get_theme_manager
-    tm = theme_mgr or get_theme_manager()
+    from .store.knowledge_base import get_kb_manager
+    tm = theme_mgr or get_kb_manager()
     if hasattr(tm, "settings") and not getattr(tm.settings, "multi_theme", False):
         return t, None
 
@@ -648,7 +648,7 @@ def parse_message_theme(
         if cand.lower() in ("\ucd08\uc810", "focus"):
             continue
         try:
-            found = tm.get_theme(cand, label_match="partial")
+            found = tm.get_kb(cand, label_match="partial")
             if account_id is not None and getattr(found, "account_id", dbm.ADMIN_ACCOUNT_ID) != account_id:
                 continue
             clean = (t[:m.start()] + " " + t[m.end():]).strip()
@@ -665,11 +665,11 @@ def resolve_selected_theme(theme_mgr: Any, selections: dict[int, int], user_id: 
 
     고른 적이 없으면 기본 테마 0이다. 고른 테마가 삭제됐으면 선택을 지우고 None을 돌려준다. 호출자는 ``bot.theme.stale`` 메시지로 거부하고 적재·검색하지 않는다(테마 0으로 대신하지 않는다).
     """
-    from .store.theme import ThemeNotFound
+    from .store.knowledge_base import KnowledgeBaseNotFound
 
     try:
-        return theme_mgr.get_theme(selections.get(user_id, 0))
-    except ThemeNotFound:
+        return theme_mgr.get_kb(selections.get(user_id, 0))
+    except KnowledgeBaseNotFound:
         selections.pop(user_id, None)
         return None
 
@@ -746,7 +746,7 @@ async def _create_support_bundle_for_delivery(
 async def _create_graph_bundle_for_delivery(
     settings,
     *,
-    theme_id: int = 0,
+    kb_id: int = 0,
     channel: str,
     transport=None,
 ):
@@ -762,7 +762,7 @@ async def _create_graph_bundle_for_delivery(
         return await asyncio.to_thread(
             create_graph_bundle,
             settings,
-            theme_id=theme_id,
+            kb_id=kb_id,
             request_context={"channel": channel},
         )
 
@@ -792,7 +792,7 @@ async def _create_graph_bundle_for_delivery(
                 "Authorization": f"Bearer {settings.inject_token}",
                 "Host": public_authority,
             },
-            json={"theme_id": theme_id, "source_channel": channel},
+            json={"kb_id": kb_id, "source_channel": channel},
         )
     if response.status_code != 200:
         raise RuntimeError(
@@ -845,14 +845,14 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     from pathlib import Path
 
     from .ingest.service import IngestService, IngestServicePool
-    from .store.theme import ThemeNotFound, get_theme_manager
+    from .store.knowledge_base import KnowledgeBaseNotFound, get_kb_manager
 
     logging.basicConfig(level=logging.INFO)
     # 텔레그램 봇은 관리자 전용이다(설계 §10.1). 서비스·풀은 관리자 컨텍스트(전역 settings = providers.json)로 만들고,
     # 테마 관리자를 관리자 계정 소유 테마로 좁혀 #태그·/theme·재생성 대상이 멤버 테마를 고르지 못하게 한다.
-    theme_mgr = AccountThemeScope(get_theme_manager(s), bot_account_id)
+    theme_mgr = AccountThemeScope(get_kb_manager(s), bot_account_id)
     if is_admin_bot:
-        svc = IngestService(s, theme_id=None, account_id=dbm.ADMIN_ACCOUNT_ID)
+        svc = IngestService(s, kb_id=None, account_id=dbm.ADMIN_ACCOUNT_ID)
         service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr, account_id=dbm.ADMIN_ACCOUNT_ID)
     else:
         # 멤버 계정 봇: 그 계정의 기본 테마 서비스(멤버 프로바이더 컨텍스트, 설계 §10.2)를 기본으로 쓴다.
@@ -873,15 +873,15 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             request_context={"channel": channel},
         )
 
-    async def _deliver_graph_bundle(*, theme_id: int, channel: str):
+    async def _deliver_graph_bundle(*, kb_id: int, channel: str):
         if is_admin_bot:
-            return await _create_graph_bundle_for_delivery(s, theme_id=theme_id, channel=channel)
+            return await _create_graph_bundle_for_delivery(s, kb_id=kb_id, channel=channel)
         from .graph_bundle import create_graph_bundle
 
         return await asyncio.to_thread(
             create_graph_bundle,
             s,
-            theme_id=theme_id,
+            kb_id=kb_id,
             request_context={"channel": channel},
             account_id=bot_account_id,
         )
@@ -918,21 +918,21 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await msg.reply_text(_t("bot.error.member_refusal"))
         return True
     user_active_themes: dict[int, int] = {}
-    pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, theme_id))
+    pending: dict[str, tuple[list[str], int]] = {}  # 확장 후보 임시 보관(콜백 토큰 -> (urls, kb_id))
     pending_ingest: dict[str, dict[str, Any]] = {}  # 적재 대기 요청 임시 보관(콜백 토큰 -> dict)
 
-    def _markup(update_id: int, candidates: list[str], doc_id: str | None = None, theme_id: int = 0):
+    def _markup(update_id: int, candidates: list[str], doc_id: str | None = None, kb_id: int = 0):
         token = f"{update_id}"
-        pending[token] = (candidates, theme_id)
+        pending[token] = (candidates, kb_id)
         kb = []
         if doc_id:
             try:
                 base_url = (getattr(s, "public_url", "") or "").rstrip("/")
-                theme_db = service_pool.get_service(theme_id).s.db_file
+                theme_db = service_pool.get_service(kb_id).s.db_file
                 if base_url and theme_db and Path(theme_db).exists():
                     conn = dbm.connect_existing(theme_db, readonly=False)
                     try:
-                        share_tok = dbm.create_doc_share(conn, doc_id, theme_id=theme_id)
+                        share_tok = dbm.create_doc_share(conn, doc_id, kb_id=kb_id)
                     finally:
                         conn.close()
                     if share_tok:
@@ -961,9 +961,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_summary_failed: bool = False,
         is_duplicate: bool = False,
         retry_doc_id: str | None = None,
-        theme_id: int = 0,
+        kb_id: int = 0,
     ) -> None:
-        cands_markup = _markup(update_id, cands, retry_doc_id, theme_id=theme_id) if cands else None
+        cands_markup = _markup(update_id, cands, retry_doc_id, kb_id=kb_id) if cands else None
         await _settle_status(
             status,
             msg,
@@ -976,7 +976,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_duplicate=is_duplicate,
             retry_doc_id=retry_doc_id,
             cands_markup=cands_markup,
-            theme_id=theme_id,
+            kb_id=kb_id,
             service_pool=service_pool,
             theme_mgr=theme_mgr,
         )
@@ -1122,7 +1122,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             is_summary_failed=is_summary_failed,
             is_duplicate=is_duplicate,
             retry_doc_id=did,
-            theme_id=target_theme.id,
+            kb_id=target_theme.id,
         )
 
     def _help_text() -> str:
@@ -1154,13 +1154,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         uid = user.id if user else 0
         theme_mgr.reload()
-        themes = theme_mgr.list_themes()
+        themes = theme_mgr.list_kbs()
 
         if ctx.args:
             arg = " ".join(ctx.args).strip()
             try:
                 # 사람이 입력하는 값이라 레이블 부분 일치를 허용한다
-                target = theme_mgr.get_theme(arg, label_match="partial")
+                target = theme_mgr.get_kb(arg, label_match="partial")
                 user_active_themes[uid] = target.id
                 msg_text = (
                     _t("bot.theme.selected", icon=_h(target.icon), label=_h(target.label), id=target.id)
@@ -1179,7 +1179,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if current_theme is None:
             # 삭제된 선택은 지웠으므로 선택 없음(기본 테마 0)으로 보여 주고 그 사실을 알린다
             stale_lines = [_t("bot.theme.stale_cleared"), ""]
-            current_theme = theme_mgr.get_theme(0)
+            current_theme = theme_mgr.get_kb(0)
         current_tid = current_theme.id
         lines = stale_lines + [
             _t("bot.theme.current", icon=_h(current_theme.icon), label=_h(current_theme.label), id=current_theme.id),
@@ -1216,24 +1216,24 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         from .config import extract_own_share_token
 
         is_multi = bool(getattr(s, "multi_theme", False))
-        explicit_theme_id = None
+        explicit_kb_id = None
         if is_multi:
             theme_mgr.reload()
-            text, explicit_theme_id = parse_message_theme(raw_text, theme_mgr)
+            text, explicit_kb_id = parse_message_theme(raw_text, theme_mgr)
             user_id = user.id if user else 0
-            if explicit_theme_id is not None:
-                active_theme = theme_mgr.get_theme(explicit_theme_id)
+            if explicit_kb_id is not None:
+                active_theme = theme_mgr.get_kb(explicit_kb_id)
             else:
                 active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
                 if active_theme is None:
                     await update.message.reply_text(_t("bot.theme.stale"))
                     return
-            active_theme_id = active_theme.id
-            active_svc = service_pool.get_service(active_theme_id)
+            active_kb_id = active_theme.id
+            active_svc = service_pool.get_service(active_kb_id)
         else:
             text = raw_text
-            active_theme_id = 0
-            active_theme = theme_mgr.get_theme(0)
+            active_kb_id = 0
+            active_theme = theme_mgr.get_kb(0)
             active_svc = svc
 
         # CT28: the parser still separates the URL from the text after a separator; the text is ignored.
@@ -1250,19 +1250,19 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if resolved:
                 res_tid, res_doc_id, _ = resolved
                 try:
-                    active_theme = theme_mgr.get_theme(res_tid)
-                except ThemeNotFound:
+                    active_theme = theme_mgr.get_kb(res_tid)
+                except KnowledgeBaseNotFound:
                     # 삭제된 테마의 공유 링크를 테마 0에서 처리하지 않는다
                     await update.message.reply_text(_t("bot.share.theme_gone"))
                     return
-                active_theme_id = res_tid
+                active_kb_id = res_tid
                 active_svc = service_pool.get_service(res_tid)
                 target_doc_id = res_doc_id
             else:
                 conn = dbm.connect(active_svc.s.db_file)
                 try:
                     dbm.init_db(conn)
-                    target_doc_id = dbm.resolve_doc_share(conn, share_tok, theme_id=active_theme_id)
+                    target_doc_id = dbm.resolve_doc_share(conn, share_tok, kb_id=active_kb_id)
                     if not target_doc_id:
                         row = conn.execute("SELECT document_id FROM doc_shares WHERE token=?", (share_tok,)).fetchone()
                         if row:
@@ -1282,11 +1282,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 try:
                     matches = theme_mgr.resolve_document_targets(doc_id=payload_clean)
                     if matches:
-                        matched_tid = matches[0].get("theme_id")
+                        matched_tid = matches[0].get("kb_id")
                         if matched_tid is not None:
                             # 삭제된 테마면 ThemeNotFound로 이 후보를 건너뛴다
-                            active_theme = theme_mgr.get_theme(matched_tid)
-                            active_theme_id = matched_tid
+                            active_theme = theme_mgr.get_kb(matched_tid)
+                            active_kb_id = matched_tid
                             active_svc = service_pool.get_service(matched_tid)
                             target_doc_id = payload_clean
                             if is_multi and user:
@@ -1357,7 +1357,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             conn = dbm.connect(active_svc.s.db_file)
             doc = None
             try:
-                doc = dbm.get_document(conn, target_doc_id, theme_id=active_theme_id)
+                doc = dbm.get_document(conn, target_doc_id, kb_id=active_kb_id)
             finally:
                 conn.close()
 
@@ -1443,8 +1443,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             uid, cid, len(payload_to_ingest), payload_to_ingest[:60],
         )
 
-        themes = theme_mgr.list_themes() if is_multi else []
-        if is_multi and len(themes) > 1 and explicit_theme_id is None:
+        themes = theme_mgr.list_kbs() if is_multi else []
+        if is_multi and len(themes) > 1 and explicit_kb_id is None:
             token = f"{update.update_id}"
             target_snippet = payload_to_ingest[:60] + ("…" if len(payload_to_ingest) > 60 else "")
             prompt_msg = await _prompt_theme_selection(
@@ -1467,8 +1467,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             }
             return
 
-        active_tid = explicit_theme_id if explicit_theme_id is not None else 0
-        active_theme = theme_mgr.get_theme(active_tid)
+        active_tid = explicit_kb_id if explicit_kb_id is not None else 0
+        active_theme = theme_mgr.get_kb(active_tid)
         status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,
@@ -1529,7 +1529,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_composite = bool(composite_url)
         kind_label = _t("bot.kind.composite") if is_composite else _t("bot.kind.file")
 
-        themes = theme_mgr.list_themes() if is_multi else []
+        themes = theme_mgr.list_kbs() if is_multi else []
         if is_multi and len(themes) > 1 and explicit_tid is None:
             token = f"{update.update_id}"
             prompt_msg = await _prompt_theme_selection(
@@ -1578,7 +1578,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
 
         active_tid = explicit_tid if explicit_tid is not None else 0
-        active_theme = theme_mgr.get_theme(active_tid)
+        active_theme = theme_mgr.get_kb(active_tid)
         status_text = (
             _t("bot.progress.composite", name=name)
             if is_composite
@@ -1652,7 +1652,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
-        themes = theme_mgr.list_themes() if is_multi else []
+        themes = theme_mgr.list_kbs() if is_multi else []
         if is_multi and len(themes) > 1 and explicit_tid is None:
             token = f"{update.update_id}"
             target_snippet = payload_to_ingest[:60] + ("…" if len(payload_to_ingest) > 60 else "")
@@ -1677,7 +1677,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
 
         active_tid = explicit_tid if explicit_tid is not None else 0
-        active_theme = theme_mgr.get_theme(active_tid)
+        active_theme = theme_mgr.get_kb(active_tid)
         status = await msg.reply_text("⏳ " + _t("bot.progress.processing"))
         await _execute_ingest(
             status,
@@ -1752,7 +1752,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
             try:
                 target_tid = int(tid_str)
-                target_theme = theme_mgr.get_theme(target_tid)
+                target_theme = theme_mgr.get_kb(target_tid)
             except Exception as e:
                 await query.answer(_t("bot.theme.check_failed", error=e))
                 return
@@ -1825,7 +1825,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             try:
                 chk_conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
                 try:
-                    if dbm.get_document_row(chk_conn, did, theme_id=target_svc.theme_id):
+                    if dbm.get_document_row(chk_conn, did, kb_id=target_svc.kb_id):
                         doc_in_active = True
                 finally:
                     chk_conn.close()
@@ -1836,7 +1836,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 try:
                     matches = theme_mgr.resolve_document_targets(doc_id=did)
                     if matches:
-                        resolved_tid = matches[0].get("theme_id", 0)
+                        resolved_tid = matches[0].get("kb_id", 0)
                         target_svc = service_pool.get_service(resolved_tid)
                         if is_multi and user:
                             user_active_themes[user.id] = resolved_tid
@@ -1919,7 +1919,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             target_tid_str = data[10:]
             try:
                 target_tid = int(target_tid_str)
-                theme = theme_mgr.get_theme(target_tid)
+                theme = theme_mgr.get_kb(target_tid)
                 uid = user.id if user else 0
                 user_active_themes[uid] = theme.id
                 await query.answer(_t("bot.theme.toast", icon=theme.icon, label=theme.label))
@@ -1970,7 +1970,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 return
             try:
                 exp_svc = service_pool.get_service(exp_tid)
-            except ThemeNotFound:
+            except KnowledgeBaseNotFound:
                 # 적재 뒤 테마가 삭제됐으면 테마 0으로 확장 적재하지 않는다
                 await query.edit_message_text(_t("bot.expand.theme_gone"))
                 return
@@ -2002,7 +2002,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         clean_q, explicit_tid = parse_message_theme(q, theme_mgr)
         user_id = update.effective_user.id if update.effective_user else 0
         if explicit_tid is not None:
-            active_theme = theme_mgr.get_theme(explicit_tid)
+            active_theme = theme_mgr.get_kb(explicit_tid)
         else:
             active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
             if active_theme is None:
@@ -2312,7 +2312,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 target=target,
                 channel="telegram_command",
             )
-            theme_str = f", {_t('bot.label.theme')} #{info.target_theme_id}" if info.target_theme_id else ""
+            theme_str = f", {_t('bot.label.theme')} #{info.target_kb_id}" if info.target_kb_id else ""
             if info.target_doc_id:
                 tgt_line = _t("bot.support.target_line", doc_id=info.target_doc_id, matched=f"{info.target_matched_by}{theme_str}") + "\n"
             elif info.target_resolution_status:
@@ -2382,7 +2382,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             for b in bundles:
                 e_str = datetime.datetime.fromtimestamp(b["expires_at"]).strftime("%Y-%m-%d %H:%M")
                 size_kb = f"{b['size_bytes'] / 1024:.1f}KB"
-                theme_str = f"{_t('bot.label.theme')} #{b.get('theme_id', 0)}"
+                theme_str = f"{_t('bot.label.theme')} #{b.get('kb_id', 0)}"
                 token_val = b.get("token")
                 token_part = f"\n  ↳ {_t('bot.label.link')}: {pub_url}/graph/bundle?token={token_val}" if token_val and pub_url else ""
                 lines.append(_t("bot.export.list_item", bundle_id=b["bundle_id"], theme=theme_str, size=size_kb, entities=b.get("entities_count", 0), relations=b.get("relations_count", 0), expires=e_str, link=token_part))
@@ -2394,11 +2394,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await msg.reply_text(_t("bot.export.purged", count=purged))
             return
 
-        theme_id = 0
+        kb_id = 0
         if sub_args:
             first_arg = sub_args[0]
             if first_arg.isdigit():
-                theme_id = int(first_arg)
+                kb_id = int(first_arg)
             else:
                 await msg.reply_text(
                     _t("bot.export.invalid_theme", value=first_arg)
@@ -2407,18 +2407,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if not is_admin_bot:
             # 멤버 계정 봇은 자기 테마만 내보낸다. 번호가 없으면 기본 테마다.
             try:
-                theme_id = theme_mgr.get_theme(theme_id if sub_args else None).id
-            except ThemeNotFound:
+                kb_id = theme_mgr.get_kb(kb_id if sub_args else None).id
+            except KnowledgeBaseNotFound:
                 await msg.reply_text(_t("bot.export.not_own_theme"))
                 return
 
         status_msg = await msg.reply_text(_t("bot.export.progress"))
         try:
             info = await _deliver_graph_bundle(
-                theme_id=theme_id,
+                kb_id=kb_id,
                 channel="telegram_command",
             )
-            theme_line = _t("bot.export.theme_line", id=info.theme_id) + "\n" if info.theme_id else ""
+            theme_line = _t("bot.export.theme_line", id=info.kb_id) + "\n" if info.kb_id else ""
             reply_text = (
                 _t("bot.export.done", bundle_id=info.bundle_id, theme_line=theme_line, entities=f"{info.entities_count:,}", relations=f"{info.relations_count:,}", documents=f"{info.documents_count:,}", size_mb=f"{info.size_bytes / (1024 * 1024):.2f}", size_kb=f"{info.size_bytes / 1024:.1f}", url=info.download_url)
             )
@@ -2475,18 +2475,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if active_theme is None:
                 await msg.reply_text(_t("bot.theme.stale"))
                 return
-            active_theme_id = active_theme.id
-            active_svc = service_pool.get_service(active_theme_id)
+            active_kb_id = active_theme.id
+            active_svc = service_pool.get_service(active_kb_id)
         else:
-            active_theme_id = 0
+            active_kb_id = 0
             active_svc = svc
 
         try:
             items = await asyncio.to_thread(active_svc.list_failures, limit=10)
             if not items and is_multi:
                 all_items = []
-                for t in theme_mgr.list_themes(include_private=True):
-                    if t.id == active_theme_id:
+                for t in theme_mgr.list_kbs(include_private=True):
+                    if t.id == active_kb_id:
                         continue
                     tsvc = service_pool.get_service(t.id)
                     t_items = await asyncio.to_thread(tsvc.list_failures, limit=10)
@@ -2530,10 +2530,10 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             if active_theme is None:
                 await msg.reply_text(_t("bot.theme.stale"))
                 return
-            active_theme_id = active_theme.id
-            target_svc = service_pool.get_service(active_theme_id)
+            active_kb_id = active_theme.id
+            target_svc = service_pool.get_service(active_kb_id)
         else:
-            active_theme_id = 0
+            active_kb_id = 0
             target_svc = svc
 
         if is_multi:
@@ -2541,7 +2541,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             try:
                 conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
                 try:
-                    if dbm.get_inbox(conn, inbox_id, theme_id=active_theme_id) is not None:
+                    if dbm.get_inbox(conn, inbox_id, kb_id=active_kb_id) is not None:
                         found = True
                 finally:
                     conn.close()
@@ -2549,8 +2549,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 pass
 
             if not found:
-                for t in theme_mgr.list_themes(include_private=True):
-                    if t.id == active_theme_id:
+                for t in theme_mgr.list_kbs(include_private=True):
+                    if t.id == active_kb_id:
                         continue
                     tsvc = service_pool.get_service(t.id)
                     if not Path(tsvc.s.db_file).is_file():
@@ -2558,7 +2558,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     try:
                         conn = dbm.connect_existing(tsvc.s.db_file, readonly=True)
                         try:
-                            if dbm.get_inbox(conn, inbox_id, theme_id=t.id) is not None:
+                            if dbm.get_inbox(conn, inbox_id, kb_id=t.id) is not None:
                                 target_svc = tsvc
                                 user_active_themes[user_id] = t.id
                                 found = True

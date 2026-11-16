@@ -44,7 +44,7 @@ def test_parse_caption_composite_variations():
         def __init__(self):
             self.settings = SimpleNamespace(multi_theme=True)
 
-        def get_theme(self, cand, *, label_match="exact"):
+        def get_kb(self, cand, *, label_match="exact"):
             return SimpleNamespace(id=int(cand) if str(cand).isdigit() else 1)
 
     url, focus, tid, full, effort = parse_caption_composite(
@@ -263,7 +263,7 @@ def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
         "focus": "장애 복구 검증",
         "effort": None,
         "full_content": False,
-        "theme_id": 0,
+        "kb_id": 0,
     }
     inbox_id = dbm.log_inbox(
         conn,
@@ -595,8 +595,8 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
     mock_msg.reply_text = AsyncMock(side_effect=fake_reply_text)
 
     # on_document 내부의 _prompt_theme_selection 호출 유도를 위해 multi_theme 설정
-    from claire.store.theme import ThemeManager
-    theme_mgr = ThemeManager(settings)
+    from claire.store.knowledge_base import KnowledgeBaseManager
+    theme_mgr = KnowledgeBaseManager(settings)
     themes = [
         SimpleNamespace(id=0, label="기본", icon="🌐", is_public=True),
         SimpleNamespace(id=1, label="연구_테마", icon="🔬", is_public=True),
@@ -649,9 +649,9 @@ async def test_telegram_on_document_multi_theme_underscored_file(tmp_path: Path)
     settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     # 2개 테마를 등록
-    from claire.store.theme import ThemeManager
-    tm = ThemeManager(settings)
-    tm.define_theme("보안_연구", icon="🔒")
+    from claire.store.knowledge_base import KnowledgeBaseManager
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("보안_연구", icon="🔒")
 
     app = build_app(settings)
 

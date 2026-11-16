@@ -298,13 +298,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     )
                     new_acc_id = int(cur.lastrowid)
 
-                    theme_seq_row = c_conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM themes").fetchone()
-                    theme_id = int(theme_seq_row[0])
-                    theme_num = ids.timestamp_id("themes", salt=salt, unix_ms=int(now_ts * 1000) + 1)
+                    theme_seq_row = c_conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge_bases").fetchone()
+                    kb_id = int(theme_seq_row[0])
+                    theme_num = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now_ts * 1000) + 1)
                     c_conn.execute(
-                        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at, db_path) "
+                        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at, db_path) "
                         "VALUES (?, ?, ?, 'General', ?, 1, 0, ?, ?, ?)",
-                        (theme_id, theme_id, theme_num, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
+                        (kb_id, kb_id, theme_num, new_acc_id, now_ts, now_ts, str(ctx.db_file)),
                     )
                 return new_acc_id
             finally:

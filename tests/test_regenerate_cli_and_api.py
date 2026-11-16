@@ -251,19 +251,19 @@ def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch)
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
-    # Register additional theme in ThemeManager
+    # Register additional theme in KnowledgeBaseManager
     t_create = client.post(
         "/themes",
         json={"label": "R1999", "icon": "🪐", "is_public": True},
         headers=OWNER_HEADERS,
     )
     assert t_create.status_code == 201
-    new_theme_id = t_create.json()["theme"]["id"]
+    new_kb_id = t_create.json()["theme"]["id"]
 
     # Ingest document into this new theme's database
-    from claire.store.theme import ThemeManager
-    theme_mgr = ThemeManager(settings)
-    theme_settings = theme_mgr.get_settings_for_theme(new_theme_id)
+    from claire.store.knowledge_base import KnowledgeBaseManager
+    theme_mgr = KnowledgeBaseManager(settings)
+    theme_settings = theme_mgr.get_settings_for_kb(new_kb_id)
     c_theme = dbm.connect(theme_settings.db_file)
     dbm.init_db(c_theme)
     prov = MockProvider()
@@ -285,7 +285,7 @@ def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch)
         data_dir=theme_settings.data_dir,
         source="test",
         fetch_fn=lambda _: doc,
-        theme_id=new_theme_id,
+        kb_id=new_kb_id,
     )
     doc_id = rep.document_id
     c_theme.close()
@@ -299,7 +299,7 @@ def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch)
     assert res_dry.status_code == 200
     d_dry = res_dry.json()
     assert d_dry.get("count") == 1
-    assert d_dry.get("theme_id") == new_theme_id
+    assert d_dry.get("kb_id") == new_kb_id
 
     # Call /regenerate-stream without theme parameter
     res_stream = client.post(
@@ -312,5 +312,5 @@ def test_api_regenerate_multi_theme_auto_resolution(tmp_path: Path, monkeypatch)
     last_event = json.loads(lines[-1])
     assert last_event.get("done") is True
     assert last_event["result"].get("count") == 1
-    assert last_event["result"].get("theme_id") == new_theme_id
+    assert last_event["result"].get("kb_id") == new_kb_id
 

@@ -83,7 +83,7 @@
 
 ### 3.2. 문서 (Document / `doc_id`, `documents`)
 - **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 시스템 적재 메타데이터(`docmeta`), 원문, 요약, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
-- **저장소**: 단일 SQLite `documents` 테이블 (Schema v14, `theme_id` 파티셔닝).
+- **저장소**: 단일 SQLite `documents` 테이블 (Schema v14, `kb_id` 파티셔닝).
 - **식별 체계**: `doc_<hash>` 또는 `doc_<uuid>` 형태의 유일한 식별자.
 - **적재 메타데이터 (Document Ingestion Metadata / `docmeta` / `Document.meta`)**:
   - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `focus`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
@@ -127,9 +127,9 @@
 - **링크 / 엣지 (Link / Edge)**:
   - **정의**: 지식 그래프 상에서 두 노드를 시각적으로 연결하는 선이자 그래프 네트워크의 간선.
 
-### 3.7. 테마 (Theme / `theme_id`)
+### 3.7. 테마 (Theme / `kb_id`)
 - **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위.
-- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
+- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`kb_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `kb_id` 컬럼 분리).
 
 ### 3.8. 볼트 (Vault / `vault/`, 영구 제거됨)
 - **정의**: 과거 SQLite DB 정본을 Obsidian 등 외부 마크다운 에디터에서 열람할 수 있도록 단방향(export-only)으로 투영했던 파일시스템 저장소. 현재는 볼트 서브시스템 및 마크다운 파일 동기화가 영구 제거되어 비활성화/폐기되었다.
@@ -178,7 +178,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 그래프 정점 | **노드** | Node | `node`, `nodes` (dict) | GraphView cytoscape element |
 | 의미 연결 | **관계** | Relation | `Relation`, `ExtractedRelation` | `relations` 테이블 |
 | 그래프 간선 | **링크 / 엣지** | Link / Edge | `edge`, `edges` (dict) | GraphView edge element |
-| 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `themes` 테이블, `*.theme_id` |
+| 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `knowledge_bases` 테이블, `*.kb_id` |
 | 운영 단위 | **서버** | Server | `ServerMode`, `server_mode()`, `claire server check`, 서버 액터 `/ap/actors/server` | `server_settings` 테이블 (v25 전 이름 `instance_settings`). Claire 설치 하나를 Mastodon 문서([Mastodon 101](https://github.com/mastodon/blog/blob/master/content/posts/2018-08-21_Mastodon-101/index.md))처럼 "서버"라고 부른다. "인스턴스"는 쓰지 않는다 |
 | 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
 | 추출 지향성 | **초점** | Extraction Focus | `focus` | `documents.meta["focus"]` (데이터만 남음. 수집 초점은 봉인됨, CT28) |

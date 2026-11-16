@@ -100,7 +100,7 @@ class ResolvedNamespace:
     # 링크에 쓸 USERNAME. 싱글 모드에서는 항상 None이다(USERNAME 비노출, S9).
     username: str | None
     # 경로가 고정한 테마의 내부 ID. 고정하지 않았으면 None
-    pinned_theme_id: int | None
+    pinned_kb_id: int | None
     # 링크 접두(§6.6). 싱글 모드 무고정은 "", 테마 고정은 "/themes/{번호}", 네트워크 모드는 "/@{u}"[+ "/themes/{번호}"]
     prefix: str
     # 요청 경로에 접두가 실제로 있었는가(N4·N5 판정과 canonical 링크용)
@@ -127,7 +127,7 @@ class NamespaceDirectory(Protocol):
         ...
 
     def theme_by_number(self, number: int) -> Any | None:
-        """``store.theme.ThemeInfo`` 또는 None."""
+        """``store.knowledge_base.KnowledgeBaseInfo`` 또는 None."""
         ...
 
     def can_view_theme(self, principal: Principal, theme: Any) -> bool:
@@ -572,7 +572,7 @@ class SqliteNamespaceDirectory:
     def _load(self) -> _Snapshot:
         if self.db_file is None or not self.db_file.is_file():
             return _Snapshot()
-        from ..store.theme import _row_to_theme
+        from ..store.knowledge_base import _row_to_theme
 
         # 읽기 전용 URI로 직접 연다. 파일을 만들지도, journal 모드를 바꾸지도 않는다(``dbm.connect_existing``과 같은 조건).
         conn = sqlite3.connect(self.db_file.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0)
@@ -597,8 +597,8 @@ class SqliteNamespaceDirectory:
                 ).fetchall():
                     tombstones[str(row[0])] = bool(row[1])
             themes: dict[int, Any] = {}
-            if "themes" in tables and "number" in _table_columns(conn, "themes"):
-                for row in conn.execute("SELECT * FROM themes WHERE number IS NOT NULL").fetchall():
+            if "knowledge_bases" in tables and "number" in _table_columns(conn, "knowledge_bases"):
+                for row in conn.execute("SELECT * FROM knowledge_bases WHERE number IS NOT NULL").fetchall():
                     theme = _row_to_theme(row, default_db_path=str(self.db_file))
                     if theme.number is not None:
                         themes[int(theme.number)] = theme

@@ -193,12 +193,12 @@ def usage_hooks_for(ctx: ProviderContext, *, auth_db_path: Path | str) -> "Usage
 
 
 def account_theme_count(conn: sqlite3.Connection, account_id: int) -> int:
-    return int(conn.execute("SELECT COUNT(*) FROM themes WHERE account_id=?", (account_id,)).fetchone()[0])
+    return int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE account_id=?", (account_id,)).fetchone()[0])
 
 
 def account_document_count(conn: sqlite3.Connection, account_id: int) -> int:
     row = conn.execute(
-        "SELECT COUNT(*) FROM documents WHERE theme_id IN (SELECT id FROM themes WHERE account_id=?)",
+        "SELECT COUNT(*) FROM documents WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE account_id=?)",
         (account_id,),
     ).fetchone()
     return int(row[0])
@@ -210,7 +210,7 @@ def account_storage_bytes(conn: sqlite3.Connection, account_id: int) -> int:
     더하는 것: 문서의 ``raw_text``·``detail``·``detail_html`` UTF-8 바이트, ``raw_inbox.payload`` 바이트, ``raw_inbox.file_ref``가
     가리키는 원본 파일 크기(절대 경로이고 파일이 있을 때만, 같은 파일은 한 번). 엔티티·관계·임베딩·FTS 색인·스냅샷은 넣지 않는다.
     """
-    themes_sql = "SELECT id FROM themes WHERE account_id=?"
+    themes_sql = "SELECT id FROM knowledge_bases WHERE account_id=?"
     doc_bytes = conn.execute(
         f"""
         SELECT COALESCE(SUM(
@@ -218,18 +218,18 @@ def account_storage_bytes(conn: sqlite3.Connection, account_id: int) -> int:
             + COALESCE(LENGTH(CAST(detail AS BLOB)), 0)
             + COALESCE(LENGTH(CAST(detail_html AS BLOB)), 0)
         ), 0)
-        FROM documents WHERE theme_id IN ({themes_sql})
+        FROM documents WHERE kb_id IN ({themes_sql})
         """,
         (account_id,),
     ).fetchone()[0]
     inbox_bytes = conn.execute(
         f"SELECT COALESCE(SUM(COALESCE(LENGTH(CAST(payload AS BLOB)), 0)), 0) FROM raw_inbox "
-        f"WHERE theme_id IN ({themes_sql})",
+        f"WHERE kb_id IN ({themes_sql})",
         (account_id,),
     ).fetchone()[0]
     file_bytes = 0
     refs = conn.execute(
-        f"SELECT DISTINCT file_ref FROM raw_inbox WHERE theme_id IN ({themes_sql}) "
+        f"SELECT DISTINCT file_ref FROM raw_inbox WHERE kb_id IN ({themes_sql}) "
         "AND file_ref IS NOT NULL AND trim(file_ref) != ''",
         (account_id,),
     ).fetchall()

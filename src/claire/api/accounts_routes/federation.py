@@ -653,12 +653,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         return principal if principal.scope in ("owner", "collaborator") and principal.account_id is not None else None
 
-    def _own_theme(conn: Any, principal: Principal, *, theme_id: int | None = None, number: int | None = None) -> Any:
+    def _own_theme(conn: Any, principal: Principal, *, kb_id: int | None = None, number: int | None = None) -> Any:
         """Return the theme row when it is of the account of the caller and the caller can use it. All other conditions give ``None``, so that the response does not show that a theme of a different account exists."""
-        if theme_id is not None:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM themes WHERE id=?", (theme_id,)).fetchone()
+        if kb_id is not None:
+            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
         else:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM themes WHERE number=?", (number,)).fetchone()
+            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM knowledge_bases WHERE number=?", (number,)).fetchone()
         if row is None or row["account_id"] != principal.account_id:
             return None
         if principal.scope == "collaborator" and not row["is_collaborator_accessible"]:
@@ -700,7 +700,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # Only a document of a public theme can be published (design Section 9.1).
                 if not theme["is_public"]:
                     return 409, {"error": "theme_not_public"}
-                document = dbm.get_document_row(conn, document_id, theme_id=int(theme["id"]))
+                document = dbm.get_document_row(conn, document_id, kb_id=int(theme["id"]))
                 if document is None:
                     return 404, {"error": "document_not_found"}
                 if document["hidden"]:
@@ -708,9 +708,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 if not (document["detail"] or "").strip() and not (document["detail_html"] or "").strip():
                     return 409, {"error": "document_has_no_body"}
                 # The public page of the document is its share page. This call commits, so it comes before the transaction of the object and the task.
-                dbm.create_doc_share(conn, document_id, reuse_existing=True, theme_id=int(theme["id"]))
+                dbm.create_doc_share(conn, document_id, reuse_existing=True, kb_id=int(theme["id"]))
                 try:
-                    obj, task, created = federation_store.publish_document(conn, account_id=account_id, theme_id=int(theme["id"]), document_id=document_id, published_by_account_id=account_id, salt=store.id_salt(), now=time.time())
+                    obj, task, created = federation_store.publish_document(conn, account_id=account_id, kb_id=int(theme["id"]), document_id=document_id, published_by_account_id=account_id, salt=store.id_salt(), now=time.time())
                     conn.commit()
                 except BaseException:
                     conn.rollback()
@@ -743,7 +743,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return None
                 obj = federation_store.get_object(conn, object_id)
                 # An object of a different account gives the same answer as no object.
-                if obj is None or obj.account_id != principal.account_id or _own_theme(conn, principal, theme_id=obj.theme_id) is None:
+                if obj is None or obj.account_id != principal.account_id or _own_theme(conn, principal, kb_id=obj.kb_id) is None:
                     return 404, {"error": "object_not_found"}
                 try:
                     task = federation_store.retract_object(conn, obj, now=time.time())
@@ -796,7 +796,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             "unread": item.unread,
             "starred": item.starred,
             "mention": item.mention,
-            "linked": None if item.linked_doc_id is None else {"theme_id": item.linked_theme_id, "document_id": item.linked_doc_id},
+            "linked": None if item.linked_doc_id is None else {"kb_id": item.linked_kb_id, "document_id": item.linked_doc_id},
         }
         if detail:
             view["render_url"] = _render_url(item.account_id, item.id)
@@ -980,7 +980,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "theme_id": row.theme_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
+                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

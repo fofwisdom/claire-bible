@@ -34,7 +34,7 @@ def test_fresh_database_declares_common_v14():
         row["name"] for row in conn.execute("PRAGMA table_info(documents)")
     }
     assert {
-        "theme_id",
+        "kb_id",
         "detail",
         "seen",
         "watch_enabled",
@@ -46,7 +46,7 @@ def test_fresh_database_declares_common_v14():
         for row in conn.execute("PRAGMA index_list(documents)")
     }
     assert "idx_documents_hidden" in indexes
-    assert "idx_documents_theme_canon" in indexes
+    assert "idx_documents_kb_canon" in indexes
 
 
 def test_legacy_v1_table_shape_converges_before_dependent_indexes():
@@ -85,7 +85,7 @@ def test_legacy_v1_table_shape_converges_before_dependent_indexes():
         row["name"]
         for row in conn.execute("PRAGMA index_list(documents)")
     }
-    assert {"idx_documents_watch", "idx_documents_hidden", "idx_documents_theme_canon"} <= indexes
+    assert {"idx_documents_watch", "idx_documents_hidden", "idx_documents_kb_canon"} <= indexes
 
 
 @pytest.mark.parametrize("legacy_version", [9, 10, 11])

@@ -34,7 +34,7 @@ from claire.secret_scrub import _reset_for_tests, register_secret
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.provider_keys import ActiveKey
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 
 ADMIN_KEY = "AIzaADMINadminADMINadminADMINadmin0001"
 MEMBER_KEY = "AIzaMEMBERmemberMEMBERmemberMEMBER0002"
@@ -163,29 +163,29 @@ def world(tmp_path):
     _insert_account(conn, OTHER_ID, "other")
     now = time.time()
     themes = [
-        ThemeInfo(id=ADMIN_THEME, seq=0, label="관리자 기본", db_path=str(db_file), is_default=True,
+        KnowledgeBaseInfo(id=ADMIN_THEME, seq=0, label="관리자 기본", db_path=str(db_file), is_personal=True,
                   account_id=ADMIN_ID, number=1 << 56, created_at=now, updated_at=now),
-        ThemeInfo(id=ADMIN_THEME2, seq=1, label="관리자 둘", db_path=str(db_file), is_default=False,
+        KnowledgeBaseInfo(id=ADMIN_THEME2, seq=1, label="관리자 둘", db_path=str(db_file), is_personal=False,
                   account_id=ADMIN_ID, number=(1 << 56) + 10, created_at=now, updated_at=now),
-        ThemeInfo(id=MEMBER_THEME, seq=2, label="멤버 하나", db_path=str(db_file), is_default=True,
+        KnowledgeBaseInfo(id=MEMBER_THEME, seq=2, label="멤버 하나", db_path=str(db_file), is_personal=True,
                   account_id=MEMBER_ID, number=(1 << 56) + 20, created_at=now, updated_at=now),
-        ThemeInfo(id=MEMBER_THEME2, seq=3, label="멤버 둘", db_path=str(db_file), is_default=False,
+        KnowledgeBaseInfo(id=MEMBER_THEME2, seq=3, label="멤버 둘", db_path=str(db_file), is_personal=False,
                   account_id=MEMBER_ID, number=(1 << 56) + 21, created_at=now, updated_at=now),
-        ThemeInfo(id=OTHER_THEME, seq=4, label="다른 멤버", db_path=str(db_file), is_default=True,
+        KnowledgeBaseInfo(id=OTHER_THEME, seq=4, label="다른 멤버", db_path=str(db_file), is_personal=True,
                   account_id=OTHER_ID, number=(1 << 56) + 30, created_at=now, updated_at=now),
     ]
     for t in themes:
         conn.execute(
-            "INSERT OR REPLACE INTO themes (id, seq, label, description, icon, db_path, is_default, is_public, "
+            "INSERT OR REPLACE INTO knowledge_bases (id, seq, label, description, icon, db_path, is_personal, is_public, "
             "is_collaborator_accessible, created_at, updated_at, account_id, number) "
             "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?)",
-            (t.id, t.seq, t.label, t.db_path, 1 if t.is_default else 0, t.created_at,
+            (t.id, t.seq, t.label, t.db_path, 1 if t.is_personal else 0, t.created_at,
              t.updated_at, t.account_id, t.number),
         )
     conn.commit()
     conn.close()
     (data_dir / "themes.json").write_text(
-        json.dumps({"version": 1, "next_seq": 5, "default_theme_id": 0, "themes": [t.to_dict() for t in themes]}),
+        json.dumps({"version": 1, "next_seq": 5, "default_kb_id": 0, "themes": [t.to_dict() for t in themes]}),
         encoding="utf-8",
     )
     auth_path = auth_db.auth_db_path(data_dir)
@@ -220,24 +220,24 @@ def _save_tier(world, tier: ServerTier) -> None:
         conn.close()
 
 
-def _theme_settings(world, theme_id):
-    return ThemeManager(world.settings).get_settings_for_theme(theme_id, world.settings)
+def _theme_settings(world, kb_id):
+    return KnowledgeBaseManager(world.settings).get_settings_for_kb(kb_id, world.settings)
 
 
-def _inbox_rows(world, theme_id):
+def _inbox_rows(world, kb_id):
     conn = dbm.connect_existing(world.db_file, readonly=True)
     try:
         return [dict(r) for r in conn.execute(
-            "SELECT id, status, error, payload, document_id FROM raw_inbox WHERE theme_id=? ORDER BY id", (theme_id,)
+            "SELECT id, status, error, payload, document_id FROM raw_inbox WHERE kb_id=? ORDER BY id", (kb_id,)
         ).fetchall()]
     finally:
         conn.close()
 
 
-def _doc_count(world, theme_id):
+def _doc_count(world, kb_id):
     conn = dbm.connect_existing(world.db_file, readonly=True)
     try:
-        return conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id=?", (theme_id,)).fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=?", (kb_id,)).fetchone()[0]
     finally:
         conn.close()
 
@@ -252,7 +252,7 @@ def _no_admin_secret(fake_genai, built):
 
 def test_pool_member_theme_uses_member_key_never_host_cli(world, host_cli, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
-    pool = IngestServicePool(world.settings, theme_manager=ThemeManager(world.settings))
+    pool = IngestServicePool(world.settings, theme_manager=KnowledgeBaseManager(world.settings))
 
     svc = pool.get_service(MEMBER_THEME)
 
@@ -281,7 +281,7 @@ def test_pool_member_theme_uses_member_key_never_host_cli(world, host_cli, fake_
 def test_pool_cache_separates_accounts_and_tracks_credentials(world, host_cli, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
     member_keys[OTHER_ID] = _byok("fp000002", OTHER_KEY)
-    pool = IngestServicePool(world.settings, theme_manager=ThemeManager(world.settings))
+    pool = IngestServicePool(world.settings, theme_manager=KnowledgeBaseManager(world.settings))
 
     a1 = pool.get_service(MEMBER_THEME)
     a2 = pool.get_service(MEMBER_THEME2)
@@ -314,7 +314,7 @@ def test_pool_cache_separates_accounts_and_tracks_credentials(world, host_cli, f
 
 
 def test_tier_none_member_ingest_keeps_raw_and_records_code(world, host_cli, fake_genai, member_keys):
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "none"
 
     rep = svc.ingest(LONG_TEXT, source="cli")
@@ -339,7 +339,7 @@ def test_member_pdf_classifier_never_uses_admin_or_host_cli(world, host_cli, fak
         return real(doc, settings, provider=provider)
 
     monkeypatch.setattr(classifier, "classify_paper", spy)
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
     pdf = Document(title="paper.pdf", raw_text=LONG_TEXT, source_type="pdf", content_hash="h-pdf-1",
                    url="https://example.test/p.pdf", canonical_url="https://example.test/p.pdf")
 
@@ -354,7 +354,7 @@ def test_member_pdf_classifier_never_uses_admin_or_host_cli(world, host_cli, fak
 
 def test_daily_ingest_limit_fails_and_preserves_raw(world, host_cli, fake_genai, member_keys):
     _save_tier(world, ServerTier(daily_ingests=1))
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
 
     first = svc.ingest(LONG_TEXT, source="cli")
     second = svc.ingest(LONG_TEXT + " 두 번째", source="cli")
@@ -376,7 +376,7 @@ def test_daily_ingest_limit_fails_and_preserves_raw(world, host_cli, fake_genai,
 
 def test_document_quota_blocks_before_insert(world, host_cli, fake_genai, member_keys):
     _save_tier(world, ServerTier(max_documents=0))
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), kb_id=MEMBER_THEME)
 
     rep = svc.ingest(LONG_TEXT, source="cli")
 
@@ -387,7 +387,7 @@ def test_document_quota_blocks_before_insert(world, host_cli, fake_genai, member
 
 def test_byok_job_slot_limits_concurrency_but_allows_nesting(world, host_cli, fake_genai, member_keys):
     member_keys[MEMBER_ID] = _byok("fp000001", MEMBER_KEY)
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "byok"
 
     # 다른 작업이 자리를 잡고 있으면 실패(기다리지 않음), 원문은 남는다
@@ -404,18 +404,18 @@ def test_byok_job_slot_limits_concurrency_but_allows_nesting(world, host_cli, fa
     assert server_tier._ACTIVE_SLOTS == {}
 
     # 관리자·서버 등급은 자리 제한이 없다
-    admin = IngestService(_theme_settings(world, ADMIN_THEME), provider=MockProvider(), theme_id=ADMIN_THEME)
+    admin = IngestService(_theme_settings(world, ADMIN_THEME), provider=MockProvider(), kb_id=ADMIN_THEME)
     with server_tier.job_slot(svc.provider_context):
         assert admin.ingest(LONG_TEXT + " 관리자", source="cli").error is None
 
 
 def test_expand_feature_gate_records_scrubbed_error(world, host_cli, fake_genai, member_keys):
     _save_tier(world, ServerTier(provider="gemini", features=frozenset()))  # 서버 등급, expand 꺼짐
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     assert svc.provider_context.source == "tier"
     conn = dbm.connect(world.db_file)
     try:
-        dbm.enqueue_expand(conn, "doc-x", theme_id=MEMBER_THEME)
+        dbm.enqueue_expand(conn, "doc-x", kb_id=MEMBER_THEME)
     finally:
         conn.close()
 
@@ -434,7 +434,7 @@ def test_raw_inbox_error_has_no_canary_key(world, member_keys):
         def extract(self, doc, *_a, **_k):
             raise RuntimeError(f"upstream rejected key={CANARY} Authorization: Bearer {CANARY}")
 
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=LeakyProvider(), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=LeakyProvider(), kb_id=MEMBER_THEME)
     rep = svc.ingest(LONG_TEXT, source="cli")
 
     assert rep.error and CANARY not in rep.error
@@ -466,7 +466,7 @@ def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_
         return Document(title="video", raw_text=LONG_TEXT, source_type="text", content_hash="h-v-1")
 
     monkeypatch.setattr(pipeline, "default_fetch", fake_fetch)
-    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), theme_id=MEMBER_THEME)
+    svc = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     svc.ingest("https://example.test/video", source="cli")
 
     s, stt, vlm = captured["settings"], captured["stt"], captured["vlm"]
@@ -478,7 +478,7 @@ def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_
     # 서버 등급 none: STT·VLM은 자리표시자, 관리자 키·mock으로 대체되지 않는다
     captured.clear()
     del member_keys[MEMBER_ID]
-    svc_none = IngestService(_theme_settings(world, MEMBER_THEME2), provider=MockProvider(), theme_id=MEMBER_THEME2)
+    svc_none = IngestService(_theme_settings(world, MEMBER_THEME2), provider=MockProvider(), kb_id=MEMBER_THEME2)
     svc_none.ingest("https://example.test/video2", source="cli")
     assert captured["settings"].gemini_api_key == ""
     assert type(captured["stt"]).__name__ == "UnavailableTranscriptProvider"
@@ -522,8 +522,8 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
     settings = world.settings.model_copy(update={"provider": "mock"})
     conn = dbm.connect(world.db_file)
     for tid in (ADMIN_THEME2, MEMBER_THEME):
-        iid = dbm.log_inbox(conn, source="cli", payload=LONG_TEXT + f" {tid}", kind="text", theme_id=tid)
-        dbm.update_inbox(conn, iid, status="error", error="temporary", theme_id=tid)
+        iid = dbm.log_inbox(conn, source="cli", payload=LONG_TEXT + f" {tid}", kind="text", kb_id=tid)
+        dbm.update_inbox(conn, iid, status="error", error="temporary", kb_id=tid)
     conn.execute("UPDATE raw_inbox SET next_retry_at=?", (time.time() - 100,))
     conn.commit()
     conn.close()
@@ -531,7 +531,7 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
     args = SimpleNamespace(batch=10, max_attempts=5, base_delay=1.0)
     cycle = cli._run_recover_cycle(settings, args, cli._ThemeLoopState(), IngestService)
 
-    by_theme = {r["_theme_id"]: r for r in cycle["results"]}
+    by_theme = {r["_kb_id"]: r for r in cycle["results"]}
     assert by_theme[ADMIN_THEME2]["status"] in ("done", "duplicate")
     assert by_theme[MEMBER_THEME]["status"] == "error"
     assert by_theme[MEMBER_THEME]["error"].startswith("provider_not_configured")
@@ -545,14 +545,14 @@ def test_presentation_uses_theme_owner_context(world, host_cli, fake_genai, memb
 
     conn = dbm.connect(world.db_file)
     conn.execute(
-        "INSERT INTO documents (id, theme_id, title, raw_text, content_hash, source_type, fetched_at) "
+        "INSERT INTO documents (id, kb_id, title, raw_text, content_hash, source_type, fetched_at) "
         "VALUES ('d1', ?, 't', ?, 'h', 'text', 0)",
         (MEMBER_THEME, LONG_TEXT),
     )
     conn.commit()
     try:
         # 서버 등급 none(기능 꺼짐) → 기능 게이트에서 실패, 관리자 프로바이더를 만들지 않는다
-        svc = PresentationService(settings=world.settings, theme_id=MEMBER_THEME)
+        svc = PresentationService(settings=world.settings, kb_id=MEMBER_THEME)
         with pytest.raises(ProviderNotAllowed):
             asyncio.run(svc.compose_presentation(conn, "d1"))
         _no_admin_secret(fake_genai, host_cli)
@@ -565,7 +565,7 @@ def test_presentation_uses_theme_owner_context(world, host_cli, fake_genai, memb
         _no_admin_secret(fake_genai, host_cli)
 
         # 관리자 테마는 지금과 같다(codex)
-        admin_svc = PresentationService(settings=world.settings, theme_id=ADMIN_THEME)
+        admin_svc = PresentationService(settings=world.settings, kb_id=ADMIN_THEME)
         admin_prov = admin_svc._provider_for_context(admin_svc.provider_context(conn))
         assert getattr(admin_prov, "name", "") == "codex"
     finally:
@@ -576,7 +576,7 @@ def test_admin_theme_ingest_unchanged_without_ledger(world, tmp_path):
     """관리자 테마는 원장·등급과 무관하게 지금처럼 적재한다(auth.db가 없어도)."""
     world.auth_path.unlink()
     settings = world.settings.model_copy(update={"provider": "mock"})
-    svc = IngestService(ThemeManager(settings).get_settings_for_theme(ADMIN_THEME2, settings), theme_id=ADMIN_THEME2)
+    svc = IngestService(KnowledgeBaseManager(settings).get_settings_for_kb(ADMIN_THEME2, settings), kb_id=ADMIN_THEME2)
     assert svc.provider_context.is_admin
     assert svc.s.provider_context is None  # 관리자 설정은 사본을 만들지 않는다
 

@@ -203,13 +203,13 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 ## 멀티 테마 웹/API 접근 정책 (Multi-Theme Access Policy)
 
-멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 `theme_id`로 파티셔닝된 지식 데이터를 조회 및 적재할 수 있다.
+멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 `kb_id`로 파티셔닝된 지식 데이터를 조회 및 적재할 수 있다.
 
 ### HTTP 요청 시 테마 지정 방식
-1. **HTTP 헤더**: `X-Claire-Theme: <theme_id_or_label>`
+1. **HTTP 헤더**: `X-Claire-Theme: <kb_id_or_label>`
    - 권장 REST/MCP 클라이언트 방식.
    - 예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: AI 및 클라우드 시스템`
-2. **URL 쿼리 파라미터**: `?theme=<theme_id_or_label>`
+2. **URL 쿼리 파라미터**: `?theme=<kb_id_or_label>`
    - 브라우저 주소창 직접 접근 및 공유 링크 방식.
    - 예: `https://claire.example.com/graph?theme=1`, `https://claire.example.com/doc/42?theme=research`
 3. **폴백 (Fallback)**: 테마 헤더 및 쿼리 파라미터가 모두 생략된 경우, 기본 지식베이스인 Theme `0`으로 자동 라우팅된다.
@@ -375,7 +375,7 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
 - **스토리지 백엔드**: 로컬 파일시스템(`LocalMediaStore`, 기본 경로 `data/media`) 및 S3 호환 오브젝트 스토리지(`S3MediaStore`, AWS S3, Cloudflare R2, MinIO, GCS 지원) 두 가지를 지원한다.
 - **불투명 객체 키 (S16)**:
   - 객체 키는 `HMAC(derived_key, f"{account_id}:{sha256(content)}").hexdigest() + ext` 알고리즘으로 파생된다.
-  - 키에 `username`, `theme_id`, `doc_id`가 포함되지 않아 싱글 모드의 익명성을 유지하며, 다른 계정이 동일 파일을 보유하고 있는지 추측할 수 없다.
+  - 키에 `username`, `kb_id`, `doc_id`가 포함되지 않아 싱글 모드의 익명성을 유지하며, 다른 계정이 동일 파일을 보유하고 있는지 추측할 수 없다.
   - 계정 간 중복 제거는 보안상 수행하지 않는다.
 
 ### 2. 캐시 및 전송 규칙
@@ -384,8 +384,8 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
   - 응답 헤더: `Cache-Control: public, max-age=31536000, immutable`.
   - 콘텐츠 주소화 기반이므로 영구 불변 캐싱이 성립한다.
 - **비공개 미디어 (Capability 서명 URL)**:
-  - 1시간 열람 단위 capability 서명 URL이 강제된다 (`/media/{key}?account_id=...&theme_id=...&visibility_epoch=...&token={exp}.{sig}`).
-  - HMAC 서명은 `(account_id, theme_id, visibility_epoch, key, exp)`에 바인딩된다.
+  - 1시간 열람 단위 capability 서명 URL이 강제된다 (`/media/{key}?account_id=...&kb_id=...&visibility_epoch=...&token={exp}.{sig}`).
+  - HMAC 서명은 `(account_id, kb_id, visibility_epoch, key, exp)`에 바인딩된다.
   - 응답 헤더: `Cache-Control: private, no-store`.
   - 미디어 스트리밍 및 탐색을 위한 HTTP `Range` 요청(RFC 7233/9110, `206 Partial Content`)을 전면 지원하며 Range 요청 시에도 서명이 유효하게 유지된다.
 - **무쿠키 및 CORS**:

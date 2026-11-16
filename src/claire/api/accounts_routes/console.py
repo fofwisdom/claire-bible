@@ -25,7 +25,7 @@ from ...i18n import SUPPORTED_LOCALES, get_locale, t
 from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store import accounts as accounts_store
 from ...store.telemetry import query_mcp_telemetry
-from ...store.theme import ThemeInfo, ThemeManager, ThemeNotFound
+from ...store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
 from ..principal import Principal, request_principal
 from .admin import is_admin
 from .common import (
@@ -358,7 +358,7 @@ def _resolve_caller_theme_and_list(
     *,
     account_id: int,
     raw_theme: str | None,
-) -> tuple[ThemeInfo | None, list[ThemeInfo], str | None] | None:
+) -> tuple[KnowledgeBaseInfo | None, list[KnowledgeBaseInfo], str | None] | None:
     """``?theme=``가 주어졌으면 호출자 계정의 테마인지 엄격히 검증한다(C1).
 
     유효하지 않거나 다른 계정의 테마면 ``None``을 돌려줘 호출자가 404를 내게 한다.
@@ -370,20 +370,20 @@ def _resolve_caller_theme_and_list(
         data_dir=data_dir,
         multi_theme=True,
     )
-    tm = ThemeManager(tm_settings)
-    owned = tm.list_account_themes(account_id)
+    tm = KnowledgeBaseManager(tm_settings)
+    owned = tm.list_account_kbs(account_id)
     if raw_theme is not None:
         cleaned = raw_theme.strip()
         if not cleaned:
             return None
         try:
             resolved = tm.resolve_theme_ref(cleaned, account_id=account_id)
-        except ThemeNotFound:
+        except KnowledgeBaseNotFound:
             return None
         return resolved.theme, owned, cleaned
     default_theme = owned[0] if owned else None
     for t in owned:
-        if t.is_default:
+        if t.is_personal:
             default_theme = t
             break
     return default_theme, owned, None
@@ -442,8 +442,8 @@ def _build_sidebar_html(
 def _build_theme_selector_html(
     *,
     spec: ConsoleSectionSpec,
-    owned_themes: list[ThemeInfo],
-    selected_theme: ThemeInfo | None,
+    owned_themes: list[KnowledgeBaseInfo],
+    selected_theme: KnowledgeBaseInfo | None,
 ) -> str:
     if not spec.theme_scoped or not owned_themes:
         return ""
@@ -499,8 +499,8 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         conn = open_db(ctx)
         try:
             total_accounts = int(conn.execute("SELECT COUNT(*) FROM accounts WHERE status != 'purged'").fetchone()[0])
-            total_themes = int(conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0])
-            admin_themes = int(conn.execute("SELECT COUNT(*) FROM themes WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
+            total_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases").fetchone()[0])
+            admin_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
         finally:
             conn.close()
         body = (
@@ -697,7 +697,7 @@ def _build_settings_account_section(
     principal: Principal,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
     notice: str | None = None,
 ) -> SettingsSectionRender:
     """Group 1 섹션(``account``, ``keys``, ``themes``, ``tokens``) 본문 (설계 P3-a).
@@ -857,7 +857,7 @@ def _settings_account_body(
     principal: Principal,
     mode: accounts_store.ServerMode,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
     admin_viewer: bool,
     notice: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
@@ -1145,7 +1145,7 @@ def _settings_themes_body(
     ctx: AccountsContext,
     *,
     account: accounts_store.Account,
-    owned_themes: list[ThemeInfo],
+    owned_themes: list[KnowledgeBaseInfo],
 ) -> tuple[str, dict[str, Any]]:
     conn = open_db(ctx)
     try:

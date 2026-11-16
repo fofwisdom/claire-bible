@@ -19,7 +19,7 @@ ID_SALT_BYTES = 32
 MAX_INSERT_ATTEMPTS = 8
 # 현재 시각으로 만든 번호는 이 값보다 크다. 내부 ID(< 2^31)와 범위가 겹치지 않는다(§7.3).
 MIN_CURRENT_NUMBER = 1 << 56
-# 내부 테마 ID(``themes.id``)의 상한(배타). 이보다 작은 음이 아닌 정수는 내부 ID로 해석한다(§7.3).
+# 내부 테마 ID(``knowledge_bases.id``)의 상한(배타). 이보다 작은 음이 아닌 정수는 내부 ID로 해석한다(§7.3).
 INTERNAL_ID_LIMIT = 1 << 31
 # SQLite INTEGER(부호 있는 64비트)에 들어가는 가장 큰 번호.
 MAX_NUMBER = (1 << 63) - 1

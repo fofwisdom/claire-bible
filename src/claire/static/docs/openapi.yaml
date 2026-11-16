@@ -116,7 +116,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [theme_id, theme_label]
+                required: [kb_id, theme_label]
                 properties:
                   documents:
                     type: integer
@@ -127,7 +127,7 @@ paths:
                   relations:
                     type: integer
                     example: 2194
-                  theme_id:
+                  kb_id:
                     type: integer
                     example: 0
                   theme_label:
@@ -693,7 +693,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [documents, theme_id, theme_label]
+                required: [documents, kb_id, theme_label]
                 properties:
                   documents:
                     type: array
@@ -711,7 +711,7 @@ paths:
                           type: string
                   format_status:
                     type: string
-                  theme_id:
+                  kb_id:
                     type: integer
                   theme_label:
                     type: string
@@ -2138,7 +2138,7 @@ components:
 
     SearchResponse:
       type: object
-      required: [query, mode, hits, theme_id, theme_label]
+      required: [query, mode, hits, kb_id, theme_label]
       properties:
         query:
           type: string
@@ -2146,7 +2146,7 @@ components:
           type: string
         answer:
           type: string
-        theme_id:
+        kb_id:
           type: integer
         theme_label:
           type: string
@@ -2182,7 +2182,7 @@ components:
           type: integer
         relations_extracted:
           type: integer
-        theme_id:
+        kb_id:
           type: integer
         theme_label:
           type: string
@@ -2321,7 +2321,7 @@ components:
           description: Legacy theme array retained during migration period (P2-P3).
           items:
             type: object
-        default_theme_id:
+        default_kb_id:
           type: integer
           example: 0
         default_theme_number:
@@ -2358,7 +2358,7 @@ components:
 
     ThemeCollectionItem:
       type: object
-      required: [number, url, label, is_default, is_public, stats]
+      required: [number, url, label, is_personal, is_public, stats]
       properties:
         number:
           type: string
@@ -2370,7 +2370,7 @@ components:
         label:
           type: string
           example: "인공지능 연구"
-        is_default:
+        is_personal:
           type: boolean
         is_public:
           type: boolean

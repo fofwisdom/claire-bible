@@ -126,29 +126,29 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
                 file=sys.stderr,
             )
             return s, None
-        from .store.theme import get_theme_manager
+        from .store.knowledge_base import get_kb_manager
 
-        tm = get_theme_manager(s)
+        tm = get_kb_manager(s)
         try:
-            theme = tm.get_theme(theme_ref, label_match="partial")
+            theme = tm.get_kb(theme_ref, label_match="partial")
         except Exception as exc:
             # 기본 테마로 대신 진행하면 다른 테마에 적재·수정하게 된다(PRINCIPLES C1).
             raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
-        return tm.get_settings_for_theme(theme.id, s), theme
+        return tm.get_settings_for_kb(theme.id, s), theme
 
     if getattr(s, "multi_theme", False):
         raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
         if raw_target and isinstance(raw_target, str) and raw_target.strip():
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
+            tm = get_kb_manager(s)
             try:
                 matches = tm.resolve_document_targets(target=raw_target.strip())
                 if matches:
-                    matched_tid = matches[0].get("theme_id")
+                    matched_tid = matches[0].get("kb_id")
                     if matched_tid is not None:
-                        theme = tm.get_theme(matched_tid)
-                        return tm.get_settings_for_theme(theme.id, s), theme
+                        theme = tm.get_kb(matched_tid)
+                        return tm.get_settings_for_kb(theme.id, s), theme
             except Exception:
                 pass
 
@@ -417,23 +417,23 @@ def cmd_untombstone(args) -> int:
     target_themes: list[tuple[Any, Any | None]] = []
     if theme_ref is not None:
         if getattr(s, "multi_theme", False):
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
+            tm = get_kb_manager(s)
             try:
-                t = tm.get_theme(theme_ref, label_match="partial")
+                t = tm.get_kb(theme_ref, label_match="partial")
             except KeyError as exc:
                 raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
-            target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+            target_themes.append((tm.get_settings_for_kb(t.id, s), t))
         else:
             target_themes.append((s, None))
     else:
         if getattr(s, "multi_theme", False):
-            from .store.theme import get_theme_manager
+            from .store.knowledge_base import get_kb_manager
 
-            tm = get_theme_manager(s)
-            for t in tm.list_themes():
-                target_themes.append((tm.get_settings_for_theme(t.id, s), t))
+            tm = get_kb_manager(s)
+            for t in tm.list_kbs():
+                target_themes.append((tm.get_settings_for_kb(t.id, s), t))
         else:
             target_themes.append((s, None))
 
@@ -462,7 +462,7 @@ def cmd_untombstone(args) -> int:
             if res["removed_count"] > 0:
                 for item in res["removed_tombstones"]:
                     if theme:
-                        item["theme_id"] = theme.id
+                        item["kb_id"] = theme.id
                         item["theme_label"] = theme.label
                     all_removed.append(item)
                 total_removed += res["removed_count"]
@@ -728,10 +728,10 @@ def cmd_theme(args) -> int:
     """테마(다중 DB 격리) 조회, 정의, 수정, 삭제."""
     import json
     from .store.queries import theme_summary
-    from .store.theme import get_theme_manager
+    from .store.knowledge_base import get_kb_manager
 
     s = get_settings()
-    tm = get_theme_manager(s)
+    tm = get_kb_manager(s)
     action = getattr(args, "theme_action", None) or "list"
 
     if action in ("define", "update", "delete"):
@@ -763,7 +763,7 @@ def cmd_theme(args) -> int:
                 "description": "General collected material and basic knowledge",
                 "icon": "📚",
                 "db_path": str(s.db_path),
-                "is_default": True,
+                "is_personal": True,
                 "stats": stats,
             }]
             if as_json:
@@ -781,11 +781,11 @@ def cmd_theme(args) -> int:
             print("  ※ To use multi-theme mode, set the environment variable CLAIRE_MULTI_THEME=1.")
             return 0
         tm.reload()
-        themes = tm.list_themes()
+        themes = tm.list_kbs()
         as_json = getattr(args, "json", False)
         out = []
         for t in themes:
-            t_settings = tm.get_settings_for_theme(t.id)
+            t_settings = tm.get_settings_for_kb(t.id)
             stats = {"documents": 0, "entities": 0, "relations": 0}
             if t_settings.db_file.is_file():
                 try:
@@ -810,10 +810,10 @@ def cmd_theme(args) -> int:
         print("-" * 82)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
-            is_def = "★ default" if d["is_default"] else ""
+            is_def = "★ default" if d["is_personal"] else ""
             pub_st = "public" if d.get("is_public", True) else "private 🔒"
             collab_st = "open" if d.get("is_collaborator_accessible", True) else "blocked"
-            if d["is_default"]:
+            if d["is_personal"]:
                 collab_st = "-"
             pres_st = "ON 📊" if d.get("presentation_enabled", False) else "OFF"
             print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
@@ -838,7 +838,7 @@ def cmd_theme(args) -> int:
             is_collab = True
         pres_enabled = bool(getattr(args, "presentation_enabled", False))
         try:
-            theme = tm.define_theme(
+            theme = tm.define_kb(
                 label,
                 description=desc,
                 icon=icon,
@@ -863,8 +863,8 @@ def cmd_theme(args) -> int:
             return 1
 
     elif action == "update":
-        theme_id = getattr(args, "id", None)
-        if theme_id is None:
+        kb_id = getattr(args, "id", None)
+        if kb_id is None:
             print("[error] Give the ID of the theme to change.", file=sys.stderr)
             return 1
         label = getattr(args, "label", None)
@@ -874,8 +874,8 @@ def cmd_theme(args) -> int:
         is_collab = getattr(args, "is_collaborator_accessible", None)
         pres_enabled = getattr(args, "presentation_enabled", None)
         try:
-            theme = tm.update_theme(
-                theme_id,
+            theme = tm.update_kb(
+                kb_id,
                 label=label,
                 description=desc,
                 icon=icon,
@@ -899,19 +899,19 @@ def cmd_theme(args) -> int:
             return 1
 
     elif action in ("delete", "reset"):
-        theme_id = getattr(args, "id", None)
-        if theme_id is None:
+        kb_id = getattr(args, "id", None)
+        if kb_id is None:
             verb = "delete" if action == "delete" else "reset"
             print(f"[error] Give the ID of the theme to {verb}.", file=sys.stderr)
             return 1
         try:
-            target_theme = tm.get_theme(theme_id, label_match="partial")
+            target_theme = tm.get_kb(kb_id, label_match="partial")
         except Exception as exc:
             print(f"[error] The theme is not found: {exc}", file=sys.stderr)
             return 1
 
         if action == "delete":
-            if target_theme.is_default or target_theme.id == 0:
+            if target_theme.is_personal or target_theme.id == 0:
                 print(f"[error] You cannot delete the default theme (ID {target_theme.id}).", file=sys.stderr)
                 return 1
             if not getattr(tm.settings, "multi_theme", False):
@@ -920,7 +920,7 @@ def cmd_theme(args) -> int:
 
         purge = action == "delete" and getattr(args, "purge", False)
         removes_data = action == "reset" or purge
-        counts = tm.theme_data_counts(target_theme.id) if removes_data else None
+        counts = tm.kb_data_counts(target_theme.id) if removes_data else None
 
         if not getattr(args, "apply", False):
             plan = {
@@ -944,13 +944,13 @@ def cmd_theme(args) -> int:
                     print(f"  • Documents to purge     : {counts['documents']}")
                     print(f"  • Entities to purge      : {counts['entities']}")
                     print(f"  • Relations to purge     : {counts['relations']}")
-                print(f"To do it, add --apply: claire theme {action} {theme_id} --apply")
+                print(f"To do it, add --apply: claire theme {action} {kb_id} --apply")
             return 0
 
         if removes_data and not getattr(args, "yes", False):
             if not sys.stdin.isatty():
                 print(
-                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire theme {action} {theme_id} --apply --yes",
+                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire theme {action} {kb_id} --apply --yes",
                     file=sys.stderr,
                 )
                 return 2
@@ -972,7 +972,7 @@ def cmd_theme(args) -> int:
 
         if action == "delete":
             try:
-                theme = tm.delete_theme(target_theme.id, purge=purge)
+                theme = tm.delete_kb(target_theme.id, purge=purge)
                 if getattr(args, "json", False):
                     print(json.dumps({"ok": True, "deleted": theme.to_dict()}, ensure_ascii=False, indent=2))
                 else:
@@ -983,12 +983,12 @@ def cmd_theme(args) -> int:
                 return 1
 
         try:
-            stats = tm.reset_theme(target_theme.id)
+            stats = tm.reset_kb(target_theme.id)
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
             else:
-                print(f"[done] All data of theme #{stats['theme_id']} [{stats['theme_label']}] is reset.")
-                print(f"  • Theme ID / URI    : #{stats['theme_id']} (?theme={stats['theme_id']}) (kept)")
+                print(f"[done] All data of theme #{stats['kb_id']} [{stats['theme_label']}] is reset.")
+                print(f"  • Theme ID / URI    : #{stats['kb_id']} (?theme={stats['kb_id']}) (kept)")
                 print(f"  • Documents purged  : {stats['deleted_documents']}")
                 print(f"  • Entities purged   : {stats['deleted_entities']}")
                 print(f"  • Relations purged  : {stats['deleted_relations']}")
@@ -1138,7 +1138,7 @@ def _alert_permanent_failures(failed_items: list[dict]) -> None:
     s = get_settings()
     lines = [f"⛔ claire automatic recovery: {len(failed_items)} permanent failures (retry limit reached)"]
     for r in failed_items[:5]:
-        theme = f"theme#{r['_theme_id']} " if "_theme_id" in r else ""
+        theme = f"theme#{r['_kb_id']} " if "_kb_id" in r else ""
         lines.append(f"• {theme}inbox#{r['inbox_id']}: {str(r.get('error', ''))[:100]}")
     if len(failed_items) > 5:
         lines.append(f"… and {len(failed_items) - 5} more")
@@ -1153,7 +1153,7 @@ class _ThemeLoopState:
     """상주 큐 루프의 서비스 캐시와 다음 round-robin 시작점을 보존한다."""
 
     services: dict[int, tuple[tuple[str, str], Any]] = field(default_factory=dict)
-    next_theme_id: int | None = None
+    next_kb_id: int | None = None
 
 
 def _close_theme_service(service: Any) -> None:
@@ -1203,13 +1203,13 @@ def _build_theme_service(
     if provider_context is not None:
         attempts.append(
             {
-                "theme_id": theme.id,
+                "kb_id": theme.id,
                 "account_id": account_id,
                 "provider_context": provider_context,
                 "provider_error": provider_error,
             }
         )
-    attempts += [{"theme_id": theme.id, "account_id": account_id}, {"theme_id": theme.id}]
+    attempts += [{"kb_id": theme.id, "account_id": account_id}, {"kb_id": theme.id}]
     for kwargs in attempts:
         try:
             return service_factory(theme_settings, **kwargs)
@@ -1224,11 +1224,11 @@ def _theme_services_for_cycle(
     service_factory: Callable[[Any], Any],
 ) -> list[tuple[Any, Any]]:
     """매 cycle 레지스트리를 재조회하고 활성 테마 서비스를 순환 순서로 반환."""
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
-    active = ThemeManager(
-        base_settings, create_registry=False
-    ).active_theme_settings(base_settings)
+    active = KnowledgeBaseManager(
+        base_settings, writable=False
+    ).active_kb_settings(base_settings)
 
     account_statuses: dict[int, str] | None = None
     db_file = getattr(base_settings, "db_file", None) or getattr(base_settings, "db_path", None)
@@ -1286,12 +1286,12 @@ def _theme_services_for_cycle(
     if not ordered:
         return []
     ids = [theme.id for theme, _ in ordered]
-    if state.next_theme_id in ids:
-        start = ids.index(state.next_theme_id)
+    if state.next_kb_id in ids:
+        start = ids.index(state.next_kb_id)
     else:
         start = 0
     rotated = ordered[start:] + ordered[:start]
-    state.next_theme_id = ids[(start + 1) % len(ids)]
+    state.next_kb_id = ids[(start + 1) % len(ids)]
     return rotated
 
 
@@ -1323,14 +1323,14 @@ def _run_queue_round_robin(
                 current = operation(service)
             except Exception as exc:  # noqa: BLE001
                 errors.append(
-                    {"theme_id": theme.id, "theme_label": theme.label, "error": _loop_error_text(exc)}
+                    {"kb_id": theme.id, "theme_label": theme.label, "error": _loop_error_text(exc)}
                 )
                 continue
             if not current:
                 continue
             progressed = True
             for item in current:
-                item["_theme_id"] = theme.id
+                item["_kb_id"] = theme.id
                 item["_theme_label"] = theme.label
             results.extend(current)
             remaining -= len(current)
@@ -1387,7 +1387,7 @@ def cmd_recover_loop(args) -> int:
                 print("[recover] Nothing to ingest again; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[recover] theme#{error['theme_id']} [{error['theme_label']}] error: "
+                    f"[recover] theme#{error['kb_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
@@ -1471,7 +1471,7 @@ def cmd_refresh_loop(args) -> int:
                 print("[refresh] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[refresh] theme#{error['theme_id']} [{error['theme_label']}] "
+                    f"[refresh] theme#{error['kb_id']} [{error['theme_label']}] "
                     f"{error['stage']} error: {error['error']}",
                     flush=True,
                 )
@@ -1491,11 +1491,11 @@ def _notify_expansion(results: list[dict]) -> None:
     total = sum(r["stored"] for r in stored)
     lines = [f"🔗 One-hop expansion: Claire followed {total} links and added them to the knowledge base."]
     for r in stored[:5]:
-        theme_id = r.get("_theme_id")
+        kb_id = r.get("_kb_id")
         theme_label = str(r.get("_theme_label") or "").strip()
-        if theme_id is not None:
+        if kb_id is not None:
             label = f" [{theme_label}]" if theme_label else ""
-            lines.append(f"theme#{theme_id}{label}: {r['stored']} ingested")
+            lines.append(f"theme#{kb_id}{label}: {r['stored']} ingested")
         for f in r.get("followed", []):
             if f.get("stored"):
                 lines.append(f"• {f.get('title') or f.get('url')}")
@@ -1557,7 +1557,7 @@ def _run_refresh_cycle(
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     {
-                        "theme_id": theme.id,
+                        "kb_id": theme.id,
                         "theme_label": theme.label,
                         "stage": "watch",
                         "error": _loop_error_text(exc),
@@ -1623,7 +1623,7 @@ def cmd_expand_loop(args) -> int:
                 print("[expand] Queue is empty; waiting", flush=True)
             for error in cycle["errors"]:
                 print(
-                    f"[expand] theme#{error['theme_id']} [{error['theme_label']}] error: "
+                    f"[expand] theme#{error['kb_id']} [{error['theme_label']}] error: "
                     f"{error['error']}",
                     flush=True,
                 )
@@ -2639,9 +2639,9 @@ def cmd_recompile_html(args) -> int:
         try:
             doc_id = target
             if getattr(s, "multi_theme", False):
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
+                tm = get_kb_manager(s)
                 matches = tm.resolve_document_targets(target=target)
                 if matches:
                     doc_id = matches[0]["id"]
@@ -2679,10 +2679,10 @@ def cmd_recompile_html(args) -> int:
 
     # 3. 테마 지정 없이 일괄 실행된 경우 (멀티 테마 시 모든 활성 테마 순회)
     if getattr(s, "multi_theme", False):
-        from .store.theme import ThemeManager
+        from .store.knowledge_base import KnowledgeBaseManager
 
         try:
-            targets = ThemeManager(s).active_theme_settings(s)
+            targets = KnowledgeBaseManager(s).active_kb_settings(s)
         except Exception as exc:
             print(f"recompile-html: registry error: {exc}", file=sys.stderr)
             return 1
@@ -3677,7 +3677,7 @@ def cmd_auth(args) -> int:
             "token": tok,
             "scope": scope,
             "url": magic_url,
-            "theme_id": theme.id if theme else 0,
+            "kb_id": theme.id if theme else 0,
         }
         if getattr(args, "json", False):
             print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -4193,10 +4193,10 @@ def cmd_migrate(_args) -> int:
         )
         return 0
 
-    from .store.theme import ThemeManager
+    from .store.knowledge_base import KnowledgeBaseManager
 
     try:
-        targets = ThemeManager(s).active_theme_settings(s)
+        targets = KnowledgeBaseManager(s).active_kb_settings(s)
     except Exception as exc:  # noqa: BLE001
         print(f"migrate: registry error: {exc}", file=sys.stderr)
         return 1
@@ -4216,13 +4216,13 @@ def cmd_migrate(_args) -> int:
             if conn is not None:
                 conn.close()
 
-    for theme_id, label, version in successes:
+    for kb_id, label, version in successes:
         print(
-            f"theme#{theme_id} [{label}]: schema_version={version} "
+            f"theme#{kb_id} [{label}]: schema_version={version} "
             f"expected={dbm.SCHEMA_VERSION} lineage={dbm.SCHEMA_LINEAGE}"
         )
-    for theme_id, label, exc in failures:
-        print(f"theme#{theme_id} [{label}]: error: {exc}", file=sys.stderr)
+    for kb_id, label, exc in failures:
+        print(f"theme#{kb_id} [{label}]: error: {exc}", file=sys.stderr)
     print(
         f"migrate: themes={len(targets)} succeeded={len(successes)} "
         f"failed={len(failures)}"
@@ -4416,14 +4416,14 @@ def cmd_reembed(args) -> int:
     from .store.vectors import make_vector_store, read_embed_pin, resolve_embed_identity
 
     s, theme = get_effective_settings(args)
-    tid = theme.id if theme is not None else int(getattr(s, "theme_id", 0) or 0)
+    tid = theme.id if theme is not None else int(getattr(s, "kb_id", 0) or 0)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    vstore = make_vector_store(conn, s.vector_backend, theme_id=tid)
+    vstore = make_vector_store(conn, s.vector_backend, kb_id=tid)
     svc = IngestService(s)
     provider = svc.provider
 
-    ents = dbm.all_entities(conn, theme_id=tid)
+    ents = dbm.all_entities(conn, kb_id=tid)
     if not ents:
         print("No entity to embed again.")
         conn.close()
@@ -4798,7 +4798,7 @@ def cmd_export_graph(args: Any) -> int:
     try:
         info = create_graph_bundle(
             settings=s,
-            theme_id=theme_ref,
+            kb_id=theme_ref,
             request_context={"channel": "cli"},
             output_path=output_path,
         )
@@ -4813,7 +4813,7 @@ def cmd_export_graph(args: Any) -> int:
     print("=" * 60)
     print("Graph Data Bundle Export Completed")
     print(f"• Bundle ID       : {info.bundle_id}")
-    print(f"• Theme ID        : {info.theme_id}")
+    print(f"• Theme ID        : {info.kb_id}")
     print(f"• Entities        : {info.entities_count}")
     print(f"• Relations       : {info.relations_count}")
     print(f"• Documents       : {info.documents_count}")
@@ -4846,10 +4846,10 @@ def cmd_import_graph(args: Any) -> int:
         target_db = s.db_file
         if getattr(s, "multi_theme", False) or (theme_ref and str(theme_ref) != "0"):
             try:
-                from .store.theme import get_theme_manager
+                from .store.knowledge_base import get_kb_manager
 
-                tm = get_theme_manager(s)
-                theme = tm.get_theme(theme_ref, label_match="partial")
+                tm = get_kb_manager(s)
+                theme = tm.get_kb(theme_ref, label_match="partial")
                 target_db = Path(theme.db_path)
             except Exception as exc:
                 raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc

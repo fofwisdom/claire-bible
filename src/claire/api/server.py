@@ -53,7 +53,7 @@ from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
-from ..store.theme import ThemeInfo, ThemeManager, ThemeNotFound, get_theme_manager
+from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound, get_kb_manager
 from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .host_router import LegacyHost
@@ -268,7 +268,7 @@ def create_app(
                 pass
     account_routes = build_account_routes(s, WebRuntimeConfig.from_settings(s))
     svc = service or IngestService(s)
-    theme_mgr = ThemeManager(s)
+    theme_mgr = KnowledgeBaseManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
     namespace_directory = SqliteNamespaceDirectory(s.db_file)
     active_expensive_jobs = 0
@@ -293,26 +293,26 @@ def create_app(
         except Exception:
             ns = None
 
-        if ns is not None and ns.pinned_theme_id is not None:
+        if ns is not None and ns.pinned_kb_id is not None:
             if explicit is not None:
                 account_id = ns.account_id if ns.account_id is not None else 1
                 try:
                     resolved = theme_mgr.resolve_theme_ref(explicit, account_id=account_id)
-                    if resolved.theme.id != ns.pinned_theme_id:
+                    if resolved.theme.id != ns.pinned_kb_id:
                         raise HTTPException(
                             status_code=400,
                             detail="explicit theme parameter contradicts pinned theme in path",
                         )
-                except ThemeNotFound:
+                except KnowledgeBaseNotFound:
                     raise HTTPException(
                         status_code=400,
                         detail="explicit theme parameter contradicts pinned theme in path",
                     )
-            return ns.pinned_theme_id
+            return ns.pinned_kb_id
 
         return explicit
 
-    def _theme_accessible(request: Request, theme: ThemeInfo) -> bool:
+    def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
         try:
             ns = request_namespace(request)
         except Exception:
@@ -346,14 +346,14 @@ def create_app(
         visible = []
         for job in jobs:
             try:
-                job_theme = theme_mgr.get_theme(int(job.get("theme_id") or 0))
+                job_theme = theme_mgr.get_kb(int(job.get("kb_id") or 0))
             except Exception:  # noqa: BLE001
                 continue
             if _theme_accessible(request, job_theme):
                 visible.append(job)
         return visible
 
-    def _job_theme_id(request: Request, theme: ThemeInfo) -> int:
+    def _job_kb_id(request: Request, theme: KnowledgeBaseInfo) -> int:
         """작업 조회 대상 테마. 멀티 테마에서는 권한 검사를 거친 테마만 쓴다."""
         if getattr(s, "multi_theme", False):
             return theme.id
@@ -365,7 +365,7 @@ def create_app(
 
     def _get_theme_ctx(
         request: Request, body: dict[str, Any] | None = None
-    ) -> tuple[ThemeInfo, Settings, IngestService]:
+    ) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
         try:
             ns = request_namespace(request)
         except Exception:
@@ -381,8 +381,8 @@ def create_app(
         ref = _extract_theme_ref(request, body)
 
         try:
-            if ns is not None and ns.pinned_theme_id is not None:
-                theme = theme_mgr.get_theme(ns.pinned_theme_id)
+            if ns is not None and ns.pinned_kb_id is not None:
+                theme = theme_mgr.get_kb(ns.pinned_kb_id)
                 via_internal = False
             else:
                 resolved = theme_mgr.resolve_theme_ref(ref, account_id=account_id)
@@ -390,7 +390,7 @@ def create_app(
                 via_internal = resolved.via_internal_id
                 if not getattr(s, "multi_theme", False):
                     if theme.id != 0:
-                        raise ThemeNotFound(ref)
+                        raise KnowledgeBaseNotFound(ref)
 
             if not _theme_accessible(request, theme):
                 raise HTTPException(status_code=404, detail="theme not found")
@@ -398,24 +398,24 @@ def create_app(
             if via_internal:
                 request.state.claire_theme_deprecated = True
 
-            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             theme_svc = service_pool.get_service(theme.id)
-        except ThemeNotFound as exc:
+        except KnowledgeBaseNotFound as exc:
             # 없는 테마를 테마 0으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 테마의 존재가 드러나지 않는다.
             raise HTTPException(status_code=404, detail="theme not found") from exc
         return theme, theme_settings, theme_svc
 
     def _first_live_target(
         targets: list[dict[str, Any]],
-    ) -> tuple[dict[str, Any], ThemeInfo] | None:
+    ) -> tuple[dict[str, Any], KnowledgeBaseInfo] | None:
         """문서 후보 중 테마가 아직 있는 첫 후보와 그 테마. 삭제된 테마에 남은 후보는 건너뛴다(테마 0으로 바꾸지 않는다)."""
         for target in targets:
-            tid = target.get("theme_id")
+            tid = target.get("kb_id")
             if tid is None:
                 continue
             try:
-                return target, theme_mgr.get_theme(tid)
-            except ThemeNotFound:
+                return target, theme_mgr.get_kb(tid)
+            except KnowledgeBaseNotFound:
                 continue
         return None
 
@@ -455,7 +455,7 @@ def create_app(
             tier=tier,
         )
 
-    def _theme_provider_context(theme: ThemeInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
+    def _theme_provider_context(theme: KnowledgeBaseInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
         """테마 작업의 프로바이더 컨텍스트. 서비스가 붙인 컨텍스트(L4-a2i)를 먼저 쓰고, 없으면 테마 소유 계정으로 정한다."""
         ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
         if isinstance(ctx, policy.ProviderContext):
@@ -465,7 +465,7 @@ def create_app(
             return None
         return policy.resolve_provider_context(account_id, settings=s)
 
-    def _require_theme_feature_sync(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+    def _require_theme_feature_sync(theme: KnowledgeBaseInfo, theme_svc: Any | None, feature: str) -> None:
         if feature in policy.ADMIN_ONLY_FEATURES:
             # 관리자 전용 기능은 키 상태를 보기 전에 거부한다(멤버 키 복호화 불필요).
             ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
@@ -476,15 +476,15 @@ def create_app(
             return
         policy.require_feature(_theme_provider_context(theme, theme_svc), feature)
 
-    async def _require_theme_feature(theme: ThemeInfo, theme_svc: Any | None, feature: str) -> None:
+    async def _require_theme_feature(theme: KnowledgeBaseInfo, theme_svc: Any | None, feature: str) -> None:
         """멤버 테마에서 기능이 허용되지 않으면 ``ProviderNotAllowed``(→ 403). 관리자 테마는 그대로 통과한다."""
         await asyncio.to_thread(_require_theme_feature_sync, theme, theme_svc, feature)
 
-    def _reembed_required(theme: ThemeInfo) -> bool:
+    def _reembed_required(theme: KnowledgeBaseInfo) -> bool:
         """테마의 고정 임베딩 공간과 지금 소유 계정 컨텍스트의 임베딩이 다른가(§10.4). 판정할 수 없으면 False."""
         from types import SimpleNamespace
 
-        from ..store.theme import embed_mismatch
+        from ..store.knowledge_base import embed_mismatch
         from ..store.vectors import resolve_embed_identity
 
         try:
@@ -500,7 +500,7 @@ def create_app(
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             row = conn.execute(
-                "SELECT embed_provider, embed_model FROM themes WHERE id=?", (theme.id,)
+                "SELECT embed_provider, embed_model FROM knowledge_bases WHERE id=?", (theme.id,)
             ).fetchone()
         except Exception:  # noqa: BLE001 - 열이 없는 레거시 DB
             row = None
@@ -601,8 +601,8 @@ def create_app(
         def _counts() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                c = dict(dbm.counts(conn, include_hidden=include_hidden, theme_id=theme.id))
-                c["theme_id"] = theme.id
+                c = dict(dbm.counts(conn, include_hidden=include_hidden, kb_id=theme.id))
+                c["kb_id"] = theme.id
                 c["theme_label"] = theme.label
                 return c
             finally:
@@ -613,7 +613,7 @@ def create_app(
 
         jobs = _visible_active_jobs(request, theme_settings.data_dir)
         primary = get_primary_active_job(
-            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+            theme_settings.data_dir, kb_id=_job_kb_id(request, theme), jobs=jobs
         )
 
         res["active_jobs"] = jobs
@@ -631,7 +631,7 @@ def create_app(
 
         jobs = _visible_active_jobs(request, theme_settings.data_dir)
         primary = get_primary_active_job(
-            theme_settings.data_dir, theme_id=_job_theme_id(request, theme), jobs=jobs
+            theme_settings.data_dir, kb_id=_job_kb_id(request, theme), jobs=jobs
         )
         res = dict(primary) if primary else {"active": False}
         res["active_jobs"] = jobs
@@ -672,8 +672,8 @@ def create_app(
                 )
             )
 
-        def _fetch_themes_data() -> tuple[list[ThemeInfo], list[ThemeInfo]]:
-            owned = theme_mgr.list_account_themes(account_id)
+        def _fetch_themes_data() -> tuple[list[KnowledgeBaseInfo], list[KnowledgeBaseInfo]]:
+            owned = theme_mgr.list_account_kbs(account_id)
             if not getattr(s, "multi_theme", False):
                 owned = [t for t in owned if t.id == 0]
             if visible_scope in {"owner", "readonly"}:
@@ -690,14 +690,14 @@ def create_app(
         query = collections.parse_collection_query(request.query_params)
         legacy_dir = SqliteLegacyHostDirectory(s.db_file)
 
-        def _build_theme_stats(t: ThemeInfo) -> dict[str, int]:
-            abs_db = theme_mgr.get_settings_for_theme(t.id, s).db_file
+        def _build_theme_stats(t: KnowledgeBaseInfo) -> dict[str, int]:
+            abs_db = theme_mgr.get_settings_for_kb(t.id, s).db_file
             t_stats = {"documents": 0, "entities": 0, "relations": 0}
             if abs_db.is_file():
                 try:
                     conn = dbm.connect_existing(abs_db, readonly=True)
                     try:
-                        t_stats = theme_summary(conn, include_hidden=(visible_scope != "anonymous"), theme_id=t.id)
+                        t_stats = theme_summary(conn, include_hidden=(visible_scope != "anonymous"), kb_id=t.id)
                     finally:
                         conn.close()
                 except Exception:
@@ -728,7 +728,7 @@ def create_app(
                     "number": num_str,
                     "url": f"{collection_url}/{num_str}/",
                     "label": t.label,
-                    "is_default": t.is_default,
+                    "is_personal": t.is_personal,
                     "is_public": t.is_public,
                     "stats": t_stats,
                 }
@@ -789,11 +789,11 @@ def create_app(
 
         root_data["themes"] = legacy_theme_list
         try:
-            def_theme = theme_mgr.default_theme_for(account_id)
-            root_data["default_theme_id"] = def_theme.id
+            def_theme = theme_mgr.personal_kb_for(account_id)
+            root_data["default_kb_id"] = def_theme.id
             root_data["default_theme_number"] = str(def_theme.number) if def_theme.number is not None else None
-        except ThemeNotFound:
-            root_data["default_theme_id"] = 0
+        except KnowledgeBaseNotFound:
+            root_data["default_kb_id"] = 0
             root_data["default_theme_number"] = None
         root_data["multi_theme"] = bool(getattr(s, "multi_theme", False))
 
@@ -961,7 +961,7 @@ def create_app(
                         "number": str(t.number) if t.number is not None else str(t.id),
                         "url": f"{base_origin}/@{a.username}/themes/{t.number}/" if t.number else f"{base_origin}/@{a.username}/",
                         "label": t.label,
-                        "is_default": t.is_default,
+                        "is_personal": t.is_personal,
                         "documents": t.documents,
                     }
                     for t in a.themes
@@ -1034,7 +1034,7 @@ def create_app(
         # 멤버는 서버 등급의 max_themes를 넘겨 만들 수 없다(§10.3, 자기 키가 있어도 적용).
         await asyncio.to_thread(_check_theme_quota)
         try:
-            theme = theme_mgr.define_theme(
+            theme = theme_mgr.define_kb(
                 label,
                 description=desc,
                 icon=icon,
@@ -1070,12 +1070,12 @@ def create_app(
                 status_code=400,
                 detail="FQDN assignment is deprecated and no longer supported",
             )
-        theme_id = (
+        kb_id = (
             request.query_params.get("id")
             or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("theme_id", "")
+            or request.path_params.get("kb_id", "")
         )
-        if not theme_id:
+        if not kb_id:
             raise HTTPException(status_code=400, detail="id is required")
 
         try:
@@ -1084,9 +1084,9 @@ def create_app(
             ns = None
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
         try:
-            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
+            resolved = theme_mgr.resolve_theme_ref(kb_id, account_id=account_id)
             target_theme = resolved.theme
-        except ThemeNotFound:
+        except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
 
         label = body.get("label")
@@ -1128,7 +1128,7 @@ def create_app(
         if pres_enabled is not None:
             pres_enabled = bool(pres_enabled)
         try:
-            theme = theme_mgr.update_theme(
+            theme = theme_mgr.update_kb(
                 target_theme.id,
                 label=label,
                 description=desc,
@@ -1169,12 +1169,12 @@ def create_app(
             except Exception:
                 pass
 
-        theme_id = (
+        kb_id = (
             request.query_params.get("id")
             or (str(body.get("id")) if body.get("id") is not None else None)
-            or request.path_params.get("theme_id", "")
+            or request.path_params.get("kb_id", "")
         )
-        if not theme_id:
+        if not kb_id:
             raise HTTPException(status_code=400, detail="id is required")
 
         purge = (
@@ -1190,13 +1190,13 @@ def create_app(
             ns = None
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
         try:
-            resolved = theme_mgr.resolve_theme_ref(theme_id, account_id=account_id)
+            resolved = theme_mgr.resolve_theme_ref(kb_id, account_id=account_id)
             target_theme = resolved.theme
-        except ThemeNotFound:
+        except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
 
         try:
-            deleted = theme_mgr.delete_theme(target_theme.id, purge=purge)
+            deleted = theme_mgr.delete_kb(target_theme.id, purge=purge)
             if hasattr(service_pool, "remove_service"):
                 service_pool.remove_service(deleted.id)
             return JSONResponse({"ok": True, "deleted": deleted.to_dict()})
@@ -1461,7 +1461,7 @@ def create_app(
         theme, _, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -1510,7 +1510,7 @@ def create_app(
                 status_code=500,
             )
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         return JSONResponse(rep_dict)
 
@@ -1531,9 +1531,9 @@ def create_app(
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
         body = await _json_object(request)
-        # ``theme`` is a theme reference, as for ``POST /ingest``. ``theme_id`` is the name of the design; the two are the same value.
-        if body.get("theme") is None and body.get("theme_id") is not None:
-            body["theme"] = body["theme_id"]
+        # ``theme`` is a theme reference, as for ``POST /ingest``. ``kb_id`` is the name of the design; the two are the same value.
+        if body.get("theme") is None and body.get("kb_id") is not None:
+            body["theme"] = body["kb_id"]
         if body.get("theme") is None or not str(body["theme"]).strip():
             return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -1561,7 +1561,7 @@ def create_app(
             _log_operation_failure(request, "federation_timeline_ingest", exc)
             return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         document_id = getattr(report, "document_id", None)
         if document_id and not getattr(report, "error", None):
@@ -1569,15 +1569,15 @@ def create_app(
             def _link() -> None:
                 client = client_db.connect_client_existing(client_path)
                 try:
-                    federation_client_store.link_timeline_item(client, account_id, item.id, theme_id=theme.id, doc_id=str(document_id))
+                    federation_client_store.link_timeline_item(client, account_id, item.id, kb_id=theme.id, doc_id=str(document_id))
                     # Merge by URL (unit FP4-F3): a feed item with the address of this post gets the link too.
-                    feeds_store.link_by_url(client, account_id, [item.url, item.object_iri], theme_id=theme.id, doc_id=str(document_id), timeline=False)
+                    feeds_store.link_by_url(client, account_id, [item.url, item.object_iri], kb_id=theme.id, doc_id=str(document_id), timeline=False)
                     client.commit()
                 finally:
                     client.close()
 
             await asyncio.to_thread(_link)
-            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+            rep_dict["linked"] = {"kb_id": theme.id, "document_id": str(document_id)}
         else:
             rep_dict["linked"] = None
         return JSONResponse(rep_dict)
@@ -1598,8 +1598,8 @@ def create_app(
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
         body = await _json_object(request)
-        if body.get("theme") is None and body.get("theme_id") is not None:
-            body["theme"] = body["theme_id"]
+        if body.get("theme") is None and body.get("kb_id") is not None:
+            body["theme"] = body["kb_id"]
         if body.get("theme") is None or not str(body["theme"]).strip():
             return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
         theme, _, theme_svc = _get_theme_ctx(request, body)
@@ -1629,7 +1629,7 @@ def create_app(
             _log_operation_failure(request, "feed_item_ingest", exc)
             return JSONResponse({"error": "ingest failed", "ok": False}, status_code=500)
         rep_dict = report_to_dict(report)
-        rep_dict["theme_id"] = theme.id
+        rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
         document_id = getattr(report, "document_id", None)
         if document_id and not getattr(report, "error", None):
@@ -1637,14 +1637,14 @@ def create_app(
             def _link() -> None:
                 client = client_db.connect_client_existing(client_path)
                 try:
-                    feeds_store.link_item(client, account_id, item["id"], theme_id=theme.id, doc_id=str(document_id))
-                    feeds_store.link_by_url(client, account_id, [item["url"]], theme_id=theme.id, doc_id=str(document_id), timeline=True)
+                    feeds_store.link_item(client, account_id, item["id"], kb_id=theme.id, doc_id=str(document_id))
+                    feeds_store.link_by_url(client, account_id, [item["url"]], kb_id=theme.id, doc_id=str(document_id), timeline=True)
                     client.commit()
                 finally:
                     client.close()
 
             await asyncio.to_thread(_link)
-            rep_dict["linked"] = {"theme_id": theme.id, "document_id": str(document_id)}
+            rep_dict["linked"] = {"kb_id": theme.id, "document_id": str(document_id)}
         else:
             rep_dict["linked"] = None
         return JSONResponse(rep_dict)
@@ -1654,7 +1654,7 @@ def create_app(
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -1678,7 +1678,7 @@ def create_app(
             def _lift():
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    return dbm.remove_tombstones(conn, target=target, theme_id=theme.id)
+                    return dbm.remove_tombstones(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
             await asyncio.to_thread(_lift)
@@ -1686,7 +1686,7 @@ def create_app(
         def _run() -> Any:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -1713,7 +1713,7 @@ def create_app(
                     "relations_added": t_info.get("relations_added", 0),
                     "full_content": full_content,
                     "effort": effort,
-                    "theme_id": theme.id,
+                    "kb_id": theme.id,
                     "theme_label": theme.label,
                 }
             else:
@@ -1729,7 +1729,7 @@ def create_app(
                     ingest_kwargs["format"] = format_arg
                 rep = theme_svc.ingest(target, **ingest_kwargs)
                 rep_dict = report_to_dict(rep)
-                rep_dict["theme_id"] = theme.id
+                rep_dict["kb_id"] = theme.id
                 rep_dict["theme_label"] = theme.label
                 return rep_dict
 
@@ -1767,13 +1767,13 @@ def create_app(
                     try:
                         if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
                             theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+                            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
                             theme_svc = service_pool.get_service(theme.id)
                     except Exception:
                         pass
 
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -1834,7 +1834,7 @@ def create_app(
                 format=format_arg,
             )
             if isinstance(res, dict) and theme.id != 0:
-                res["theme_id"] = theme.id
+                res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
             return res
 
@@ -1908,7 +1908,7 @@ def create_app(
                 "query": result.query,
                 "mode": mode,
                 "answer": result.answer,
-                "theme_id": theme.id,
+                "kb_id": theme.id,
                 "theme_label": theme.label,
                 "hits": [
                     {
@@ -1933,8 +1933,8 @@ def create_app(
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                g = _graph_json(conn, include_hidden=include_hidden, theme_id=theme.id, **_entity_language_kwargs(request))
-                g["theme_id"] = theme.id
+                g = _graph_json(conn, include_hidden=include_hidden, kb_id=theme.id, **_entity_language_kwargs(request))
+                g["kb_id"] = theme.id
                 g["theme_label"] = theme.label
                 return g
             finally:
@@ -2028,7 +2028,7 @@ def create_app(
         is_collaborator = visible_scope == "collaborator"
         theme = None
 
-        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_theme_id is not None):
+        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_kb_id is not None):
             try:
                 theme, _, _ = _get_theme_ctx(request)
             except HTTPException:
@@ -2046,7 +2046,7 @@ def create_app(
         )
         # The profile page of a federation actor points to the actor ID (Fedify sidecar design Section 5.1 rule 2). The path has no content negotiation.
         headers: dict[str, str] = {}
-        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_theme_id is None:
+        if ns is not None and ns.mode == "network" and ns.username is not None and ns.pinned_kb_id is None:
             actor_url = await asyncio.to_thread(_profile_actor_url, account_id)
             if actor_url is not None:
                 link_tag = f'<link rel="alternate" type="application/activity+json" href="{html.escape(actor_url, quote=True)}">'
@@ -2071,7 +2071,7 @@ def create_app(
             return None
         return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
 
-    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, ThemeInfo | None]:
+    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, KnowledgeBaseInfo | None]:
         try:
             ns = request_namespace(request)
         except Exception:
@@ -2152,33 +2152,33 @@ def create_app(
             raise HTTPException(status_code=400, detail="document_id is required")
 
         target_theme_ref = (
-            body.get("target_theme_id")
-            if body.get("target_theme_id") is not None
+            body.get("target_kb_id")
+            if body.get("target_kb_id") is not None
             else body.get("target_theme")
         )
         if target_theme_ref is None:
-            raise HTTPException(status_code=400, detail="target_theme_id is required")
+            raise HTTPException(status_code=400, detail="target_kb_id is required")
 
         if not getattr(s, "multi_theme", False) and theme_mgr is None:
             try:
                 target_tid = int(target_theme_ref)
             except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail="invalid target_theme_id")
+                raise HTTPException(status_code=400, detail="invalid target_kb_id")
             if target_tid != 0:
                 raise HTTPException(status_code=400, detail="multi_theme is not enabled")
-            target_theme = ThemeInfo(
+            target_theme = KnowledgeBaseInfo(
                 id=0,
                 seq=0,
                 label="기본 지식베이스",
                 description="일반 수집 자료 및 기본 지식",
                 icon="📚",
                 db_path=str(getattr(s, "db_path", "data/claire.db")),
-                is_default=True,
+                is_personal=True,
                 is_public=True,
             )
         else:
             try:
-                target_theme = theme_mgr.get_theme(target_theme_ref)
+                target_theme = theme_mgr.get_kb(target_theme_ref)
             except Exception:
                 raise HTTPException(status_code=404, detail="target theme not found")
 
@@ -2208,7 +2208,7 @@ def create_app(
                     )
 
         if scope == "collaborator":
-            if target_theme.is_default or target_theme.id == 0:
+            if target_theme.is_personal or target_theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다.",
@@ -2220,8 +2220,8 @@ def create_app(
                 )
 
         source_theme_ref = (
-            body.get("source_theme_id")
-            if body.get("source_theme_id") is not None
+            body.get("source_kb_id")
+            if body.get("source_kb_id") is not None
             else body.get("source_theme")
         )
         if source_theme_ref is not None:
@@ -2229,7 +2229,7 @@ def create_app(
                 src_theme = target_theme
             else:
                 try:
-                    src_theme = theme_mgr.get_theme(source_theme_ref)
+                    src_theme = theme_mgr.get_kb(source_theme_ref)
                 except Exception:
                     raise HTTPException(status_code=404, detail="source theme not found")
         else:
@@ -2248,7 +2248,7 @@ def create_app(
 
         conn = dbm.connect_existing(s.db_file)
         try:
-            src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
+            src_doc = dbm.get_document(conn, document_id, kb_id=src_theme.id)
             if src_doc is None and theme_mgr is not None:
                 targets = theme_mgr.resolve_document_targets(doc_id=document_id)
                 live = _first_live_target(targets)
@@ -2256,7 +2256,7 @@ def create_app(
                     src_theme = live[1]
                     if not _theme_accessible(request, src_theme):
                         raise HTTPException(status_code=404, detail="source theme not found")
-                    src_doc = dbm.get_document(conn, document_id, theme_id=src_theme.id)
+                    src_doc = dbm.get_document(conn, document_id, kb_id=src_theme.id)
         finally:
             conn.close()
 
@@ -2285,7 +2285,7 @@ def create_app(
             meta=dict(src_doc.meta or {}),
         )
         target_doc.meta["syndication"] = {
-            "source_theme_id": src_theme.id,
+            "source_kb_id": src_theme.id,
             "source_document_id": src_doc.id,
         }
         # CT28: the copy takes no focus, also not the stored focus of the source.
@@ -2324,8 +2324,8 @@ def create_app(
             try:
                 return dbm.create_syndication_dispatch(
                     c,
-                    theme_id=src_theme.id,
-                    target_theme_id=target_theme.id,
+                    kb_id=src_theme.id,
+                    target_kb_id=target_theme.id,
                     document_id=src_doc.id,
                     mode="cross_theme",
                     status=status,
@@ -2343,8 +2343,8 @@ def create_app(
                 "ok": status == "done",
                 "dispatch_id": dispatch_id,
                 "status": status,
-                "source_theme_id": src_theme.id,
-                "target_theme_id": target_theme.id,
+                "source_kb_id": src_theme.id,
+                "target_kb_id": target_theme.id,
                 "document_id": src_doc.id,
                 "target_document_id": remote_ref,
                 "dispatched_by_account_id": dispatched_by_account_id,
@@ -2357,8 +2357,8 @@ def create_app(
         if scope in {"anonymous", "public"}:
             raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
-        theme_id_param = request.query_params.get("theme_id")
-        target_theme_id_param = request.query_params.get("target_theme_id")
+        kb_id_param = request.query_params.get("kb_id")
+        target_kb_id_param = request.query_params.get("target_kb_id")
         document_id = (
             request.query_params.get("document_id")
             or request.query_params.get("doc_id")
@@ -2374,14 +2374,14 @@ def create_app(
         except (ValueError, TypeError):
             offset = 0
 
-        theme_id = (
-            int(theme_id_param)
-            if theme_id_param is not None and theme_id_param != ""
+        kb_id = (
+            int(kb_id_param)
+            if kb_id_param is not None and kb_id_param != ""
             else None
         )
-        target_theme_id = (
-            int(target_theme_id_param)
-            if target_theme_id_param is not None and target_theme_id_param != ""
+        target_kb_id = (
+            int(target_kb_id_param)
+            if target_kb_id_param is not None and target_kb_id_param != ""
             else None
         )
         account_id_param = request.query_params.get("account_id") or request.query_params.get("dispatched_by_account_id")
@@ -2396,8 +2396,8 @@ def create_app(
             try:
                 return dbm.list_syndication_dispatches(
                     c,
-                    theme_id=theme_id,
-                    target_theme_id=target_theme_id,
+                    kb_id=kb_id,
+                    target_kb_id=target_kb_id,
                     document_id=document_id,
                     status=status,
                     mode=mode,
@@ -2421,9 +2421,9 @@ def create_app(
         host_header = request.headers.get("host") or ""
         req_host = host_header.split(":", 1)[0].strip().lower()
 
-        theme: ThemeInfo | None = None
+        theme: KnowledgeBaseInfo | None = None
         if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_theme_by_fqdn(req_host)
+            theme = theme_mgr.get_kb_by_fqdn(req_host)
 
         is_private = (
             not getattr(s, "anonymous_readonly", True)
@@ -2512,9 +2512,9 @@ def create_app(
         host_header = request.headers.get("host") or ""
         req_host = host_header.split(":", 1)[0].strip().lower()
 
-        theme: ThemeInfo | None = None
+        theme: KnowledgeBaseInfo | None = None
         if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_theme_by_fqdn(req_host)
+            theme = theme_mgr.get_kb_by_fqdn(req_host)
 
         if theme is not None and not getattr(theme, "is_public", True):
             return PlainTextResponse("Not Found", status_code=404)
@@ -2543,12 +2543,12 @@ def create_app(
         # (DB 파일, 테마 ID). 모든 테마가 한 DB를 쓰므로 테마 ID로 범위를 정한다.
         target_dbs: list[tuple[Path, int]] = []
         if theme is not None:
-            t_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+            t_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             target_dbs = [(t_settings.db_file, theme.id)]
         elif getattr(s, "multi_theme", False) and theme_mgr is not None:
-            for t in theme_mgr.list_themes():
+            for t in theme_mgr.list_kbs():
                 if getattr(t, "is_public", True):
-                    t_settings = theme_mgr.get_settings_for_theme(t.id, s)
+                    t_settings = theme_mgr.get_settings_for_kb(t.id, s)
                     target_dbs.append((t_settings.db_file, t.id))
         else:
             target_dbs = [(s.db_file, 0)]
@@ -2560,7 +2560,7 @@ def create_app(
             try:
                 conn = dbm.connect_existing(db_file)
                 try:
-                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True, theme_id=target_tid)
+                    entries = dbm.list_public_sitemap_documents(conn, ensure_shares=True, kb_id=target_tid)
                     all_doc_entries.extend(entries)
                 finally:
                     conn.close()
@@ -2784,12 +2784,12 @@ def create_app(
         def _documents() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                format_status = dbm.check_format_mismatch(conn, render_format, theme_id=theme.id)
-                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, theme_id=theme.id, list_func=_documents_list, **filters)
+                format_status = dbm.check_format_mismatch(conn, render_format, kb_id=theme.id)
+                page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
                 return {
                     "documents": page["documents"],
                     "format_status": format_status,
-                    "theme_id": theme.id,
+                    "kb_id": theme.id,
                     "theme_label": theme.label,
                     "next_before": page["next_before"],
                     "total": page["total"],
@@ -2816,9 +2816,9 @@ def create_app(
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                rep = _detail(conn, node_id, include_hidden=include_hidden, theme_id=theme.id, **detail_kwargs)
+                rep = _detail(conn, node_id, include_hidden=include_hidden, kb_id=theme.id, **detail_kwargs)
                 if rep is not None:
-                    rep["theme_id"] = theme.id
+                    rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
                 return rep
             finally:
@@ -2848,7 +2848,7 @@ def create_app(
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                return document_detail(conn, document_id, include_hidden=include_hidden, theme_id=theme.id)
+                return document_detail(conn, document_id, include_hidden=include_hidden, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -2881,13 +2881,13 @@ def create_app(
         theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _load(settings: Settings, t_info: ThemeInfo) -> dict[str, Any] | None:
+        def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
-                rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id, **language_kwargs)
+                rep = _document_detail(conn, document_id, include_hidden=include_hidden, kb_id=t_info.id, **language_kwargs)
                 if rep is not None:
-                    rep["theme_id"] = t_info.id
+                    rep["kb_id"] = t_info.id
                     rep["theme_label"] = t_info.label
                 return rep
             finally:
@@ -2904,18 +2904,18 @@ def create_app(
                 theme_mgr.resolve_document_targets, doc_id=document_id
             )
             for target in targets:
-                tid = target.get("theme_id")
+                tid = target.get("kb_id")
                 if tid is None or tid == theme.id:
                     continue
                 try:
-                    cand_theme = theme_mgr.get_theme(tid)
+                    cand_theme = theme_mgr.get_kb(tid)
                 except Exception:
                     continue
                 if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
                     continue
                 if not _theme_accessible(request, cand_theme):
                     continue
-                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
+                cand_settings = theme_mgr.get_settings_for_kb(cand_theme.id, s)
                 cand_report = await asyncio.to_thread(_load, cand_settings, cand_theme)
                 if cand_report is not None:
                     report = cand_report
@@ -2938,20 +2938,20 @@ def create_app(
         theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
-        def _find_raw(t_settings: Settings, t_theme_id: int) -> tuple[str, str] | None:
+        def _find_raw(t_settings: Settings, t_kb_id: int) -> tuple[str, str] | None:
             conn = dbm.connect_existing(t_settings.db_file, readonly=True)
             try:
                 try:
                     row = conn.execute(
-                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND theme_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
-                        (doc_id, t_theme_id),
+                        "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND kb_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
+                        (doc_id, t_kb_id),
                     ).fetchone()
                     if row and row["file_ref"]:
                         return str(row["file_ref"]), str(row["file_name"] or "")
                 except Exception:
                     pass
 
-                row_doc = dbm.get_document_row(conn, doc_id, theme_id=t_theme_id)
+                row_doc = dbm.get_document_row(conn, doc_id, kb_id=t_kb_id)
                 if row_doc:
                     raw_meta = None
                     try:
@@ -2984,18 +2984,18 @@ def create_app(
                 theme_mgr.resolve_document_targets, doc_id=doc_id
             )
             for target in targets:
-                tid = target.get("theme_id")
+                tid = target.get("kb_id")
                 if tid is None or tid == theme.id:
                     continue
                 try:
-                    cand_theme = theme_mgr.get_theme(tid)
+                    cand_theme = theme_mgr.get_kb(tid)
                 except Exception:
                     continue
                 if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
                     continue
                 if not _theme_accessible(request, cand_theme):
                     continue
-                cand_settings = theme_mgr.get_settings_for_theme(cand_theme.id, s)
+                cand_settings = theme_mgr.get_settings_for_kb(cand_theme.id, s)
                 cand_res = await asyncio.to_thread(_find_raw, cand_settings, cand_theme.id)
                 if cand_res is not None:
                     resolved = cand_res
@@ -3092,10 +3092,10 @@ def create_app(
         def _mark() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=theme.id)
                 if row is None:
                     return False
-                dbm.set_document_seen(conn, document_id, seen=True, theme_id=theme.id)
+                dbm.set_document_seen(conn, document_id, seen=True, kb_id=theme.id)
                 return True
             finally:
                 conn.close()
@@ -3104,7 +3104,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "seen": True}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_pin_route(request: Request) -> JSONResponse:
@@ -3118,7 +3118,7 @@ def create_app(
         def _pin() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_pinned(conn, document_id, pinned, theme_id=theme.id)
+                return dbm.set_document_pinned(conn, document_id, pinned, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3126,7 +3126,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "pinned": pinned}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_hide_route(request: Request) -> JSONResponse:
@@ -3140,7 +3140,7 @@ def create_app(
         def _hide() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_hidden(conn, document_id, hidden, theme_id=theme.id)
+                return dbm.set_document_hidden(conn, document_id, hidden, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3148,7 +3148,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "hidden": hidden}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_title_route(request: Request) -> JSONResponse:
@@ -3163,7 +3163,7 @@ def create_app(
         def _update_title() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return dbm.set_document_title(conn, document_id, title, theme_id=theme.id)
+                return dbm.set_document_title(conn, document_id, title, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3171,7 +3171,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         resp = {"id": document_id, "title": title}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_matrix_purge_route(request: Request) -> JSONResponse:
@@ -3184,10 +3184,10 @@ def create_app(
         def _purge() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=theme.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=theme.id)
                 if row is None:
                     return False
-                return dbm.purge_document_matrix(conn, document_id, theme_id=theme.id)
+                return dbm.purge_document_matrix(conn, document_id, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3199,7 +3199,7 @@ def create_app(
 
         resp = {"id": document_id, "purged": True}
         if theme.id != 0:
-            resp["theme_id"] = theme.id
+            resp["kb_id"] = theme.id
         return JSONResponse(resp)
 
     async def document_purge_route(request: Request) -> JSONResponse:
@@ -3223,7 +3223,7 @@ def create_app(
         def _do_purge() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
                 if not matched:
                     return {"count": 0, "targets": [], "error": f"일치하는 소각 대상 문서를 찾을 수 없습니다: {target}"}
                 target_ids = [m["id"] for m in matched]
@@ -3234,7 +3234,7 @@ def create_app(
                     reason=reason,
                     dry_run=dry_run,
                     tombstone=tombstone,
-                    theme_id=theme.id,
+                    kb_id=theme.id,
                 )
                 if not dry_run:
                     from ..ingest.active import purge_active_matrix
@@ -3244,7 +3244,7 @@ def create_app(
                         except Exception:
                             pass
                 report["targets"] = matched
-                report["theme_id"] = theme.id
+                report["kb_id"] = theme.id
                 return report
             finally:
                 conn.close()
@@ -3269,8 +3269,8 @@ def create_app(
         def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _synthesize(conn, theme_svc.provider, entity_ids, query, theme_id=theme.id)
-                res["theme_id"] = theme.id
+                res = _synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id)
+                res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
                 return res
             finally:
@@ -3282,7 +3282,7 @@ def create_app(
         from ..expand.research import contextual_research
 
         body = await _json_object(request)
-        # 요청 테마의 설정(theme_id)으로 맥락을 읽고 적재한다
+        # 요청 테마의 설정(kb_id)으로 맥락을 읽고 적재한다
         research_theme, research_settings, research_svc = _get_theme_ctx(request, body)
         # research(allow_tools=True)는 관리자 전용이다(§10.1). 멤버 테마면 프로바이더에 닿기 전에 403.
         await _require_theme_feature(research_theme, research_svc, "research")
@@ -3368,7 +3368,7 @@ def create_app(
         theme, _, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -3456,7 +3456,7 @@ def create_app(
                 try:
                     result = report_to_dict(task.result())
                     if theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except policy.ProviderPolicyError as exc:
                     result = _failure_result(exc, "ingest")
@@ -3483,7 +3483,7 @@ def create_app(
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -3507,7 +3507,7 @@ def create_app(
             def _lift():
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    return dbm.remove_tombstones(conn, target=target, theme_id=theme.id)
+                    return dbm.remove_tombstones(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
             await asyncio.to_thread(_lift)
@@ -3539,7 +3539,7 @@ def create_app(
             try:
                 conn = dbm.connect_existing(theme_settings.db_file)
                 try:
-                    matched = dbm.resolve_document_targets(conn, target=target, theme_id=theme.id)
+                    matched = dbm.resolve_document_targets(conn, target=target, kb_id=theme.id)
                 finally:
                     conn.close()
 
@@ -3567,7 +3567,7 @@ def create_app(
                         "relations_added": t_info.get("relations_added", 0),
                         "full_content": full_content,
                         "effort": effort,
-                        "theme_id": theme.id,
+                        "kb_id": theme.id,
                         "theme_label": theme.label,
                     }
                 else:
@@ -3583,7 +3583,7 @@ def create_app(
                         ingest_kwargs["format"] = format_arg
                     rep = theme_svc.ingest(target, **ingest_kwargs)
                     rep_dict = report_to_dict(rep)
-                    rep_dict["theme_id"] = theme.id
+                    rep_dict["kb_id"] = theme.id
                     rep_dict["theme_label"] = theme.label
                     return rep_dict
             finally:
@@ -3614,7 +3614,7 @@ def create_app(
                     if isinstance(result, IngestReport):
                         result = report_to_dict(result)
                     if isinstance(result, dict) and theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "reingest stream", exc)
@@ -3659,13 +3659,13 @@ def create_app(
                     try:
                         if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
                             theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_theme(theme.id, s)
+                            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
                             theme_svc = service_pool.get_service(theme.id)
                     except Exception:
                         pass
 
         if scope == "collaborator":
-            if theme.is_default or theme.id == 0:
+            if theme.is_personal or theme.id == 0:
                 raise HTTPException(
                     status_code=403,
                     detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
@@ -3751,7 +3751,7 @@ def create_app(
                     on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
                 )
                 if isinstance(res, dict) and theme.id != 0:
-                    res["theme_id"] = theme.id
+                    res["kb_id"] = theme.id
                     res["theme_label"] = theme.label
                 return res
             finally:
@@ -3782,7 +3782,7 @@ def create_app(
                     if isinstance(result, IngestReport):
                         result = report_to_dict(result)
                     if isinstance(result, dict) and theme.id != 0:
-                        result["theme_id"] = theme.id
+                        result["kb_id"] = theme.id
                         result["theme_label"] = theme.label
                 except Exception as exc:  # noqa: BLE001
                     _log_operation_failure(request, "regenerate stream", exc)
@@ -3810,9 +3810,9 @@ def create_app(
             scan = theme_svc.dedup_scan()
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _dedup_clusters(conn, scan, theme_id=theme.id)
+                res = _dedup_clusters(conn, scan, kb_id=theme.id)
                 if theme.id != 0:
-                    res["theme_id"] = theme.id
+                    res["kb_id"] = theme.id
                     res["theme_label"] = theme.label
                 return res
             finally:
@@ -3858,7 +3858,7 @@ def create_app(
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
                 try:
-                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name, theme_id=theme.id)
+                    updated = dbm.select_entity_primary_label(conn, entity_id, new_name, kb_id=theme.id)
                 except KeyError as e:
                     raise HTTPException(status_code=404, detail=scrub_exception(e))
                 except ValueError as e:
@@ -3867,9 +3867,9 @@ def create_app(
                 from ..store.queries import node_detail as _detail
 
                 _detail_fn = _resolve_query_func("node_detail", _detail)
-                rep = _detail_fn(conn, updated.id, theme_id=theme.id, **language_kwargs)
+                rep = _detail_fn(conn, updated.id, kb_id=theme.id, **language_kwargs)
                 if rep is not None and theme.id != 0:
-                    rep["theme_id"] = theme.id
+                    rep["kb_id"] = theme.id
                     rep["theme_label"] = theme.label
                 return rep or {
                     "id": updated.id,
@@ -3898,7 +3898,7 @@ def create_app(
         def _do_rollback() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                doc = dbm.get_document(conn, doc_id, theme_id=theme.id)
+                doc = dbm.get_document(conn, doc_id, kb_id=theme.id)
                 if not doc:
                     raise HTTPException(status_code=404, detail="document not found")
                 decisions = get_resolution_log_from_meta(doc.meta)
@@ -3910,7 +3910,7 @@ def create_app(
                 if not target_dec:
                     return {"ok": False, "error": "no eligible merge decision found to rollback"}
 
-                success = rollback_resolution(conn, target_dec, theme_id=theme.id)
+                success = rollback_resolution(conn, target_dec, kb_id=theme.id)
                 if success:
                     raw_log = (doc.meta or {}).get("resolution_log") or []
                     for item in raw_log:
@@ -3918,7 +3918,7 @@ def create_app(
                             item["rolled_back"] = True
                             item["decision"] = "ROLLED_BACK"
                             item["reason"] = (item.get("reason", "") + " (롤백됨)").strip()
-                    dbm.update_document_meta(conn, doc_id, doc.meta, theme_id=theme.id)
+                    dbm.update_document_meta(conn, doc_id, doc.meta, kb_id=theme.id)
                     return {"ok": True, "entity": entity_name}
                 return {"ok": False, "error": "rollback execution failed"}
             finally:
@@ -3943,7 +3943,7 @@ def create_app(
         def _fetch() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
-                return get_all_resolution_decisions(conn, limit=limit, offset=offset, theme_id=theme.id)
+                return get_all_resolution_decisions(conn, limit=limit, offset=offset, kb_id=theme.id)
             finally:
                 conn.close()
 
@@ -3959,20 +3959,20 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
 
-        def _share(settings: Settings, target_theme_info: ThemeInfo) -> str | None:
+        def _share(settings: Settings, target_theme_info: KnowledgeBaseInfo) -> str | None:
             conn = dbm.connect_existing(settings.db_file)
             try:
-                row = dbm.get_document_row(conn, document_id, theme_id=target_theme_info.id)
+                row = dbm.get_document_row(conn, document_id, kb_id=target_theme_info.id)
                 if row is None:
                     return None
                 if not include_hidden and bool(row["hidden"]):
                     return None
-                return dbm.create_doc_share(conn, document_id, theme_id=target_theme_info.id)
+                return dbm.create_doc_share(conn, document_id, kb_id=target_theme_info.id)
             finally:
                 conn.close()
 
         token = await asyncio.to_thread(_share, theme_settings, theme)
-        target_theme_id = theme.id
+        target_kb_id = theme.id
 
         if not token and getattr(s, "multi_theme", False):
             try:
@@ -3983,27 +3983,27 @@ def create_app(
                 theme_mgr.resolve_document_targets, doc_id=document_id
             )
             for target in targets:
-                tid = target.get("theme_id")
+                tid = target.get("kb_id")
                 if tid is None or tid == theme.id:
                     continue
                 try:
-                    candidate_theme = theme_mgr.get_theme(tid)
+                    candidate_theme = theme_mgr.get_kb(tid)
                 except Exception:
                     continue
                 if ns is not None and ns.account_id is not None and candidate_theme.account_id != ns.account_id:
                     continue
                 if not _theme_accessible(request, candidate_theme):
                     continue
-                cand_settings = theme_mgr.get_settings_for_theme(candidate_theme.id, s)
+                cand_settings = theme_mgr.get_settings_for_kb(candidate_theme.id, s)
                 cand_token = await asyncio.to_thread(_share, cand_settings, candidate_theme)
                 if cand_token:
                     token = cand_token
-                    target_theme_id = candidate_theme.id
+                    target_kb_id = candidate_theme.id
                     break
 
         if not token:
             raise HTTPException(status_code=404, detail="document not found")
-        return JSONResponse({"token": token, "path": "/p?s=" + token, "theme_id": target_theme_id})
+        return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
 
     async def shared_doc_page(request: Request) -> Response:
         from ..graphview import shared_html
@@ -4026,10 +4026,10 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             document_id = None
             try:
-                document_id = dbm.resolve_doc_share(conn, token, theme_id=0)
+                document_id = dbm.resolve_doc_share(conn, token, kb_id=0)
                 if not document_id:
                     return None
-                doc = _document_detail(conn, document_id, include_hidden=False, theme_id=0)
+                doc = _document_detail(conn, document_id, include_hidden=False, kb_id=0)
                 if doc is not None and not doc.get("hidden"):
                     return doc
             finally:
@@ -4047,7 +4047,7 @@ def create_app(
                     try:
                         t_conn = dbm.connect_existing(Path(target_db), readonly=True)
                         try:
-                            doc = _document_detail(t_conn, document_id, include_hidden=False, theme_id=target["theme_id"])
+                            doc = _document_detail(t_conn, document_id, include_hidden=False, kb_id=target["kb_id"])
                             if doc is not None and not doc.get("hidden"):
                                 return doc
                         finally:
@@ -4109,7 +4109,7 @@ def create_app(
 
     def _resolve_presentation_target(
         request: Request, doc_id: str = "", token: str = ""
-    ) -> tuple[ThemeInfo, Settings, Path, Path, str, str]:
+    ) -> tuple[KnowledgeBaseInfo, Settings, Path, Path, str, str]:
         target_theme, theme_settings, _ = _get_theme_ctx(request, None)
         active_db = theme_settings.db_file
         active_data_dir = theme_settings.data_dir
@@ -4118,16 +4118,16 @@ def create_app(
 
         if token:
             resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
-            resolved_theme: ThemeInfo | None = None
+            resolved_theme: KnowledgeBaseInfo | None = None
             if resolved is not None:
                 try:
-                    resolved_theme = theme_mgr.get_theme(resolved[0])
-                except ThemeNotFound:
+                    resolved_theme = theme_mgr.get_kb(resolved[0])
+                except KnowledgeBaseNotFound:
                     # 삭제된 테마의 공유 토큰은 찾지 못한 것으로 본다 (테마 0으로 바꾸지 않는다)
                     resolved = None
             if resolved is not None and resolved_theme is not None:
                 target_theme = resolved_theme
-                theme_settings = theme_mgr.get_settings_for_theme(target_theme.id, s)
+                theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
                 active_db = theme_settings.db_file
                 active_data_dir = theme_settings.data_dir
                 doc_obj = resolved[2]
@@ -4137,9 +4137,9 @@ def create_app(
             else:
                 conn = dbm.connect_existing(active_db, readonly=True)
                 try:
-                    cand_id = dbm.resolve_doc_share(conn, token, theme_id=target_theme.id) or ""
+                    cand_id = dbm.resolve_doc_share(conn, token, kb_id=target_theme.id) or ""
                     if cand_id:
-                        d_obj = dbm.get_document(conn, cand_id, theme_id=target_theme.id)
+                        d_obj = dbm.get_document(conn, cand_id, kb_id=target_theme.id)
                         if d_obj and not bool(d_obj.hidden):
                             resolved_doc_id = cand_id
                             resolved_doc_title = d_obj.title or ""
@@ -4151,14 +4151,14 @@ def create_app(
             except Exception:
                 ns = None
             targets = theme_mgr.resolve_document_targets(doc_id=resolved_doc_id)
-            live: tuple[dict[str, Any], ThemeInfo] | None = None
+            live: tuple[dict[str, Any], KnowledgeBaseInfo] | None = None
             for target in targets:
-                tid = target.get("theme_id")
+                tid = target.get("kb_id")
                 if tid is None:
                     continue
                 try:
-                    cand_theme = theme_mgr.get_theme(tid)
-                except ThemeNotFound:
+                    cand_theme = theme_mgr.get_kb(tid)
+                except KnowledgeBaseNotFound:
                     continue
                 if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
                     continue
@@ -4172,7 +4172,7 @@ def create_app(
             if live is not None and live[0].get("db_file"):
                 live_target, target_theme = live
                 active_db = Path(live_target["db_file"])
-                theme_settings = theme_mgr.get_settings_for_theme(target_theme.id, s)
+                theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
                 if live_target.get("data_dir"):
                     active_data_dir = Path(live_target["data_dir"])
 
@@ -4207,11 +4207,11 @@ def create_app(
         slide_theme = request.query_params.get("slide_theme") or request.query_params.get("presentation_theme") or "night"
         transition = request.query_params.get("transition", "slide")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             if not doc_title:
-                d_obj = dbm.get_document(conn, doc_id, theme_id=target_theme.id)
+                d_obj = dbm.get_document(conn, doc_id, kb_id=target_theme.id)
                 if d_obj:
                     doc_title = d_obj.title or ""
             # Option A: allow_compose=False -> Never trigger heavy LLM generation on GET
@@ -4286,7 +4286,7 @@ def create_app(
                 status_code=403,
             )
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db, readonly=True)
         try:
             meta = svc.get_presentation_metadata(conn, doc_id)
@@ -4341,12 +4341,12 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
 
         if not wait_for_completion:
             conn = dbm.connect_existing(active_db, readonly=True)
             try:
-                if dbm.get_document_row(conn, doc_id, theme_id=target_theme.id) is None:
+                if dbm.get_document_row(conn, doc_id, kb_id=target_theme.id) is None:
                     return JSONResponse({"error": "document not found"}, status_code=404)
                 meta = svc.get_presentation_metadata(conn, doc_id)
                 if not force and meta and meta.get("is_ready") and meta.get("status") == "ready":
@@ -4436,7 +4436,7 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.compose_presentation(
@@ -4496,7 +4496,7 @@ def create_app(
         # 프레젠테이션 저작은 LLM을 쓴다. 멤버 테마는 등급 기능(또는 BYOK)일 때만 허용한다(§10.3).
         await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
         conn = dbm.connect_existing(active_db)
         try:
             res = await svc.compile_presentation(
@@ -4541,12 +4541,12 @@ def create_app(
         if request.method == "PUT":
             await _require_theme_feature(target_theme, None, "presentation")
 
-        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, theme_id=target_theme.id)
+        svc = PresentationService(data_dir=active_data_dir, settings=theme_settings, kb_id=target_theme.id)
 
         if request.method == "GET":
             conn = dbm.connect_existing(active_db, readonly=True)
             try:
-                adoc = dbm.get_presentation_adoc(conn, doc_id, theme_id=target_theme.id)
+                adoc = dbm.get_presentation_adoc(conn, doc_id, kb_id=target_theme.id)
                 if not adoc:
                     adoc_path = svc.get_presentation_adoc_path(doc_id)
                     if adoc_path.exists():
@@ -4581,7 +4581,7 @@ def create_app(
                 dbm.save_presentation_adoc(
                     conn,
                     document_id=doc_id,
-                    theme_id=target_theme.id,
+                    kb_id=target_theme.id,
                     presentation_adoc=adoc_content,
                     content_hash=content_hash,
                     adoc_hash=adoc_hash,
@@ -4739,7 +4739,7 @@ def create_app(
             body = {}
 
         theme, _, _ = _get_theme_ctx(request, body)
-        theme_id = theme.id
+        kb_id = theme.id
 
         source_channel = str(body.get("source_channel") or "api")
         if source_channel not in {"api", "telegram_command", "telegram_callback"}:
@@ -4748,7 +4748,7 @@ def create_app(
         def _generate() -> dict[str, Any]:
             info = create_graph_bundle(
                 s,
-                theme_id=theme_id,
+                kb_id=kb_id,
                 request_context={"channel": source_channel},
             )
             return info.to_dict()
@@ -4994,10 +4994,10 @@ def create_app(
     def _legacy_theme_location(legacy: LegacyHost) -> str | None:
         """레거시 호스트의 정본 테마 경로(§5.3). 테마가 없거나 번호가 아직 없으면 None(421)."""
         try:
-            theme = theme_mgr.get_theme(legacy.theme_id)
-        except ThemeNotFound:
+            theme = theme_mgr.get_kb(legacy.kb_id)
+        except KnowledgeBaseNotFound:
             return None
-        if theme.id != legacy.theme_id or theme.number is None:
+        if theme.id != legacy.kb_id or theme.number is None:
             return None
         mode = namespace_directory.mode()
         if mode == "single":

@@ -105,14 +105,14 @@ def _insert_account(conn, public_id: int, username: str, *, status: str = "activ
     return int(cur.lastrowid)
 
 
-def _insert_theme(conn, theme_id: int, account_id: int, number: int, *, public: bool,
+def _insert_theme(conn, kb_id: int, account_id: int, number: int, *, public: bool,
                   default: bool = False, ga: str = "") -> None:
     now = time.time()
     conn.execute(
-        "INSERT INTO themes (id, seq, label, is_default, is_public, is_collaborator_accessible, "
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, "
         "ga_measurement_id, created_at, updated_at, account_id, number) "
         "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
-        (theme_id, theme_id, f"t{theme_id}", int(default), int(public), ga, now, now, account_id, number),
+        (kb_id, kb_id, f"t{kb_id}", int(default), int(public), ga, now, now, account_id, number),
     )
 
 
@@ -133,7 +133,7 @@ def world(tmp_path: Path) -> World:
             "INSERT INTO username_tombstones (username, account_id, was_public, retired_at) VALUES "
             "('zed', 90, 1, 0), ('yan', 91, 0, 0)"
         )
-        conn.execute("DELETE FROM themes")
+        conn.execute("DELETE FROM knowledge_bases")
         _insert_theme(conn, 0, 1, N_ADMIN_DEFAULT, public=True, default=True)
         _insert_theme(conn, 5, 1, N_ADMIN_PRIVATE, public=False, ga="G-PINNED")
         _insert_theme(conn, 10, alice, N_ALICE_PUBLIC, public=True, default=True)
@@ -388,7 +388,7 @@ async def test_single_mode_unprefixed_is_admin_namespace_without_username(app_fa
     body = res.json()
     assert res.status == 200
     assert body["ns"] == {
-        "mode": "single", "account_id": 1, "username": None, "pinned_theme_id": None,
+        "mode": "single", "account_id": 1, "username": None, "pinned_kb_id": None,
         "prefix": "", "via_prefix": False,
     }
     assert body["bootstrap"] == {"api-base": "/", "root-base": "/", "storage-key": f"a{world.admin_public_id}"}
@@ -425,7 +425,7 @@ async def test_single_mode_root_pin_is_admin_theme_only(app_factory, world):
     res = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
     assert res.status == 200
     body = res.json()
-    assert body["ns"]["pinned_theme_id"] == 5 and body["ns"]["prefix"] == f"/themes/{N_ADMIN_PRIVATE}"
+    assert body["ns"]["pinned_kb_id"] == 5 and body["ns"]["prefix"] == f"/themes/{N_ADMIN_PRIVATE}"
     assert body["ns"]["username"] is None
     assert body["bootstrap"]["api-base"] == f"/themes/{N_ADMIN_PRIVATE}/"
     assert body["link"] == f"{DEV_ORIGIN}/themes/{N_ADMIN_PRIVATE}/graph"
@@ -489,7 +489,7 @@ async def test_network_account_prefix_resolution(app_factory, world, fake_sessio
     assert body["bootstrap"] == {"api-base": "/@alice/", "root-base": "/", "storage-key": f"a{world.alice_public_id}"}
     assert body["link"] == f"{DEV_ORIGIN}/@alice/graph"
     pinned = await _call(app, f"/@alice/themes/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
-    assert pinned.status == 200 and pinned.json()["ns"]["pinned_theme_id"] == 11
+    assert pinned.status == 200 and pinned.json()["ns"]["pinned_kb_id"] == 11
     # 다른 계정의 번호는 404(N2)
     assert (await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
 
@@ -652,16 +652,16 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     assert client.get("/static/css/theme.css").status_code == 200
     created = client.post("/themes", json={"label": "옛 호스트", "is_public": True}, headers=owner)
     assert created.status_code == 201, created.text
-    theme_id = created.json()["theme"]["id"]
+    kb_id = created.json()["theme"]["id"]
     conn = dbm.connect(settings.db_file)
     try:
-        conn.execute("DELETE FROM legacy_hosts WHERE theme_id=?", (theme_id,))
-        conn.execute("UPDATE themes SET fqdn='old.example.com', number=NULL WHERE id=?", (theme_id,))
+        conn.execute("DELETE FROM legacy_hosts WHERE kb_id=?", (kb_id,))
+        conn.execute("UPDATE knowledge_bases SET fqdn='old.example.com', number=NULL WHERE id=?", (kb_id,))
         conn.commit()
         dbm.init_db(conn)
         conn.execute("UPDATE accounts SET username=?, status='active' WHERE id=1", (ADMIN_NAME,))
         conn.commit()
-        number = int(conn.execute("SELECT number FROM themes WHERE id=?", (theme_id,)).fetchone()[0])
+        number = int(conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()[0])
     finally:
         conn.close()
     single = client.get("/graph", headers={"Host": "old.example.com"}, follow_redirects=False)

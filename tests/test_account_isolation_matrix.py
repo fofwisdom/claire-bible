@@ -5,14 +5,14 @@ Covers:
   * Anonymous: public theme read -> 200, search forced to FTS, private theme read -> 404, write -> 404
   * Owner (same-account): public/private read -> 200, write -> 200
   * Collaborator (same-account): public/collab-accessible read -> 200, secret read -> 404,
-    write to default theme (is_default=1) -> 403, write to collab-accessible theme -> 200, owner-action write -> 403
+    write to default theme (is_personal=1) -> 403, write to collab-accessible theme -> 200, owner-action write -> 403
   * Readonly (same-account): read -> 200, write -> 403 or 404
   * Cross-account (Bob accessing Alice): public read -> 200, search forced to FTS, private read -> 404, write -> 404
 - TokenStore multi-account isolation:
   * Scoping /tokens list, create, and revoke routes to caller Principal.account_id
   * Cross-account revocation attempt rejected with 404
 - Graph bundle isolation:
-  * create_graph_bundle exports only caller theme's entities, relations, and documents (WHERE theme_id = ?)
+  * create_graph_bundle exports only caller theme's entities, relations, and documents (WHERE kb_id = ?)
   * import_graph_bundle detects and rejects conflicts with existing IDs in another theme
 - Support bundle security boundaries:
   * Exclude data/auth/ and master.key from all scans and bundles
@@ -44,7 +44,7 @@ from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
 from claire.support_bundle import create_support_bundle
 
@@ -76,30 +76,30 @@ def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role:
 
 
 def _setup_theme(
-    tm: ThemeManager,
+    tm: KnowledgeBaseManager,
     settings: Settings,
     *,
-    theme_id: int,
+    kb_id: int,
     seq: int,
     label: str,
     account_id: int,
-    is_default: bool = False,
+    is_personal: bool = False,
     is_public: bool = True,
     is_collaborator_accessible: bool = True,
-) -> ThemeInfo:
+) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, ?, '', ?, ?)",
             (
-                theme_id,
+                kb_id,
                 seq,
                 (account_id << 56) | seq,
                 label,
                 f"Description for {label}",
-                1 if is_default else 0,
+                1 if is_personal else 0,
                 1 if is_public else 0,
                 1 if is_collaborator_accessible else 0,
                 account_id,
@@ -113,8 +113,8 @@ def _setup_theme(
         conn.close()
 
     tm.reload()
-    tm._save_registry()
-    return tm.get_theme(theme_id)
+    tm.reload()
+    return tm.get_kb(kb_id)
 
 
 @pytest.fixture
@@ -146,18 +146,18 @@ def test_environment(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
     )
 
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
 
     # 3. Themes:
     # Alice themes (account_id = 2)
-    alice_def = _setup_theme(tm, settings, theme_id=20, seq=1, label="Alice Default", account_id=2, is_default=True, is_public=True, is_collaborator_accessible=False)
-    alice_pub = _setup_theme(tm, settings, theme_id=21, seq=2, label="Alice Public", account_id=2, is_default=False, is_public=True, is_collaborator_accessible=True)
-    alice_collab = _setup_theme(tm, settings, theme_id=22, seq=3, label="Alice Collab Only", account_id=2, is_default=False, is_public=False, is_collaborator_accessible=True)
-    alice_sec = _setup_theme(tm, settings, theme_id=23, seq=4, label="Alice Secret", account_id=2, is_default=False, is_public=False, is_collaborator_accessible=False)
+    alice_def = _setup_theme(tm, settings, kb_id=20, seq=1, label="Alice Default", account_id=2, is_personal=True, is_public=True, is_collaborator_accessible=False)
+    alice_pub = _setup_theme(tm, settings, kb_id=21, seq=2, label="Alice Public", account_id=2, is_personal=False, is_public=True, is_collaborator_accessible=True)
+    alice_collab = _setup_theme(tm, settings, kb_id=22, seq=3, label="Alice Collab Only", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=True)
+    alice_sec = _setup_theme(tm, settings, kb_id=23, seq=4, label="Alice Secret", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=False)
 
     # Bob themes (account_id = 3)
-    bob_def = _setup_theme(tm, settings, theme_id=30, seq=5, label="Bob Default", account_id=3, is_default=True, is_public=True, is_collaborator_accessible=False)
-    bob_pub = _setup_theme(tm, settings, theme_id=31, seq=6, label="Bob Public", account_id=3, is_default=False, is_public=True, is_collaborator_accessible=True)
+    bob_def = _setup_theme(tm, settings, kb_id=30, seq=5, label="Bob Default", account_id=3, is_personal=True, is_public=True, is_collaborator_accessible=False)
+    bob_pub = _setup_theme(tm, settings, kb_id=31, seq=6, label="Bob Public", account_id=3, is_personal=False, is_public=True, is_collaborator_accessible=True)
 
     # 4. TokenStore and tokens:
     tok_store = get_token_store(data_dir=data_dir)
@@ -259,7 +259,7 @@ def test_permission_matrix_collaborator(test_environment):
     # 3. Read secret private theme -> 404
     assert client.get(f"/@alice/graph?theme={env.alice_sec.id}", headers=headers).status_code == 404
 
-    # 4. Collaborator write to default theme (is_default=1) -> 403 Forbidden
+    # 4. Collaborator write to default theme (is_personal=1) -> 403 Forbidden
     res_def_write = client.post(f"/@alice/ingest?theme={env.alice_def.id}", json={"payload": "Collab default ingest"}, headers=headers)
     assert res_def_write.status_code == 403
     err_detail = res_def_write.json().get("detail") or res_def_write.json().get("error") or ""
@@ -270,7 +270,7 @@ def test_permission_matrix_collaborator(test_environment):
     assert res_collab_write.status_code == 200
 
     # 6. Collaborator attempting owner-level action (create graph bundle) -> 403 or 404 Forbidden/Not Found
-    res_owner_action = client.post(f"/@alice/graph/bundle?theme={env.alice_collab.id}", json={"theme_id": env.alice_collab.id}, headers=headers)
+    res_owner_action = client.post(f"/@alice/graph/bundle?theme={env.alice_collab.id}", json={"kb_id": env.alice_collab.id}, headers=headers)
     assert res_owner_action.status_code in (403, 404)
 
 
@@ -318,7 +318,7 @@ def test_permission_matrix_cross_account(test_environment):
     assert res_write.status_code == 404
 
     # 6. Graph bundle export attempt on Alice theme -> 404
-    res_bundle = client.post(f"/@alice/graph/bundle?theme={env.alice_pub.id}", json={"theme_id": env.alice_pub.id}, headers=headers)
+    res_bundle = client.post(f"/@alice/graph/bundle?theme={env.alice_pub.id}", json={"kb_id": env.alice_pub.id}, headers=headers)
     assert res_bundle.status_code == 404
 
 
@@ -375,41 +375,41 @@ def test_tokens_route_multi_account_isolation(test_environment):
 
 
 def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Path):
-    """create_graph_bundle filters by theme_id; import_graph_bundle detects conflict across themes."""
+    """create_graph_bundle filters by kb_id; import_graph_bundle detects conflict across themes."""
     env = test_environment
     conn = dbm.connect(env.settings.db_file)
     now = time.time()
     try:
-        # Seed Alice data (theme_id = 21)
+        # Seed Alice data (kb_id = 21)
         conn.execute(
-            "INSERT INTO documents (id, title, raw_text, detail, theme_id, fetched_at) "
+            "INSERT INTO documents (id, title, raw_text, detail, kb_id, fetched_at) "
             "VALUES ('doc_alice', 'Alice Doc', 'Alice Content', 'Alice Detail', 21, ?)",
             (now,),
         )
         conn.execute(
-            "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, theme_id) "
+            "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, kb_id) "
             "VALUES ('ent_alice', 'concept', 'AliceEntity', 'aliceentity', ?, ?, 21)",
             (now, now),
         )
         conn.execute(
-            "INSERT INTO relations (id, source_id, target_id, type, created_at, theme_id) "
+            "INSERT INTO relations (id, source_id, target_id, type, created_at, kb_id) "
             "VALUES ('rel_alice', 'ent_alice', 'ent_alice', 'relates', ?, 21)",
             (now,),
         )
 
-        # Seed Bob data (theme_id = 31)
+        # Seed Bob data (kb_id = 31)
         conn.execute(
-            "INSERT INTO documents (id, title, raw_text, detail, theme_id, fetched_at) "
+            "INSERT INTO documents (id, title, raw_text, detail, kb_id, fetched_at) "
             "VALUES ('doc_bob', 'Bob Doc', 'Bob Content', 'Bob Detail', 31, ?)",
             (now,),
         )
         conn.execute(
-            "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, theme_id) "
+            "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, kb_id) "
             "VALUES ('ent_bob', 'concept', 'BobEntity', 'bobentity', ?, ?, 31)",
             (now, now),
         )
         conn.execute(
-            "INSERT INTO relations (id, source_id, target_id, type, created_at, theme_id) "
+            "INSERT INTO relations (id, source_id, target_id, type, created_at, kb_id) "
             "VALUES ('rel_bob', 'ent_bob', 'ent_bob', 'relates', ?, 31)",
             (now,),
         )
@@ -418,7 +418,7 @@ def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Pa
         conn.close()
 
     # 1. Export Alice theme 21
-    bundle_info = create_graph_bundle(env.settings, theme_id=21)
+    bundle_info = create_graph_bundle(env.settings, kb_id=21)
     assert bundle_info.documents_count == 1
     assert bundle_info.entities_count == 1
     assert bundle_info.relations_count == 1
@@ -447,12 +447,12 @@ def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Pa
     c_conn = dbm.connect(conflict_db)
     dbm.init_db(c_conn)
     c_conn.execute(
-        "INSERT INTO themes (id, seq, number, label, description, is_default, is_public, account_id, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, description, is_personal, is_public, account_id, created_at, updated_at) "
         "VALUES (99, 99, 99, 'Theme 99', '', 0, 1, 1, ?, ?)",
         (now, now),
     )
     c_conn.execute(
-        "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, theme_id) "
+        "INSERT INTO entities (id, type, name, norm_name, created_at, updated_at, kb_id) "
         "VALUES ('ent_alice', 'concept', 'Other Theme Alice', 'otherthemealice', ?, ?, 99)",
         (now, now),
     )
@@ -460,7 +460,7 @@ def test_graph_bundle_export_and_import_isolation(test_environment, tmp_path: Pa
     c_conn.close()
 
     with pytest.raises(ValueError, match="Cannot import bundle: entity ent_alice already exists in another theme 99"):
-        import_graph_bundle(target_db_path=conflict_db, bundle_path=bundle_info.filepath, target_theme_id=0)
+        import_graph_bundle(target_db_path=conflict_db, bundle_path=bundle_info.filepath, target_kb_id=0)
 
 
 # --- 4. Support Bundle Security Boundaries Tests ------------------------------
@@ -481,17 +481,17 @@ def test_support_bundle_redactions_and_auth_exclusion(test_environment, tmp_path
     conn = dbm.connect(env.settings.db_file)
     try:
         conn.execute(
-            "INSERT INTO documents (id, title, raw_text, detail, theme_id, fetched_at) "
+            "INSERT INTO documents (id, title, raw_text, detail, kb_id, fetched_at) "
             "VALUES ('doc_alice_sec', 'Secret Doc', 'CONFIDENTIAL_ALICE_RAW_TEXT', 'CONFIDENTIAL_DETAIL', 23, ?)",
             (now,),
         )
         conn.execute(
-            "INSERT INTO raw_inbox (theme_id, source, payload, status, error, received_at) "
+            "INSERT INTO raw_inbox (kb_id, source, payload, status, error, received_at) "
             "VALUES (23, 'telegram', 'SECRET_INBOX_PAYLOAD_BODY', 'failed', 'Extraction timeout', ?)",
             (now,),
         )
         conn.execute(
-            "INSERT INTO doc_shares (token, theme_id, document_id, created_at) "
+            "INSERT INTO doc_shares (token, kb_id, document_id, created_at) "
             "VALUES ('SECRET_SHARE_TOKEN_VAL', 23, 'doc_alice_sec', ?)",
             (now,),
         )
@@ -567,7 +567,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     )
     assert res_def.status_code == 201
     team_theme = res_def.json()["theme"]
-    team_theme_id = team_theme["id"]
+    team_kb_id = team_theme["id"]
     assert team_theme["account_id"] == 2
 
     # Step 2: Alice issues a collaborator token via /tokens API
@@ -582,7 +582,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 3: Collaborator ingests into Alice's team theme -> Success
     res_ingest_team = client.post(
-        f"/@alice/ingest?theme={team_theme_id}",
+        f"/@alice/ingest?theme={team_kb_id}",
         json={"payload": "Alice Team Project document notes"},
         headers=collab_hdr,
     )
@@ -599,18 +599,18 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 5: Foreign account Bob attempts to ingest into Alice's team theme -> Blocked 404
     res_bob_write = client.post(
-        f"/@alice/ingest?theme={team_theme_id}",
+        f"/@alice/ingest?theme={team_kb_id}",
         json={"payload": "Bob illegal cross-account ingest"},
         headers=bob_owner_hdr,
     )
     assert res_bob_write.status_code == 404
 
     # Step 6: Bob reads and searches Alice's public team theme -> Success, search forced to FTS
-    res_bob_read = client.get(f"/@alice/graph?theme={team_theme_id}", headers=bob_owner_hdr)
+    res_bob_read = client.get(f"/@alice/graph?theme={team_kb_id}", headers=bob_owner_hdr)
     assert res_bob_read.status_code == 200
 
     res_bob_search = client.post(
-        f"/@alice/search?theme={team_theme_id}",
+        f"/@alice/search?theme={team_kb_id}",
         json={"query": "Project", "mode": "hybrid"},
         headers=bob_owner_hdr,
     )
@@ -619,13 +619,13 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 7: Alice creates a graph bundle for her team theme via API
     res_bundle = client.post(
-        f"/@alice/graph/bundle?theme={team_theme_id}",
-        json={"theme_id": team_theme_id},
+        f"/@alice/graph/bundle?theme={team_kb_id}",
+        json={"kb_id": team_kb_id},
         headers=alice_owner_hdr,
     )
     assert res_bundle.status_code == 200
     bundle_data = res_bundle.json()
-    assert bundle_data["theme_id"] == team_theme_id
+    assert bundle_data["kb_id"] == team_kb_id
     assert bundle_data["bundle_id"].startswith("gb_")
 
     # Step 8: Generate support bundle and verify security boundaries hold end-to-end

@@ -15,7 +15,7 @@ from claire.config import Settings
 from claire.ingest.service import IngestService, IngestServicePool
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 from claire.telegram_bot import _settle_status
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
@@ -27,7 +27,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     """E2E Test verifying:
     1. Multi-theme setup with Theme 0 and Theme 1.
     2. Document ingestion directly into Theme 1.
-    3. Telegram bot _settle with theme_id=1 creates share token in Theme 1 DB (not Theme 0).
+    3. Telegram bot _settle with kb_id=1 creates share token in Theme 1 DB (not Theme 0).
     4. HTTP API GET /p?s=<token> serves reader page from Theme 1 DB.
     5. HTTP API POST /share without theme param finds Theme 1 and creates share token.
     6. HTTP API GET /document?id=... without theme param returns Theme 1 document with theme metadata.
@@ -60,15 +60,15 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     dbm.init_db(conn0)
     conn0.close()
 
-    # Create theme 1 via ThemeManager
-    tm = get_theme_manager(s)
-    theme1 = tm.define_theme(
+    # Create theme 1 via KnowledgeBaseManager
+    tm = get_kb_manager(s)
+    theme1 = tm.define_kb(
         label="Project X",
         description="Theme for Project X documents",
         icon="🚀",
         is_public=True,
     )
-    s1 = tm.get_settings_for_theme(theme1.id, s)
+    s1 = tm.get_settings_for_kb(theme1.id, s)
     conn1 = dbm.connect(s1.db_file)
     dbm.init_db(conn1)
     conn1.close()
@@ -87,11 +87,11 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         content_hash="hash_e2e_x_1",
     )
     conn1 = dbm.connect(s1.db_file)
-    dbm.insert_document(conn1, doc1, theme_id=theme1.id)
+    dbm.insert_document(conn1, doc1, kb_id=theme1.id)
     dbm.set_document_detail(conn1, doc_id, detail="## Overview\nProject X detailed guide content.", format="md")
     conn1.close()
 
-    # Step 2: Telegram Bot _settle with theme_id=1
+    # Step 2: Telegram Bot _settle with kb_id=1
     class FakeStatus:
         def __init__(self):
             self.edited_text = None
@@ -118,7 +118,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         "✅ 적재 완료: Project X Guide",
         [],
         retry_doc_id=doc_id,
-        theme_id=theme1.id,
+        kb_id=theme1.id,
         service_pool=service_pool,
         theme_mgr=tm,
     )
@@ -132,11 +132,11 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
 
     # Verify: Token MUST exist in Theme 1 partition, and NOT in Theme 0 partition!
     conn1 = dbm.connect_existing(s1.db_file, readonly=True)
-    assert dbm.resolve_doc_share(conn1, bot_token, theme_id=theme1.id) == doc_id
+    assert dbm.resolve_doc_share(conn1, bot_token, kb_id=theme1.id) == doc_id
     conn1.close()
 
     conn0 = dbm.connect_existing(s.db_file, readonly=True)
-    assert dbm.resolve_doc_share(conn0, bot_token, theme_id=0) is None
+    assert dbm.resolve_doc_share(conn0, bot_token, kb_id=0) is None
     conn0.close()
 
     # Step 3: HTTP API GET /p?s=<token>
@@ -156,7 +156,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     )
     assert resp_share.status_code == 200
     share_json = resp_share.json()
-    assert share_json["theme_id"] == theme1.id
+    assert share_json["kb_id"] == theme1.id
     new_token = share_json["token"]
 
     # Verify new token resolves from Theme 1
@@ -169,7 +169,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert resp_doc.status_code == 200
     doc_json = resp_doc.json()
     assert doc_json["id"] == doc_id
-    assert doc_json["theme_id"] == theme1.id
+    assert doc_json["kb_id"] == theme1.id
     assert doc_json["theme_label"] == "Project X"
     assert doc_json["title"] == "Project X Guide"
 

@@ -553,9 +553,9 @@ def test_e2e_invitation_signup_and_login_flow(settings: _Settings):
         assert acc.status == "active"
         assert acc.display_name == "Charlie Brown"
 
-        theme = conn.execute("SELECT id, number, label, is_default FROM themes WHERE account_id=?", (acc.id,)).fetchone()
+        theme = conn.execute("SELECT id, number, label, is_personal FROM knowledge_bases WHERE account_id=?", (acc.id,)).fetchone()
         assert theme is not None
-        assert theme["is_default"] == 1
+        assert theme["is_personal"] == 1
         assert theme["label"] == "General"
     finally:
         conn.close()

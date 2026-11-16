@@ -207,9 +207,9 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §1 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
 | `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) §2 참조) |
-| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `theme_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
+| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `kb_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
 | `CLAIRE_PRESENTATION_ENABLED` | `0` (`false`) | `0`, `1`, `true`, `false` | 기본 테마(#0)의 프레젠테이션 기능 활성값. 다른 테마는 테마 레지스트리의 테마별 값을 쓴다. |
-| `CLAIRE_THEME_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 테마 번호. 테마 라우팅이 테마별 `Settings` 사본에 채우며(`ThemeManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
+| `CLAIRE_KB_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 지식 베이스 번호(v27 전 이름 `CLAIRE_THEME_ID`). 테마 라우팅이 테마별 `Settings` 사본에 채우며(`KnowledgeBaseManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
 | *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY.md](TELEMETRY.md) §2 참조) |
 
 ---

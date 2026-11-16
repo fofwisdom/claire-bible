@@ -189,7 +189,7 @@ def exported(tmp_path: Path) -> dict[str, Any]:
     db_file = tmp_path / "claire.db"
     ids = _seed(db_file)
     _seed_telemetry(tmp_path)
-    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), theme_id=0)
+    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), kb_id=0)
     out = tmp_path / "out"
     out.mkdir()
     manifest, db_path = _extract(info.filepath, out)
@@ -207,7 +207,7 @@ def _meta(conn: sqlite3.Connection, key: str) -> Any:
 
 def test_manifest_v2_and_checksum_cover_review_tables(exported: dict[str, Any]) -> None:
     manifest = exported["manifest"]
-    assert manifest["bundle_version"] == 2
+    assert manifest["bundle_version"] == 3
     review = manifest["review"]
     assert review["schema_version"] == 2
     assert review["shadow_decisions"] == 1
@@ -353,7 +353,7 @@ def test_no_secrets_or_raw_text_in_bundle(exported: dict[str, Any]) -> None:
 def test_import_skips_review_tables(exported: dict[str, Any]) -> None:
     target = exported["tmp"] / "target.db"
     result = import_graph_bundle(target, exported["info"].filepath)
-    assert result["bundle_version"] == 2
+    assert result["bundle_version"] == 3
     assert result["review_tables"]["review_decisions"] == 2
     assert result["entities_count"] == 6
     conn = sqlite3.connect(str(target))
@@ -384,12 +384,12 @@ def test_pairs_skipped_without_numpy_above_limit(tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(review_mod, "PURE_PYTHON_PAIR_LIMIT", 2)
     db_file = tmp_path / "claire.db"
     _seed(db_file)
-    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), theme_id=0)
+    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), kb_id=0)
     assert info.review["candidate_pairs_status"] == "skipped"
     assert info.review["candidate_pairs"] == 0
 
     monkeypatch.setattr(review_mod, "PURE_PYTHON_PAIR_LIMIT", 400)
-    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), theme_id=0)
+    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), kb_id=0)
     assert info.review["candidate_pairs_status"] == "ok"
     assert info.review["candidate_pairs"] == 3
     out = tmp_path / "out"
@@ -408,7 +408,7 @@ def test_section_failure_does_not_abort_bundle(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(review_mod, "_export_judge_calls", _boom)
     db_file = tmp_path / "claire.db"
     _seed(db_file)
-    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), theme_id=0)
+    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), kb_id=0)
     assert info.entities_count == 6
     assert info.review["judge_calls_status"] == "error"
     assert info.review["decisions"] == 2
@@ -417,7 +417,7 @@ def test_section_failure_does_not_abort_bundle(tmp_path: Path, monkeypatch: pyte
 def test_missing_telemetry_reported(tmp_path: Path) -> None:
     db_file = tmp_path / "claire.db"
     _seed(db_file)
-    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), theme_id=0)
+    info = create_graph_bundle(ReviewStubSettings(db_file=db_file, data_dir=tmp_path), kb_id=0)
     assert info.review["judge_calls_status"] == "missing"
 
 

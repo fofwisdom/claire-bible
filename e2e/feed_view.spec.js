@@ -9,7 +9,7 @@ const FRAME_BODY = '<!doctype html><html><body><p id="body">Body of the item</p>
 function feedItem(id, changes) {
   return Object.assign({
     id, feed_id: 3, feed_title: 'Garden <b>News</b>', feed_folder: 'Garden', url: 'https://garden.example/posts/' + id, title: 'Item ' + id + ' <script>window.__pwned = 1</script>', author: 'Kim', summary: null, categories: ['vegetables'],
-    published_at: NOW - 600, modified_at: null, fetched_at: NOW - 500, unread: true, starred: false, linked_theme_id: null, linked_doc_id: null, text: 'Plain text of item ' + id + ' <img src=x onerror="window.__pwned = 1">', linked: null, timeline_item_id: null,
+    published_at: NOW - 600, modified_at: null, fetched_at: NOW - 500, unread: true, starred: false, linked_kb_id: null, linked_doc_id: null, text: 'Plain text of item ' + id + ' <img src=x onerror="window.__pwned = 1">', linked: null, timeline_item_id: null,
   }, changes || {});
 }
 
@@ -53,7 +53,7 @@ test.describe('feed view (FP4-F3)', () => {
       const ingest = url.pathname.match(/^\/api\/feeds\/items\/(\d+)\/ingest$/);
       if (ingest) {
         const found = items.find(entry => String(entry.id) === ingest[1]);
-        found.linked = { theme_id: 0, document_id: 'doc_from_feed' };
+        found.linked = { kb_id: 0, document_id: 'doc_from_feed' };
         return route.fulfill(json({ document_id: 'doc_from_feed', linked: found.linked }));
       }
       const one = url.pathname.match(/^\/api\/feeds\/items\/(\d+)$/);

@@ -274,7 +274,7 @@ def ingest(
     focus: str | None = None,
     effort: str | None = None,
     full_content: bool = False,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     theme_label: str | None = None,
     settings: Any = None,
     provider_context: Any = None,
@@ -291,7 +291,7 @@ def ingest(
     if fetch_fn is None:
         fetch_fn = default_fetch
 
-    tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     tlabel = theme_label or ("기본 지식베이스" if tid == 0 else "")
     job_settings = resolve_job_settings(settings, provider)
     ctx = provider_context if provider_context is not None else context_of(job_settings)
@@ -304,7 +304,7 @@ def ingest(
         inbox_id = dbm.log_inbox(
             conn, source=source, payload=payload, kind=kind,
             user_id=user_id, chat_id=chat_id, file_name=file_name, file_ref=file_ref,
-            theme_id=tid,
+            kb_id=tid,
         )
     report.inbox_id = inbox_id
 
@@ -312,7 +312,7 @@ def ingest(
         data_dir,
         kind="ingest",
         payload=payload,
-        theme_id=tid,
+        kb_id=tid,
         theme_label=tlabel,
         title=prefetched.title if prefetched else None,
         source=source,
@@ -359,7 +359,7 @@ def ingest(
                     update_active_ingest(data_dir, title=doc.title)
             except Exception as e:  # noqa: BLE001
                 report.error = error_text(e)
-                dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                 return report
 
             if full_content:
@@ -453,27 +453,27 @@ def ingest(
                 doc.meta["focus"] = focus.strip()
 
             # 0. 소각 툼스톤(Tombstone) 검사: 소각된 오염 데이터(URL/해시)는 재수집 원천 차단
-            if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash, theme_id=tid):
+            if dbm.is_tombstoned(conn, url=doc.url, canonical_url=doc.canonical_url, content_hash=doc.content_hash, kb_id=tid):
                 report.error = "tombstoned: document was previously purged"
-                dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                 return report
 
             # 직접 PDF URL이 이미 VMware 비디오 문서의 Presentation 출처로 포함됐으면
             # 동일 원문을 독립 문서로 다시 만들지 않는다.
             if doc.source_type == "pdf" and doc.canonical_url:
-                bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url, theme_id=tid)
+                bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url, kb_id=tid)
                 if bundled_id:
                     report.document_id = bundled_id
                     report.duplicate = True
-                    dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id, theme_id=tid)
+                    dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=bundled_id, kb_id=tid)
                     return report
 
-            _link_existing_presentation_documents(conn, doc, theme_id=tid)
+            _link_existing_presentation_documents(conn, doc, kb_id=tid)
 
             # dedup ① 내용 완전 동일(content_hash 일치)
-            existing = dbm.find_document_by_hash(conn, doc.content_hash, theme_id=tid)
+            existing = dbm.find_document_by_hash(conn, doc.content_hash, kb_id=tid)
             if existing:
-                existing_row = dbm.get_document_row(conn, existing, theme_id=tid)
+                existing_row = dbm.get_document_row(conn, existing, kb_id=tid)
                 same_canonical = bool(
                     existing_row
                     and doc.canonical_url
@@ -489,24 +489,24 @@ def ingest(
                     old_presentation_state = _presentation_state(old_meta)
                     preserve_presentation_history(old_meta, doc)
                 if not _store_doc_attachments_or_report(
-                    conn, inbox_id, doc, existing, data_dir, report, theme_id=tid
+                    conn, inbox_id, doc, existing, data_dir, report, kb_id=tid
                 ):
                     return report
                 if same_canonical and _presentation_state(doc.meta or {}) != old_presentation_state:
-                    dbm.update_document_meta(conn, existing, doc.meta, theme_id=tid)
+                    dbm.update_document_meta(conn, existing, doc.meta, kb_id=tid)
                     report.document_id = existing
                     report.updated = True
                     report.duplicate = False
-                    dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, theme_id=tid)
+                    dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, kb_id=tid)
                     return report
                 # 사용자가 새 focus(초점)를 명시적으로 지정한 경우:
                 # 단순 중복 스킵하지 않고, 해당 문서의 초점을 갱신하고 가독 상세(detail)를 즉시 재생성(재적재)
                 if focus and focus.strip():
-                    doc_obj = dbm.get_document(conn, existing, theme_id=tid)
+                    doc_obj = dbm.get_document(conn, existing, kb_id=tid)
                     if doc_obj:
-                        dbm.set_document_focus(conn, existing, focus.strip(), theme_id=tid)
+                        dbm.set_document_focus(conn, existing, focus.strip(), kb_id=tid)
                         detail_ok = ensure_document_detail(
-                            conn, provider, doc_obj, format=format, focus=focus.strip(), force=True, theme_id=tid,
+                            conn, provider, doc_obj, format=format, focus=focus.strip(), force=True, kb_id=tid,
                             settings=job_settings,
                         )
                         if not detail_ok:
@@ -516,21 +516,21 @@ def ingest(
                         report.updated = True
                         report.duplicate = False
                         report.title = doc_obj.title or doc.title
-                        dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, theme_id=tid)
+                        dbm.update_inbox(conn, inbox_id, status="done", document_id=existing, kb_id=tid)
                         return report
 
                 report.document_id = existing
                 report.duplicate = True
-                dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=existing, kb_id=tid)
                 return report
 
             # dedup ② 같은 canonical_url 인데 content_hash 가 다름 → 같은 자료의 *내용 갱신*.
             #   새 문서를 만들지(중복 노드) 않고, 건너뛰지도(갱신 유실) 않고, 기존 문서를 in-place
             #   갱신한다(엔티티 sources 연결 보존 = refresh_document 과 같은 의미).
-            same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url, theme_id=tid)
+            same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url, kb_id=tid)
             if same_url:
                 doc.id = same_url
-                old_row = dbm.get_document_row(conn, same_url, theme_id=tid)
+                old_row = dbm.get_document_row(conn, same_url, kb_id=tid)
                 if old_row is not None:
                     try:
                         old_meta = json.loads(old_row["meta"] or "{}")
@@ -538,13 +538,13 @@ def ingest(
                         old_meta = {}
                     preserve_presentation_history(old_meta, doc)
                 if not _store_doc_attachments_or_report(
-                    conn, inbox_id, doc, same_url, data_dir, report, theme_id=tid
+                    conn, inbox_id, doc, same_url, data_dir, report, kb_id=tid
                 ):
                     return report
                 dbm.update_document_content(
                     conn, same_url, title=doc.title, raw_text=doc.raw_text,
                     content_hash=doc.content_hash, fetched_at=doc.fetched_at,
-                    source_type=doc.source_type, partial=doc.partial, meta=doc.meta, theme_id=tid)
+                    source_type=doc.source_type, partial=doc.partial, meta=doc.meta, kb_id=tid)
                 report.document_id = same_url
                 report.updated = True
                 if data_dir is not None:
@@ -554,30 +554,30 @@ def ingest(
                         save_artifact(data_dir, same_url, doc.raw_text)
                     except Exception:  # noqa: BLE001
                         pass
-                _download_doc_images(conn, doc, data_dir, theme_id=tid)
+                _download_doc_images(conn, doc, data_dir, kb_id=tid)
                 try:
                     ok, err = extract_resolve_store(
                         conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
-                        full_content=full_content, theme_id=tid, settings=job_settings)
+                        full_content=full_content, kb_id=tid, settings=job_settings)
                 except ProviderPolicyError as e:
                     ok, err = False, error_text(e)
                 if not ok:
                     report.error = err
                     dbm.update_inbox(conn, inbox_id, status="error",
-                                     document_id=same_url, error=err, theme_id=tid)
+                                     document_id=same_url, error=err, kb_id=tid)
                     return report
-                dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="done", document_id=same_url, kb_id=tid)
                 return report
 
             # dedup ③ 근사 중복(near-duplicate). content_hash·canonical_url 을 비껴간 "같은 글
             #   다른 입구"(arxiv 버전 접미사, 동적요소 차이 등)를 MinHash 유사도로 잡는다.
             #   보수적(데이터 보존): 충분히 긴 비-partial 문서만, 높은 임계 → 별개 글 오병합 방지.
-            near = dbm.near_duplicate_document(conn, doc, theme_id=tid)
+            near = dbm.near_duplicate_document(conn, doc, kb_id=tid)
             if near:
                 near_id, score = near
                 report.document_id = near_id
                 report.duplicate = True
-                dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="duplicate", document_id=near_id, kb_id=tid)
                 return report
 
             emit_progress("구조화 추출·그래프 적재 중…")
@@ -588,13 +588,13 @@ def ingest(
                     server_tier.check_document_quota(conn, ctx)
                 except ProviderPolicyError as e:
                     report.error = error_text(e)
-                    dbm.update_inbox(conn, inbox_id, status="error", error=report.error, theme_id=tid)
+                    dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                     return report
             if not _store_doc_attachments_or_report(
-                conn, inbox_id, doc, doc.id, data_dir, report, theme_id=tid
+                conn, inbox_id, doc, doc.id, data_dir, report, kb_id=tid
             ):
                 return report
-            dbm.insert_document(conn, doc, theme_id=tid)
+            dbm.insert_document(conn, doc, kb_id=tid)
             report.document_id = doc.id
 
             # [Layer 2] fetched 원본 텍스트를 gzip artifact 로 보관(재추출용).
@@ -605,19 +605,19 @@ def ingest(
                     save_artifact(data_dir, doc.id, doc.raw_text)
                 except Exception:  # noqa: BLE001
                     pass  # 보관 실패가 본 파이프라인을 막지 않도록
-            _download_doc_images(conn, doc, data_dir, theme_id=tid)
+            _download_doc_images(conn, doc, data_dir, kb_id=tid)
 
             # 추출 → 해소 → 관계 (ingest/refresh 공용)
             try:
                 ok, err = extract_resolve_store(
                     conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort,
-                    full_content=full_content, theme_id=tid, settings=job_settings)
+                    full_content=full_content, kb_id=tid, settings=job_settings)
             except ProviderPolicyError as e:
                 # 판정·임베딩 도중의 예산 소진 등. 문서(원문)는 이미 저장됐다(A1).
                 ok, err = False, error_text(e)
             if not ok:
                 report.error = err
-                dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, theme_id=tid)
+                dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, kb_id=tid)
                 return report
 
             # 주기 크롤링 watch 판단(LLM, 비용 1콜) — 1차 신규 적재에만. onehop 자식/research 문서/
@@ -625,19 +625,19 @@ def ingest(
             if not doc.partial and not source.startswith(
                     ("onehop", "recover", "replay", "refresh", "research")):
                 emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
-                ensure_watch_classification(conn, provider, doc, theme_id=tid)
+                ensure_watch_classification(conn, provider, doc, kb_id=tid)
 
             # 1홉 확장. auto_expand 면 백그라운드 대기열에 등록(LLM 이 선별·판정·적재; expand-loop).
             # 아니면 기존 동작: 후보만 제안(텔레그램 confirm 버튼). 내부 연결은 위에서 이미 자동.
             if expand_max > 0 and not doc.partial:
                 if auto_expand:
-                    dbm.enqueue_expand(conn, doc.id, theme_id=tid)
+                    dbm.enqueue_expand(conn, doc.id, kb_id=tid)
                 else:
                     from ..expand.onehop import find_candidates
 
-                    report.candidates = find_candidates(conn, doc, limit=expand_max, theme_id=tid)
+                    report.candidates = find_candidates(conn, doc, limit=expand_max, kb_id=tid)
 
-            dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id, theme_id=tid)
+            dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id, kb_id=tid)
             return report
 
         finally:
@@ -658,7 +658,7 @@ def ingest(
                 error=report.error if report else None,
             )
 
-def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path | None, theme_id: int | None = None) -> None:
+def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path | None, kb_id: int | None = None) -> None:
     """본문 이미지 후보를 로컬로 내려받아 보존(사용자 요구 — 외부 사이트/링크가 나중에 사라지면 문서에 남는 게 깨진 이미지 링크뿐이라 저장해 둬야 함). ingest 신규/in-place 갱신·refresh 가 공유. doc.meta['images'] 를 local 경로 포함 형태로 갱신 + DB 반영. 이미지 후보 없거나 data_dir 없으면 조용히 스킵(개별 다운로드 실패는 raw.download_images 가 원본 url 로 이미 폴백)."""
     images = (doc.meta or {}).get("images")
     if not images or data_dir is None:
@@ -667,7 +667,7 @@ def _download_doc_images(conn: sqlite3.Connection, doc: Document, data_dir: Path
 
     enriched = download_images(data_dir, doc.id, images)
     doc.meta["images"] = enriched
-    dbm.set_document_images(conn, doc.id, enriched, theme_id=theme_id)
+    dbm.set_document_images(conn, doc.id, enriched, kb_id=kb_id)
 
 
 def _store_required_doc_attachments(doc: Document, data_dir: Path | None) -> list[str]:
@@ -689,7 +689,7 @@ def _store_doc_attachments_or_report(
     document_id: str,
     data_dir: Path | None,
     report: IngestReport,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> bool:
     doc.id = document_id
     try:
@@ -701,9 +701,9 @@ def _store_doc_attachments_or_report(
             conn,
             inbox_id,
             status="error",
-            document_id=document_id if dbm.get_document_row(conn, document_id, theme_id=theme_id) else None,
+            document_id=document_id if dbm.get_document_row(conn, document_id, kb_id=kb_id) else None,
             error=report.error,
-            theme_id=theme_id,
+            kb_id=kb_id,
         )
         return False
 
@@ -765,7 +765,7 @@ def preserve_presentation_history(old_meta: dict, doc: Document) -> None:
 def _link_existing_presentation_documents(
     conn: sqlite3.Connection,
     doc: Document,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
 ) -> None:
     """이미 독립 적재된 PDF는 삭제·흡수하지 않고 영상 메타데이터에서 참조한다."""
     if doc.source_type != "video" or not doc.meta:
@@ -775,7 +775,7 @@ def _link_existing_presentation_documents(
         url = item.get("public_url")
         if not url:
             continue
-        existing_id = dbm.find_document_by_canonical_url(conn, url, theme_id=theme_id)
+        existing_id = dbm.find_document_by_canonical_url(conn, url, kb_id=kb_id)
         if existing_id and existing_id != doc.id and existing_id not in linked:
             linked.append(existing_id)
     if linked:
@@ -834,7 +834,7 @@ def extract_resolve_store(
     effort: str | None = None,
     full_content: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     settings: Any = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재.
@@ -845,7 +845,7 @@ def extract_resolve_store(
     if not valid:
         return False, f"insufficient_content: {guard_err}"
 
-    tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     settings = resolve_job_settings(settings, provider)
     eff = effort
     if eff is None:
@@ -907,7 +907,7 @@ def extract_resolve_store(
 
     if getattr(doc, "id", None):
         try:
-            dbm.update_document_meta(conn, doc.id, doc.meta, theme_id=tid)
+            dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         except Exception:
             pass
 
@@ -977,7 +977,7 @@ def extract_resolve_store(
             conn, document_id=doc.id, provider=getattr(provider, "name", "?"),
             model=result.model, prompt_version=result.prompt_version,
             raw_response=result.raw_response,
-            theme_id=tid,
+            kb_id=tid,
         )
 
     # 가독 렌더(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
@@ -997,7 +997,7 @@ def extract_resolve_store(
         effort=eff,
         full_content=full_content,
         out_error=detail_err_box,
-        theme_id=tid,
+        kb_id=tid,
         settings=settings,
     )
     if not detail_ok:
@@ -1042,7 +1042,7 @@ def extract_resolve_store(
         etype, prov = classify_entity_type(ee.type)
         if ee.proposed_type:
             dbm.log_proposal(conn, "entity_type", ee.proposed_type,
-                             context=ee.name, document_id=doc.id, theme_id=tid)
+                             context=ee.name, document_id=doc.id, kb_id=tid)
             report.proposals += 1
 
         embed_callable = None
@@ -1072,7 +1072,7 @@ def extract_resolve_store(
             observations=ee.observations, document_id=doc.id,
             embed_fn=embed_callable, judge_fn=_judge_fn, provisional=prov,
             on_judge=_on_judge_candidate, shadow=jev_shadow,
-            theme_id=tid,
+            kb_id=tid,
             embed_model=embed_pin.model,
             embed_provider=embed_pin.provider,
             jev_mode=jev_mode,
@@ -1111,7 +1111,7 @@ def extract_resolve_store(
         from ..extract.decision import attach_resolution_meta
 
         attach_resolution_meta(doc, decisions)
-        dbm.update_document_meta(conn, doc.id, doc.meta, theme_id=tid)
+        dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         report.has_decision_stream = True
 
     if name_to_id:
@@ -1122,9 +1122,9 @@ def extract_resolve_store(
             if dec.candidate and dec.candidate not in candidate_map:
                 cand_ent = None
                 if dec.target_entity_id:
-                    cand_ent = dbm.get_entity(conn, dec.target_entity_id, theme_id=tid)
+                    cand_ent = dbm.get_entity(conn, dec.target_entity_id, kb_id=tid)
                 if not cand_ent:
-                    for found in dbm.find_entities_by_name_or_alias(conn, dec.candidate, theme_id=tid):
+                    for found in dbm.find_entities_by_name_or_alias(conn, dec.candidate, kb_id=tid):
                         cand_ent = found
                         break
                 candidate_map[dec.candidate] = cand_ent if cand_ent else dec.candidate
@@ -1134,11 +1134,11 @@ def extract_resolve_store(
             for owner_id, _ in rel_cands:
                 if len(candidate_map) >= 30:
                     break
-                cand_ent = dbm.get_entity(conn, owner_id, theme_id=tid)
+                cand_ent = dbm.get_entity(conn, owner_id, kb_id=tid)
                 if cand_ent and cand_ent.name not in candidate_map:
                     candidate_map[cand_ent.name] = cand_ent
 
-        all_cands = dbm.all_entities(conn, theme_id=tid)
+        all_cands = dbm.all_entities(conn, kb_id=tid)
         for cand in all_cands:
             if len(candidate_map) >= 30:
                 break
@@ -1155,7 +1155,7 @@ def extract_resolve_store(
         )
         report.heatmap_matrix = mat_data.to_dict()
         doc.meta["heatmap_matrix"] = report.heatmap_matrix
-        dbm.update_document_meta(conn, doc.id, doc.meta, theme_id=tid)
+        dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         emit_progress({
             "stage": "heatmap_matrix",
             "matrix": report.heatmap_matrix,
@@ -1174,19 +1174,19 @@ def extract_resolve_store(
         rtype, _ = classify_relation_type(er.type)
         if er.proposed_type:
             dbm.log_proposal(conn, "relation_type", er.proposed_type,
-                             context=f"{er.source}->{er.target}", document_id=doc.id, theme_id=tid)
+                             context=f"{er.source}->{er.target}", document_id=doc.id, kb_id=tid)
             report.proposals += 1
-        src = dbm.get_entity(conn, src_id, theme_id=tid)
-        tgt = dbm.get_entity(conn, tgt_id, theme_id=tid)
+        src = dbm.get_entity(conn, src_id, kb_id=tid)
+        tgt = dbm.get_entity(conn, tgt_id, kb_id=tid)
         vr = validate_relation(rtype, src.type if src else "", tgt.type if tgt else "")
         if not vr.ok:
             report.relations_rejected += 1
             continue
         rel = Relation(type=rtype, source_id=src_id, target_id=tgt_id,
                        sources=[doc.id], provisional=vr.provisional)
-        before = dbm.counts(conn, theme_id=tid)["relations"]
-        dbm.upsert_relation(conn, rel, theme_id=tid)
-        if dbm.counts(conn, theme_id=tid)["relations"] > before:
+        before = dbm.counts(conn, kb_id=tid)["relations"]
+        dbm.upsert_relation(conn, rel, kb_id=tid)
+        if dbm.counts(conn, kb_id=tid)["relations"] > before:
             report.relations_added += 1
 
     # Phase 2: 지식 그래프 전역 관계(Edge) 자동 형성 파이프라인
@@ -1194,7 +1194,7 @@ def extract_resolve_store(
     enable_linking = getattr(settings, "enable_relation_linking", True)
     judge_rel_method = getattr(provider, "judge_relationship", None)
     if enable_linking and judge_rel_method is not None and resolution_results:
-        gstore = GraphStore(conn, theme_id=tid)
+        gstore = GraphStore(conn, kb_id=tid)
         max_per_ent = getattr(settings, "max_relation_judges_per_entity", 3)
         max_per_doc = getattr(settings, "max_relation_judges_per_doc", 10)
 
@@ -1226,7 +1226,7 @@ def extract_resolve_store(
 
             eval_items: list[tuple[Entity, Any, float]] = []
             for e_node, cand_id, score in eval_candidates:
-                cand = dbm.get_entity(conn, cand_id, theme_id=tid)
+                cand = dbm.get_entity(conn, cand_id, kb_id=tid)
                 if cand is not None:
                     eval_items.append((e_node, cand, score))
 
@@ -1328,7 +1328,7 @@ def extract_resolve_store(
     doc.meta["model_lineage"] = model_lineage
     report.model_lineage = model_lineage
     if getattr(doc, "id", None):
-        dbm.update_document_meta(conn, doc.id, doc.meta, theme_id=tid)
+        dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
 
     return True, None
 
@@ -1343,7 +1343,7 @@ def merge_source_into_document(
     data_dir: Path | None = None,
     format: str | None = None,
     focus: str | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     settings: Any = None,
 ) -> dict:
     """[1홉 병합, docs/implementation/ONEHOP_MERGE.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
@@ -1354,8 +1354,8 @@ def merge_source_into_document(
 
     반환: {"merged": bool, "document_id"?, "report"?: IngestReport, "error"?: str}
     """
-    tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
-    original = dbm.get_document_row(conn, parent.id, theme_id=tid)
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
+    original = dbm.get_document_row(conn, parent.id, kb_id=tid)
     if original is None:
         return {"merged": False, "error": "parent document not found"}
 
@@ -1363,11 +1363,11 @@ def merge_source_into_document(
     # 거른 트래킹 파라미터 변형 등) 병합하지 않는다. ingest() 의 dedup①②③(pipeline.py:127,
     # 137, 166)과 동일한 우선순위, 대상만 parent 제외.
     existing_id = (
-        dbm.find_document_by_hash(conn, child.content_hash, theme_id=tid)
-        or dbm.find_document_by_canonical_url(conn, child.canonical_url, theme_id=tid)
+        dbm.find_document_by_hash(conn, child.content_hash, kb_id=tid)
+        or dbm.find_document_by_canonical_url(conn, child.canonical_url, kb_id=tid)
     )
     if existing_id is None:
-        near = dbm.near_duplicate_document(conn, child, exclude_id=parent.id, theme_id=tid)
+        near = dbm.near_duplicate_document(conn, child, exclude_id=parent.id, kb_id=tid)
         existing_id = near[0] if near else None
     if existing_id and existing_id != parent.id:
         return {"merged": False,
@@ -1391,7 +1391,7 @@ def merge_source_into_document(
         dbm.update_document_content(
             conn, parent.id, title=parent.title, raw_text=merged_text,
             content_hash=_content_hash(merged_text), fetched_at=time.time(),
-            meta=new_meta, theme_id=tid)
+            meta=new_meta, kb_id=tid)
         parent.raw_text = merged_text
         parent.meta = new_meta
         if data_dir is not None:
@@ -1403,7 +1403,7 @@ def merge_source_into_document(
                 pass
         report = IngestReport(document_id=parent.id, title=parent.title, updated=True)
         ok, err = extract_resolve_store(
-            conn, provider, vstore, parent, report, format=format, focus=focus, theme_id=tid,
+            conn, provider, vstore, parent, report, format=format, focus=focus, kb_id=tid,
             settings=settings)
         if not ok:
             raise RuntimeError(err)
@@ -1412,7 +1412,7 @@ def merge_source_into_document(
         dbm.update_document_content(
             conn, parent.id, title=original["title"], raw_text=original["raw_text"],
             content_hash=original["content_hash"], fetched_at=original["fetched_at"],
-            meta=original_meta, theme_id=tid)
+            meta=original_meta, kb_id=tid)
         return {"merged": False, "error": error_text(e)}
 
 
@@ -1427,7 +1427,7 @@ def ensure_document_detail(
     effort: str | None = None,
     full_content: bool = False,
     out_error: list[str] | None = None,
-    theme_id: int | None = None,
+    kb_id: int | None = None,
     settings: Any = None,
 ) -> bool:
     """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
@@ -1454,13 +1454,13 @@ def ensure_document_detail(
     # CT28: a stored focus (doc.meta["focus"]) is data only; no render reads it.
     focus_val = focus
 
-    tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
 
     if not force:
-        existing_detail = dbm.get_document_detail(conn, doc.id, theme_id=tid)
-        existing_fmt = dbm.get_document_detail_format(conn, doc.id, theme_id=tid)
+        existing_detail = dbm.get_document_detail(conn, doc.id, kb_id=tid)
+        existing_fmt = dbm.get_document_detail_format(conn, doc.id, kb_id=tid)
         # A stored focus is compared only when a caller gives a focus; no entry point gives one (CT28).
-        same_focus = focus_val is None or dbm.get_document_focus(conn, doc.id, theme_id=tid) == focus_val
+        same_focus = focus_val is None or dbm.get_document_focus(conn, doc.id, kb_id=tid) == focus_val
         if existing_detail and existing_fmt == fmt and same_focus:
             return False
 
@@ -1515,12 +1515,12 @@ def ensure_document_detail(
             out_error.append(error_text(e))
         return False
     if text and text.strip():
-        dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt, theme_id=tid)
+        dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt, kb_id=tid)
         if focus_val is not None:
             if doc.meta is None:
                 doc.meta = {}
             doc.meta["focus"] = focus_val
-            dbm.set_document_focus(conn, doc.id, focus_val, theme_id=tid)
+            dbm.set_document_focus(conn, doc.id, focus_val, kb_id=tid)
         return True
     if out_error is not None:
         out_error.append("empty detail output returned by model")
@@ -1528,7 +1528,7 @@ def ensure_document_detail(
 
 
 def ensure_watch_classification(
-    conn: sqlite3.Connection, provider: Provider, doc: Document, theme_id: int | None = None,
+    conn: sqlite3.Connection, provider: Provider, doc: Document, kb_id: int | None = None,
 ) -> bool:
     """[주기 크롤링] 변하는 콘텐츠(벤치/순위 등)인지 LLM 판단 → watch 설정. 비필수(별도 호출).
 
@@ -1545,9 +1545,9 @@ def ensure_watch_classification(
     days = res.get("interval_days")
     interval = float(days) * 86400 if days else None
     reason = ("llm: " + (res.get("reason") or ""))[:200]
-    tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
+    tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     dbm.set_document_watch(conn, doc.id, enabled=bool(res.get("watch")),
-                           interval=interval, reason=reason, theme_id=tid)
+                           interval=interval, reason=reason, kb_id=tid)
     return True
 
 

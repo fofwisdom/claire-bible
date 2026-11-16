@@ -11,7 +11,7 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 from claire.store.token_store import get_token_store
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
@@ -53,14 +53,14 @@ def dispatch_account_env(tmp_path: Path):
     member_id = member_acc.id
     conn.close()
 
-    # Define themes via ThemeManager:
+    # Define themes via KnowledgeBaseManager:
     # Theme 1 (Account 1, Owner), Theme 2 (Account 1, Owner)
     # Theme 3 (Account 2, Member), Theme 4 (Account 2, Private)
-    theme_mgr = get_theme_manager(settings=settings)
-    t1 = theme_mgr.define_theme("AI Research", account_id=dbm.ADMIN_ACCOUNT_ID)
-    t2 = theme_mgr.define_theme("Security Analysis", account_id=dbm.ADMIN_ACCOUNT_ID)
-    t3 = theme_mgr.define_theme("NLP Studies", account_id=member_id, is_public=True, is_collaborator_accessible=True)
-    t4 = theme_mgr.define_theme("Private Sandbox", account_id=member_id, is_public=False, is_collaborator_accessible=False)
+    theme_mgr = get_kb_manager(settings=settings)
+    t1 = theme_mgr.define_kb("AI Research", account_id=dbm.ADMIN_ACCOUNT_ID)
+    t2 = theme_mgr.define_kb("Security Analysis", account_id=dbm.ADMIN_ACCOUNT_ID)
+    t3 = theme_mgr.define_kb("NLP Studies", account_id=member_id, is_public=True, is_collaborator_accessible=True)
+    t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, is_public=False, is_collaborator_accessible=False)
 
     # Create API tokens for member account 2
     tok_store = get_token_store(data_dir=settings.data_dir)
@@ -104,7 +104,7 @@ def test_syndication_dispatch_records_principal_account_id(dispatch_account_env)
     # Dispatch from Theme 1 to Theme 2 by Owner (Account ID 1 in single mode)
     dispatch_res = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc_id, "source_theme_id": t1_id, "target_theme_id": t2_id, "focus": "Alignment focus"},
+        json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id, "focus": "Alignment focus"},
         headers=OWNER_HEADERS,
     )
     assert dispatch_res.status_code == 200
@@ -153,7 +153,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     )
     conn = dbm.connect_existing(env["settings"].db_file)
     try:
-        dbm.insert_document(conn, doc3, theme_id=t3_id)
+        dbm.insert_document(conn, doc3, kb_id=t3_id)
     finally:
         conn.close()
 
@@ -162,7 +162,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     # Must fail with 403 Forbidden.
     res_forbidden = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc3_id, "source_theme_id": t3_id, "target_theme_id": t2_id},
+        json={"document_id": doc3_id, "source_kb_id": t3_id, "target_kb_id": t2_id},
         headers=env["member_collab_headers"],
     )
     assert res_forbidden.status_code == 403
@@ -172,7 +172,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     # Must fail with 404 or 403.
     res_inaccessible = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc1_id, "source_theme_id": t4_id, "target_theme_id": t3_id},
+        json={"document_id": doc1_id, "source_kb_id": t4_id, "target_kb_id": t3_id},
         headers=env["member_collab_headers"],
     )
     assert res_inaccessible.status_code in {403, 404}
@@ -180,7 +180,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     # 3. Server Owner (admin role) can dispatch across accounts from Theme 1 to Theme 3:
     res_owner_ok = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc1_id, "source_theme_id": t1_id, "target_theme_id": t3_id, "focus": "Cross-account sync"},
+        json={"document_id": doc1_id, "source_kb_id": t1_id, "target_kb_id": t3_id, "focus": "Cross-account sync"},
         headers=OWNER_HEADERS,
     )
     # Allowed across accounts for owner (not rejected with 403 Forbidden)
@@ -203,8 +203,8 @@ def test_syndication_dispatches_query_filtering_by_account_id(dispatch_account_e
         # Create directly via store layer with distinct account IDs
         d_admin = dbm.create_syndication_dispatch(
             conn,
-            theme_id=t1_id,
-            target_theme_id=t2_id,
+            kb_id=t1_id,
+            target_kb_id=t2_id,
             document_id=None,
             mode="cross_theme",
             status="done",
@@ -212,8 +212,8 @@ def test_syndication_dispatches_query_filtering_by_account_id(dispatch_account_e
         )
         d_member = dbm.create_syndication_dispatch(
             conn,
-            theme_id=t1_id,
-            target_theme_id=t2_id,
+            kb_id=t1_id,
+            target_kb_id=t2_id,
             document_id=None,
             mode="cross_theme",
             status="done",

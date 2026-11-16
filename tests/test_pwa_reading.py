@@ -20,7 +20,7 @@ from claire.graphview import render_graph_html
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.token_store import reset_token_stores
 
 
@@ -67,45 +67,45 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
 
     # Themes:
     # Admin themes (account_id=1):
-    # Theme 0 was created by init_db with is_default=1
-    conn.execute("UPDATE themes SET label='Admin Public Base', is_public=1 WHERE id=0")
-    num_admin_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 11)
+    # Theme 0 was created by init_db with is_personal=1
+    conn.execute("UPDATE knowledge_bases SET label='Admin Public Base', is_public=1 WHERE id=0")
+    num_admin_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (1, 1, ?, 'Admin Secret Theme', 1, 0, 0, 0, ?, ?)",
         (num_admin_priv, now, now),
     )
 
     # Alice themes (account_id=2):
-    num_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 20)
+    num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Public Work', ?, 1, 1, 0, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
-    num_alice_collab = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 21)
+    num_alice_collab = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 21)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (11, 11, ?, 'Alice Collab Work', ?, 0, 0, 1, ?, ?)",
         (num_alice_collab, alice_id, now, now),
     )
-    num_alice_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 22)
+    num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 22)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (12, 12, ?, 'Alice Secret Work', ?, 0, 0, 0, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
     # Bob themes (account_id=3):
-    num_bob_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 30)
+    num_bob_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 30)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (20, 20, ?, 'Bob Public Work', ?, 1, 1, 0, ?, ?)",
         (num_bob_pub, bob_id, now, now),
     )
-    num_bob_priv = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 31)
+    num_bob_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 31)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, is_collaborator_accessible, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
         "VALUES (21, 21, ?, 'Bob Secret Work', ?, 0, 0, 0, ?, ?)",
         (num_bob_priv, bob_id, now, now),
     )
@@ -130,7 +130,7 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
         source_type="web",
         content_hash="hash_alice_1",
     )
-    dbm.insert_document(conn, alice_doc, theme_id=10)
+    dbm.insert_document(conn, alice_doc, kb_id=10)
 
     # Ingest test document into Alice's private theme (12)
     alice_priv_doc = Document(
@@ -141,7 +141,7 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
         source_type="web",
         content_hash="hash_alice_priv_1",
     )
-    dbm.insert_document(conn, alice_priv_doc, theme_id=12)
+    dbm.insert_document(conn, alice_priv_doc, kb_id=12)
 
     # Ingest test document into Bob's private theme (21)
     bob_priv_doc = Document(
@@ -152,7 +152,7 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
         source_type="web",
         content_hash="hash_bob_priv_1",
     )
-    dbm.insert_document(conn, bob_priv_doc, theme_id=21)
+    dbm.insert_document(conn, bob_priv_doc, kb_id=21)
     conn.commit()
     conn.close()
 
@@ -310,8 +310,8 @@ def test_render_graph_html_single_mode_default_theme(tmp_path: Path):
 def test_render_graph_html_theme_param_account_fallback(tmp_path: Path):
     """Verify render_graph_html resolves account_id from theme object if account_id is None."""
     s, env = _setup_multi_account_network_env(tmp_path)
-    tm = ThemeManager(s)
-    alice_theme = tm.get_theme(10, include_private=True)
+    tm = KnowledgeBaseManager(s)
+    alice_theme = tm.get_kb(10, include_private=True)
 
     html = render_graph_html(s, theme=alice_theme, account_id=None, include_private=True)
     assert "Alice Public Work" in html

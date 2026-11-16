@@ -15,7 +15,7 @@ from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 PARENT_STANDALONE = "https://parent.example/standalone-post"
 CHILD_STANDALONE = "https://other.example/standalone-child"
@@ -70,23 +70,23 @@ def theme_env(monkeypatch, tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(base_settings=settings)
+    tm = KnowledgeBaseManager(base_settings=settings)
     monkeypatch.setattr(svcmod, "default_fetch", _fetch)
     monkeypatch.setattr(pipemod, "default_fetch", _fetch)
     return tm, settings
 
 
-def test_theme_services_for_cycle_passes_theme_id(theme_env):
-    """Verify _theme_services_for_cycle passes theme_id to service_factory."""
+def test_theme_services_for_cycle_passes_kb_id(theme_env):
+    """Verify _theme_services_for_cycle passes kb_id to service_factory."""
     tm, base_settings = theme_env
-    t1 = tm.define_theme("AI")
+    t1 = tm.define_kb("AI")
     state = _ThemeLoopState()
 
     services = _theme_services_for_cycle(base_settings, state, IngestService)
-    theme_ids = [t.id for t, _ in services]
-    assert t1.id in theme_ids
+    kb_ids = [t.id for t, _ in services]
+    assert t1.id in kb_ids
 
     svc_map = {t.id: s for t, s in services}
     t1_svc = svc_map[t1.id]
     assert isinstance(t1_svc, IngestService)
-    assert t1_svc.theme_id == t1.id
+    assert t1_svc.kb_id == t1.id

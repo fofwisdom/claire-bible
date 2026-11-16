@@ -44,7 +44,7 @@ from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import TokenStore, reset_token_stores
 
 
@@ -97,16 +97,16 @@ def _create_test_config(tmp_path: Path, public_origin: str = "http://127.0.0.1:8
 
 
 def _create_test_theme(
-    tm: ThemeManager,
+    tm: KnowledgeBaseManager,
     settings: Settings,
     label: str,
     *,
     account_id: int,
-    is_default: bool = False,
+    is_personal: bool = False,
     is_public: bool = True,
     is_collaborator_accessible: bool = True,
-) -> ThemeInfo:
-    theme = tm.define_theme(
+) -> KnowledgeBaseInfo:
+    theme = tm.define_kb(
         label,
         is_public=is_public,
         is_collaborator_accessible=is_collaborator_accessible,
@@ -114,23 +114,15 @@ def _create_test_theme(
     conn = dbm.connect(settings.db_file)
     try:
         conn.execute(
-            "UPDATE themes SET account_id = ?, is_default = ? WHERE id = ?",
-            (account_id, 1 if is_default else 0, theme.id),
+            "UPDATE knowledge_bases SET account_id = ?, is_personal = ? WHERE id = ?",
+            (account_id, 1 if is_personal else 0, theme.id),
         )
         conn.commit()
     finally:
         conn.close()
 
-    if tm.registry_path.is_file():
-        data = json.loads(tm.registry_path.read_text(encoding="utf-8"))
-        for entry in data.get("themes", []):
-            if entry.get("id") == theme.id:
-                entry["account_id"] = account_id
-                entry["is_default"] = is_default
-        tm.registry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
     tm.reload()
-    return tm.get_theme(theme.id)
+    return tm.get_kb(theme.id)
 
 
 def _build_oauth_test_app(config: WebRuntimeConfig, settings: Any = None) -> Starlette:
@@ -545,7 +537,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     dbm.insert_document(
         conn,
         Document(id="doc_admin_0", url="https://ex.com/a0", title="Admin Default Doc", raw_text="Admin default content", source_type="web", content_hash="h_a0"),
-        theme_id=0,
+        kb_id=0,
     )
     conn.close()
 
@@ -554,38 +546,38 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
         CLAIRE_DATA_DIR=str(tmp_path),
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
 
     # Theme 1: Admin private theme
     t1 = _create_test_theme(tm, settings, "Admin Private Theme", account_id=1, is_public=False, is_collaborator_accessible=False)
-    t1_s = tm.get_settings_for_theme(t1.id, settings)
+    t1_s = tm.get_settings_for_kb(t1.id, settings)
     c1 = dbm.connect(t1_s.db_file)
     dbm.init_db(c1)
-    dbm.insert_document(c1, Document(id="doc_admin_1", url="https://ex.com/a1", title="Admin Priv Doc", raw_text="Admin private content", source_type="web", content_hash="h_a1"), theme_id=t1.id)
+    dbm.insert_document(c1, Document(id="doc_admin_1", url="https://ex.com/a1", title="Admin Priv Doc", raw_text="Admin private content", source_type="web", content_hash="h_a1"), kb_id=t1.id)
     c1.close()
 
-    # Theme 2: Member default theme (account_id = 2, is_default = True, is_public = False)
-    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_default=True, is_public=False, is_collaborator_accessible=False)
-    t2_s = tm.get_settings_for_theme(t2.id, settings)
+    # Theme 2: Member default theme (account_id = 2, is_personal = True, is_public = False)
+    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_personal=True, is_public=False, is_collaborator_accessible=False)
+    t2_s = tm.get_settings_for_kb(t2.id, settings)
     c2 = dbm.connect(t2_s.db_file)
     dbm.init_db(c2)
-    dbm.insert_document(c2, Document(id="doc_bob_default", url="https://ex.com/b0", title="Bob Default Doc", raw_text="Bob default content", source_type="web", content_hash="h_b0"), theme_id=t2.id)
+    dbm.insert_document(c2, Document(id="doc_bob_default", url="https://ex.com/b0", title="Bob Default Doc", raw_text="Bob default content", source_type="web", content_hash="h_b0"), kb_id=t2.id)
     c2.close()
 
     # Theme 3: Member collab-accessible theme (account_id = 2, is_collaborator_accessible = True, is_public = False)
-    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_default=False, is_public=False, is_collaborator_accessible=True)
-    t3_s = tm.get_settings_for_theme(t3.id, settings)
+    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=True)
+    t3_s = tm.get_settings_for_kb(t3.id, settings)
     c3 = dbm.connect(t3_s.db_file)
     dbm.init_db(c3)
-    dbm.insert_document(c3, Document(id="doc_bob_collab", url="https://ex.com/b1", title="Bob Collab Doc", raw_text="Bob collab content", source_type="web", content_hash="h_b1"), theme_id=t3.id)
+    dbm.insert_document(c3, Document(id="doc_bob_collab", url="https://ex.com/b1", title="Bob Collab Doc", raw_text="Bob collab content", source_type="web", content_hash="h_b1"), kb_id=t3.id)
     c3.close()
 
     # Theme 4: Member public theme (account_id = 2, is_public = True)
-    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_default=False, is_public=True, is_collaborator_accessible=False)
-    t4_s = tm.get_settings_for_theme(t4.id, settings)
+    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_personal=False, is_public=True, is_collaborator_accessible=False)
+    t4_s = tm.get_settings_for_kb(t4.id, settings)
     c4 = dbm.connect(t4_s.db_file)
     dbm.init_db(c4)
-    dbm.insert_document(c4, Document(id="doc_bob_public", url="https://ex.com/b2", title="Bob Public Doc", raw_text="Bob public content", source_type="web", content_hash="h_b2"), theme_id=t4.id)
+    dbm.insert_document(c4, Document(id="doc_bob_public", url="https://ex.com/b2", title="Bob Public Doc", raw_text="Bob public content", source_type="web", content_hash="h_b2"), kb_id=t4.id)
     c4.close()
 
     mcp_app = build_mcp_app(settings, theme_mgr=tm)
@@ -691,7 +683,7 @@ def test_mcp_tools_readonly_connection_and_allowed_hosts_port(tmp_path: Path) ->
 
         # Attempting write operation raises OperationalError
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
-            ro_conn.execute("INSERT INTO themes (id, seq, label, account_id) VALUES (999, 999, 'Write Test', 1)")
+            ro_conn.execute("INSERT INTO knowledge_bases (id, seq, label, account_id) VALUES (999, 999, 'Write Test', 1)")
     finally:
         ro_conn.close()
 
@@ -714,7 +706,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
     dbm.insert_document(
         conn,
         Document(id="doc_top_secret_admin", url="https://admin.internal/doc", title="Admin Classified", raw_text="Secret Admin Document", source_type="web", content_hash="hash_adm"),
-        theme_id=0,
+        kb_id=0,
     )
     conn.close()
 
@@ -724,17 +716,17 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
+    tm = KnowledgeBaseManager(settings)
 
     # Member's private default theme
-    t_charlie = _create_test_theme(tm, settings, "Charlie Knowledge", account_id=2, is_default=True, is_public=False)
-    t_charlie_settings = tm.get_settings_for_theme(t_charlie.id, settings)
+    t_charlie = _create_test_theme(tm, settings, "Charlie Knowledge", account_id=2, is_personal=True, is_public=False)
+    t_charlie_settings = tm.get_settings_for_kb(t_charlie.id, settings)
     c_charlie = dbm.connect(t_charlie_settings.db_file)
     dbm.init_db(c_charlie)
     dbm.insert_document(
         c_charlie,
         Document(id="doc_charlie_notes", url="https://charlie.org/notes", title="Charlie Research Notes", raw_text="Charlie Quantum Computing Notes", source_type="notes", content_hash="hash_cha"),
-        theme_id=t_charlie.id,
+        kb_id=t_charlie.id,
     )
     c_charlie.close()
 

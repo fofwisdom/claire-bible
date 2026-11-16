@@ -238,10 +238,10 @@
     return request("GET", "/api/me/data-bundles").then(function (r) {
       if (!r.ok) { clear(host); host.appendChild(el("p", errorText(r.status, r.body), { "class": "hint" })); return; }
       var labels = {};
-      (r.body.themes || []).forEach(function (t) { labels[t.theme_id] = t.icon + " " + t.label; });
+      (r.body.themes || []).forEach(function (t) { labels[t.kb_id] = t.icon + " " + t.label; });
       renderTable(host, r.body.bundles, [
         [tr("console.js.features.bundles.col_bundle"), function (b) { return b.bundle_id; }],
-        [tr("console.js.features.col_theme"), function (b) { return labels[b.theme_id] || String(b.theme_id); }],
+        [tr("console.js.features.col_theme"), function (b) { return labels[b.kb_id] || String(b.kb_id); }],
         [tr("console.js.features.bundles.col_counts"), function (b) { return b.entities_count + " · " + b.relations_count; }],
         [tr("console.js.features.col_size"), function (b) { return formatSize(b.size_bytes); }],
         [tr("console.js.features.bundles.col_expires"), function (b) { return formatIso(b.expires_at); }]

@@ -24,7 +24,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.telegram_supervisor import BotSupervisor
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -114,11 +114,11 @@ def journey(tmp_path: Path):
         auth_db.set_password(auth, 1, ADMIN_PASSWORD, username="operator_e2e")
     finally:
         auth.close()
-    theme = ThemeManager(settings).define_theme("Alice Garden", account_id=member, is_default=True)
+    theme = KnowledgeBaseManager(settings).define_kb("Alice Garden", account_id=member, is_personal=True)
     conn = dbm.connect_existing(settings.db_file)
     try:
-        dbm.insert_document(conn, Document(id="alice-doc", url="https://example.org/a", raw_text="garden body", source_type="web", content_hash="ha"), theme_id=theme.id)
-        dbm.upsert_entity(conn, Entity(id="alice-ent", type="Tool", name="Spade", sources=["alice-doc"]), theme_id=theme.id)
+        dbm.insert_document(conn, Document(id="alice-doc", url="https://example.org/a", raw_text="garden body", source_type="web", content_hash="ha"), kb_id=theme.id)
+        dbm.upsert_entity(conn, Entity(id="alice-ent", type="Tool", name="Spade", sources=["alice-doc"]), kb_id=theme.id)
         conn.commit()
     finally:
         conn.close()
@@ -206,8 +206,8 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     # 5. 데이터가 사라진 뒤: 멤버는 복원하지 못하고 운영자가 복원한다.
     conn = sqlite3.connect(env.settings.db_file)
     try:
-        conn.execute("DELETE FROM entities WHERE theme_id=?", (env.theme.id,))
-        conn.execute("DELETE FROM documents WHERE theme_id=?", (env.theme.id,))
+        conn.execute("DELETE FROM entities WHERE kb_id=?", (env.theme.id,))
+        conn.execute("DELETE FROM documents WHERE kb_id=?", (env.theme.id,))
         conn.commit()
     finally:
         conn.close()
@@ -219,8 +219,8 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     assert r.status_code == 200, r.text
     conn = sqlite3.connect(env.settings.db_file)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM documents WHERE theme_id=?", (env.theme.id,)).fetchone()[0] == 1
-        assert conn.execute("SELECT name FROM entities WHERE theme_id=?", (env.theme.id,)).fetchone()[0] == "Spade"
+        assert conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=?", (env.theme.id,)).fetchone()[0] == 1
+        assert conn.execute("SELECT name FROM entities WHERE kb_id=?", (env.theme.id,)).fetchone()[0] == "Spade"
         # 검색 색인(FTS)도 함께 되돌린다.
         assert conn.execute("SELECT COUNT(*) FROM entities_fts WHERE entity_id='alice-ent'").fetchone()[0] == 1
     finally:

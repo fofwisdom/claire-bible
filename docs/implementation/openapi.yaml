@@ -116,7 +116,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [theme_id, theme_label]
+                required: [kb_id, theme_label]
                 properties:
                   documents:
                     type: integer
@@ -127,7 +127,7 @@ paths:
                   relations:
                     type: integer
                     example: 2194
-                  theme_id:
+                  kb_id:
                     type: integer
                     example: 0
                   theme_label:
@@ -747,7 +747,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [documents, theme_id, theme_label]
+                required: [documents, kb_id, theme_label]
                 properties:
                   documents:
                     type: array
@@ -765,7 +765,7 @@ paths:
                           type: string
                   format_status:
                     type: string
-                  theme_id:
+                  kb_id:
                     type: integer
                   theme_label:
                     type: string
@@ -2412,7 +2412,7 @@ paths:
                     type: object
                     properties:
                       id: {type: string}
-                      theme_id: {type: integer}
+                      kb_id: {type: integer}
                       document_id: {type: string}
                       quote_policy: {type: string}
         '400':
@@ -2735,7 +2735,7 @@ paths:
                 theme: {type: string, description: Public theme reference of the caller.}
       responses:
         '200':
-          description: The ingest report with linked (theme_id and document_id, or null).
+          description: The ingest report with linked (kb_id and document_id, or null).
         '400':
           description: '`invalid_request`.'
         '404':
@@ -2869,10 +2869,10 @@ components:
         fetched_at: {type: number}
         unread: {type: boolean}
         starred: {type: boolean}
-        linked_theme_id: {type: [integer, 'null']}
+        linked_kb_id: {type: [integer, 'null']}
         linked_doc_id: {type: [string, 'null']}
         text: {type: string, description: Plain text of the summary or of the content.}
-        linked: {type: [object, 'null'], description: theme_id and document_id of the ingested document.}
+        linked: {type: [object, 'null'], description: kb_id and document_id of the ingested document.}
         timeline_item_id: {type: [string, 'null'], description: The timeline item of the account with the same address.}
     McpTelemetryRecord:
       type: object
@@ -3067,7 +3067,7 @@ components:
 
     SearchResponse:
       type: object
-      required: [query, mode, hits, theme_id, theme_label]
+      required: [query, mode, hits, kb_id, theme_label]
       properties:
         query:
           type: string
@@ -3075,7 +3075,7 @@ components:
           type: string
         answer:
           type: string
-        theme_id:
+        kb_id:
           type: integer
         theme_label:
           type: string
@@ -3111,7 +3111,7 @@ components:
           type: integer
         relations_extracted:
           type: integer
-        theme_id:
+        kb_id:
           type: integer
         theme_label:
           type: string
@@ -3266,7 +3266,7 @@ components:
           description: Legacy theme array retained during migration period (P2-P3).
           items:
             type: object
-        default_theme_id:
+        default_kb_id:
           type: integer
           example: 0
         default_theme_number:
@@ -3303,7 +3303,7 @@ components:
 
     ThemeCollectionItem:
       type: object
-      required: [number, url, label, is_default, is_public, stats]
+      required: [number, url, label, is_personal, is_public, stats]
       properties:
         number:
           type: string
@@ -3315,7 +3315,7 @@ components:
         label:
           type: string
           example: "인공지능 연구"
-        is_default:
+        is_personal:
           type: boolean
         is_public:
           type: boolean

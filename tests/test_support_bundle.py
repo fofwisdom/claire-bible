@@ -863,13 +863,12 @@ def test_support_bundle_no_false_positive_for_multitheme_database(tmp_path: Path
     theme1_db = theme1_dir / "claire.db"
     _seed_db(theme1_db)
 
-    themes_registry = {
-        "themes": [
-            {"id": 0, "label": "Default", "db_path": str(s.db_file)},
-            {"id": 1, "label": "Theme 1", "db_path": str(theme1_db)},
-        ]
-    }
-    (tmp_path / "themes.json").write_text(json.dumps(themes_registry), encoding="utf-8")
+    # The knowledge base rows of claire.db name both files (themes.json is retired, v27).
+    conn = dbm.connect(s.db_file)
+    conn.execute("UPDATE knowledge_bases SET db_path=? WHERE id=0", (str(s.db_file),))
+    conn.execute("INSERT OR REPLACE INTO knowledge_bases (id, seq, label, db_path, is_personal, created_at, updated_at, account_id) VALUES (1, 1, 'Theme 1', ?, 0, 1, 1, 1)", (str(theme1_db),))
+    conn.commit()
+    conn.close()
     s.multi_theme = True
 
     info = create_support_bundle(s)

@@ -13,7 +13,7 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.theme import get_theme_manager
+from claire.store.knowledge_base import get_kb_manager
 
 
 def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
@@ -59,23 +59,23 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
     conn0.close()
 
     # 2. Define Theme 1 (presentation_enabled=True) and Theme 2 (presentation_enabled=False)
-    mgr = get_theme_manager(s)
-    t1 = mgr.define_theme(label="Theme One Slides", presentation_enabled=True)
-    t2 = mgr.define_theme(label="Theme Two Docs", presentation_enabled=False)
+    mgr = get_kb_manager(s)
+    t1 = mgr.define_kb(label="Theme One Slides", presentation_enabled=True)
+    t2 = mgr.define_kb(label="Theme Two Docs", presentation_enabled=False)
 
     conn1 = dbm.connect(t1.db_path)
     dbm.init_db(conn1)
     doc1 = Document(id="doc-1", url="https://example.com/doc1", title="Theme 1 Doc")
-    dbm.insert_document(conn1, doc1, theme_id=t1.id)
-    dbm.set_document_detail(conn1, "doc-1", detail="= Title 1\n== Slide\nBody 1", format="adoc", theme_id=t1.id)
+    dbm.insert_document(conn1, doc1, kb_id=t1.id)
+    dbm.set_document_detail(conn1, "doc-1", detail="= Title 1\n== Slide\nBody 1", format="adoc", kb_id=t1.id)
     conn1.commit()
     conn1.close()
 
     conn2 = dbm.connect(t2.db_path)
     dbm.init_db(conn2)
     doc2 = Document(id="doc-2", url="https://example.com/doc2", title="Theme 2 Doc")
-    dbm.insert_document(conn2, doc2, theme_id=t2.id)
-    dbm.set_document_detail(conn2, "doc-2", detail="= Title 2\n== Slide\nBody 2", format="adoc", theme_id=t2.id)
+    dbm.insert_document(conn2, doc2, kb_id=t2.id)
+    dbm.set_document_detail(conn2, "doc-2", detail="= Title 2\n== Slide\nBody 2", format="adoc", kb_id=t2.id)
     conn2.commit()
     conn2.close()
 
@@ -158,7 +158,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Step 7: CLI command verification
         # Re-enable Theme 1 via CLI
         monkeypatch.setattr("claire.cli.get_settings", lambda: s)
-        monkeypatch.setattr("claire.store.theme.get_theme_manager", lambda _s=None: mgr)
+        monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda _s=None: mgr)
         rc = cli.main(["theme", "update", str(t1.id), "--presentation"])
         assert rc == 0
 

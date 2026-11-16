@@ -295,7 +295,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await expect(page.locator('#pop-doc-context')).toBeVisible();
     await expect(page.locator('#menu-doc-quote-policy')).toBeHidden();
     await page.keyboard.press('Escape');
-    const key = await page.evaluate(() => { const theme = window.ClaireSyndication.curTheme(); return { theme_id: theme.id, document_id: document.querySelector('#headlines-container [data-row-id]').getAttribute('data-row-id') }; });
+    const key = await page.evaluate(() => { const theme = window.ClaireSyndication.curTheme(); return { kb_id: theme.id, document_id: document.querySelector('#headlines-container [data-row-id]').getAttribute('data-row-id') }; });
     published.items = [Object.assign({ id: '950', published_at: NOW, updated_at: NOW, likes: 0, announces: 0, quotes: 2, quote_policy: 'manual' }, key)];
     await page.goto('/syndication?stage=ingest', { waitUntil: 'domcontentloaded' });
     const publishedRow = page.locator(`#headlines-container [data-row-id="${key.document_id}"]`);

@@ -1089,7 +1089,7 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
     """parse_message_theme이 CLAIRE_MULTI_THEME에 따라 올바르게 동작하는지 검증."""
     from unittest.mock import MagicMock
     from claire.config import Settings
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import parse_message_theme
 
     data_dir = tmp_path / "data"
@@ -1104,8 +1104,8 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
-    tm_multi = ThemeManager(s_multi)
-    tm_multi.define_theme("AI연구", icon="🤖")
+    tm_multi = KnowledgeBaseManager(s_multi)
+    tm_multi.define_kb("AI연구", icon="🤖")
 
     clean, tid = parse_message_theme("안녕하세요 #1 논문입니다", tm_multi)
     assert tid == 1
@@ -1122,7 +1122,7 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
-    tm_single = ThemeManager(s_single)
+    tm_single = KnowledgeBaseManager(s_single)
     clean_single, tid_single = parse_message_theme("안녕하세요 #1 논문입니다", tm_single)
     assert tid_single is None
     assert clean_single == "안녕하세요 #1 논문입니다"
@@ -1170,7 +1170,7 @@ async def test_ingest_prompts_theme_selection_in_multi_theme_mode(tmp_path: Path
     from unittest.mock import AsyncMock, MagicMock
     from claire.config import Settings
     from claire.ingest.service import IngestReport
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1186,8 +1186,8 @@ async def test_ingest_prompts_theme_selection_in_multi_theme_mode(tmp_path: Path
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("AI연구", icon="🤖")
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("AI연구", icon="🤖")
 
     app = build_app(settings)
     on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
@@ -1270,7 +1270,7 @@ async def test_ingest_cancellation(tmp_path: Path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.config import Settings
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1286,8 +1286,8 @@ async def test_ingest_cancellation(tmp_path: Path):
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("AI연구", icon="🤖")
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("AI연구", icon="🤖")
 
     app = build_app(settings)
     on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
@@ -1332,7 +1332,7 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
     from unittest.mock import AsyncMock, MagicMock
     from claire.config import Settings
     from claire.ingest.service import IngestReport
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1348,8 +1348,8 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("AI연구", icon="🤖")
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("AI연구", icon="🤖")
 
     app = build_app(settings)
     on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
@@ -1391,7 +1391,7 @@ async def test_on_message_prompts_theme_selection_in_multi_theme_mode(tmp_path: 
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.config import Settings
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1407,8 +1407,8 @@ async def test_on_message_prompts_theme_selection_in_multi_theme_mode(tmp_path: 
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("AI연구", icon="🤖")
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("AI연구", icon="🤖")
 
     app = build_app(settings)
     on_message = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_message")
@@ -1435,11 +1435,11 @@ async def test_on_message_prompts_theme_selection_in_multi_theme_mode(tmp_path: 
 
 
 async def test_settle_status_theme_resolution(tmp_path: Path):
-    """_settle_status 가 theme_id 및 cross-theme fallback 에 따라 올바른 테마 DB에 공유 토큰을 생성하는지 검증."""
+    """_settle_status 가 kb_id 및 cross-theme fallback 에 따라 올바른 테마 DB에 공유 토큰을 생성하는지 검증."""
     from claire.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     data_dir = tmp_path / "data"
     vault_dir = tmp_path / "vault"
@@ -1453,9 +1453,9 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
         CLAIRE_PUBLIC_URL="https://cb.example.com",
     )
-    tm = ThemeManager(settings)
-    t1 = tm.define_theme("AI엔지니어링")
-    t1_settings = tm.get_settings_for_theme(1)
+    tm = KnowledgeBaseManager(settings)
+    t1 = tm.define_kb("AI엔지니어링")
+    t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 적재
     conn1 = dbm.connect(t1_settings.db_file)
@@ -1490,12 +1490,12 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
         async def reply_text(self, text, reply_markup=None):
             pass
 
-    # 1. theme_id=1 명시적 전달 시 테마 1 DB에 토큰 생성
+    # 1. kb_id=1 명시적 전달 시 테마 1 DB에 토큰 생성
     st = FakeStatus()
     await _settle_status(
         st, FakeMsg(), "완료", [],
         retry_doc_id="doc_settle_t1",
-        theme_id=1,
+        kb_id=1,
         theme_mgr=tm,
     )
     assert st.markup is not None
@@ -1503,17 +1503,17 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
     token = url.split("?s=")[1]
     # 테마 1 DB에서 검증
     c1 = dbm.connect(t1_settings.db_file)
-    assert dbm.resolve_doc_share(c1, token, theme_id=1) == "doc_settle_t1"
+    assert dbm.resolve_doc_share(c1, token, kb_id=1) == "doc_settle_t1"
     # 테마 0 스코프에는 없어야 함
-    assert dbm.resolve_doc_share(c1, token, theme_id=0) is None
+    assert dbm.resolve_doc_share(c1, token, kb_id=0) is None
     c1.close()
 
-    # 2. theme_id=0이지만 테마 0에는 없고 테마 1에 문서가 있는 경우 cross-theme fallback 검증
+    # 2. kb_id=0이지만 테마 0에는 없고 테마 1에 문서가 있는 경우 cross-theme fallback 검증
     st2 = FakeStatus()
     await _settle_status(
         st2, FakeMsg(), "완료", [],
         retry_doc_id="doc_settle_t1",
-        theme_id=0,
+        kb_id=0,
         theme_mgr=tm,
     )
     assert st2.markup is not None
@@ -1531,7 +1531,7 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
     from claire.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1547,9 +1547,9 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("AI연구", icon="🤖")
-    t1_settings = tm.get_settings_for_theme(1)
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("AI연구", icon="🤖")
+    t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 삽입
     conn1 = dbm.connect(t1_settings.db_file)
@@ -1596,7 +1596,7 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
     from claire.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1612,9 +1612,9 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("보조테마", icon="📁")
-    t1_settings = tm.get_settings_for_theme(1)
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("보조테마", icon="📁")
+    t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 삽입
     conn1 = dbm.connect(t1_settings.db_file)
@@ -1663,7 +1663,7 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
     from claire.config import Settings
     from claire.ontology.base import Document
     from claire.store import db as dbm
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1679,9 +1679,9 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("보조테마", icon="📁")
-    t1_settings = tm.get_settings_for_theme(1)
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("보조테마", icon="📁")
+    t1_settings = tm.get_settings_for_kb(1)
 
     conn1 = dbm.connect(t1_settings.db_file)
     dbm.init_db(conn1)
@@ -1727,7 +1727,7 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
     from unittest.mock import AsyncMock, MagicMock
     from claire.config import Settings
     from claire.store import db as dbm
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram_bot import build_app
 
     data_dir = tmp_path / "data"
@@ -1743,9 +1743,9 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
-    tm = ThemeManager(settings)
-    tm.define_theme("특화테마", icon="🔬")
-    t1_settings = tm.get_settings_for_theme(1)
+    tm = KnowledgeBaseManager(settings)
+    tm.define_kb("특화테마", icon="🔬")
+    t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1 DB에 inbox 실패 레코드 삽입
     conn1 = dbm.connect(t1_settings.db_file)
@@ -1881,7 +1881,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     from claire.config import Settings
     from claire.store import db as dbm
     from claire.store.telegram_bots import TelegramBotProfile
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
     from claire import telegram_bot
     from claire.i18n import t
     from claire.telegram_bot import build_app
@@ -1902,9 +1902,9 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     ).lastrowid
     conn.commit()
     conn.close()
-    tm = ThemeManager(settings)
-    own = tm.define_theme("내 테마", account_id=member, is_default=True)
-    other = tm.define_theme("관리자 테마")
+    tm = KnowledgeBaseManager(settings)
+    own = tm.define_kb("내 테마", account_id=member, is_personal=True)
+    other = tm.define_kb("관리자 테마")
 
     profile = TelegramBotProfile(account_id=member, bot_id=7100000001, token="7100000001:" + "A" * 35, allowed_user_ids=(42,), fingerprint="abcd1234")
     app = build_app(settings, profile=profile)
@@ -1958,4 +1958,4 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     update, msg = _update(42)
     ctx.args = ["graph"]
     await handlers["on_export"](update, ctx)
-    assert created and created[0]["theme_id"] == own.id and created[0]["account_id"] == member
+    assert created and created[0]["kb_id"] == own.id and created[0]["account_id"] == member

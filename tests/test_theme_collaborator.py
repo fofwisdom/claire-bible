@@ -11,7 +11,7 @@ from claire import cli
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import db as dbm
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
@@ -166,7 +166,7 @@ def test_collaborator_ingestion_rules(collab_test_client):
         headers=COLLAB_HEADERS,
     )
     assert ingest_t1.status_code == 200
-    assert ingest_t1.json().get("theme_id") == 1
+    assert ingest_t1.json().get("kb_id") == 1
 
     # 3. Collaborator ingesting into Theme 2 (collaborator blocked) -> 403 or 404
     ingest_t2 = client.post(
@@ -285,8 +285,8 @@ def test_cli_theme_collaborator_flags(tmp_path: Path, monkeypatch: pytest.Monkey
         CLAIRE_MULTI_THEME=True,
     )
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    tm = ThemeManager(settings)
-    monkeypatch.setattr("claire.store.theme.get_theme_manager", lambda s=None: tm)
+    tm = KnowledgeBaseManager(settings)
+    monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
 
     # 1. Define theme with --no-collaborator
     ret = cli.main(["theme", "define", "--label", "비공개테마", "--no-collaborator", "--private"])

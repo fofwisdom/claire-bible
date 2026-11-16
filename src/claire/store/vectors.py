@@ -28,12 +28,12 @@ class EmbedPin(NamedTuple):
 class EmbeddingModelMismatch(ValueError):
     """테마에 고정된 임베딩 모델과 다른 모델의 벡터를 저장하려 했다."""
 
-    def __init__(self, theme_id: int, pinned_model: str, model: str) -> None:
+    def __init__(self, kb_id: int, pinned_model: str, model: str) -> None:
         super().__init__(
-            f"theme {theme_id} embedding space is pinned to {pinned_model!r}; "
+            f"theme {kb_id} embedding space is pinned to {pinned_model!r}; "
             f"refusing vector from {model!r} (run re-embed to switch models)"
         )
-        self.theme_id = theme_id
+        self.kb_id = kb_id
         self.pinned_model = pinned_model
         self.model = model
 
@@ -72,11 +72,11 @@ def resolve_embed_identity(provider: Any, settings: Any = None) -> EmbedPin:
     return EmbedPin(embed_provider, model)
 
 
-def read_embed_pin(conn: sqlite3.Connection, theme_id: int) -> EmbedPin | None:
+def read_embed_pin(conn: sqlite3.Connection, kb_id: int) -> EmbedPin | None:
     """테마의 고정 임베딩. 아직 고정되지 않았거나(레거시) 테마 행·열이 없으면 None."""
     try:
         row = conn.execute(
-            "SELECT embed_provider, embed_model FROM themes WHERE id=?", (theme_id,)
+            "SELECT embed_provider, embed_model FROM knowledge_bases WHERE id=?", (kb_id,)
         ).fetchone()
     except sqlite3.OperationalError:
         return None
@@ -88,14 +88,14 @@ def read_embed_pin(conn: sqlite3.Connection, theme_id: int) -> EmbedPin | None:
     return EmbedPin(str(row[0] or "").strip(), model)
 
 
-def _adopt_legacy_rows(conn: sqlite3.Connection, theme_id: int, model: str, dim: int | None) -> int:
+def _adopt_legacy_rows(conn: sqlite3.Connection, kb_id: int, model: str, dim: int | None) -> int:
     """모델 미기록 행을 고정 모델로 다시 적는다. 차원이 다른 행은 다른 모델이 분명하므로 두고, 검색에서 빠진다."""
     marks = ",".join("?" for _ in LEGACY_EMBED_MODELS)
     sql = (
-        "UPDATE embeddings SET model=? WHERE theme_id=? "
+        "UPDATE embeddings SET model=? WHERE kb_id=? "
         f"AND (model IS NULL OR model='' OR model IN ({marks}))"
     )
-    params: list[Any] = [model, theme_id, *LEGACY_EMBED_MODELS]
+    params: list[Any] = [model, kb_id, *LEGACY_EMBED_MODELS]
     if dim is not None:
         sql += " AND dim=?"
         params.append(dim)
@@ -208,17 +208,17 @@ class VectorStore:
     sqlite-vec 백엔드는 probe 가 성공하면 이후 마일스톤에서 활성화 예정. 인터페이스는 동일하게 유지한다.
     """
 
-    def __init__(self, conn: sqlite3.Connection, backend: str = "brute", theme_id: int = 0):
+    def __init__(self, conn: sqlite3.Connection, backend: str = "brute", kb_id: int = 0):
         self.conn = conn
         self.backend = backend  # 'brute' | 'vec'
-        self.theme_id = theme_id
+        self.kb_id = kb_id
 
     def put(
         self,
         owner_id: str,
         vector: list[float],
         model: str,
-        theme_id: int | None = None,
+        kb_id: int | None = None,
         *,
         embed_provider: str | None = None,
     ) -> None:
@@ -226,43 +226,43 @@ class VectorStore:
 
         고정된 모델과 다른 모델이면 저장하지 않고 ``EmbeddingModelMismatch``를 던진다. 모델을 바꾸려면 ``replace_theme_embeddings``(re-embed)를 쓴다.
         """
-        tid = self.theme_id if theme_id is None else theme_id
+        tid = self.kb_id if kb_id is None else kb_id
         if tid is not None:
             pinned = self._pin_if_unset(tid, model, embed_provider, len(vector))
             if pinned is not None and pinned != model:
                 raise EmbeddingModelMismatch(tid, pinned, model)
         self.conn.execute(
-            "INSERT OR REPLACE INTO embeddings(owner_id,theme_id,dim,vector,model,updated_at) "
+            "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) "
             "VALUES (?,?,?,?,?,?)",
             (owner_id, tid, len(vector), pack_vector(vector), model, time.time()),
         )
         self.conn.commit()
 
     def _pin_if_unset(
-        self, theme_id: int, model: str, embed_provider: str | None, dim: int
+        self, kb_id: int, model: str, embed_provider: str | None, dim: int
     ) -> str | None:
         """고정 모델을 돌려준다. 미고정이면 ``model``로 고정하고(레거시 라벨은 고정하지 않음) 같은 차원의 레거시 행을 넘겨받는다."""
-        pin = read_embed_pin(self.conn, theme_id)
+        pin = read_embed_pin(self.conn, kb_id)
         if pin is not None:
             return pin.model
         if not is_legacy_model(model):
             try:
                 cur = self.conn.execute(
-                    "UPDATE themes SET embed_model=?, embed_provider=? "
+                    "UPDATE knowledge_bases SET embed_model=?, embed_provider=? "
                     "WHERE id=? AND (embed_model IS NULL OR embed_model='')",
-                    (model, (embed_provider or "").strip() or None, theme_id),
+                    (model, (embed_provider or "").strip() or None, kb_id),
                 )
             except sqlite3.OperationalError:
                 return None
             if cur.rowcount == 1:
-                _adopt_legacy_rows(self.conn, theme_id, model, dim)
+                _adopt_legacy_rows(self.conn, kb_id, model, dim)
                 return model
-        pin = read_embed_pin(self.conn, theme_id)
+        pin = read_embed_pin(self.conn, kb_id)
         return pin.model if pin else None
 
     def replace_theme_embeddings(
         self,
-        theme_id: int,
+        kb_id: int,
         *,
         embed_provider: str | None,
         model: str,
@@ -270,22 +270,22 @@ class VectorStore:
     ) -> int:
         """re-embed 전용: 고정을 ``model``로 바꾸고, 다른 모델 행을 지우고, ``items``를 넣는다. 한 트랜잭션. 넣은 행 수."""
         if is_legacy_model(model):
-            raise ValueError(f"cannot pin theme {theme_id} to legacy embedding label {model!r}")
+            raise ValueError(f"cannot pin theme {kb_id} to legacy embedding label {model!r}")
         now = time.time()
         try:
             self.conn.execute(
-                "UPDATE themes SET embed_provider=?, embed_model=? WHERE id=?",
-                ((embed_provider or "").strip() or None, model, theme_id),
+                "UPDATE knowledge_bases SET embed_provider=?, embed_model=? WHERE id=?",
+                ((embed_provider or "").strip() or None, model, kb_id),
             )
             self.conn.execute(
-                "DELETE FROM embeddings WHERE theme_id=? AND (model IS NULL OR model != ?)",
-                (theme_id, model),
+                "DELETE FROM embeddings WHERE kb_id=? AND (model IS NULL OR model != ?)",
+                (kb_id, model),
             )
             self.conn.executemany(
-                "INSERT OR REPLACE INTO embeddings(owner_id,theme_id,dim,vector,model,updated_at) "
+                "INSERT OR REPLACE INTO embeddings(owner_id,kb_id,dim,vector,model,updated_at) "
                 "VALUES (?,?,?,?,?,?)",
                 [
-                    (owner_id, theme_id, len(vec), pack_vector(vec), model, now)
+                    (owner_id, kb_id, len(vec), pack_vector(vec), model, now)
                     for owner_id, vec in items
                 ],
             )
@@ -295,11 +295,11 @@ class VectorStore:
             raise
         return len(items)
 
-    def get(self, owner_id: str, theme_id: int | None = None) -> list[float] | None:
-        tid = self.theme_id if theme_id is None else theme_id
+    def get(self, owner_id: str, kb_id: int | None = None) -> list[float] | None:
+        tid = self.kb_id if kb_id is None else kb_id
         if tid is not None:
             row = self.conn.execute(
-                "SELECT vector FROM embeddings WHERE owner_id=? AND theme_id=?", (owner_id, tid)
+                "SELECT vector FROM embeddings WHERE owner_id=? AND kb_id=?", (owner_id, tid)
             ).fetchone()
         else:
             row = self.conn.execute(
@@ -307,11 +307,11 @@ class VectorStore:
             ).fetchone()
         return unpack_vector(row["vector"]) if row else None
 
-    def count(self, theme_id: int | None = None) -> int:
+    def count(self, kb_id: int | None = None) -> int:
         """저장된 임베딩 총 개수."""
-        tid = self.theme_id if theme_id is None else theme_id
+        tid = self.kb_id if kb_id is None else kb_id
         if tid is not None:
-            row = self.conn.execute("SELECT count(*) FROM embeddings WHERE theme_id=?", (tid,)).fetchone()
+            row = self.conn.execute("SELECT count(*) FROM embeddings WHERE kb_id=?", (tid,)).fetchone()
         else:
             row = self.conn.execute("SELECT count(*) FROM embeddings").fetchone()
         return row[0] if row else 0
@@ -321,7 +321,7 @@ class VectorStore:
         query_vec: list[float],
         limit: int = 10,
         adaptive_center: bool = False,
-        theme_id: int | None = None,
+        kb_id: int | None = None,
         query_model: str | None = None,
     ) -> list[tuple[str, float]]:
         """(owner_id, score) 리스트, score 내림차순.
@@ -330,18 +330,18 @@ class VectorStore:
 
         테마에 고정 모델이 있으면 그 모델의 행만 본다(§10.4). ``query_model``이 주어졌는데 고정과 다르면 공간이 달라 비교할 수 없으므로 빈 결과다. 미고정(레거시) 테마는 전과 같다.
         """
-        tid = self.theme_id if theme_id is None else theme_id
+        tid = self.kb_id if kb_id is None else kb_id
         pin = read_embed_pin(self.conn, tid) if tid is not None else None
         if pin is not None:
             if query_model is not None and query_model != pin.model:
                 return []
             rows = self.conn.execute(
-                "SELECT owner_id, vector FROM embeddings WHERE theme_id = ? AND model = ?",
+                "SELECT owner_id, vector FROM embeddings WHERE kb_id = ? AND model = ?",
                 (tid, pin.model),
             ).fetchall()
         elif tid is not None:
             rows = self.conn.execute(
-                "SELECT owner_id, vector FROM embeddings WHERE theme_id = ?",
+                "SELECT owner_id, vector FROM embeddings WHERE kb_id = ?",
                 (tid,),
             ).fetchall()
         else:
@@ -380,11 +380,11 @@ class VectorStore:
 def make_vector_store(
     conn: sqlite3.Connection,
     backend_pref: str = "auto",
-    theme_id: int = 0,
+    kb_id: int = 0,
 ) -> VectorStore:
     """설정에 따라 백엔드 선택. 현재는 brute 만 구현하므로 항상 brute 반환하되, auto/vec 요청 시 probe 결과를 로깅용으로 남긴다(추후 vec 백엔드 연결)."""
     if backend_pref in ("auto", "vec"):
         ok, _detail = probe_sqlite_vec()
         # vec 백엔드 구현 전까지는 brute 사용. ok 여부는 doctor 에서 보고.
-        return VectorStore(conn, backend="brute", theme_id=theme_id)
-    return VectorStore(conn, backend="brute", theme_id=theme_id)
+        return VectorStore(conn, backend="brute", kb_id=kb_id)
+    return VectorStore(conn, backend="brute", kb_id=kb_id)

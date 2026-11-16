@@ -57,14 +57,14 @@ def test_opaque_media_key_derivation_and_s16_isolation():
 def test_media_capability_token_lifecycle_and_binding():
     sec = SecretService(b"k" * 32)
     account_id = 42
-    theme_id = 100
+    kb_id = 100
     visibility_epoch = 1
     key = "opaque_media_key.png"
     now = 1700000000.0
 
     token = create_media_capability_token(
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key=key,
         expires_in=3600,
@@ -77,7 +77,7 @@ def test_media_capability_token_lifecycle_and_binding():
     assert verify_media_capability_token(
         token=token,
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key=key,
         secret_service=sec,
@@ -88,7 +88,7 @@ def test_media_capability_token_lifecycle_and_binding():
     assert not verify_media_capability_token(
         token=token,
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key=key,
         secret_service=sec,
@@ -99,7 +99,7 @@ def test_media_capability_token_lifecycle_and_binding():
     assert not verify_media_capability_token(
         token=token,
         account_id=account_id + 1,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key=key,
         secret_service=sec,
@@ -110,7 +110,7 @@ def test_media_capability_token_lifecycle_and_binding():
     assert not verify_media_capability_token(
         token=token,
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch + 1,
         key=key,
         secret_service=sec,
@@ -121,7 +121,7 @@ def test_media_capability_token_lifecycle_and_binding():
     assert not verify_media_capability_token(
         token=token,
         account_id=account_id,
-        theme_id=theme_id,
+        kb_id=kb_id,
         visibility_epoch=visibility_epoch,
         key="different_key.png",
         secret_service=sec,

@@ -73,9 +73,9 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 
 ### 1.7 멀티 테마(Multi-Theme) 라우팅
 멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 요청 헤더 또는 쿼리 파라미터로 조회/작업 대상 테마를 명시할 수 있다:
-- **HTTP 헤더 (REST/MCP 권장)**: `X-Claire-Theme: <theme_id_or_label>` (예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: 인공지능`)
-- **URL 쿼리 파라미터 (브라우저/링크 권장)**: `?theme=<theme_id_or_label>`
-- **No theme in the request** [code] (`ThemeManager.resolve_theme_ref`): with multiple themes, the default theme (`is_default=1`) of the account of the credential is used. A number is an internal ID or a theme number. Another value must be an exact label of a theme of the same account. A theme of a different account, or no theme, gives "not found". With one theme (`CLAIRE_MULTI_THEME` off) only Theme `0` exists, and only the admin account can use it.
+- **HTTP 헤더 (REST/MCP 권장)**: `X-Claire-Theme: <kb_id_or_label>` (예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: 인공지능`)
+- **URL 쿼리 파라미터 (브라우저/링크 권장)**: `?theme=<kb_id_or_label>`
+- **No theme in the request** [code] (`KnowledgeBaseManager.resolve_theme_ref`): with multiple themes, the default theme (`is_personal=1`) of the account of the credential is used. A number is an internal ID or a theme number. Another value must be an exact label of a theme of the same account. A theme of a different account, or no theme, gives "not found". With one theme (`CLAIRE_MULTI_THEME` off) only Theme `0` exists, and only the admin account can use it.
 
 ---
 
@@ -112,7 +112,7 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 ```
 ```json
 {
-  "theme_id": 0,
+  "kb_id": 0,
   "theme_label": "기본 지식베이스",
   "documents": 142,
   "entities": 853,
@@ -152,7 +152,7 @@ curl -s -X POST https://claire.example.com/search \
   - `detail` (`missing`|`mismatched`, 선택): 상세 본문이 없거나 렌더링 포맷이 다른 문서
   - `id` (str, 선택, 반복 가능, 100개 이하): 지정한 문서만 조회
   - `theme` (str/int, 선택): 대상 테마 ID 또는 라벨
-- **응답 필드**: `documents`, `format_status`, `theme_id`, `theme_label`, `next_before`(다음 페이지 커서, 마지막 페이지면 `null`), `total`(커서를 뺀 필터 일치 건수)
+- **응답 필드**: `documents`, `format_status`, `kb_id`, `theme_label`, `next_before`(다음 페이지 커서, 마지막 페이지면 `null`), `total`(커서를 뺀 필터 일치 건수)
 - 잘못된 값은 `400`과 고정 오류 문구를 돌려준다. `anonymous` 범위는 어떤 페이지와 필터에서도 숨김 문서를 받지 않고, `total`에도 세지 않는다.
 - MCP 도구 `documents`의 인자(`limit`, `since`, `query`)는 이 HTTP 경로와 다르다.
 ```bash
@@ -375,7 +375,7 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
   - 외부 에이전트의 잦은 탐색 루프 중에도 Google Gemini API 호출이나 토큰 소진이 일절 발생하지 않는다.
 - **`ContextVar[Principal]` 기반 계정 격리**:
   - `AuthenticationMiddleware`가 인증한 주체는 `mcp_tools.current_principal` (`ContextVar[Principal | None]`)을 통해 MCP 도구 함수 실행 컨텍스트로 전달된다.
-  - 모든 MCP 도구의 `_theme_id` 해석은 `current_principal`의 `account_id` 소유 테마(또는 `collaborator` 스코프인 경우 `is_public` 또는 `is_collaborator_accessible` 테마)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
+  - 모든 MCP 도구의 `_kb_id` 해석은 `current_principal`의 `account_id` 소유 테마(또는 `collaborator` 스코프인 경우 `is_public` 또는 `is_collaborator_accessible` 테마)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
 - **읽기 전용 DB 연결 (`readonly=True`) 및 DDL 제거**:
   - MCP 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`를 사용하여 읽기 전용 모드로 데이터베이스를 연다.
   - 도구 호출마다 불필요하게 실행되던 DDL(`init_db`)을 완전히 제거하여 SQLite 쓰기 락 경합을 방지하고 응답 성능을 최적화한다.

@@ -75,9 +75,9 @@ def _iso(ts: float | None) -> str | None:
 
 
 def _owned_themes(settings: Settings, account_id: int) -> list[Any]:
-    from .store.theme import get_theme_manager
+    from .store.knowledge_base import get_kb_manager
 
-    return list(get_theme_manager(settings).list_account_themes(account_id))
+    return list(get_kb_manager(settings).list_account_kbs(account_id))
 
 
 def _theme_ref(theme: Any) -> str:
@@ -141,20 +141,20 @@ def _account_summary(settings: Settings, account_id: int) -> dict[str, Any]:
 
 
 def _theme_inventory(settings: Settings, themes: list[Any]) -> list[dict[str, Any]]:
-    from .store.theme import get_theme_manager
+    from .store.knowledge_base import get_kb_manager
 
-    manager = get_theme_manager(settings)
+    manager = get_kb_manager(settings)
     out = []
     for theme in themes:
         try:
-            counts = manager.theme_data_counts(theme.id)
+            counts = manager.kb_data_counts(theme.id)
         except Exception as exc:  # noqa: BLE001
             counts = {"error": type(exc).__name__}
         out.append(
             {
                 "theme": _theme_ref(theme),
                 "label": theme.label,
-                "is_default": bool(theme.is_default),
+                "is_personal": bool(theme.is_personal),
                 "is_public": bool(theme.is_public),
                 "counts": counts,
             }
@@ -166,28 +166,28 @@ def _placeholders(values: list[int]) -> str:
     return ",".join("?" for _ in values)
 
 
-def _pipeline(conn: sqlite3.Connection, theme_ids: list[int], cutoff: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if not theme_ids:
+def _pipeline(conn: sqlite3.Connection, kb_ids: list[int], cutoff: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if not kb_ids:
         return {}, []
-    marks = _placeholders(theme_ids)
+    marks = _placeholders(kb_ids)
     summary: dict[str, Any] = {}
     for row in conn.execute(
-        f"SELECT theme_id, status, COUNT(*) FROM raw_inbox WHERE theme_id IN ({marks}) GROUP BY theme_id, status",
-        theme_ids,
+        f"SELECT kb_id, status, COUNT(*) FROM raw_inbox WHERE kb_id IN ({marks}) GROUP BY kb_id, status",
+        kb_ids,
     ):
         summary.setdefault(str(row[0]), {})[str(row[1])] = int(row[2])
     failed = []
     for row in conn.execute(
-        f"SELECT id, theme_id, received_at, source, kind, payload, file_name, document_id, status, error, attempts, last_attempt "
-        f"FROM raw_inbox WHERE theme_id IN ({marks}) AND status IN ('error', 'failed') AND COALESCE(last_attempt, received_at, 0) >= ? "
+        f"SELECT id, kb_id, received_at, source, kind, payload, file_name, document_id, status, error, attempts, last_attempt "
+        f"FROM raw_inbox WHERE kb_id IN ({marks}) AND status IN ('error', 'failed') AND COALESCE(last_attempt, received_at, 0) >= ? "
         f"ORDER BY COALESCE(last_attempt, received_at) DESC LIMIT ?",
-        (*theme_ids, cutoff, MAX_FAILED_ITEMS),
+        (*kb_ids, cutoff, MAX_FAILED_ITEMS),
     ):
         failed.append(
             sanitize_sensitive_data(
                 {
                     "inbox_id": row[0],
-                    "theme_id": row[1],
+                    "kb_id": row[1],
                     "received_at": _iso(row[2]),
                     "source": row[3],
                     "kind": row[4],
@@ -204,10 +204,10 @@ def _pipeline(conn: sqlite3.Connection, theme_ids: list[int], cutoff: float) -> 
     return summary, failed
 
 
-def _owned_document_ids(conn: sqlite3.Connection, theme_ids: list[int]) -> set[str]:
-    if not theme_ids:
+def _owned_document_ids(conn: sqlite3.Connection, kb_ids: list[int]) -> set[str]:
+    if not kb_ids:
         return set()
-    rows = conn.execute(f"SELECT id FROM documents WHERE theme_id IN ({_placeholders(theme_ids)})", theme_ids)
+    rows = conn.execute(f"SELECT id FROM documents WHERE kb_id IN ({_placeholders(kb_ids)})", kb_ids)
     return {str(r[0]) for r in rows}
 
 
@@ -235,29 +235,29 @@ def _telemetry(settings: Settings, doc_ids: set[str], cutoff: float) -> list[dic
         conn.close()
 
 
-def _tracked_document(conn: sqlite3.Connection, theme_ids: list[int], target: str) -> dict[str, Any]:
+def _tracked_document(conn: sqlite3.Connection, kb_ids: list[int], target: str) -> dict[str, Any]:
     """대상 문서 추적. 소유 테마 안의 문서 ID 또는 공유 토큰만 찾는다. 못 찾으면 ``not_found``."""
-    if not theme_ids:
+    if not kb_ids:
         return {"input_target": target, "resolution_status": "not_found"}
-    marks = _placeholders(theme_ids)
+    marks = _placeholders(kb_ids)
     raw = target.strip()
     candidate = raw.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
     doc_row = conn.execute(
-        f"SELECT id, theme_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
-        f"FROM documents WHERE theme_id IN ({marks}) AND (id = ? OR url = ? OR canonical_url = ?) LIMIT 1",
-        (*theme_ids, candidate, raw, raw),
+        f"SELECT id, kb_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
+        f"FROM documents WHERE kb_id IN ({marks}) AND (id = ? OR url = ? OR canonical_url = ?) LIMIT 1",
+        (*kb_ids, candidate, raw, raw),
     ).fetchone()
     matched_by = "document_id_or_url"
     if doc_row is None:
         share = conn.execute(
-            f"SELECT document_id FROM doc_shares WHERE theme_id IN ({marks}) AND token = ? LIMIT 1",
-            (*theme_ids, candidate),
+            f"SELECT document_id FROM doc_shares WHERE kb_id IN ({marks}) AND token = ? LIMIT 1",
+            (*kb_ids, candidate),
         ).fetchone()
         if share is not None:
             doc_row = conn.execute(
-                f"SELECT id, theme_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
-                f"FROM documents WHERE theme_id IN ({marks}) AND id = ? LIMIT 1",
-                (*theme_ids, share[0]),
+                f"SELECT id, kb_id, url, canonical_url, title, source_type, fetched_at, partial, lang, hidden "
+                f"FROM documents WHERE kb_id IN ({marks}) AND id = ? LIMIT 1",
+                (*kb_ids, share[0]),
             ).fetchone()
             matched_by = "share_token"
     if doc_row is None:
@@ -268,9 +268,9 @@ def _tracked_document(conn: sqlite3.Connection, theme_ids: list[int], target: st
             {"inbox_id": r[0], "status": r[1], "error": (r[2] or "")[:1000], "attempts": r[3], "received_at": _iso(r[4])}
         )
         for r in conn.execute(
-            f"SELECT id, status, error, attempts, received_at FROM raw_inbox WHERE theme_id IN ({marks}) AND document_id = ? "
+            f"SELECT id, status, error, attempts, received_at FROM raw_inbox WHERE kb_id IN ({marks}) AND document_id = ? "
             f"ORDER BY received_at DESC LIMIT 20",
-            (*theme_ids, doc_id),
+            (*kb_ids, doc_id),
         )
     ]
     return {
@@ -280,7 +280,7 @@ def _tracked_document(conn: sqlite3.Connection, theme_ids: list[int], target: st
         "document": sanitize_sensitive_data(
             {
                 "id": doc_id,
-                "theme_id": doc_row[1],
+                "kb_id": doc_row[1],
                 "url": doc_row[2],
                 "canonical_url": doc_row[3],
                 "title": doc_row[4],
@@ -326,13 +326,13 @@ def create_account_support_bundle(
     root = f"support_bundle_{bundle_id[-8:]}"
 
     themes = _owned_themes(s, account_id)
-    theme_ids = [int(t.id) for t in themes]
+    kb_ids = [int(t.id) for t in themes]
     summary = _account_summary(s, account_id)
     conn = dbm.connect_existing(s.db_file, readonly=True)
     try:
-        inbox_summary, failed_items = _pipeline(conn, theme_ids, cutoff)
-        doc_ids = _owned_document_ids(conn, theme_ids)
-        tracked = _tracked_document(conn, theme_ids, target) if target else None
+        inbox_summary, failed_items = _pipeline(conn, kb_ids, cutoff)
+        doc_ids = _owned_document_ids(conn, kb_ids)
+        tracked = _tracked_document(conn, kb_ids, target) if target else None
     finally:
         conn.close()
     telemetry = _telemetry(s, doc_ids, cutoff)
@@ -411,7 +411,7 @@ def create_account_support_bundle(
         download_url=format_download_url(s, token),
         target_doc_id=target_doc_id,
         target_matched_by=(tracked or {}).get("matched_by") if tracked else None,
-        target_theme_id=(tracked or {}).get("document", {}).get("theme_id") if tracked else None,
+        target_kb_id=(tracked or {}).get("document", {}).get("kb_id") if tracked else None,
         target_resolution_status=(tracked or {}).get("resolution_status") if tracked else None,
     )
 

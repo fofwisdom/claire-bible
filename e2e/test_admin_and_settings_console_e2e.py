@@ -28,7 +28,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import provider_keys
 from claire.store.secrets import reset_secret_service
-from claire.store.theme import ThemeInfo, ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.token_store import get_token_store, reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -73,20 +73,20 @@ def _upsert_account(conn, account_id: int, public_id: int, username: str, role: 
     conn.commit()
 
 
-def _insert_theme(tm: ThemeManager, settings: Settings, *, theme_id: int, seq: int, number: int, label: str, account_id: int, is_default: bool) -> ThemeInfo:
+def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, seq: int, number: int, label: str, account_id: int, is_personal: bool) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, 0, ?, ?, '', ?, ?)",
-            (theme_id, seq, number, label, f"Desc {label}", 1 if is_default else 0, account_id, str(settings.db_file), now, now),
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, 0, ?, ?, '', ?, ?)",
+            (kb_id, seq, number, label, f"Desc {label}", 1 if is_personal else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
     tm._save_registry()
-    return tm.get_theme(theme_id)
+    return tm.get_kb(kb_id)
 
 
 def _set_mode(db_file: Path, mode: str) -> None:
@@ -121,10 +121,10 @@ def console_e2e(tmp_path: Path):
         CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
-    tm = ThemeManager(settings)
-    admin_theme = _insert_theme(tm, settings, theme_id=11, seq=1, number=(1 << 56) | 11, label="Admin Console Vault", account_id=1, is_default=False)
-    alice_theme = _insert_theme(tm, settings, theme_id=20, seq=2, number=(2 << 56) | 20, label="Alice Console Garden", account_id=2, is_default=True)
-    bob_theme = _insert_theme(tm, settings, theme_id=30, seq=3, number=(3 << 56) | 30, label="Bob Console Secret", account_id=3, is_default=True)
+    tm = KnowledgeBaseManager(settings)
+    admin_theme = _insert_theme(tm, settings, kb_id=11, seq=1, number=(1 << 56) | 11, label="Admin Console Vault", account_id=1, is_personal=False)
+    alice_theme = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Console Garden", account_id=2, is_personal=True)
+    bob_theme = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Console Secret", account_id=3, is_personal=True)
 
     tok_store = get_token_store(data_dir=data_dir)
     admin_tok = tok_store.create_token(name="admin-owner-e2e", scope="owner", account_id=1)["token"]

@@ -299,7 +299,7 @@ OutboxKind = Literal["create", "update", "delete", "update_actor", "delete_actor
 OutboxStatus = Literal["pending", "handed_off", "rejected"]
 
 _OBJECTS_TABLE = "federation_objects"
-_OBJECT_COLUMNS = "public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at, quote_policy"
+_OBJECT_COLUMNS = "public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at, quote_policy"
 _TASK_COLUMNS = "id, account_id, kind, object_public_id, status, lease_until, error_code, created_at, handed_off_at"
 
 
@@ -307,7 +307,7 @@ _TASK_COLUMNS = "id, account_id, kind, object_public_id, status, lease_until, er
 class FederationObject:
     public_id: int
     account_id: int
-    theme_id: int
+    kb_id: int
     document_id: str
     published_by_account_id: int
     published_at: float
@@ -330,8 +330,8 @@ class OutboxTask:
 
 
 def _object(row: sqlite3.Row | tuple) -> FederationObject:
-    public_id, account_id, theme_id, document_id, published_by, published_at, updated_at, quote_policy = tuple(row)
-    return FederationObject(int(public_id), int(account_id), int(theme_id), str(document_id), int(published_by), float(published_at), float(updated_at), str(quote_policy))
+    public_id, account_id, kb_id, document_id, published_by, published_at, updated_at, quote_policy = tuple(row)
+    return FederationObject(int(public_id), int(account_id), int(kb_id), str(document_id), int(published_by), float(published_at), float(updated_at), str(quote_policy))
 
 
 def _task(row: sqlite3.Row | tuple) -> OutboxTask:
@@ -344,8 +344,8 @@ def get_object(conn: sqlite3.Connection, public_id: int) -> FederationObject | N
     return None if row is None else _object(row)
 
 
-def get_object_for_document(conn: sqlite3.Connection, *, theme_id: int, document_id: str) -> FederationObject | None:
-    row = conn.execute(f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE theme_id=? AND document_id=?", (theme_id, document_id)).fetchone()
+def get_object_for_document(conn: sqlite3.Connection, *, kb_id: int, document_id: str) -> FederationObject | None:
+    row = conn.execute(f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE kb_id=? AND document_id=?", (kb_id, document_id)).fetchone()
     return None if row is None else _object(row)
 
 
@@ -364,18 +364,18 @@ def get_outbox_task(conn: sqlite3.Connection, task_id: int) -> OutboxTask | None
     return None if row is None else _task(row)
 
 
-def publish_document(conn: sqlite3.Connection, *, account_id: int, theme_id: int, document_id: str, published_by_account_id: int, salt: bytes, now: float) -> tuple[FederationObject, OutboxTask, bool]:
+def publish_document(conn: sqlite3.Connection, *, account_id: int, kb_id: int, document_id: str, published_by_account_id: int, salt: bytes, now: float) -> tuple[FederationObject, OutboxTask, bool]:
     """Publish one document, or publish it again. Return the object, the task, and ``True`` when this call made the object.
 
     The first call makes the object row and a ``create`` task. A later call changes ``updated_at`` and makes an ``update`` task. The caller commits: the object row and the task row must be in one transaction (design Section 9.3 item 1).
     """
-    existing = get_object_for_document(conn, theme_id=theme_id, document_id=document_id)
+    existing = get_object_for_document(conn, kb_id=kb_id, document_id=document_id)
     if existing is None:
 
         def _insert(public_id: int) -> None:
             conn.execute(
-                f"INSERT INTO {_OBJECTS_TABLE} (public_id, account_id, theme_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (public_id, account_id, theme_id, document_id, published_by_account_id, now, now),
+                f"INSERT INTO {_OBJECTS_TABLE} (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (public_id, account_id, kb_id, document_id, published_by_account_id, now, now),
             )
 
         public_id = ids.insert_with_timestamp_id(conn, table=_OBJECTS_TABLE, column="public_id", salt=salt, insert=_insert, now_ms=lambda: int(now * 1000))
@@ -396,9 +396,9 @@ def object_content_digest(conn: sqlite3.Connection, obj: FederationObject, *, no
     """The digest of the parts of a published document that are in its object (design Section 5.5): the summary (else the title) and the token of the share page. The body is not a part."""
     from . import db as dbm
 
-    title = conn.execute("SELECT title FROM documents WHERE id=? AND theme_id=?", (obj.document_id, obj.theme_id)).fetchone()
-    summary = " ".join((dbm.latest_extraction_summary(conn, obj.document_id, theme_id=obj.theme_id) or "").split()) or " ".join(str((title[0] if title else "") or "").split())
-    share = conn.execute("SELECT token FROM doc_shares WHERE document_id=? AND theme_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1", (obj.document_id, obj.theme_id, now)).fetchone()
+    title = conn.execute("SELECT title FROM documents WHERE id=? AND kb_id=?", (obj.document_id, obj.kb_id)).fetchone()
+    summary = " ".join((dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id) or "").split()) or " ".join(str((title[0] if title else "") or "").split())
+    share = conn.execute("SELECT token FROM doc_shares WHERE document_id=? AND kb_id=? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, rowid DESC LIMIT 1", (obj.document_id, obj.kb_id, now)).fetchone()
     return hashlib.sha256(f"{summary}\x00{share[0] if share else ''}".encode("utf-8")).hexdigest()
 
 
@@ -406,9 +406,9 @@ def _store_content_digest(conn: sqlite3.Connection, obj: FederationObject) -> No
     conn.execute(f"UPDATE {_OBJECTS_TABLE} SET content_digest=? WHERE public_id=?", (object_content_digest(conn, obj, now=obj.updated_at), obj.public_id))
 
 
-def sync_object_content(conn: sqlite3.Connection, *, theme_id: int, document_id: str, now: float) -> OutboxTask | None:
+def sync_object_content(conn: sqlite3.Connection, *, kb_id: int, document_id: str, now: float) -> OutboxTask | None:
     """Compare the object content of a published document with the content that the followers got last. A change of the summary or of the share link makes an ``update`` task (design Section 5.5 rule 5); a change of the body alone makes none. An object without a stored digest (from before ``claire.db`` version 23) only gets its digest (rule 7). The caller commits."""
-    obj = get_object_for_document(conn, theme_id=theme_id, document_id=document_id)
+    obj = get_object_for_document(conn, kb_id=kb_id, document_id=document_id)
     if obj is None:
         return None
     digest = object_content_digest(conn, obj, now=now)
@@ -437,13 +437,13 @@ def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: floa
     return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)
 
 
-def retract_objects(conn: sqlite3.Connection, *, theme_id: int, document_ids: list[str] | None = None, now: float) -> list[OutboxTask]:
+def retract_objects(conn: sqlite3.Connection, *, kb_id: int, document_ids: list[str] | None = None, now: float) -> list[OutboxTask]:
     """Delete the published objects of a theme, or of some documents of that theme, with ``retract_object``. Return the ``delete`` tasks.
 
     This is the privacy trigger of design Section 9.4: the caller uses it in the transaction that makes the theme private, purges the documents, or deletes the theme. The caller commits.
     """
-    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE theme_id=?"
-    params: list[object] = [theme_id]
+    sql = f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE kb_id=?"
+    params: list[object] = [kb_id]
     if document_ids is not None:
         if not document_ids:
             return []
@@ -490,7 +490,7 @@ def requeue_handed_off_tasks(conn: sqlite3.Connection, *, since: float) -> int:
     return conn.execute("UPDATE federation_outbox SET status='pending', lease_until=NULL, handed_off_at=NULL WHERE status='handed_off' AND handed_off_at >= ?", (since,)).rowcount
 
 
-_PUBLIC_THEMES_ONLY = " AND theme_id IN (SELECT id FROM themes WHERE is_public=1)"
+_PUBLIC_THEMES_ONLY = " AND kb_id IN (SELECT id FROM knowledge_bases WHERE is_public=1)"
 
 
 def count_objects(conn: sqlite3.Connection, account_id: int, *, public_themes_only: bool = False) -> int:

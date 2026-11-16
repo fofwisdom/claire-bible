@@ -7,7 +7,7 @@
 백업 파일(``data/account_backups/<account_id>/<backup_id>.tar.zst``) 내용:
 
 - ``manifest.json``: 형식 버전, 계정 공개 ID, 지식 DB 스키마 버전·계보, 테마 목록과 행 수, 멤버 파일의 SHA-256.
-- ``themes/<theme_id>.db``: 테마 하나의 SQLite 스냅샷. ``themes`` 행과 ``theme_id`` 열이 있는 모든 테이블의 그 테마 행,
+- ``themes/<kb_id>.db``: 테마 하나의 SQLite 스냅샷. ``themes`` 행과 ``kb_id`` 열이 있는 모든 테이블의 그 테마 행,
   그리고 그 테마 엔티티의 ``entities_fts`` 행을 담는다. 모든 테마를 한 읽기 트랜잭션에서 읽어 서로 일관된다.
 
 담지 않는 것: auth.db(비밀번호·키·봇 토큰), ``master.key``, 다른 계정의 행, ``data/raw``·``data/images`` 파일(문서 본문은 DB에 있다).
@@ -42,7 +42,9 @@ from .store import db as dbm
 
 logger = logging.getLogger(__name__)
 
-ACCOUNT_BACKUP_FORMAT_VERSION = 1
+ACCOUNT_BACKUP_FORMAT_VERSION = 2
+# Version 1 (before claire.db version 27) has the snapshot table ``themes``, the column ``theme_id``, and the manifest key ``theme_id``. The restore renames them in the extracted copy (``_upgrade_v1_snapshots``).
+_READABLE_FORMAT_VERSIONS = (1, 2)
 ACCOUNT_BACKUPS_DIRNAME = "account_backups"
 BACKUP_SCHEDULES: tuple[str, ...] = ("off", "daily", "weekly")
 SCHEDULE_INTERVAL_SECONDS: dict[str, float] = {"daily": 86400.0, "weekly": 7 * 86400.0}
@@ -52,7 +54,7 @@ MAX_KEEP = 10
 # 수동 백업 연타 방지. 같은 계정은 이 간격 안에 새 수동 백업을 만들 수 없다.
 MANUAL_BACKUP_COOLDOWN_SECONDS = 60.0
 _BACKUP_ID_RE = re.compile(r"^ab_\d{8}_\d{6}_[0-9a-f]{8}$")
-# 테마 행이 아닌데 theme_id 열이 있는 표 가운데 백업하지 않는 표. 없음(모두 계정 데이터다).
+# 테마 행이 아닌데 kb_id 열이 있는 표 가운데 백업하지 않는 표. 없음(모두 계정 데이터다).
 _SKIP_THEME_TABLES: frozenset[str] = frozenset()
 
 
@@ -164,7 +166,7 @@ def _read_record(path: Path) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict) or not is_valid_backup_id(raw.get("backup_id")):
         return None
-    if raw.get("format_version") != ACCOUNT_BACKUP_FORMAT_VERSION:
+    if raw.get("format_version") not in _READABLE_FORMAT_VERSIONS:
         return None
     return raw
 
@@ -250,7 +252,7 @@ def _account_lock(data_dir: Path | str, account_id: int) -> Iterator[None]:
 
 
 def _theme_tables(conn: sqlite3.Connection, schema: str = "main") -> list[str]:
-    """``theme_id`` 열이 있는 일반 테이블(``themes`` 제외)."""
+    """``kb_id`` 열이 있는 일반 테이블(``themes`` 제외)."""
     names = [
         str(r[0])
         for r in conn.execute(
@@ -259,10 +261,10 @@ def _theme_tables(conn: sqlite3.Connection, schema: str = "main") -> list[str]:
     ]
     out = []
     for name in names:
-        if name in ("themes", "entities_fts") or name.startswith("entities_fts_") or name in _SKIP_THEME_TABLES:
+        if name in ("knowledge_bases", "entities_fts") or name.startswith("entities_fts_") or name in _SKIP_THEME_TABLES:
             continue
         cols = {str(r[1]) for r in conn.execute(f'PRAGMA {schema}.table_info("{name}")')}
-        if "theme_id" in cols:
+        if "kb_id" in cols:
             out.append(name)
     return out
 
@@ -306,22 +308,22 @@ def _add_bytes(tar: tarfile.TarFile, arcname: str, data: bytes) -> None:
     tar.addfile(info, io.BytesIO(data))
 
 
-def _snapshot_theme(src: sqlite3.Connection, theme_id: int, dest_path: Path) -> dict[str, int]:
+def _snapshot_theme(src: sqlite3.Connection, kb_id: int, dest_path: Path) -> dict[str, int]:
     """열린 읽기 트랜잭션 안에서 테마 하나를 ``dest_path``로 복사한다. 표별 행 수를 돌려준다."""
     dest = sqlite3.connect(str(dest_path))
     counts: dict[str, int] = {}
     try:
-        dest.execute(_table_sql(src, "themes"))
-        cols = _columns(src, "themes")
-        row = src.execute(f"SELECT {', '.join(_quote(c) for c in cols)} FROM themes WHERE id=?", (theme_id,)).fetchone()
+        dest.execute(_table_sql(src, "knowledge_bases"))
+        cols = _columns(src, "knowledge_bases")
+        row = src.execute(f"SELECT {', '.join(_quote(c) for c in cols)} FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
         if row is None:
             raise AccountBackupError("theme disappeared during backup")
-        dest.execute(f"INSERT INTO themes ({', '.join(_quote(c) for c in cols)}) VALUES ({', '.join('?' for _ in cols)})", tuple(row))
+        dest.execute(f"INSERT INTO knowledge_bases ({', '.join(_quote(c) for c in cols)}) VALUES ({', '.join('?' for _ in cols)})", tuple(row))
         for table in _theme_tables(src):
             dest.execute(_table_sql(src, table))
             tcols = _columns(src, table)
             col_sql = ", ".join(_quote(c) for c in tcols)
-            rows = src.execute(f"SELECT {col_sql} FROM {_quote(table)} WHERE theme_id=?", (theme_id,))
+            rows = src.execute(f"SELECT {col_sql} FROM {_quote(table)} WHERE kb_id=?", (kb_id,))
             n = 0
             for batch in iter(lambda: rows.fetchmany(500), []):
                 dest.executemany(f"INSERT INTO {_quote(table)} ({col_sql}) VALUES ({', '.join('?' for _ in tcols)})", [tuple(r) for r in batch])
@@ -331,8 +333,8 @@ def _snapshot_theme(src: sqlite3.Connection, theme_id: int, dest_path: Path) -> 
         if has_fts:
             dest.execute("CREATE TABLE entities_fts (entity_id TEXT, name TEXT, body TEXT)")
             fts_rows = src.execute(
-                "SELECT entity_id, name, body FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE theme_id=?)",
-                (theme_id,),
+                "SELECT entity_id, name, body FROM entities_fts WHERE entity_id IN (SELECT id FROM entities WHERE kb_id=?)",
+                (kb_id,),
             ).fetchall()
             dest.executemany("INSERT INTO entities_fts VALUES (?, ?, ?)", [tuple(r) for r in fts_rows])
             counts["entities_fts"] = len(fts_rows)
@@ -392,21 +394,21 @@ def create_account_backup(
                     schema_version = dbm.stored_schema_version(src)
                     lineage_row = src.execute("SELECT value FROM meta WHERE key='schema_lineage'").fetchone()
                     theme_rows = src.execute(
-                        "SELECT id, number, label FROM themes WHERE account_id=? ORDER BY id", (account_id,)
+                        "SELECT id, number, label FROM knowledge_bases WHERE account_id=? ORDER BY id", (account_id,)
                     ).fetchall()
                     if not theme_rows:
                         raise AccountBackupError("this account owns no theme to back up")
                     for row in theme_rows:
-                        theme_id = int(row["id"])
-                        member = f"themes/{theme_id}.db"
-                        path = work / f"{theme_id}.db"
-                        counts = _snapshot_theme(src, theme_id, path)
+                        kb_id = int(row["id"])
+                        member = f"themes/{kb_id}.db"
+                        path = work / f"{kb_id}.db"
+                        counts = _snapshot_theme(src, kb_id, path)
                         files[member] = {"sha256": _sha256_file(path), "size": path.stat().st_size}
                         number = row["number"]
                         themes_meta.append(
                             {
-                                "theme_id": theme_id,
-                                "theme": ids.format_public_id(number) if number is not None else str(theme_id),
+                                "kb_id": kb_id,
+                                "theme": ids.format_public_id(number) if number is not None else str(kb_id),
                                 "label": str(row["label"]),
                                 "counts": counts,
                             }
@@ -593,7 +595,7 @@ def _safe_extract(archive: Path, dest: Path) -> dict[str, Any]:
             with open(target, "wb") as out:
                 shutil.copyfileobj(data, out)
             allowed[name] = target
-    if not isinstance(manifest, dict) or manifest.get("format_version") != ACCOUNT_BACKUP_FORMAT_VERSION:
+    if not isinstance(manifest, dict) or manifest.get("format_version") not in _READABLE_FORMAT_VERSIONS:
         raise AccountBackupError("backup manifest is missing or has an unsupported format")
     files = manifest.get("files")
     if not isinstance(files, dict) or set(files) != set(allowed):
@@ -602,6 +604,19 @@ def _safe_extract(archive: Path, dest: Path) -> dict[str, Any]:
         if not isinstance(meta, dict) or meta.get("sha256") != _sha256_file(allowed[name]):
             raise AccountBackupError("backup file hash does not match the manifest")
     return manifest
+
+
+def _upgrade_v1_snapshots(manifest: dict[str, Any], work: Path) -> None:
+    """A format 1 backup has the names before claire.db version 27. Rename them in the extracted copies (after the hash check) and in the manifest."""
+    for entry in manifest.get("themes", []):
+        if isinstance(entry, dict) and "theme_id" in entry and "kb_id" not in entry:
+            entry["kb_id"] = entry.pop("theme_id")
+    for path in sorted(work.glob("*.db")):
+        snap = sqlite3.connect(str(path))
+        try:
+            dbm._migrate_v27_kb_names(snap)
+        finally:
+            snap.close()
 
 
 def restore_account_backup(
@@ -628,6 +643,8 @@ def restore_account_backup(
     with _account_lock(s.data_dir, account_id), tempfile.TemporaryDirectory(dir=archive.parent, prefix=".restore-") as work_str:
         work = Path(work_str)
         manifest = _safe_extract(archive, work)
+        if manifest.get("format_version") == 1:
+            _upgrade_v1_snapshots(manifest, work)
         if manifest.get("schema_lineage") not in (None, dbm.SCHEMA_LINEAGE):
             raise AccountBackupError("backup comes from a different schema lineage")
         backup_version = manifest.get("schema_version")
@@ -648,17 +665,17 @@ def restore_account_backup(
             if account_row is None or str(account_row[0]) == "purged":
                 raise AccountBackupError("account does not exist")
             # SQLite는 트랜잭션 안에서 ATTACH·DETACH를 할 수 없다. 스냅샷을 먼저 붙이고 끝난 뒤 뗀다.
-            theme_ids = [int(t["theme_id"]) for t in manifest.get("themes", [])]
+            kb_ids = [int(t["kb_id"]) for t in manifest.get("themes", [])]
             attached: list[str] = []
             try:
-                for index, theme_id in enumerate(theme_ids):
+                for index, kb_id in enumerate(kb_ids):
                     alias = f"bk{index}"
-                    conn.execute(f"ATTACH DATABASE ? AS {alias}", (f"{(work / f'{theme_id}.db').resolve().as_uri()}?mode=ro",))
+                    conn.execute(f"ATTACH DATABASE ? AS {alias}", (f"{(work / f'{kb_id}.db').resolve().as_uri()}?mode=ro",))
                     attached.append(alias)
                 conn.execute("BEGIN IMMEDIATE")
                 try:
-                    for alias, theme_id in zip(attached, theme_ids):
-                        restored.append(_restore_theme(conn, alias, theme_id=theme_id, account_id=account_id))
+                    for alias, kb_id in zip(attached, kb_ids):
+                        restored.append(_restore_theme(conn, alias, kb_id=kb_id, account_id=account_id))
                     violations = conn.execute("PRAGMA foreign_key_check").fetchall()
                     if violations:
                         raise AccountBackupConflict(f"restore would break {len(violations)} foreign key references")
@@ -676,9 +693,9 @@ def restore_account_backup(
                 conn.close()
 
     try:
-        from .store.theme import get_theme_manager
+        from .store.knowledge_base import get_kb_manager
 
-        get_theme_manager(s).reload()
+        get_kb_manager(s).reload()
     except Exception:  # noqa: BLE001
         logger.warning("theme manager reload after account restore failed")
     _audit_restore(s, actor_account_id=actor_account_id, account_id=account_id, backup_id=backup_id, themes=restored)
@@ -689,26 +706,26 @@ def restore_account_backup(
     }
 
 
-def _restore_theme(conn: sqlite3.Connection, bk: str, *, theme_id: int, account_id: int) -> dict[str, Any]:
+def _restore_theme(conn: sqlite3.Connection, bk: str, *, kb_id: int, account_id: int) -> dict[str, Any]:
     """열린 쓰기 트랜잭션 안에서 테마 하나를 스냅샷 스키마 ``bk``에서 되돌린다."""
-    backup_theme = conn.execute(f"SELECT id FROM {bk}.themes WHERE id=?", (theme_id,)).fetchone()
+    backup_theme = conn.execute(f"SELECT id FROM {bk}.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
     if backup_theme is None:
         raise AccountBackupError("backup theme snapshot is incomplete")
-    current = conn.execute("SELECT account_id FROM main.themes WHERE id=?", (theme_id,)).fetchone()
+    current = conn.execute("SELECT account_id FROM main.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
     if current is not None and current[0] is not None and int(current[0]) != int(account_id):
-        raise AccountBackupConflict(f"theme {theme_id} now belongs to another account")
+        raise AccountBackupConflict(f"theme {kb_id} now belongs to another account")
 
     main_tables = set(_theme_tables(conn, "main"))
     backup_tables = [t for t in _theme_tables(conn, bk) if t in main_tables]
     # 테마 밖 행과 기본 키가 겹치면 거부한다(문서·엔티티 ID는 전역 키다).
     for table in backup_tables:
         pk = _pk_columns(conn, table, "main")
-        if not pk or "theme_id" in pk:
+        if not pk or "kb_id" in pk:
             continue
         on = " AND ".join(f"m.{_quote(c)} = b.{_quote(c)}" for c in pk)
         hit = conn.execute(
-            f"SELECT COUNT(*) FROM main.{_quote(table)} m JOIN {bk}.{_quote(table)} b ON {on} WHERE m.theme_id <> ?",
-            (theme_id,),
+            f"SELECT COUNT(*) FROM main.{_quote(table)} m JOIN {bk}.{_quote(table)} b ON {on} WHERE m.kb_id <> ?",
+            (kb_id,),
         ).fetchone()[0]
         if hit:
             raise AccountBackupConflict(f"{hit} rows of {table} collide with another theme")
@@ -717,26 +734,26 @@ def _restore_theme(conn: sqlite3.Connection, bk: str, *, theme_id: int, account_
     backup_has_fts = conn.execute(f"SELECT 1 FROM {bk}.sqlite_master WHERE name='entities_fts'").fetchone() is not None
     if has_fts:
         # 지금 테마 엔티티의 색인 행과, 엔티티 행 없이 남은(고아) 색인 행 가운데 백업이 되돌릴 엔티티의 행을 지운다.
-        conn.execute("DELETE FROM main.entities_fts WHERE entity_id IN (SELECT id FROM main.entities WHERE theme_id=?)", (theme_id,))
+        conn.execute("DELETE FROM main.entities_fts WHERE entity_id IN (SELECT id FROM main.entities WHERE kb_id=?)", (kb_id,))
         if backup_has_fts:
             conn.execute(f"DELETE FROM main.entities_fts WHERE entity_id IN (SELECT entity_id FROM {bk}.entities_fts)")
     for table in sorted(main_tables):
-        conn.execute(f"DELETE FROM main.{_quote(table)} WHERE theme_id=?", (theme_id,))
+        conn.execute(f"DELETE FROM main.{_quote(table)} WHERE kb_id=?", (kb_id,))
 
-    theme_cols = [c for c in _columns(conn, "themes", bk) if c in set(_columns(conn, "themes", "main"))]
+    theme_cols = [c for c in _columns(conn, "knowledge_bases", bk) if c in set(_columns(conn, "knowledge_bases", "main"))]
     col_sql = ", ".join(_quote(c) for c in theme_cols)
-    conn.execute(f"DELETE FROM main.themes WHERE id=?", (theme_id,))
+    conn.execute(f"DELETE FROM main.knowledge_bases WHERE id=?", (kb_id,))
     try:
-        conn.execute(f"INSERT INTO main.themes ({col_sql}) SELECT {col_sql} FROM {bk}.themes WHERE id=?", (theme_id,))
+        conn.execute(f"INSERT INTO main.knowledge_bases ({col_sql}) SELECT {col_sql} FROM {bk}.knowledge_bases WHERE id=?", (kb_id,))
     except sqlite3.IntegrityError as exc:
-        raise AccountBackupConflict(f"theme {theme_id} conflicts with an existing theme ({exc})") from None
-    conn.execute("UPDATE main.themes SET account_id=? WHERE id=?", (account_id, theme_id))
+        raise AccountBackupConflict(f"theme {kb_id} conflicts with an existing theme ({exc})") from None
+    conn.execute("UPDATE main.knowledge_bases SET account_id=? WHERE id=?", (account_id, kb_id))
     # 기본 테마는 계정에 하나다. 다른 기본 테마가 이미 있으면 되돌린 테마를 기본에서 뺀다.
     other_default = conn.execute(
-        "SELECT 1 FROM main.themes WHERE account_id=? AND is_default=1 AND id<>?", (account_id, theme_id)
+        "SELECT 1 FROM main.knowledge_bases WHERE account_id=? AND is_personal=1 AND id<>?", (account_id, kb_id)
     ).fetchone()
     if other_default is not None:
-        conn.execute("UPDATE main.themes SET is_default=0 WHERE id=?", (theme_id,))
+        conn.execute("UPDATE main.knowledge_bases SET is_personal=0 WHERE id=?", (kb_id,))
 
     counts: dict[str, int] = {}
     for table in backup_tables:
@@ -749,10 +766,10 @@ def _restore_theme(conn: sqlite3.Connection, bk: str, *, theme_id: int, account_
         counts[table] = int(cur.rowcount or 0)
     if has_fts and backup_has_fts:
         conn.execute(f"INSERT INTO main.entities_fts (entity_id, name, body) SELECT entity_id, name, body FROM {bk}.entities_fts")
-    label = conn.execute("SELECT label, number FROM main.themes WHERE id=?", (theme_id,)).fetchone()
+    label = conn.execute("SELECT label, number FROM main.knowledge_bases WHERE id=?", (kb_id,)).fetchone()
     return {
-        "theme_id": theme_id,
-        "theme": ids.format_public_id(label[1]) if label[1] is not None else str(theme_id),
+        "kb_id": kb_id,
+        "theme": ids.format_public_id(label[1]) if label[1] is not None else str(kb_id),
         "label": str(label[0]),
         "counts": counts,
     }

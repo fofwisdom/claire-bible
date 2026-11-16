@@ -114,9 +114,9 @@ def _setup_network_env(
     frank_id = int(cur.lastrowid)
 
     # Theme for Alice
-    t_alice_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 10)
+    t_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 10)
     conn.execute(
-        "INSERT INTO themes (id, seq, number, label, account_id, is_default, is_public, created_at, updated_at) "
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
         "VALUES (10, 10, ?, 'Alice Public Theme', ?, 1, 1, ?, ?)",
         (t_alice_pub, alice_id, now, now),
     )

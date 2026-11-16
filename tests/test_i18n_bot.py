@@ -188,7 +188,7 @@ async def test_bot_uses_claire_lang_after_the_telegram_language(tmp_path: Path) 
 
 async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from claire.store.telegram_bots import TelegramBotProfile
-    from claire.store.theme import ThemeManager
+    from claire.store.knowledge_base import KnowledgeBaseManager
 
     monkeypatch.delenv("CLAIRE_LANG", raising=False)
     settings = _bot_settings(tmp_path, CLAIRE_MULTI_THEME=True, telegram_bot_token="")
@@ -196,7 +196,7 @@ async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Pat
     member = conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)").lastrowid
     conn.commit()
     conn.close()
-    ThemeManager(settings).define_theme("Member theme", account_id=member, is_default=True)
+    KnowledgeBaseManager(settings).define_kb("Member theme", account_id=member, is_personal=True)
     profile = TelegramBotProfile(account_id=member, bot_id=7100000001, token="7100000001:" + "A" * 35, allowed_user_ids=(42,), fingerprint="abcd1234")
     handlers = _handlers(telegram_bot.build_app(settings, profile=profile))
     ctx = MagicMock()

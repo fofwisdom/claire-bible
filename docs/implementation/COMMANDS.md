@@ -215,7 +215,7 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 `server check`는 지식 DB를 읽기 전용으로 열고 데이터를 바꾸지 않는다. DB를 열 수 없으면 종료 코드 `1`이다. 기본 출력은 검사마다 `<ID> PASS|FAIL <이름>: <설명>` 한 줄과 마지막 요약 줄(`network readiness: PASS` 또는 `federation readiness: FAIL` 형태)이다. `--json`은 `{"check": "network"|"federation", "items": [{"id", "name", "passed", "detail"}], "passed": bool}`을 출력한다. 관리자 API(`POST /api/admin/server/mode`, `POST /api/admin/federation`)가 같은 검사 함수를 쓴다. `--federation`의 GF7은 이 명령을 실행한 프로세스에서 공개 origin으로 HTTP 요청을 한 번 보낸다. 검사 항목은 [`FEDERATION.md`](FEDERATION.md) §7.2에 있다. 확인 기준: `src/claire/cli.py`의 `cmd_server`, `tests/test_federation_readiness.py`.
 
-v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_default`를 0으로 고친 뒤(`data/themes.json`과 `themes` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
+v15로 올릴 때 한 계정에 기본 테마(`is_personal=1`)가 둘 이상이면 `migrate`(따라서 `update`)가 아무것도 쓰지 않고 실패하며, 오류에 계정과 `themes.id` 목록이 나온다. 어느 테마를 기본으로 둘지 정해 나머지의 `is_personal`를 0으로 고친 뒤(`data/themes.json`과 `knowledge_bases` 테이블) `./cb-manuscript update`를 다시 실행한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) v15 절).
 
 #### `doctor`
 지식그래프(Knowledge Graph) 및 SQLite DB의 참조 무결성을 정밀 진단하고, 결함을 원클릭으로 자동 수복(Auto-Healing)한다.
@@ -630,15 +630,15 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.10 지식 테마 관리 및 단일 DB 테마 파티셔닝 (Theme Management)
 
-`claire theme` 명령군은 단일 SQLite 데이터베이스(`data/claire.db`) 내의 `themes` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
+`claire theme` 명령군은 단일 SQLite 데이터베이스(`data/claire.db`) 내의 `knowledge_bases` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
 | `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
-| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `themes` 테이블 및 테마 파티션을 프로비저닝 |
+| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
 | `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개/협력자 접근 권한 수정 |
 | `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
-| `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`theme_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
+| `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`kb_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
 #### `claire theme list`
 * **사용법**: `claire theme list [--json]` (또는 `claire theme` 단독 실행 시 기본 동작)
@@ -656,7 +656,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
   * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능하다.
   * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능하다.
-* **프로비저닝**: 단일 DB(`data/claire.db`)의 `themes` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `theme_id` 파티션이 준비된다.
+* **프로비저닝**: 단일 DB(`data/claire.db`)의 `knowledge_bases` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `kb_id` 파티션이 준비된다.
 
 #### `claire theme update`
 * **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
@@ -669,9 +669,9 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **사용법**: `claire theme reset <id> [--apply] [-y|--yes] [--json]`
 * **기본은 dry-run**: `--apply` 없이 실행하면 삭제될 문서·엔티티·관계 수만 보고하고 아무것도 바꾸지 않는다. `-y`만으로는 실행되지 않는다. `--json`이면 `{"ok": true, "plan": {"dry_run": true, "data_to_delete": {...}}}`를 출력한다.
 * **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
-* **삭제되는 것** (`ThemeManager.reset_theme`):
-  1. `reset_graph(conn, theme_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
-  2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.
+* **삭제되는 것** (`KnowledgeBaseManager.reset_kb`):
+  1. `reset_graph(conn, kb_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
+  2. `kb_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.
 * **확인**: `--apply` 시 대화형 터미널에서는 `[y/N]` 확인을 받는다. 비대화형 환경에서 `--yes`가 없으면 종료 코드 2로 거부한다.
 * **`--json`** (`--apply`와 함께): 삭제한 문서·엔티티·관계 수를 JSON으로 출력.
 
@@ -679,7 +679,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **사용법**: `claire theme delete <id> [--purge] [--apply] [--yes] [--json]`
 * **주요 옵션**:
   * `id`: 삭제할 테마의 ID, 시퀀스 번호 또는 레이블.
-  * `--purge`: 레지스트리 제거와 함께 해당 `theme_id`의 데이터를 `theme reset`과 같은 범위로 영구 소각한다.
+  * `--purge`: 레지스트리 제거와 함께 해당 `kb_id`의 데이터를 `theme reset`과 같은 범위로 영구 소각한다.
   * `--apply`: 실제 삭제. 없으면 dry-run으로 계획(소각 예정 건수 포함)만 출력한다.
   * `--yes`, `-y`: `--purge --apply`의 확인 프롬프트 생략. 단독으로는 삭제하지 않는다.
 * **안전 장치**:
@@ -909,5 +909,5 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../src/claire/store/telemetry.py), [`src/claire/store/db.py`](../../src/claire/store/db.py), [`src/claire/support_bundle.py`](../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../ops/cb_manuscript.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_telemetry.py`](../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../tests/test_bot.py) (2026-09-11 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
-[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
-[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/theme.py`](../../src/claire/store/theme.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).
+[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+[^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

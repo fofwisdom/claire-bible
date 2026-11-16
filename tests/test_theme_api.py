@@ -4,7 +4,7 @@ from starlette.testclient import TestClient
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.ingest.service import IngestService
-from claire.store.theme import ThemeManager
+from claire.store.knowledge_base import KnowledgeBaseManager
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
@@ -97,7 +97,7 @@ def test_theme_api_single_mode_behavior(tmp_path):
             headers=OWNER_HEADERS,
         )
         assert ingest_valid.status_code == 200
-        assert ingest_valid.json().get("theme_id") == 0
+        assert ingest_valid.json().get("kb_id") == 0
 
 
 def test_get_themes_anonymous_allowed(theme_app_client):
@@ -157,7 +157,7 @@ def test_theme_data_isolation_ingest_and_search(theme_app_client):
         headers=OWNER_HEADERS,
     )
     assert ingest_resp.status_code == 200
-    assert ingest_resp.json().get("theme_id") == 1
+    assert ingest_resp.json().get("kb_id") == 1
 
     # 3. 기본 테마(0)의 문서 목록 확인 -> 테마 1의 문서는 0건이어야 함
     docs_t0 = client.get("/documents?theme=0").json()
@@ -231,14 +231,14 @@ def test_theme_visibility_api_security(theme_app_client):
         headers=OWNER_HEADERS,
     )
     assert ingest_resp.status_code == 200
-    assert ingest_resp.json().get("theme_id") == 1
+    assert ingest_resp.json().get("kb_id") == 1
 
     # 3. 익명(anonymous) 사용자 GET /themes -> 비공개 테마(1)는 목록에서 완전히 배제
     anon_list = client.get("/themes")
     assert anon_list.status_code == 200
-    anon_theme_ids = [t["id"] for t in anon_list.json()["themes"]]
-    assert 0 in anon_theme_ids
-    assert 1 not in anon_theme_ids
+    anon_kb_ids = [t["id"] for t in anon_list.json()["themes"]]
+    assert 0 in anon_kb_ids
+    assert 1 not in anon_kb_ids
 
     # 4. 인증된 owner 및 readonly 사용자 GET /themes -> 비공개 테마(1) 포함 및 is_public=False 표기
     owner_list = client.get("/themes", headers=OWNER_HEADERS)
@@ -249,8 +249,8 @@ def test_theme_visibility_api_security(theme_app_client):
 
     readonly_list = client.get("/themes", headers=READONLY_HEADERS)
     assert readonly_list.status_code == 200
-    ro_theme_ids = [t["id"] for t in readonly_list.json()["themes"]]
-    assert 1 in ro_theme_ids
+    ro_kb_ids = [t["id"] for t in readonly_list.json()["themes"]]
+    assert 1 in ro_kb_ids
 
     # 5. 익명 사용자가 비공개 테마에 직접 접근 시도 -> 404 차단
     # 5-1. /stats?theme=1
@@ -333,7 +333,7 @@ def test_cross_theme_create_share_route(theme_app_client):
     assert ingest_resp.status_code == 200
     doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
 
-    # 2. 클라이언트가 테마를 지정하지 않고 /share 요청 -> 타 테마(1)에서 문서 자동 검색 후 토큰 발급 및 theme_id: 1 반환
+    # 2. 클라이언트가 테마를 지정하지 않고 /share 요청 -> 타 테마(1)에서 문서 자동 검색 후 토큰 발급 및 kb_id: 1 반환
     share_resp = client.post(
         "/share",
         json={"doc_id": doc_id},
@@ -342,7 +342,7 @@ def test_cross_theme_create_share_route(theme_app_client):
     assert share_resp.status_code == 200
     data = share_resp.json()
     assert "token" in data
-    assert data["theme_id"] == 1
+    assert data["kb_id"] == 1
     assert data["path"] == "/p?s=" + data["token"]
 
     # 3. 클라이언트가 초기 테마를 0(문서 없음)으로 지정하여 요청 -> 테마 1로 자동 확장 검색되어 정상 발급
@@ -353,7 +353,7 @@ def test_cross_theme_create_share_route(theme_app_client):
     )
     assert share_resp_initial_mismatch.status_code == 200
     data2 = share_resp_initial_mismatch.json()
-    assert data2["theme_id"] == 1
+    assert data2["kb_id"] == 1
     assert "token" in data2
 
     # 4. 존재하지 않는 문서 ID로 요청 시 404
@@ -362,7 +362,7 @@ def test_cross_theme_create_share_route(theme_app_client):
 
 
 def test_cross_theme_document_detail_route(theme_app_client):
-    """GET /document 호출 시 테마 미지정 시 기본 테마에 없으면 타 테마 자동 검색하여 theme_id/label 포함 반환 검증."""
+    """GET /document 호출 시 테마 미지정 시 기본 테마에 없으면 타 테마 자동 검색하여 kb_id/label 포함 반환 검증."""
     client, _ = theme_app_client
 
     # 1. 새 테마(id: 1) 생성 및 문서 적재
@@ -374,18 +374,18 @@ def test_cross_theme_document_detail_route(theme_app_client):
     )
     doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
 
-    # 2. 테마를 파라미터로 넘기지 않고 GET /document?id=... 호출 -> 테마 1 자동 해석 및 theme_id, theme_label 반환
+    # 2. 테마를 파라미터로 넘기지 않고 GET /document?id=... 호출 -> 테마 1 자동 해석 및 kb_id, theme_label 반환
     resp_auto = client.get(f"/document?id={doc_id}")
     assert resp_auto.status_code == 200
     doc_data = resp_auto.json()
     assert doc_data["id"] == doc_id
-    assert doc_data["theme_id"] == 1
+    assert doc_data["kb_id"] == 1
     assert doc_data["theme_label"] == "보안 연구"
 
     # 3. 명시적으로 theme=1 을 넘겨 호출 -> 정상 반환
     resp_explicit = client.get(f"/document?id={doc_id}&theme=1")
     assert resp_explicit.status_code == 200
-    assert resp_explicit.json()["theme_id"] == 1
+    assert resp_explicit.json()["kb_id"] == 1
 
     # 4. 명시적으로 존재하지 않는 theme=0 을 넘겨 호출 -> 교차 테마 검색을 수행하지 않고 404
     resp_explicit_wrong = client.get(f"/document?id={doc_id}&theme=0")
