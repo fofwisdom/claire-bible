@@ -122,7 +122,7 @@ def _handlers(app: object) -> dict[str, object]:
 
 
 async def test_bot_handlers_reply_in_the_locale_of_the_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """End to end: the instance bot gets fake updates and replies in English and in Korean."""
+    """End to end: the server bot gets fake updates and replies in English and in Korean."""
     monkeypatch.delenv("CLAIRE_LANG", raising=False)
     settings = _bot_settings(tmp_path)
     app = telegram_bot.build_app(settings)

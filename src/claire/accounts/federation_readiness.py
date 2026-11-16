@@ -1,8 +1,8 @@
 """Federation readiness checks GF1 to GF7 (Fedify sidecar design Section 12, unit FP1-6).
 
-The admin can set the instance setting ``federation`` to ``on`` only when all checks pass. ``POST /api/admin/federation`` and ``claire instance check --federation`` use the same function, ``check_federation_readiness``.
+The admin can set the server setting ``federation`` to ``on`` only when all checks pass. ``POST /api/admin/federation`` and ``claire server check --federation`` use the same function, ``check_federation_readiness``.
 
-The checks do not change data. GF4 does not make a master key file. GF7 is the only check that sends a network request: one GET to the public origin of this instance.
+The checks do not change data. GF4 does not make a master key file. GF7 is the only check that sends a network request: one GET to the public origin of this server.
 """
 
 from __future__ import annotations
@@ -85,9 +85,9 @@ def _major(version: Any) -> str | None:
 
 
 def _check_mode(conn: sqlite3.Connection) -> ReadinessItem:
-    mode = accounts_store.AccountStore(conn).instance_mode()
+    mode = accounts_store.AccountStore(conn).server_mode()
     passed = mode == "network"
-    return ReadinessItem(id="GF1", name="Instance mode is network", passed=passed, detail="The instance mode is network." if passed else f"The instance mode is {mode}. Federation operates in network mode only.")
+    return ReadinessItem(id="GF1", name="Server mode is network", passed=passed, detail="The server mode is network." if passed else f"The server mode is {mode}. Federation operates in network mode only.")
 
 
 def _check_heartbeat(heartbeat: dict[str, Any] | None, age: float | None) -> ReadinessItem:
@@ -175,8 +175,8 @@ def _check_metadata(runtime: WebRuntimeConfig | None, fetch: MetadataFetch) -> R
     except (ValueError, TypeError):
         document = None
     if not isinstance(document, dict) or document.get("issuer") != issuer:
-        return ReadinessItem(id="GF7", name=name, passed=False, detail="The response is not the OAuth metadata of this instance. Examine the reverse proxy rules.")
-    return ReadinessItem(id="GF7", name=name, passed=True, detail="The public origin returns the OAuth metadata of this instance.")
+        return ReadinessItem(id="GF7", name=name, passed=False, detail="The response is not the OAuth metadata of this server. Examine the reverse proxy rules.")
+    return ReadinessItem(id="GF7", name=name, passed=True, detail="The public origin returns the OAuth metadata of this server.")
 
 
 def check_federation_readiness(conn: sqlite3.Connection, settings: Any, *, now: float | None = None, fetch: MetadataFetch | None = None) -> ReadinessReport:

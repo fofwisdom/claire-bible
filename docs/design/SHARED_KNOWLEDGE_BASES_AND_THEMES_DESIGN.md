@@ -54,7 +54,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT2 | A shared knowledge base is a collaborative knowledge database that no account owns. It is served at `/kb/{number}/` in single mode and in network mode. The admin gives and removes the moderator role. |
 | CT3 | Each active account can make shared knowledge bases. There is no limit on the number (OQ11). |
 | CT4 | A document enters a shared knowledge base only as a contribution from a personal knowledge base, as a curation, or as a fork copy. Nobody ingests a URL or a file directly into a shared knowledge base. |
-| CT5 | Only members contribute directly to a shared knowledge base; a direct contribution is visible after the merge job. Each shared knowledge base sets its join policy (`open`, `approval`). All shared knowledge bases and all themes are public: there are no members-only knowledge bases (OQ10) and no visibility "accounts of this instance only" (OQ4). |
+| CT5 | Only members contribute directly to a shared knowledge base; a direct contribution is visible after the merge job. Each shared knowledge base sets its join policy (`open`, `approval`). All shared knowledge bases and all themes are public: there are no members-only knowledge bases (OQ10) and no visibility "accounts of this server only" (OQ4). |
 | CT6 | The migration changes each existing theme that is not a default theme (admin themes included) into a shared knowledge base. The old owner becomes its first moderator. The number stays. Old links get a 308 to `/kb/{number}/`. |
 | CT7 | A contribution is a donation to the community of the shared knowledge base, also when the contributor ingested the document with its own API key. The contribution stays when the contributor leaves, is banned, or purges its account; an account purge sets the contributor to "deleted account". After a moderator approves a contribution, the contributor cannot withdraw it. |
 | CT8 | The founder of a shared knowledge base becomes its first moderator. The admin can remove the role. |
@@ -205,7 +205,7 @@ The namespace middleware pins `/kb/{number}/` with `namespace_account_id = None`
 The judgement uses only data that exists. It makes no LLM call. **[proposal]** for the method; unit CT-5 calibrates the numbers with development data **[unverified]**.
 
 1. **Signature of a knowledge base.** The 256 entities with the highest weight. The weight of an entity is the number of visible documents that are its sources. The key is `(type, norm_name)`; aliases add their normal forms. Only visible documents of public knowledge bases count. A knowledge base with fewer than 5 visible documents has no signature.
-2. **Weight across the instance.** For each knowledge type, each key gets `idf = ln(N / df)`, where `N` is the number of knowledge bases with a signature and `df` the number of signatures that have the key. Common entities ("United States") get a low weight.
+2. **Weight across the server.** For each knowledge type, each key gets `idf = ln(N / df)`, where `N` is the number of knowledge bases with a signature and `df` the number of signatures that have the key. Common entities ("United States") get a low weight.
 3. **Similarity.** Weighted Jaccard of the tf-idf vectors (sum of minimums divided by sum of maximums). When two knowledge bases use the same embedding model (namespace design §10.4), the cosine of their entity embedding centroids is a second signal: `score = 0.7 × entity + 0.3 × embedding`. With different models, `score = entity`.
 4. **Clustering.** Average-linkage agglomerative clustering of the shared knowledge bases of one type. Stop when the next merge has `score < theme_match_threshold` (admin setting). Each shared knowledge base with a signature is in exactly one computed theme; a theme can have one knowledge base.
 5. **Personal knowledge bases.** A public personal knowledge base attaches to each theme of its type where its average score with the members is at least `theme_match_threshold`. It can attach to several themes. It never makes a theme alone and does not change the clustering of shared knowledge bases. **[proposal, OQ13]**
@@ -343,11 +343,11 @@ New UI text uses keys of the English and Korean catalogs from the start.
 
 ## 11. Data Model
 
-### 11.1 `claire.db` Version 25: Names Only
+### 11.1 `claire.db` Version 26: Names Only
 
-Version 25 makes the renames of Section 5.1 and nothing else. Behavior does not change.
+Version 26 makes the renames of Section 5.1 and nothing else. Behavior does not change.
 
-### 11.2 `claire.db` Version 26: Shared Knowledge Bases and Themes
+### 11.2 `claire.db` Version 27: Shared Knowledge Bases and Themes
 
 **`knowledge_bases`**
 
@@ -485,12 +485,12 @@ Store boundary (RD27 R2): only `store/kb_collab.py` reads and writes the collabo
 
 | Object | Version | Reason |
 | :--- | :--- | :--- |
-| Old table `themes` (as registry) | 25 | Renamed to `knowledge_bases` (CT16) |
-| Tables `theme_members`, `users` | 26 | No reader; `theme_members` refers to `users` |
-| Column `is_collaborator_accessible` | 26 | No reader |
-| `data/themes.json` | 25 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
+| Old table `themes` (as registry) | 26 | Renamed to `knowledge_bases` (CT16) |
+| Tables `theme_members`, `users` | 27 | No reader; `theme_members` refers to `users` |
+| Column `is_collaborator_accessible` | 27 | No reader |
+| `data/themes.json` | 26 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
 
-A table to drop that has rows is renamed `<name>_retired_v26`; the migration writes a warning and continues (operator rule). Account and instance purge include renamed tables.
+A table to drop that has rows is renamed `<name>_retired_v27`; the migration writes a warning and continues (operator rule). Account and server purge include renamed tables.
 
 Candidates for later removal: `knowledge_bases.db_path` and `knowledge_bases.fqdn` when no reader stays **[unverified]** (`graph_bundle.py`, `cli.py` `import-graph`, legacy hosts in `namespace.py`).
 
@@ -500,13 +500,13 @@ Candidates for later removal: `knowledge_bases.db_path` and `knowledge_bases.fqd
 
 Both versions complete on their own at startup and keep all data (operator rule). A second start changes nothing.
 
-### 12.1 Version 25
+### 12.1 Version 26
 
 1. Rename the table, the columns, and the indexes of Section 5.1 in one transaction.
 2. Rename `data/themes.json` to `themes.json.retired`.
 3. `client.db` (next version): rename `linked_theme_id` to `linked_kb_id`.
 
-### 12.2 Version 26
+### 12.2 Version 27
 
 1. Add the columns and tables of Section 11.2.
 2. For each knowledge base with `is_personal = 0` and `account_id IS NOT NULL`, in one transaction for each knowledge base:
@@ -541,8 +541,8 @@ Both versions complete on their own at startup and keep all data (operator rule)
 | Pending submissions of the account | Pending contributions deleted |
 | `kb_moderation_log.actor_account_id` | Kept as a value |
 
-- An account backup has only the personal knowledge base. The instance backup has all.
-- Restore of a backup made before version 26 restores the personal knowledge base and skips the other knowledge bases of the archive; the result lists them.
+- An account backup has only the personal knowledge base. The server backup has all.
+- Restore of a backup made before version 27 restores the personal knowledge base and skips the other knowledge bases of the archive; the result lists them.
 - A data bundle of a shared knowledge base: moderators and the admin.
 
 ### 13.3 Federation
@@ -560,7 +560,7 @@ Both versions complete on their own at startup and keep all data (operator rule)
 
 ### 13.5 Embeddings
 
-Each knowledge base keeps its fixed embedding model (namespace design §10.4). The founder selects it from the models that the instance allows. A fork keeps the model of its source. **[proposal, OQ19]** The merge job embeds with the provider context of the contributor when it serves that model, else with the tier provider of the instance when it serves that model, else the contribution gets `failed` with the code `embedding_model_unavailable`.
+Each knowledge base keeps its fixed embedding model (namespace design §10.4). The founder selects it from the models that the server allows. A fork keeps the model of its source. **[proposal, OQ19]** The merge job embeds with the provider context of the contributor when it serves that model, else with the tier provider of the server when it serves that model, else the contribution gets `failed` with the code `embedding_model_unavailable`.
 
 ---
 
@@ -602,8 +602,8 @@ Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5
 
 | Unit | Scope | Completion criteria |
 | :--- | :--- | :--- |
-| CT-0 | Names (Section 5): `claire.db` version 25, `client.db` rename, code, API aliases with `Deprecation` and `Sunset`, MCP alias, WebUI keys, `themes.json` retirement | No behavior change: all tests pass after the rename. A version 24 database starts as version 25 with the same rows. Old API names work with the deprecation headers. |
-| CT-1 | `claire.db` version 26 (Section 11.2), migration (Section 12.2), `store/kb_collab.py`, `store/themes.py` | A version 25 database with four knowledge bases starts as version 26 with one personal and three shared knowledge bases, the admin as moderator, and one approved contribution for each document. A second start changes nothing. |
+| CT-0 | Names (Section 5): `claire.db` version 26, `client.db` rename, code, API aliases with `Deprecation` and `Sunset`, MCP alias, WebUI keys, `themes.json` retirement | No behavior change: all tests pass after the rename. A version 25 database starts as version 26 with the same rows. Old API names work with the deprecation headers. |
+| CT-1 | `claire.db` version 27 (Section 11.2), migration (Section 12.2), `store/kb_collab.py`, `store/themes.py` | A version 26 database with four knowledge bases starts as version 27 with one personal and three shared knowledge bases, the admin as moderator, and one approved contribution for each document. A second start changes nothing. |
 | CT-2 | Access matrices (Section 6), paths and redirects (Section 7), collections `/kb`, `/@{u}/kb`, `/themes` | Old `/themes/{number}/` and `/@{u}/themes/{number}/` links get 308 to `/kb/{number}/`. A private personal knowledge base gives 404 on each route to other accounts. |
 | CT-3 | Membership and moderation (Section 10), admin moderator routes, moderation log | Join with `open` and `approval`, approve, ban, leave, last-moderator rule, admin assignment |
 | CT-4 | Direct contribution, merge job, approve, reject, hide, remove, withdraw, revisions (Sections 9.1, 9.3 to 9.5) | Graph without a new LLM extraction when an extraction exists; duplicate 409; withdrawal after approval 409; an approved revision replaces the copy |

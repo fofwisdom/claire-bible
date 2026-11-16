@@ -123,7 +123,7 @@ def _line_html(line: str, origin: str, mention_iris: dict[str, str | None], ment
 def render_note(text: str, *, origin: str, mention_iris: dict[str, str | None] | None = None, quote_url: str | None = None) -> RenderedNote:
     """Make the HTML of a note from its plain text (Section 5.4 rule 3).
 
-    ``mention_iris`` gives the actor IRI of a handle that Claire knows. A mention with an IRI is a link; a mention without one is text, and the sidecar resolves it for the ``Mention`` tag. ``origin`` is the canonical origin of this instance (hashtag addresses).
+    ``mention_iris`` gives the actor IRI of a handle that Claire knows. A mention with an IRI is a link; a mention without one is text, and the sidecar resolves it for the ``Mention`` tag. ``origin`` is the canonical origin of this server (hashtag addresses).
 
     ``quote_url`` is the address of the object that the note quotes (Section 5.4 rule 5, unit FP4-9Q). The HTML gets a last paragraph with a link to it (class ``quote-inline``), for a reader that does not show quotes; the paragraph stays in all quote states.
 

@@ -6,7 +6,7 @@
 // - The handle of an actor is `@preferredUsername@host of the actor ID`. No WebFinger request is made for it.
 // - An attachment that is not in the object document is not fetched.
 // - The limits of Section 6.3 apply here and in Claire: an object with more content than the limit has no normal form, and only the first attachments within the limit are kept.
-// - A mention of an actor of this instance is read from the object document only (unit FP4-8): a Mention tag, or the actor in `to` or `cc`. No tag is fetched.
+// - A mention of an actor of this server is read from the object document only (unit FP4-8): a Mention tag, or the actor in `to` or `cc`. No tag is fetched.
 // - The quoted object of a post is read from the object document only (unit FP4-9Q): `quote` first, then the other keys (RT9).
 
 import type { DocumentLoader } from "@fedify/fedify";
@@ -15,7 +15,7 @@ import type { TimelineActor, TimelineEvent, TimelineObject } from "./internal_ap
 
 export const CONTENT_MAX_BYTES = 64 * 1024;
 export const MAX_ATTACHMENTS = 8;
-// The largest number of actors of this instance in `mentioned` of one event. Claire refuses a longer list.
+// The largest number of actors of this server in `mentioned` of one event. Claire refuses a longer list.
 export const MAX_MENTIONED = 16;
 
 export type Post = Note | Article | Page | Question;
@@ -63,7 +63,7 @@ export function actorType(actor: Actor): TimelineEvent["actor_type"] {
   return (["Person", "Group", "Service", "Application", "Organization"] as const).find((known) => known === name) ?? null;
 }
 
-// The actors of this instance (`{origin}/ap/actors/{id}`) that a post mentions with a Mention tag or addresses in `to` or `cc`, MAX_MENTIONED at most.
+// The actors of this server (`{origin}/ap/actors/{id}`) that a post mentions with a Mention tag or addresses in `to` or `cc`, MAX_MENTIONED at most.
 export async function localMentions(post: Post, origin: string, options: LoadOptions): Promise<string[]> {
   const prefix = `${origin}/ap/actors/`;
   const isActor = (iri: string) => iri.startsWith(prefix) && /^[1-9][0-9]{0,18}$/.test(iri.slice(prefix.length));

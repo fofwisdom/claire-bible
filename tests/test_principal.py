@@ -233,7 +233,7 @@ def test_env_tokens_map_to_admin_without_reading_accounts(data_dir, monkeypatch,
     assert response.json()["auth_scope"] == scope
     assert _principal(response) == {
         "account_id": accounts_store.ADMIN_ACCOUNT_ID,
-        "instance_role": "admin",
+        "server_role": "admin",
         "scope": scope,
         "channel": "bearer",
         "credential_id": f"env:{scope}",
@@ -249,7 +249,7 @@ def test_api_token_without_account_id_belongs_to_admin(fake_accounts, data_dir):
     principal = _principal(_client(data_dir).get("/whoami", headers=_bearer(API_TOKEN_LEGACY)))
     assert principal == {
         "account_id": 1,
-        "instance_role": "admin",
+        "server_role": "admin",
         "scope": "owner",
         "channel": "bearer",
         "credential_id": "api:3",
@@ -261,7 +261,7 @@ def test_api_token_without_account_id_belongs_to_admin(fake_accounts, data_dir):
 def test_api_token_with_account_id_maps_to_that_account(fake_accounts, data_dir):
     principal = _principal(_client(data_dir).get("/whoami", headers=_bearer(API_TOKEN_MEMBER)))
     assert principal["account_id"] == 7
-    assert principal["instance_role"] == "member"
+    assert principal["server_role"] == "member"
     assert principal["scope"] == "readonly"
     assert principal["credential_id"] == "api:4"
 
@@ -298,7 +298,7 @@ def test_cookie_session_carries_authenticated_at(fake_accounts, data_dir):
     )
     assert principal == {
         "account_id": 1,
-        "instance_role": "admin",
+        "server_role": "admin",
         "scope": "owner",
         "channel": "cookie",
         "credential_id": "session:aaaa",
@@ -311,7 +311,7 @@ def test_x_session_carries_authenticated_at(fake_accounts, data_dir):
     principal = _principal(_client(data_dir).get("/whoami", headers={"X-Session": X_SESSION}))
     assert principal["channel"] == "x-session"
     assert principal["account_id"] == 7
-    assert principal["instance_role"] == "member"
+    assert principal["server_role"] == "member"
     assert principal["scope"] == "collaborator"
     assert principal["authenticated_at"] == ADMIN_AUTH_AT + 5
 
@@ -327,7 +327,7 @@ def test_oauth_token_maps_to_bound_account(fake_accounts, data_dir):
     principal = _principal(_client(data_dir).get("/whoami", headers=_bearer(OAUTH_TOKEN)))
     assert principal == {
         "account_id": 7,
-        "instance_role": "member",
+        "server_role": "member",
         "scope": "readonly",
         "channel": "bearer",
         "credential_id": "oauth:eeee",
@@ -419,7 +419,7 @@ def test_request_principal_without_middleware_raises():
 def _session_principal(channel: str, authenticated_at: float | None) -> Principal:
     return Principal(
         account_id=1,
-        instance_role="admin",
+        server_role="admin",
         scope="owner",
         channel=channel,  # type: ignore[arg-type]
         credential_id="session:aaaa",

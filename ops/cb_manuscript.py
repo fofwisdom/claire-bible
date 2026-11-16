@@ -162,7 +162,7 @@ APP_ONE_OFF_COMMANDS = {
     "token",
     "key",
     "api-key",
-    "instance",
+    "server",
     "federation",
     "feeds",
     "media",
@@ -1654,13 +1654,13 @@ def command_init(layout: Layout) -> int:
     return 0
 
 
-class InstanceLock(AbstractContextManager["InstanceLock"]):
+class ServerLock(AbstractContextManager["ServerLock"]):
     def __init__(self, runtime: Runtime):
         runtime.layout.state_dir.mkdir(parents=True, exist_ok=True)
         self.path = runtime.layout.state_dir / f"{runtime.project}.lock"
         self._stream = None
 
-    def __enter__(self) -> "InstanceLock":
+    def __enter__(self) -> "ServerLock":
         self._stream = self.path.open("a+", encoding="utf-8")
         try:
             fcntl.flock(self._stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -2789,7 +2789,7 @@ def command_backup(
     replace: bool,
 ) -> int:
     components = _selected_components(raw_components)
-    with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
+    with BackupNamespaceLock(runtime.layout), ServerLock(runtime):
         config_preflight(runtime)
         storage = resolve_storage(runtime)
         runtime.layout.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -3300,7 +3300,7 @@ def command_restore(
                 "Restore will replace current data. Specify --yes to confirm."
             )
         source = _resolve_backup_source(runtime.layout, raw_source)
-    with BackupNamespaceLock(runtime.layout), InstanceLock(runtime):
+    with BackupNamespaceLock(runtime.layout), ServerLock(runtime):
         config_preflight(runtime)
         storage = resolve_storage(runtime)
         resolved_source = source.resolve(strict=False)
@@ -3536,7 +3536,7 @@ def _transition(runtime: Runtime) -> None:
 
 
 def command_install(runtime: Runtime) -> int:
-    with InstanceLock(runtime):
+    with ServerLock(runtime):
         env_changes = sync_environment_files(runtime.layout)
         if env_changes.get("env"):
             print(
@@ -3591,7 +3591,7 @@ def _reexec_update(runtime: Runtime, *, previous_revision: str | None) -> None:
 
 
 def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
-    with InstanceLock(runtime) as lock:
+    with ServerLock(runtime) as lock:
         config_preflight(runtime)
         previous_state = _profile_state(runtime) or {}
         _require_stable_project(runtime, previous_state)
@@ -4331,7 +4331,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Display logs of Docker Compose services (docker compose logs).\n\n"
             "Target services:\n"
             "  api                   API web server container\n"
-            "  bot                   Telegram bot runner (instance bot and per-account bots)"
+            "  bot                   Telegram bot runner (server bot and per-account bots)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -4479,7 +4479,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
                 return 0
             runtime = load_runtime(layout, legacy_dev=dev)
             if args[0] in LOCKED_PASSTHROUGH_COMMANDS:
-                with InstanceLock(runtime):
+                with ServerLock(runtime):
                     return dispatch_passthrough(runtime, args[0], args[1:])
             return dispatch_passthrough(runtime, args[0], args[1:])
 
@@ -4522,7 +4522,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
         if parsed.command == "health":
             return command_health(runtime)
         if parsed.command == "clean":
-            with InstanceLock(runtime):
+            with ServerLock(runtime):
                 return command_clean(
                     runtime,
                     dry_run=parsed.dry_run,

@@ -65,8 +65,8 @@ export function buildQuoteAnswer(ctx: Context<void>, task: InteractionTask, quot
 
 type EventBase = Pick<QuoteEvent, "event_id" | "recipient_public_id" | "actor" | "verified_by">;
 
-// The quote event of a verified activity, or null when the activity is not a part of the quote protocol for this instance (then it goes to Claire as before).
-// QuoteRequest for an object of this instance; Accept or Reject of the quote request of an own note.
+// The quote event of a verified activity, or null when the activity is not a part of the quote protocol for this server (then it goes to Claire as before).
+// QuoteRequest for an object of this server; Accept or Reject of the quote request of an own note.
 // An error (the authorization of an Accept is not available now) goes to the caller: the Fedify inbox queue tries again.
 export async function quoteEventOf(activity: Activity, origin: string, base: EventBase, loaders: { documentLoader: DocumentLoader; contextLoader: DocumentLoader }): Promise<QuoteEvent | null> {
   const objectId = activity.objectId;

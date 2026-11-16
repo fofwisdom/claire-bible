@@ -253,7 +253,7 @@ def test_single_mode_explore_accounts_is_404(tmp_path: Path):
     db_file = tmp_path / "claire.db"
     conn = _init_test_db(db_file)
     store = accounts_store.AccountStore(conn)
-    assert store.instance_mode() == "single"
+    assert store.server_mode() == "single"
     conn.close()
 
     s = Settings(

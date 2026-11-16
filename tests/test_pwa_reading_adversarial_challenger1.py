@@ -237,7 +237,7 @@ def test_whoami_owner_exact_relation_and_scope(tmp_path: Path):
         assert data["relation"] == "owner"
         assert data["scope"] == "owner"
         assert data["is_admin"] is False
-        assert data["instance"]["mode"] == "network"
+        assert data["server"]["mode"] == "network"
 
 
 def test_whoami_cross_account_visitor_relation_and_scope(tmp_path: Path):
@@ -252,7 +252,7 @@ def test_whoami_cross_account_visitor_relation_and_scope(tmp_path: Path):
         data = res.json()
         assert data["relation"] == "visitor"
         assert data["is_admin"] is False
-        assert data["instance"]["mode"] == "network"
+        assert data["server"]["mode"] == "network"
 
 
 def test_whoami_anonymous_reader_relation_and_scope(tmp_path: Path):
@@ -268,7 +268,7 @@ def test_whoami_anonymous_reader_relation_and_scope(tmp_path: Path):
         assert data["relation"] == "visitor"
         assert data["scope"] == "anonymous"
         assert data["is_admin"] is False
-        assert data["instance"]["mode"] == "network"
+        assert data["server"]["mode"] == "network"
 
 
 def test_whoami_anonymous_reader_when_anonymous_readonly_disabled(tmp_path: Path):
@@ -365,7 +365,7 @@ def test_whoami_single_mode(tmp_path: Path):
         data = res.json()
         assert data["relation"] == "owner"
         assert data["scope"] == "owner"
-        assert data["instance"]["mode"] == "single"
+        assert data["server"]["mode"] == "single"
 
         # @alice prefix in single mode is 404
         res_prefixed = client.get("/@alice/whoami")

@@ -337,18 +337,18 @@ def cleanup_proxy(settings: Any) -> MediaProxy:
 
 
 def run_retention(settings: Any, *, apply: bool, now: float | None = None) -> dict[str, int]:
-    """The retention run of the timeline items (design Section 10 rules 1 and 2) with the instance value of ``claire.db`` and the account values of ``client.db``. No client database gives zero items."""
+    """The retention run of the timeline items (design Section 10 rules 1 and 2) with the server value of ``claire.db`` and the account values of ``client.db``. No client database gives zero items."""
     conn = dbm.connect_existing(Path(settings.db_file), readonly=True)
     try:
-        instance_days = int(client_store.get_reading_settings(conn)["retention_days"])
+        server_days = int(client_store.get_reading_settings(conn)["retention_days"])
     finally:
         conn.close()
     path = client_db.client_db_path(settings.db_file)
     if not path.exists():
-        return {"retention_days": instance_days, "expired_items": 0}
+        return {"retention_days": server_days, "expired_items": 0}
     client = client_db.connect_client_existing(path, readonly=not apply)
     try:
-        result = client_store.retention_run(client, instance_days=instance_days, now=time.time() if now is None else now, apply=apply)
+        result = client_store.retention_run(client, server_days=server_days, now=time.time() if now is None else now, apply=apply)
         if apply:
             client.commit()
         return result

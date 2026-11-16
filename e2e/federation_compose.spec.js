@@ -26,7 +26,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.addInitScript(() => {
       let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { instanceMode: 'network' }); } });
+      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
     });
     // An own note with a script in its text, and a post of a remote actor.
     const own = item(8, { object_iri: 'http://127.0.0.1:8766/ap/objects/900', author: me, text: 'My note <img src=x onerror="window.__pwned = 1">', note: { id: '900', content: 'My note <img src=x onerror="window.__pwned = 1">', summary: null, sensitive: false, language: 'en', edited_at: NOW - 60, likes: 2, announces: 1, quotes: 0, quote_policy: 'public', quote: null } });
@@ -152,7 +152,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.addInitScript(() => {
       let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { instanceMode: 'network' }); } });
+      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
     });
     const json = (body, status) => ({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
     // An own note whose quote waits for the author, a post of a remote actor that quotes item 7, and item 7.

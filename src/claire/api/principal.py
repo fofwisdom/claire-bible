@@ -29,7 +29,7 @@ class PrincipalMissing(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class Principal:
     account_id: int | None                  # None = 익명
-    instance_role: Literal["admin", "member"] | None
+    server_role: Literal["admin", "member"] | None
     scope: PrincipalScope
     channel: PrincipalChannel
     credential_id: str | None               # 감사 기록용 식별자. 토큰 값이 아니다
@@ -43,7 +43,7 @@ class Principal:
 
 ANONYMOUS = Principal(
     account_id=None,
-    instance_role=None,
+    server_role=None,
     scope="anonymous",
     channel="none",
     credential_id=None,

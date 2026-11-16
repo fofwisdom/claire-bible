@@ -2,7 +2,7 @@
 
 - 백업 생성·목록·다운로드·삭제와 자동 백업 주기는 계정 소유자가 WebUI(``/settings/backups``)에서 한다.
 - 복원은 운영자(관리자) 전용이다(``/admin/backups``). 복원은 지식 DB를 바꾸는 파괴적 작업이므로 먼저 내부 checkpoint를 만든다.
-- 인스턴스 전체 백업·복원(``./cb-manuscript backup``·``restore``)은 그대로 운영자 도구다. 이 모듈은 그것을 대신하지 않는다.
+- 서버 전체 백업·복원(``./cb-manuscript backup``·``restore``)은 그대로 운영자 도구다. 이 모듈은 그것을 대신하지 않는다.
 
 백업 파일(``data/account_backups/<account_id>/<backup_id>.tar.zst``) 내용:
 

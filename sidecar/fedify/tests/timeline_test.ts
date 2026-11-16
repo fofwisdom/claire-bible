@@ -224,7 +224,7 @@ Deno.test("a public reply with a mention from an actor that no account follows i
     assert.deepEqual(fake.timelineEvents, [fixture("timeline_event_mention").request.body]);
     assert.deepEqual(fake.events, []);
     assert.equal(sidecar.counters.accepted, 1);
-    // Only the actor document is fetched (the signature check). The object of this instance and the parents are not.
+    // Only the actor document is fetched (the signature check). The object of this server and the parents are not.
     assert.ok(fetched.every((url) => url === BOB));
   } finally {
     restore();
@@ -267,14 +267,14 @@ Deno.test("a non-public message to an account goes to Claire without content, an
   }
 });
 
-Deno.test("a Create from an actor that no account follows stays an inbox event when its object is not in the activity or has no relation to this instance", async () => {
+Deno.test("a Create from an actor that no account follows stays an inbox event when its object is not in the activity or has no relation to this server", async () => {
   const { fake, post, add, fetched, restore } = setup();
   try {
     fake.decision = IGNORED;
     // The object is an ID only: the sidecar does not fetch it for an actor that no account follows.
     await add(note("https://remote.example/notes/62", BOB, { tags: [new Mention({ href: new URL(ALICE_ACTOR) })] }));
     await post(new Create({ id: new URL("https://remote.example/activities/262"), actor: new URL(BOB), object: new URL("https://remote.example/notes/62") }));
-    // A mention of an actor of another server, and a followers collection of this instance in cc, are not a mention of an account.
+    // A mention of an actor of another server, and a followers collection of this server in cc, are not a mention of an account.
     await post(new Create({ id: new URL("https://remote.example/activities/263"), actor: new URL(BOB), object: note("https://remote.example/notes/63", BOB, { cc: new URL(`${ALICE_ACTOR}/followers`), tags: [new Mention({ href: new URL(ERIN) })] }) }));
     assert.deepEqual(fake.timelineEvents, []);
     assert.deepEqual(fake.events.map((e) => e.type), ["Create", "Create"]);
@@ -284,7 +284,7 @@ Deno.test("a Create from an actor that no account follows stays an inbox event w
   }
 });
 
-Deno.test("a Like and an Announce of an object of this instance and their Undo are inbox events for the counters of Claire", async () => {
+Deno.test("a Like and an Announce of an object of this server and their Undo are inbox events for the counters of Claire", async () => {
   const { fake, post, fetched, restore } = setup();
   try {
     const like = new Like({ id: new URL("https://remote.example/activities/250"), actor: new URL(BOB), object: new URL(ALICE_OBJECT) });
@@ -297,7 +297,7 @@ Deno.test("a Like and an Announce of an object of this instance and their Undo a
     await post(new Undo({ id: new URL("https://remote.example/activities/254"), actor: new URL(DAN), object: announce }));
     assert.deepEqual(fake.events.slice(2).map((e) => [e.type, e.object_type, e.object_iri]), [["Announce", null, ALICE_OBJECT], ["Undo", "Announce", ALICE_OBJECT]]);
     assert.deepEqual(fake.timelineEvents, []);
-    // The object of this instance is not fetched.
+    // The object of this server is not fetched.
     assert.ok(!fetched.some((url) => url.startsWith(ORIGIN)));
   } finally {
     restore();

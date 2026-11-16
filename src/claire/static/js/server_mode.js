@@ -1,4 +1,4 @@
-// /admin/instance 화면의 네트워크 모드 전환 (설계 §4.2, §17.2).
+// /admin/server 화면의 네트워크 모드 전환 (설계 §4.2, §17.2).
 // CSP 제약: 인라인 스크립트 및 인라인 이벤트 핸들러를 사용하지 않는다.
 // 동적 텍스트는 textContent 및 DOM 노드로만 안전하게 삽입한다.
 (function () {
@@ -77,7 +77,7 @@
       if (submitBtn) submitBtn.disabled = true;
       show(out, tr("console.js.admin.mode.in_work"), false);
 
-      return send("POST", "/api/admin/instance/mode", { mode: targetMode }).then(function (r) {
+      return send("POST", "/api/admin/server/mode", { mode: targetMode }).then(function (r) {
         if (r.ok) {
           show(out, tr(targetMode === "network" ? "console.js.admin.mode.switched_network" : "console.js.admin.mode.switched_single"), false);
           if (reauth) reauth.hidden = true;

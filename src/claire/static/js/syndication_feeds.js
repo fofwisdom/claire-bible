@@ -20,7 +20,7 @@
   const $ = (id) => document.getElementById(id);
 
   const IS_OWNER = cfg.authScope === "owner";
-  const IS_NETWORK = cfg.instanceMode === "network";
+  const IS_NETWORK = cfg.serverMode === "network";
   const PAGE = 50;
 
   const F = {

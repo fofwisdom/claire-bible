@@ -1,7 +1,7 @@
 """Federation actor key pairs in ``auth.db`` table ``actor_keys`` (Fedify sidecar design Sections 7 and 10.2, unit FP1-2).
 
 - Each actor has two key pairs: RSA 2048 for HTTP Signatures and Ed25519 for Object Integrity Proofs.
-- The instance actor uses ``account_id`` 0. An account ID is 1 or more.
+- The server actor uses ``account_id`` 0. An account ID is 1 or more.
 - The public key is stored as a JWK in plaintext. The private key is stored as a JWK that ``SecretService`` encrypts with the additional authenticated data ``actor_key|{account_id}|{alg}``. A ciphertext that is moved to a different account or algorithm does not decrypt.
 - This module does not write a private key to a log. ``ActorKeyPair`` hides the private JWK in its ``repr``.
 """
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ACTOR_KEY_ALGS",
-    "INSTANCE_ACTOR_ACCOUNT_ID",
+    "SERVER_ACTOR_ACCOUNT_ID",
     "ActorKeyPair",
     "delete_actor_keys",
     "ensure_actor_keys",
@@ -32,7 +32,7 @@ __all__ = [
     "load_public_jwks",
 ]
 
-INSTANCE_ACTOR_ACCOUNT_ID: Final[int] = 0
+SERVER_ACTOR_ACCOUNT_ID: Final[int] = 0
 ACTOR_KEY_ALGS: Final[tuple[str, ...]] = ("rsa2048", "ed25519")
 
 
@@ -74,7 +74,7 @@ def _aad(account_id: int, alg: str) -> str:
 
 def _check_account_id(account_id: int) -> int:
     if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id < 0:
-        raise ValueError("account_id must be 0 (instance actor) or a positive account ID")
+        raise ValueError("account_id must be 0 (server actor) or a positive account ID")
     return account_id
 
 

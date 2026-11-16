@@ -40,12 +40,12 @@ ActivityPub and AT Protocol are now consumed **as a client of an existing server
 | Delivery, moderation, blocks, retries | Claire's responsibility | The home server's responsibility |
 | Public routes | `/.well-known/webfinger`, `/ap/actor`, `/ap/inbox`, `/ap/outbox` | None. All remote calls go out through the authenticated Claire server proxy |
 
-Rationale: running a federating server means owning key custody, signature verification, delivery queues, remote-instance moderation, and abuse handling. A client connection reuses a server the operator already trusts, keeps Claire's public attack surface unchanged, and lets each theme choose its own home server (including a self-hosted Mastodon instance or a self-hosted PDS).
+Rationale: running a federating server means owning key custody, signature verification, delivery queues, remote-server moderation, and abuse handling. A client connection reuses a server the operator already trusts, keeps Claire's public attack surface unchanged, and lets each theme choose its own home server (including a self-hosted Mastodon server or a self-hosted PDS).
 
 ### 1.3 ActivityPub Client Feature Baseline: Mastodon 5.0+
 The baseline defines **what the ActivityPub client must offer**, not which servers may be connected: the Federated Client tab implements the client features that Mastodon 5.0 and later provide (matrix in Section 3.5.3, data in `CLAIRE_SYND_AP_FEATURES`).
 - **Any Mastodon-API server can connect.** Claire never refuses a connection because of server software or version. Posts authored on any ActivityPub software also arrive through the connected server and can be read, boosted, quoted, and sent to the knowledge base.
-- **Capability detection, not gating.** On connect and on each token refresh, Claire reads `GET /api/v2/instance` (software, version, configuration limits, streaming URL) and probes optional endpoints. Baseline features the server does not provide are stored in `syndication_accounts.missing_features_json`; the matching UI is hidden (for example the Explore column) or disabled with a tooltip ("연결 서버가 제공하지 않는 기능"). Everything else keeps working.
+- **Capability detection, not gating.** On connect and on each token refresh, Claire reads `GET /api/v2/server` (software, version, configuration limits, streaming URL) and probes optional endpoints. Baseline features the server does not provide are stored in `syndication_accounts.missing_features_json`; the matching UI is hidden (for example the Explore column) or disabled with a tooltip ("연결 서버가 제공하지 않는 기능"). Everything else keeps working.
 - **Feature keys** that can be missing: `trends` (탐색), `quote` (인용 게시물·인용 허용 범위), `translate` (번역), `notifRequests` (알림 요청·알림 정책), `scheduled` (예약 게시). Core features (timelines, compose, reply, boost, favourite, bookmark, polls, media, CW, filters, relationships, reports) are assumed for any Mastodon-API server.
 - **Prototype demonstration.** Theme 0 binds a Mastodon 5.0 account showing every baseline feature; theme 1 binds a "Mastodon API 호환 서버" with five baseline features missing, so the degraded state is visible; the read-only private theme shows every write action disabled by scope. The connect dialog lets the reviewer pick the simulated server capability set.
 
@@ -76,7 +76,7 @@ The baseline defines **what the ActivityPub client must offer**, not which serve
 flowchart TD
     subgraph External ["External Sources & Existing Servers"]
         RSS["RSS 2.0 / Atom 1.0 / JSON Feeds"]
-        APS["Mastodon-API server<br/>Client API + OAuth 2.0<br/>(feature baseline: Mastodon 5.0+,<br/>capabilities from /api/v2/instance)"]
+        APS["Mastodon-API server<br/>Client API + OAuth 2.0<br/>(feature baseline: Mastodon 5.0+,<br/>capabilities from /api/v2/server)"]
         PDS["AT Protocol PDS<br/>(bsky.social · self-hosted)<br/>XRPC + AT OAuth"]
     end
 
@@ -252,11 +252,11 @@ flowchart TD
 | 보내고 적재 (`i`) | `s` followed by the ingestion bridge | Same |
 | Register as target | Column, account (profile), or trending link → Tab 2 feed with `via` = account; current posts are first-collected | Same |
 
-- Compose validates per account: ActivityPub uses the server's character limit (from `GET /api/v2/instance`, CW counted); AT counts graphemes against 300. Polls and media are mutually exclusive (up to four media, two to four poll options). Over-limit, empty, or incomplete polls disable submit. A helper inserts theme entities as hashtags (`[[KV Cache]] → #KVCache`).
+- Compose validates per account: ActivityPub uses the server's character limit (from `GET /api/v2/server`, CW counted); AT counts graphemes against 300. Polls and media are mutually exclusive (up to four media, two to four poll options). Over-limit, empty, or incomplete polls disable submit. A helper inserts theme entities as hashtags (`[[KV Cache]] → #KVCache`).
 - When a target item lives on another protocol, the publish dialog states that a boost is impossible and substitutes a link quote for that account.
 
 #### 3.5.4 Connecting an Account
-- **Mastodon-API server**: `GET /api/v2/instance` (software, version, character limit, streaming URL, capability detection from Section 1.3) → `POST /api/v1/apps` (client name, redirect URI `/syndication/accounts/callback`, scopes) → `GET /oauth/authorize` with PKCE → `POST /oauth/token` → `GET /api/v1/accounts/verify_credentials`. No server is refused. The prototype's connect dialog has a simulated capability selector ("Mastodon 5.0 이상 — 기준 기능 전체" or "Mastodon API 호환 서버 — 일부 기능 미제공") that shows the degraded result.
+- **Mastodon-API server**: `GET /api/v2/server` (software, version, character limit, streaming URL, capability detection from Section 1.3) → `POST /api/v1/apps` (client name, redirect URI `/syndication/accounts/callback`, scopes) → `GET /oauth/authorize` with PKCE → `POST /oauth/token` → `GET /api/v1/accounts/verify_credentials`. No server is refused. The prototype's connect dialog has a simulated capability selector ("Mastodon 5.0 이상 — 기준 기능 전체" or "Mastodon API 호환 서버 — 일부 기능 미제공") that shows the degraded result.
 - **AT Protocol (preferred)**: handle → DID (`/.well-known/atproto-did` or DNS `_atproto`) → DID document → PDS → `/.well-known/oauth-protected-resource` → authorization server metadata → PAR + PKCE + DPoP with `client_id = https://<claire-host>/syndication/oauth/client-metadata.json` → `app.bsky.actor.getProfile`.
 - **AT Protocol (compatibility)**: app password entered only in the server-side account form, exchanged through `com.atproto.server.createSession`, refreshed with `refreshSession`. The prototype never collects a password.
 - Private themes request read-only scopes and cannot enable publishing.
@@ -311,9 +311,9 @@ The preferences page adds two navigation groups. Panels marked `구현됨` show 
 
 ### 3.9 Other Users' Published Bodies (Proposal)
 
-This section depends on per-user workspaces ([EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) §4.7) and is not implemented. Both tabs list the bodies that other users of the same Claire instance published, and let the viewer publish them from the viewer's own connected accounts. Every screen element of this feature carries the `제안` label.
+This section depends on per-user workspaces ([EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) §4.7) and is not implemented. Both tabs list the bodies that other users of the same Claire server published, and let the viewer publish them from the viewer's own connected accounts. Every screen element of this feature carries the `제안` label.
 
-**Source of the list.** Workspaces stay isolated. When a user publishes an ingested body (`📡 적재 발행`) from a public theme, the server writes a public copy to the instance-wide publication index (`data/shared/publications.db`). The copy holds the title, summary, published body HTML, entity names, share link, the URIs of the posts it went out as, and the author's reuse policy. Other users read only this index (`GET /api/peers/publications`), never another `claire.db`. The list leaves out:
+**Source of the list.** Workspaces stay isolated. When a user publishes an ingested body (`📡 적재 발행`) from a public theme, the server writes a public copy to the server-wide publication index (`data/shared/publications.db`). The copy holds the title, summary, published body HTML, entity names, share link, the URIs of the posts it went out as, and the author's reuse policy. Other users read only this index (`GET /api/peers/publications`), never another `claire.db`. The list leaves out:
 - the viewer's own publications;
 - bodies of suspended users and of users who turned listing off;
 - retracted bodies, unless the viewer already imported or republished them (those stay, marked `철회됨`).
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS syndication_accounts (
     protocol TEXT NOT NULL,              -- 'activitypub' | 'atproto'
     server_url TEXT NOT NULL,            -- 'https://social.example.com' or PDS URL
     software TEXT,                       -- 'mastodon' or PDS implementation (describeServer)
-    server_version TEXT,                 -- version reported by /api/v2/instance (informational, never a gate)
+    server_version TEXT,                 -- version reported by /api/v2/server (informational, never a gate)
     missing_features_json TEXT DEFAULT '[]', -- baseline features the server does not provide: trends | quote | translate | notifRequests | scheduled
     handle TEXT NOT NULL,                -- '@user@server' or 'name.bsky.social'
     remote_account_id TEXT,              -- Mastodon account id or AT DID
@@ -520,7 +520,7 @@ Tab 1 timelines are **not persisted**; they are read live through the proxy and 
 | `POST` | `/syndication/ingest` | `collaborator` | Forward an item to `svc.ingest` and bind `linked_doc_id`. |
 | `POST` | `/syndication/publish` | `owner` | Boost, quote, or ingested publish through connected accounts. |
 | `GET`, `POST` | `/syndication/rules` | `owner` | Manage organization and auto-ingest rules. |
-| `GET` | `/api/peers/publications` | user (proposal) | List other users' public publication copies from the instance index (Section 3.9). |
+| `GET` | `/api/peers/publications` | user (proposal) | List other users' public publication copies from the server index (Section 3.9). |
 | `POST` | `/syndication/peers/reshare` | `owner` of the viewer's workspace (proposal) | Boost, quote, or link-share an indexed publication through connected accounts, honoring the author's reuse policy. |
 | `POST` | `/syndication/peers/import` | `owner` of the viewer's workspace (proposal) | Copy an indexed publication into the viewer's theme as a collected item (optionally ingest). |
 

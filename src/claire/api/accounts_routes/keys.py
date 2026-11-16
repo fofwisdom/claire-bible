@@ -65,13 +65,13 @@ PROVIDER_TEXT = {"gemini": "Google AI Studio"}
 def is_network_mode(ctx: AccountsContext) -> bool:
     conn = open_db(ctx)
     try:
-        return accounts_store.AccountStore(conn).instance_mode() == "network"
+        return accounts_store.AccountStore(conn).server_mode() == "network"
     finally:
         conn.close()
 
 
 def _is_member(principal: Principal) -> bool:
-    return principal.account_id is not None and principal.instance_role == "member" and principal.scope == "owner"
+    return principal.account_id is not None and principal.server_role == "member" and principal.scope == "owner"
 
 
 def _meta_dict(meta: provider_keys.ProviderKeyMeta) -> dict[str, Any]:
@@ -309,7 +309,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if principal.account_id is None or not await asyncio.to_thread(is_network_mode, ctx):
             return principal, not_found()
-        if principal.instance_role == "admin":
+        if principal.server_role == "admin":
             return principal, json_error(403, "admin_uses_provider_settings")
         if not _is_member(principal):
             return principal, not_found()

@@ -1,4 +1,4 @@
-// Public federation surface against the contract fixtures: WebFinger, NodeInfo, actor documents, and the instance actor (Fedify dispatcher wiring).
+// Public federation surface against the contract fixtures: WebFinger, NodeInfo, actor documents, and the server actor (Fedify dispatcher wiring).
 
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
@@ -9,7 +9,7 @@ import { fakeClaire, fixture, KEY } from "./fixtures.ts";
 const ORIGIN = "https://claire.example.com";
 const ALICE = "116412345678901234";
 const ALICE_URL = `${ORIGIN}/ap/actors/${ALICE}`;
-const INSTANCE_URL = `${ORIGIN}/ap/actors/instance`;
+const SERVER_URL = `${ORIGIN}/ap/actors/server`;
 const AS2 = "application/activity+json";
 const JRD = "application/jrd+json";
 // The reverse proxy sends requests to this address. It must not be in an answer.
@@ -104,16 +104,16 @@ Deno.test("accounts that are not actors get the same 404", async () => {
   }
 });
 
-Deno.test("the instance actor is an Application with its own keys", async () => {
+Deno.test("the server actor is an Application with its own keys", async () => {
   const { get } = setup();
   const finger = await get(webfinger("claire@claire.example.com"), JRD);
-  assert.equal(link(finger.json, "self")?.href, INSTANCE_URL);
-  const actor = await get("/ap/actors/instance", AS2);
+  assert.equal(link(finger.json, "self")?.href, SERVER_URL);
+  const actor = await get("/ap/actors/server", AS2);
   assert.equal(actor.status, 200);
   assert.equal(actor.json?.type, "Application");
-  assert.equal(actor.json?.id, INSTANCE_URL);
+  assert.equal(actor.json?.id, SERVER_URL);
   assert.equal(actor.json?.preferredUsername, "claire");
-  assert.equal(actor.json?.inbox, `${INSTANCE_URL}/inbox`);
+  assert.equal(actor.json?.inbox, `${SERVER_URL}/inbox`);
   const alice = await get(`/ap/actors/${ALICE}`, AS2);
   assert.notEqual((actor.json?.publicKey as Record<string, unknown>).publicKeyPem, (alice.json?.publicKey as Record<string, unknown>).publicKeyPem);
 });
@@ -134,7 +134,7 @@ Deno.test("all paths are 404 when federation is off or the mode is single", asyn
   for (const state of [{ federation: "off" }, { mode: "single" }]) {
     const { get, fake, bodies } = setup();
     fake.config = { ...state, federated_actors: 0 };
-    for (const [path, accept] of [[webfinger("alice@claire.example.com"), JRD], [webfinger("claire@claire.example.com"), JRD], [`/ap/actors/${ALICE}`, AS2], ["/ap/actors/instance", AS2], ["/.well-known/nodeinfo", "application/json"], ["/nodeinfo/2.1", "application/json"]]) {
+    for (const [path, accept] of [[webfinger("alice@claire.example.com"), JRD], [webfinger("claire@claire.example.com"), JRD], [`/ap/actors/${ALICE}`, AS2], ["/ap/actors/server", AS2], ["/.well-known/nodeinfo", "application/json"], ["/nodeinfo/2.1", "application/json"]]) {
       const response = await get(path, accept);
       assert.equal(response.status, 404, `${JSON.stringify(state)} ${path}`);
       assert.equal(response.text, "Not Found");
@@ -175,10 +175,10 @@ Deno.test("no private key and no account data outside the actor record is in a p
   const { get, bodies } = setup();
   await get(webfinger("alice@claire.example.com"), JRD);
   await get(`/ap/actors/${ALICE}`, AS2);
-  await get("/ap/actors/instance", AS2);
+  await get("/ap/actors/server", AS2);
   await get("/nodeinfo/2.1", "application/json");
   const all = bodies.join("");
-  for (const name of ["actor_keys", "instance_actor_keys"]) {
+  for (const name of ["actor_keys", "server_actor_keys"]) {
     for (const key of fixture(name).response.keys as { private_jwk: Record<string, string> }[]) {
       for (const field of ["d", "p", "q", "dp", "dq", "qi"]) {
         if (field in key.private_jwk) assert.ok(!all.includes(key.private_jwk[field]), `${name} ${field}`);
@@ -233,10 +233,10 @@ Deno.test("the public self-check accepts the answer of this sidecar process only
   }
 });
 
-Deno.test("each answer has the marker header, and it shows no instance data", async () => {
+Deno.test("each answer has the marker header, and it shows no server data", async () => {
   const { sidecar, fake } = setup();
   fake.config = { mode: "single", federation: "off", federated_actors: 0 };
-  for (const path of ["/", "/ap/actors/instance", "/.well-known/webfinger?resource=acct:alice@claire.example.com"]) {
+  for (const path of ["/", "/ap/actors/server", "/.well-known/webfinger?resource=acct:alice@claire.example.com"]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`));
     assert.equal(response.status, 404);
     assert.equal(response.headers.get(SIDECAR_HEADER), sidecar.marker);
@@ -246,7 +246,7 @@ Deno.test("each answer has the marker header, and it shows no instance data", as
 
 Deno.test("a method that is not GET or HEAD gets 405 on each federation path that is not an inbox", async () => {
   const { sidecar, fake } = setup();
-  for (const [method, path] of [["POST", `/ap/actors/${ALICE}`], ["PUT", `/ap/actors/${ALICE}`], ["DELETE", "/ap/actors/instance"], ["POST", `/ap/actors/${ALICE}/followers`], ["POST", `/ap/actors/${ALICE}/outbox`], ["POST", "/.well-known/webfinger"]]) {
+  for (const [method, path] of [["POST", `/ap/actors/${ALICE}`], ["PUT", `/ap/actors/${ALICE}`], ["DELETE", "/ap/actors/server"], ["POST", `/ap/actors/${ALICE}/followers`], ["POST", `/ap/actors/${ALICE}/outbox`], ["POST", "/.well-known/webfinger"]]) {
     const response = await sidecar.handle(new Request(`${LISTEN}${path}`, { method, headers: { accept: AS2, "content-type": AS2 }, body: method === "DELETE" ? undefined : "{}" }));
     assert.equal(response.status, 405, `${method} ${path}`);
     assert.equal(response.headers.get("allow"), "GET, HEAD");

@@ -7,7 +7,7 @@ The sidecar is the ActivityPub protocol adapter of Claire Bible. Claire is canon
 | Path | Content |
 | :--- | :--- |
 | `src/internal_api.ts` | Signed client for the internal federation API of Claire, with sealed response shapes |
-| `src/sidecar.ts` | WebFinger, NodeInfo, actor documents, the instance actor, and the public self-check |
+| `src/sidecar.ts` | WebFinger, NodeInfo, actor documents, the server actor, and the public self-check |
 | `src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 | `tests/` | Tests against the contract fixtures in `tests/fixtures/federation_contract/` of the repository |
 
@@ -27,7 +27,7 @@ The Python test `tests/test_fedify_sidecar.py` runs the same tests and starts th
 
 ## Public Paths
 
-`GET`: `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, `/ap/actors/instance`, `/ap/actors/{public_id}/followers` (total only), `/ap/actors/{public_id}/outbox`, and `/ap/objects/{object_public_id}`. `POST`: `/ap/actors/{public_id}/inbox` and `/ap/inbox`. A wrong method returns 405. All paths return 404 when federation is `off` or the instance mode is `single`.
+`GET`: `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`, `/ap/actors/{public_id}`, `/ap/actors/server`, `/ap/actors/{public_id}/followers` (total only), `/ap/actors/{public_id}/outbox`, and `/ap/objects/{object_public_id}`. `POST`: `/ap/actors/{public_id}/inbox` and `/ap/inbox`. A wrong method returns 405. All paths return 404 when federation is `off` or the server mode is `single`.
 
 Fedify verifies each inbox activity. Claire makes the decision for each verified activity through `POST /inbox-events` of the internal API. The reference is `docs/implementation/FEDERATION.md` Section 4.3.
 

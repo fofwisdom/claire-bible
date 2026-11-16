@@ -335,7 +335,7 @@ def test_whoami_network_mode_owner_relation(tmp_path: Path):
         assert data["relation"] == "owner"
         assert data["scope"] == "owner"
         assert data["is_admin"] is False
-        assert data["instance"]["mode"] == "network"
+        assert data["server"]["mode"] == "network"
 
 
 def test_whoami_network_mode_cross_account_visitor_relation(tmp_path: Path):

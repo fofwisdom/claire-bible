@@ -78,7 +78,7 @@ def _tombstones(settings: _Settings) -> dict[int, str]:
 
 @pytest.fixture
 def env(tmp_path):
-    """A network-mode instance with federation on. ``alpha`` is an actor with the public themes 11 and 12, three published documents, and one follower. ``beta`` is an actor with no follower."""
+    """A network-mode server with federation on. ``alpha`` is an actor with the public themes 11 and 12, three published documents, and one follower. ``beta`` is an actor with no follower."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -188,7 +188,7 @@ def test_display_name_change_of_an_actor_makes_an_update_actor_task(env):
         store.update_display_name(env.alpha, "Alpha Kim")
         assert _new_tasks(env.settings) == [(env.alpha, "update_actor", None, "pending", None)]
 
-        # A paused account, and an instance with federation off, send nothing.
+        # A paused account, and a server with federation off, send nothing.
         store.update_profile_public(env.beta, 0)
         store.update_display_name(env.beta, "Beta Kim")
         store.set_federation_state("off", updated_by=1)

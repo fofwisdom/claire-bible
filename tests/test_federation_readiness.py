@@ -1,4 +1,4 @@
-"""Federation readiness checks GF1 to GF7, the ``/api/admin/federation`` switch, and ``claire instance check --federation`` (Fedify sidecar design Section 12, unit FP1-6).
+"""Federation readiness checks GF1 to GF7, the ``/api/admin/federation`` switch, and ``claire server check --federation`` (Fedify sidecar design Section 12, unit FP1-6).
 
 No test calls a public server. The GF7 fetch is a test function, or it goes to a server on the loopback address.
 """
@@ -77,7 +77,7 @@ def _write_heartbeat(data_dir: Path, *, received_at: float, contract_version: st
 
 
 def _prepare(tmp_path: Path, *, heartbeat_at: float, **overrides: Any) -> tuple[_Settings, int]:
-    """A network-mode instance that passes all the checks: admin, one member, service key, and a heartbeat."""
+    """A network-mode server that passes all the checks: admin, one member, service key, and a heartbeat."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
     conn = dbm.connect(settings.db_file)
     try:
@@ -129,7 +129,7 @@ def ready(tmp_path):
 # --- Checks GF1 to GF7 (module interface and file I/O) ---
 
 
-def test_all_checks_pass_for_a_ready_instance(ready):
+def test_all_checks_pass_for_a_ready_server(ready):
     items = _report(ready)
     assert _failed(items) == []
     assert set(items["GF1"]) == {"id", "name", "passed", "detail"}
@@ -369,7 +369,7 @@ def test_switch_needs_recent_authentication_and_the_same_origin(env):
     assert _federation(env.settings) == "off"
 
 
-# --- claire instance check --federation (CLI output) ---
+# --- claire server check --federation (CLI output) ---
 
 
 def _run_cli(capsys, settings: _Settings, monkeypatch, argv: list[str]) -> tuple[int, dict[str, Any]]:
@@ -382,7 +382,7 @@ def _run_cli(capsys, settings: _Settings, monkeypatch, argv: list[str]) -> tuple
 def test_cli_federation_check_prints_the_report_and_exits_with_0(tmp_path, monkeypatch, capsys):
     settings, _member = _prepare(tmp_path, heartbeat_at=time.time())
 
-    code, output = _run_cli(capsys, settings, monkeypatch, ["instance", "check", "--federation", "--json"])
+    code, output = _run_cli(capsys, settings, monkeypatch, ["server", "check", "--federation", "--json"])
 
     assert code == 0
     assert (output["status"], output["exit_code"]) == ("success", 0)
@@ -394,7 +394,7 @@ def test_cli_federation_check_prints_the_report_and_exits_with_0(tmp_path, monke
 def test_cli_federation_check_exits_with_1_when_a_check_fails(tmp_path, monkeypatch, capsys):
     settings, _member = _prepare(tmp_path, heartbeat_at=time.time() - 3600)
 
-    code, output = _run_cli(capsys, settings, monkeypatch, ["instance", "check", "--federation", "--json"])
+    code, output = _run_cli(capsys, settings, monkeypatch, ["server", "check", "--federation", "--json"])
 
     assert code == 1
     assert (output["status"], output["exit_code"]) == ("error", 1)

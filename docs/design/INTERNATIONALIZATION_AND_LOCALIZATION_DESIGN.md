@@ -314,13 +314,13 @@ logger = logging.getLogger(__name__)
 
 class MorphAnalyzerFactory:
     """언어 코드에 대응하는 형태소 분석기 싱글톤 풀."""
-    _instances: dict[str, MorphAnalyzer] = {}
+    _servers: dict[str, MorphAnalyzer] = {}
 
     @classmethod
     def get_analyzer(cls, lang: str) -> MorphAnalyzer:
         norm_lang = (lang or "").strip().lower().split("_")[0].split("-")[0]
-        if norm_lang in cls._instances:
-            return cls._instances[norm_lang]
+        if norm_lang in cls._servers:
+            return cls._servers[norm_lang]
 
         analyzer: MorphAnalyzer
         if norm_lang == "ko":
@@ -338,7 +338,7 @@ class MorphAnalyzerFactory:
         else:
             analyzer = RegexMorphAnalyzer()
 
-        cls._instances[norm_lang] = analyzer
+        cls._servers[norm_lang] = analyzer
         return analyzer
 ```
 

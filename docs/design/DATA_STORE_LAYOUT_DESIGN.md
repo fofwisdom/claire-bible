@@ -42,7 +42,7 @@ The owner confirmed that the layout stays valid for many users and for a later e
 
 | File | Content | Kind of data | Version |
 | :--- | :--- | :--- | :--- |
-| `claire.db` | Accounts, themes, documents, the knowledge graph, published objects (`federation_objects`), the publish outbox, followers, tombstones, domain blocks, instance settings (with `federation_reading`) | Shared assets and instance state; kept long | `meta.schema_version` (`SCHEMA_VERSION`) |
+| `claire.db` | Accounts, themes, documents, the knowledge graph, published objects (`federation_objects`), the publish outbox, followers, tombstones, domain blocks, server settings (with `federation_reading`) | Shared assets and server state; kept long | `meta.schema_version` (`SCHEMA_VERSION`) |
 | `client.db` | Feeds and feed items, follows, settings of accounts for reading, the timeline, notes, reactions, quote authorizations, automatic replies, the client outbox, the media cache records | Communication data of accounts; large and pruned by retention | `client_meta.schema_version` (`CLIENT_SCHEMA_VERSION`) |
 | `auth.db` | Credentials, sessions, admin audit | Security data | its own |
 | `fedify.db` | Fedify key-value cache and message queue | Protocol cache of the sidecar | Fedify |

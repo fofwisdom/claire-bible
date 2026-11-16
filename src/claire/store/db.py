@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -794,6 +794,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    _migrate_v25_server_settings(conn)
     _migrate_v15_accounts(conn)
     _migrate_v16_themes(conn)
     _migrate_v17_federation(conn)
@@ -833,23 +834,23 @@ def _check_single_default_theme_per_account(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_id_salt(conn: sqlite3.Connection, now: float) -> bytes:
-    """``instance_settings.id_salt``가 없을 때만 만든다(hex). 있으면 그대로 읽는다."""
+    """``server_settings.id_salt``가 없을 때만 만든다(hex). 있으면 그대로 읽는다."""
     conn.execute(
-        "INSERT OR IGNORE INTO instance_settings (key, value, updated_at, updated_by) VALUES ('id_salt', ?, ?, NULL)",
+        "INSERT OR IGNORE INTO server_settings (key, value, updated_at, updated_by) VALUES ('id_salt', ?, ?, NULL)",
         (generate_id_salt().hex(), now),
     )
-    row = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()
+    row = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()
     try:
         salt = bytes.fromhex(str(row["value"]))
     except (TypeError, ValueError) as exc:
-        raise RuntimeError("instance_settings.id_salt is not valid hex") from exc
+        raise RuntimeError("server_settings.id_salt is not valid hex") from exc
     if len(salt) != ID_SALT_BYTES:
-        raise RuntimeError(f"instance_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
+        raise RuntimeError(f"server_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
     return salt
 
 
 def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
-    """v15 (설계 §13.1): 계정, 퇴역 이름, 인스턴스 설정, 테마·자격증명의 계정 귀속. 멱등(A3).
+    """v15 (설계 §13.1): 계정, 퇴역 이름, 서버 설정, 테마·자격증명의 계정 귀속. 멱등(A3).
 
     v14의 ``users`` 테이블은 그대로 두고 쓰지 않는다.
     """
@@ -897,7 +898,7 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS instance_settings (
+        CREATE TABLE IF NOT EXISTS server_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at REAL NOT NULL,
@@ -946,16 +947,16 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
 
 
 def read_id_salt(conn: sqlite3.Connection) -> bytes:
-    """``instance_settings.id_salt``를 읽는다. 없거나 형식이 틀리면 만들지 않고 실패한다(v15 몫, C1)."""
-    row = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()
+    """``server_settings.id_salt``를 읽는다. 없거나 형식이 틀리면 만들지 않고 실패한다(v15 몫, C1)."""
+    row = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()
     if row is None:
-        raise RuntimeError("instance_settings.id_salt is missing (schema v15 migration not applied)")
+        raise RuntimeError("server_settings.id_salt is missing (schema v15 migration not applied)")
     try:
         salt = bytes.fromhex(str(row["value"]))
     except (TypeError, ValueError) as exc:
-        raise RuntimeError("instance_settings.id_salt is not valid hex") from exc
+        raise RuntimeError("server_settings.id_salt is not valid hex") from exc
     if len(salt) != ID_SALT_BYTES:
-        raise RuntimeError(f"instance_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
+        raise RuntimeError(f"server_settings.id_salt must be {ID_SALT_BYTES} bytes, got {len(salt)}")
     return salt
 
 
@@ -1274,6 +1275,35 @@ def _migrate_v24_object_quote_policy(conn: sqlite3.Connection) -> None:
     """v24 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6, unit FP4-9Q): ``federation_objects.quote_policy`` is the quote policy of a published document (FEP-044f ``canQuote``). The default is ``manual``: an object from before this version gets it. The column is in this file so that a change of the policy and its ``update`` task are in one transaction. Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "quote_policy" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN quote_policy TEXT NOT NULL DEFAULT 'manual' CHECK (quote_policy IN ('public', 'followers', 'manual', 'nobody'))")
+
+
+# v25: the name of ``server_settings`` before version 25. Only ``_migrate_v25_server_settings`` uses it.
+_V25_OLD_SETTINGS_TABLE = "instance_settings"
+
+
+def _migrate_v25_server_settings(conn: sqlite3.Connection) -> None:
+    """v25 (terminology: a Claire installation is a "server", as in the Mastodon documentation): the table of the old name ``instance_settings`` becomes ``server_settings`` with all its rows. Idempotent (A3).
+
+    This step runs before the v15 step, because the v15 step makes ``server_settings`` and reads ``id_salt`` from it. Without this order, the v15 step would make an empty table and a new ``id_salt``.
+    When the two tables are there (not expected), the step copies the rows that ``server_settings`` does not have. It drops the old table only when ``server_settings`` has each of its rows with the same value. Otherwise the old table becomes ``<old name>_retired_v25`` and the log gets a warning: no row is lost and the start continues (operator rule).
+    """
+    old = _V25_OLD_SETTINGS_TABLE
+    if not _table_exists(conn, old):
+        return
+    if not _table_exists(conn, "server_settings"):
+        conn.execute(f"ALTER TABLE {old} RENAME TO server_settings")
+        return
+    conn.execute(f"INSERT OR IGNORE INTO server_settings (key, value, updated_at, updated_by) SELECT key, value, updated_at, updated_by FROM {old}")
+    differ = conn.execute(f"SELECT COUNT(*) FROM {old} AS o LEFT JOIN server_settings AS s ON s.key = o.key WHERE s.key IS NULL OR s.value IS NOT o.value").fetchone()[0]
+    if not differ:
+        conn.execute(f"DROP TABLE {old}")
+        return
+    retired = f"{old}_retired_v25"
+    if _table_exists(conn, retired):
+        logger.warning("schema v25: table %s has %d row(s) with a value that is not in server_settings, and %s exists; the table stays", old, differ, retired)
+        return
+    conn.execute(f"ALTER TABLE {old} RENAME TO {retired}")
+    logger.warning("schema v25: table %s had %d row(s) with a value that is not in server_settings; the table is kept as %s", old, differ, retired)
 
 
 def _migrate_v22_move_feed_tables(conn: sqlite3.Connection) -> None:

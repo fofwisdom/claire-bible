@@ -14,7 +14,7 @@ For the owner of the account only, in single mode (the single account) and in ne
 | ``/api/feeds/items`` | PATCH | Mark items read, unread, starred, or not starred (``item_ids``), or mark all items of one feed (``feed_id``) |
 | ``/api/feeds/items/{item_id}`` | GET | One item with the render URL of its body (unit FP4-F3) |
 | ``/api/feeds/discover`` | POST | Find the feeds of an address (``url``): the feed itself, or the ``<link rel="alternate">`` feeds of a page (unit FP4-F3) |
-| ``/render/feed/{item_id}`` | GET | The body of one item on the app origin, only for an instance without a ``usercontent`` host (unit FP4-F3) |
+| ``/render/feed/{item_id}`` | GET | The body of one item on the app origin, only for a server without a ``usercontent`` host (unit FP4-F3) |
 
 ``POST /api/feeds/items/{item_id}/ingest`` is in ``server``, because it uses the ingest service of a theme.
 
@@ -312,7 +312,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return None if roles is None else roles.origin(role)
 
     def _render_url(account_id: int, item_id: int) -> str:
-        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the instance has no such host (development, design Section 8 rule 5)."""
+        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the server has no such host (development, design Section 8 rule 5)."""
         token = usercontent.create_remote_token(account_id, item_id, secret_service=_secret_service(), kind=usercontent.FEED_TOKEN_KIND)
         return f"{_role_origin('usercontent') or ''}{FEED_RENDER_PATH}/{item_id}?t={token}"
 

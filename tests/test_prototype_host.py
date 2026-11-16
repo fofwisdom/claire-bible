@@ -158,7 +158,7 @@ def test_e2e_prototype_host_serves_static_page_only(tmp_path):
         assert "access-control-allow-origin" not in res.headers
         head = proto.head("/")
         assert head.status_code == 200 and head.content == b""
-        for path in ("/api/syndication/dispatches", "/api/admin/instance", "/health", "/static/js/app.js", "/prototype/syndication", "/syndication", "/index.html"):
+        for path in ("/api/syndication/dispatches", "/api/admin/server", "/health", "/static/js/app.js", "/prototype/syndication", "/syndication", "/index.html"):
             other = proto.get(path, headers=cookie)
             assert other.status_code == 404, path
             assert "set-cookie" not in other.headers

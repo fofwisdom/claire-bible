@@ -573,7 +573,7 @@ def create_app(
         scope = request_auth_scope(request)
         if scope not in {"owner", "collaborator", "readonly", "anonymous"}:
             raise HTTPException(status_code=401, detail="authentication required")
-        # §9.1 O10: 주체 범위(호환), 인스턴스 모드, 네임스페이스와의 관계. USERNAME은 싣지 않는다(S9).
+        # §9.1 O10: 주체 범위(호환), 서버 모드, 네임스페이스와의 관계. USERNAME은 싣지 않는다(S9).
         namespace = request_namespace(request)
         principal = request_principal(request)
         if principal.account_id is None or principal.account_id != namespace.account_id:
@@ -582,9 +582,9 @@ def create_app(
             relation = "owner"
         else:
             relation = "delegate"
-        is_admin = bool(principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None)
+        is_admin = bool(principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None)
         return JSONResponse(
-            {"scope": scope, "instance": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}
+            {"scope": scope, "server": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}
         )
 
     async def stats(request: Request) -> JSONResponse:
@@ -2092,7 +2092,7 @@ def create_app(
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
             store = accounts_store.AccountStore(conn)
-            if store.federation_state() != "on" or store.instance_mode() != "network":
+            if store.federation_state() != "on" or store.server_mode() != "network":
                 return None
             try:
                 account = store.get(account_id)
@@ -2157,7 +2157,7 @@ def create_app(
             theme_query = ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
         tab = request.query_params.get("tab") if "tab" in request.query_params else None
         principal = request_principal(request)
-        caller_is_admin = principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None
+        caller_is_admin = principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None
         if tab is None:
             target = "/settings/reader"
         elif tab in _LEGACY_PREFS_SETTINGS_TABS:
@@ -2226,7 +2226,7 @@ def create_app(
                 is_network = True
         except Exception:
             pass
-        if getattr(s, "instance_mode", None) == "network":
+        if getattr(s, "server_mode", None) == "network":
             is_network = True
 
         caller_account_id = principal.account_id if (principal and principal.account_id is not None) else (1 if not is_network else None)
@@ -2234,7 +2234,7 @@ def create_app(
 
         if is_network or target_account_id is not None:
             if target_account_id is not None and caller_account_id != target_account_id:
-                if getattr(principal, "instance_role", None) != "admin":
+                if getattr(principal, "server_role", None) != "admin":
                     raise HTTPException(
                         status_code=403,
                         detail="다른 계정의 테마에 적재할 권한이 없습니다.",

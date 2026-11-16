@@ -145,7 +145,7 @@ def test_e2e_reply_edit_and_delete_of_a_note(env):
 
 def test_e2e_new_note_group_reply_and_refusals(env):
     c, sc = env.client, env.sidecar
-    # A new note is not a reply. The language is the instance default when the account has no locale.
+    # A new note is not a reply. The language is the server default when the account has no locale.
     res = c.request("POST", NOTES, session=env.alpha_session, json={"content": "Hello world"})
     assert res.status_code == 201, res.text
     note = res.json()["note"]

@@ -1,10 +1,10 @@
-"""Object storage settings of the instance, the storage test, and the migration from local storage (FEDERATION_REMOTE_READING_DESIGN.md Sections 7.3, 9.1.1, 9.2, and 9.3; unit FP4-1).
+"""Object storage settings of the server, the storage test, and the migration from local storage (FEDERATION_REMOTE_READING_DESIGN.md Sections 7.3, 9.1.1, 9.2, and 9.3; unit FP4-1).
 
-- The admin settings are one JSON value in ``claire.db`` ``instance_settings`` (key ``media_storage``). The secret key is encrypted with ``SecretService`` and the additional authenticated data ``media_storage:s3``. No function of this module gives the secret to a caller, except ``active_config`` and ``target_config`` (for the store of this process).
+- The admin settings are one JSON value in ``claire.db`` ``server_settings`` (key ``media_storage``). The secret key is encrypted with ``SecretService`` and the additional authenticated data ``media_storage:s3``. No function of this module gives the secret to a caller, except ``active_config`` and ``target_config`` (for the store of this process).
 - The admin settings are the only source of the object storage configuration. The environment variables ``CLAIRE_MEDIA_S3_*`` of the releases before these settings are imported one time and have no effect after that.
-- The result of the last test and of the last migration run are two more ``instance_settings`` values. The console shows them.
+- The result of the last test and of the last migration run are two more ``server_settings`` values. The console shows them.
 
-Only this module reads and writes these ``instance_settings`` keys (store boundary, DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 6).
+Only this module reads and writes these ``server_settings`` keys (store boundary, DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 6).
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ class S3Config:
 
 def _read_json(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
     try:
-        row = conn.execute("SELECT value FROM instance_settings WHERE key=?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM server_settings WHERE key=?", (key,)).fetchone()
     except sqlite3.OperationalError:
         return None
     if row is None:
@@ -77,15 +77,15 @@ def _read_json(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
     try:
         value = json.loads(str(row[0]))
     except ValueError as exc:
-        raise RuntimeError(f"instance_settings.{key} is not valid JSON") from exc
+        raise RuntimeError(f"server_settings.{key} is not valid JSON") from exc
     if not isinstance(value, dict):
-        raise RuntimeError(f"instance_settings.{key} has an unexpected shape")
+        raise RuntimeError(f"server_settings.{key} has an unexpected shape")
     return value
 
 
 def _write_json(conn: sqlite3.Connection, key: str, value: dict[str, Any], *, updated_by: int | None, now: float | None = None) -> None:
     conn.execute(
-        "INSERT INTO instance_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
         (key, json.dumps(value, sort_keys=True), time.time() if now is None else now, updated_by),
     )

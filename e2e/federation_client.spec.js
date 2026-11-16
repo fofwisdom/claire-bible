@@ -31,7 +31,7 @@ test.describe('federation client view (FP4-5)', () => {
     // The page config says "single" on this server. The client view reads the mode from it.
     await page.addInitScript(() => {
       let config;
-      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { instanceMode: 'network' }); } });
+      Object.defineProperty(window, '__CLAIRE_CONFIG', { configurable: true, get: () => config, set: value => { config = Object.assign({}, value, { serverMode: 'network' }); } });
       window.addEventListener('message', event => { if (event.data === 'pwned') window.__pwned = 1; });
     });
     const json = body => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });

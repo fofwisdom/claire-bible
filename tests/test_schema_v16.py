@@ -24,7 +24,7 @@ def _memory_database() -> sqlite3.Connection:
 
 
 def _salt(conn: sqlite3.Connection) -> bytes:
-    return bytes.fromhex(conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()["value"])
+    return bytes.fromhex(conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()["value"])
 
 
 def _expected_number(conn: sqlite3.Connection, theme_id: int, created_at: float, *, probe: int = 0) -> int:
@@ -261,7 +261,7 @@ def test_backfill_requires_salt() -> None:
     conn.execute(
         "INSERT INTO themes (id, seq, label, created_at, updated_at, account_id) VALUES (5, 5, 'x', 0, 0, 1)"
     )
-    conn.execute("DELETE FROM instance_settings WHERE key='id_salt'")
+    conn.execute("DELETE FROM server_settings WHERE key='id_salt'")
     with pytest.raises(RuntimeError, match="id_salt is missing"):
         dbm.backfill_theme_numbers(conn)
 

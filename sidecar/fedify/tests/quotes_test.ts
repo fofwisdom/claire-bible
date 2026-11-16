@@ -69,7 +69,7 @@ function setup() {
   const setTasks = (tasks: unknown[]) => fake.overrides.set(`GET ${PREFIX}/interaction-tasks?limit=10`, { status: 200, response: { tasks } });
   const setAck = (id: number, status = "handed_off") => fake.overrides.set(`POST ${PREFIX}/interaction-tasks/${id}/ack`, { status: 200, response: { id, status } });
   const get = (url: string, accept = AS2) => sidecar.handle(new Request(url, { headers: { accept } }));
-  // A signed delivery of the remote server to an inbox of this instance.
+  // A signed delivery of the remote server to an inbox of this server.
   const post = async (path: string, activity: Activity | Record<string, unknown>) => {
     const document = "toJsonLd" in activity ? await (activity as Activity).toJsonLd() as Record<string, unknown> : activity;
     const signed = await signRequest(new Request(`${ORIGIN}${path}`, { method: "POST", headers: { "content-type": AS2 }, body: JSON.stringify(document) }), remoteKeys.privateKey, new URL(`${document.actor}#main-key`));
@@ -177,7 +177,7 @@ Deno.test("an Accept with a QuoteAuthorization is the quote event of the fixture
     assert.equal(await post(`/ap/actors/${ALICE}/inbox`, new Accept({ id: new URL(body.event_id), actor: new URL(CAROL), object: new URL(body.object_iri), result: carolAuthorization() })), 202);
     assert.deepEqual([...fake.quoteEvents], [body]);
     assert.deepEqual(sidecar.counters, { accepted: 1, rejected: 0, ignored: 0, blocked: 0, dropped: 0 });
-    // RT9: the request is matched by its ID. No document of this instance and no authorization is fetched.
+    // RT9: the request is matched by its ID. No document of this server and no authorization is fetched.
     assert.ok(!fetched.some((url) => url.startsWith(ORIGIN) || url === AUTHORIZATION));
 
     // The authorization as an address only: the sidecar reads it from the server of the author.
@@ -202,7 +202,7 @@ Deno.test("an Accept with a QuoteAuthorization is the quote event of the fixture
     // A Reject of the request is a quote event without an authorization.
     await post(`/ap/actors/${ALICE}/inbox`, new Reject({ id: new URL(`${CAROL}#rejects/quotes/1`), actor: new URL(CAROL), object: new URL(body.object_iri) }));
     assert.deepEqual([fake.quoteEvents[5].type, fake.quoteEvents[5].object_iri, fake.quoteEvents[5].authorization], ["Reject", body.object_iri, null]);
-    // An Accept of another activity of this instance (a follow) stays an inbox event.
+    // An Accept of another activity of this server (a follow) stays an inbox event.
     assert.equal(fake.events.length, 0);
     fake.decision = { decision: "ignored", reply: null, reason: "unsupported_type" };
     await post(`/ap/actors/${ALICE}/inbox`, new Accept({ id: new URL(`${CAROL}#accepts/5`), actor: new URL(CAROL), object: new URL(`${ALICE_URL}#follows/9`) }));

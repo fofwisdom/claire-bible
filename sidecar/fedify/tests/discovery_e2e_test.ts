@@ -44,7 +44,7 @@ Deno.test("a remote-style client resolves a handle and reads the actor document"
   assert.ok(String(doc.inbox).startsWith(`${ORIGIN}/`));
 });
 
-for (const identifier of ["instance", "116412345678901234"]) {
+for (const identifier of ["server", "116412345678901234"]) {
   Deno.test(`a remote server verifies a fetch that is signed with the key of actor ${identifier}`, async () => {
     const { sidecar, remoteLoader, fetched, fake } = setup();
     const ctx = await sidecar.createContext();
@@ -72,9 +72,9 @@ Deno.test("a signature of one actor is not valid for a different actor", async (
   const { sidecar, remoteLoader, fake } = setup();
   const ctx = await sidecar.createContext();
   const [alice] = await ctx.getActorKeyPairs("116412345678901234");
-  const [instance] = await ctx.getActorKeyPairs("instance");
+  const [server] = await ctx.getActorKeyPairs("server");
   const currentTime = Temporal.Instant.fromEpochMilliseconds(fake.now * 1000);
-  // The request names the key of the instance actor but uses the private key of alice.
-  const forged = await signRequest(new Request("https://remote.example/users/bob", { headers: { accept: AS2 } }), alice.privateKey, instance.keyId, { currentTime });
+  // The request names the key of the server actor but uses the private key of alice.
+  const forged = await signRequest(new Request("https://remote.example/users/bob", { headers: { accept: AS2 } }), alice.privateKey, server.keyId, { currentTime });
   assert.equal(await verifyRequest(forged, { documentLoader: remoteLoader, contextLoader: remoteLoader, currentTime }), null);
 });

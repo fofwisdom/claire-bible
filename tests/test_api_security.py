@@ -33,7 +33,7 @@ def _session_credential(scope: str | None):
     return security._Credential(
         scope=scope,
         account_id=1,
-        instance_role="admin",
+        server_role="admin",
         credential_id=f"session:test-{scope}",
         authenticated_at=0.0,
     )
@@ -473,8 +473,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
             for path in (
                 "/admin/accounts",
                 "/api/admin/accounts",
-                "/admin/instance",
-                "/api/admin/instance",
+                "/admin/server",
+                "/api/admin/server",
                 "/api/admin/federation",
                 "/api/admin/federation/domain-blocks",
                 "/api/admin/federation/reading",
@@ -487,8 +487,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/admin/federation/domain-blocks"),
         ("DELETE", "/api/admin/federation/domain-blocks"),
         ("PUT", "/api/admin/federation/reading"),
-        ("POST", "/api/admin/instance/mode"),
-        ("POST", "/api/admin/instance/legacy-hosts/sunset"),
+        ("POST", "/api/admin/server/mode"),
+        ("POST", "/api/admin/server/legacy-hosts/sunset"),
         ("POST", "/api/admin/federation"),
         ("PATCH", "/api/admin/accounts"),
         ("GET", "/api/admin/usernames/retired"),

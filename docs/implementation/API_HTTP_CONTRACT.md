@@ -48,7 +48,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `anonymous` | 공개 지식 조회 및 기본 FTS 검색 (숨김 문서 제외) | 자격증명이 없으나 `CLAIRE_ANONYMOUS_READONLY=1`인 경우 |
 
 ### 3.4 스텔스 모드 불변식
-`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 인스턴스는 자격증명이 없는 읽기 요청에 대해 `401 Unauthorized` 대신 HTTP `404 Not Found`를 반환해야 한다. 이는 외부 정찰에 대해 엔드포인트의 존재 여부와 파라미터 구조를 일절 노출하지 않기 위함이다.
+`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 서버는 자격증명이 없는 읽기 요청에 대해 `401 Unauthorized` 대신 HTTP `404 Not Found`를 반환해야 한다. 이는 외부 정찰에 대해 엔드포인트의 존재 여부와 파라미터 구조를 일절 노출하지 않기 위함이다.
 
 ## 4. 공통 에러 페이로드 규약
 
@@ -63,7 +63,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | Method | Path | 최소 접근 수준 | 설명 |
 |---|---|---|---|
 | `GET` | `/health` | `public` | 서비스 liveness 및 DB 연결 검사 (`{"ok": true}`) |
-| `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "instance": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
+| `GET` | `/whoami` | `read` | 현재 요청의 인증 스코프 확인 (`{"scope": "...", "server": {"mode": "single\|network"}, "relation": "owner\|delegate\|visitor", "is_admin": bool}`. USERNAME은 싣지 않는다) |
 | `GET` | `/stats` | `read` | 문서, 엔티티, 릴레이션 카운트 집계 |
 | `POST` | `/oauth/token` | `public` | [RFC 8693] 토큰 교환 및 Bearer 토큰 발급. 토큰 교환은 계정에 귀속된 세션 토큰만 받는다([`TOKEN_EXCHANGE.md`](TOKEN_EXCHANGE.md) §7) |
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
@@ -88,7 +88,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 확인 기준: P1 계정 코어 커밋(`d5e8fb4` 다음) (2026-11-02). 아래는 증강 계보의 확장 라우트이며 §5의 최소 공통 엔드포인트가 아니다. 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md), 접근 규칙의 정본은 `src/claire/api/security.py`의 `ROUTE_POLICY`다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 모든 요청에는 요청 주체(`Principal`)가 하나 정해진다(`src/claire/api/principal.py`). `public` 규칙 라우트는 자격증명을 검증하지 않고 익명 주체를 둔다.
-- **[코드]** `owner`·`admin` 규칙을 통과하지 못하면 §3.4와 같이 404다. `admin` 규칙은 owner 범위이면서 `instance_role=admin`인 자격증명만 통과한다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
+- **[코드]** `owner`·`admin` 규칙을 통과하지 못하면 §3.4와 같이 404다. `admin` 규칙은 owner 범위이면서 `server_role=admin`인 자격증명만 통과한다. 쿠키 채널의 `POST`는 `Origin`이 같은 origin이어야 하고, 아니면 403이다.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
@@ -115,12 +115,12 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 ### 6.2 통합 콘솔 경로 (`/admin/*`, `/settings/*`)
 
-확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 인스턴스 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
+확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 서버 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
-| `GET` | `/admin` | `admin` | 302 `/admin/instance` | 404 비관리자(302보다 먼저), 404 잘못된 `?theme=` |
-| `GET` | `/admin/{instance,accounts,idp,providers,limits,themes,tokens,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
+| `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?theme=` |
+| `GET` | `/admin/{server,accounts,idp,providers,limits,themes,tokens,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
 | `GET` | `/api/admin/mcp/telemetry` | `admin` | 200 `{"records": [...], "count": n}` | 400 `invalid_limit`(`limit`이 1–200 정수가 아님), 404 비관리자 |
 | `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?theme=` 유지) | 404 owner 아님, 404 잘못된 `?theme=` |
 | `GET` | `/settings/{account,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?theme=` |

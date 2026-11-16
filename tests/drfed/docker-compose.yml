@@ -2,8 +2,8 @@
 # DrFed 0.1.0 (a test server for ActivityPub implementations) behind a TLS gateway, as a model of a remote ActivityPub server:
 # - The network `backend` is internal. Only DrFed and the gateway are on it. DrFed listens on its address of `backend` only and has no published port.
 # - The network `edge` is the side that a client sees. Only port 443 of the gateway (TLS, a wildcard certificate of a private certificate authority) is the way in.
-#   Port 8080 of the gateway (no TLS) is the public origin of the Claire instance under test, when the profile `claire` runs.
-# - The service `dns` answers the root name and each name below it with the address of the gateway (each DrFed instance has a subdomain of the root origin). A container on `edge` uses it with `dns:`.
+#   Port 8080 of the gateway (no TLS) is the public origin of the Claire server under test, when the profile `claire` runs.
+# - The service `dns` answers the root name and each name below it with the address of the gateway (each DrFed server has a subdomain of the root origin). A container on `edge` uses it with `dns:`.
 # - DrFed is on `edge` only for its requests to other servers (it reads the actor of a sender to verify an HTTP signature).
 # tests/drfed_stack.py writes the certificates to CB_DRFED_RUN_DIR and starts this stack.
 name: "${CB_DRFED_PROJECT:-claire-drfed-test}"
@@ -68,7 +68,7 @@ services:
       edge:
         ipv4_address: "${CB_DRFED_EDGE_PREFIX:?}.3"
 
-  # The Fedify sidecar of the Claire instance under test (profile `claire`). The Claire process runs on the host; the sidecar reaches it through the Unix socket in the data directory of that process, as in a deployment.
+  # The Fedify sidecar of the Claire server under test (profile `claire`). The Claire process runs on the host; the sidecar reaches it through the Unix socket in the data directory of that process, as in a deployment.
   # The sidecar is a container because it must resolve the names below the root origin (the service `dns`); a process on the host uses the DNS of the host.
   sidecar:
     profiles:

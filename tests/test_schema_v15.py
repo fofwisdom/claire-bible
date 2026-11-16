@@ -72,7 +72,7 @@ def test_fresh_database_declares_v15_objects() -> None:
     assert {
         "accounts",
         "username_tombstones",
-        "instance_settings",
+        "server_settings",
         "idx_accounts_single_admin",
         "accounts_username_immutable",
         "idx_themes_account_default",
@@ -93,7 +93,7 @@ def test_admin_row_and_salt() -> None:
     assert admin["role"] == "admin"
     assert admin["status"] == "setup_required"
     assert admin["username"] is None
-    salt_hex = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()["value"]
+    salt_hex = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()["value"]
     salt = bytes.fromhex(salt_hex)
     assert len(salt) == 32
     assert admin["public_id"] == ids.legacy_timestamp_id(
@@ -119,9 +119,9 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
 
 def test_existing_salt_is_kept() -> None:
     conn = _memory_database()
-    before = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()["value"]
+    before = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()["value"]
     dbm.init_db(conn)
-    after = conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()["value"]
+    after = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()["value"]
     assert before == after
 
 

@@ -141,8 +141,8 @@ def test_ensure_adds_only_the_absent_algorithm(conn, svc):
     assert after[0] == rsa_before and after[1].alg == "ed25519"
 
 
-def test_accounts_and_instance_actor_have_separate_keys(conn, svc):
-    for account_id in (ak.INSTANCE_ACTOR_ACCOUNT_ID, 1, 2):
+def test_accounts_and_server_actor_have_separate_keys(conn, svc):
+    for account_id in (ak.SERVER_ACTOR_ACCOUNT_ID, 1, 2):
         ak.ensure_actor_keys(conn, account_id, svc)
     public = [json.dumps(ak.load_public_jwks(conn, a), sort_keys=True) for a in (0, 1, 2)]
     assert len(set(public)) == 3

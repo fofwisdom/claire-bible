@@ -852,7 +852,7 @@
     ];
     let h = '<div id="prov-member-tier-card" style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--sec-bg);margin-bottom:14px;">';
     h += '<strong style="font-size:13px;display:block;margin-bottom:4px;"><span data-icon="shield"></span> ' + esc(trKey("console.js.panels.tier.title")) + '</strong>';
-    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.desc")) + ' <a href="/admin/instance">' + esc(trKey("console.js.panels.tier.desc_link")) + '</a></p>';
+    h += '<p style="margin:0 0 8px;font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.desc")) + ' <a href="/admin/server">' + esc(trKey("console.js.panels.tier.desc_link")) + '</a></p>';
     h += '<div style="display:flex;gap:8px;font-size:12px;margin-bottom:8px;">';
     h += '<div style="flex:1;"><label style="font-size:11px;opacity:0.8;">' + esc(trKey("console.js.panels.tier.provider")) + '</label>';
     h += '<select id="prov-tier-provider" style="width:100%;box-sizing:border-box;margin-top:2px;">';

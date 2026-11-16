@@ -16,7 +16,7 @@
 | 12 | 증강 계보의 철회된 Support Bundle schema | 자동 전환 금지; 정확한 복구 절차로 먼저 v11 복원 후 전환 |
 | 13 | 직전 공통 version | `schema_lineage=claire-bible/common` 기준 단일 DB 및 `theme_id` 파티셔닝으로 승격 |
 | 14 | 직전 version | 단일 SQLite DB 통합, 테마 파티셔닝(`theme_id`), 다중 사용자/신디케이션 지원, 볼트 서브시스템 영구 제거. 멱등 마이그레이션 후 v15로 전환 |
-| 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 인스턴스 설정, 테마·자격증명의 계정 귀속 |
+| 15 | 직전 version | 계정(`accounts`), 퇴역 USERNAME, 서버 설정, 테마·자격증명의 계정 귀속 |
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
 | 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
@@ -25,8 +25,9 @@
 | 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
 | 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
 | 23 | 직전 version (아래 "v23" 절) | `federation_objects.content_digest` |
-| 24 | 현재 version (아래 "v24" 절) | `federation_objects.quote_policy` |
-| 25 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 24 | 직전 version (아래 "v24" 절) | `federation_objects.quote_policy` |
+| 25 | 현재 version (아래 "v25" 절) | `instance_settings`를 `server_settings`로 이름 변경 |
+| 26 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -65,11 +66,11 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 - **[코드] 버전 상수**: `src/claire/store/db.py`의 `SCHEMA_VERSION = 15`, lineage는 `claire-bible/common` 그대로다. `_validate_migration_source`는 저장된 version이 15보다 크면 변경 없이 거부한다.
 - **[결정] 번호 예약 불필요**: 테제 계보가 없어졌으므로 v15는 다른 계보와 예약하지 않는다.
 - **[코드] 추가 객체**(`_migrate_v15_accounts`, 모두 `IF NOT EXISTS`·`_ensure_column`으로 멱등)
-  - 테이블 `accounts`, `username_tombstones`, `instance_settings`
+  - 테이블 `accounts`, `username_tombstones`, `server_settings`
   - 인덱스 `idx_accounts_single_admin`(관리자 한 명), `idx_themes_account_default`(계정마다 기본 테마 하나)
   - 트리거 `accounts_username_immutable`(설정된 USERNAME 변경 거부)
   - 열 `themes.account_id`, `auth_sessions.account_id`, `auth_sessions.authenticated_at`, `oauth_codes.account_id`, `oauth_tokens.account_id`, `oauth_auth_requests.account_id`
-- **[코드] 데이터 이관**(멱등): `instance_settings.id_salt`가 없을 때만 만든다. 관리자 행(`id=1`, `role=admin`, `status=setup_required`, `username=NULL`)이 없을 때만 만들고, `public_id`는 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 계산해 다시 실행해도 같다. `account_id`가 NULL인 테마와 자격증명 행을 1로 채운다. `id=1` 행이 관리자가 아니면 실패한다. v14의 `users` 테이블은 그대로 두고 쓰지 않는다.
+- **[코드] 데이터 이관**(멱등): `server_settings.id_salt`가 없을 때만 만든다. 관리자 행(`id=1`, `role=admin`, `status=setup_required`, `username=NULL`)이 없을 때만 만들고, `public_id`는 고정 상수 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 계산해 다시 실행해도 같다. `account_id`가 NULL인 테마와 자격증명 행을 1로 채운다. `id=1` 행이 관리자가 아니면 실패한다. v14의 `users` 테이블은 그대로 두고 쓰지 않는다.
 - **[코드] 기본 테마 중복이면 실패**: v15 블록의 첫 단계(`_check_single_default_theme_per_account`)가 한 계정(NULL은 1로 봄)에 `is_default=1` 테마가 둘 이상인지 본다. 있으면 어느 쪽이 기본인지 추측하지 않고 `RuntimeError`(계정과 `themes.id` 목록 포함)를 낸다. 이 검사는 v15 객체를 만들기 전에 실행되고 `init_db`는 `schema_version`을 쓰기 전에 멈추므로, v14 DB에서는 v15 테이블·열·행을 하나도 쓰지 않고 `schema_version=14`가 남는다(`tests/test_schema_v15.py`의 `test_multiple_default_themes_fail_migration_without_changes`). `is_default=1`을 계정마다 하나로 고친 뒤 다시 실행한다.
 - **[코드] 보조 파일**: `data/themes.json` 항목과 `data/auth/api_tokens.json` 항목에 `account_id`가 없으면 관리자(1)로 읽는다. 값이 정수가 아니면 테마는 `ValueError`, API 토큰은 그 항목을 무시한다.
 
@@ -84,7 +85,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
   - 열 `themes.number`(INTEGER UNIQUE), `themes.visibility_epoch`(INTEGER NOT NULL DEFAULT 1), `themes.embed_provider`(TEXT NOT NULL DEFAULT ''), `themes.embed_model`(TEXT NOT NULL DEFAULT '')
 - **[코드] 테마 번호 백필**: `themes.number`가 비어 있는 행을 `timestamp_id("themes", salt, unix_ms)`로 채운다. `created_at=0`이거나 비어 있는 레거시 행은 `ADMIN_LEGACY_PUBLIC_ID_UNIX_MS`로 하한을 고정하여 모든 이관 번호가 `>= 2^56`이 되도록 보장한다(A3).
 - **[코드] 레거시 호스트 이관**: 기존 `themes.fqdn` 값이 있는 행을 `legacy_hosts` 테이블로 복사하고, `sunset_at = NULL` 상태로 보존하여 관리자가 이관을 활성화할 때까지 일몰 시계를 유예한다(R23-2).
-- **[코드] 인스턴스 정책**: `instance_settings`에 `legacy_host_policy`(`default_sunset_days`, `allow_indefinite`)가 기록된다.
+- **[코드] 서버 정책**: `server_settings`에 `legacy_host_policy`(`default_sunset_days`, `allow_indefinite`)가 기록된다.
 
 ## v17 (연합 팔로워, 툼스톤, 도메인 차단, Fedify 사이드카 FP2-1)
 
@@ -173,7 +174,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: FP4-9Q 구현 (2026-11-15). 설계: [FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md) §5.4 규칙 6, §7.1.
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 24`.
+- **[코드] 버전 상수**: v24 도입 당시 `SCHEMA_VERSION`은 24였다(현재 값은 아래 "v25" 절).
 - **[코드] 이관**(`_migrate_v24_object_quote_policy`, 멱등): `federation_objects`에 `quote_policy TEXT NOT NULL DEFAULT 'manual'` 열을 더한다. `CHECK`는 `public`, `followers`, `manual`, `nobody`만 허용한다. 이전 버전의 행은 기본값 `manual`을 받는다. 이관은 기동 때 스스로 끝나며 운영자가 할 일은 없다.
 - **[코드] 위치 근거**: 정책 변경과 `update` 작업(`federation_outbox`)이 `claire.db`의 한 트랜잭션에 있어야 하므로 이 열은 `client.db`가 아니라 `claire.db`에 둔다(`store.federation.set_object_quote_policy`).
 - **[테스트]** `tests/test_federation_quotes.py`.
@@ -197,10 +198,10 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
   - **v2 (P4)**: `account_usage`에 UTC 일 적재 집행용 `daily_day`·`daily_ingests` 열 추가(설계 §10.3, §13.3).
   - **v3 (P5)**: `oidc_states`에 계정 연결용 `account_id` 열 추가, 외부 IdP 계정 연결 테이블 `account_identities` 연동(설계 §12, §13.3).
   - **v4 (유저 단위 기능)**: 계정별 텔레그램 봇 `account_telegram_bots`와 계정 백업 주기 `account_backup_policies` 테이블 추가.
-  - **v5 (Fedify 사이드카 FP1-2)**: 연합 액터 키 테이블 `actor_keys` 추가. 기본 키는 `(account_id, alg)`이고 `account_id` 0은 인스턴스 액터다. `alg`는 `rsa2048`·`ed25519`만 받는다. 개인 키는 `SecretService`가 AAD `actor_key|{account_id}|{alg}`로 암호화한다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6, `tests/test_actor_keys.py`). 설계 문서는 이 변경을 "auth.db version 4"라고 적었지만, 설계 작성 뒤에 v4가 먼저 쓰여서 코드에서는 v5다.
+  - **v5 (Fedify 사이드카 FP1-2)**: 연합 액터 키 테이블 `actor_keys` 추가. 기본 키는 `(account_id, alg)`이고 `account_id` 0은 서버 액터다. `alg`는 `rsa2048`·`ed25519`만 받는다. 개인 키는 `SecretService`가 AAD `actor_key|{account_id}|{alg}`로 암호화한다(`src/claire/store/actor_keys.py`, [FEDERATION.md](FEDERATION.md) §6, `tests/test_actor_keys.py`). 설계 문서는 이 변경을 "auth.db version 4"라고 적었지만, 설계 작성 뒤에 v4가 먼저 쓰여서 코드에서는 v5다.
 - **[코드]** 저장된 값이 5보다 크면 다운그레이드로 보고 `RuntimeError`, 1보다 작거나 정수가 아니면 `RuntimeError`다. lineage 표식은 없다.
 - **[코드]** `claire migrate`가 지식 DB보다 먼저 auth.db를 만들거나 맞추고, 서비스 기동도 같은 일을 한다.
-- **[코드]** 연합 스위치 `instance_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `instance_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 그 시점의 claire.db는 v16 그대로였다([FEDERATION.md](FEDERATION.md) §7.1).
+- **[코드]** 연합 스위치 `server_settings.federation`(Fedify 사이드카 FP1-3)은 기존 `server_settings` 테이블의 키 하나라서 claire.db 버전을 올리지 않았다. 그 시점의 claire.db는 v16 그대로였다([FEDERATION.md](FEDERATION.md) §7.1).
 
 ## 운영 경계
 
@@ -224,3 +225,12 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 5. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
 
 구현별 schema 확장, retired version 복구와 보조 저장소 version 계획은 각 구현 저장소의 전용 문서에서 관리하며 이 공동 계약의 필수 객체로 간주하지 않는다.
+
+## v25 (서버 설정 테이블 이름, 용어 "서버")
+
+확인 기준: 용어 정리 (2026-11-16). Claire 설치 하나를 Mastodon 문서처럼 "서버"라고 부른다("인스턴스"를 쓰지 않는다).
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 25`.
+- **[코드] 이관**(`_migrate_v25_server_settings`, 멱등): `instance_settings` 테이블을 행과 함께 `server_settings`로 이름만 바꾼다. 이 단계는 v15 단계보다 먼저 실행한다. v15 단계가 `server_settings`를 만들고 `id_salt`를 읽기 때문이다. 순서가 바뀌면 빈 테이블과 새 `id_salt`가 생겨 공개 ID가 바뀐다.
+- **[코드] 안전 규칙**: 두 테이블이 함께 있으면(예상하지 않는 상태) `server_settings`에 없는 행만 복사한다. 옛 테이블의 모든 행이 같은 값으로 `server_settings`에 있을 때만 옛 테이블을 지운다. 아니면 옛 테이블을 `instance_settings_retired_v25`로 이름만 바꾸어 남기고 경고 로그를 쓴다. 기동은 멈추지 않고 행도 잃지 않는다. 운영자가 할 일은 없다.
+- **[테스트]** `tests/test_schema_v25.py`.

@@ -1,7 +1,7 @@
 // End-to-end follow (phase FP2 completion criterion): a remote server follows an actor of a real Claire process through the sidecar code.
 //
 // The Python test tests/test_fedify_sidecar.py starts Claire and runs this file. It is not in tests/, because it needs a Claire process.
-// The second instance is in this process: a key pair, actor documents, and a capture of deliveries. Claire has no function that sends a Follow, and Fedify refuses the loopback address of a second development instance (design Section 13, FS1). Thus the remote server has the name remote.example and answers through a replacement of fetch.
+// The second server is in this process: a key pair, actor documents, and a capture of deliveries. Claire has no function that sends a Follow, and Fedify refuses the loopback address of a second development server (design Section 13, FS1). Thus the remote server has the name remote.example and answers through a replacement of fetch.
 //
 // Environment: CLAIRE_FEDIFY_SOCKET, CLAIRE_FEDIFY_SERVICE_KEY_FILE, E2E_ACTOR (public ID of the actor to follow).
 

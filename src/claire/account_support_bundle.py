@@ -1,12 +1,12 @@
 """계정 범위 Support Bundle (유저 단위 기능).
 
-관리자의 인스턴스 전체 번들(``support_bundle.create_support_bundle``)과 달리 호출 계정의 데이터만 담는다.
+관리자의 서버 전체 번들(``support_bundle.create_support_bundle``)과 달리 호출 계정의 데이터만 담는다.
 
 - 담는 것: 계정 상태 요약(비밀 없음), 소유 테마 목록과 집계, 소유 테마의 적재 대기열 요약·실패 항목, 소유 테마 문서의 프로바이더 텔레메트리,
   선택한 대상 문서의 추적 정보, 빌드 정보.
 - 담지 않는 것: 호스트·마운트·저장소 진단, 설정 값, 로그 파일, OAuth·MCP 기록, 다른 계정의 테마·문서, 문서 본문(``raw_text``·``detail``),
   비밀(토큰·키 원문).
-- 등록부와 다운로드 경로는 인스턴스 번들과 같다(``support_bundles``와 sidecar). ``account_id`` 열로 소유 계정을 구분한다.
+- 등록부와 다운로드 경로는 서버 번들과 같다(``support_bundles``와 sidecar). ``account_id`` 열로 소유 계정을 구분한다.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def _account_summary(settings: Settings, account_id: int) -> dict[str, Any]:
                 "account_id_public": str(account.public_id),
                 "role": account.role,
                 "status": account.status,
-                "instance_mode": store.instance_mode(),
+                "server_mode": store.server_mode(),
                 "profile_public": bool(account.profile_public),
             }
         )

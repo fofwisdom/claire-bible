@@ -1,4 +1,4 @@
-// /admin/instance 화면의 서버 등급 절 (설계 §10.3, P4 L4-c).
+// /admin/server 화면의 서버 등급 절 (설계 §10.3, P4 L4-c).
 // CSP 때문에 인라인 스크립트·이벤트 핸들러를 쓰지 않는다. 서버 응답은 textContent로만 화면에 넣는다.
 (function () {
   "use strict";

@@ -1,6 +1,6 @@
 """네트워크 모드 준비 검사 (설계 §4.2, §17.2, G1–G9).
 
-네트워크 모드 전환(P2 L2-f)과 ``claire instance check --network``가 같은 검사를 쓴다.
+네트워크 모드 전환(P2 L2-f)과 ``claire server check --network``가 같은 검사를 쓴다.
 G1–G3과 G6은 코드 성질이므로 릴리스 상수 ``NETWORK_MODE_AVAILABLE``(O7)로 지킨다.
 실행 중 검사는 이 상수와 함께 G4(설정), G5(서버 등급), G7(관리자 상태), G8(ROUTE_POLICY 항목), G9(쿠키 설정)를 확인한다.
 """

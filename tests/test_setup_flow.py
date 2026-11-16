@@ -43,7 +43,7 @@ class _Settings:
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     anonymous_readonly: bool = False
-    # 인스턴스 예약 라벨(§8.1-4)의 출처. 개발 모드 공개 URL은 IP라 이 값으로 확인한다.
+    # 서버 예약 라벨(§8.1-4)의 출처. 개발 모드 공개 URL은 IP라 이 값으로 확인한다.
     fqdn: str = "notes.kimhome.net"
 
 
@@ -234,7 +234,7 @@ def test_setup_writes_audit_without_username(client, settings):
         (_form("kim__lee"), "syntax"),
         (_form("admin_kim"), "reserved"),
         (_form("support"), "reserved"),
-        (_form("kimhome"), "reserved"),  # CLAIRE_FQDN 라벨(인스턴스 예약)
+        (_form("kimhome"), "reserved"),  # CLAIRE_FQDN 라벨(서버 예약)
         (_form(password="q9z!x"), "too_short"),
         (_form(password="xx-kim_lee-xx-yy"), "contains_username"),
         (_form(password="has spaces in it"), "invalid_characters"),

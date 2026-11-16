@@ -310,8 +310,8 @@ Deno.test("the followers collection shows the total and no follower", async () =
     assert.ok(collection.orderedItems === undefined || collection.orderedItems.length === 0);
     assert.ok(!text.includes("remote.example"), "no follower is in the public collection");
 
-    // An account that is not an actor, and the instance actor, have no collection.
-    for (const id of ["216412345678901234", "instance"]) {
+    // An account that is not an actor, and the server actor, have no collection.
+    for (const id of ["216412345678901234", "server"]) {
       assert.equal((await sidecar.handle(new Request(`${ORIGIN}/ap/actors/${id}/followers`, { headers: { accept: AS2 } }))).status, 404);
     }
   } finally {

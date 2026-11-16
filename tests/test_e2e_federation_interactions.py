@@ -162,7 +162,7 @@ def test_e2e_like_and_announce_of_a_published_document_with_undo(env):
     assert _inbox(env, "Undo", ZED, OBJECT, object_type="Like")["decision"] == "accepted"
     assert _counters(env) == (0, 0)
 
-    # An object path without an object, and an object that is not on this instance, are not counted.
+    # An object path without an object, and an object that is not on this server, are not counted.
     assert _inbox(env, "Like", ZED, f"{PUBLIC_URL}/ap/objects/1") == {"decision": "ignored", "reply": None, "reason": "no_object"}
     assert _inbox(env, "Like", ZED, f"{ZED}/notes/1")["reason"] == "unsupported_type"
     # A blocked domain is refused before the reaction.

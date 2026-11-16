@@ -1,11 +1,11 @@
 {
   "request": {
     "method": "GET",
-    "path": "/internal/federation/v1/actors/instance/keys"
+    "path": "/internal/federation/v1/actors/server/keys"
   },
   "status": 200,
   "response": {
-    "public_id": "instance",
+    "public_id": "server",
     "keys": [
       {
         "alg": "rsa2048",

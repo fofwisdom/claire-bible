@@ -49,8 +49,8 @@ paths:
     get:
       summary: Check current authenticated scope
       description: >-
-        Returns the request scope, the instance mode, the caller's relation to the
-        resolved namespace, and whether the caller is the instance admin. The
+        Returns the request scope, the server mode, the caller's relation to the
+        resolved namespace, and whether the caller is the server admin. The
         response never carries a USERNAME.
       operationId: checkWhoami
       x-claire-access: read
@@ -65,13 +65,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [scope, instance, relation, is_admin]
+                required: [scope, server, relation, is_admin]
                 properties:
                   scope:
                     type: string
                     enum: [owner, collaborator, readonly, anonymous]
                     example: owner
-                  instance:
+                  server:
                     type: object
                     required: [mode]
                     properties:
@@ -90,8 +90,8 @@ paths:
                   is_admin:
                     type: boolean
                     description: >-
-                      True only for an owner-scope credential of the instance admin
-                      account (instance_role admin).
+                      True only for an owner-scope credential of the server admin
+                      account (server_role admin).
                     example: true
         '401':
           description: Authentication required.
@@ -1488,7 +1488,7 @@ paths:
     get:
       summary: Admin console entry redirect
       description: >-
-        Redirects the instance admin to /admin/instance. Every non-admin request
+        Redirects the server admin to /admin/server. Every non-admin request
         gets 404 before any redirect. An optional theme query that is not one of the
         admin's own themes also gets 404.
       operationId: getAdminConsoleIndex
@@ -1501,14 +1501,14 @@ paths:
         - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '302':
-          description: Redirect to /admin/instance (Cache-Control no-store, Referrer-Policy same-origin).
+          description: Redirect to /admin/server (Cache-Control no-store, Referrer-Policy same-origin).
           headers:
             Location:
               schema:
                 type: string
-                const: /admin/instance
+                const: /admin/server
         '404':
-          description: Not the instance admin with owner scope, or invalid theme reference.
+          description: Not the server admin with owner scope, or invalid theme reference.
 
   /admin/{section}:
     get:
@@ -1517,7 +1517,7 @@ paths:
         Root-only admin console pages rendered in console_shell.html. Prefixed
         paths (/@{username}/admin/...) return 404. Non-admin callers always get 404,
         never 403. /admin/themes shows the admin account's own themes plus
-        instance-wide aggregate counts only; member theme labels and content are
+        server-wide aggregate counts only; member theme labels and content are
         never read.
       operationId: getAdminConsoleSection
       x-claire-access: admin
@@ -1531,7 +1531,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [instance, accounts, idp, providers, limits, themes, tokens, mcp]
+            enum: [server, accounts, idp, providers, limits, themes, tokens, mcp]
         - $ref: '#/components/parameters/ConsoleThemeQuery'
       responses:
         '200':
@@ -1541,7 +1541,7 @@ paths:
               schema:
                 type: string
         '404':
-          description: Not the instance admin with owner scope, or invalid theme reference.
+          description: Not the server admin with owner scope, or invalid theme reference.
 
   /api/admin/mcp/telemetry:
     get:
@@ -1602,7 +1602,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '404':
-          description: Not the instance admin with owner scope.
+          description: Not the server admin with owner scope.
 
   /api/admin/accounts:
     get:
@@ -1627,7 +1627,7 @@ paths:
                     items:
                       $ref: '#/components/schemas/AccountSummary'
         '404':
-          description: Not the instance admin with owner scope.
+          description: Not the server admin with owner scope.
 
   /me:
     get:
@@ -1683,9 +1683,9 @@ paths:
     get:
       summary: User settings console section page (unified console shell)
       description: >-
-        Root-only owner pages rendered in console_shell.html in both instance modes.
+        Root-only owner pages rendered in console_shell.html in both server modes.
         Prefixed paths (/@{username}/settings/..., /themes/{n}/settings/...) return
-        404. For the instance admin, /settings/themes and /settings/tokens redirect
+        404. For the server admin, /settings/themes and /settings/tokens redirect
         (302) to /admin/themes and /admin/tokens. Responses to non-admin callers
         contain no /admin links or admin markup. Sections reader through webmcp are
         theme-scoped; the others are account-wide.
@@ -1731,7 +1731,7 @@ paths:
         /settings/reader, accounts to /settings/connections, and feeds, tags, rules,
         outbound, opml, mcp, webmcp to /settings/ with the same name, keeping the
         validated theme as ?theme=. idp and userdb go to /admin/idp and
-        /admin/accounts for the instance admin and to /settings/account for other
+        /admin/accounts for the server admin and to /settings/account for other
         owners, without ?theme=. An empty or unknown tab is 404. The Location is
         always a root path.
       operationId: getSyndicationPreferencesRedirect

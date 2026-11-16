@@ -53,7 +53,7 @@
    - 테마별 독립 Obsidian Vault 내보내기 및 FTS/벡터 색인 분리.
 7. **표준 인증 및 상호운용성**:
    - RFC 8693 OAuth 2.0 Token Exchange(계정에 귀속된 세션 토큰만 교환, [`TOKEN_EXCHANGE.md`](implementation/TOKEN_EXCHANGE.md)).
-   - 로컬 계정, 초대제 가입, 싱글·네트워크 인스턴스 모드, 외부 IdP(OIDC·GitHub) 로그인. 구현 정본은 [`ACCOUNTS.md`](implementation/ACCOUNTS.md)다.
+   - 로컬 계정, 초대제 가입, 싱글·네트워크 서버 모드, 외부 IdP(OIDC·GitHub) 로그인. 구현 정본은 [`ACCOUNTS.md`](implementation/ACCOUNTS.md)다.
    - OpenAPI 3.1.0 공통 사양 정본([`openapi.yaml`](implementation/openapi.yaml)) 준수.
 8. **신뢰성 및 오퍼레이션**:
    - 지수 백오프 기반 오류 자동 복구 루프(`claire_recover`).

@@ -10,14 +10,14 @@ export const CONTRACT_VERSION = "1.8";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
-export const INSTANCE_ACTOR_ID = "instance";
+export const SERVER_ACTOR_ID = "server";
 
 // The host name is a placeholder. The transport sends the request to the Unix socket.
 const BASE_URL = "http://claire.internal";
 
 export type Transport = (request: Request) => Promise<Response>;
 
-export interface InstanceConfig {
+export interface ServerConfig {
   contract_version: string;
   canonical_origin: string;
   handle_host: string;
@@ -166,7 +166,7 @@ export interface TimelineObject {
 
 // One inbound activity for the timelines of the accounts (unit FP4-4). Undo is an Undo(Announce): object_iri is the object of the Announce.
 // public is false for an object that is not public; then object is null. public is null for Delete and Undo. parents is the reply chain of object, nearest parent first.
-// Contract 1.4 (unit FP4-8): actor_type is the type of the actor (null for a type outside the list). mentioned has the actors of this instance that the object of a Create mentions (a Mention tag) or addresses (to, cc), MAX_MENTIONED at most. in_reply_to is the reply target of the object, also when object is null.
+// Contract 1.4 (unit FP4-8): actor_type is the type of the actor (null for a type outside the list). mentioned has the actors of this server that the object of a Create mentions (a Mention tag) or addresses (to, cc), MAX_MENTIONED at most. in_reply_to is the reply target of the object, also when object is null.
 export interface TimelineEvent {
   event_id: string;
   type: "Create" | "Update" | "Delete" | "Announce" | "Undo";
@@ -287,7 +287,7 @@ export interface InteractionTask {
 }
 
 // One verified inbound activity of the quote protocol (contract 1.7, unit FP4-9Q).
-// QuoteRequest: object_iri is the quoted object of this instance, instrument_iri is the quoting object. Accept, Reject: object_iri is the ID of the quote request (objectId of the activity, RT9), and authorization is the QuoteAuthorization in result of an Accept.
+// QuoteRequest: object_iri is the quoted object of this server, instrument_iri is the quoting object. Accept, Reject: object_iri is the ID of the quote request (objectId of the activity, RT9), and authorization is the QuoteAuthorization in result of an Accept.
 export interface QuoteEvent {
   event_id: string;
   type: "QuoteRequest" | "Accept" | "Reject";
@@ -538,11 +538,11 @@ export class InternalApi {
     return parsed;
   }
 
-  async config(): Promise<InstanceConfig> {
+  async config(): Promise<ServerConfig> {
     const value = await this.#call("GET", "/config");
     if (value === null) throw new InternalApiError(404, "not_found");
     configShape(value, "config");
-    const config = value as InstanceConfig;
+    const config = value as ServerConfig;
     if (!sameMajor(config.contract_version)) throw new ContractError(`Claire has contract version ${config.contract_version}, the sidecar has ${CONTRACT_VERSION}`);
     return config;
   }
@@ -580,7 +580,7 @@ export class InternalApi {
     return { state: "found", record: value as ActorRecord };
   }
 
-  // publicId is an account public ID or INSTANCE_ACTOR_ID. The result contains private keys: do not write it to a log.
+  // publicId is an account public ID or SERVER_ACTOR_ID. The result contains private keys: do not write it to a log.
   async actorKeys(publicId: string): Promise<ActorKeys | null> {
     const value = await this.#call("GET", `/actors/${encodeURIComponent(publicId)}/keys`);
     if (value !== null) keysShape(value, "keys");

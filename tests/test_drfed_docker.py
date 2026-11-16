@@ -1,6 +1,6 @@
 """Development test only: scenarios against DrFed 0.1.0 in Docker (FEDERATION_REMOTE_READING_DESIGN.md unit FP4-10).
 
-The stack of ``tests/drfed_stack.py`` is a model of a remote ActivityPub server: DrFed is behind a TLS gateway with a wildcard certificate of a private certificate authority, and each DrFed instance has a subdomain of the root origin. DrFed 0.1.0 records the deliveries that arrive at an inbox; it does not send activities to a remote inbox.
+The stack of ``tests/drfed_stack.py`` is a model of a remote ActivityPub server: DrFed is behind a TLS gateway with a wildcard certificate of a private certificate authority, and each DrFed server has a subdomain of the root origin. DrFed 0.1.0 records the deliveries that arrive at an inbox; it does not send activities to a remote inbox.
 
 The tests start containers and build an image from the npm registry, thus they run only with ``CB_DRFED_TEST=1`` and a Docker daemon.
 """
@@ -47,20 +47,20 @@ def stack(tmp_path_factory):
 # --- The stack ------------------------------------------------------------------
 
 
-def test_helper_signs_in_and_makes_an_instance_with_actors(stack):
-    """The helper does all steps without the web UI: the login link comes from the log of DrFed, and GraphQL makes the instance and the actors."""
-    assert stack.access_token and stack.instance_id and len(stack.actors) == 2
+def test_helper_signs_in_and_makes_an_server_with_actors(stack):
+    """The helper does all steps without the web UI: the login link comes from the log of DrFed, and GraphQL makes the server and the actors."""
+    assert stack.access_token and stack.server_id and len(stack.actors) == 2
     viewer = stack.graphql("{ viewer { email } }")["viewer"]
     assert viewer["email"] == stack.email
     # Without the access token DrFed knows no account.
     assert stack.graphql("{ viewer { email } }", token=False)["viewer"] is None
     for actor in stack.actors:
-        assert actor.iri.startswith(stack.instance_origin + "/") and actor.inbox.startswith(stack.instance_origin + "/") and actor.handle.endswith(f"@{stack.instance_slug}.{stack.root_name}")
+        assert actor.iri.startswith(stack.server_origin + "/") and actor.inbox.startswith(stack.server_origin + "/") and actor.handle.endswith(f"@{stack.server_slug}.{stack.root_name}")
 
 
 def test_each_name_below_the_root_resolves_and_only_the_gateway_port_is_open(stack):
     """A container on the network ``edge`` with the DNS server of the stack: each name below the root origin is the gateway, and only port 443 is open. DrFed does not listen on its address of ``edge``."""
-    names = stack.probe(f"for n in {stack.root_name} {stack.instance_slug}.{stack.root_name} a-new-name.{stack.root_name}; do nslookup $n | awk '/^Address/ && !/:53/ {{print $2}}' | tail -1; done").stdout.split()
+    names = stack.probe(f"for n in {stack.root_name} {stack.server_slug}.{stack.root_name} a-new-name.{stack.root_name}; do nslookup $n | awk '/^Address/ && !/:53/ {{print $2}}' | tail -1; done").stdout.split()
     assert names == [stack.gateway_ip] * 3
     ports = stack.probe(f"for p in 443 80 8888; do nc -z -w 2 any.{stack.root_name} $p; echo $p=$?; done; nc -z -w 2 {stack.edge_prefix}.4 8888; echo drfed=$?").stdout.split()
     assert ports == ["443=0", "80=1", "8888=1", "drfed=1"]
@@ -70,18 +70,18 @@ def test_each_name_below_the_root_resolves_and_only_the_gateway_port_is_open(sta
 
 def test_tls_uses_the_wildcard_certificate_of_the_private_authority(stack):
     with stack.client(token=False) as trusted:
-        assert trusted.get(stack.instance_origin + "/.well-known/nodeinfo").status_code == 200
+        assert trusted.get(stack.server_origin + "/.well-known/nodeinfo").status_code == 200
     # A client that does not know the certificate authority stops before a request goes out.
     with httpx.Client(transport=httpx.HTTPTransport(), timeout=10) as unknown, pytest.raises(httpx.ConnectError):
         unknown.get(f"https://{stack.gateway_ip}/", headers={"host": stack.root_name})
 
 
 def test_the_gateway_keeps_the_host_header(stack):
-    """DrFed selects the surface from the Host header: an instance name serves ActivityPub only, and the root name serves GraphQL."""
+    """DrFed selects the surface from the Host header: a server name serves ActivityPub only, and the root name serves GraphQL."""
     actor = stack.actors[0]
     with stack.client(token=False) as client:
         assert client.get(actor.iri, headers=AS_JSON).json()["id"] == actor.iri
-        assert client.post(stack.instance_origin + "/graphql", json={"query": "{ __typename }"}).status_code == 404
+        assert client.post(stack.server_origin + "/graphql", json={"query": "{ __typename }"}).status_code == 404
         assert client.post(stack.root_origin + "/graphql", json={"query": "{ __typename }"}).status_code == 200
 
 
@@ -92,7 +92,7 @@ def test_actor_webfinger_and_a_public_note_are_readable(stack):
     actor = stack.actors[0]
     user = actor.handle.strip("@").split("@")[0]
     with stack.client(token=False) as client:
-        finger = client.get(stack.instance_origin + "/.well-known/webfinger", params={"resource": f"acct:{user}@{stack.instance_slug}.{stack.root_name}"}).json()
+        finger = client.get(stack.server_origin + "/.well-known/webfinger", params={"resource": f"acct:{user}@{stack.server_slug}.{stack.root_name}"}).json()
         assert {"rel": "self", "href": actor.iri, "type": "application/activity+json"} in finger["links"]
         document = client.get(actor.iri, headers=AS_JSON).json()
         assert document["type"] == "Person" and document["inbox"] == actor.inbox and document["preferredUsername"] == user
@@ -197,7 +197,7 @@ class _Claire:
         deadline = time.monotonic() + seconds
         found: list[dict] = []
         while time.monotonic() < deadline:
-            edges = self.stack.graphql(DELIVERIES, {"id": self.stack.instance_id, "type": activity_type})["node"]["activityDeliveries"]["edges"]
+            edges = self.stack.graphql(DELIVERIES, {"id": self.stack.server_id, "type": activity_type})["node"]["activityDeliveries"]["edges"]
             found = [edge["node"] for edge in reversed(edges) if edge["node"]["remoteActorIri"] == self.actor]
             if len(found) >= count:
                 return found
@@ -223,12 +223,12 @@ def _free_port() -> int:
 
 @pytest.fixture(scope="module")
 def claire(stack, tmp_path_factory):
-    instance = _Claire(stack, tmp_path_factory.mktemp("claire"))
+    server = _Claire(stack, tmp_path_factory.mktemp("claire"))
     try:
-        instance.start()
-        yield instance
+        server.start()
+        yield server
     finally:
-        instance.stop()
+        server.stop()
 
 
 def _verified(delivery: dict, claire) -> dict:

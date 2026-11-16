@@ -143,7 +143,7 @@ def test_e2e_blocks_limits_and_the_actor_rule(env):
     blocked_parent = _object("https://blocked.example/notes/2", "https://blocked.example/users/eve")
     assert _send(env, _event("Create", CAROL, _object(f"{CAROL}/notes/13", CAROL, in_reply_to=blocked_parent["object_iri"]), parents=[blocked_parent]))["items"] == 1
     assert _items(env, "object_iri LIKE 'https://blocked.example/%'") == []
-    # An object of this instance is not an item of a timeline.
+    # An object of this server is not an item of a timeline.
     assert _send(env, _event("Announce", GROUP, _object(f"{PUBLIC_URL}/ap/objects/1", f"{PUBLIC_URL}/ap/actors/{ALPHA_PUBLIC_ID}")))["reason"] == "invalid_object"
 
     # A body outside the sealed model is refused.

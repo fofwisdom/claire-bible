@@ -111,7 +111,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
     def _actor(conn: Any, account_id: int, *, need_actor: bool = True) -> tuple[accounts_store.AccountStore, accounts_store.Account] | None:
         """The account of the caller, or ``None`` in single mode (the same 404 as ``ROUTE_POLICY`` gives). Raises 409 ``not_actor`` when the route needs an actor (Section 5.4 rule 11)."""
         store = accounts_store.AccountStore(conn)
-        if store.instance_mode() != "network":
+        if store.server_mode() != "network":
             return None
         account = store.get(account_id)
         if need_actor and actor_state(account, federation=store.federation_state()) != "active":
@@ -173,7 +173,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         sensitive = body.get("sensitive", bool(summary) if current is None or "summary" in body else current.sensitive)
         if not isinstance(sensitive, bool):
             raise _Refused(400, "invalid_request", fields=["sensitive"])
-        # Language (rule 12): the value of the request, else the locale of the account, else the instance default, else English.
+        # Language (rule 12): the value of the request, else the locale of the account, else the server default, else English.
         default_language = (None if current is None else current.language) or account.locale or getattr(ctx.settings, "ui_lang", "") or "en"
         raw_language = body.get("language") or default_language
         language = note_text.normalize_language(raw_language) if isinstance(raw_language, str) else None

@@ -1,6 +1,6 @@
 """계정 저장소와 자격증명의 계정 귀속 (설계 §8.2–§8.4, §13.1).
 
-``accounts``, ``username_tombstones``, ``instance_settings`` 테이블과 ``auth_sessions``·``oauth_tokens``의 ``account_id``·``authenticated_at`` 열을 다룬다. 스키마와 v15 이관은 `store.db`에 있다.
+``accounts``, ``username_tombstones``, ``server_settings`` 테이블과 ``auth_sessions``·``oauth_tokens``의 ``account_id``·``authenticated_at`` 열을 다룬다. 스키마와 v15 이관은 `store.db`에 있다.
 
 ``AccountStore``는 호출자가 연 연결을 감싼다. 연결의 수명은 호출자가 정하고, 변경 메서드는 끝에서 커밋한다(`store.db`의 기존 함수와 같은 관례).
 """
@@ -33,8 +33,8 @@ __all__ = [
     "AccountStatus",
     "AccountStore",
     "CredentialBinding",
-    "INSTANCE_MODES",
-    "InstanceMode",
+    "SERVER_MODES",
+    "ServerMode",
     "UsernameRejected",
     "create_account_session",
     "delete_session",
@@ -48,10 +48,10 @@ __all__ = [
 
 AccountRole = Literal["admin", "member"]
 AccountStatus = Literal["setup_required", "active", "suspended", "deleting", "purged"]
-# 인스턴스 모드(§4). ``instance_settings.mode``에 둔다. 행이 없으면 싱글 모드다(P2 이전 설치).
-InstanceMode = Literal["single", "network"]
-INSTANCE_MODES: frozenset[str] = frozenset({"single", "network"})
-# Federation switch of the instance (Fedify sidecar design). Federation operates in network mode only (FK3).
+# 서버 모드(§4). ``server_settings.mode``에 둔다. 행이 없으면 싱글 모드다(P2 이전 설치).
+ServerMode = Literal["single", "network"]
+SERVER_MODES: frozenset[str] = frozenset({"single", "network"})
+# Federation switch of the server (Fedify sidecar design). Federation operates in network mode only (FK3).
 FederationState = Literal["off", "on"]
 FEDERATION_STATES: frozenset[str] = frozenset({"off", "on"})
 FEDERATION_SETTING_KEY = "federation"
@@ -286,36 +286,36 @@ class AccountStore:
         ).fetchone()
         return row is not None
 
-    # --- 인스턴스 설정 ------------------------------------------------------
+    # --- 서버 설정 ------------------------------------------------------
     def get_setting(self, key: str) -> str | None:
-        row = self.conn.execute("SELECT value FROM instance_settings WHERE key=?", (key,)).fetchone()
+        row = self.conn.execute("SELECT value FROM server_settings WHERE key=?", (key,)).fetchone()
         return None if row is None else str(row[0])
 
     def set_setting(self, key: str, value: str, *, updated_by: int | None) -> None:
         self.conn.execute(
-            "INSERT INTO instance_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+            "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, "
             "updated_by=excluded.updated_by",
             (key, value, time.time(), updated_by),
         )
         self.conn.commit()
 
-    def instance_mode(self) -> InstanceMode:
-        """``instance_settings.mode``. 행이 없으면 ``"single"``. 알 수 없는 값이면 ``RuntimeError``(C1)."""
+    def server_mode(self) -> ServerMode:
+        """``server_settings.mode``. 행이 없으면 ``"single"``. 알 수 없는 값이면 ``RuntimeError``(C1)."""
         raw = self.get_setting("mode")
         if raw is None:
             return "single"
-        if raw not in INSTANCE_MODES:
-            raise RuntimeError(f"instance_settings.mode has an unknown value: {raw!r}")
-        return raw  # type: ignore[return-value]  # INSTANCE_MODES가 걸렀다
+        if raw not in SERVER_MODES:
+            raise RuntimeError(f"server_settings.mode has an unknown value: {raw!r}")
+        return raw  # type: ignore[return-value]  # SERVER_MODES가 걸렀다
 
     def federation_state(self) -> FederationState:
-        """``instance_settings.federation`` (Fedify sidecar design Section 10.1). ``"off"`` when there is no row. An unknown value raises ``RuntimeError`` (C1)."""
+        """``server_settings.federation`` (Fedify sidecar design Section 10.1). ``"off"`` when there is no row. An unknown value raises ``RuntimeError`` (C1)."""
         raw = self.get_setting(FEDERATION_SETTING_KEY)
         if raw is None:
             return "off"
         if raw not in FEDERATION_STATES:
-            raise RuntimeError(f"instance_settings.federation has an unknown value: {raw!r}")
+            raise RuntimeError(f"server_settings.federation has an unknown value: {raw!r}")
         return raw  # type: ignore[return-value]
 
     def set_federation_state(self, state: FederationState, *, updated_by: int) -> None:
@@ -324,21 +324,21 @@ class AccountStore:
             raise ValueError(f"unknown federation state: {state!r}")
         self.set_setting(FEDERATION_SETTING_KEY, state, updated_by=updated_by)
 
-    def set_instance_mode(self, mode: InstanceMode, *, updated_by: int) -> None:
+    def set_server_mode(self, mode: ServerMode, *, updated_by: int) -> None:
         """모드를 기록한다. 전환 조건(§4.2 준비 검사·멤버 없음)은 호출자(``accounts_routes``)가 먼저 판정한다."""
         raise NotImplementedError  # P2 L2-f
 
     def id_salt(self) -> bytes:
-        """``instance_settings.id_salt``(hex). 없으면 ``RuntimeError``(이관 누락, C1)."""
+        """``server_settings.id_salt``(hex). 없으면 ``RuntimeError``(이관 누락, C1)."""
         raw = self.get_setting("id_salt")
         if raw is None:
-            raise RuntimeError("instance_settings.id_salt is missing (schema v15 migration not applied)")
+            raise RuntimeError("server_settings.id_salt is missing (schema v15 migration not applied)")
         try:
             salt = bytes.fromhex(raw)
         except ValueError as exc:
-            raise RuntimeError("instance_settings.id_salt is not valid hex") from exc
+            raise RuntimeError("server_settings.id_salt is not valid hex") from exc
         if not salt:
-            raise RuntimeError("instance_settings.id_salt is empty")
+            raise RuntimeError("server_settings.id_salt is empty")
         return salt
 
     # --- 변경 -------------------------------------------------------------
@@ -404,7 +404,7 @@ class AccountStore:
             self.conn.rollback()
             raise AccountNotFound(account_id)
         # 연합 액터의 이름이 바뀌면 팔로워에게 Update(Person)을 보낸다(Fedify 사이드카 설계 §8.1). 이름 변경과 같은 트랜잭션이다.
-        if before is not None and str(before[0]) != display_name and self.federation_state() == "on" and self.instance_mode() == "network":
+        if before is not None and str(before[0]) != display_name and self.federation_state() == "on" and self.server_mode() == "network":
             row = self.conn.execute("SELECT status, profile_public, username FROM accounts WHERE id=?", (account_id,)).fetchone()
             if row["status"] == "active" and row["profile_public"] and row["username"]:
                 from . import federation as federation_store
@@ -540,7 +540,7 @@ class AccountStore:
         # 테마 삭제(아래)가 federation_objects 행을 연쇄 삭제하기 전에 tombstone을 남긴다.
         from . import federation as federation_store
 
-        federation_active = self.federation_state() == "on" and self.instance_mode() == "network"
+        federation_active = self.federation_state() == "on" and self.server_mode() == "network"
         was_actor = bool(current.username) and (bool(current.profile_public) or federation_store.count_followers(self.conn, account_id) > 0)
         federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=federation_active and not skip_federated_delete, now=when)
         # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
@@ -698,10 +698,10 @@ class AccountStore:
         username: str,
         *,
         account_id: int | None = None,
-        instance_reserved: frozenset[str] = frozenset(),
+        server_reserved: frozenset[str] = frozenset(),
     ) -> str:
-        """username 문법, 예약어, 인스턴스 예약, 퇴역(retired), 중복(taken)을 종합 검증한다."""
-        norm_name = username_policy.validate_username(username, instance_reserved=instance_reserved)
+        """username 문법, 예약어, 서버 예약, 퇴역(retired), 중복(taken)을 종합 검증한다."""
+        norm_name = username_policy.validate_username(username, server_reserved=server_reserved)
         if self.is_username_retired(norm_name):
             raise UsernameRejected("retired")
         taken = self.find_by_username(norm_name)
@@ -716,11 +716,11 @@ class AccountStore:
         display_name: str = "",
         profile_public: bool = False,
         now: float | None = None,
-        instance_reserved: frozenset[str] = frozenset(),
+        server_reserved: frozenset[str] = frozenset(),
     ) -> Account:
         """신규 멤버 계정을 생성한다. 퇴역/중복 시 UsernameRejected."""
         when = time.time() if now is None else now
-        norm_name = self.validate_username(username, instance_reserved=instance_reserved)
+        norm_name = self.validate_username(username, server_reserved=server_reserved)
         salt = self.id_salt()
 
         def _insert(public_id: int) -> None:

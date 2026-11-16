@@ -85,7 +85,7 @@ class AccountThemeScope:
 # 이전 이름. 관리자 봇도 같은 범위 규칙을 쓴다.
 AdminThemeScope = AccountThemeScope
 
-# 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(인스턴스 세션·토큰·전체 현황을 다루기 때문이다).
+# 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(서버 세션·토큰·전체 현황을 다루기 때문이다).
 ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webco", "webro", "token", "status"})
 # 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
 ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
@@ -105,10 +105,10 @@ def resolve_update_locale(update: Any, *, owner_locale: str | None, settings: An
     )
 
 
-def instance_bot_profile(settings: Any) -> Any:
-    """``TELEGRAM_BOT_TOKEN``(인스턴스 봇)을 관리자 계정 봇 프로필로 만든다. 토큰이 없으면 None.
+def server_bot_profile(settings: Any) -> Any:
+    """``TELEGRAM_BOT_TOKEN``(서버 봇)을 관리자 계정 봇 프로필로 만든다. 토큰이 없으면 None.
 
-    허용 목록은 ``TELEGRAM_ALLOWED_USERS``이다. 비어 있으면 예전처럼 모두 허용한다(인스턴스 봇 호환).
+    허용 목록은 ``TELEGRAM_ALLOWED_USERS``이다. 비어 있으면 예전처럼 모두 허용한다(서버 봇 호환).
     """
     from .store.telegram_bots import TelegramBotProfile, bot_id_from_token
 
@@ -120,8 +120,8 @@ def instance_bot_profile(settings: Any) -> Any:
         bot_id=bot_id_from_token(token) or 0,
         token=token,
         allowed_user_ids=tuple(sorted(getattr(settings, "allowed_user_ids", None) or ())),
-        fingerprint="instance",
-        source="instance",
+        fingerprint="server",
+        source="server",
     )
 
 
@@ -799,24 +799,24 @@ async def _create_graph_bundle_for_delivery(
 def build_app(settings: Settings | None = None, *, profile: Any | None = None) -> Any:
     """봇 하나의 Application을 만든다.
 
-    ``profile``이 None이면 인스턴스 봇(``TELEGRAM_BOT_TOKEN``, 관리자 계정)이다. 계정 봇은 ``store.telegram_bots.TelegramBotProfile``을 넘긴다.
+    ``profile``이 None이면 서버 봇(``TELEGRAM_BOT_TOKEN``, 관리자 계정)이다. 계정 봇은 ``store.telegram_bots.TelegramBotProfile``을 넘긴다.
     계정 봇은 그 계정의 테마·프로바이더 컨텍스트로만 동작하고, 허용 목록(``allowed_user_ids``)에 없는 사용자는 무시한다.
     """
     s = settings or get_settings()
     if profile is None:
-        profile = instance_bot_profile(s)
+        profile = server_bot_profile(s)
         if profile is None:
             raise ValueError("TELEGRAM_BOT_TOKEN is not set. Set it in .env.")
     setup_telegram_logging(s.data_dir)
     bot_account_id = int(profile.account_id)
     is_admin_bot = bot_account_id == dbm.ADMIN_ACCOUNT_ID
-    is_instance_bot = getattr(profile, "source", "account") == "instance"
+    is_server_bot = getattr(profile, "source", "account") == "server"
     allowed_ids = frozenset(int(i) for i in (profile.allowed_user_ids or ()))
 
     def _is_allowed(user_id: int | None) -> bool:
         if not allowed_ids:
-            # 허용 목록이 빈 봇은 인스턴스 봇뿐이다(예전 동작). 계정 봇은 저장 때 빈 목록을 거부한다.
-            return is_instance_bot
+            # 허용 목록이 빈 봇은 서버 봇뿐이다(예전 동작). 계정 봇은 저장 때 빈 목록을 거부한다.
+            return is_server_bot
         return user_id in allowed_ids
 
     try:
@@ -2260,7 +2260,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         if sub_args and sub_args[0].lower() == "list":
             if is_admin_bot:
-                # 운영자 봇은 인스턴스 번들만 본다(계정 번들은 그 계정의 것이다).
+                # 운영자 봇은 서버 번들만 본다(계정 번들은 그 계정의 것이다).
                 bundles = [
                     b for b in await asyncio.to_thread(list_active_support_bundles, s.data_dir)
                     if b.get("account_id") is None
@@ -2652,7 +2652,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
 
 def run_bot() -> int:
-    """``claire bot``: 인스턴스 봇과 계정 봇을 함께 돌린다(``telegram_supervisor``).
+    """``claire bot``: 서버 봇과 계정 봇을 함께 돌린다(``telegram_supervisor``).
 
     ``TELEGRAM_BOT_TOKEN``이 없어도 멈추지 않는다. 계정이 WebUI에서 봇을 등록하면 다음 주기에 시작한다.
     """

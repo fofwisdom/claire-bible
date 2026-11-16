@@ -25,7 +25,7 @@
   const $ = (id) => document.getElementById(id);
 
   const IS_OWNER = cfg.authScope === "owner";
-  const IS_NETWORK = cfg.instanceMode === "network";
+  const IS_NETWORK = cfg.serverMode === "network";
   const STAGES = ["collect", "ingest", "publish"];
   const STREAMS = [
     { key: "home", icon: ic("home"), label: "synd.client.stream.home", filter: "" },
@@ -377,7 +377,7 @@
   }
 
   // --- Thread fetch (FEDERATION_REMOTE_READING_DESIGN.md Section 6.5 rule 4, unit FP4-6) ---
-  // When the owner opens an item, the server makes a fetch task for its thread (one at most in the refetch time of the instance). While a task waits for the sidecar, the reader shows a note and this code asks again. After the task has a result, or after the last attempt, the thread loads again.
+  // When the owner opens an item, the server makes a fetch task for its thread (one at most in the refetch time of the server). While a task waits for the sidecar, the reader shows a note and this code asks again. After the task has a result, or after the last attempt, the thread loads again.
   const THREAD_POLL_MS = 3000;
   const THREAD_POLL_MAX = 10;
 

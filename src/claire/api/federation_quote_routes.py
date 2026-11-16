@@ -55,7 +55,7 @@ class QuoteAuthorizationBody(_Sealed):
 class QuoteEventRequest(_Sealed):
     """One verified inbound activity of the quote protocol.
 
-    ``QuoteRequest``: ``object_iri`` is the quoted object (an object of this instance), ``instrument_iri`` is the quoting object, and ``authorization`` is ``None``. ``Accept``, ``Reject``: ``object_iri`` is the ID of the quote request that the activity answers, ``instrument_iri`` is ``None``, and ``authorization`` is the ``result`` of an ``Accept``.
+    ``QuoteRequest``: ``object_iri`` is the quoted object (an object of this server), ``instrument_iri`` is the quoting object, and ``authorization`` is ``None``. ``Accept``, ``Reject``: ``object_iri`` is the ID of the quote request that the activity answers, ``instrument_iri`` is ``None``, and ``authorization`` is the ``result`` of an ``Accept``.
     """
 
     event_id: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
@@ -77,7 +77,7 @@ class QuoteEventResponse(_Sealed):
 
 
 class QuoteAuthorizationRecord(_Sealed):
-    """The canonical form of one approved quote request. The sidecar makes the ``QuoteAuthorization`` from it: ``attributedTo`` is the actor, ``interactionTarget`` is the object ``object_public_id`` of this instance, and ``interactingObject`` is ``quoting_object_iri``. The quoting object is not in the record (FEP-044f: the authorization does not embed it)."""
+    """The canonical form of one approved quote request. The sidecar makes the ``QuoteAuthorization`` from it: ``attributedTo`` is the actor, ``interactionTarget`` is the object ``object_public_id`` of this server, and ``interactingObject`` is ``quoting_object_iri``. The quoting object is not in the record (FEP-044f: the authorization does not embed it)."""
 
     id: str
     actor_public_id: str

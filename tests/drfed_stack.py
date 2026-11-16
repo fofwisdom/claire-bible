@@ -1,6 +1,6 @@
 """Development test only: DrFed 0.1.0 in Docker behind a TLS gateway, as a model of a remote ActivityPub server.
 
-DrFed (https://www.npmjs.com/package/@drfed/drfed) is a test server for ActivityPub implementations: it makes test instances and actors, makes objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). The module writes a private certificate authority and a wildcard certificate to a run directory, starts ``tests/drfed/docker-compose.yml``, signs in with the login code that DrFed writes to its log, and makes one instance with actors. All secrets are random for each start and stay in the run directory (mode 0700).
+DrFed (https://www.npmjs.com/package/@drfed/drfed) is a test server for ActivityPub implementations: it makes test servers and actors, makes objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). The module writes a private certificate authority and a wildcard certificate to a run directory, starts ``tests/drfed/docker-compose.yml``, signs in with the login code that DrFed writes to its log, and makes one server with actors. All secrets are random for each start and stay in the run directory (mode 0700).
 
 Automatic tests: ``tests/test_drfed_docker.py`` (set ``CB_DRFED_TEST=1``).
 Manual work::
@@ -36,7 +36,7 @@ COMPOSE_FILE = REPO_ROOT / "tests" / "drfed" / "docker-compose.yml"
 DEFAULT_RUN_DIR = REPO_ROOT / ".dev" / "drfed-test"
 DEFAULT_PROJECT = "claire-drfed-test"
 ROOT_NAME = "drfed.test"
-# The port of the gateway for the public origin of the Claire instance under test (no TLS: the development rule of Claire is http with an IPv4 address). The gateway sends its requests to the sidecar of Claire (the service ``sidecar``).
+# The port of the gateway for the public origin of the Claire server under test (no TLS: the development rule of Claire is http with an IPv4 address). The gateway sends its requests to the sidecar of Claire (the service ``sidecar``).
 CLAIRE_PORT = 8080
 STATE_FILE = "stack.json"
 # The first three numbers of the two Docker networks. CB_DRFED_EDGE_PREFIX and CB_DRFED_BACKEND_PREFIX select other networks when these are in use.
@@ -67,8 +67,8 @@ class DrFedStack:
     loopback_port: int
     email: str
     access_token: str = ""
-    instance_id: str = ""
-    instance_slug: str = ""
+    server_id: str = ""
+    server_slug: str = ""
     actors: list[DrFedActor] = field(default_factory=list)
     root_name: str = ROOT_NAME
 
@@ -85,8 +85,8 @@ class DrFedStack:
         return f"https://{self.root_name}"
 
     @property
-    def instance_origin(self) -> str:
-        return f"https://{self.instance_slug}.{self.root_name}"
+    def server_origin(self) -> str:
+        return f"https://{self.server_slug}.{self.root_name}"
 
     @property
     def ca_file(self) -> str:
@@ -200,14 +200,14 @@ def sign_in(stack: DrFedStack) -> str:
     raise DrFedStackError("the login link was not in the log of DrFed")
 
 
-def create_instance(stack: DrFedStack, slug: str) -> str:
+def create_server(stack: DrFedStack, slug: str) -> str:
     data = stack.graphql("mutation($slug: String!) { createInstance(slug: $slug) { __typename ... on Instance { id host } ... on CreateInstanceError { type message } } }", {"slug": slug})["createInstance"]
     if data["__typename"] != "Instance":
-        raise DrFedStackError(f"DrFed did not make the instance: {data}")
+        raise DrFedStackError(f"DrFed did not make the server: {data}")
     return str(data["id"])
 
 
-def generate_actors(stack: DrFedStack, instance_id: str, size: int) -> list[DrFedActor]:
+def generate_actors(stack: DrFedStack, server_id: str, size: int) -> list[DrFedActor]:
     data = stack.graphql("mutation($instance: ID!, $size: Int!) { generateActors(instance: $instance, size: $size) { __typename ... on CreateActorsSuccess { actors { id iri handle inboxUrl } } ... on CreateActorsError { type message } } }", {"instance": instance_id, "size": size})["generateActors"]
     if data["__typename"] != "CreateActorsSuccess":
         raise DrFedStackError(f"DrFed did not make the actors: {data}")
@@ -227,9 +227,9 @@ def start(run_dir: Path = DEFAULT_RUN_DIR, project: str = DEFAULT_PROJECT, *, ac
         _wait_for_server(stack)
         stack.loopback_port = _loopback_port(stack)
         stack.access_token = sign_in(stack)
-        stack.instance_slug = f"claire-{secrets.token_hex(3)}"
-        stack.instance_id = create_instance(stack, stack.instance_slug)
-        stack.actors = generate_actors(stack, stack.instance_id, actors)
+        stack.server_slug = f"claire-{secrets.token_hex(3)}"
+        stack.server_id = create_server(stack, stack.server_slug)
+        stack.actors = generate_actors(stack, stack.server_id, actors)
         _write_private(run_dir / STATE_FILE, json.dumps(asdict(stack)).encode())
         return stack
     except BaseException:
@@ -256,10 +256,10 @@ def _info(stack: DrFedStack) -> str:
         [
             "DrFed test stack (development test only).",
             f"Root origin: {stack.root_origin} (control surface and web UI)",
-            f"Instance: {stack.instance_origin}",
+            f"Server: {stack.server_origin}",
             *(f"Actor: {actor.handle} {actor.iri}" for actor in stack.actors),
             f"Gateway on the Docker network: {stack.gateway_ip}:443. DNS server for the names: {stack.dns_ip}",
-            f"Gateway on the host: 127.0.0.1:{stack.loopback_port} (send the Host header of the root origin or of an instance)",
+            f"Gateway on the host: 127.0.0.1:{stack.loopback_port} (send the Host header of the root origin or of a server)",
             f"Certificate authority: {stack.ca_file}",
             f"Account: {stack.email}",
             f"Access token (GraphQL, header Authorization: Bearer): {stack.access_token}",

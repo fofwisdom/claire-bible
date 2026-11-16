@@ -4,7 +4,7 @@ Paths are under ``federation_internal.INTERNAL_PREFIX``. ``SignedRequestMiddlewa
 
 Phase FP1 has these endpoints: ``config``, ``heartbeat``, ``actors/by-username``, ``actors/{public_id}``, and ``actors/{public_id}/keys``. Unit FP2-2 adds ``inbox-events`` (Section 6.3), ``actors/{public_id}/followers``, and ``domain-blocks``. Unit FP3-2 adds ``outbox-tasks``, ``outbox-tasks/{id}/ack``, ``objects/{object_public_id}``, and ``actors/{public_id}/outbox`` (Section 9.3). Unit FP4-3 adds ``client-tasks``, ``client-tasks/{id}/ack``, and ``actors/{public_id}/following``. Unit FP4-4 adds ``timeline-events`` and ``timeline-interest`` (FEDERATION_REMOTE_READING_DESIGN.md Section 6). Unit FP4-8 (contract 1.4) adds the inbound interactions with the account: mentions, reactions to own objects, and the automatic notice for a non-public message (Sections 6.2 rule 4 and 6.6). Unit FP4-9Q (contract 1.7) adds quotes (FEP-044f): ``quote`` in the normal form of an object, ``quote_policy`` in the object record, and the routes of ``federation_quote_routes``.
 
-Actor rule (FK4): an account is an actor only when the instance setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
+Actor rule (FK4): an account is an actor only when the server setting ``federation`` is ``on``, the mode is ``network``, the account status is ``active``, and ``profile_public`` is 1. All other states give the same 404. An actor record has no field from ``auth.db``.
 
 Request and response models are sealed (``extra="forbid"``, ``strict=True``). The JSON fixtures in ``tests/fixtures/federation_contract/`` are the contract that the Python tests and the sidecar tests share.
 """
@@ -78,7 +78,7 @@ __all__ = [
 CONTRACT_VERSION = "1.8"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
-INSTANCE_ACTOR_ID = "instance"
+SERVER_ACTOR_ID = "server"
 # The largest body of a public inbox request that the sidecar reads (design Section 11 item 4). The sidecar gets the value from ``config``.
 INBOX_BODY_LIMIT_BYTES = 1024 * 1024
 _MAX_IRI_LENGTH = 2048
@@ -86,7 +86,7 @@ _MAX_IRI_LENGTH = 2048
 OUTBOX_LEASE_SECONDS = 300.0
 OUTBOX_TASKS_DEFAULT = 20
 OUTBOX_TASKS_MAX = 50
-# The largest number of actors of this instance that one object can mention in an event (unit FP4-8). The sidecar keeps the first ones.
+# The largest number of actors of this server that one object can mention in an event (unit FP4-8). The sidecar keeps the first ones.
 MENTIONED_MAX = 16
 # The mention rate limit counts the items of one remote domain and account in this time (Section 6.6 rule 6).
 MENTION_RATE_WINDOW_SECONDS = 3600.0
@@ -196,7 +196,7 @@ class InboxEventResponse(_Sealed):
     # ``accept``: the sidecar sends ``Accept(Follow)``.
     reply: Literal["accept"] | None
     # A code for the log and the telemetry of the sidecar. ``None`` for ``accepted``.
-    # ``no_object``: a ``Like``, an ``Announce``, or their ``Undo`` refers to an object path of this instance that is not a public object now (unit FP4-8).
+    # ``no_object``: a ``Like``, an ``Announce``, or their ``Undo`` refers to an object path of this server that is not a public object now (unit FP4-8).
     reason: Literal["federation_off", "invalid_actor", "blocked_domain", "not_an_actor", "recipient_mismatch", "unsupported_type", "no_object"] | None
 
 
@@ -334,7 +334,7 @@ class TimelineEventRequest(_Sealed):
 
     ``public`` is ``False`` for an object without the public collection in ``to`` or ``cc``; then ``object`` is ``None``, because Claire stores no such object. ``public`` is ``None`` for ``Delete`` and ``Undo``. ``parents`` is the reply chain of ``object``, nearest parent first (Section 6.5 rule 2).
 
-    Contract 1.4 (unit FP4-8): ``actor_type`` is the type of ``actor`` (``None`` for a type outside the list). ``mentioned`` has the actors of this instance that the object of a ``Create`` mentions (a ``Mention`` tag) or addresses (``to``, ``cc``). ``in_reply_to`` is the reply target of the object; it is also given when ``object`` is ``None``.
+    Contract 1.4 (unit FP4-8): ``actor_type`` is the type of ``actor`` (``None`` for a type outside the list). ``mentioned`` has the actors of this server that the object of a ``Create`` mentions (a ``Mention`` tag) or addresses (``to``, ``cc``). ``in_reply_to`` is the reply target of the object; it is also given when ``object`` is ``None``.
     """
 
     event_id: str = Field(min_length=1, max_length=_MAX_IRI_LENGTH)
@@ -443,7 +443,7 @@ class ContextObjectsResponse(_Sealed):
 def _remote_host(iri: str, origin: str) -> str | None:
     """Return the normalized host of the address of a remote server, or ``None`` when the address is not permitted.
 
-    The scheme must be ``https``. ``http`` is permitted only when the canonical origin of this instance uses ``http`` (development). An address with credentials, or on the origin of this instance, is not permitted.
+    The scheme must be ``https``. ``http`` is permitted only when the canonical origin of this server uses ``http`` (development). An address with credentials, or on the origin of this server, is not permitted.
     """
     try:
         parts = urlsplit(iri)
@@ -481,7 +481,7 @@ def _reaction_kind(event: InboxEventRequest) -> tuple[Literal["like", "announce"
 
 
 def _local_object_public_id(origin: str, iri: str | None) -> int | None:
-    """Return the public ID in an object ID of this instance (``{origin}/ap/objects/{public_id}``), or ``None``."""
+    """Return the public ID in an object ID of this server (``{origin}/ap/objects/{public_id}``), or ``None``."""
     prefix = f"{origin}/ap/objects/"
     if iri is None or not iri.startswith(prefix):
         return None
@@ -492,7 +492,7 @@ def _local_object_public_id(origin: str, iri: str | None) -> int | None:
 
 
 def _local_follow(origin: str, iri: str | None) -> tuple[str, int] | None:
-    """Return the actor public ID and the follow number of a follow ID of this instance (``{origin}/ap/actors/{public_id}#follows/{n}``), or ``None``. An ``Accept`` or a ``Reject`` refers to the follow by this ID (RT1)."""
+    """Return the actor public ID and the follow number of a follow ID of this server (``{origin}/ap/actors/{public_id}#follows/{n}``), or ``None``. An ``Accept`` or a ``Reject`` refers to the follow by this ID (RT1)."""
     if iri is None or "#follows/" not in iri:
         return None
     actor_part, _, number = iri.partition("#follows/")
@@ -503,7 +503,7 @@ def _local_follow(origin: str, iri: str | None) -> tuple[str, int] | None:
 
 
 def _local_actor_public_id(origin: str, iri: str | None) -> str | None:
-    """Return the public ID in an actor ID of this instance (``{origin}/ap/actors/{public_id}``), or ``None``."""
+    """Return the public ID in an actor ID of this server (``{origin}/ap/actors/{public_id}``), or ``None``."""
     prefix = f"{origin}/ap/actors/"
     if iri is None or not iri.startswith(prefix):
         return None
@@ -583,7 +583,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return accounts_store.AccountStore(dbm.connect_existing(settings.db_file, readonly=True))
 
     def _federation_active(store: accounts_store.AccountStore) -> bool:
-        return store.federation_state() == "on" and store.instance_mode() == "network"
+        return store.federation_state() == "on" and store.server_mode() == "network"
 
     def _is_actor(account: accounts_store.Account | None) -> bool:
         return account is not None and account.status == "active" and account.profile_public and bool(account.username)
@@ -631,7 +631,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         runtime = _runtime()
         store = _open_store()
         try:
-            mode, federation = store.instance_mode(), store.federation_state()
+            mode, federation = store.server_mode(), store.federation_state()
             blocks_etag, _domains = _domain_blocks(store.conn)
             federated_actors = 0
             if _federation_active(store):
@@ -700,8 +700,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         store = _open_store()
         try:
             departing = None
-            if raw_id == INSTANCE_ACTOR_ID:
-                key_owner = actor_keys.INSTANCE_ACTOR_ACCOUNT_ID if _federation_active(store) else None
+            if raw_id == SERVER_ACTOR_ID:
+                key_owner = actor_keys.SERVER_ACTOR_ACCOUNT_ID if _federation_active(store) else None
             else:
                 account = _find_actor(store, public_id=raw_id)
                 departing = _find_departing(store, raw_id) if account is None else None
@@ -771,7 +771,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
     def _follow_response(store: accounts_store.AccountStore, origin: str, event: InboxEventRequest) -> InboxEventResponse:
-        """``Accept`` or ``Reject`` of a follow of this instance (FP4-3). The follow is found by the ID in ``object_iri`` (RT1: the sidecar does not fetch the object). An answer to another activity is ignored."""
+        """``Accept`` or ``Reject`` of a follow of this server (FP4-3). The follow is found by the ID in ``object_iri`` (RT1: the sidecar does not fetch the object). An answer to another activity is ignored."""
         ignored = InboxEventResponse(decision="ignored", reply=None, reason="unsupported_type")
         local = _local_follow(origin, event.object_iri)
         if local is None:
@@ -872,7 +872,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return len(obj.content_html.encode("utf-8")) > client_store.TIMELINE_CONTENT_MAX_BYTES or len(obj.attachments) > client_store.TIMELINE_MAX_ATTACHMENTS
 
     def _object_refusal(conn: Any, origin: str, obj: TimelineObject) -> Literal["invalid_object", "blocked_domain", "too_large"] | None:
-        """The reason why an object cannot be an item, or ``None``. The domain block applies to the author and to the host of the object IRI (Section 6.2 rule 3). An object of this instance is not an item of a timeline."""
+        """The reason why an object cannot be an item, or ``None``. The domain block applies to the author and to the host of the object IRI (Section 6.2 rule 3). An object of this server is not an item of a timeline."""
         hosts = [_remote_host(obj.object_iri, origin), _remote_host(obj.author.iri, origin)]
         if any(host is None for host in hosts):
             return "invalid_object"
@@ -914,7 +914,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def _private_notices(store: accounts_store.AccountStore, client: Any, origin: str, event: TimelineEventRequest) -> list[TimelineNotice]:
         """The automatic notices for a non-public ``Create`` that mentions or addresses accounts (Section 6.2 rule 4). Claire stores the sender and the time only.
 
-        Rules that stop a loop of automatic systems: no notice to a ``Service`` or an ``Application`` (or an actor of an unknown type), and no notice for a reply to an automatic notice of this instance. A blocked domain does not come here: the caller refused it. One notice at most for each sender and account in ``auto_reply_hours``.
+        Rules that stop a loop of automatic systems: no notice to a ``Service`` or an ``Application`` (or an actor of an unknown type), and no notice for a reply to an automatic notice of this server. A blocked domain does not come here: the caller refused it. One notice at most for each sender and account in ``auto_reply_hours``.
         """
         if not event.mentioned or event.actor_type not in ("Person", "Group", "Organization"):
             return []

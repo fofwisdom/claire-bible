@@ -26,13 +26,13 @@
 | `src/claire/store/auth_db.py` | auth.db 스키마, scrypt 비밀번호, 초대 영속화, 실패 제한, 감사 기록 | `connect_auth_db`, `check_password_policy`, `set_password`, `verify_password`, `begin_login_attempt`, `settle_login_success`, `check_login_throttle`, `record_login_failure`, `record_admin_audit`, `SCRYPT_MAX_CONCURRENCY` |
 | `src/claire/store/secrets.py` | AES-256-GCM 마스터 키 비밀 서비스 및 HMAC 파생 | `SecretService`, `CLAIRE_SECRET_KEY` |
 | `src/claire/store/provider_keys.py` | 멤버 BYOK API 키 암호화 저장소, 시험 호출 검증 | `ProviderKeyMeta`, `ActiveKey`, `put_key`, `load_active_key`, `verify_key`, `delete_key` |
-| `src/claire/accounts/username_policy.py` | DB 없이 판정하는 USERNAME 규칙 | `validate_username`, `normalize_username`, `RESERVED_USERNAMES`, `instance_reserved_labels`, `UsernameRejected` |
+| `src/claire/accounts/username_policy.py` | DB 없이 판정하는 USERNAME 규칙 | `validate_username`, `normalize_username`, `RESERVED_USERNAMES`, `server_reserved_labels`, `UsernameRejected` |
 | `src/claire/accounts/invites.py` | Crockford Base32 8자리 초대 코드 생성, 정규화, 매개변수 유효성 검증 | `InvitationInfo`, `normalize_invite_code`, `validate_invite_code_syntax`, `generate_invite_code`, `validate_invite_params`, `InviteError` |
 | `src/claire/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
 | `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
-| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `instance.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
+| `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `server.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
 | `src/claire/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/settings/*` 공용 셸), `partials/settings_syndication/*.html`(Group 2–3 섹션 본문) | `$이름` 자리채움(`common.render_template`) |
 | `src/claire/static/js/console_account.js` | `/settings/account` 화면의 표시 이름·프로필 공개 스위치·본인 확인·비밀번호 양식 (`GET /me`는 `/settings/account`로 가는 302) | `PATCH /api/me`, `POST /api/auth/reauth`, `POST /api/me/password` 호출 |
 | `src/claire/static/js/console_admin.js` | `/admin/*` 화면 컨트롤러와 단계 인증 모달. `/admin/*` 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
@@ -51,7 +51,7 @@
 | USERNAME 불변 | 트리거 `accounts_username_immutable`이 NULL이 아닌 `username`의 변경을 `ABORT`한다 | [코드] `tests/test_schema_v15.py` |
 | 표시 이름 | 64자 이하, 유니코드 범주 `Cc`·`Cf`·`Zl`·`Zp` 문자 거부, 앞뒤 공백을 자르지 않는다 | [코드] `common.validate_display_name` |
 | `public_id` | 관리자 행은 `legacy_timestamp_id("accounts", unix_ms=ADMIN_LEGACY_PUBLIC_ID_UNIX_MS, row_id=1)`. 상수는 2026-11-02T00:00Z의 밀리초다. JSON에서는 10진 문자열이다 | [코드] [결정] 설계 §16.3 (c) |
-| `id_salt` | `instance_settings.id_salt`(32바이트 hex)가 없을 때만 만든다. 길이가 다르거나 hex가 아니면 이관이 실패한다 | [코드] `_ensure_id_salt` |
+| `id_salt` | `server_settings.id_salt`(32바이트 hex)가 없을 때만 만든다. 길이가 다르거나 hex가 아니면 이관이 실패한다 | [코드] `_ensure_id_salt` |
 | v14 `users` | 그대로 두고 쓰지 않는다 | [코드] `tests/test_schema_v15.py` |
 
 ## 3. USERNAME 규칙
@@ -62,7 +62,7 @@
 2. **문법**: `^[a-z][a-z0-9_]{2,29}$`를 `fullmatch`로 검사하고, `__`이 있거나 `_`로 끝나면 `syntax`.
 3. **예약 이름**: `RESERVED_USERNAMES`(설계 §8.1-2 목록에 콘솔·기능 경로용 `settings`, `syndication`, `prototype`과 연합·인증용 이름 21개를 더한 것, `tests/test_username_policy.py`가 정확히 비교)와 일치하면 `reserved`. `settings`, `syndication`, `prototype`은 루트 고유 기능 경로(`/settings/*`, `/syndication`, 옛 `/prototype/syndication`, RD20에서 지움)와 겹치지 않게 하려고 예약한다(콘솔 설계 D1). 연합·인증용 이름은 `inbox`, `outbox`, `actor`, `actors`, `ap`, `fedify`, `federation`, `nodeinfo`, `oauth`, `auth`, `followers`, `following`, `shared_inbox`, `sharedinbox`, `webfinger`, `idp`, `oidc`, `openid`, `activitypub`, `wellknown`, `well_known`이다. 연합 프로토콜 끝점 이름을 핸들로 사칭하지 못하게 하려고 예약한다(§13).
 4. **예약 조각**: `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 `reserved`. `admin1`, `kim_admin`은 막히고 `badminton`은 통과한다. [결정] 이 규칙은 관리자 사칭 피싱을 막기 위해 유지한다(설계 §16.3 (a)).
-5. **인스턴스 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.instance_hosts`). 포트는 뗀다.
+5. **서버 예약**: 호스트 이름의 모든 DNS 라벨과 정확히 일치하면 `reserved`. `claire.example.com`이면 `claire`, `example`, `com`이다. 라벨을 모으는 호스트는 공개 URL authority, `fqdn`, `effective_fqdn`, `site_domain` 설정값이다(`common.server_hosts`). 포트는 뗀다.
 
 - **[코드]** `retired`(`username_tombstones`에 있고 `released_at`이 NULL)와 `taken`(다른 계정이 사용)은 `AccountStore`와 `/setup` 입력 검사가 판정한다.
 - **[코드]** 사유 코드는 `/setup` 화면에만 보인다. 익명으로 이름 사용 가능 여부를 묻는 API는 없다.
@@ -71,7 +71,7 @@
 
 **[코드]** `AuthenticationMiddleware`가 요청마다 `request.state`에 `Principal` 하나를 둔다. 새 코드는 `request_principal(request)`을 쓴다. 미들웨어를 거치지 않은 요청에서 부르면 익명으로 대체하지 않고 `PrincipalMissing`을 낸다. `request_auth_scope`는 호환용으로 남아 있다.
 
-`Principal` 필드: `account_id`(None = 익명), `instance_role`, `scope`(`owner`·`collaborator`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
+`Principal` 필드: `account_id`(None = 익명), `server_role`, `scope`(`owner`·`collaborator`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
 
 | 자격증명 | 저장 위치 | `account_id` 결정 | `credential_id` | `authenticated_at` |
 | :--- | :--- | :--- | :--- | :--- |
@@ -96,7 +96,7 @@
 
 ### 5.1 `/setup` (최초 관리자 설정)
 
-- **[코드] 열리는 조건**(`setup.setup_pending`): 주체가 계정 1, `instance_role=admin`, `scope=owner`, 채널 cookie 또는 x-session이고, 계정 상태가 `setup_required`. 그 밖(미인증, bearer, 이미 `active`)은 GET·POST 모두 404다.
+- **[코드] 열리는 조건**(`setup.setup_pending`): 주체가 계정 1, `server_role=admin`, `scope=owner`, 채널 cookie 또는 x-session이고, 계정 상태가 `setup_required`. 그 밖(미인증, bearer, 이미 `active`)은 GET·POST 모두 404다.
 - **[코드] `GET /`**: 위 조건이면 `/setup`으로 302(`Cache-Control: no-store`). Bearer는 보내지 않는다.
 - **[코드] 입력**: `username`, `display_name`, `password`, `password_confirm`, `ack`(form). 문자열이 아닌 값이면 400.
 - **[코드] [결정] 확인 문구**: "USERNAME은 바꿀 수 없다", "네트워크 모드에서는 `/@USERNAME`으로 공개된다"를 같은 화면에 적고, `ack=1` 필수 체크박스로 받는다. 별도 확정 화면을 두지 않는 것은 비밀번호를 브라우저로 되돌려 보내지 않기 위해서다(설계 §16.3 (d)).
@@ -118,7 +118,7 @@
 
 - **[코드] 창**: `STEP_UP_WINDOW_SECONDS = 900`(15분). `has_recent_auth`는 채널이 cookie·x-session이고 `0 ≤ now − authenticated_at ≤ 900`일 때만 True다. `authenticated_at`이 미래면 False.
 - **[코드] `authenticated_at`을 기록하는 시점**: 로그인·`/setup` 확정(`create_account_session`), 텔레그램 승인(`approve_auth_nonce`), CLI·텔레그램 링크 발급(`create_session`), 부트스트랩 링크 교환(`exchange_session_token`), 재인증 성공(`mark_session_authenticated`).
-- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `instance.py`(모드 전환 등 인스턴스 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
+- **[코드] 적용 대상**: `require_recent_auth`를 부르는 곳은 `me.py`(`POST /api/me/password`), `keys.py`(BYOK 키 변경), `admin.py`(계정 수명 주기·퇴역 USERNAME 정리), `server.py`(모드 전환 등 서버 변경), `idp.py`(공급자 설정 변경), `federation.py`(`POST /api/admin/federation`, `POST`·`DELETE /api/admin/federation/domain-blocks`)다. `me.py`의 `PATCH /api/me`는 §5.5의 연합 조건에서만 부른다. 정확한 동작 목록은 각 파일의 호출 위치가 기준이다.
 
 응답 규약(`common.require_recent_auth`, `login.reauth_post`, `me.me_password`):
 
@@ -136,7 +136,7 @@
 
 ### 5.4 `/admin/accounts`, `/api/admin/accounts`, `/api/admin/usernames/*`
 
-- **[코드]** 규칙 `_system("admin")`. 미들웨어가 `scope=owner`이면서 `instance_role=admin`인 자격증명만 통과시키고 나머지는 404다. 핸들러도 `admin.is_admin`으로 한 번 더 확인한다. 접두 경로(`/@{username}/admin/...`)는 404(N5).
+- **[코드]** 규칙 `_system("admin")`. 미들웨어가 `scope=owner`이면서 `server_role=admin`인 자격증명만 통과시키고 나머지는 404다. 핸들러도 `admin.is_admin`으로 한 번 더 확인한다. 접두 경로(`/@{username}/admin/...`)는 404(N5).
 - **[코드] `GET /api/admin/accounts`**: `{"accounts": [{public_id(문자열), username, status, role, created_at, activated_at, theme_count, delete_after?}]}`, `id` 오름차순.
 - **[코드] `GET /admin/accounts`**: 통합 콘솔 셸(§5.9) 안의 관리 화면. 관리자 계정 카드, 멤버 계정 목록, 초대 관리, 퇴역 USERNAME 관리 패널을 제공한다. 다른 계정의 콘텐츠 본문을 읽거나 가장 로그인하는 API는 두지 않는다(K5, D5).
 - **[코드] `PATCH /api/admin/accounts`**: 관리자 단계 인증(`require_recent_auth`, 최근 15분 내 인증) 필수.
@@ -150,7 +150,7 @@
 - **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다.
-- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 인스턴스 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 인스턴스 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
+- **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
 - **[코드] 인터페이스 언어**([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §5, §6.1. 구현 단위 IP1, IP2-1. 번역된 화면은 지금 `/login`, `/setup`, `/settings/account`의 언어 선택 카드뿐이다. 나머지 콘솔·워크스페이스 문자열은 IP2-2 이후다):
   - **해소 순서**: `I18nMiddleware`(`src/claire/api/i18n_middleware.py`, `AuthenticationMiddleware` 바로 안쪽)가 요청마다 `Principal.locale`(= `accounts.locale`) → 쿠키 `claire_locale` → `Accept-Language`(RFC 9110 q값) → `CLAIRE_LANG` → `en` 순서로 정한다. 공개 라우트(`/login` 등)에서는 주체가 익명이므로 쿠키부터 적용된다. 환경변수 토큰 자격증명은 계정을 읽지 않으므로 `Principal.locale`이 없다. 미들웨어는 HTML 응답에만 `Content-Language`를 붙인다(설계 §6.1은 모든 응답이다. JSON·프로토콜 응답은 언어에 따라 바뀌지 않으므로 붙이지 않는다).
   - **`PATCH /api/me`의 `locale`**: `"en"`, `"ko"`, `null`, `""`(뒤의 둘은 NULL로 되돌림)만 받고 그 밖의 값(다른 문자열, 숫자, 불리언)은 모든 쓰기보다 먼저 400 `invalid_locale`이다. 단계 인증을 요구하지 않는다. 값을 정하면 응답이 쿠키 `claire_locale`을 쓰고(`Path=/; Max-Age=31536000; SameSite=Lax`, 운영 환경은 `Secure`, `HttpOnly` 아님), 되돌리면 쿠키를 지운다. 응답의 `effective_locale`은 바꾼 뒤의 값이다.
@@ -160,7 +160,7 @@
   - **인증 화면**: `login.html`, `setup.html`은 `<html lang="$html_lang">`과 `auth.*` 카탈로그 키를 쓴다. 로그인 실패·제한 문구와 `/setup` 거부 문구(`setup.USERNAME_REASON_KEYS` 등), `POST /api/me/password`의 400 `password_rejected` `message`(`setup.password_reason_text`)도 적용된 언어로 낸다. 사유 코드(`reason`)는 바뀌지 않는다.
   - **콘솔**: `console_shell.html`이 `<html lang="$html_lang">`, 인라인 카탈로그, `i18n.js`(defer 아님, 콘솔 스크립트보다 먼저)를 싣는다. `console-bootstrap` JSON에 `locale`(저장값)과 `effective_locale`이 있다. `/settings/account`의 카드 `#settings-locale`이 선택기 `#pref-account-locale`(자동 `""`, `en`, `ko`)을 그리고, `console_account.js`의 `bindLocaleSelect`가 바꾸면 `PATCH /api/me`에 `{locale}`을 보낸 뒤 화면을 다시 읽는다.
   - **브라우저 런타임**(`src/claire/static/js/i18n.js`): `window.ClaireI18n`의 `t(key, params)`, `tn(baseKey, count, params)`, `applyDom(root)`(`data-i18n`, `data-i18n-title`, `data-i18n-placeholder`, `data-i18n-aria-label`), `setLocale(locale)`(`POST /api/locale`), `reload()`, `getLocale()`. 치환 규칙은 파이썬과 같다(`{name}`, 없는 키는 키 그대로).
-  - **Telegram bot and push notifications** (unit IP3-1, design §7, 2026-11-15): `telegram_bot.build_app` registers each handler through a locale wrapper. For each update, `resolve_update_locale` selects the locale in this order: the `accounts.locale` of the bot owner account (the administrator account for the instance bot, the member account for an account bot), the `language_code` of the Telegram user when it is a supported locale, `CLAIRE_LANG`, then `en`. The handler runs in `use_locale(...)`, thus replies, button labels, callback notices and progress labels come from the catalog keys `bot.*`. The command menu (`set_my_commands`) is set for the default scope and for each supported Telegram language. `notify.push_locale` gives the locale of a push: the `accounts.locale` of the target account, `CLAIRE_LANG`, then `en`. The OAuth client approval push (`POST /oauth/authorize/telegram-push`, target: the administrator account) and the approval button of `notify.py` use the keys `notify.*`. Text that other modules make is not localized in this unit: the ingest report summary (`telegram_summary`), the search result (`telegram_text`), `/status` (`build_status_text`), the pipeline progress steps, and the OAuth consent page.
+  - **Telegram bot and push notifications** (unit IP3-1, design §7, 2026-11-15): `telegram_bot.build_app` registers each handler through a locale wrapper. For each update, `resolve_update_locale` selects the locale in this order: the `accounts.locale` of the bot owner account (the administrator account for the server bot, the member account for an account bot), the `language_code` of the Telegram user when it is a supported locale, `CLAIRE_LANG`, then `en`. The handler runs in `use_locale(...)`, thus replies, button labels, callback notices and progress labels come from the catalog keys `bot.*`. The command menu (`set_my_commands`) is set for the default scope and for each supported Telegram language. `notify.push_locale` gives the locale of a push: the `accounts.locale` of the target account, `CLAIRE_LANG`, then `en`. The OAuth client approval push (`POST /oauth/authorize/telegram-push`, target: the administrator account) and the approval button of `notify.py` use the keys `notify.*`. Text that other modules make is not localized in this unit: the ingest report summary (`telegram_summary`), the search result (`telegram_text`), `/status` (`build_status_text`), the pipeline progress steps, and the OAuth consent page.
   - **[테스트]** `tests/test_i18n_api.py`, `tests/test_i18n_resolver.py`, `tests/test_i18n_catalog.py`, `tests/test_i18n_browser.py`(실제 Chromium), `tests/test_i18n_bot.py`.
 - **[코드] `POST /api/me/password`**: 단계 인증 → 본문 `{current_password?, new_password}` → 비밀번호가 이미 있으면 실패 제한 확인과 현재 비밀번호 검증, 없으면 생략 → 정책 검사(실패 400 `password_rejected`, `reason`, `message`) → 저장 → 이 세션을 뺀 그 계정의 모든 승인 세션 삭제 → 감사 기록. 성공 200 `{"ok": true, "other_sessions_revoked": n}`. API·MCP 토큰과 OAuth 토큰은 지우지 않는다.
 
@@ -231,7 +231,7 @@
 - **네트워크 모드 전용**: 싱글 모드에서는 404를 반환한다(`ROUTE_POLICY`의 `modes={"network"}` 및 핸들러의 `is_network_mode`).
 - **권한 및 주체**:
   - 규칙 `owner`. `account_id` 필수.
-  - 관리자(`instance_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
+  - 관리자(`server_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
   - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, collaborator, readonly 등)는 404 Not Found다.
 - **쓰기 전용 API 키 및 키 미노출 원칙 (Write-only Secrets, §11.2, §11.3, D8)**:
   - 등록 시 전달받은 `api_key`는 요청 본문에서 읽자마자 `register_secret`으로 등록되어 메모리 내 등록 이후의 모든 로그와 예외 출력(`SecretScrubFilter`, `scrub_text`, `scrub_exception`)에서 마스킹된다.
@@ -267,20 +267,20 @@
 
 ### 5.9 통합 콘솔 (`/admin/*`, `/settings/*`)
 
-**[코드]** `src/claire/api/accounts_routes/console.py`(라우트·섹션 정의·셸 렌더링), `admin.py`·`instance.py`·`idp.py`(`/admin/accounts`·`/admin/instance`·`/admin/idp`), `console_syndication_panels.py`(Group 2–3 본문). 설계: [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md).
+**[코드]** `src/claire/api/accounts_routes/console.py`(라우트·섹션 정의·셸 렌더링), `admin.py`·`server.py`·`idp.py`(`/admin/accounts`·`/admin/server`·`/admin/idp`), `console_syndication_panels.py`(Group 2–3 본문). 설계: [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md).
 
 - **경로 분리는 권한 경계다.** 관리자 화면은 `/admin/*`, 본인 설정은 `/settings/*`이고, 둘 다 같은 셸 `console_shell.html`로 그린다. 모든 경로는 `ROUTE_POLICY`에 `GET`·`HEAD` 정확 항목으로 있고 모든 모드(`ALL_MODES`)에서 열린다.
-- **`/admin`, `/admin/*`**: 규칙 `_system("admin")`. 관리자(`scope=owner`, `instance_role=admin`)가 아니면 미들웨어와 핸들러 모두 404다. 403을 내지 않고, 비관리자에게는 302도 내지 않는다(B1, N5).
+- **`/admin`, `/admin/*`**: 규칙 `_system("admin")`. 관리자(`scope=owner`, `server_role=admin`)가 아니면 미들웨어와 핸들러 모두 404다. 403을 내지 않고, 비관리자에게는 302도 내지 않는다(B1, N5).
 
 | 경로 | 동작 |
 | :--- | :--- |
-| `/admin` | 302 `/admin/instance`. `?theme=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
-| `/admin/instance` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`instance.py`) |
+| `/admin` | 302 `/admin/server`. `?theme=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
+| `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`server.py`) |
 | `/admin/accounts` | §5.4 (`admin.py`) |
 | `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
-| `/admin/providers` | 인스턴스 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
-| `/admin/limits` | 인스턴스 적재 제한·슬라이싱 예산(`/limits`) |
-| `/admin/themes` | 관리자 계정(`ADMIN_ACCOUNT_ID = 1`)의 테마 관리와, 인스턴스 집계 숫자(`total_accounts` = `status != 'purged'` 계정 수, `total_themes`, `admin_themes`)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다(D5, K5) |
+| `/admin/providers` | 서버 LLM·STT·VLM 프로바이더 설정. 본문은 `/providers`, `/providers/test`를 부르는 `manage_panels.js` |
+| `/admin/limits` | 서버 적재 제한·슬라이싱 예산(`/limits`) |
+| `/admin/themes` | 관리자 계정(`ADMIN_ACCOUNT_ID = 1`)의 테마 관리와, 서버 집계 숫자(`total_accounts` = `status != 'purged'` 계정 수, `total_themes`, `admin_themes`)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다(D5, K5) |
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
 | `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, WebMCP 헤더 정책, `POST /support/bundle` |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
@@ -403,7 +403,7 @@
 
 ## 12. 테스트
 
-`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oauth_token_exchange.py`(토큰 교환 계정 귀속), `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_instance.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).
+`tests/test_schema_v15.py`, `tests/test_account_store.py`, `tests/test_auth_db.py`, `tests/test_ids.py`, `tests/test_username_policy.py`, `tests/test_principal.py`, `tests/test_setup_flow.py`, `tests/test_login_flow.py`, `tests/test_account_routes.py`, `tests/test_api_security.py`, `tests/test_account_forms_browser.py`, `tests/test_invite_flow.py`, `tests/test_username_release.py`, `tests/test_me_keys.py`, `tests/test_secret_write_only.py`, `tests/test_oauth_token_exchange.py`(토큰 교환 계정 귀속), `tests/test_oidc_core.py`(OIDC discovery, JWKS, PKCE, RS256/ES256 토큰 검증, GitHub 어댑터), `tests/test_oidc_flow.py`(가짜 IdP로 로그인·연결·초대 가입·원자적 차감·관리자 IdP 관리), `tests/test_syndication_dispatch_account.py`(발행 주체 계정 귀속 및 권한 검증), `tests/test_e2e_syndication_namespace.py`(P6 단일/네트워크 모드 Syndication E2E 통합 검증), `tests/test_console_routing.py`·`tests/test_admin_server.py`·`tests/test_settings_account.py`·`tests/test_settings_syndication.py`(통합 콘솔 경로·권한·섹션), `tests/test_syndication_route.py`(옛 `/syndication/preferences` 302 표), `e2e/test_admin_and_settings_console_e2e.py`(콘솔 브라우저 E2E).
 
 ## 13. Fedify 사이드카 연합 (FP1 구현)
 
@@ -411,9 +411,9 @@
 
 - **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 연결 계정(클라이언트) 방식(§11)은 그대로 둔다.
 - **[코드] 구현 범위**: FP1(탐색)까지다. 받은편지함·팔로워·발행은 없다. Claire의 공개 리스너는 `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`를 등록하지 않으므로 이 경로가 Claire에 닿으면 404다. 이 경로는 reverse proxy가 사이드카로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)).
-- **[코드] `instance_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 준비 검사 GF1–GF7이 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. `/admin/federation` 화면은 없다([FEDERATION.md](FEDERATION.md) §7).
+- **[코드] `server_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 준비 검사 GF1–GF7이 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. `/admin/federation` 화면은 없다([FEDERATION.md](FEDERATION.md) §7).
 - **[코드] 액터 조건**: `federation`이 `on`, 모드가 `network`, 계정 `status`가 `active`, `profile_public`이 1인 계정만 연합 액터다. 액터인 계정의 프로필 페이지 `/@{username}/`에는 `rel="alternate"` 링크와 `Link` 헤더가 붙는다([FEDERATION.md](FEDERATION.md) §3, §8.2).
 - **[코드] `profile_public` 단계 인증**: §5.5.
 - **[코드] 액터 키**: `auth.db`의 `actor_keys`(§8). 계정 퇴역(purge) 때 이 행을 지우는 코드는 아직 없다.
-- **[코드] 모드 전환 거부**: `federation`이 `on`이면 `POST /api/admin/instance/mode`의 `network` → `single` 전환이 400 `federation_enabled`로 거부된다(`instance.py`).
+- **[코드] 모드 전환 거부**: `federation`이 `on`이면 `POST /api/admin/server/mode`의 `network` → `single` 전환이 400 `federation_enabled`로 거부된다(`server.py`).
 - **[코드] 근거 테스트**: `tests/test_federation_step_up.py`, `tests/test_federation_readiness.py`, `tests/test_actor_keys.py`.

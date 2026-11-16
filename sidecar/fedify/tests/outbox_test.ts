@@ -275,8 +275,8 @@ Deno.test("the outbox collection has one Create for each public object, in pages
     assert.deepEqual(second.orderedItems.map((i: { object: string }) => i.object), [OBJECT_URL]);
     assert.equal(second.next, undefined);
 
-    // An account that is not an actor, the instance actor, and a cursor that is not an ID have no collection.
-    for (const url of [`${ORIGIN}/ap/actors/216412345678901234/outbox`, `${ORIGIN}/ap/actors/instance/outbox`, `${ALICE_URL}/outbox?cursor=x`]) {
+    // An account that is not an actor, the server actor, and a cursor that is not an ID have no collection.
+    for (const url of [`${ORIGIN}/ap/actors/216412345678901234/outbox`, `${ORIGIN}/ap/actors/server/outbox`, `${ALICE_URL}/outbox?cursor=x`]) {
       assert.equal((await get(url)).status, 404, url);
     }
     // The outbox accepts no activity from a client.

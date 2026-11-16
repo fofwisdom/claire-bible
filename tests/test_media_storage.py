@@ -1,4 +1,4 @@
-"""Object storage of the media store (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 to 9.3, unit FP4-1): the S3 client against a local S3-compatible server (external interface), the storage settings in ``instance_settings`` (I/O), and the read fallback of the media host (module interface)."""
+"""Object storage of the media store (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 to 9.3, unit FP4-1): the S3 client against a local S3-compatible server (external interface), the storage settings in ``server_settings`` (I/O), and the read fallback of the media host (module interface)."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def test_storage_settings_keep_the_secret_encrypted_and_out_of_the_view(tmp_path
         media_storage.set_admin_settings(conn, update, secret_service=settings.secret_service, updated_by=1)
         view = media_storage.settings_view(conn)
         assert view["secret_key_set"] is True and view["endpoint"] == "https://garage.example:3900" and view["mode"] == "s3"
-        raw = conn.execute("SELECT value FROM instance_settings WHERE key='media_storage'").fetchone()[0]
+        raw = conn.execute("SELECT value FROM server_settings WHERE key='media_storage'").fetchone()[0]
         assert SECRET_KEY not in raw and SECRET_KEY not in repr(view)
     finally:
         conn.close()

@@ -738,7 +738,7 @@ test('provider management lives in the admin console and the root topbar shows o
 
   // 4. Follow the icon into the console, then open the provider section
   await consoleBtn.click();
-  await expect(page).toHaveURL(/\/admin\/instance$/);
+  await expect(page).toHaveURL(/\/admin\/server$/);
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
   const detailPane = page.locator('#admin-providers-host');
   await expect(detailPane).toBeVisible();

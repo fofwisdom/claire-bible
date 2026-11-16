@@ -208,7 +208,7 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
 
     r_admin = client.get("/admin", headers=console_env.admin_owner, follow_redirects=False)
     assert r_admin.status_code == 302
-    assert r_admin.headers["location"] == "/admin/instance"
+    assert r_admin.headers["location"] == "/admin/server"
     assert r_admin.headers["referrer-policy"] == "same-origin"
 
     r_settings = client.get("/settings", headers=console_env.alice_owner, follow_redirects=False)
@@ -269,7 +269,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     assert 'href="/settings/feeds"' in member_resp.text
     assert "/admin/" not in member_resp.text
     assert "System administration and settings (administrator)" not in member_resp.text
-    assert "Instance · Accounts · Authentication (administrator)" not in member_resp.text
+    assert "Server · Accounts · Authentication (administrator)" not in member_resp.text
 
     # Admin response on both /settings/reader and /admin/providers has unified sidebar without duplicate /settings/themes or /settings/tokens
     for path in ("/settings/reader", "/admin/providers", "/admin/limits", "/admin/mcp"):
@@ -277,7 +277,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert admin_resp.status_code == 200, path
         assert 'href="/settings/account"' in admin_resp.text
         assert 'href="/settings/feeds"' in admin_resp.text
-        assert 'href="/admin/instance"' in admin_resp.text
+        assert 'href="/admin/server"' in admin_resp.text
         assert 'href="/admin/accounts"' in admin_resp.text
         assert 'href="/admin/idp"' in admin_resp.text
         assert 'href="/admin/providers"' in admin_resp.text
@@ -302,13 +302,13 @@ def test_single_mode_conceals_admin_username_on_console_and_whoami(console_env):
 
     who_admin = client.get("/whoami", headers=console_env.admin_owner)
     assert who_admin.status_code == 200
-    assert who_admin.json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": True}
+    assert who_admin.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     assert SECRET_ADMIN_USERNAME not in who_admin.text
 
     _set_mode(console_env.db_file, "network")
     who_alice = client.get(f"/@{MEMBER_USERNAME}/whoami", headers=console_env.alice_owner)
     assert who_alice.status_code == 200
-    assert who_alice.json() == {"scope": "owner", "instance": {"mode": "network"}, "relation": "owner", "is_admin": False}
+    assert who_alice.json() == {"scope": "owner", "server": {"mode": "network"}, "relation": "owner", "is_admin": False}
 
 
 def test_admin_mcp_telemetry_api_io_and_validation(console_env):
@@ -366,7 +366,7 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
     client = console_env.client
 
     expected_anchors = {
-        "instance": ('/admin/instance', 'id="instance-mode"', 'id="server-tier"'),
+        "server": ('/admin/server', 'id="server-mode"', 'id="server-tier"'),
         "accounts": ('/admin/accounts', 'id="admin-members-section"', 'id="pref-userdb-admin"'),
         "idp": ('/admin/idp', 'id="pref-idp-tbody"', 'id="pref-idp-add-form"'),
         "providers": ('/admin/providers', 'id="admin-providers-host"', 'data-admin-panel-host="providers"'),
@@ -422,7 +422,7 @@ def test_admin_prototype_elements_carry_visible_server_rendered_labels(console_e
             else:
                 assert f'data-prototype-note="{marker}"' in body, (path, marker)
     # 실제로 동작하는 화면에는 표식을 달지 않는다.
-    for path in ("/admin/instance", "/admin/providers", "/admin/limits", "/admin/themes"):
+    for path in ("/admin/server", "/admin/providers", "/admin/limits", "/admin/themes"):
         assert "data-prototype=" not in client.get(path, headers=console_env.admin_owner).text, path
     for path in ALL_SETTINGS_SECTION_PATHS:
         resp = client.get(path, headers=console_env.alice_owner, follow_redirects=False)

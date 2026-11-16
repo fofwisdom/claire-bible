@@ -96,7 +96,7 @@ def test_fetch_rules_types_and_sizes(media_server):
     base = media_server.base
     ok = _fetcher().fetch(f"{base}/a.png")
     assert (ok.state, ok.media_type, ok.body) == ("stored", "image/png", PNG)
-    # The request has the user agent of the instance, and no cookie and no credential.
+    # The request has the user agent of the server, and no cookie and no credential.
     assert media_server.headers["user-agent"].startswith("ClaireBible-MediaProxy/") and "cookie" not in media_server.headers and "authorization" not in media_server.headers
     # Allowed types: image except SVG, video/mp4, video/webm, audio.
     assert _fetcher().fetch(f"{base}/b.svg").state == "failed" and _fetcher().fetch(f"{base}/b.svg").error == "type_not_allowed"

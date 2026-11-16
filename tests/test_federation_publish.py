@@ -69,7 +69,7 @@ def _add_document(conn, document_id: str, theme_id: int, *, detail: str = "# Tit
 
 @pytest.fixture
 def env(tmp_path):
-    """A network-mode instance with federation on. ``alpha`` is an actor with a public theme, a private theme, and a theme that a collaborator cannot use. ``beta`` is an actor with one public theme."""
+    """A network-mode server with federation on. ``alpha`` is an actor with a public theme, a private theme, and a theme that a collaborator cannot use. ``beta`` is an actor with one public theme."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -288,7 +288,7 @@ def test_only_a_document_of_a_public_theme_of_the_own_account_can_be_published(e
     assert _objects(env.settings) == [] and _tasks(env.settings) == []
 
 
-@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_not_public"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active"), ("UPDATE instance_settings SET value='off' WHERE key='federation'", "federation_off")])
+@pytest.mark.parametrize("change, state", [("UPDATE accounts SET profile_public=0 WHERE username='member_alpha'", "profile_not_public"), ("UPDATE accounts SET status='suspended' WHERE username='member_alpha'", "account_not_active"), ("UPDATE server_settings SET value='off' WHERE key='federation'", "federation_off")])
 def test_an_account_that_is_not_an_actor_cannot_publish(env, change, state):
     conn = dbm.connect_existing(env.settings.db_file)
     conn.execute(change)

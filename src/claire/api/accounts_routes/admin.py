@@ -1,6 +1,6 @@
 """``/admin/accounts`` 싱글 모드 화면과 계정 관리 및 퇴역 USERNAME API (설계 §8.6, §8.9).
 
-관리자(``instance_role == "admin"``, ``owner`` 범위)가 아니면 404다.
+관리자(``server_role == "admin"``, ``owner`` 범위)가 아니면 404다.
 수정(PATCH) 및 정보 초기화(POST /api/admin/usernames/release)는 관리자 단계 인증(최근 15분 내 authenticated_at)이 필수다.
 다른 계정의 콘텐츠를 읽는 API는 두지 않는다(K5, D5).
 """
@@ -56,7 +56,7 @@ def account_role_text(role: str) -> str:
 
 
 def is_admin(principal: Principal) -> bool:
-    return principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None
+    return principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None
 
 
 def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
@@ -266,7 +266,7 @@ def _render_admin_accounts_html(
       </section>
       <section class="card" id="pref-userdb-admin" data-userdb-view="admin" aria-label="{escape(t("console.admin.accounts.userdb.label"))}">
         <h2><span data-icon="database"></span> {escape(t("console.admin.accounts.userdb.title"))}</h2>
-        <p class="hint">{escape(t("console.admin.accounts.userdb.hint"))} <a href="/admin/instance"><span data-icon="server"></span> {escape(t("console.admin.accounts.userdb.hint_link"))}</a></p>
+        <p class="hint">{escape(t("console.admin.accounts.userdb.hint"))} <a href="/admin/server"><span data-icon="server"></span> {escape(t("console.admin.accounts.userdb.hint_link"))}</a></p>
         <div class="pref-stat-row" id="pref-userdb-stats">
           <div class="pref-stat"><b>{active_count}</b><span>{escape(t("console.admin.accounts.userdb.active"))}</span></div>
           <div class="pref-stat"><b>{suspended_count}</b><span>{escape(t("console.admin.accounts.userdb.suspended"))}</span></div>
@@ -310,7 +310,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                mode = store.instance_mode()
+                mode = store.server_mode()
                 retired = store.list_retired_usernames()
                 tier_dict = server_tier.load_server_tier(conn).to_dict()
             finally:
@@ -442,7 +442,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     from .. import federation_routes
 
                     skip_federated_delete = body.get("skip_federated_delete") is True
-                    needs_federated_delete = store.federation_state() == "on" and store.instance_mode() == "network" and bool(target.username) and federation_store.count_followers(conn, target.id) > 0
+                    needs_federated_delete = store.federation_state() == "on" and store.server_mode() == "network" and bool(target.username) and federation_store.count_followers(conn, target.id) > 0
                     if needs_federated_delete and not skip_federated_delete:
                         heartbeat = federation_routes.read_heartbeat(ctx.data_dir or data_dir) if (ctx.data_dir or data_dir) else None
                         if not federation_readiness.heartbeat_is_recent(heartbeat):

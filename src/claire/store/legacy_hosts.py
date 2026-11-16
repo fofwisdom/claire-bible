@@ -3,7 +3,7 @@
 옛 테마 FQDN은 v16 이관이 ``legacy_hosts``로 옮긴다(테이블과 이관은 `store.db`). 이 모듈은
 
 - ``SqliteLegacyHostDirectory``: ``HostRouter``가 요청마다 묻는 ``LegacyHostDirectory`` 구현. 행과 정책을 메모리에 두고, DB 파일(본 파일과 ``-wal``)의 변경이나 이 프로세스의 쓰기가 있으면 다시 읽는다.
-- 일몰 시계 활성화·연장·무기한 유지 함수와 ``instance_settings.legacy_host_policy``(JSON) 읽기·쓰기. 화면과 API는 ``/api/admin/instance``(P2 L2-f)가 맡는다.
+- 일몰 시계 활성화·연장·무기한 유지 함수와 ``server_settings.legacy_host_policy``(JSON) 읽기·쓰기. 화면과 API는 ``/api/admin/server``(P2 L2-f)가 맡는다.
 
 테이블이 아직 없으면(v16 이전 DB) 레거시 호스트가 없는 것으로 본다. 정책 JSON이 잘못됐으면 기본값으로 대신하지 않고 ``ValueError``다(C1).
 """
@@ -88,9 +88,9 @@ def _parse_policy(raw: str | None) -> LegacyHostPolicy:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError("instance_settings.legacy_host_policy is not valid JSON") from exc
+        raise ValueError("server_settings.legacy_host_policy is not valid JSON") from exc
     if not isinstance(data, dict) or set(data) - {"after_sunset_status", "sunset_days"}:
-        raise ValueError("instance_settings.legacy_host_policy has an unexpected shape")
+        raise ValueError("server_settings.legacy_host_policy has an unexpected shape")
     default = LegacyHostPolicy()
     return _validate_policy(
         LegacyHostPolicy(
@@ -101,10 +101,10 @@ def _parse_policy(raw: str | None) -> LegacyHostPolicy:
 
 
 def read_legacy_host_policy(conn: sqlite3.Connection) -> LegacyHostPolicy:
-    """``instance_settings.legacy_host_policy``. 행이 없으면 기본값(410, 30일)."""
+    """``server_settings.legacy_host_policy``. 행이 없으면 기본값(410, 30일)."""
     try:
         row = conn.execute(
-            "SELECT value FROM instance_settings WHERE key=?", (LEGACY_HOST_POLICY_KEY,)
+            "SELECT value FROM server_settings WHERE key=?", (LEGACY_HOST_POLICY_KEY,)
         ).fetchone()
     except sqlite3.OperationalError as exc:
         if _is_missing_table(exc):
@@ -123,7 +123,7 @@ def write_legacy_host_policy(
         sort_keys=True,
     )
     conn.execute(
-        "INSERT INTO instance_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, "
         "updated_by=excluded.updated_by",
         (LEGACY_HOST_POLICY_KEY, value, time.time(), updated_by),

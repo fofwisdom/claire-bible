@@ -82,13 +82,13 @@ SIGNUP_TOKEN_TTL = 600.0  # 10 minutes
 
 
 def _is_admin(principal: Principal) -> bool:
-    return principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None
+    return principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None
 
 
 def _is_network_mode(ctx: AccountsContext) -> bool:
     conn = open_db(ctx)
     try:
-        return accounts_store.AccountStore(conn).instance_mode() == "network"
+        return accounts_store.AccountStore(conn).server_mode() == "network"
     finally:
         conn.close()
 
@@ -629,7 +629,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         scope="owner",
                         replace_token=cookie_session_token(request),
                     )
-                    mode = store.instance_mode()
+                    mode = store.server_mode()
                     redirect_path = account_home_path(mode, account.username)
                 finally:
                     conn.close()
@@ -741,7 +741,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "username_taken", detail="Username is already taken")
 
         try:
-            username = validate_username(username, instance_reserved=ctx.instance_reserved)
+            username = validate_username(username, server_reserved=ctx.server_reserved)
         except UsernameRejected as exc:
             return json_error(400, f"username_{exc.reason}", detail=str(exc))
 

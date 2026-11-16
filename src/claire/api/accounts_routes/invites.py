@@ -65,13 +65,13 @@ from .common import (
 def _is_network_mode(ctx: AccountsContext) -> bool:
     conn = open_db(ctx)
     try:
-        return accounts_store.AccountStore(conn).instance_mode() == "network"
+        return accounts_store.AccountStore(conn).server_mode() == "network"
     finally:
         conn.close()
 
 
 def _is_admin(principal: Principal) -> bool:
-    return principal.instance_role == "admin" and principal.scope == "owner" and principal.account_id is not None
+    return principal.server_role == "admin" and principal.scope == "owner" and principal.account_id is not None
 
 
 def _wants_json(request: Request) -> bool:
@@ -81,7 +81,7 @@ def _wants_json(request: Request) -> bool:
     return "application/json" in accept and "text/html" not in accept
 
 
-def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> str:
+def _render_invite_html(info: InvitationInfo, server_name: str, code: str) -> str:
     reserved_note = f"<p>{escape(t('auth.invite.reserved', username='@' + info.reserved_username))}</p>" if info.reserved_username else ""
     readonly_attr = ' readonly' if info.reserved_username else ''
     val_username = escape(info.reserved_username or '')
@@ -92,7 +92,7 @@ def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> 
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<meta name=\"robots\" content=\"noindex, nofollow\">"
-        f"<title>{escape(t('auth.invite.page_title', instance=instance_name))}</title>"
+        f"<title>{escape(t('auth.invite.page_title', server=server_name))}</title>"
         "<style>"
         "body { font-family: system-ui, -apple-system, sans-serif; max-width: 440px; margin: 40px auto; padding: 20px; line-height: 1.5; color: #222; }"
         "h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }"
@@ -104,7 +104,7 @@ def _render_invite_html(info: InvitationInfo, instance_name: str, code: str) -> 
         "</style>"
         "</head>"
         "<body>"
-        f"<h1>{escape(t('auth.invite.title', instance=instance_name))}</h1>"
+        f"<h1>{escape(t('auth.invite.title', server=server_name))}</h1>"
         f"<p>{t_code('auth.invite.code', code=code)}</p>"
         f"{reserved_note}"
         f"<form method=\"POST\" action=\"/invite/{escape(code)}\">"
@@ -200,8 +200,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 headers=headers,
             )
 
-        instance_name = ctx.config.expected_authority or "Claire"
-        return HTMLResponse(_render_invite_html(info, instance_name, norm_code), headers=headers)
+        server_name = ctx.config.expected_authority or "Claire"
+        return HTMLResponse(_render_invite_html(info, server_name, norm_code), headers=headers)
 
     async def invite_post(request: Request) -> Response:
         if not await asyncio.to_thread(_is_network_mode, ctx):
@@ -272,7 +272,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "username_taken", detail="Username is already taken")
 
         try:
-            username = validate_username(username, instance_reserved=ctx.instance_reserved)
+            username = validate_username(username, server_reserved=ctx.server_reserved)
         except UsernameRejected as exc:
             return json_error(400, f"username_{exc.reason}", detail=str(exc))
 

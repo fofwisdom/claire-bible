@@ -3,11 +3,11 @@
 Two files (DATA_STORE_LAYOUT_DESIGN.md, RD27):
 
 - ``client.db`` (``store.client_db``): ``federation_following``, ``federation_account_settings``, ``federation_client_outbox``. The functions with ``conn`` for these tables take a ``client.db`` connection.
-- ``claire.db``: the reading settings of the instance, one JSON value in ``instance_settings`` (key ``federation_reading``). ``get_reading_settings`` and ``set_reading_settings`` take a ``claire.db`` connection.
+- ``claire.db``: the reading settings of the server, one JSON value in ``server_settings`` (key ``federation_reading``). ``get_reading_settings`` and ``set_reading_settings`` take a ``claire.db`` connection.
 
 - ``federation_timeline_items`` (``client.db`` version 2, unit FP4-4) has the received posts of an account. The key is ``(account_id, object_iri)``. ``content_html`` is the raw HTML of the remote server: only the render route sanitizes it (Section 8).
 - A follow starts as ``pending`` with the handle or IRI that the owner gave (``request``). ``actor_iri`` is ``None`` until the sidecar resolves it (FP4-3).
-- The retention of an account is the lower of the account value and the instance value (Section 10 rule 1). An account value above the instance value is refused when the owner sets it; a later decrease of the instance value does not change the account value.
+- The retention of an account is the lower of the account value and the server value (Section 10 rule 1). An account value above the server value is refused when the owner sets it; a later decrease of the server value does not change the account value.
 
 No function in this module commits, except ``set_reading_settings``. The caller owns the transaction.
 """
@@ -84,7 +84,7 @@ FOLLOWING_STATES: tuple[str, ...] = ("pending", "accepted", "rejected")
 READING_SETTING_KEY = "federation_reading"
 _MIB = 1024 * 1024
 
-# Section 10: default and range of each instance value. Each value is an int, except ``context_fetch``.
+# Section 10: default and range of each server value. Each value is an int, except ``context_fetch``.
 READING_DEFAULTS: dict[str, Any] = {
     "retention_days": 90,
     "following_limit": 1000,
@@ -199,7 +199,7 @@ def remove_following(conn: sqlite3.Connection, account_id: int, following_id: in
     return found
 
 
-# --- Reading settings of the instance (Section 10) -------------------------
+# --- Reading settings of the server (Section 10) -------------------------
 
 
 def validate_reading_update(body: Any) -> dict[str, Any]:
@@ -224,7 +224,7 @@ def validate_reading_update(body: Any) -> dict[str, Any]:
 
 def get_reading_settings(conn: sqlite3.Connection) -> dict[str, Any]:
     """All reading settings: the stored values over the defaults. A stored value that is not valid raises ``RuntimeError`` (C1): only ``set_reading_settings`` writes the value."""
-    row = conn.execute("SELECT value FROM instance_settings WHERE key=?", (READING_SETTING_KEY,)).fetchone()
+    row = conn.execute("SELECT value FROM server_settings WHERE key=?", (READING_SETTING_KEY,)).fetchone()
     values = dict(READING_DEFAULTS)
     if row is None:
         return values
@@ -232,7 +232,7 @@ def get_reading_settings(conn: sqlite3.Connection) -> dict[str, Any]:
         stored = json.loads(str(row[0]))
         values.update(validate_reading_update(stored) if stored else {})
     except (ValueError, TypeError) as exc:
-        raise RuntimeError(f"instance_settings.{READING_SETTING_KEY} is not valid: {exc}") from exc
+        raise RuntimeError(f"server_settings.{READING_SETTING_KEY} is not valid: {exc}") from exc
     return values
 
 
@@ -242,7 +242,7 @@ def set_reading_settings(conn: sqlite3.Connection, update: dict[str, Any], *, up
     values.update(validate_reading_update(update))
     stored = {k: v for k, v in values.items() if v != READING_DEFAULTS[k]}
     conn.execute(
-        "INSERT INTO instance_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
         (READING_SETTING_KEY, json.dumps(stored, sort_keys=True), time.time() if now is None else now, updated_by),
     )
@@ -254,16 +254,16 @@ def set_reading_settings(conn: sqlite3.Connection, update: dict[str, Any], *, up
 
 
 def get_account_retention(conn: sqlite3.Connection, account_id: int) -> int | None:
-    """The retention that the owner set, or ``None`` (the instance value)."""
+    """The retention that the owner set, or ``None`` (the server value)."""
     row = conn.execute("SELECT retention_days FROM federation_account_settings WHERE account_id=?", (account_id,)).fetchone()
     return None if row is None or row[0] is None else int(row[0])
 
 
-def set_account_retention(conn: sqlite3.Connection, account_id: int, retention_days: int | None, *, instance_max: int, now: float) -> None:
-    """Set the retention of the account (``client.db``). ``None`` returns to the instance value. A value above ``instance_max`` (the instance value of ``claire.db``) raises ``ReadingSettingsError``."""
+def set_account_retention(conn: sqlite3.Connection, account_id: int, retention_days: int | None, *, server_max: int, now: float) -> None:
+    """Set the retention of the account (``client.db``). ``None`` returns to the server value. A value above ``server_max`` (the server value of ``claire.db``) raises ``ReadingSettingsError``."""
     if retention_days is not None:
-        if isinstance(retention_days, bool) or not isinstance(retention_days, int) or not 1 <= retention_days <= instance_max:
-            raise ReadingSettingsError("retention_days", f"retention_days must be null or an integer from 1 to {instance_max}")
+        if isinstance(retention_days, bool) or not isinstance(retention_days, int) or not 1 <= retention_days <= server_max:
+            raise ReadingSettingsError("retention_days", f"retention_days must be null or an integer from 1 to {server_max}")
     conn.execute(
         "INSERT INTO federation_account_settings (account_id, retention_days, updated_at) VALUES (?, ?, ?) "
         "ON CONFLICT(account_id) DO UPDATE SET retention_days=excluded.retention_days, updated_at=excluded.updated_at",
@@ -271,15 +271,15 @@ def set_account_retention(conn: sqlite3.Connection, account_id: int, retention_d
     )
 
 
-def effective_retention_days(conn: sqlite3.Connection, account_id: int, *, instance_value: int) -> int:
+def effective_retention_days(conn: sqlite3.Connection, account_id: int, *, server_value: int) -> int:
     own = get_account_retention(conn, account_id)
-    return instance_value if own is None else min(own, instance_value)
+    return server_value if own is None else min(own, server_value)
 
 
 # --- Retention run (Section 10 rules 1, 2, and 4) ---------------------------
 
 
-def expired_item_ids(conn: sqlite3.Connection, *, instance_days: int, now: float) -> list[int]:
+def expired_item_ids(conn: sqlite3.Connection, *, server_days: int, now: float) -> list[int]:
     """The timeline items that the retention run deletes (``client.db``).
 
     An item goes when it is older than the retention of its account by ``received_at``, is not starred, and has no ingested document. An own note that is not deleted keeps its item (the item has the controls of the note). An item with ``in_timeline`` = 0 that is the parent of an item that stays also stays (rule 2), through all levels.
@@ -289,7 +289,7 @@ def expired_item_ids(conn: sqlite3.Connection, *, instance_days: int, now: float
     own_note = "AND NOT EXISTS (SELECT 1 FROM federation_notes n WHERE n.account_id=i.account_id AND n.deleted_at IS NULL AND i.object_iri LIKE '%/ap/objects/' || n.public_id)" if has_notes else ""
     expired: list[int] = []
     for (account_id,) in conn.execute("SELECT DISTINCT account_id FROM federation_timeline_items").fetchall():
-        days = min(own.get(int(account_id), instance_days), instance_days)
+        days = min(own.get(int(account_id), server_days), server_days)
         rows = conn.execute(f"SELECT i.id, i.object_iri, i.in_timeline FROM federation_timeline_items i WHERE i.account_id=? AND i.received_at < ? AND i.starred=0 AND i.linked_doc_id IS NULL {own_note}", (account_id, now - days * 86400.0)).fetchall()
         candidates = {int(item_id): (str(object_iri), int(in_timeline)) for item_id, object_iri, in_timeline in rows}
         while True:
@@ -305,14 +305,14 @@ def expired_item_ids(conn: sqlite3.Connection, *, instance_days: int, now: float
     return expired
 
 
-def retention_run(conn: sqlite3.Connection, *, instance_days: int, now: float, apply: bool) -> dict[str, int]:
+def retention_run(conn: sqlite3.Connection, *, server_days: int, now: float, apply: bool) -> dict[str, int]:
     """Count, and with ``apply`` delete, the timeline items that are older than the retention. The caller commits. The media cleanup deletes the media entries that no item uses after this run."""
-    ids = expired_item_ids(conn, instance_days=instance_days, now=now)
+    ids = expired_item_ids(conn, server_days=server_days, now=now)
     if apply:
         for start in range(0, len(ids), 500):
             part = ids[start : start + 500]
             conn.execute(f"DELETE FROM federation_timeline_items WHERE id IN ({','.join('?' * len(part))})", part)
-    return {"retention_days": instance_days, "expired_items": len(ids)}
+    return {"retention_days": server_days, "expired_items": len(ids)}
 
 
 # --- Client outbox (Section 5.2) -------------------------------------------

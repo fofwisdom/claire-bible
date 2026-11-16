@@ -37,7 +37,7 @@ ACTOR_STATES = ("active", "account_not_active", "no_username", "federation_off",
 def actor_state(account: accounts_store.Account, *, federation: str) -> ActorState:
     """Return ``active`` when the account is a federation actor in network mode. If not, return the first condition of the actor rule that fails.
 
-    The sequence is: account status, USERNAME, instance switch, ``profile_public``. The caller makes sure that the mode is ``network``.
+    The sequence is: account status, USERNAME, server switch, ``profile_public``. The caller makes sure that the mode is ``network``.
     """
     if account.status != "active":
         return "account_not_active"
@@ -79,7 +79,7 @@ def domain_block_view(block: federation_store.DomainBlock) -> dict[str, Any]:
 # --- /settings/federation -------------------------------------------------------
 
 
-def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.InstanceMode, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
+def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.ServerMode, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
     """Return the body and the bootstrap data of ``/settings/federation``. In single mode the body has a notice only and shows no USERNAME (S9)."""
     if mode != "network":
         body = (
@@ -123,8 +123,8 @@ def settings_federation_body(ctx: AccountsContext, *, mode: accounts_store.Insta
         f'<section class="console-subcard" id="settings-federation-reading" data-federation-reading aria-label="{escape(t("console.federation.retention.title"))}">'
         f'<h2><span data-icon="folder"></span> {escape(t("console.federation.retention.title"))}</h2>'
         f'<p class="hint">{escape(t("console.federation.retention.hint"))}</p>'
-        f'<form data-retention-form data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}" data-msg-instance="{escape(t("console.federation.retention.use_instance"))}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">'
-        '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" name="use_instance"/> <span data-retention-instance-label></span></label>'
+        f'<form data-retention-form data-msg-saved="{escape(t("console.federation.reading.saved"))}" data-msg-failed="{escape(t("console.federation.reading.failed"))}" data-msg-server="{escape(t("console.federation.retention.use_server"))}" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">'
+        '<label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" name="use_server"/> <span data-retention-server-label></span></label>'
         f'<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600">{escape(t("console.federation.reading.retention_days"))}<input type="number" name="retention_days" class="pref-input" min="1" step="1" inputmode="numeric" autocomplete="off"/></label>'
         f'<button type="submit" class="pref-btn pref-btn-accent">{escape(t("common.action.save"))}</button>'
         "</form>"
@@ -157,7 +157,7 @@ _MIB = 1024 * 1024
 
 
 def _reading_settings_html(values: dict[str, Any]) -> str:
-    """The form of the reading settings of the instance (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). ``console_admin.js`` sends the changed values to ``PUT /api/admin/federation/reading``."""
+    """The form of the reading settings of the server (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). ``console_admin.js`` sends the changed values to ``PUT /api/admin/federation/reading``."""
     fields = []
     for key in federation_client_store.READING_DEFAULTS:
         label = escape(t(f"console.federation.reading.{key}"))
@@ -195,7 +195,7 @@ def admin_federation_body(ctx: AccountsContext) -> tuple[str, dict[str, Any]]:
     try:
         store = accounts_store.AccountStore(conn)
         federation = store.federation_state()
-        mode = store.instance_mode()
+        mode = store.server_mode()
         blocks = federation_store.list_domain_blocks(conn)
         reading = federation_client_store.get_reading_settings(conn)
     finally:

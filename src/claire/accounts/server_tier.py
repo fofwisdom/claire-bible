@@ -1,6 +1,6 @@
 """서버 등급 저장과 예산 집행 (설계 §10.3, P4 계약 스텁).
 
-등급은 ``claire.db`` ``instance_settings``의 ``server_tier`` 키에 ``ServerTier.to_dict()`` JSON으로 둔다.
+등급은 ``claire.db`` ``server_settings``의 ``server_tier`` 키에 ``ServerTier.to_dict()`` JSON으로 둔다.
 값이 없으면 기본 ``ServerTier()``(``provider='none'``, D6)이다. 사용량은 ``store.usage_ledger``(auth.db)에 둔다.
 
 - 관리자 컨텍스트(``is_admin`` 또는 ``account_id`` None = 호스트 운영자)는 어떤 한도도 받지 않는다.
@@ -50,9 +50,9 @@ def parse_server_tier(raw: str) -> ServerTier:
 
 
 def read_stored_server_tier(conn: sqlite3.Connection) -> str | None:
-    """``instance_settings.server_tier`` 원문. 없으면 None."""
+    """``server_settings.server_tier`` 원문. 없으면 None."""
     row = conn.execute(
-        "SELECT value FROM instance_settings WHERE key=?", (SERVER_TIER_SETTING_KEY,)
+        "SELECT value FROM server_settings WHERE key=?", (SERVER_TIER_SETTING_KEY,)
     ).fetchone()
     return None if row is None else str(row[0])
 
@@ -66,7 +66,7 @@ def load_server_tier(conn: sqlite3.Connection) -> ServerTier:
         return parse_server_tier(raw)
     except ValueError as exc:
         # 원문은 로그에 넣지 않는다(관리자가 잘못 넣은 값에 비밀이 섞였을 수 있다).
-        log.warning("instance_settings.server_tier is invalid; falling back to provider=none: %s", exc)
+        log.warning("server_settings.server_tier is invalid; falling back to provider=none: %s", exc)
         return ServerTier()
 
 
@@ -74,7 +74,7 @@ def save_server_tier(conn: sqlite3.Connection, tier: ServerTier, *, updated_by: 
     """검증한 뒤(``to_dict`` → ``from_dict`` 왕복) JSON으로 저장하고 커밋한다."""
     data = ServerTier.from_dict(tier.to_dict()).to_dict()
     conn.execute(
-        "INSERT INTO instance_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, "
         "updated_by=excluded.updated_by",
         (SERVER_TIER_SETTING_KEY, json.dumps(data, sort_keys=True), time.time(), updated_by),

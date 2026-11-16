@@ -535,7 +535,7 @@ def create_usercontent_app(
         token = request.query_params.get("t", "")
         if item is None or not verify_remote_token(token, item["account_id"], item_id, secret_service=secret_service, now=now() if now is not None else None):
             return PlainTextResponse("Not Found", status_code=404)
-        # Section 9.1 rule 1: the media of the body comes from the media host. An instance without a media host has no media in a body on this host.
+        # Section 9.1 rule 1: the media of the body comes from the media host. A server without a media host has no media in a body on this host.
         media_origin = roles.origin("media") if roles is not None and hasattr(roles, "origin") else None
         media_url = None
         if media_origin is not None:

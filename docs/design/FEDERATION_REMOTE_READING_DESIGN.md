@@ -40,8 +40,8 @@ The owner decision (2026-11-13): the basic implementation comes first. Invitatio
 
 | Item | Content |
 | :--- | :--- |
-| D1 Per-account moderation | Block and mute of a remote actor by the account, outbound reports (`Flag`). Until then: instance domain blocks only. |
-| D2 Outbound limits per account | Rate limits for notes, replies, favourites, boosts, and follows of one account, to protect the reputation of the instance. |
+| D1 Per-account moderation | Block and mute of a remote actor by the account, outbound reports (`Flag`). Until then: server domain blocks only. |
+| D2 Outbound limits per account | Rate limits for notes, replies, favourites, boosts, and follows of one account, to protect the reputation of the server. |
 | D3 Internationalization of the client | **No longer deferred (I18N_DESIGN.md ID5, 2026-11-13).** Each new screen, panel, and message of FP4 uses the i18n catalog keys from the start, with English and Korean texts in `static/locales/{en,ko}.json`. The `/syndication` page and the syndication console panels are localized as part of their rebuild in FP4 (not by IP2-2 or IP2-3). |
 | D4 Connected external accounts | RD12. |
 
@@ -128,7 +128,7 @@ This section is the answer when someone asks about these features. Each item is 
 | :--- | :--- | :--- |
 | I1 Theme as a group | A theme becomes a `Group` actor (FEP-1b12 subset): remote users follow the theme, and the theme sends its published documents as `Article` and `Announce`. | Not designed. It is not clear that a theme becomes a real group actor. Needs an owner decision and a design revision of this document. Possible triggers: the SWICG Groups report specifies `Join` and the policy names (Section 3), or the owner wants the stable FEP-1b12 subset. |
 | I2 Exchange between Claire Bible servers only | Claire Bible servers exchange content (for example themes or published documents) with ActivityPub among themselves, not with the open fediverse. | A concept only. No protocol profile, no trust model, no discovery rule. Needs a design of its own. |
-| I3 Bodies published by other users of the same instance | The prototype feature "다른 사용자 발행 본문" of [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.9. | Proposal state in that document. Depends on per-user workspaces. Not part of FP4. |
+| I3 Bodies published by other users of the same server | The prototype feature "다른 사용자 발행 본문" of [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.9. | Proposal state in that document. Depends on per-user workspaces. Not part of FP4. |
 
 Rules for a question about these ideas: say that the item is an idea without a design; give the state from this table; do not describe tables, routes, or activities for it as if they exist.
 
@@ -165,7 +165,7 @@ The route `POST /api/federation/timeline/{item_id}/ingest` with `theme_id` start
 2. The owner gives a handle (`@name@host`) or an actor IRI. The sidecar resolves it (RT1).
 3. A follow has the states `pending`, `accepted`, and `rejected`. A remote server that approves follows by hand keeps the follow `pending` until it sends `Accept`.
 4. A blocked domain cannot be followed. A new domain block changes the follows of that domain to `rejected` and makes `undo_follow` tasks.
-5. Limit: at most `following_limit` follows for each account (Section 10, default 1000, RD8). The admin can increase it. The limit has three reasons: each follow adds one item for each post to each following account (storage and fan-out work), each follow is a delivery to a remote server, and a mass follow from one instance is a known spam pattern that causes other servers to block the instance.
+5. Limit: at most `following_limit` follows for each account (Section 10, default 1000, RD8). The admin can increase it. The limit has three reasons: each follow adds one item for each post to each following account (storage and fan-out work), each follow is a delivery to a remote server, and a mass follow from one server is a known spam pattern that causes other servers to block the server.
 6. Unfollow sends `Undo(Follow)` and deletes the row. The received items stay (RD5 gives their retention).
 7. The `following` collection of the actor gives `totalItems` only, the same as the followers collection (RD9).
 
@@ -223,7 +223,7 @@ The task has a new column `target_iri` for the remote actor or the remote object
 12. **Composition fields (RD11, 2026-11-13).** All are required for notes:
     - **Edit.** The owner can change the text, the content warning, the language, and the tags of an own note. Claire sends `Update(Note)` with `updated`. The client shows "edited".
     - **Content warning.** An optional `summary` with `sensitive` = true. The client shows the summary first, as for inbound items (Section 8 rule 4).
-    - **Language.** The note has `contentMap` with one language tag. The default is the locale of the account (`accounts.locale`), else the instance default. The owner can change it per note.
+    - **Language.** The note has `contentMap` with one language tag. The default is the locale of the account (`accounts.locale`), else the server default. The owner can change it per note.
     - **Hashtags.** A `#tag` in the text becomes a `Hashtag` tag with a link, and a link in the HTML. FD8 (no hashtags) stays for published documents (`Article`) only.
 
 ### 5.5 Content of a Published Document (RD21)
@@ -399,7 +399,7 @@ CREATE INDEX idx_federation_timeline_thread ON federation_timeline_items(account
 
 CREATE TABLE federation_account_settings (
     account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-    retention_days INTEGER CHECK (retention_days IS NULL OR retention_days >= 1),  -- NULL: the instance value
+    retention_days INTEGER CHECK (retention_days IS NULL OR retention_days >= 1),  -- NULL: the server value
     updated_at REAL NOT NULL
 );
 
@@ -471,7 +471,7 @@ CREATE TABLE federation_media_cache (
 
 ### 7.3 Settings
 
-The reading settings of Section 10 go to `instance_settings` (key `federation_reading`, JSON). The object storage settings go to `instance_settings` (key `media_storage`). The secret key is encrypted with `SecretService` and the additional authenticated data `media_storage:s3`. The secret is never in an API response.
+The reading settings of Section 10 go to `server_settings` (key `federation_reading`, JSON). The object storage settings go to `server_settings` (key `media_storage`). The secret key is encrypted with `SecretService` and the additional authenticated data `media_storage:s3`. The secret is never in an API response.
 
 ---
 
@@ -491,7 +491,7 @@ The reading settings of Section 10 go to `instance_settings` (key `federation_re
 
 1. The render route gives each remote media URL as `/media/remote/{url_hash}?t={token}` on the `media` host. The token binds `(account_id, url_hash, exp)`.
 2. At the first request, the `media` host fetches the remote URL, stores it in the media store under `remote/{url_hash}`, and records it in `federation_media_cache`. Later requests read the store.
-3. Fetch rules: no private or loopback address unless `allow_private_networks` is on (development), redirect limit 3 with the same check on each hop, timeout 15 seconds, no cookie and no credential, `User-Agent` of the instance.
+3. Fetch rules: no private or loopback address unless `allow_private_networks` is on (development), redirect limit 3 with the same check on each hop, timeout 15 seconds, no cookie and no credential, `User-Agent` of the server.
 4. Allowed types: `image/*` except `image/svg+xml`, `video/mp4`, `video/webm`, `audio/*`. The size limits are admin settings (Section 10, RD7). A larger file is `too_large`; the render shows a link to the remote URL.
 5. Response headers: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-site`, `Cache-Control: private`.
 6. Eviction: a command removes cache entries with `last_access_at` older than `media_evict_days` (Section 10, RD7). A deleted item removes its entries when no other item refers to the URL.
@@ -532,12 +532,12 @@ The owner decision (2026-11-13): local storage is the default and needs no setti
 
 ## 10. Reading Settings (RD5, RD7, RD8)
 
-The admin sets the instance values in `/admin/federation` with `GET`, `PUT /api/admin/federation/reading`. The account owner sets only the own retention in `/settings/federation`.
+The admin sets the server values in `/admin/federation` with `GET`, `PUT /api/admin/federation/reading`. The account owner sets only the own retention in `/settings/federation`.
 
 | Key | Default | Range | Who |
 | :--- | :--- | :--- | :--- |
 | `retention_days` | 90 | 1 to 3650 | Admin. The maximum for all accounts. |
-| account `retention_days` | NULL (instance value) | 1 to the instance value | Account owner |
+| account `retention_days` | NULL (server value) | 1 to the server value | Account owner |
 | `following_limit` | 1000 | 1 to 100000 | Admin |
 | `media_image_max_bytes` | 20 MiB | 1 MiB to 100 MiB | Admin |
 | `media_av_max_bytes` | 100 MiB | 1 MiB to 1 GiB | Admin |
@@ -552,7 +552,7 @@ The admin sets the instance values in `/admin/federation` with `GET`, `PUT /api/
 
 Rules:
 
-1. The retention of an account is the lower of the account value and the instance value. When the admin decreases the instance value, the account values that are higher have no effect. Claire does not change them.
+1. The retention of an account is the lower of the account value and the server value. When the admin decreases the server value, the account values that are higher have no effect. Claire does not change them.
 2. A retention run deletes the items that are older than the retention by `received_at`, not starred, and not ingested (`linked_doc_id` is NULL). An item with `in_timeline` = 0 that is the parent of a kept item stays.
 3. When the admin decreases `following_limit`, the follows that exist stay. The account cannot add a follow until it is below the limit.
 4. The retention run and the media eviction run once a day in the `api` process and with the command `claire federation prune`.
@@ -596,7 +596,7 @@ Rules:
 
 ### 12.1 Results
 
-**RT9 (2026-11-13): confirmed** with `sidecar/fedify/spike/rt9_quote.ts` (two Fedify instances on loopback; `@fedify/fedify` 2.3.15 and `@fedify/vocab` 2.4.5 from the sidecar lock). The spike was not kept in the repository: the test `test_sidecar_source_layout` keeps spike code out of the sidecar directory, and this table records the results (owner, 2026-11-13).
+**RT9 (2026-11-13): confirmed** with `sidecar/fedify/spike/rt9_quote.ts` (two Fedify servers on loopback; `@fedify/fedify` 2.3.15 and `@fedify/vocab` 2.4.5 from the sidecar lock). The spike was not kept in the repository: the test `test_sidecar_source_layout` keeps spike code out of the sidecar directory, and this table records the results (owner, 2026-11-13).
 
 | Item | Result | Effect on this design |
 | :--- | :--- | :--- |
@@ -609,7 +609,7 @@ Rules:
 
 Not covered: the display of an approved quote on a Mastodon-compatible server. That needs a real server (FP4-10 end-to-end or a manual check).
 
-**RT1 to RT8 (2026-11-13).** Local test programs, not kept in the repository: two or three Fedify instances on loopback with HTTPS (a local test CA), the sidecar config and lock (`--frozen`); Python checks on a database made by `init_db`. The repository did not change.
+**RT1 to RT8 (2026-11-13).** Local test programs, not kept in the repository: two or three Fedify servers on loopback with HTTPS (a local test CA), the sidecar config and lock (`--frozen`); Python checks on a database made by `init_db`. The repository did not change.
 
 | Item | State | Result | Effect on this design |
 | :--- | :--- | :--- | :--- |
@@ -630,10 +630,10 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD2 | Inbound scope | Original posts and boosts (`Announce`) | Locked 2026-11-13 |
 | RD3 | Remote media | Proxy through the `media` host. The admin can connect object storage. A migration moves local media to object storage. | Locked 2026-11-13 |
 | RD4 | Who can follow | Only an account that is an actor | Locked 2026-11-13 |
-| RD5 | Retention of items | The admin sets the instance value. An account owner can set a lower value. Starred and ingested items stay. Unfollow keeps the items. (Section 10) | Locked 2026-11-13 |
+| RD5 | Retention of items | The admin sets the server value. An account owner can set a lower value. Starred and ingested items stay. Unfollow keeps the items. (Section 10) | Locked 2026-11-13 |
 | RD6 | Replies | Automatic collection as in Mastodon: replies are stored, parents are fetched, and the thread is fetched when the owner opens it (Section 6.5) | Locked 2026-11-13 |
 | RD7 | Media limits | The admin sets the size limits and the eviction period (Section 10) | Locked 2026-11-13 |
-| RD8 | Following limit | Instance setting, default 1000. The admin can increase it. (Section 5.1, Section 10) | Locked 2026-11-13 |
+| RD8 | Following limit | Server setting, default 1000. The admin can increase it. (Section 5.1, Section 10) | Locked 2026-11-13 |
 | RD9 | Visibility and precedence | `following` collection gives the total only. The admin storage settings are the only source; the old environment variables are imported one time (changed 2026-11-15). | Locked 2026-11-13 |
 | RD10 | Federation client | The federation client is in `/syndication`. It does two-way communication and the first collection, separate from ingestion. It takes collected posts into the knowledge base and publishes ingested documents. (Section 1.3) | Locked 2026-11-13 |
 | RD11 | Outbound interaction scope | Reply, new public note, quote with FEP-044f consent, favourite, boost, delete of an own note. No media in notes, no poll (Section 5.4). | Locked 2026-11-13 |
@@ -666,7 +666,7 @@ The work unit rules of the parent design §14.4 apply.
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-0 | **RT1 to RT9 done 2026-11-13; RT10 is part of FP4-1.** Technical items RT1 to RT9 with small test programs. No product code. | Each item has a result. A failed item goes back to the owner. | RD12, RD13 | S |
 | FP4-1 | **Done 2026-11-15.** Storage backends (Section 9.1.1): local default, object storage settings (`/admin/storage`, routes, encrypted secret, test), read fallback to local storage, migration command (Section 9.2, 9.3), RT10 | The test route reports success with a local Garage server. A migration run moves all files with equal hashes and can run again. | FP4-0 | M |
-| FP4-2 | **Done 2026-11-13.** With DS-1 (RD27): `client.db` version 1 with the feed tables (moved from `claire.db`, which becomes version 22), `federation_following`, `federation_account_settings`, `federation_client_outbox` with the kinds of Section 5.2 and `target_iri`, store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the instance value is refused. | FP4-0 | M |
+| FP4-2 | **Done 2026-11-13.** With DS-1 (RD27): `client.db` version 1 with the feed tables (moved from `claire.db`, which becomes version 22), `federation_following`, `federation_account_settings`, `federation_client_outbox` with the kinds of Section 5.2 and `target_iri`, store functions, reading settings with the admin and account routes (Section 10) | The migration is idempotent and keeps all outbox rows. An account value above the server value is refused. | FP4-0 | M |
 | FP4-3 | **Done 2026-11-14 (contract 1.3).** Follow lifecycle: routes (Section 5.3 first three), tasks `follow`, `undo_follow`, `reject_follow`, sidecar resolution and delivery, `Accept` and `Reject` events, `following` collection, domain block effect | A follow of a test actor becomes `accepted` after its `Accept`. A follower removal sends `Reject(Follow)`. | FP4-2 | L |
 | FP4-4 | **Done 2026-11-15 (`client.db` version 2; contract stays 1.3).** `federation_timeline_items`, inbound `Create`, `Update`, `Delete`, `Announce`, `Undo(Announce)`, addressing and block rules, fan-out, replies with the timeline rule and the parent chain (Section 6.5 rules 1 to 3), contract 1.3 fixtures | A public `Create` from a followed actor makes one item for each following account. A followers-only object makes none. A group `Announce` makes one item with the announcer. A reply to an actor that is not followed has `in_timeline` = 0. | FP4-3 | L |
 | FP4-5 | **Done 2026-11-15.** Timeline routes, federation client view in `/syndication` (list and thread), the context menu (right click) of an item with "Markdown export" for a knowledge base document (`GET /document/export`, MD-3), `usercontent` render route with the `remote` token, ingest of one item, the FP3-5 publish dialog reached from the client, console fields of the reading settings | The body renders on the `usercontent` origin only. A script in the content does not run. The client and the knowledge base are two views of one page. | FP4-4 | M |

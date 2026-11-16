@@ -42,7 +42,7 @@ ADMIN_PASSWORD = "Correct-Horse-Battery-123!"
 TEST_MASTER_KEY_HEX = "22" * 32
 BOT_TOKEN_A = "7100000001:" + "A" * 35
 BOT_TOKEN_B = "7100000002:" + "B" * 35
-INSTANCE_BOT_TOKEN = "7100000009:" + "I" * 35
+SERVER_BOT_TOKEN = "7100000009:" + "I" * 35
 
 
 @dataclass
@@ -57,7 +57,7 @@ class _Settings:
     anonymous_readonly: bool = False
     fqdn: str = "notes.kimhome.net"
     multi_theme: bool = True
-    telegram_bot_token: str = INSTANCE_BOT_TOKEN
+    telegram_bot_token: str = SERVER_BOT_TOKEN
     telemetry_retention_days: int = 30
 
 
@@ -228,8 +228,8 @@ def test_telegram_register_update_delete_and_isolation(env, fake_telegram):
     # 허용 사용자가 없으면 거부한다.
     r = c.request("PUT", "/api/me/telegram", session=env.sa, json={"bot_token": BOT_TOKEN_A, "allowed_user_ids": ""})
     assert r.status_code == 400 and r.json()["error"] == "invalid_allowed_user_ids"
-    # 인스턴스 봇과 같은 봇은 거부한다(텔레그램 호출 전).
-    r = c.request("PUT", "/api/me/telegram", session=env.sa, json={"bot_token": INSTANCE_BOT_TOKEN, "allowed_user_ids": "11"})
+    # 서버 봇과 같은 봇은 거부한다(텔레그램 호출 전).
+    r = c.request("PUT", "/api/me/telegram", session=env.sa, json={"bot_token": SERVER_BOT_TOKEN, "allowed_user_ids": "11"})
     assert r.status_code == 409 and r.json()["error"] == "bot_in_use"
     # 텔레그램이 거부한 토큰은 저장하지 않는다.
     r = c.request("PUT", "/api/me/telegram", session=env.sa, json={"bot_token": "7100000003:" + "Z" * 35, "allowed_user_ids": "11"})
@@ -479,13 +479,13 @@ def test_supervisor_follows_webui_configuration(env, fake_telegram):
 
     sup = BotSupervisor(env.settings, app_factory=factory)
     asyncio.run(sup.sync())
-    assert set(sup.running) == {("instance", 1)}
+    assert set(sup.running) == {("server", 1)}
 
     assert c.request("PUT", "/api/me/telegram", session=env.sa, json={"bot_token": BOT_TOKEN_A, "allowed_user_ids": "11"}).status_code == 200
     fail_accounts.add(env.b)
     assert c.request("PUT", "/api/me/telegram", session=env.sb, json={"bot_token": BOT_TOKEN_B, "allowed_user_ids": "12"}).status_code == 200
     asyncio.run(sup.sync())
-    assert set(sup.running) == {("instance", 1), ("account", env.a)}
+    assert set(sup.running) == {("server", 1), ("account", env.a)}
     assert c.request("GET", "/api/me/telegram", session=env.sa).json()["bot"]["status"] == "running"
     failed = c.request("GET", "/api/me/telegram", session=env.sb).json()["bot"]
     assert failed["status"] == "error" and BOT_TOKEN_B not in (failed["last_error"] or "")
@@ -497,7 +497,7 @@ def test_supervisor_follows_webui_configuration(env, fake_telegram):
     assert first.shutdown_called and sup.running[("account", env.a)].app is not first
     assert c.request("PATCH", "/api/me/telegram", session=env.sa, json={"enabled": False}).status_code == 200
     asyncio.run(sup.sync())
-    assert set(sup.running) == {("instance", 1)}
+    assert set(sup.running) == {("server", 1)}
     # 정지된 계정의 봇은 돌리지 않는다.
     assert c.request("PATCH", "/api/me/telegram", session=env.sa, json={"enabled": True}).status_code == 200
     conn = dbm.connect_existing(env.settings.db_file)

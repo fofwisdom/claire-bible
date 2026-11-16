@@ -90,7 +90,7 @@ def _owner(request: Request) -> tuple[Principal, Response | None]:
 
 
 def _is_admin(principal: Principal) -> bool:
-    return principal.account_id is not None and principal.instance_role == "admin" and principal.scope == "owner"
+    return principal.account_id is not None and principal.server_role == "admin" and principal.scope == "owner"
 
 
 def _download(path: str, filename: str) -> Response:
@@ -128,7 +128,7 @@ def purge_account_features(auth_conn: sqlite3.Connection, account_id: int, *, da
 # --- 텔레그램 ---------------------------------------------------------------------------
 
 
-def _instance_bot_id(ctx: AccountsContext) -> int | None:
+def _server_bot_id(ctx: AccountsContext) -> int | None:
     token = str(getattr(_settings(ctx), "telegram_bot_token", "") or "")
     return telegram_bots.bot_id_from_token(token) if token else None
 
@@ -153,7 +153,7 @@ def _audit(ctx: AccountsContext, account_id: int, action: str, detail: dict[str,
 
 
 def _store_bot(ctx: AccountsContext, account_id: int, token: str, username: str, allowed: tuple[int, ...]) -> dict[str, Any]:
-    reserved = [i for i in (_instance_bot_id(ctx),) if i]
+    reserved = [i for i in (_server_bot_id(ctx),) if i]
     auth = open_auth_db(ctx)
     try:
         meta = telegram_bots.put_bot(
@@ -259,7 +259,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         allowed = telegram_bots.parse_allowed_user_ids(body["allowed_user_ids"])
         if allowed is None:
             return json_error(400, "invalid_allowed_user_ids", max=telegram_bots.MAX_ALLOWED_USERS)
-        if bot_id == _instance_bot_id(ctx):
+        if bot_id == _server_bot_id(ctx):
             return json_error(409, "bot_in_use")
         from ...telegram_api import TelegramVerifyRejected, TelegramVerifyUnavailable, verify_bot_token
 

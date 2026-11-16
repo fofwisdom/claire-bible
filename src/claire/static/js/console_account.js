@@ -337,15 +337,15 @@
     return tr;
   }
 
-  // Retention of the received posts of this account (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). An empty choice is the instance value.
+  // Retention of the received posts of this account (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). An empty choice is the server value.
   function bindFederationRetention() {
     var card = document.querySelector("[data-federation-reading]");
     if (!card) return;
     var form = card.querySelector("[data-retention-form]");
     var result = card.querySelector("[data-retention-result]");
-    var useInstance = form.elements.use_instance;
+    var useServer = form.elements.use_server;
     var days = form.elements.retention_days;
-    var label = card.querySelector("[data-retention-instance-label]");
+    var label = card.querySelector("[data-retention-server-label]");
 
     function say(text, isError) {
       result.textContent = text;
@@ -353,18 +353,18 @@
     }
 
     function render(settings) {
-      var instance = Number(settings.instance_retention_days);
-      label.textContent = String(form.getAttribute("data-msg-instance")).replace("{days}", String(instance));
-      days.max = String(instance);
-      useInstance.checked = settings.retention_days == null;
-      days.value = String(settings.retention_days == null ? instance : settings.retention_days);
-      days.disabled = useInstance.checked;
+      var server = Number(settings.server_retention_days);
+      label.textContent = String(form.getAttribute("data-msg-server")).replace("{days}", String(server));
+      days.max = String(server);
+      useServer.checked = settings.retention_days == null;
+      days.value = String(settings.retention_days == null ? server : settings.retention_days);
+      days.disabled = useServer.checked;
     }
 
-    useInstance.addEventListener("change", function () { days.disabled = useInstance.checked; });
+    useServer.addEventListener("change", function () { days.disabled = useServer.checked; });
     form.addEventListener("submit", function (ev) {
       ev.preventDefault();
-      var value = useInstance.checked ? null : Number(days.value);
+      var value = useServer.checked ? null : Number(days.value);
       request("PUT", "/api/federation/settings", { retention_days: value }).then(function (r) {
         if (!r.ok || !r.body) {
           say(form.getAttribute("data-msg-failed") + (r.body && typeof r.body.detail === "string" ? " " + r.body.detail : ""), true);

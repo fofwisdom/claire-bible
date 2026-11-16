@@ -240,7 +240,7 @@ def test_m1_pwa_head_tags_across_entry_points(tmp_path: Path):
 
     # Also verify authenticated console shell
     client.cookies.set("claire_session", ids_dict["admin_session"])
-    res_console = client.get("/admin/instance")
+    res_console = client.get("/admin/server")
     assert res_console.status_code == 200
     assert "pwa-register.js" in res_console.text
 
@@ -287,7 +287,7 @@ def test_m2_root_launch_anonymous_readonly_false(tmp_path: Path):
 
 
 def test_m2_root_launch_single_mode(tmp_path: Path):
-    """Single mode instance launching /?pwa=1 renders the default workspace at / directly (200 OK)."""
+    """Single mode server launching /?pwa=1 renders the default workspace at / directly (200 OK)."""
     s, _ = _setup_pwa_single_env(tmp_path)
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)

@@ -79,7 +79,7 @@ def test_settings_and_salt(conn: sqlite3.Connection) -> None:
     store.set_setting("mode", "single", updated_by=1)
     store.set_setting("mode", "network", updated_by=1)
     assert store.get_setting("mode") == "network"
-    conn.execute("DELETE FROM instance_settings WHERE key='id_salt'")
+    conn.execute("DELETE FROM server_settings WHERE key='id_salt'")
     conn.commit()
     with pytest.raises(RuntimeError, match="id_salt is missing"):
         store.id_salt()

@@ -20,7 +20,7 @@
 Claire Bible operates as a personal knowledge base and ontology knowledge graph engine.
 With dedicated FQDN reverse proxy routing (`CLAIRE_FQDN`, `ThemeInfo.fqdn`) and anonymous read access (`CLAIRE_ANONYMOUS_READONLY=1`), administrators can expose specific knowledge themes or shared documents to the public internet as a public knowledge portal.
 
-When an instance connects to the public internet:
+When a server connects to the public internet:
 1. Search engine crawlers (Googlebot, Bingbot, Naver Yeti, DuckDuckBot) crawl pages to index knowledge.
 2. Artificial intelligence (AI) crawlers (GPTBot, ClaudeBot, Bytespider, CCBot, PerplexityBot) collect training and indexing data.
 3. Vulnerability scanners and malicious bots search for open endpoints.

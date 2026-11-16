@@ -25,7 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .. import ids
 from ..accounts.username_policy import USERNAME_RE
 from ..store import accounts as accounts_store
-from ..store.accounts import Account, InstanceMode
+from ..store.accounts import Account, ServerMode
 from .principal import PRINCIPAL_STATE_KEY, Principal
 
 __all__ = [
@@ -94,7 +94,7 @@ class ParsedPrefix:
 class ResolvedNamespace:
     """2단계 판정 결과(§6.3). 라우트·``_get_theme_ctx``가 읽는 유일한 네임스페이스 값이다."""
 
-    mode: InstanceMode
+    mode: ServerMode
     # 네임스페이스 계정. ``system`` 표면과 네트워크 모드 루트 ``GET /``(디렉터리)에서만 None이다.
     account_id: int | None
     # 링크에 쓸 USERNAME. 싱글 모드에서는 항상 None이다(USERNAME 비노출, S9).
@@ -110,7 +110,7 @@ class ResolvedNamespace:
 class NamespaceDirectory(Protocol):
     """``NamespaceResolverMiddleware``가 쓰는 조회 계층. 메모리 캐시와 변경 시 무효화는 구현 몫이다(§6.7)."""
 
-    def mode(self) -> InstanceMode: ...
+    def mode(self) -> ServerMode: ...
 
     def admin(self) -> Account: ...
 
@@ -362,7 +362,7 @@ class NamespaceResolverMiddleware:
         except accounts_store.AccountNotFound:
             return None
 
-    def _any_outcome(self, mode: InstanceMode, principal: Principal, *, has_prefix: bool) -> _Outcome:
+    def _any_outcome(self, mode: ServerMode, principal: Principal, *, has_prefix: bool) -> _Outcome:
         """``any``: 접두를 무시하고 자격증명 계정을 쓴다(§9.1)."""
         username: str | None = None
         public_id: int | None = None
@@ -379,7 +379,7 @@ class NamespaceResolverMiddleware:
             public_id=public_id,
         )
 
-    def _root(self, mode: InstanceMode, scope: Scope) -> _Outcome | Response:
+    def _root(self, mode: ServerMode, scope: Scope) -> _Outcome | Response:
         """접두 없는 ``GET /``(§9.1 ``root``)."""
         if mode == "single":
             return _Outcome(
@@ -400,7 +400,7 @@ class NamespaceResolverMiddleware:
 
     def _namespaced(
         self,
-        mode: InstanceMode,
+        mode: ServerMode,
         parsed: ParsedPrefix,
         principal: Principal,
         scope: Scope,
@@ -531,7 +531,7 @@ def _redirect(location: str) -> Response:
 
 @dataclass(frozen=True, slots=True)
 class _Snapshot:
-    mode: InstanceMode = "single"
+    mode: ServerMode = "single"
     admin_username_published: bool = False
     admin: Account | None = None
     by_id: dict[int, Account] | None = None
@@ -547,7 +547,7 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 class SqliteNamespaceDirectory:
     """``NamespaceDirectory`` 구현(§6.7). ``claire.db``의 계정·퇴역 이름·테마 번호·모드를 메모리에 두고, DB 파일(본 파일과 ``-wal``)이 바뀌면 다시 읽는다(``SqliteLegacyHostDirectory``와 같은 방식).
 
-    DB가 없거나 표가 아직 없으면(v15 이전) 싱글 모드에 계정·테마가 없는 것으로 본다. ``instance_settings.mode``가 알 수 없는 값이면 ``RuntimeError``다(C1).
+    DB가 없거나 표가 아직 없으면(v15 이전) 싱글 모드에 계정·테마가 없는 것으로 본다. ``server_settings.mode``가 알 수 없는 값이면 ``RuntimeError``다(C1).
     """
 
     def __init__(self, db_file: str | Path | None) -> None:
@@ -584,10 +584,10 @@ class SqliteNamespaceDirectory:
                 for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             }
             store = accounts_store.AccountStore(conn)
-            mode: InstanceMode = "single"
+            mode: ServerMode = "single"
             published = False
-            if "instance_settings" in tables:
-                mode = store.instance_mode()
+            if "server_settings" in tables:
+                mode = store.server_mode()
                 published = store.get_setting(ADMIN_USERNAME_PUBLISHED_KEY) == "1"
             accounts = store.list_accounts() if "accounts" in tables else []
             tombstones: dict[str, bool] = {}
@@ -626,11 +626,11 @@ class SqliteNamespaceDirectory:
         with self._lock:
             self._signature = None
 
-    def mode(self) -> InstanceMode:
+    def mode(self) -> ServerMode:
         return self._current().mode
 
     def admin_username_published(self) -> bool:
-        """``instance_settings.admin_username_published='1'``이면 True(O15)."""
+        """``server_settings.admin_username_published='1'``이면 True(O15)."""
         return self._current().admin_username_published
 
     def admin(self) -> Account:
@@ -677,24 +677,24 @@ def request_namespace(request: Request) -> ResolvedNamespace:
     return namespace
 
 
-def account_home_path(mode: InstanceMode, username: str | None) -> str:
+def account_home_path(mode: ServerMode, username: str | None) -> str:
     """계정 홈 경로(§6.6). 싱글 모드는 ``/``, 네트워크 모드는 ``/@{username}/``. 네트워크 모드에서 username이 없으면 ``ValueError``."""
     if mode == "single":
         return "/"
     if mode != "network":
-        raise ValueError(f"unknown instance mode: {mode!r}")
+        raise ValueError(f"unknown server mode: {mode!r}")
     if not username:
         raise ValueError("network mode account home needs a username")
     return f"/@{username}/"
 
 
-def theme_base_path(mode: InstanceMode, username: str | None, number: int) -> str:
+def theme_base_path(mode: ServerMode, username: str | None, number: int) -> str:
     """테마 고정 경로(§6.2). 싱글 모드 ``/themes/{n}/``, 네트워크 모드 ``/@{username}/themes/{n}/``."""
     text = ids.format_public_id(number)
     if mode == "single":
         return f"{_THEMES_SEGMENT}{text}/"
     if mode != "network":
-        raise ValueError(f"unknown instance mode: {mode!r}")
+        raise ValueError(f"unknown server mode: {mode!r}")
     if not username:
         raise ValueError("network mode theme path needs a username")
     return f"/@{username}{_THEMES_SEGMENT}{text}/"
@@ -722,7 +722,7 @@ def shell_bootstrap(request: Request) -> dict[str, str]:
 
     키는 정확히 다음 셋이다. 템플릿은 ``<meta name="claire-{key}" content="...">``로 싣는다.
     - ``api-base``: 테마·네임스페이스 기준 API 경로(끝 슬래시 포함). 예: ``/``, ``/themes/1164…/``, ``/@alice/``
-    - ``root-base``: 인스턴스 루트(``/``). ``any``·``system`` 표면 호출용
+    - ``root-base``: 서버 루트(``/``). ``any``·``system`` 표면 호출용
     - ``storage-key``: ``localStorage`` 키 접두(계정 ``public_id`` 기반, 예: ``a116412345678901234``). USERNAME을 쓰지 않는다(S9)
 
     네임스페이스 계정을 모르면(``system`` 표면, 계정 행이 없는 DB) ``storage-key``는 ``anon``이다.

@@ -1,4 +1,4 @@
-"""Full-instance backup/restore contracts for ``cb-manuscript``.
+"""Full-server backup/restore contracts for ``cb-manuscript``.
 
 The filesystem, hashing, archive, and rollback paths are real.  Only Docker
 processes are replaced so these tests need neither a daemon nor a running

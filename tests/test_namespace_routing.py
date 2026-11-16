@@ -2,7 +2,7 @@
 
 ``wrap_web_app``이 조립한 실제 경계(PrefixParser → CORS → … → Authentication → NamespaceResolver)를
 작은 Starlette 앱에 씌우고 ASGI로 직접 부른다(``raw_path``를 그대로 넣기 위해서다). 계정·테마·모드는
-``tmp_path``의 ``claire.db``에 직접 쓴다. 네트워크 모드는 O7대로 ``instance_settings.mode``를 직접 써서 켠다.
+``tmp_path``의 ``claire.db``에 직접 쓴다. 네트워크 모드는 O7대로 ``server_settings.mode``를 직접 써서 켠다.
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ def world(tmp_path: Path) -> World:
 def _credentials(world: World) -> dict[str, security._Credential]:
     def cred(account_id: int, scope: str, role: str = "member") -> security._Credential:
         return security._Credential(
-            scope=scope, account_id=account_id, instance_role=role,  # type: ignore[arg-type]
+            scope=scope, account_id=account_id, server_role=role,  # type: ignore[arg-type]
             credential_id=f"test:{account_id}:{scope}", authenticated_at=0.0,
         )
 
@@ -411,7 +411,7 @@ async def test_single_mode_account_prefix_is_404_even_for_admin(app_factory):
 async def test_single_mode_admin_prefix_redirects_after_network_return(app_factory, world):
     # O15: 네트워크 모드에서 공개됐던 관리자 이름만 ``/…``로 308.
     world.execute(
-        "INSERT INTO instance_settings (key, value, updated_at) VALUES ('admin_username_published', '1', 0)"
+        "INSERT INTO server_settings (key, value, updated_at) VALUES ('admin_username_published', '1', 0)"
     )
     app = app_factory(anonymous_readonly=True)
     res = await _call(app, f"/@{ADMIN_NAME}/themes/{N_ADMIN_DEFAULT}/graph", query="a=1")
@@ -647,7 +647,7 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     client, settings = real_app
     owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
     assert client.get("/whoami").json() == {
-        "scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor", "is_admin": False,
+        "scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False,
     }
     assert client.get("/static/css/theme.css").status_code == 200
     created = client.post("/themes", json={"label": "옛 호스트", "is_public": True}, headers=owner)
@@ -673,4 +673,4 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     assert network.status_code == 308
     assert network.headers["location"] == f"http://127.0.0.1:8765/@{ADMIN_NAME}/themes/{number}/graph"
     whoami = client.get("/whoami", headers=owner)
-    assert whoami.json() == {"scope": "owner", "instance": {"mode": "network"}, "relation": "owner", "is_admin": True}
+    assert whoami.json() == {"scope": "owner", "server": {"mode": "network"}, "relation": "owner", "is_admin": True}

@@ -89,7 +89,7 @@ def test_e2e_thread_fetch_stores_the_replies_and_makes_no_second_task(env):
     # The task is not a task of the other client kinds.
     assert env.sidecar.call("GET", "/client-tasks").json() == {"tasks": []}
 
-    # The sidecar takes the task with the limits of the instance.
+    # The sidecar takes the task with the limits of the server.
     task = env.sidecar.call("GET", "/context-tasks").json()["tasks"]
     assert [(t["actor_public_id"], t["object_iri"], t["max_items"], t["max_depth"]) for t in task] == [(str(ALPHA_PUBLIC_ID), ROOT, 100, 5)]
     task_id = task[0]["id"]
@@ -104,7 +104,7 @@ def test_e2e_thread_fetch_stores_the_replies_and_makes_no_second_task(env):
         erin_reply,
         # An object that the account has already: no second item.
         _object(f"{CAROL}/notes/2", CAROL, context=CONTEXT, in_reply_to=ROOT, content_html="<p>other text</p>"),
-        # No link to the thread, a body above the limit, and an address of this instance: not stored.
+        # No link to the thread, a body above the limit, and an address of this server: not stored.
         _object(f"{ERIN}/notes/7", ERIN),
         _object(f"{ERIN}/notes/8", ERIN, context=CONTEXT, content_html="x" * (64 * 1024 + 1)),
         _object(f"{PUBLIC_URL}/ap/objects/1", ERIN, context=CONTEXT),

@@ -72,14 +72,14 @@ Difference from the design: `actor_keys` is `auth.db` version 5, not version 4. 
 
 Difference from the design: `claire.db` version 17 has the three tables of phase FP2 only (unit FP2-1). The tables `federation_objects` and `federation_outbox` are in version 18 (unit FP3-1), together with the code that uses them.
 
-Difference from the design: the end-to-end test of phase FP2 (unit FP2-5) has the remote server in the test process, not in a second development instance. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1).
+Difference from the design: the end-to-end test of phase FP2 (unit FP2-5) has the remote server in the test process, not in a second development server. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second server (FS1).
 
 Open item after phase FP3: follower removal by the owner (unit FP2-4) sends no `Reject(Follow)`. The outbox has no task kind for it.
 
 Difference from the design: the internal API contract version is 1.2 (unit FP3-4 added the answer 410 for a purged actor).
 
 Effects on the contracts in this file:
-- **Contract 1 (R1)**: Decision FD11 adds one condition (unit FP1-4, implemented). When the instance setting `federation` is `on`, a `profile_public` change from 0 to 1 through `PATCH /api/me` requires recent authentication: a session without it gets 401 `reauth_required`, and a bearer credential gets 403 `step_up_requires_session`. The change from 1 to 0 has no condition. When `federation` is `off`, the contract below is unchanged.
+- **Contract 1 (R1)**: Decision FD11 adds one condition (unit FP1-4, implemented). When the server setting `federation` is `on`, a `profile_public` change from 0 to 1 through `PATCH /api/me` requires recent authentication: a session without it gets 401 `reauth_required`, and a bearer credential gets 403 `step_up_requires_session`. The change from 1 to 0 has no condition. When `federation` is `off`, the contract below is unchanged.
 - **Contract 2 (R2)**: No change. The reserved words protect the federation endpoint names.
 - **Contract 3 (R3)**: No change. The sidecar does not use token exchange.
 - **Contract 4 (R5)**: No change.

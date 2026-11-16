@@ -1,6 +1,6 @@
 """Small helpers that send operation alerts to the owner as a Telegram direct message.
 
-The helpers call the Telegram HTTP API with httpx, without python-telegram-bot (no async bot runtime). Thus all daemons (recover, refresh) can import them, also outside the bot process. When the token or the chat ID is absent, each helper does nothing: this is safe in development, in tests, and on an instance without Telegram.
+The helpers call the Telegram HTTP API with httpx, without python-telegram-bot (no async bot runtime). Thus all daemons (recover, refresh) can import them, also outside the bot process. When the token or the chat ID is absent, each helper does nothing: this is safe in development, in tests, and on a server without Telegram.
 
 Interface text comes from the catalog (I18N design Section 7.2). The caller supplies ``locale``, the locale of the target account; without it the active locale of the context applies.
 """

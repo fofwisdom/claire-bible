@@ -175,7 +175,7 @@ def test_version_23_file_gets_the_quote_policy_of_published_documents(tmp_path: 
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
-            assert dbm.stored_schema_version(conn) == 24 == dbm.SCHEMA_VERSION
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
             # The default of a published document is manual (design Section 5.4 rule 6).
             assert conn.execute("SELECT quote_policy FROM federation_objects WHERE public_id=801").fetchone()[0] == "manual"
         finally:

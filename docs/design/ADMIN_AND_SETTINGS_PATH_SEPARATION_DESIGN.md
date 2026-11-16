@@ -30,16 +30,16 @@ Path separation enforces server-side privilege boundaries (`ROUTE_POLICY`), not 
 | :--- | :--- | :--- |
 | **D1** | `/settings/*` `RouteSurface` | Use `_system("owner")` for `/settings` and `/settings/{section}` routes. Canonical URLs are `/settings/*` (with optional `?theme={ref}` for theme-scoped syndication tabs) in both `single` and `network` modes. Prefixed paths (`/@{username}/settings/*`, `/themes/{n}/settings/*`) return `404 Not Found` (rule N5). Reserve `"settings"` in `RESERVED_USERNAMES`. |
 | **D2** | Service root `/` `'상세 메뉴' → '관리 및 설정'` | Keep the inline right-drawer quick panels on `/` backed by shared JS modules (`src/claire/static/js/manage/`), add `"is_admin"` to `GET /whoami` so non-admin members never see `⚡ 프로바이더` or `📏 적재 제한`, and add a Console entry button (`🛠️ 관리자 콘솔` → `/admin` for admin; `⚙️ 내 설정` → `/settings` for non-admin owners). |
-| **D3** | Account-scoped items (`📁 테마 관리`, `🔑 API/MCP 키`) | Provide `/admin/themes` and `/admin/tokens` for the administrator (managing `ADMIN_ACCOUNT_ID = 1` themes/tokens plus read-only instance slot/policy counts without member content access), and `/settings/themes` and `/settings/tokens` for regular members. When `is_admin` is true, display these two items once under the `/admin/*` sidebar group and redirect `GET /settings/themes` → `/admin/themes` and `GET /settings/tokens` → `/admin/tokens` (`302 Found`). |
+| **D3** | Account-scoped items (`📁 테마 관리`, `🔑 API/MCP 키`) | Provide `/admin/themes` and `/admin/tokens` for the administrator (managing `ADMIN_ACCOUNT_ID = 1` themes/tokens plus read-only server slot/policy counts without member content access), and `/settings/themes` and `/settings/tokens` for regular members. When `is_admin` is true, display these two items once under the `/admin/*` sidebar group and redirect `GET /settings/themes` → `/admin/themes` and `GET /settings/tokens` → `/admin/tokens` (`302 Found`). |
 | **D4** | Legacy `/me` and `/syndication/preferences` | Keep `GET /me` → `/settings/account` and `GET /syndication/preferences?tab=...` → mapped `/settings/*` (or `/admin/*` when `is_admin` is true and `?tab=idp\|userdb`) as `302 Found` compatibility redirects. Keep `/api/me*` JSON endpoints unchanged. |
 | **D5** | Phased Agent Execution Plan | Structure this specification into self-contained, CI-green phases (`P1`–`P5`) with explicit file ownership, interface contracts, test boundaries, and verification gates so autonomous agents can execute one phase at a time. |
 
 ### 1.3 Non-Negotiable Architecture and Security Invariants
 
 1. **Stealth 404 on Privilege Failure (`PRINCIPLES.md` B1, N5)**: Non-administrator requests (`member`, `collaborator`, `readonly`, `anonymous`) to any `/admin` or `/admin/*` route must receive `404 Not Found` before any redirect (`302`) executes. Never return `403 Forbidden` on `/admin/*`.
-2. **Zero Admin Content Peeking (`ACCOUNTS.md` D5, K5)**: Administrator screens manage instance configuration, account lifecycle, quotas, and the administrator's own workspace (`ADMIN_ACCOUNT_ID = 1`). Administrator routes must never read or mutate a member's private themes, syndication feeds, connected AP/AT tokens, or BYOK secret values.
+2. **Zero Admin Content Peeking (`ACCOUNTS.md` D5, K5)**: Administrator screens manage server configuration, account lifecycle, quotas, and the administrator's own workspace (`ADMIN_ACCOUNT_ID = 1`). Administrator routes must never read or mutate a member's private themes, syndication feeds, connected AP/AT tokens, or BYOK secret values.
 3. **Strict Server-Side Admin DOM Stripping**: When `is_admin` is false, the server must omit all `/admin/*` navigation links and `<section>` templates from the rendered HTML. Do not hide administrator panels with CSS `hidden` attributes in member responses.
-4. **Single-Mode `USERNAME` Concealment (`ACCOUNTS.md` S9)**: When `instance.mode == "single"`, `/admin/*`, `/settings/*`, and `GET /whoami` must not emit `@username` strings in HTML, JSON, or redirect headers.
+4. **Single-Mode `USERNAME` Concealment (`ACCOUNTS.md` S9)**: When `server.mode == "single"`, `/admin/*`, `/settings/*`, and `GET /whoami` must not emit `@username` strings in HTML, JSON, or redirect headers.
 5. **1:1 AST Route Policy Parity (`tests/test_route_surface_contract.py`)**: Every mounted Starlette `(method, path)` must match one literal helper call (`_root`, `_system`, `_namespaced`, `_any`) in `src/claire/api/security.py:ROUTE_POLICY`. Never generate `ROUTE_POLICY` entries with comprehensions or loops.
 6. **Zero Speculation (`PRINCIPLES.md` C1)**: Unknown section paths and unknown `?theme=` references must fail closed with `404 Not Found`. Never fall back to Theme `0` or to a default tab when an explicit identifier is invalid.
 
@@ -55,15 +55,15 @@ All new Console HTML routes use exact `(method, path)` entries in `ROUTE_POLICY`
 
 | Path | Methods | Sidebar Group | Capability Summary | Backing APIs & Stores |
 | :--- | :--- | :--- | :--- | :--- |
-| `/admin` | `GET`, `HEAD` | Entry Redirect | `302 Found` → `/admin/instance` (executes only after `_system("admin")` passes; non-admins get `404`). | — |
-| `/admin/instance` | `GET`, `HEAD` | Group 4: 인스턴스 · 계정 · 인증 | `single` ↔ `network` mode switch, G1–G9 readiness gates, legacy host sunset, and `ServerTier` defaults. | `/api/admin/instance*`, `/api/admin/server-tier` |
-| `/admin/accounts` | `GET`, `HEAD` | Group 4: 인스턴스 · 계정 · 인증 | Admin account card, member directory & lifecycle (`suspend`, `resume`, `schedule_delete`, `cancel_delete`, `purge`, `reset_password_link`), signup invitations, retired `USERNAME` release, and operator workspace summary from `panel-userdb`. | `/api/admin/accounts`, `/api/admin/usernames/*`, `/api/invites` |
-| `/admin/idp` | `GET`, `HEAD` | Group 4: 인스턴스 · 계정 · 인증 | OIDC/GitHub provider registry, Discovery check, login mode, signup/domain policy, Back-Channel Logout, and login simulator from `panel-idp`. | `/api/admin/idp` |
-| `/admin/providers` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Instance LLM/STT/VLM & hyperscaler provider settings (`⚡ 프로바이더` from `/` `'관리 및 설정'`). | `/providers`, `/providers/test` (`data/providers.json`) |
-| `/admin/limits` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Instance ingestion & slicing budgets (`📏 적재 제한` from `/` `'관리 및 설정'`). | `/limits`, `/ingest-limits` (`data/ingest_limits.json`) |
-| `/admin/themes` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Admin's own knowledge themes (`📁 테마 관리`, `ADMIN_ACCOUNT_ID = 1`) plus read-only aggregate theme slot count across the instance (no member labels/content). | `/themes` + aggregate SQL count |
-| `/admin/tokens` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Admin's persistent API/MCP tokens (`🔑 API/MCP 키`, `ADMIN_ACCOUNT_ID = 1`), admin OAuth clients, and instance token policy summary. | `/tokens`, `/tokens/revoke` |
-| `/admin/mcp` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Instance `mcp_telemetry` audit table, RBAC vs. MCP parity check, global WebMCP `Permissions-Policy: tools=()` switch, and `POST /support/bundle` trigger. | `/api/admin/mcp/telemetry`, `POST /support/bundle` |
+| `/admin` | `GET`, `HEAD` | Entry Redirect | `302 Found` → `/admin/server` (executes only after `_system("admin")` passes; non-admins get `404`). | — |
+| `/admin/server` | `GET`, `HEAD` | Group 4: 서버 · 계정 · 인증 | `single` ↔ `network` mode switch, G1–G9 readiness gates, legacy host sunset, and `ServerTier` defaults. | `/api/admin/server*`, `/api/admin/server-tier` |
+| `/admin/accounts` | `GET`, `HEAD` | Group 4: 서버 · 계정 · 인증 | Admin account card, member directory & lifecycle (`suspend`, `resume`, `schedule_delete`, `cancel_delete`, `purge`, `reset_password_link`), signup invitations, retired `USERNAME` release, and operator workspace summary from `panel-userdb`. | `/api/admin/accounts`, `/api/admin/usernames/*`, `/api/invites` |
+| `/admin/idp` | `GET`, `HEAD` | Group 4: 서버 · 계정 · 인증 | OIDC/GitHub provider registry, Discovery check, login mode, signup/domain policy, Back-Channel Logout, and login simulator from `panel-idp`. | `/api/admin/idp` |
+| `/admin/providers` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Server LLM/STT/VLM & hyperscaler provider settings (`⚡ 프로바이더` from `/` `'관리 및 설정'`). | `/providers`, `/providers/test` (`data/providers.json`) |
+| `/admin/limits` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Server ingestion & slicing budgets (`📏 적재 제한` from `/` `'관리 및 설정'`). | `/limits`, `/ingest-limits` (`data/ingest_limits.json`) |
+| `/admin/themes` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Admin's own knowledge themes (`📁 테마 관리`, `ADMIN_ACCOUNT_ID = 1`) plus read-only aggregate theme slot count across the server (no member labels/content). | `/themes` + aggregate SQL count |
+| `/admin/tokens` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Admin's persistent API/MCP tokens (`🔑 API/MCP 키`, `ADMIN_ACCOUNT_ID = 1`), admin OAuth clients, and server token policy summary. | `/tokens`, `/tokens/revoke` |
+| `/admin/mcp` | `GET`, `HEAD` | Group 5: 시스템 관리 및 설정 | Server `mcp_telemetry` audit table, RBAC vs. MCP parity check, global WebMCP `Permissions-Policy: tools=()` switch, and `POST /support/bundle` trigger. | `/api/admin/mcp/telemetry`, `POST /support/bundle` |
 | `/api/admin/mcp/telemetry` | `GET`, `HEAD` | JSON API | Bounded read (`limit <= 200`) from `query_mcp_telemetry` (`src/claire/store/telemetry.py`). | `data/telemetry.db` |
 
 #### End-User Routes (`_system("owner")`, `ALL_MODES`)
@@ -72,7 +72,7 @@ All new Console HTML routes use exact `(method, path)` entries in `ROUTE_POLICY`
 | :--- | :--- | :--- | :--- | :--- |
 | `/settings` | `GET`, `HEAD` | Entry Redirect | `302 Found` → `/settings/account` (or `/settings/reader` when `?from=syndication`, preserving valid `?theme=`). | — |
 | `/settings/account` | `GET`, `HEAD` | Group 1: 내 계정 · 워크스페이스 | Profile (`username` in network mode, `display_name`, `profile_public`), password, step-up reauth, linked OIDC/GitHub identities, quota usage, theme `POST /graph/bundle` export, self-deletion request (`panel-userdb` user slice + `/me`). | `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle` |
-| `/settings/keys` | `GET`, `HEAD` | Group 1: 내 계정 · 워크스페이스 | Member BYOK provider API keys and `ServerTier` allowance view. In `single` mode, shows a clean notice that instance providers are managed at `/admin/providers`. | `/api/me/keys`, `/api/me/keys/verify` (`NETWORK_ONLY` API) |
+| `/settings/keys` | `GET`, `HEAD` | Group 1: 내 계정 · 워크스페이스 | Member BYOK provider API keys and `ServerTier` allowance view. In `single` mode, shows a clean notice that server providers are managed at `/admin/providers`. | `/api/me/keys`, `/api/me/keys/verify` (`NETWORK_ONLY` API) |
 | `/settings/themes` | `GET`, `HEAD` | Group 1: 내 계정 · 워크스페이스 | Member's own knowledge themes (`📁 테마 관리`). For `admin`, redirects `302` → `/admin/themes` (D3). | `/themes` |
 | `/settings/tokens` | `GET`, `HEAD` | Group 1: 내 계정 · 워크스페이스 | Member's own persistent API/MCP tokens (`🔑 API/MCP 키`) and OAuth 2.1 authorized clients. For `admin`, redirects `302` → `/admin/tokens` (D3). | `/tokens`, `/tokens/revoke` |
 | `/settings/reader` | `GET`, `HEAD` | Group 2: 신디케이션 · 리더 | Workspace default tab, list density, 3/2-panel layout, excerpt, content tab priority, font, font size, auto-mark-read (`#panel-reader`). | Theme-scoped syndication preferences |
@@ -123,7 +123,7 @@ flowchart TD
 
 1. **Single Layout Shell (`src/claire/templates/console_shell.html`)**:
    - Reuses `theme.css` CSS tokens (`--bg`, `--fg`, `--panel-bg`, `--border`, `--accent`) and the responsive `.pref-shell` two-column layout (`260px` sticky sidebar + fluid `.pref-main` content container).
-   - **Topbar**: Back link to Graph (`/` in `single` mode; `/@{username}/` in `network` mode when `username` is set) and Syndication (`/syndication` or `/@{username}/syndication`), conditional Theme Selector `<select id="console-theme-select">` (enabled on Group 2–3 theme-scoped sections; hidden or marked `"인스턴스 전역"` on `/admin/*` and `"계정 전역"` on Group 1 sections), dark/light theme sync, and `POST /logout` form (`action="/logout"`, required when session cookie auth is active).
+   - **Topbar**: Back link to Graph (`/` in `single` mode; `/@{username}/` in `network` mode when `username` is set) and Syndication (`/syndication` or `/@{username}/syndication`), conditional Theme Selector `<select id="console-theme-select">` (enabled on Group 2–3 theme-scoped sections; hidden or marked `"서버 전역"` on `/admin/*` and `"계정 전역"` on Group 1 sections), dark/light theme sync, and `POST /logout` form (`action="/logout"`, required when session cookie auth is active).
    - **Security Headers**: All `200 OK` HTML responses from `/admin/*` and `/settings/*` set `Referrer-Policy: same-origin` and `Cache-Control: no-store` (matching `accounts_routes/common.py:html_page`).
 2. **Client Navigation**:
    - Sidebar items are standard `<a href="/settings/...">` and `<a href="/admin/...">` links so middle-click, deep links, browser refresh, and server-side `ROUTE_POLICY` checks always work natively.
@@ -156,7 +156,7 @@ Autonomous agents executing this specification must follow these rules in every 
 ### Phase P1: Routing Contract, `whoami.is_admin`, Telemetry API, and Console Shell Skeleton
 
 - **Preconditions**: Base commit `8efce1a` (clean working tree).
-- **Goal**: Register all exact `/admin`, `/admin/*`, `/settings`, `/settings/*`, and `/api/admin/mcp/telemetry` routes in `ROUTE_POLICY` and Starlette; reserve `"settings"` in `RESERVED_USERNAMES`; extend `GET /whoami` with `"is_admin"`; and mount `accounts_routes/console.py` with the base `console_shell.html` skeleton while keeping existing `/admin/instance`, `/admin/accounts`, `/admin/idp`, `/me`, and `/syndication/preferences` operational so zero existing tests break.
+- **Goal**: Register all exact `/admin`, `/admin/*`, `/settings`, `/settings/*`, and `/api/admin/mcp/telemetry` routes in `ROUTE_POLICY` and Starlette; reserve `"settings"` in `RESERVED_USERNAMES`; extend `GET /whoami` with `"is_admin"`; and mount `accounts_routes/console.py` with the base `console_shell.html` skeleton while keeping existing `/admin/server`, `/admin/accounts`, `/admin/idp`, `/me`, and `/syndication/preferences` operational so zero existing tests break.
 
 #### P1 Lane Ownership
 
@@ -169,16 +169,16 @@ Autonomous agents executing this specification must follow these rules in every 
 1. **`RESERVED_USERNAMES` (`src/claire/accounts/username_policy.py`)**:
    - Add `"settings"` under the `# 서비스` group of `RESERVED_USERNAMES`.
 2. **`GET /whoami` (`src/claire/api/server.py`)**:
-   - Add `"is_admin": bool(principal.instance_role == "admin" and principal.scope == "owner")` to the JSON response dict:
-     `{"scope": scope, "instance": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}`.
+   - Add `"is_admin": bool(principal.server_role == "admin" and principal.scope == "owner")` to the JSON response dict:
+     `{"scope": scope, "server": {"mode": namespace.mode}, "relation": relation, "is_admin": is_admin}`.
    - Do not include `username` in `/whoami` (preserves rule S9 and `tests/test_single_mode_no_username_leak.py`).
 3. **`ROUTE_POLICY` (`src/claire/api/security.py`)**:
    - Add literal `_system("admin")` `GET` and `HEAD` entries for: `/admin`, `/admin/providers`, `/admin/limits`, `/admin/themes`, `/admin/tokens`, `/admin/mcp`, and `/api/admin/mcp/telemetry`.
    - Add literal `_system("owner")` `GET` and `HEAD` entries for: `/settings`, `/settings/account`, `/settings/keys`, `/settings/themes`, `/settings/tokens`, `/settings/reader`, `/settings/connections`, `/settings/feeds`, `/settings/tags`, `/settings/rules`, `/settings/outbound`, `/settings/opml`, `/settings/mcp`, and `/settings/webmcp`.
 4. **Console Router & Telemetry API (`src/claire/api/accounts_routes/console.py` & `__init__.py`)**:
-   - Implement `GET/HEAD /admin` → `302 Found` to `/admin/instance`.
+   - Implement `GET/HEAD /admin` → `302 Found` to `/admin/server`.
    - Implement `GET/HEAD /settings` → `302 Found` to `/settings/reader` (preserving validated `?theme=` when `?from=syndication` is set) or `/settings/account` by default.
-   - Implement D3 redirect rule on `GET/HEAD /settings/themes` and `GET/HEAD /settings/tokens`: when `principal.instance_role == "admin" and principal.scope == "owner"`, return `302 Found` to `/admin/themes` or `/admin/tokens`.
+   - Implement D3 redirect rule on `GET/HEAD /settings/themes` and `GET/HEAD /settings/tokens`: when `principal.server_role == "admin" and principal.scope == "owner"`, return `302 Found` to `/admin/themes` or `/admin/tokens`.
    - Validate optional `?theme=` query parameter strictly against the caller's owned themes (`AccountStore` / `ThemeManager` with strict lookup, no fallback to Theme `0`); return `404` if `?theme=` does not exist or belongs to another account.
    - Implement `GET/HEAD /api/admin/mcp/telemetry`: parse optional `limit` (`1..200`, default `50`), `status`, and `tool_name` query parameters; reject non-integer or out-of-range `limit` with `400`; read records via `query_mcp_telemetry(ctx.data_dir, tool_name=..., status=..., limit=...)` in `asyncio.to_thread` and return `JSONResponse({"records": rows})`.
    - Render `src/claire/templates/console_shell.html` for all mounted console sections with role-gated sidebar groups (Groups 1–3 for all `owner` callers; Groups 4–5 added iff `is_admin`, with `/settings/themes` and `/settings/tokens` omitted from Group 1 when `is_admin` is true per D3).
@@ -189,7 +189,7 @@ Autonomous agents executing this specification must follow these rules in every 
    - Create `tests/test_console_routing.py` testing:
      - Non-admin `member`, `collaborator`, `readonly`, and `anonymous` callers get `404` on `/admin`, `/admin/providers`, `/admin/limits`, `/admin/themes`, `/admin/tokens`, `/admin/mcp`, and `/api/admin/mcp/telemetry` (never `302` or `403`).
      - Prefixed paths (`/@alice/settings/account`, `/themes/1/settings/reader`, `/@alice/admin/providers`) return `404`.
-     - Admin gets `302` from `/admin` → `/admin/instance`, `/settings/themes` → `/admin/themes`, and `/settings/tokens` → `/admin/tokens`, while regular member gets `200` on `/settings/themes` and `/settings/tokens`.
+     - Admin gets `302` from `/admin` → `/admin/server`, `/settings/themes` → `/admin/themes`, and `/settings/tokens` → `/admin/tokens`, while regular member gets `200` on `/settings/themes` and `/settings/tokens`.
      - `GET /whoami` returns `is_admin: true` only for `admin` `owner` credentials and leaks no `username` in `single` mode.
      - `/api/admin/mcp/telemetry` I/O returns `mcp_telemetry` rows and validates `limit`.
 
@@ -203,14 +203,14 @@ uv run pytest tests/test_route_surface_contract.py tests/test_username_policy.py
 ### Phase P2: Shared Management Modules, Root `'관리 및 설정'` Integration (D2), and Full `admin/` Console
 
 - **Preconditions**: Phase P1 complete and green.
-- **Goal**: Extract shared JS controllers for `providers`, `limits`, `themes`, and `tokens`; fix root `/` `'상세 메뉴' → '관리 및 설정'` visibility for non-admin members and add Console entry links (D2); and migrate all 8 `/admin/*` screens (`/admin/instance`, `/admin/accounts`, `/admin/idp`, `/admin/providers`, `/admin/limits`, `/admin/themes`, `/admin/tokens`, `/admin/mcp`) into the Unified Console Shell.
+- **Goal**: Extract shared JS controllers for `providers`, `limits`, `themes`, and `tokens`; fix root `/` `'상세 메뉴' → '관리 및 설정'` visibility for non-admin members and add Console entry links (D2); and migrate all 8 `/admin/*` screens (`/admin/server`, `/admin/accounts`, `/admin/idp`, `/admin/providers`, `/admin/limits`, `/admin/themes`, `/admin/tokens`, `/admin/mcp`) into the Unified Console Shell.
 
 #### P2 Lane Ownership
 
 | Lane | Parallel | Owned Files |
 | :--- | :---: | :--- |
 | **P2-a** (Shared JS Modules & Root `'관리 및 설정'`) | Yes (with P2-b) | `src/claire/static/js/manage_panels.js` (new), `src/claire/static/js/app.js`, `src/claire/templates/index.html` |
-| **P2-b** (`admin/` Unified Console Panels) | Yes (with P2-a) | `src/claire/api/accounts_routes/admin.py`, `src/claire/api/accounts_routes/instance.py`, `src/claire/api/accounts_routes/idp.py`, `src/claire/api/accounts_routes/console.py`, `src/claire/templates/console_shell.html`, `src/claire/static/js/console_admin.js` (new), `tests/test_account_routes.py`, `tests/test_admin_instance.py`, `tests/test_oidc_flow.py` |
+| **P2-b** (`admin/` Unified Console Panels) | Yes (with P2-a) | `src/claire/api/accounts_routes/admin.py`, `src/claire/api/accounts_routes/server.py`, `src/claire/api/accounts_routes/idp.py`, `src/claire/api/accounts_routes/console.py`, `src/claire/templates/console_shell.html`, `src/claire/static/js/console_admin.js` (new), `tests/test_account_routes.py`, `tests/test_admin_server.py`, `tests/test_oidc_flow.py` |
 
 #### P2 Exact Implementation Steps
 
@@ -222,20 +222,20 @@ uv run pytest tests/test_route_surface_contract.py tests/test_username_policy.py
    - In `src/claire/templates/index.html` (`#manage-section`):
      - Add an entry link/button `#consolelinkbtn` inside `#manage-section`: when `IS_ADMIN` is true, label `🛠️ 관리자 콘솔` (`href="/admin"`); when `canWrite() && !IS_ADMIN`, label `⚙️ 내 설정` (`href="/settings"`). Keep the inline right-drawer actions working via `manage_panels.js`.
 2. **Lane P2-b — Unified `admin/` Console Screens**:
-   - Render `/admin/instance`, `/admin/accounts`, and `/admin/idp` inside `console_shell.html` while preserving all existing form IDs, JSON payload contracts, `Referrer-Policy: same-origin`, `action="/logout"`, step-up reauth modals (`/api/auth/reauth`), and single-mode vs. network-mode notices tested by `tests/test_account_routes.py`, `tests/test_admin_instance.py`, and `tests/test_oidc_flow.py`:
-     - `/admin/instance`: Mode switch, G1–G9 checklist, legacy host sunset, and `ServerTier` default quota form (`/api/admin/server-tier`).
+   - Render `/admin/server`, `/admin/accounts`, and `/admin/idp` inside `console_shell.html` while preserving all existing form IDs, JSON payload contracts, `Referrer-Policy: same-origin`, `action="/logout"`, step-up reauth modals (`/api/auth/reauth`), and single-mode vs. network-mode notices tested by `tests/test_account_routes.py`, `tests/test_admin_server.py`, and `tests/test_oidc_flow.py`:
+     - `/admin/server`: Mode switch, G1–G9 checklist, legacy host sunset, and `ServerTier` default quota form (`/api/admin/server-tier`).
      - `/admin/accounts`: Admin overview, member table + lifecycle actions, invitations (`/api/invites` in network mode), retired `USERNAME` release (`/api/admin/usernames/*`), and workspace directory overview migrated from `panel-userdb` (`운영자 보기`).
      - `/admin/idp`: OIDC/GitHub provider CRUD + Discovery check (`/api/admin/idp`), login/signup/domain policy controls, Back-Channel Logout toggle, and login simulator migrated from `panel-idp`.
    - Implement the remaining 5 `/admin/*` sections inside `console_shell.html` + `console_admin.js` (using `manage_panels.js`):
      - `/admin/providers`: Full-page host for `renderProviderManager` (`/providers`, `/providers/test`).
      - `/admin/limits`: Full-page host for `renderLimitManager` (`/limits`, `/ingest-limits`).
-     - `/admin/themes`: Full-page host for `renderThemeManager` (admin's own themes) + read-only instance summary card (`total_accounts`, `total_themes` count from SQLite without reading member theme names/descriptions).
+     - `/admin/themes`: Full-page host for `renderThemeManager` (admin's own themes) + read-only server summary card (`total_accounts`, `total_themes` count from SQLite without reading member theme names/descriptions).
      - `/admin/tokens`: Full-page host for `renderTokenManager` (admin's own tokens) + admin OAuth 2.1 authorized client list.
      - `/admin/mcp`: Live `mcp_telemetry` audit table fetched from `GET /api/admin/mcp/telemetry`, RBAC vs. MCP parity table, global WebMCP `Permissions-Policy` policy card, and `POST /support/bundle` export trigger.
 
 #### P2 Verification Gate
 ```bash
-uv run pytest tests/test_account_routes.py tests/test_admin_instance.py tests/test_oidc_flow.py tests/test_console_routing.py tests/test_single_mode_no_username_leak.py
+uv run pytest tests/test_account_routes.py tests/test_admin_server.py tests/test_oidc_flow.py tests/test_console_routing.py tests/test_single_mode_no_username_leak.py
 ```
 
 ---
@@ -303,7 +303,7 @@ uv run pytest tests/test_settings_account.py tests/test_settings_syndication.py 
    - Update `tests/test_account_routes.py`, `tests/test_setup_flow.py`, `tests/test_me_keys.py`, and `tests/test_secret_write_only.py` where `follow_redirects=False` previously asserted `200` on `GET /me` so they assert `302` → `/settings/account` on `GET /me` and `200` (with `Referrer-Policy: same-origin` and zero secret leakage) on `GET /settings/account`.
    - Update `tests/test_syndication_route.py`, `tests/test_e2e_syndication_namespace.py`, and `e2e/test_syndication_e2e.py` so user preference assertions check `/settings/*`, admin panel assertions check `/admin/idp` and `/admin/accounts`, and legacy `/syndication/preferences?tab=...` redirect behavior is verified.
    - Add `e2e/test_admin_and_settings_console_e2e.py` covering end-to-end workflows in both `single` and `network` modes:
-     1. **Admin E2E**: Root `/` `'상세 메뉴' → '관리 및 설정'` inline quick actions + `🛠️ 관리자 콘솔` navigation → unified sidebar switching across all `/admin/*` (`instance`, `accounts`, `idp`, `providers`, `limits`, `themes`, `tokens`, `mcp`) and `/settings/*` (`account`, `reader`, `connections`, `feeds`, `tags`, `rules`, `outbound`, `opml`, `mcp`, `webmcp`) sections + D3 redirect (`/settings/themes` → `/admin/themes`).
+     1. **Admin E2E**: Root `/` `'상세 메뉴' → '관리 및 설정'` inline quick actions + `🛠️ 관리자 콘솔` navigation → unified sidebar switching across all `/admin/*` (`server`, `accounts`, `idp`, `providers`, `limits`, `themes`, `tokens`, `mcp`) and `/settings/*` (`account`, `reader`, `connections`, `feeds`, `tags`, `rules`, `outbound`, `opml`, `mcp`, `webmcp`) sections + D3 redirect (`/settings/themes` → `/admin/themes`).
      2. **Member Isolation E2E (`network` mode)**: Root `/` hides `⚡ 프로바이더` and `📏 적재 제한` and shows `⚙️ 내 설정`; `/settings/*` renders zero `/admin/*` links or hidden admin DOM sections; BYOK key flow works at `/settings/keys`; every `/admin/*` URL and `/api/admin/mcp/telemetry` returns `404`.
 
 #### P4 Verification Gate

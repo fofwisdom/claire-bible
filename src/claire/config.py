@@ -635,8 +635,8 @@ class Settings(BaseSettings):
     preferred_languages: str = Field(
         default="ko", alias="CLAIRE_PREFERRED_LANGUAGES"
     )
-    # Instance default locale of the interface (WebUI, Telegram bot, CLI human output). Empty: the resolution chain continues to 'en'. No relation to preferred_languages (I18N design Section 9). The field name is not `lang`: with populate_by_name and no prefix, a field `lang` also reads the POSIX variable LANG.
-    ui_lang: str = Field(default="", alias="CLAIRE_LANG", description="Instance default UI/CLI/Bot locale ('en' or 'ko'; empty uses fallback 'en')")
+    # Server default locale of the interface (WebUI, Telegram bot, CLI human output). Empty: the resolution chain continues to 'en'. No relation to preferred_languages (I18N design Section 9). The field name is not `lang`: with populate_by_name and no prefix, a field `lang` also reads the POSIX variable LANG.
+    ui_lang: str = Field(default="", alias="CLAIRE_LANG", description="Server default UI/CLI/Bot locale ('en' or 'ko'; empty uses fallback 'en')")
 
     # --- web service (DM 과 동일 ingest 통로 + graph UI) ---
     # 운영 명령의 canonical selector. cb-manuscript가 development에서는 .env.dev
@@ -1236,7 +1236,7 @@ class Settings(BaseSettings):
 
 
 def extract_own_share_token(url_candidate: str, settings: Settings | None = None) -> str | None:
-    """URL이 자체 인스턴스의 공유 링크(/p?s=token)인 경우에만 token을 추출. 타 사이트 URL은 None."""
+    """URL이 자체 서버의 공유 링크(/p?s=token)인 경우에만 token을 추출. 타 사이트 URL은 None."""
     from urllib.parse import parse_qs, urlsplit
     s = settings or get_settings()
     t = (url_candidate or "").strip()

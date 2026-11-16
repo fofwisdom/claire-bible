@@ -148,7 +148,7 @@ server {
 
 ## Fedify 사이드카 경로 (연합)
 
-Fedify 사이드카를 쓰는 인스턴스(`CB_FEDERATION=1`)에서는 reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
+Fedify 사이드카를 쓰는 서버(`CB_FEDERATION=1`)에서는 reverse proxy가 앱 호스트(`CLAIRE_FQDN`)의 아래 경로만 사이드카(`CB_API_BIND:CB_FEDIFY_PORT`, 기본 포트 `8790`)로 보낸다. 나머지 경로는 모두 Claire(`CB_API_PORT`)로 보낸다. 저장소에는 proxy 설정 파일이 없으며 운영자가 직접 구성한다. 구현 정본은 [FEDERATION.md](FEDERATION.md) §10이다.
 
 | 일치 방식 | 경로 | 목적지 |
 |---|---|---|
@@ -158,12 +158,12 @@ Fedify 사이드카를 쓰는 인스턴스(`CB_FEDERATION=1`)에서는 reverse p
 | 접두어 | `/ap/` | 사이드카 |
 
 - `/.well-known/` 접두어 전체를 사이드카로 보내지 않는다. `/.well-known/oauth-authorization-server`와 `/.well-known/oauth-protected-resource`는 Claire가 응답해야 한다.
-- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 인스턴스 설정 `federation`이 `off`이거나 모드가 `single`이면 사이드카는 연합 경로에도 404를 낸다.
+- 규칙이 틀리면 양쪽 모두 404로 닫힌다. Claire는 연합 경로를 등록하지 않았고, 사이드카는 연합 경로가 아닌 요청에 404를 낸다. 서버 설정 `federation`이 `off`이거나 모드가 `single`이면 사이드카는 연합 경로에도 404를 낸다.
 - 사이드카는 URL을 Claire가 알려 준 정규 origin으로 만들고 요청의 `Host`를 쓰지 않는다. `Cookie`, `Authorization`, `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` 헤더는 사이드카가 읽지 않고 지운다.
 - 인박스 경로(`/ap/inbox`, `/ap/actors/{public_id}/inbox`)는 원격 서버의 `POST`를 받는다. proxy는 본문과 `Signature`, `Signature-Input`, `Digest`, `Content-Digest`, `Date`, `Host` 헤더를 바꾸지 않고 전달해야 한다. 서명에 `Host`가 들어가므로 사이드카로 넘기는 `Host`는 앱 호스트여야 한다. 사이드카는 본문을 1 MiB까지만 읽고 넘으면 413을 낸다.
 - 사이드카에는 요청 속도 제한이 없다. 속도 제한은 proxy에서 건다.
 - Claire host firewall은 `CB_FEDIFY_PORT`의 source도 reverse proxy의 고정 LAN IP로만 허용한다.
-- 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. `./cb-manuscript app instance check --federation --json`으로 실행한다.
+- 준비 검사 GF6(사이드카가 공개 origin으로 자기 WebFinger 응답을 받는지)과 GF7(공개 origin의 `/.well-known/oauth-authorization-server`가 Claire의 메타데이터인지)이 이 규칙을 양방향으로 확인한다. `./cb-manuscript app server check --federation --json`으로 실행한다.
 
 아래는 위 Nginx 예시의 `server` 블록에 더하는 예시다. 이 저장소의 테스트는 Nginx 설정을 실행하지 않는다.
 
@@ -341,7 +341,7 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
    - 해당 FQDN으로 들어온 모든 요청은 정본 경로(`/themes/{number}/...` 또는 `/@{username}/themes/{number}/...`)로 `308 Permanent Redirect`된다.
 2. **일몰 기산 및 시계 관리**:
    - 이관 초기에는 일몰 시계가 정지 상태(`sunset_at = NULL`)로 유지된다.
-   - 관리자가 `/admin/instance` 화면이나 `/api/admin/instance/legacy-hosts/sunset` API를 통해 이관을 활성화하면 기본 30일 일몰 시계가 기산된다.
+   - 관리자가 `/admin/server` 화면이나 `/api/admin/server/legacy-hosts/sunset` API를 통해 이관을 활성화하면 기본 30일 일몰 시계가 기산된다.
    - 관리자는 일몰 기간을 연장하거나 무기한 `308` 유지(`indefinitely = 1`)를 설정할 수 있다.
 3. **일몰 만료 후 처리**:
    - 일몰 시각이 지난 레거시 호스트 요청은 `410 Gone`을 반환한다 (테마 완전 소각 시 `421 Misdirected Request`).

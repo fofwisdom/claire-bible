@@ -86,7 +86,7 @@ MODEL_CAPABILITY_RANKS: Final[dict[str, int]] = {
     "gemini-4-hydrogen": 50,
 }
 
-SERVER_TIER_SETTING_KEY: Final = "server_tier"  # claire.db instance_settings 키, 값은 ServerTier.to_dict() JSON
+SERVER_TIER_SETTING_KEY: Final = "server_tier"  # claire.db server_settings 키, 값은 ServerTier.to_dict() JSON
 
 
 def normalize_model_and_effort(model: str | None, effort: str | None = None) -> tuple[str, str]:

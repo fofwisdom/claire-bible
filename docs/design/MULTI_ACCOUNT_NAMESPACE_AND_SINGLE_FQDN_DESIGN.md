@@ -78,7 +78,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | K2 | 계정 경계는 테마 소유권(`themes.account_id`)으로 정한다. 테마 파티션 테이블에는 `account_id`를 넣지 않는다 | v14의 `theme_id` 파티셔닝을 그대로 쓴다. 격리 검사가 "요청 네임스페이스의 계정이 이 테마를 소유하는가" 하나로 모인다 |
 | K3 | 접두 `/@{username}`과 `/themes/{번호}/`는 미들웨어가 떼어 내 요청 상태(`claire_namespace_prefix`)로 옮긴다. 남은 경로에는 기존 `ROUTE_POLICY`와 라우트를 그대로 쓴다 | 라우트를 계정별로 복제하지 않는다. WebUI의 상대 경로 호출이 그대로 동작하고 정적 마운트와도 충돌하지 않는다(§6.3 N2) |
 | K4 | 내부 참조는 `accounts.id`만 쓴다. USERNAME은 불변이지만 외래 키로 쓰지 않는다 | 퇴역·정보 초기화·감사 기록에서 이름과 식별자를 섞지 않는다 |
-| K5 | 서버 관리자는 콘텐츠 슈퍼유저가 아니다. 다른 계정의 비공개 데이터, 세션, 토큰, API 키에 접근하지 못한다 | R8, D5. 관리자 권한은 인스턴스 설정과 계정 수명주기다 |
+| K5 | 서버 관리자는 콘텐츠 슈퍼유저가 아니다. 다른 계정의 비공개 데이터, 세션, 토큰, API 키에 접근하지 못한다 | R8, D5. 관리자 권한은 서버 설정과 계정 수명주기다 |
 | K6 | 계정 비밀은 쓰기 전용이다. 저장한 뒤에는 어떤 API·CLI·번들도 평문을 돌려주지 않는다 | R8 |
 | K7 | 네임스페이스·테마·프로바이더 결정에는 폴백이 없다 | PRINCIPLES C1·C2 |
 | K8 | 싱글 모드는 네트워크 모드의 특수형이다(계정 1개, 접두 생략). 모드 분기는 네임스페이스 결정과 라우트 `modes` 한 곳에만 둔다 | 두 모드의 코드가 갈라지면 한쪽 테스트만 통과하는 회귀가 생긴다 |
@@ -87,7 +87,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 
 ---
 
-## 4. 인스턴스 모드
+## 4. 서버 모드
 
 ### 4.1 동작 비교
 
@@ -104,7 +104,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 
 ### 4.2 저장과 전환
 
-- 모드는 환경변수가 아니라 DB의 `instance_settings`에 둔다. 키는 `mode`, `invite_caps`, `id_salt`, `legacy_host_policy`다. 관리자가 `/admin/accounts`에서 바꾼다. 프로바이더·적재 한도를 WebUI 관리 파일로 옮긴 것과 같은 방향이다.
+- 모드는 환경변수가 아니라 DB의 `server_settings`에 둔다. 키는 `mode`, `invite_caps`, `id_salt`, `legacy_host_policy`다. 관리자가 `/admin/accounts`에서 바꾼다. 프로바이더·적재 한도를 WebUI 관리 파일로 옮긴 것과 같은 방향이다.
 - **싱글 → 네트워크**: 준비 검사 G1–G9(§17.2)를 모두 통과하고 관리자가 단계 인증(§8.5)을 해야 한다. 하나라도 실패하면 거부하고 실패 항목을 보여 준다.
 - **네트워크 → 싱글**: `invited`·`active`·`suspended` 상태의 멤버가 없어야 한다. 있으면 그 목록과 함께 거부한다. 전환 뒤 `/@{admin}/…`은 `/…`로 308 리다이렉트한다. 확인 화면에는 이미 공개된 관리자 USERNAME을 되돌릴 수 없다고 적는다.
 - 네트워크 모드는 `CLAIRE_MULTI_THEME=1`을 전제로 한다. 꺼져 있으면 전환을 거부한다(C1).
@@ -123,10 +123,10 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 - 첫 소비자는 D4의 공개 계정·테마 목록이다. 네트워크 모드의 `/`는 이 목록을 그리고, 데이터는 `GET /explore/accounts` 컬렉션(§7.4)에서 받는다.
   - 대상은 `profile_public=1`이고 `active`인 계정이다.
   - 계정마다 표시 이름, `@username`, 공개 테마 목록(번호 URL과 문서 수)을 보여 준다.
-  - **로그인 사용자 동선과 빈 상태 화면 (Rev. 2.3, §16.4)**: 네트워크 모드 `/`는 로그인 여부와 무관하게 공개 디렉터리를 그리되(`CLAIRE_ANONYMOUS_READONLY=0`이어도 공개 집계는 열림), 상단 헤더에 로그인된 사용자를 위한 `[내 작업 공간(/@{me}/)]` 고정 바로가기를 둔다(비로그인 상태에서는 로그인 진입점을 표시). 공개 프로필(`profile_public=1`)이나 공개 테마가 0개일 때는 빈 화면 대신 인스턴스 안내와 로그인·작업 공간 진입을 담은 빈 상태(empty state) 화면을 그린다.
+  - **로그인 사용자 동선과 빈 상태 화면 (Rev. 2.3, §16.4)**: 네트워크 모드 `/`는 로그인 여부와 무관하게 공개 디렉터리를 그리되(`CLAIRE_ANONYMOUS_READONLY=0`이어도 공개 집계는 열림), 상단 헤더에 로그인된 사용자를 위한 `[내 작업 공간(/@{me}/)]` 고정 바로가기를 둔다(비로그인 상태에서는 로그인 진입점을 표시). 공개 프로필(`profile_public=1`)이나 공개 테마가 0개일 때는 빈 화면 대신 서버 안내와 로그인·작업 공간 진입을 담은 빈 상태(empty state) 화면을 그린다.
 - 이후의 여러 사용자 통합 뷰(통합 검색, 최근 공개 문서, 통합 신디케이션 피드 등)도 이 아래에 둔다.
 - 통합 뷰는 공개 프로필 계정의 공개 테마만 읽는다. 다른 계정의 `_get_theme_ctx`를 거치지 않고, 전용 공개 색인 질의 계층(`store/public_index.py`)만 쓴다. LLM은 호출하지 않는다(검색은 FTS).
-- WebUI 메뉴: `/whoami`가 `instance.mode`를 돌려준다. 네트워크 전용 메뉴 항목은 `data-mode="network"`로 표시하고, 싱글 모드에서는 그리지 않는다.
+- WebUI 메뉴: `/whoami`가 `server.mode`를 돌려준다. 네트워크 전용 메뉴 항목은 `data-mode="network"`로 표시하고, 싱글 모드에서는 그리지 않는다.
 
 ---
 
@@ -168,7 +168,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 ### 5.3 테마 FQDN 이관 (D3: 이관 활성화 기준 30일과 연장 설정, Rev. 2.3)
 
 - v16 이관이 `themes.fqdn` 값을 `legacy_hosts`로 옮긴다.
-- **일몰 시계 기산과 연장 설정 (Rev. 2.3, §16.4)**: P2(싱글 모드) 배포 즉시 30일 시계가 돌아 네트워크 전환 전에 만료되는 일이 없도록, 기본 30일(`sunset_at = activated_at + 30일`)은 **이관 활성화 시점**(네트워크 모드 전환 시점 또는 관리자가 `/admin/accounts`·`instance_settings.legacy_host_policy`에서 일몰 시계를 켠 시점)부터 기산한다. 활성화 전(`sunset_at IS NULL`)이거나 관리자가 기간 연장·무기한 `308` 유지를 선택한 호스트는 계속 리다이렉트한다.
+- **일몰 시계 기산과 연장 설정 (Rev. 2.3, §16.4)**: P2(싱글 모드) 배포 즉시 30일 시계가 돌아 네트워크 전환 전에 만료되는 일이 없도록, 기본 30일(`sunset_at = activated_at + 30일`)은 **이관 활성화 시점**(네트워크 모드 전환 시점 또는 관리자가 `/admin/accounts`·`server_settings.legacy_host_policy`에서 일몰 시계를 켠 시점)부터 기산한다. 활성화 전(`sunset_at IS NULL`)이거나 관리자가 기간 연장·무기한 `308` 유지를 선택한 호스트는 계속 리다이렉트한다.
 - `HostRouter`의 레거시 호스트 처리는 다음과 같다.
   - 일몰 전(`sunset_at IS NULL` 또는 `now < sunset_at`)의 `GET`·`HEAD`: 정본 호스트의 테마 경로에 원래 path와 query를 붙여 308 리다이렉트한다. 테마 경로는 싱글 모드면 `/themes/{번호}/`, 네트워크 모드면 `/@{owner}/themes/{번호}/`다.
   - 그 밖의 메서드: 421.
@@ -233,7 +233,7 @@ inner-path    = "/" [ 기존 라우트 경로 ]                   ; "/", "/graph
 | `/mcp`, `/oauth/*`, `/.well-known/*` | 시스템 | 시스템. 계정은 토큰이 정한다 |
 | `/health`, `/robots.txt`, 정적 자원 | 시스템 | 시스템 |
 
-- 테마 번호는 인스턴스 전체에서 유일하다. 그래서 `/themes/{번호}`는 네트워크 모드에서 소유자 경로를 찾아 주는 영구 링크로도 쓸 수 있다. 비공개 테마는 권한이 없는 요청자에게 404다.
+- 테마 번호는 서버 전체에서 유일하다. 그래서 `/themes/{번호}`는 네트워크 모드에서 소유자 경로를 찾아 주는 영구 링크로도 쓸 수 있다. 비공개 테마는 권한이 없는 요청자에게 404다.
 - 기본 테마는 계정 홈(`/@{u}/`)과 `/@{u}/themes/{번호}/` 두 경로로 열린다. canonical 링크는 계정 홈이다.
 - MCP는 `/mcp` 하나만 둔다. 경로별 보호 자원 메타데이터(RFC 9728의 경로 접미 문서)는 `/.well-known/oauth-protected-resource`와 `/.well-known/oauth-protected-resource/mcp` 두 고정 경로만 `system`(`public`)으로 열어 표준 MCP 클라이언트의 탐색을 받는다(Rev. 2.3). 도구의 `theme` 인자는 토큰 계정의 테마 안에서만 해석한다.
 
@@ -261,7 +261,7 @@ inner-path    = "/" [ 기존 라우트 경로 ]                   ; "/", "/graph
 - ASGI `scope["raw_path"]`에는 `?query` 바이트가 함께 들어올 수 있으므로 반드시 `b"?"` 앞의 경로 바이트만 분리한 뒤, 인코딩된 슬래시(`%2F`, `%2f`), `.`·`..` 세그먼트, 빈 세그먼트(`//`)가 있으면 400으로 거부한다(Rev. 2.3, 쿼리 인자의 `?url=https://…` 오탐 방지). `/@alice/../admin/accounts` 같은 경로 혼동을 막는다.
 - `%40alice`는 디코딩된 `path`가 `@alice`이므로 같은 규칙을 탄다.
 - `/@alice`, `/@alice/themes/{번호}`처럼 HTML 셸이 열리는 네임스페이스 기준 경로에 끝 슬래시가 없으면 슬래시를 붙여 308 리다이렉트한다. 상대 경로 호출(`fetch('graph')` 등)이 상위 경로로 잘못 해석되지 않게 하려는 것이다. 단, `/@alice/themes`(컬렉션)는 슬래시 없이 쓴다.
-- **WebUI 경로·스토리지 기준 분리 (Rev. 2.3)**: 서버는 HTML 셸 부트스트랩 메타데이터에 테마 기준 `apiBase`(예: `/@alice/themes/1164…/` 또는 `/`)와 인스턴스 루트 `rootBase`(`/` — `/providers`, `/limits`, `/tokens`, `/me` 등 `any`/`system` 표면 호출용)를 함께 주입한다. `reader.js`(`/document/presentation*`)·`syndication_app.js`(`/document`, `/graph`, `/documents`)에 남아 있던 루트 하드코딩 호출은 `apiBase` 기준으로 바꾸고, `localStorage` 상태 키(`claireKnowledgeTheme`, `claireLastDoc`, `claire_active_theme` 등)에는 네임스페이스 계정 식별자 접두사를 붙여 단일 FQDN에서 계정 간 상태가 섞이지 않게 한다.
+- **WebUI 경로·스토리지 기준 분리 (Rev. 2.3)**: 서버는 HTML 셸 부트스트랩 메타데이터에 테마 기준 `apiBase`(예: `/@alice/themes/1164…/` 또는 `/`)와 서버 루트 `rootBase`(`/` — `/providers`, `/limits`, `/tokens`, `/me` 등 `any`/`system` 표면 호출용)를 함께 주입한다. `reader.js`(`/document/presentation*`)·`syndication_app.js`(`/document`, `/graph`, `/documents`)에 남아 있던 루트 하드코딩 호출은 `apiBase` 기준으로 바꾸고, `localStorage` 상태 키(`claireKnowledgeTheme`, `claireLastDoc`, `claire_active_theme` 등)에는 네임스페이스 계정 식별자 접두사를 붙여 단일 FQDN에서 계정 간 상태가 섞이지 않게 한다.
 - 테마 번호의 앞자리 0(`/themes/0123…`)은 404다. 표기는 하나만 허용한다.
 
 ### 6.5 응답 형식 협상
@@ -327,7 +327,7 @@ low16  = (HMAC-SHA256(id_salt, "<table>:<unix_ms>")[0:2] + seq) & 0xFFFF
 ```
 
 - 상위 48비트는 밀리초, 하위 16비트는 비밀 해시와 시퀀스다. Mastodon의 `timestamp_id`와 같은 구성이다. 기본 키 순서가 곧 생성 순서이므로, `created_at` 정렬 없이 인덱스만으로 커서 페이지네이션이 된다.
-- `id_salt`는 v15 이관이 만드는 32바이트 무작위 값이다(`instance_settings`). 하위 비트를 예측하기 어렵게 해서, 번호 하나로 이웃 번호를 계산하지 못하게 한다. 기밀 비밀은 아니다.
+- `id_salt`는 v15 이관이 만드는 32바이트 무작위 값이다(`server_settings`). 하위 비트를 예측하기 어렵게 해서, 번호 하나로 이웃 번호를 계산하지 못하게 한다. 기밀 비밀은 아니다.
 - 같은 밀리초의 충돌은 UNIQUE 제약으로 잡고, `seq`를 올려 다시 넣는다. 8번 실패하면 오류로 처리한다(C1). 여러 프로세스(API, 봇, 워커)가 동시에 만들어도 UNIQUE 제약이 정합성을 지킨다.
 - 범위: SQLite의 부호 있는 64비트 INTEGER에 들어간다. 밀리초 값이 2^47을 넘는 것은 서기 6400년대다. 현재 시각의 번호는 2^56보다 크다.
 - 번호에서 생성 시각(밀리초)이 드러난다. 공개 테마라면 공개 정보로 본다. 비공개 테마의 번호는 권한 있는 사람에게만 보인다.
@@ -429,7 +429,7 @@ low16  = (HMAC-SHA256(id_salt, "<table>:<unix_ms>")[0:2] + seq) & 0xFFFF
    - 일반: `user`, `users`, `guest`, `anonymous`, `nobody`, `everyone`, `all`, `public`, `private`, `me`, `self`, `null`, `undefined`, `test`, `demo`
    - 서비스: `claire`, `api`, `www`, `mail`, `mcp`, `bot`, `media`, `usercontent`, `explore`, `invite`
 3. **예약 조각**: 이름을 `_`와 숫자로 나눈 조각 중 하나가 예약 이름이거나 `admin`으로 시작하면 거부한다. 예를 들어 `admin1`, `admin_kim`, `kim_admin`, `administrator2`는 막히고 `badminton`은 통과한다.
-4. **인스턴스 예약**: `CLAIRE_SITE_DOMAIN`과 각 역할 호스트(`CLAIRE_FQDN`, `CLAIRE_USERCONTENT_FQDN`, `CLAIRE_MEDIA_FQDN`)의 모든 라벨(예: `claire.example.com`이면 `claire`, `example`, `com`), 그리고 관리자가 추가한 목록. (Rev. 2.2: 최상위 라벨 포함. Rev. 2.3: `accounts_routes/common.py`의 `instance_hosts`가 `usercontent`·`media` 호스트까지 빠짐없이 수집하도록 명시)
+4. **서버 예약**: `CLAIRE_SITE_DOMAIN`과 각 역할 호스트(`CLAIRE_FQDN`, `CLAIRE_USERCONTENT_FQDN`, `CLAIRE_MEDIA_FQDN`)의 모든 라벨(예: `claire.example.com`이면 `claire`, `example`, `com`), 그리고 관리자가 추가한 목록. (Rev. 2.2: 최상위 라벨 포함. Rev. 2.3: `accounts_routes/common.py`의 `server_hosts`가 `usercontent`·`media` 호스트까지 빠짐없이 수집하도록 명시)
 5. **퇴역 이름**: 삭제된 계정의 USERNAME은 `username_tombstones`에 남는다. 관리자가 정보 초기화(§8.9)를 하기 전에는 다시 쓸 수 없다.
 6. **불변**: 설정한 뒤에는 바꿀 수 없다. 앱 검사와 DB 트리거(§13)를 함께 둔다. 표시 이름(`display_name`)은 바꿀 수 있다.
 7. **거부 사유**: `syntax`, `reserved`, `retired`, `taken` 중 하나를 가입·설정 화면에만 보여 준다. 익명으로 이름 사용 가능 여부를 조회하는 API는 두지 않는다.
@@ -438,7 +438,7 @@ low16  = (HMAC-SHA256(id_salt, "<table>:<unix_ms>")[0:2] + seq) & 0xFFFF
 
 ### 8.2 역할과 상태
 
-- **인스턴스 역할**: `admin`(v1에서 1명, `accounts.id = 1`)과 `member`.
+- **서버 역할**: `admin`(v1에서 1명, `accounts.id = 1`)과 `member`.
 - **자격증명 범위**: `owner`, `collaborator`, `readonly`. 자기 네임스페이스 안에서만 의미가 있다. 기존 4단계 RBAC는 "계정 안에서의 위임"으로 남는다.
 - **상태 전이**
 
@@ -461,7 +461,7 @@ setup_required ──/setup──▶ active                         (관리자�
 @dataclass(frozen=True, slots=True)
 class Principal:
     account_id: int | None                  # None = 익명
-    instance_role: Literal["admin", "member"] | None
+    server_role: Literal["admin", "member"] | None
     scope: Literal["owner", "collaborator", "readonly", "anonymous"]
     channel: Literal["cookie", "bearer", "x-session", "none"]
     credential_id: str | None               # 감사 기록용 식별자. 토큰 값이 아니다
@@ -500,12 +500,12 @@ class Principal:
 
 | Method | Path | 접근 | 목적 |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/admin/accounts` | admin (그 외 404) | 관리 화면: 계정, 초대, 퇴역 이름, 인스턴스 모드 |
+| `GET` | `/admin/accounts` | admin (그 외 404) | 관리 화면: 계정, 초대, 퇴역 이름, 서버 모드 |
 | `GET` | `/api/admin/accounts` | admin | 목록: 번호, username, 상태, 역할, 생성·활성 시각, 테마 수, 저장 용량, 월 사용량, 키 등록 여부(값 아님), 가입에 쓴 초대 |
 | `PATCH` | `/api/admin/accounts` | admin + 단계 인증 | 정지, 재개, 삭제 예약·취소, 비밀번호 재설정 링크 |
 | `GET` | `/api/admin/usernames/retired` | admin | 퇴역 USERNAME 목록 |
 | `POST` | `/api/admin/usernames/release` | admin + 단계 인증 | 정보 초기화. 기본은 미리보기, `apply=true`로 실행 (§8.9) |
-| `GET`, `PATCH` | `/api/admin/instance` | admin (`PATCH`는 단계 인증) | 모드, 초대 정책, 준비 검사 결과 |
+| `GET`, `PATCH` | `/api/admin/server` | admin (`PATCH`는 단계 인증) | 모드, 초대 정책, 준비 검사 결과 |
 
 - 초대 관리는 §8.8의 `/api/invites`를 쓴다.
 - 싱글 모드 화면에는 관리자 계정 카드, 모드 전환 카드(준비 검사 포함), IdP 연결만 보인다.
@@ -533,7 +533,7 @@ class Principal:
 
 | Method | Path | 접근 | 목적 |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/invite/{code}` | public | 가입 화면. 인스턴스 이름, 만기, 가입 방법(로컬·IdP)을 보여 준다 |
+| `GET` | `/invite/{code}` | public | 가입 화면. 서버 이름, 만기, 가입 방법(로컬·IdP)을 보여 준다 |
 | `POST` | `/invite/{code}` | public | 로컬 가입 제출 (USERNAME, 표시 이름, 비밀번호) |
 | `GET` | `/auth/oidc/{id}/start?invite={code}` | public | IdP 가입 시작. OIDC state에 초대를 묶는다 (§12) |
 | `GET` | `/api/invites` | admin (그 외 404) | 컬렉션(§7.4) |
@@ -548,7 +548,7 @@ class Principal:
 **생성 시 설정**
 - 사용 횟수 `max_uses`(1–5)와 만기 `expires_in`(30분–30일)은 필수다. 메모는 선택이다.
 - `max_uses=1`일 때만 USERNAME을 예약할 수 있다.
-- 무제한·무기한 초대는 없다. 8자 코드의 추측 내성을 유한한 수명으로 보완하기 위해서다. 상한은 사용 5회, 만기 30일이다(N3). 관리자가 `instance_settings.invite_caps`로 더 낮출 수 있다.
+- 무제한·무기한 초대는 없다. 8자 코드의 추측 내성을 유한한 수명으로 보완하기 위해서다. 상한은 사용 5회, 만기 30일이다(N3). 관리자가 `server_settings.invite_caps`로 더 낮출 수 있다.
 
 **생성 권한**
 - 관리자만 만든다(N1). 멤버의 초대 생성은 이후 과제로 둔다.
@@ -580,7 +580,7 @@ class Principal:
 - 코드를 다시 보여 줄 수 있도록 비밀 서비스(§11.1)로 암호화한 사본을 따로 둔다. 관리자는 활성 초대의 링크를 다시 복사할 수 있다.
 
 **오용 방지와 미리보기 안전성 (Rev. 2.3 보완)**
-- 틀린(존재하지 않는) 코드 조회가 IP당 분당 10회를 넘으면 지연시킨다. 인스턴스 전체에서 시간당 1,000회를 넘으면 지연시키고 관리자에게 텔레그램으로 알린다. 클라이언트 IP 판별은 리버스 프록시 뒤에서 전체 사용자가 한 IP로 묶이지 않도록 `CLAIRE_TRUSTED_PROXIES`를 반영하는 `security.client_ip`를 재사용한다.
+- 틀린(존재하지 않는) 코드 조회가 IP당 분당 10회를 넘으면 지연시킨다. 서버 전체에서 시간당 1,000회를 넘으면 지연시키고 관리자에게 텔레그램으로 알린다. 클라이언트 IP 판별은 리버스 프록시 뒤에서 전체 사용자가 한 IP로 묶이지 않도록 `CLAIRE_TRUSTED_PROXIES`를 반영하는 `security.client_ip`를 재사용한다.
 - 메신저 링크 미리보기 봇 등의 `GET`·`HEAD /invite/{code}`는 절대 `uses_count`를 차감하거나 유효 코드에 대해 실패 카운트를 올리지 않는다. 초대 화면 응답에는 `X-Robots-Tag: noindex, nofollow`를 붙이고, 화면 안의 외부 링크에는 `rel="noreferrer noopener"`를 강제해 초대 URL이 `Referer`로 새지 않게 한다.
 - 없는 코드는 404다. 만료·소진·비활성 코드는 410과 사유를 돌려준다.
 
@@ -623,7 +623,7 @@ class RouteRule:
   - `root`: 루트 `GET /` 전용이다(Rev. 2.3). 접두 없는 `/`에서는 싱글 모드면 관리자 기본 테마 홈(`read`, `setup_required`면 `/setup` 이동), 네트워크 모드면 공개 계정·테마 디렉터리(`public`, 기존 SPA 쿼리 `doc`·`node`·`theme`이 있으면 `/@{admin}/?…`로 308)를 그린다. `/@{u}/`나 `/themes/{번호}/` 접두 아래에서 남은 경로가 `/`일 때는 `namespaced` 홈으로 동작한다.
   - `system`: 루트에서만 받는다. 접두 아래에서는 404다.
   - `namespaced`: 네임스페이스가 필요하다(N1–N3).
-  - `any`: 네임스페이스와 무관하다. 접두가 있어도 받고 접두는 무시한다. WebUI가 상대 경로로 부르는 인스턴스·본인 설정 경로가 여기에 해당한다.
+  - `any`: 네임스페이스와 무관하다. 접두가 있어도 받고 접두는 무시한다. WebUI가 상대 경로로 부르는 서버·본인 설정 경로가 여기에 해당한다.
 - `modes`: 현재 모드가 목록에 없으면 404다.
 - 경로 매개변수 키(예: `("GET", "/invite/{code}")`)는 Starlette의 `compile_path`로 컴파일해 정확한 키 다음에 조회한다. 지금의 이미지 접두 예외도 이 방식으로 옮긴다. 라우트 계약 시험은 마운트된 라우트 하나에 정책 항목이 정확히 하나 있는지 확인한다.
 
@@ -636,7 +636,7 @@ class RouteRule:
 | `any` | `/providers`, `/providers/test`, `/limits`, `/ingest-limits`, `/tokens`, `/tokens/revoke`, (신규) `/me`, `/api/me/*`, `/api/invites`(네트워크 전용) |
 | 접근 수준을 `admin`으로 | `/providers`, `/providers/test`, `/limits`, `/ingest-limits`, `POST /support/bundle`, (신규) `/api/invites` |
 
-- `/whoami`는 주체 정보, `instance.mode`, 그리고 네임스페이스와의 관계(`owner`·`delegate`·`visitor`)를 돌려준다. WebUI는 이것으로 편집 도구와 네트워크 전용 메뉴를 보일지 정한다.
+- `/whoami`는 주체 정보, `server.mode`, 그리고 네임스페이스와의 관계(`owner`·`delegate`·`visitor`)를 돌려준다. WebUI는 이것으로 편집 도구와 네트워크 전용 메뉴를 보일지 정한다.
 - **`/tokens` 격리 (Rev. 2.3)**: `/tokens`·`/tokens/revoke`는 `surface="any"`, `access="owner"`이며 항상 `Principal.account_id`로 필터링해 자기 계정의 토큰만 조회·발급·폐기한다.
 - **번들 경로의 `K5·D5` 경계 (Rev. 2.3, §16.4)**:
   - `POST /graph/bundle`(및 목록·다운로드)은 관리자 전역 경로가 아니라 `namespaced`(`owner`)로 두어 반드시 고정·선택된 본인 소유 테마(`WHERE theme_id = ?`)의 엔티티·관계·문서만 내보낸다. 그래프 번들을 반입할 때는 `documents.id`·`entities.id`·`relations.id`가 `claire.db` 전역 기본 키이므로, 다른 테마에 이미 존재하는 ID를 `INSERT OR REPLACE`로 덮어쓰지 못하도록 타 테마 소유 ID 충돌을 거부하거나 새 ID로 재매핑한다.
@@ -807,7 +807,7 @@ CREATE TABLE IF NOT EXISTS username_tombstones (
     released_at REAL,                         -- 정보 초기화 시각. NULL이면 재사용 불가
     released_by INTEGER
 );
-CREATE TABLE IF NOT EXISTS instance_settings (
+CREATE TABLE IF NOT EXISTS server_settings (
     key TEXT PRIMARY KEY,                     -- mode, invite_caps, id_salt
     value TEXT NOT NULL,
     updated_at REAL NOT NULL,
@@ -1050,7 +1050,7 @@ CREATE TABLE admin_audit (
 
 ### 17.2 네트워크 모드 준비 검사 (G1–G9)
 
-`claire instance check --network --json`(호스트에서는 `./cb-manuscript app instance check --network --json`)과 모드 전환 화면은 같은 검사를 쓴다. 하나라도 실패하면 전환을 거부한다.
+`claire server check --network --json`(호스트에서는 `./cb-manuscript app server check --network --json`)과 모드 전환 화면은 같은 검사를 쓴다. 하나라도 실패하면 전환을 거부한다.
 
 | ID | 검사 |
 | :--- | :--- |
@@ -1117,7 +1117,7 @@ G1–G3과 G6은 코드의 성질이므로 CI 게이트로 지킨다. 이 항목
 | P2 | L2-c v16 테마 번호(하한 고정·`visibility_epoch`·임베딩 열), `CLAIRE_MULTI_THEME=0` DB 일원화, 고정·해석기, 엄격 조회 | `store/db.py`(v16 블록), `store/theme.py`, `server.py`의 `_extract_theme_ref`·`_get_theme_ctx` | ○ | L2-b 계약 |
 | P2 | L2-d 컬렉션 계약과 `/themes` 협상 | `api/collections.py`, `server.py`의 `themes_list_route`, `tests/test_collection_contract.py` | ○ | L2-c 계약 |
 | P2 | L2-e WebUI `apiBase`/`rootBase`, 문자열 ID, `localStorage` 계정 분리 | `static/js/*.js`, `templates/*.html`, `e2e/` | ○ | L2-b 계약 |
-| P2 | L2-f 모드 설정·전환 화면, `instance_hosts` 역할 호스트 보완, 로그인·설정 리다이렉트, S9 테스트 | `api/accounts_routes/`, `tests/test_single_mode_no_username_leak.py` | ○ | L2-b |
+| P2 | L2-f 모드 설정·전환 화면, `server_hosts` 역할 호스트 보완, 로그인·설정 리다이렉트, S9 테스트 | `api/accounts_routes/`, `tests/test_single_mode_no_username_leak.py` | ○ | L2-b |
 | P2 | L2-g 개발 포트 배선과 호스트 검증 | `docker-compose.yml`, `docker-compose.dev.yml`, `ops/cb_manuscript.py`, `.env*.example` | ○ | L2-a 계약 |
 | P3 | L3-a 비밀 서비스와 백업 무결성(`auth.db` 온라인 스냅샷·`master.key` 제외) | `store/secrets.py`, `ops/cb_manuscript.py`(백업·복원), `pyproject.toml`, `tests/test_secrets.py` | — | P2 |
 | P3 | L3-b 초대(`client_ip`, 미리보기 무부작용, `noindex`) | `accounts/invites.py`, `store/auth_db.py`, `api/accounts_routes/`의 초대 부분, `tests/test_invite_flow.py` | ○ | L3-a |
@@ -1166,7 +1166,7 @@ P3·P4·P5에서 `api/accounts_routes/` 패키지를 여러 레인이 고친다.
 | 파일 | 검증 |
 | :--- | :--- |
 | `tests/test_ids.py` | 단조 증가, 같은 밀리초 충돌 재시도, 8회 실패 시 오류, 이관 번호의 결정성, 2^56 하한 |
-| `tests/test_username_policy.py` | 문법, 예약 이름·조각, 인스턴스 예약(역할 호스트 전체 라벨 포함), 퇴역 이름 |
+| `tests/test_username_policy.py` | 문법, 예약 이름·조각, 서버 예약(역할 호스트 전체 라벨 포함), 퇴역 이름 |
 | `tests/test_schema_v15.py` | 이관 멱등, 관리자 행, 테마 귀속, 불변 트리거, 관리자 1명 인덱스 |
 | `tests/test_setup_flow.py` | 미인증 404, 관리자 자격 리다이렉트, 세션 교체, 재설정 불가 |
 | `tests/test_namespace_routing.py` | 2단계 접두·주체 해석, `b"?"` 분리 정규화 400·308, 싱글 모드 404, `Mount` 정적 자산 무간섭, `root`·`modes` 404 |

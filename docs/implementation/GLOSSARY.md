@@ -179,6 +179,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 의미 연결 | **관계** | Relation | `Relation`, `ExtractedRelation` | `relations` 테이블 |
 | 그래프 간선 | **링크 / 엣지** | Link / Edge | `edge`, `edges` (dict) | GraphView edge element |
 | 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `themes` 테이블, `*.theme_id` |
+| 운영 단위 | **서버** | Server | `ServerMode`, `server_mode()`, `claire server check`, 서버 액터 `/ap/actors/server` | `server_settings` 테이블 (v25 전 이름 `instance_settings`). Claire 설치 하나를 Mastodon 문서([Mastodon 101](https://github.com/mastodon/blog/blob/master/content/posts/2018-08-21_Mastodon-101/index.md))처럼 "서버"라고 부른다. "인스턴스"는 쓰지 않는다 |
 | 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
 | 추출 지향성 | **초점** | Extraction Focus | `focus`, `default_focus` | `documents.meta["focus"]` |
 | 국소 그래프 | **로컬 그래프** | Local Graph | `renderLocalGraphHtml()`, `ctx-local-graph` | 문서 문맥 패널 연결 탭의 인라인 SVG 그래프 (링 1 문서 엔티티 최대 24, 링 2 타 문서 연결 엔티티 최대 12) |

@@ -56,10 +56,10 @@ def collab_test_client(tmp_path: Path):
 def test_whoami_scopes(collab_test_client):
     client, _ = collab_test_client
 
-    assert client.get("/whoami", headers=OWNER_HEADERS).json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": True}
-    assert client.get("/whoami", headers=COLLAB_HEADERS).json() == {"scope": "collaborator", "instance": {"mode": "single"}, "relation": "delegate", "is_admin": False}
-    assert client.get("/whoami", headers=READONLY_HEADERS).json() == {"scope": "readonly", "instance": {"mode": "single"}, "relation": "delegate", "is_admin": False}
-    assert client.get("/whoami").json() == {"scope": "anonymous", "instance": {"mode": "single"}, "relation": "visitor", "is_admin": False}
+    assert client.get("/whoami", headers=OWNER_HEADERS).json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
+    assert client.get("/whoami", headers=COLLAB_HEADERS).json() == {"scope": "collaborator", "server": {"mode": "single"}, "relation": "delegate", "is_admin": False}
+    assert client.get("/whoami", headers=READONLY_HEADERS).json() == {"scope": "readonly", "server": {"mode": "single"}, "relation": "delegate", "is_admin": False}
+    assert client.get("/whoami").json() == {"scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False}
 
 
 def test_collaborator_theme_visibility_and_access(collab_test_client):

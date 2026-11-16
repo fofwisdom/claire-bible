@@ -1,9 +1,9 @@
-"""인스턴스 모드 설정·전환, 준비 검사, 일몰 시계 관리 API (설계 §4.2, §5.3, §8.6, §17.2, O6, O7, O15).
+"""서버 모드 설정·전환, 준비 검사, 일몰 시계 관리 API (설계 §4.2, §5.3, §8.6, §17.2, O6, O7, O15).
 
-- ``GET /admin/instance``: 관리자 전용 HTML 페이지 (모드, G1-G9 준비 검사, 일몰 시계 상태)
-- ``GET /api/admin/instance``: JSON API (현재 모드, readiness 검사 결과, network_mode_available, legacy_host_policy)
-- ``POST /api/admin/instance/mode``: 모드 전환 API (단계 인증 필수)
-- ``POST /api/admin/instance/legacy-hosts/sunset``: 일몰 시계 관리 API (단계 인증 필수)
+- ``GET /admin/server``: 관리자 전용 HTML 페이지 (모드, G1-G9 준비 검사, 일몰 시계 상태)
+- ``GET /api/admin/server``: JSON API (현재 모드, readiness 검사 결과, network_mode_available, legacy_host_policy)
+- ``POST /api/admin/server/mode``: 모드 전환 API (단계 인증 필수)
+- ``POST /api/admin/server/legacy-hosts/sunset``: 일몰 시계 관리 API (단계 인증 필수)
 - ``GET/HEAD/PUT /api/admin/server-tier``: 서버 등급 조회·저장 (설계 §10.3, P4 L4-c). PUT은 단계 인증, 검증 실패는 422, ``admin_audit`` 기록
 """
 
@@ -43,10 +43,10 @@ from .common import (
 )
 from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
 
-ADMIN_INSTANCE_PATH = "/admin/instance"
-ADMIN_INSTANCE_API_PATH = "/api/admin/instance"
-ADMIN_INSTANCE_MODE_PATH = "/api/admin/instance/mode"
-ADMIN_INSTANCE_SUNSET_PATH = "/api/admin/instance/legacy-hosts/sunset"
+ADMIN_SERVER_PATH = "/admin/server"
+ADMIN_SERVER_API_PATH = "/api/admin/server"
+ADMIN_SERVER_MODE_PATH = "/api/admin/server/mode"
+ADMIN_SERVER_SUNSET_PATH = "/api/admin/server/legacy-hosts/sunset"
 ADMIN_SERVER_TIER_PATH = "/api/admin/server-tier"
 
 _LABELLED_FEATURES = ("expand", "stt", "vlm", "presentation", "synthesize")
@@ -167,7 +167,7 @@ def _legacy_host_to_dict(h: LegacyHost) -> dict[str, Any]:
     }
 
 
-def _render_instance_html(
+def _render_server_html(
     *,
     mode: str,
     readiness_report: readiness.ReadinessReport,
@@ -177,56 +177,56 @@ def _render_instance_html(
     tier_state: dict[str, Any],
 ) -> str:
     tier_section = _render_server_tier_section(tier_state)
-    mode_text = t("console.admin.instance.mode_single") if mode == "single" else t("console.admin.instance.mode_network")
+    mode_text = t("console.admin.server.mode_single") if mode == "single" else t("console.admin.server.mode_network")
     target_mode = "network" if mode == "single" else "single"
 
     if mode == "single":
         if not network_mode_available:
-            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.instance.notice.limited"))}</p>'
+            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.server.notice.limited"))}</p>'
             can_switch = False
         elif not readiness_report.passed:
             failed_ids = [item.id for item in readiness_report.items if not item.passed]
-            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.instance.notice.not_ready", items=", ".join(failed_ids)))}</p>'
+            mode_notice = f'<p class="hint" style="color:var(--error);font-weight:600;">{escape(t("console.admin.server.notice.not_ready", items=", ".join(failed_ids)))}</p>'
             can_switch = False
         else:
-            mode_notice = f'<p class="hint" style="color:#2f855a;font-weight:600;">{escape(t("console.admin.instance.notice.ready"))}</p>'
+            mode_notice = f'<p class="hint" style="color:#2f855a;font-weight:600;">{escape(t("console.admin.server.notice.ready"))}</p>'
             can_switch = True
 
         mode_desc = f"""
           <div class="notice">
-            <strong>{escape(t("console.admin.instance.to_network.title"))}</strong>
+            <strong>{escape(t("console.admin.server.to_network.title"))}</strong>
             <ul>
-              <li>{t_code("console.admin.instance.to_network.home", path="/@{admin_username}/")}</li>
-              <li>{t_code("console.admin.instance.to_network.redirect", doc="/?doc=…", theme="/themes/{number}/…")}</li>
-              <li>{escape(t("console.admin.instance.to_network.sunset"))}</li>
+              <li>{t_code("console.admin.server.to_network.home", path="/@{admin_username}/")}</li>
+              <li>{t_code("console.admin.server.to_network.redirect", doc="/?doc=…", theme="/themes/{number}/…")}</li>
+              <li>{escape(t("console.admin.server.to_network.sunset"))}</li>
             </ul>
           </div>
           <label class="check">
             <input type="checkbox" name="confirm" required>
-            {escape(t("console.admin.instance.to_network.confirm"))}
+            {escape(t("console.admin.server.to_network.confirm"))}
           </label>
         """
         btn_class = ""
-        btn_text = t("console.admin.instance.switch_to_network")
+        btn_text = t("console.admin.server.switch_to_network")
     else:
         can_switch = True
-        mode_notice = f'<p class="hint">{escape(t("console.admin.instance.notice.network"))}</p>'
+        mode_notice = f'<p class="hint">{escape(t("console.admin.server.notice.network"))}</p>'
         mode_desc = f"""
           <div class="notice danger">
-            <strong>{escape(t("console.admin.instance.to_single.title"))}</strong>
+            <strong>{escape(t("console.admin.server.to_single.title"))}</strong>
             <ul>
-              <li>{escape(t("console.admin.instance.to_single.members"))}</li>
-              <li>{escape(t("console.admin.instance.to_single.username"))}</li>
-              <li>{t_code("console.admin.instance.to_single.redirect", namespace="/@{admin}/…", root="/…")}</li>
+              <li>{escape(t("console.admin.server.to_single.members"))}</li>
+              <li>{escape(t("console.admin.server.to_single.username"))}</li>
+              <li>{t_code("console.admin.server.to_single.redirect", namespace="/@{admin}/…", root="/…")}</li>
             </ul>
           </div>
           <label class="check">
             <input type="checkbox" name="confirm" required>
-            {escape(t("console.admin.instance.to_single.confirm"))}
+            {escape(t("console.admin.server.to_single.confirm"))}
           </label>
         """
         btn_class = ' class="btn-danger"'
-        btn_text = t("console.admin.instance.switch_to_single")
+        btn_text = t("console.admin.server.switch_to_single")
 
     check_rows = []
     for item in readiness_report.items:
@@ -236,20 +236,20 @@ def _render_instance_html(
 
     hosts_rows = []
     for h in hosts:
-        activated = format_ts(h.activated_at) if h.activated_at is not None else t("console.admin.instance.legacy.not_started")
-        sunset = format_ts(h.sunset_at) if h.sunset_at is not None else t("console.admin.instance.legacy.no_limit")
+        activated = format_ts(h.activated_at) if h.activated_at is not None else t("console.admin.server.legacy.not_started")
+        sunset = format_ts(h.sunset_at) if h.sunset_at is not None else t("console.admin.server.legacy.no_limit")
         hosts_rows.append(f"<tr><td><code>{escape(h.host)}</code></td><td>{h.theme_id}</td><td>{escape(activated)}</td><td>{escape(sunset)}</td></tr>")
-    hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.instance.legacy.empty"))}</td></tr>'
+    hosts_tbody = "".join(hosts_rows) if hosts_rows else f'<tr><td colspan="4" style="text-align:center;color:var(--muted);">{escape(t("console.admin.server.legacy.empty"))}</td></tr>'
 
-    readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.instance.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.instance.readiness_not_passed"))}</span>'
+    readiness_summary = f'<span style="color:#2f855a;font-weight:bold;">{escape(t("console.admin.server.readiness_all"))}</span>' if readiness_report.passed else f'<span style="color:#c53030;font-weight:bold;">{escape(t("console.admin.server.readiness_not_passed"))}</span>'
 
     return f"""
-      <section class="card" aria-label="{escape(t("console.mode.title"))}" id="instance-mode">
+      <section class="card" aria-label="{escape(t("console.mode.title"))}" id="server-mode">
         <h2>{escape(t("console.mode.title"))}</h2>
         <dl>
-          <dt>{escape(t("console.admin.instance.current_mode"))}</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
-          <dt>{escape(t("console.admin.instance.network_availability"))}</dt><dd><strong>{escape(t("console.admin.instance.network_available") if network_mode_available else t("console.admin.instance.network_limited"))}</strong></dd>
-          <dt>{escape(t("console.admin.instance.readiness"))}</dt><dd>{readiness_summary}</dd>
+          <dt>{escape(t("console.admin.server.current_mode"))}</dt><dd><span class="badge">{escape(mode_text)}</span></dd>
+          <dt>{escape(t("console.admin.server.network_availability"))}</dt><dd><strong>{escape(t("console.admin.server.network_available") if network_mode_available else t("console.admin.server.network_limited"))}</strong></dd>
+          <dt>{escape(t("console.admin.server.readiness"))}</dt><dd>{readiness_summary}</dd>
         </dl>
         {mode_notice}
         <form class="mode-form" data-mode-switch-form>
@@ -259,15 +259,15 @@ def _render_instance_html(
           <p class="result" role="status" aria-live="polite" data-mode-switch-result></p>
         </form>
         <form class="mode-form" data-mode-switch-reauth hidden>
-          <p class="hint">{escape(t("console.admin.instance.reauth_hint"))}</p>
+          <p class="hint">{escape(t("console.admin.server.reauth_hint"))}</p>
           <label>{escape(t("console.settings.account.password"))}<input type="password" name="password" autocomplete="current-password" required></label>
-          <button type="submit">{escape(t("console.admin.instance.reauth_submit"))}</button>
+          <button type="submit">{escape(t("console.admin.server.reauth_submit"))}</button>
           <p class="result" role="status" aria-live="polite" data-mode-switch-reauth-result></p>
         </form>
       </section>
 
-      <section class="card" aria-label="{escape(t("console.admin.instance.readiness_label"))}">
-        <h2>{escape(t("console.admin.instance.readiness_title"))}</h2>
+      <section class="card" aria-label="{escape(t("console.admin.server.readiness_label"))}">
+        <h2>{escape(t("console.admin.server.readiness_title"))}</h2>
         <table>
           <thead>
             <tr><th>{escape(t("console.readiness.col_item"))}</th><th>{escape(t("console.readiness.col_name"))}</th><th>{escape(t("console.common.status"))}</th><th>{escape(t("console.readiness.col_detail"))}</th></tr>
@@ -278,15 +278,15 @@ def _render_instance_html(
         </table>
       </section>
 
-      <section class="card" aria-label="{escape(t("console.admin.instance.legacy.label"))}">
-        <h2>{escape(t("console.admin.instance.legacy.title"))}</h2>
+      <section class="card" aria-label="{escape(t("console.admin.server.legacy.label"))}">
+        <h2>{escape(t("console.admin.server.legacy.title"))}</h2>
         <dl>
-          <dt>{escape(t("console.admin.instance.legacy.after_status"))}</dt><dd>HTTP {policy.after_sunset_status}</dd>
-          <dt>{escape(t("console.admin.instance.legacy.grace"))}</dt><dd>{escape(t("console.admin.instance.legacy.days", days=policy.sunset_days))}</dd>
+          <dt>{escape(t("console.admin.server.legacy.after_status"))}</dt><dd>HTTP {policy.after_sunset_status}</dd>
+          <dt>{escape(t("console.admin.server.legacy.grace"))}</dt><dd>{escape(t("console.admin.server.legacy.days", days=policy.sunset_days))}</dd>
         </dl>
         <table>
           <thead>
-            <tr><th>{escape(t("console.admin.instance.legacy.col_host"))}</th><th>{escape(t("console.admin.instance.legacy.col_theme"))}</th><th>{escape(t("console.admin.instance.legacy.col_start"))}</th><th>{escape(t("console.admin.instance.legacy.col_sunset"))}</th></tr>
+            <tr><th>{escape(t("console.admin.server.legacy.col_host"))}</th><th>{escape(t("console.admin.server.legacy.col_theme"))}</th><th>{escape(t("console.admin.server.legacy.col_start"))}</th><th>{escape(t("console.admin.server.legacy.col_sunset"))}</th></tr>
           </thead>
           <tbody>
             {hosts_tbody}
@@ -297,7 +297,7 @@ def _render_instance_html(
 
 
 def routes(ctx: AccountsContext) -> list[Route]:
-    async def admin_instance_page(request: Request) -> Response:
+    async def admin_server_page(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
@@ -309,7 +309,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                mode = store.instance_mode()
+                mode = store.server_mode()
                 report = readiness.check_readiness(conn, settings)
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
@@ -317,7 +317,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             finally:
                 conn.close()
 
-            body_html = _render_instance_html(
+            body_html = _render_server_html(
                 mode=mode,
                 readiness_report=report,
                 network_mode_available=readiness.NETWORK_MODE_AVAILABLE,
@@ -326,12 +326,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 tier_state=tier_state,
             )
             extra_scripts = (
-                '<script src="/static/js/instance_mode.js" defer></script>\n'
+                '<script src="/static/js/server_mode.js" defer></script>\n'
                 '<script src="/static/js/server_tier.js" defer></script>'
             )
             return _render_console_section(
                 ctx,
-                spec=ADMIN_SPEC_BY_SLUG["instance"],
+                spec=ADMIN_SPEC_BY_SLUG["server"],
                 principal=principal,
                 raw_theme=raw_theme,
                 custom_body_html=body_html,
@@ -340,7 +340,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
         return await asyncio.to_thread(_render)
 
-    async def admin_instance_api(request: Request) -> Response:
+    async def admin_server_api(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
@@ -351,7 +351,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                mode = store.instance_mode()
+                mode = store.server_mode()
                 report = readiness.check_readiness(conn, settings)
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
@@ -371,7 +371,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         data = await asyncio.to_thread(_fetch_api_data)
         return JSONResponse(data)
 
-    async def admin_instance_mode_api(request: Request) -> Response:
+    async def admin_server_mode_api(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
@@ -383,8 +383,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
         body = await read_json_body(request)
         target_mode = body.get("mode")
-        if target_mode not in accounts_store.INSTANCE_MODES:
-            return json_error(400, "invalid_mode", detail=f"mode must be one of {sorted(accounts_store.INSTANCE_MODES)}")
+        if target_mode not in accounts_store.SERVER_MODES:
+            return json_error(400, "invalid_mode", detail=f"mode must be one of {sorted(accounts_store.SERVER_MODES)}")
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
 
@@ -392,7 +392,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 store = accounts_store.AccountStore(conn)
-                current_mode = store.instance_mode()
+                current_mode = store.server_mode()
                 if target_mode == current_mode:
                     return 200, {"mode": target_mode, "changed": False}
 
@@ -406,7 +406,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     if not report.passed:
                         return 400, {
                             "error": "readiness_failed",
-                            "detail": "Instance readiness checks did not pass",
+                            "detail": "Server readiness checks did not pass",
                             "failures": [item.to_dict() for item in report.items if not item.passed],
                         }
                     multi_theme = getattr(settings, "multi_theme", True)
@@ -449,7 +449,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         status_code, resp_data = await asyncio.to_thread(_execute_mode_change)
         return JSONResponse(resp_data, status_code=status_code)
 
-    async def admin_instance_sunset_api(request: Request) -> Response:
+    async def admin_server_sunset_api(request: Request) -> Response:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
@@ -601,8 +601,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     return [
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_get, methods=["GET"]),
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_put, methods=["PUT"]),
-        Route(ADMIN_INSTANCE_PATH, admin_instance_page, methods=["GET"]),
-        Route(ADMIN_INSTANCE_API_PATH, admin_instance_api, methods=["GET"]),
-        Route(ADMIN_INSTANCE_MODE_PATH, admin_instance_mode_api, methods=["POST"]),
-        Route(ADMIN_INSTANCE_SUNSET_PATH, admin_instance_sunset_api, methods=["POST"]),
+        Route(ADMIN_SERVER_PATH, admin_server_page, methods=["GET"]),
+        Route(ADMIN_SERVER_API_PATH, admin_server_api, methods=["GET"]),
+        Route(ADMIN_SERVER_MODE_PATH, admin_server_mode_api, methods=["POST"]),
+        Route(ADMIN_SERVER_SUNSET_PATH, admin_server_sunset_api, methods=["POST"]),
     ]

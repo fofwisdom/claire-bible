@@ -296,7 +296,7 @@ def test_console_shell_and_share_pwa_head_tags() -> None:
             "page_title": "관리 콘솔",
             "storage_key": "1",
             "active_area": "admin",
-            "active_section": "instance",
+            "active_section": "server",
             "graph_href": "/",
             "syndication_href": "/syndication",
             "scope_badge": "",

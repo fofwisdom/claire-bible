@@ -1,4 +1,4 @@
-"""``/admin/instance`` 통합 콘솔 셸 렌더링 및 인스턴스 설정 라우트 테스트."""
+"""``/admin/server`` 통합 콘솔 셸 렌더링 및 서버 설정 라우트 테스트."""
 
 from __future__ import annotations
 
@@ -82,23 +82,23 @@ def _create_member_session(s: Settings, username: str = "member1") -> str:
         conn.close()
 
 
-def test_admin_instance_renders_inside_console_shell(settings: Settings) -> None:
+def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
     token = _create_admin_session(settings, mode="single")
     app = server.create_app(settings)
     with TestClient(app, base_url="http://127.0.0.1:8765") as tc:
-        resp = tc.get("/admin/instance", headers={"Cookie": f"claire_session={token}"})
+        resp = tc.get("/admin/server", headers={"Cookie": f"claire_session={token}"})
         assert resp.status_code == 200
         assert resp.headers.get("referrer-policy") == "same-origin"
         body = resp.text
         assert 'data-active-area="admin"' in body
-        assert 'data-active-section="instance"' in body
+        assert 'data-active-section="server"' in body
         assert 'action="/logout"' in body
-        assert '<section class="card" aria-label="Instance mode" id="instance-mode">' in body
+        assert '<section class="card" aria-label="Server mode" id="server-mode">' in body
         assert "Readiness checks for network mode (G1–G9)" in body
         assert "Sunset clock of legacy hosts" in body
         assert 'id="server-tier"' in body
         assert "data-server-tier-form" in body
-        assert '<script src="/static/js/instance_mode.js" defer></script>' in body
+        assert '<script src="/static/js/server_mode.js" defer></script>' in body
         assert '<script src="/static/js/server_tier.js" defer></script>' in body
         assert '<script src="/static/js/console_admin.js" defer></script>' in body
         # 싱글 모드에서는 상단 복귀 링크에 /@username 네임스페이스가 노출되지 않는다 (S9).
@@ -107,7 +107,7 @@ def test_admin_instance_renders_inside_console_shell(settings: Settings) -> None
         assert '<a href="/syndication" class="bar-icon-btn" id="console-back-syndication"' in body
         # 통합 사이드바에 /admin/* 8개 경로가 모두 포함된다.
         for path in (
-            "/admin/instance",
+            "/admin/server",
             "/admin/accounts",
             "/admin/idp",
             "/admin/providers",
@@ -119,12 +119,12 @@ def test_admin_instance_renders_inside_console_shell(settings: Settings) -> None
             assert f'href="{path}"' in body
 
 
-def test_admin_instance_denies_non_admin_and_anonymous(settings: Settings) -> None:
+def test_admin_server_denies_non_admin_and_anonymous(settings: Settings) -> None:
     _create_admin_session(settings, mode="network")
     member_token = _create_member_session(settings, "bobmember")
     app = server.create_app(settings)
     with TestClient(app, base_url="http://127.0.0.1:8765") as tc:
-        assert tc.get("/admin/instance").status_code == 404
-        assert tc.get("/api/admin/instance").status_code == 404
-        assert tc.get("/admin/instance", headers={"Cookie": f"claire_session={member_token}"}).status_code == 404
-        assert tc.get("/api/admin/instance", headers={"Cookie": f"claire_session={member_token}"}).status_code == 404
+        assert tc.get("/admin/server").status_code == 404
+        assert tc.get("/api/admin/server").status_code == 404
+        assert tc.get("/admin/server", headers={"Cookie": f"claire_session={member_token}"}).status_code == 404
+        assert tc.get("/api/admin/server", headers={"Cookie": f"claire_session={member_token}"}).status_code == 404

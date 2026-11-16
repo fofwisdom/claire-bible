@@ -56,7 +56,7 @@ def _isolate(monkeypatch):
 
 
 def _prepare(tmp_path: Path, **overrides: Any) -> tuple[_Settings, int]:
-    """A network-mode instance with the admin and one member. The member has a password and a private profile."""
+    """A network-mode server with the admin and one member. The member has a password and a private profile."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
     conn = dbm.connect(settings.db_file)
     try:

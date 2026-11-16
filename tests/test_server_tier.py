@@ -440,7 +440,7 @@ def test_load_missing_tier_is_default_none(kdb):
 )
 def test_broken_tier_fails_closed_to_none(kdb, caplog, raw):
     kdb.execute(
-        "INSERT INTO instance_settings (key, value, updated_at) VALUES (?, ?, 0)", (SERVER_TIER_SETTING_KEY, raw)
+        "INSERT INTO server_settings (key, value, updated_at) VALUES (?, ?, 0)", (SERVER_TIER_SETTING_KEY, raw)
     )
     kdb.commit()
     with caplog.at_level(logging.WARNING, logger="claire.accounts.server_tier"):
@@ -454,7 +454,7 @@ def test_save_and_load_roundtrip(kdb):
                       features=frozenset({"expand", "stt"}), byok_max_concurrency=2)
     st.save_server_tier(kdb, tier, updated_by=1)
     assert st.load_server_tier(kdb) == tier
-    stored = json.loads(kdb.execute("SELECT value FROM instance_settings WHERE key='server_tier'").fetchone()[0])
+    stored = json.loads(kdb.execute("SELECT value FROM server_settings WHERE key='server_tier'").fetchone()[0])
     assert stored == tier.to_dict()
     with pytest.raises(ValueError):
         st.save_server_tier(kdb, ServerTier(provider="codex"), updated_by=1)
@@ -471,7 +471,7 @@ def _g5(conn: sqlite3.Connection, tmp_path: Path) -> readiness.ReadinessItem:
 
 def test_g5_requires_a_valid_stored_tier(kdb, tmp_path):
     assert _g5(kdb, tmp_path).passed is False
-    kdb.execute("INSERT INTO instance_settings (key, value, updated_at) VALUES ('server_tier', '{\"provider\": \"codex\"}', 0)")
+    kdb.execute("INSERT INTO server_settings (key, value, updated_at) VALUES ('server_tier', '{\"provider\": \"codex\"}', 0)")
     kdb.commit()
     item = _g5(kdb, tmp_path)
     assert item.passed is False and "is not valid" in item.detail
@@ -577,7 +577,7 @@ def test_server_tier_api_is_admin_only(client, app_settings):
         assert _req(client, method, TIER_PATH, session=member, **kw).status_code == 404
         assert _req(client, method, TIER_PATH, session=_session(app_settings, scope="readonly"), **kw).status_code == 404
     assert _audit_rows(app_settings) == []
-    assert _req(client, "GET", "/admin/instance", session=member).status_code == 404
+    assert _req(client, "GET", "/admin/server", session=member).status_code == 404
 
 
 def test_server_tier_get_reports_default_and_usage(client, app_settings):
@@ -641,7 +641,7 @@ def test_server_tier_put_validation_is_422(client, app_settings, bad):
 def test_server_tier_put_saves_audits_and_passes_g5(client, app_settings):
     _activate_admin(app_settings)
     token = _session(app_settings)
-    before = _req(client, "GET", "/api/admin/instance", session=token).json()
+    before = _req(client, "GET", "/api/admin/server", session=token).json()
     assert next(i for i in before["readiness"]["items"] if i["id"] == "G5")["passed"] is False
 
     r = _req(client, "PUT", TIER_PATH, session=token, json=GOOD_TIER)
@@ -660,14 +660,14 @@ def test_server_tier_put_saves_audits_and_passes_g5(client, app_settings):
     raw = json.dumps(rows)
     assert USERNAME not in raw
 
-    after = _req(client, "GET", "/api/admin/instance", session=token).json()
+    after = _req(client, "GET", "/api/admin/server", session=token).json()
     assert next(i for i in after["readiness"]["items"] if i["id"] == "G5")["passed"] is True
 
 
-def test_admin_instance_page_has_server_tier_section(client, app_settings):
+def test_admin_server_page_has_server_tier_section(client, app_settings):
     _activate_admin(app_settings)
     token = _session(app_settings)
-    page = _req(client, "GET", "/admin/instance", session=token)
+    page = _req(client, "GET", "/admin/server", session=token)
     assert page.status_code == 200
     assert 'id="server-tier"' in page.text and "data-server-tier-form" in page.text
     assert '<script src="/static/js/server_tier.js" defer></script>' in page.text

@@ -59,7 +59,7 @@ def password_reason_text(reason: str | None) -> str:
 def _is_setup_principal(principal: Principal) -> bool:
     return (
         principal.account_id == accounts_store.ADMIN_ACCOUNT_ID
-        and principal.instance_role == "admin"
+        and principal.server_role == "admin"
         and principal.scope == "owner"
         and principal.channel in ("cookie", "x-session")
     )
@@ -114,7 +114,7 @@ def validate_setup_input(
     reasons: list[str] = []
     username: str | None = None
     try:
-        username = validate_username(raw_username, instance_reserved=ctx.instance_reserved)
+        username = validate_username(raw_username, server_reserved=ctx.server_reserved)
     except UsernameRejected as exc:
         reasons.append(f"username:{exc.reason}")
     if username is not None:
@@ -203,7 +203,7 @@ def perform_setup(
                     "password_saved": password_saved,
                 },
             )
-            mode = accounts_store.AccountStore(conn).instance_mode()
+            mode = accounts_store.AccountStore(conn).server_mode()
             redirect_path = account_home_path(mode, username)
         finally:
             auth.close()

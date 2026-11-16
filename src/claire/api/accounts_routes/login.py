@@ -106,7 +106,7 @@ def perform_login(
             token = accounts_store.create_account_session(
                 conn, account_id=candidate, scope="owner", replace_token=replace_token
             )
-            mode = accounts_store.AccountStore(conn).instance_mode()
+            mode = accounts_store.AccountStore(conn).server_mode()
             redirect_path = account_home_path(mode, account.username if account is not None else None)
         finally:
             conn.close()

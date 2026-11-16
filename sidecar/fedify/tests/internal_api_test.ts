@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "instance_actor_keys", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "server_actor_keys", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -24,8 +24,8 @@ Deno.test("config, actor, and key calls agree with the fixtures", async () => {
   assert.deepEqual(await api.actorByUsername("alice"), fixture("actor_by_username").response);
   assert.deepEqual(await api.actor("116412345678901234"), fixture("actor").response);
   assert.deepEqual(await api.actorKeys("116412345678901234"), fixture("actor_keys").response);
-  assert.deepEqual(await api.actorKeys("instance"), fixture("instance_actor_keys").response);
-  assert.deepEqual(fake.calls, ["config", "actor_by_username", "actor", "actor_keys", "instance_actor_keys"].map((n) => `GET ${fixture(n).request.path}`));
+  assert.deepEqual(await api.actorKeys("server"), fixture("server_actor_keys").response);
+  assert.deepEqual(fake.calls, ["config", "actor_by_username", "actor", "actor_keys", "server_actor_keys"].map((n) => `GET ${fixture(n).request.path}`));
 });
 
 Deno.test("a 404 is null", async () => {

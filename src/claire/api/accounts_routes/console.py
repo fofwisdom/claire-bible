@@ -1,6 +1,6 @@
 """통합 콘솔 라우트: ``/admin``, ``/admin/*``, ``/settings``, ``/settings/*``, ``/api/admin/mcp/telemetry`` (설계 D1–D3, P1).
 
-- ``/admin`` 및 ``/admin/*``는 관리자(``instance_role == "admin"``, ``scope == "owner"``) 전용이며 비관리자 요청에는 404를 돌려준다(B1, N5).
+- ``/admin`` 및 ``/admin/*``는 관리자(``server_role == "admin"``, ``scope == "owner"``) 전용이며 비관리자 요청에는 404를 돌려준다(B1, N5).
 - ``/settings`` 및 ``/settings/*``는 계정 소유자(``scope == "owner"``) 전용 ``_system("owner")`` 표면이다(D1).
 - 관리자가 ``/settings/themes`` 또는 ``/settings/tokens``에 접근하면 ``/admin/themes`` 또는 ``/admin/tokens``로 302 리다이렉트하고, 통합 사이드바에서도 중복 노출하지 않는다(D3).
 - 비관리자 응답 HTML에는 ``/admin/*`` 네비게이션 링크나 관리자 전용 마크업을 절대 포함하지 않는다.
@@ -236,31 +236,31 @@ SETTINGS_GROUP_3_SPECS: tuple[ConsoleSectionSpec, ...] = (
 
 ADMIN_SIDEBAR_GROUP_4_SPECS: tuple[ConsoleSectionSpec, ...] = (
     ConsoleSectionSpec(
-        slug="instance",
-        path="/admin/instance",
+        slug="server",
+        path="/admin/server",
         area="admin",
-        group_id="admin_instance",
+        group_id="admin_server",
         icon="server",
     ),
     ConsoleSectionSpec(
         slug="federation",
         path="/admin/federation",
         area="admin",
-        group_id="admin_instance",
+        group_id="admin_server",
         icon="globe",
     ),
     ConsoleSectionSpec(
         slug="accounts",
         path="/admin/accounts",
         area="admin",
-        group_id="admin_instance",
+        group_id="admin_server",
         icon="users",
     ),
     ConsoleSectionSpec(
         slug="idp",
         path="/admin/idp",
         area="admin",
-        group_id="admin_instance",
+        group_id="admin_server",
         icon="id",
     ),
 )
@@ -388,11 +388,11 @@ def _resolve_caller_theme_and_list(
     return default_theme, owned, None
 
 
-def _account_context_info(ctx: AccountsContext, account_id: int) -> tuple[accounts_store.InstanceMode, accounts_store.Account]:
+def _account_context_info(ctx: AccountsContext, account_id: int) -> tuple[accounts_store.ServerMode, accounts_store.Account]:
     conn = open_db(ctx)
     try:
         store = accounts_store.AccountStore(conn)
-        return store.instance_mode(), store.get(account_id)
+        return store.server_mode(), store.get(account_id)
     finally:
         conn.close()
 
@@ -417,7 +417,7 @@ def _build_sidebar_html(
         (t("console.group.agents"), list(SETTINGS_GROUP_3_SPECS)),
     ]
     if admin_viewer:
-        groups.append((t("console.group.admin_instance"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
+        groups.append((t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
         groups.append((t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
 
     parts: list[str] = []
@@ -688,7 +688,7 @@ def _build_settings_account_section(
     *,
     spec: ConsoleSectionSpec,
     principal: Principal,
-    mode: accounts_store.InstanceMode,
+    mode: accounts_store.ServerMode,
     account: accounts_store.Account,
     owned_themes: list[ThemeInfo],
     notice: str | None = None,
@@ -848,7 +848,7 @@ def _settings_account_body(
     ctx: AccountsContext,
     *,
     principal: Principal,
-    mode: accounts_store.InstanceMode,
+    mode: accounts_store.ServerMode,
     account: accounts_store.Account,
     owned_themes: list[ThemeInfo],
     admin_viewer: bool,
@@ -1032,12 +1032,12 @@ def _settings_keys_body(
     ctx: AccountsContext,
     *,
     principal: Principal,
-    mode: accounts_store.InstanceMode,
+    mode: accounts_store.ServerMode,
     account: accounts_store.Account,
     admin_viewer: bool,
 ) -> tuple[str, dict[str, Any]]:
     if admin_viewer:
-        # 관리자는 BYOK 키 대신 인스턴스 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
+        # 관리자는 BYOK 키 대신 서버 프로바이더 설정 및 개인 CLI 설정을 쓴다(keys.py: 403 admin_uses_provider_settings).
         notice = t("console.settings.keys.admin_notice")
         body = (
             f'<section class="console-subcard" id="settings-keys-admin-providers" data-keys-mode="admin" aria-label="{escape(t("console.settings.keys.admin_label"))}">'
@@ -1052,7 +1052,7 @@ def _settings_keys_body(
             "</section>"
         )
         return body, {"keys_mode": "admin"}
-    if mode != "network" or principal.instance_role != "member":
+    if mode != "network" or principal.server_role != "member":
         # 싱글 모드의 비관리자: /api/me/keys는 404이고 관리자 화면도 쓸 수 없다. 관리자 링크 없이 안내만 한다(fail-closed).
         body = (
             f'<section class="console-subcard" id="settings-keys-unavailable" data-keys-mode="unavailable" aria-label="{escape(t("console.settings.keys.unavailable_label"))}">'
@@ -1325,7 +1325,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             assert principal.account_id is not None
             if _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme) is None:
                 return not_found()
-        return _redirect("/admin/instance")
+        return _redirect("/admin/server")
 
     async def settings_index(request: Request) -> Response:
         principal = request_principal(request)

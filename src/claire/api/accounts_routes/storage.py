@@ -1,4 +1,4 @@
-"""Object storage settings of the instance: ``/api/admin/storage``, ``/api/admin/storage/test``, and the body of the console section ``/admin/storage`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 and 9.2, unit FP4-1).
+"""Object storage settings of the server: ``/api/admin/storage``, ``/api/admin/storage/test``, and the body of the console section ``/admin/storage`` (FEDERATION_REMOTE_READING_DESIGN.md Sections 9.1.1 and 9.2, unit FP4-1).
 
 - ``GET /api/admin/storage``: the settings without the secret key, the state of the last test, and the result of the last migration run.
 - ``PUT /api/admin/storage``: a partial update. A change takes effect at the next start of the ``api`` process.

@@ -126,7 +126,7 @@ def test_e2e_body_renders_in_a_sandbox_and_no_script_runs(env):
     render_url = _get(env, f"{TIMELINE}/{item_id}").json()["item"]["render_url"]
     res = _render(env, render_url, session=env.alpha_session)
     assert res.status_code == 200, res.text
-    # The policy permits no script, and the page has an opaque origin. Media loads only from the media proxy (unit FP4-7): this origin when the instance has no media host, and nothing on a usercontent host without a media host.
+    # The policy permits no script, and the page has an opaque origin. Media loads only from the media proxy (unit FP4-7): this origin when the server has no media host, and nothing on a usercontent host without a media host.
     csp = res.headers["content-security-policy"]
     assert ("img-src" not in csp) if env.usercontent_host else ("img-src 'self'; media-src 'self';" in csp)
     assert "default-src 'none'" in csp and "script-src" not in csp and "sandbox allow-popups allow-popups-to-escape-sandbox" in csp and "allow-scripts" not in csp

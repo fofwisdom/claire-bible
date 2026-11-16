@@ -169,7 +169,7 @@
 
 ### 5.1 서버 등급 (`ServerTier`)
 
-- **저장 위치**: `claire.db`의 `instance_settings` 테이블 (`key='server_tier'`). JSON 형식으로 직렬화된다.
+- **저장 위치**: `claire.db`의 `server_settings` 테이블 (`key='server_tier'`). JSON 형식으로 직렬화된다.
 - **기본값 (D6 `none`)**:
   - `provider`: `"none"` (기본값) 또는 `"gemini"` (`TIER_PROVIDERS`)
   - `model`: 프로바이더 모델명 (기본값 `""`)
@@ -184,7 +184,7 @@
 - **자원 한도 공통 적용**: 서버 자원 한도(`storage_mb`, `max_themes`, `max_documents`, `daily_ingests`)는 본인 키가 있는 BYOK 멤버에게도 동일하게 적용된다.
 - **유효성 검증 및 보호**:
   - `ServerTier.from_dict`가 필드와 범위를 엄격히 검증하며, 잘못된 JSON이나 미지원 프로바이더는 `provider="none"`으로 fail-closed 처리한다.
-- **관리 경로**: 관리자 세션에서 `GET /api/admin/server-tier`, `PUT /api/admin/server-tier`를 통해 설정 및 조회할 수 있으며, `/admin/instance` 화면에 관리 패널이 제공된다.
+- **관리 경로**: 관리자 세션에서 `GET /api/admin/server-tier`, `PUT /api/admin/server-tier`를 통해 설정 및 조회할 수 있으며, `/admin/server` 화면에 관리 패널이 제공된다.
 
 ### 5.2 계정별 UTC 사용량 원장 (`account_usage`)
 

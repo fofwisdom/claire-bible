@@ -1,6 +1,6 @@
 # 운영 명령 경계
 
-배포된 Claire Bible 인스턴스는 `cb-manuscript`를 호스트 운영 진입점으로 사용한다. 애플리케이션 CLI인 `claire`는 유지하되 실행 환경에 따라 다음 표면을 구분한다.
+배포된 Claire Bible 서버는 `cb-manuscript`를 호스트 운영 진입점으로 사용한다. 애플리케이션 CLI인 `claire`는 유지하되 실행 환경에 따라 다음 표면을 구분한다.
 
 | 명령 표면 | 용도 | 실행 환경 |
 |---|---|---|
@@ -28,7 +28,7 @@
 ./cb-manuscript health
 ```
 
-이 계층은 `CLAIRE_ENVIRONMENT`, env overlay, Compose project, 서비스 profile, 업데이트 잠금과 migration 순서를 일관되게 적용한다. 배포 인스턴스를 직접 `docker compose`나 호스트의 `uv run claire`로 관리하지 않는다.
+이 계층은 `CLAIRE_ENVIRONMENT`, env overlay, Compose project, 서비스 profile, 업데이트 잠금과 migration 순서를 일관되게 적용한다. 배포 서버를 직접 `docker compose`나 호스트의 `uv run claire`로 관리하지 않는다.
 
 `cb-manuscript`는 문서화된 프로세스 환경 우선순위를 적용해 `CB_DATA_DIR`를 한 번 해석한 뒤, 검증된 절대경로를 모든 Compose 호출에 전달한다. 따라서 bot, API, worker와 one-off 컨테이너가 상대경로를 각자 다시 해석하거나 서로 다른 Support Bundle 저장소를 마운트할 수 없다.
 
@@ -99,7 +99,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 ## 배포된 앱의 one-off 명령
 
-배포된 인스턴스와 같은 설정·데이터로 앱 명령을 한 번 실행할 때 `cb-manuscript app`을 사용한다.
+배포된 서버와 같은 설정·데이터로 앱 명령을 한 번 실행할 때 `cb-manuscript app`을 사용한다.
 
 ```bash
 ./cb-manuscript app doctor
@@ -115,7 +115,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 `app`에서 실행이 허용된 앱 명령은 인수와 종료 코드를 그대로 전달한다. `bot`, `serve-api`, `*-loop`처럼 계속 실행되는 서비스는 `app`으로 중복 기동하지 않고 Compose 수명주기에 맡긴다. 설치·업데이트·migration처럼 서비스 정지 순서가 필요한 작업도 해당 `cb-manuscript` 최상위 흐름을 사용한다.
 
-모든 `app` 실행은 인스턴스 잠금을 획득하므로 `install`, `update`, `up`, `down`, `restart`와 동시에 진행되지 않는다. 다음 작업은 일반 one-off가 아니므로 기본 차단된다.
+모든 `app` 실행은 서버 잠금을 획득하므로 `install`, `update`, `up`, `down`, `restart`와 동시에 진행되지 않는다. 다음 작업은 일반 one-off가 아니므로 기본 차단된다.
 
 - lifecycle: `migrate`
 - Compose 관리 서비스: `bot`, `serve-api`, `recover-loop`, `refresh-loop`, `expand-loop`
@@ -127,7 +127,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 ./cb-manuscript app --advanced <claire-command> [args...]
 ```
 
-이는 차단만 해제하는 전문가용 탈출구다. 인스턴스 잠금은 유지하지만 이미 실행 중인 서비스를 중지하지 않으며, migration 순서, 데이터 백업 또는 복구 가능성을 보장하지 않는다. 인스턴스 백업·복원은 최상위 `backup`, `restore`만 사용한다.
+이는 차단만 해제하는 전문가용 탈출구다. 서버 잠금은 유지하지만 이미 실행 중인 서비스를 중지하지 않으며, migration 순서, 데이터 백업 또는 복구 가능성을 보장하지 않는다. 서버 백업·복원은 최상위 `backup`, `restore`만 사용한다.
 
 ## health의 두 의미
 
@@ -201,10 +201,10 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 5. 준비 검사를 실행한다.
 
 ```bash
-./cb-manuscript app instance check --federation --json
+./cb-manuscript app server check --federation --json
 ```
 
-6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 인스턴스 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF7 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
+6. 관리자가 콘솔 화면 `/admin/federation`(또는 `POST /api/admin/federation`)에서 서버 설정 `federation`을 `on`으로 바꾼다. 이 화면은 GF1–GF7 준비 검사, 사이드카 하트비트, 차단 도메인 목록도 보여 준다. `CB_FEDERATION=1`은 컨테이너만 띄우고 이 설정은 바꾸지 않는다.
 
 사이드카는 `federation`이 `off`인 동안에도 heartbeat마다 공개 자가 검사를 한다. 그래서 리버스 프록시 규칙이 맞으면 스위치를 켜기 전에 GF6이 통과한다([FEDERATION.md](FEDERATION.md) §7.2).
 
@@ -226,7 +226,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 
 코드에서 확인한 현재 동작이다. 연합 파일을 위한 전용 규칙은 없다.
 
-- **인스턴스 `backup`의 `data` component**: 제외 목록에 `run`, `fedify`, `auth/fedify_service.key`가 들어 있다. 따라서 소켓과 하트비트 파일, `data/fedify/fedify.db`(대기 중인 전달의 개인 키가 들어 있는 비밀 저장소), 서비스 키는 backup에 들어가지 않는다. restore 뒤에는 `claire migrate`가 새 서비스 키를 만들고, `cb-manuscript`가 `data/run/`과 `data/fedify/`를 다시 만들며, 사이드카는 빈 DB로 시작한다. 큐에서 기다리던 전달은 사라진다.
+- **서버 `backup`의 `data` component**: 제외 목록에 `run`, `fedify`, `auth/fedify_service.key`가 들어 있다. 따라서 소켓과 하트비트 파일, `data/fedify/fedify.db`(대기 중인 전달의 개인 키가 들어 있는 비밀 저장소), 서비스 키는 backup에 들어가지 않는다. restore 뒤에는 `claire migrate`가 새 서비스 키를 만들고, `cb-manuscript`가 `data/run/`과 `data/fedify/`를 다시 만들며, 사이드카는 빈 DB로 시작한다. 큐에서 기다리던 전달은 사라진다.
 - **사이드카 DB 유실 뒤 복구**: `data/fedify/fedify.db`가 없어지면 대기 중이던 전달이 사라진다. `./cb-manuscript app federation requeue --max-age-hours 72`로 대상 작업 수를 확인하고, `--apply`를 붙여 다시 전달하게 한다. 같은 활동 ID로 다시 보내므로 이미 받은 원격 서버에는 중복 객체가 생기지 않는다. 자동으로 실행되지 않는다([FEDERATION.md](FEDERATION.md) §7.4).
 - **소켓 파일**: `data/run/`이 제외 목록에 있으므로 남아 있는 `federation.sock`은 backup을 막지 않는다.
 - **Support Bundle**: 저장소 진단은 `data/` 아래에서 `auth`, `fedify`, `run` 디렉터리를 건너뛴다. 그래서 `fedify.db`와 서비스 키는 이 진단에 나오지 않는다.
@@ -288,9 +288,9 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 ## 계정 백업과 계정 기능
 
-계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/settings/telegram`), 서포트·데이터 번들(`/settings/bundles`), 계정 백업과 자동 백업 주기(`/settings/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 인스턴스 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 인스턴스 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
+계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/settings/telegram`), 서포트·데이터 번들(`/settings/bundles`), 계정 백업과 자동 백업 주기(`/settings/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
 
-`bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(인스턴스 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 자세한 내용은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)를 본다.
+`bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(서버 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 자세한 내용은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)를 본다.
 
 ## 참고문헌
 

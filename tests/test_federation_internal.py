@@ -329,8 +329,8 @@ def test_e2e_internal_paths_answer_on_the_socket_only(tmp_path):
             assert (signed.json()["mode"], signed.json()["federation"]) == ("single", "off")
             unknown = f"{INTERNAL_PREFIX}/unknown"
             assert internal.get(unknown, headers=fresh("GET", unknown)).json() == {"error": "not_found"}
-            # The instance actor has no keys while federation is off.
-            keys = f"{INTERNAL_PREFIX}/actors/instance/keys"
+            # The server actor has no keys while federation is off.
+            keys = f"{INTERNAL_PREFIX}/actors/server/keys"
             assert internal.get(keys, headers=fresh("GET", keys)).status_code == 404
             # The Host header of the public listener does not select the public application.
             assert internal.get("/health", headers={"Host": f"127.0.0.1:{port}"}).status_code == 401

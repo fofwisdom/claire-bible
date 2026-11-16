@@ -220,7 +220,7 @@ def test_single_mode_subscribe_poll_read_and_opml_import(tmp_path: Path, feed_se
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         owner = session(1)
-        assert client.get("/whoami", headers=owner).json()["instance"]["mode"] == "single"
+        assert client.get("/whoami", headers=owner).json()["server"]["mode"] == "single"
 
         # 1. Subscribe through the route. The same URL again is not added.
         r = _call(client, "POST", "/api/feeds", owner, json={"url": rss_url, "folder": "Garden"})

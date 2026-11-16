@@ -707,7 +707,7 @@ def test_sunset_clock_activation_extension_and_indefinite_hold(tmp_path):
             lh.keep_indefinitely(conn, "absent.example.com")
 
         conn.execute(
-            "UPDATE instance_settings SET value=? WHERE key=?", (json.dumps({"after_sunset_status": 302}), "legacy_host_policy")
+            "UPDATE server_settings SET value=? WHERE key=?", (json.dumps({"after_sunset_status": 302}), "legacy_host_policy")
         )
         conn.commit()
         with pytest.raises(ValueError):

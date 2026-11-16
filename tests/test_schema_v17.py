@@ -18,7 +18,7 @@ SHARED_INBOX = "https://remote.example/inbox"
 
 
 def _salt(conn: sqlite3.Connection) -> bytes:
-    return bytes.fromhex(conn.execute("SELECT value FROM instance_settings WHERE key='id_salt'").fetchone()["value"])
+    return bytes.fromhex(conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()["value"])
 
 
 def _add_account(conn: sqlite3.Connection, public_id: int, username: str) -> int:

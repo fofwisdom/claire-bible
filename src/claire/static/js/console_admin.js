@@ -817,7 +817,7 @@
       });
     }
 
-    // Reading settings of the instance (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). The server renders the form with the values and the texts; only the changed values go to the server.
+    // Reading settings of the server (FEDERATION_REMOTE_READING_DESIGN.md Section 10, console fields of unit FP4-5). The server renders the form with the values and the texts; only the changed values go to the server.
     var readingForm = document.getElementById("admin-federation-reading-form");
     var readingResult = document.getElementById("admin-federation-reading-result");
     if (readingForm) {

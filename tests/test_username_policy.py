@@ -10,7 +10,7 @@ import pytest
 from claire.accounts.username_policy import (
     RESERVED_USERNAMES,
     UsernameRejected,
-    instance_reserved_labels,
+    server_reserved_labels,
     normalize_username,
     username_fragments,
     validate_username,
@@ -219,17 +219,17 @@ def test_username_fragments(name, fragments):
     assert username_fragments(name) == fragments
 
 
-# ── 인스턴스 예약 (§8.1-4) ─────────────────────────────────────
+# ── 서버 예약 (§8.1-4) ─────────────────────────────────────
 
 
-def test_instance_labels_from_host():
-    assert instance_reserved_labels(["claire.example.com"]) == frozenset(
+def test_server_labels_from_host():
+    assert server_reserved_labels(["claire.example.com"]) == frozenset(
         {"claire", "example", "com"}
     )
 
 
-def test_instance_labels_strip_port_lower_and_skip_empty():
-    labels = instance_reserved_labels(
+def test_server_labels_strip_port_lower_and_skip_empty():
+    labels = server_reserved_labels(
         ["Bible.Example.ORG:8443", "", "media.example.org.", "localhost:8000", "usercontent-x.net"]
     )
     assert labels == frozenset(
@@ -237,22 +237,22 @@ def test_instance_labels_strip_port_lower_and_skip_empty():
     )
 
 
-def test_instance_labels_empty_input():
-    assert instance_reserved_labels([]) == frozenset()
+def test_server_labels_empty_input():
+    assert server_reserved_labels([]) == frozenset()
 
 
-def test_instance_reserved_exact_match_only():
-    reserved = instance_reserved_labels(["bible.mysite.org:8443"])
-    assert _reason("bible", instance_reserved=reserved) == "reserved"
-    assert _reason("MySite", instance_reserved=reserved) == "reserved"
-    # 인스턴스 예약은 조각 규칙을 따르지 않는다.
-    assert validate_username("bible_kim", instance_reserved=reserved) == "bible_kim"
-    assert validate_username("mysite2", instance_reserved=reserved) == "mysite2"
-    assert validate_username("bibles", instance_reserved=reserved) == "bibles"
+def test_server_reserved_exact_match_only():
+    reserved = server_reserved_labels(["bible.mysite.org:8443"])
+    assert _reason("bible", server_reserved=reserved) == "reserved"
+    assert _reason("MySite", server_reserved=reserved) == "reserved"
+    # 서버 예약은 조각 규칙을 따르지 않는다.
+    assert validate_username("bible_kim", server_reserved=reserved) == "bible_kim"
+    assert validate_username("mysite2", server_reserved=reserved) == "mysite2"
+    assert validate_username("bibles", server_reserved=reserved) == "bibles"
 
 
-def test_instance_reserved_admin_added_names():
-    assert _reason("kimlee", instance_reserved=frozenset({"kimlee"})) == "reserved"
+def test_server_reserved_admin_added_names():
+    assert _reason("kimlee", server_reserved=frozenset({"kimlee"})) == "reserved"
     assert validate_username("kimlee") == "kimlee"
 
 
@@ -262,4 +262,4 @@ def test_instance_reserved_admin_added_names():
 def test_syntax_checked_before_reserved():
     assert _reason("admin_") == "syntax"
     assert _reason("admin__kim") == "syntax"
-    assert _reason("Kim", instance_reserved=frozenset({"kim"})) == "syntax"
+    assert _reason("Kim", server_reserved=frozenset({"kim"})) == "syntax"

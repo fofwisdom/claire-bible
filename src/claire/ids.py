@@ -2,7 +2,7 @@
 
 ``number = (unix_ms << 16) | low16`` 이고, ``low16 = (HMAC-SHA256(id_salt, "<table>:<unix_ms>")[0:2] + seq) & 0xFFFF`` 이다. 테마 번호, ``accounts.public_id``, ``invitations.public_id``가 모두 이 규칙을 쓴다. JSON에서는 10진 문자열로 주고받는다(§7.1 c).
 
-이 모듈은 DB 테이블을 알지 않는다. ``id_salt``는 호출자가 ``instance_settings``에서 읽어 넘긴다(`store.accounts.AccountStore.id_salt`).
+이 모듈은 DB 테이블을 알지 않는다. ``id_salt``는 호출자가 ``server_settings``에서 읽어 넘긴다(`store.accounts.AccountStore.id_salt`).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class TimestampIdExhausted(RuntimeError):
 
 
 def generate_id_salt() -> bytes:
-    """v15 이관이 ``instance_settings.id_salt``에 저장할 32바이트 무작위 값."""
+    """v15 이관이 ``server_settings.id_salt``에 저장할 32바이트 무작위 값."""
     return secrets.token_bytes(ID_SALT_BYTES)
 
 

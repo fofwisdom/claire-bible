@@ -1,4 +1,4 @@
-// Public federation surface of the sidecar: WebFinger, NodeInfo, actor documents, the instance actor (phase FP1), inboxes, the followers collection (unit FP2-3), published objects, the outbox collection, and the handoff of outbox tasks (unit FP3-3) (design Sections 5 and 9).
+// Public federation surface of the sidecar: WebFinger, NodeInfo, actor documents, the server actor (phase FP1), inboxes, the followers collection (unit FP2-3), published objects, the outbox collection, and the handoff of outbox tasks (unit FP3-3) (design Sections 5 and 9).
 //
 // Rules of this module:
 // - Claire is canonical. Each request reads account data through the internal API. The sidecar stores no account data.
@@ -7,7 +7,7 @@
 // - Fedify verifies each inbox activity. Claire makes the decision for each verified activity (design Section 6.3). The sidecar does not accept an activity on behalf of Claire: if the internal API is not available, the listener fails and the Fedify inbox queue tries again.
 // - The sidecar keeps the list of blocked domains in memory and reads it again when the entity tag in the config changes. An activity from a blocked domain gets 403 after the signature check, goes to no listener work, and gets no reply.
 // - The followers collection shows the total to the public and no follower.
-// - Each answer has the header SIDECAR_HEADER with a random value of this process. The public self-check uses it to see that a request through the public origin gets to this sidecar. The value shows no instance data.
+// - Each answer has the header SIDECAR_HEADER with a random value of this process. The public self-check uses it to see that a request through the public origin gets to this sidecar. The value shows no server data.
 // - Cookie and Authorization headers are removed before a request gets to Fedify. A response never sets a cookie.
 // - When federation is off or the mode is single, each path returns the same 404.
 // - The option that permits private network addresses is never set (design Section 13, FS1). A test reads this directory to make sure.
@@ -17,15 +17,15 @@
 // - An outbox task becomes one activity with a stable ID: a second handoff of the same task makes the same activity, and a remote server makes no second object (design Section 9.3). The sidecar acknowledges a task only after Fedify took the activity.
 // - A delivery does not go to a follower on a blocked domain.
 // - A Create, an Update, or an Announce of a post, a Delete of an object, and an Undo(Announce) go to Claire as a timeline event with the normal form of the object (unit FP4-4). The sidecar fetches the object of an Announce and the parents of a reply only when Claire says that an account follows the actor. All other activities go to Claire as an inbox event.
-// - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this instance or is a reply to an object of this instance; nothing is fetched for it. A Like or an Announce of an object of this instance, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
+// - Inbound interactions with an account (contract 1.4, unit FP4-8): a Create from an actor that no account follows is a timeline event only when its object, as it is in the activity, mentions an actor of this server or is a reply to an object of this server; nothing is fetched for it. A Like or an Announce of an object of this server, and the Undo of one, stay inbox events: Claire counts them. For a non-public message, Claire can answer with automatic notices; the sidecar sends each one as a Note to the sender only, with the ID {actor}#auto-replies/{digest of the object ID}.
 // - A thread fetch task (contract 1.5, unit FP4-6) has no activity: the sidecar fetches the objects of a thread and gives them to Claire (context.ts).
 // - An own note (contract 1.6, unit FP4-9) has the object path of the published documents: one dispatcher for the two (RT7). A deleted note gets 410 with a Tombstone whose formerType is Note. The outbox collection has the notes too. An interaction task becomes Create, Update, or Delete of a Note, or Like, Announce, and their Undo (notes.ts).
-// - Quotes (contract 1.7, unit FP4-9Q, quotes.ts): an Article and a Note have canQuote from the quote policy that Claire gives. A QuoteRequest for an object of this instance, and an Accept or a Reject of the quote request of an own note, go to Claire as quote events. An approved request is a QuoteAuthorization at /ap/quote-authorizations/{id}; a revoked one gets 410 with a Tombstone.
+// - Quotes (contract 1.7, unit FP4-9Q, quotes.ts): an Article and a Note have canQuote from the quote policy that Claire gives. A QuoteRequest for an object of this server, and an Accept or a Reject of the quote request of an own note, go to Claire as quote events. An approved request is a QuoteAuthorization at /ap/quote-authorizations/{id}; a revoked one gets 410 with a Tombstone.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
 import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, INSTANCE_ACTOR_ID, type InstanceConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 // Outbound interactions (contract 1.6, unit FP4-9).
@@ -35,11 +35,11 @@ import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
 import { QuoteAuthorization } from "@fedify/fedify/vocab";
 import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
 
-// The USERNAME of the instance actor. Claire reserves this word, so no account can have it.
-export const INSTANCE_ACTOR_USERNAME = "claire";
+// The USERNAME of the server actor. Claire reserves this word, so no account can have it.
+export const SERVER_ACTOR_USERNAME = "claire";
 export const KEY_CACHE_SECONDS = 60;
 export const CONFIG_CACHE_SECONDS = 5;
-export const SIDECAR_HEADER = "x-claire-fedify-instance";
+export const SIDECAR_HEADER = "x-claire-fedify-server";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
 const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox)$/;
@@ -132,7 +132,7 @@ export class Sidecar {
   readonly #kv: KvStore;
   readonly #queue: MessageQueue | undefined;
   readonly #now: () => number;
-  #config: { value: InstanceConfig; expires: number } | null = null;
+  #config: { value: ServerConfig; expires: number } | null = null;
   #federation: { origin: string; allowPrivate: boolean; value: Federation<void> } | null = null;
   readonly #keys = new Map<string, { pairs: CryptoKeyPair[]; expires: number }>();
   #blocks: { etag: string; domains: Set<string> } | null = null;
@@ -150,7 +150,7 @@ export class Sidecar {
     this.#now = options.now ?? (() => Date.now() / 1000);
   }
 
-  async config(): Promise<InstanceConfig> {
+  async config(): Promise<ServerConfig> {
     const now = this.#now();
     if (this.#config === null || this.#config.expires <= now) {
       this.#config = { value: await this.#api.config(), expires: now + CONFIG_CACHE_SECONDS };
@@ -158,8 +158,8 @@ export class Sidecar {
     return this.#config.value;
   }
 
-  instanceActorUrl(config: InstanceConfig): string {
-    return `${config.canonical_origin}/ap/actors/${INSTANCE_ACTOR_ID}`;
+  serverActorUrl(config: ServerConfig): string {
+    return `${config.canonical_origin}/ap/actors/${SERVER_ACTOR_ID}`;
   }
 
   // A random value of this process. It is in the header SIDECAR_HEADER of each answer.
@@ -180,7 +180,7 @@ export class Sidecar {
     if (inbox ? request.method !== "POST" : request.method !== "GET" && request.method !== "HEAD") {
       return text(405, "Method Not Allowed", { allow: inbox ? "POST" : "GET, HEAD" });
     }
-    let config: InstanceConfig;
+    let config: ServerConfig;
     try {
       config = await this.config();
     } catch (error) {
@@ -505,7 +505,7 @@ export class Sidecar {
     const remote = { iri: actor.id.href, inbox: actor.inboxId.href, shared_inbox: actor.endpoints?.sharedInbox?.href ?? null };
     // Fedify verified the activity with one of the mechanisms that the activity has. The value names the strongest one that is present.
     const verifiedBy = "proof" in document ? "object-integrity-proof" : "signature" in document ? "ld-signature" : "http-signature";
-    // Quotes (unit FP4-9Q): a QuoteRequest for an object of this instance, and the answer to the quote request of an own note. Claire applies the quote policy and checks the authorization.
+    // Quotes (unit FP4-9Q): a QuoteRequest for an object of this server, and the answer to the quote request of an own note. Claire applies the quote policy and checks the authorization.
     const quote = await quoteEventOf(activity, (await this.config()).canonical_origin, { event_id: activity.id.href, recipient_public_id: recipient, actor: remote, verified_by: verifiedBy }, { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader });
     if (quote !== null) {
       const result = await this.#api.quoteEvent(quote);
@@ -572,7 +572,7 @@ export class Sidecar {
   async #timelineEvent(ctx: InboxContext<void>, activity: Activity, actor: Actor, undoneType: string | null, objectIri: string | null, base: Pick<TimelineEvent, "event_id" | "recipient_public_id" | "actor" | "verified_by">): Promise<TimelineEvent | "dropped" | null> {
     if (objectIri === null || objectIri === base.actor.iri) return null;
     const origin = (await this.config()).canonical_origin;
-    // An Announce of an object of this instance and its Undo are reactions (unit FP4-8): they stay inbox events, and Claire counts them.
+    // An Announce of an object of this server and its Undo are reactions (unit FP4-8): they stay inbox events, and Claire counts them.
     const ownObject = objectIri.startsWith(`${origin}/`);
     const remoteType = actorType(actor);
     const without = (type: TimelineEvent["type"], isPublicObject: boolean | null): TimelineEvent => ({ event_id: base.event_id, type, recipient_public_id: base.recipient_public_id, actor: base.actor, announced_by: null, object_iri: objectIri, public: isPublicObject, object: null, parents: [], actor_type: remoteType, mentioned: [], in_reply_to: null, verified_by: base.verified_by });
@@ -628,7 +628,7 @@ export class Sidecar {
     return profile ?? { iri: object.attributionId!.href, name: null, handle: null };
   }
 
-  // The reply chain of a post, nearest parent first, `depth` levels at most (design Section 6.5 rule 2). The chain stops at a parent that is not a public post, has no author, is on this instance or on a blocked domain, or cannot be fetched.
+  // The reply chain of a post, nearest parent first, `depth` levels at most (design Section 6.5 rule 2). The chain stops at a parent that is not a public post, has no author, is on this server or on a blocked domain, or cannot be fetched.
   async #parents(post: Post, depth: number, load: LoadOptions & { suppressError: true }): Promise<TimelineObject[]> {
     const origin = (await this.config()).canonical_origin;
     const parents: TimelineObject[] = [];
@@ -646,13 +646,13 @@ export class Sidecar {
     return parents;
   }
 
-  // A Fedify context for code that has no HTTP request, for example a signed fetch with the key of the instance actor.
+  // A Fedify context for code that has no HTTP request, for example a signed fetch with the key of the server actor.
   async createContext(): Promise<Context<void>> {
     const config = await this.config();
     return this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
   }
 
-  #federationFor(config: InstanceConfig): Federation<void> {
+  #federationFor(config: ServerConfig): Federation<void> {
     if (this.#federation === null || this.#federation.origin !== config.canonical_origin || this.#federation.allowPrivate !== config.allow_private_addresses) {
       this.#federation = { origin: config.canonical_origin, allowPrivate: config.allow_private_addresses, value: this.#build(config.canonical_origin, config.allow_private_addresses) };
     }
@@ -685,12 +685,12 @@ export class Sidecar {
 
     federation
       .setActorDispatcher("/ap/actors/{identifier}", async (ctx, identifier) => {
-        if (identifier === INSTANCE_ACTOR_ID) {
+        if (identifier === SERVER_ACTOR_ID) {
           const config = await this.config();
           const keys = await ctx.getActorKeyPairs(identifier);
           return new Application({
             id: ctx.getActorUri(identifier),
-            preferredUsername: INSTANCE_ACTOR_USERNAME,
+            preferredUsername: SERVER_ACTOR_USERNAME,
             name: config.handle_host,
             inbox: inbox(identifier),
             endpoints: new Endpoints({ sharedInbox }),
@@ -709,7 +709,7 @@ export class Sidecar {
         return await this.#person(ctx, result.record);
       })
       .mapHandle(async (_ctx, username) => {
-        if (username === INSTANCE_ACTOR_USERNAME) return INSTANCE_ACTOR_ID;
+        if (username === SERVER_ACTOR_USERNAME) return SERVER_ACTOR_ID;
         return (await this.#api.actorByUsername(username))?.public_id ?? null;
       })
       .setKeyPairsDispatcher((_ctx, identifier) => this.#keyPairs(identifier));
@@ -718,8 +718,8 @@ export class Sidecar {
       .setInboxListeners("/ap/actors/{identifier}/inbox", "/ap/inbox")
       // One listener for all types: Claire decides which types apply (the v1 set) and which are ignored.
       .on(Activity, (ctx, activity) => this.#onActivity(ctx, activity))
-      // Fetches of remote documents for the shared inbox are signed with the key of the instance actor.
-      .setSharedKeyDispatcher(() => ({ identifier: INSTANCE_ACTOR_ID }))
+      // Fetches of remote documents for the shared inbox are signed with the key of the server actor.
+      .setSharedKeyDispatcher(() => ({ identifier: SERVER_ACTOR_ID }))
       .onError((_ctx, error) => console.error(`inbox listener failed: ${error.name}: ${error.message}`));
 
     federation
@@ -814,8 +814,8 @@ export class Sidecar {
 
 // Public self-check (design Section 12, GF6): a request through the public origin must get to this sidecar process.
 // The check does not depend on the federation switch: the admin can set the switch to `on` only after this check passes. Thus the status of the answer is not important (it is 404 while federation is off). The marker header shows which process answered.
-export async function publicSelfCheck(config: InstanceConfig, marker: string, fetcher: typeof fetch = fetch): Promise<boolean> {
-  const url = `${config.canonical_origin}/.well-known/webfinger?resource=${encodeURIComponent(`acct:${INSTANCE_ACTOR_USERNAME}@${config.handle_host}`)}`;
+export async function publicSelfCheck(config: ServerConfig, marker: string, fetcher: typeof fetch = fetch): Promise<boolean> {
+  const url = `${config.canonical_origin}/.well-known/webfinger?resource=${encodeURIComponent(`acct:${SERVER_ACTOR_USERNAME}@${config.handle_host}`)}`;
   try {
     const response = await fetcher(url, { headers: { accept: "application/jrd+json" }, redirect: "manual", signal: AbortSignal.timeout(10_000) });
     await response.body?.cancel();

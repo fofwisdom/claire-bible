@@ -1,6 +1,6 @@
 """USERNAME 규칙 (설계 §8.1).
 
-이 모듈은 DB 없이 판정할 수 있는 규칙(문법, 예약 이름·조각, 인스턴스 예약)만 다룬다. 퇴역(``retired``)과 중복(``taken``)은 `store.accounts.AccountStore`가 같은 ``UsernameRejected``로 거부한다.
+이 모듈은 DB 없이 판정할 수 있는 규칙(문법, 예약 이름·조각, 서버 예약)만 다룬다. 퇴역(``retired``)과 중복(``taken``)은 `store.accounts.AccountStore`가 같은 ``UsernameRejected``로 거부한다.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def username_fragments(name: str) -> tuple[str, ...]:
     return tuple(part for part in _FRAGMENT_SPLIT_RE.split(name) if part)
 
 
-def instance_reserved_labels(hosts: Iterable[str]) -> frozenset[str]:
+def server_reserved_labels(hosts: Iterable[str]) -> frozenset[str]:
     """호스트 이름들의 DNS 라벨을 소문자로 모은다. 예: ``claire.example.com`` → ``{"claire", "example", "com"}``.
 
     포트가 붙어 있으면 떼고, 빈 값은 건너뛴다.
@@ -80,10 +80,10 @@ def instance_reserved_labels(hosts: Iterable[str]) -> frozenset[str]:
     return frozenset(labels)
 
 
-def validate_username(raw: str, *, instance_reserved: frozenset[str] = frozenset()) -> str:
+def validate_username(raw: str, *, server_reserved: frozenset[str] = frozenset()) -> str:
     """정규화한 USERNAME을 반환하거나 ``UsernameRejected("syntax" | "reserved")``를 낸다.
 
-    순서: 정규화(§8.1-1) → 문법(``USERNAME_RE``, ``__`` 연속·``_``로 끝남 거부) → 예약 이름(§8.1-2) → 예약 조각(§8.1-3: 조각이 예약 이름이거나 ``admin``으로 시작) → 인스턴스 예약(§8.1-4, 정확히 일치).
+    순서: 정규화(§8.1-1) → 문법(``USERNAME_RE``, ``__`` 연속·``_``로 끝남 거부) → 예약 이름(§8.1-2) → 예약 조각(§8.1-3: 조각이 예약 이름이거나 ``admin``으로 시작) → 서버 예약(§8.1-4, 정확히 일치).
     """
     name = normalize_username(raw)
     # ``$``는 끝의 개행 앞에서도 맞으므로 fullmatch로 검사한다.
@@ -94,6 +94,6 @@ def validate_username(raw: str, *, instance_reserved: frozenset[str] = frozenset
     for fragment in username_fragments(name):
         if fragment in RESERVED_USERNAMES or fragment.startswith(_RESERVED_FRAGMENT_PREFIX):
             raise UsernameRejected("reserved")
-    if name in instance_reserved:
+    if name in server_reserved:
         raise UsernameRejected("reserved")
     return name

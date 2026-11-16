@@ -84,7 +84,7 @@ graph TD
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 API 서비스 포트 번호. |
 | `CB_WAIT_TIMEOUT` | `120` | 정수 (초 단위, `1~86400`) | 컨테이너 수명주기 명령(기동/재시작) 시 서비스 헬스체크 통과 대기 최대 시간. |
-| `CB_FEDERATION` | `0` | 정확히 `0` 또는 `1` | Fedify 사이드카 스위치. `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile federation`을 붙여 `fedify` 서비스를 빌드·기동하고, 기동 전에 `data/run/`과 `data/fedify/`를 만든다. 컨테이너만 띄우며 인스턴스 설정 `federation`은 바꾸지 않는다. 다른 값은 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §9 |
+| `CB_FEDERATION` | `0` | 정확히 `0` 또는 `1` | Fedify 사이드카 스위치. `1`이면 `cb-manuscript`가 모든 Compose 호출에 `--profile federation`을 붙여 `fedify` 서비스를 빌드·기동하고, 기동 전에 `data/run/`과 `data/fedify/`를 만든다. 컨테이너만 띄우며 서버 설정 `federation`은 바꾸지 않는다. 다른 값은 `cb-manuscript`가 거부한다. [FEDERATION.md](FEDERATION.md) §9 |
 | `CB_FEDIFY_PORT` | `8790` / `8791` | 정수 (`1~65535`) | 사이드카를 `CB_API_BIND`에 퍼블리시하는 호스트 포트. 컨테이너 포트는 항상 `8790`이다. `CB_FEDERATION=1`일 때 `CB_API_PORT`나 역할 호스트 포트와 같으면 `cb-manuscript`가 거부한다. reverse proxy가 연합 경로만 이 포트로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)). |
 | `CB_FEDIFY_IMAGE` | `claire-bible-fedify` | 문자열 | 사이드카 이미지 이름. 태그는 `CB_IMAGE_TAG`를 쓴다. |
 
@@ -295,7 +295,7 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, VLM 이미지 전사(OCR/인포그래픽 번역 전사), 오디오 자막/STT, 번역, 요약 시 단일 진실 공급원(Single Source of Truth)으로 사용된다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. (기존 개별 환경변수 `CLAIRE_VLM_LANGUAGE`는 공식 파기되었으며 광역 선호 언어 제1순위 언어로 일원화됨. [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 및 [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md) 참조) |
-| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **인스턴스 기본 인터페이스 언어**(WebUI, 텔레그램 봇, CLI 사람용 출력). 계정 설정, 쿠키, `Accept-Language`(CLI는 `--lang`)로 언어가 정해지지 않을 때 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 문서 수집 언어(`CLAIRE_PREFERRED_LANGUAGES`)와 무관하다. ([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §9) |
+| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **서버 기본 인터페이스 언어**(WebUI, 텔레그램 봇, CLI 사람용 출력). 계정 설정, 쿠키, `Accept-Language`(CLI는 `--lang`)로 언어가 정해지지 않을 때 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 문서 수집 언어(`CLAIRE_PREFERRED_LANGUAGES`)와 무관하다. ([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §9) |
 
 ---
 

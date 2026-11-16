@@ -3498,8 +3498,8 @@ def cmd_share(args) -> int:
         conn.close()
 
 
-def cmd_instance(args) -> int:
-    """Do the instance readiness checks and print the report. The exit code is 0 only when all checks pass.
+def cmd_server(args) -> int:
+    """Do the server readiness checks and print the report. The exit code is 0 only when all checks pass.
 
     ``--network`` does the network-mode checks G1 to G9. ``--federation`` does the federation checks GF1 to GF7 (Fedify sidecar design Section 12). The admin API uses the same check functions.
     """
@@ -3512,7 +3512,7 @@ def cmd_instance(args) -> int:
     try:
         conn = dbm.connect_existing(s.db_file, readonly=True)
     except sqlite3.Error as e:
-        print(f"instance check: cannot open the database: {e}", file=sys.stderr)
+        print(f"server check: cannot open the database: {e}", file=sys.stderr)
         return 1
     try:
         if getattr(args, "federation", False):
@@ -3583,10 +3583,10 @@ def _cmd_federation_prune(args) -> int:
     if getattr(args, "json", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.apply:
-        print(f"federation prune: {result['expired_items']} timeline item(s) older than the retention deleted (instance value: {result['retention_days']} day(s)).")
+        print(f"federation prune: {result['expired_items']} timeline item(s) older than the retention deleted (server value: {result['retention_days']} day(s)).")
         print(f"federation prune: {result['evicted']} media entry(ies) without an access in {result['evict_days']} day(s) and {result['orphans']} media entry(ies) without an item deleted.")
     else:
-        print(f"federation prune: {result['expired_items']} timeline item(s) are older than the retention (instance value: {result['retention_days']} day(s)).")
+        print(f"federation prune: {result['expired_items']} timeline item(s) are older than the retention (server value: {result['retention_days']} day(s)).")
         print(f"federation prune: {result['evicted']} media entry(ies) had no access in {result['evict_days']} day(s), and {result['orphans']} media entry(ies) have no item. Use --apply to delete them.")
     return 0
 
@@ -4174,7 +4174,7 @@ def cmd_migrate(_args) -> int:
     from .health import require_current_schema
 
     s = get_settings()
-    # auth.db(설계 §13.3)는 테마와 무관하게 인스턴스에 하나다. 새 서비스가 요청을 받기 전에 만든다(E3).
+    # auth.db(설계 §13.3)는 테마와 무관하게 서버에 하나다. 새 서비스가 요청을 받기 전에 만든다(E3).
     from .store import auth_db
 
     auth_conn = None
@@ -5615,22 +5615,22 @@ def build_parser() -> argparse.ArgumentParser:
     pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
 
-    pinst = sub.add_parser(
-        "instance",
-        help="check instance readiness for network mode or federation",
-        description="Run instance readiness checks. The admin API uses the same checks before a mode or federation change.",
+    psrv = sub.add_parser(
+        "server",
+        help="check server readiness for network mode or federation",
+        description="Run server readiness checks. The admin API uses the same checks before a mode or federation change.",
     )
-    pinst_sub = pinst.add_subparsers(dest="instance_action", required=True)
-    pinst_check = pinst_sub.add_parser(
+    psrv_sub = psrv.add_subparsers(dest="server_action", required=True)
+    psrv_check = psrv_sub.add_parser(
         "check",
         help="run readiness checks and exit with 0 only when all checks pass",
         description="Run the network-mode readiness checks (G1-G9) or the federation readiness checks (GF1-GF7). The exit code is 0 only when all checks pass.",
     )
-    pinst_kind = pinst_check.add_mutually_exclusive_group(required=True)
-    pinst_kind.add_argument("--network", action="store_true", help="run the network-mode readiness checks G1-G9")
-    pinst_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF7")
-    pinst_check.add_argument("--json", action="store_true", help="output the readiness report in JSON format")
-    pinst_check.set_defaults(func=cmd_instance)
+    psrv_kind = psrv_check.add_mutually_exclusive_group(required=True)
+    psrv_kind.add_argument("--network", action="store_true", help="run the network-mode readiness checks G1-G9")
+    psrv_kind.add_argument("--federation", action="store_true", help="run the federation readiness checks GF1-GF7")
+    psrv_check.add_argument("--json", action="store_true", help="output the readiness report in JSON format")
+    psrv_check.set_defaults(func=cmd_server)
 
     pfed = sub.add_parser(
         "federation",

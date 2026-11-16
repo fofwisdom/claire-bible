@@ -8,11 +8,11 @@ The `inbox_event_*.json` files have the same method and path. The body selects t
 
 `outbox_tasks.json` gives a lease on the tasks: the `lease_until` value is the fixed test clock plus the lease time. The object numbers, the share token, and the tasks are fixed test values that the tests store before the call.
 
-The key pairs in `actor_keys.json` and `instance_actor_keys.json` are test keys. Do not use them in an instance.
+The key pairs in `actor_keys.json` and `server_actor_keys.json` are test keys. Do not use them in a server.
 
 `actor_gone.json` is the actor record of a purged actor: the tests store an actor tombstone with that number before the call.
 
-Contract 1.3 (unit FP4-3) adds the client outbox and the follows of the instance: `client_tasks.json` and `client_task_ack.json` (the tasks `follow`, `undo_follow`, and `reject_follow` from `client.db`), `following.json` (the total of accepted follows of an actor), and `inbox_event_accept_follow.json` (an `Accept` that refers to the follow ID `{actor}#follows/{n}`). The tests store the follows (`1` pending with the request `@carol@remote.example`, `3` accepted to `dan`, `4` pending to `frank`) and the tasks before the call.
+Contract 1.3 (unit FP4-3) adds the client outbox and the follows of the server: `client_tasks.json` and `client_task_ack.json` (the tasks `follow`, `undo_follow`, and `reject_follow` from `client.db`), `following.json` (the total of accepted follows of an actor), and `inbox_event_accept_follow.json` (an `Accept` that refers to the follow ID `{actor}#follows/{n}`). The tests store the follows (`1` pending with the request `@carol@remote.example`, `3` accepted to `dan`, `4` pending to `frank`) and the tasks before the call.
 
 Unit FP4-4 adds the timeline calls (the version stays 1.3: no shape that existed changed): `timeline_interest.json` (an account follows `dan`, with the limits of the parent chain) and `timeline_event_*.json` (a public `Create` and an `Announce` from `dan`, each one item for `alice`; a `Create` that is not public; a `Delete` of an object that no account has). The `timeline_event_*.json` files have the same method and path. The body selects the call.
 

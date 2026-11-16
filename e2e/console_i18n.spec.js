@@ -12,7 +12,7 @@ test('the console shows English text for an English browser, in the server text 
   // Server text of a section, and the theme panel that manage_panels.js renders.
   await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await expect(page.locator('#admin-themes-summary h2')).toContainText('Theme slots of the full instance');
+  await expect(page.locator('#admin-themes-summary h2')).toContainText('Theme slots of the full server');
   const themes = page.locator('#admin-themes-host');
   await expect(themes.locator('h2')).toHaveText(/Knowledge theme management/);
   await expect(themes.getByRole('button', { name: 'Show options' }).first()).toBeVisible();

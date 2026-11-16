@@ -227,7 +227,7 @@ class LegacyHost:
 
 @dataclass(frozen=True, slots=True)
 class LegacyHostPolicy:
-    """``instance_settings.legacy_host_policy``(JSON). 일몰 뒤 응답과 기본 유예 일수."""
+    """``server_settings.legacy_host_policy``(JSON). 일몰 뒤 응답과 기본 유예 일수."""
 
     after_sunset_status: Literal[410, 421] = 410
     sunset_days: int = 30

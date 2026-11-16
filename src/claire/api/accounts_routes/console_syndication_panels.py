@@ -51,11 +51,11 @@ def theme_ref(theme: ThemeInfo) -> str:
 
 
 def _account_is_admin(account: accounts_store.Account) -> bool:
-    # ``Principal.instance_role``은 ``Account.role``에서 온다(security.py). /settings/*는 owner 스코프만 들어온다.
+    # ``Principal.server_role``은 ``Account.role``에서 온다(security.py). /settings/*는 owner 스코프만 들어온다.
     return account.role == "admin"
 
 
-def _syndication_base_href(mode: accounts_store.InstanceMode, account: accounts_store.Account) -> str:
+def _syndication_base_href(mode: accounts_store.ServerMode, account: accounts_store.Account) -> str:
     # 고유 기능 경로(/syndication)는 유저네임 하단 경로로 분리하지 않고 루트 경로로 안내한다.
     _ = (mode, account)
     return "/syndication"
@@ -89,7 +89,7 @@ def build_syndication_section(
     *,
     slug: str,
     path: str,
-    mode: accounts_store.InstanceMode,
+    mode: accounts_store.ServerMode,
     account: accounts_store.Account,
     selected_theme: ThemeInfo | None,
     owned_themes: list[ThemeInfo],

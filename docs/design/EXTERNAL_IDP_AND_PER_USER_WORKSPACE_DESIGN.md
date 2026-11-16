@@ -168,7 +168,7 @@ pending ──승인──▶ active ──정지──▶ suspended ──재�
 
 ### 4.7 사용자 간 발행 본문 공유
 
-같은 Claire 인스턴스의 사용자는 다른 사용자가 **공개 발행한 본문**의 목록을 보고, 그 본문을 **자기 연결 계정으로** 다시 발행할 수 있다. 연합 클라이언트 탭과 지식베이스 탭 모두에서 쓴다. 화면은 [SYNDICATION_ENDPOINT_DESIGN.md §3.9](SYNDICATION_ENDPOINT_DESIGN.md)에 있다.
+같은 Claire 서버의 사용자는 다른 사용자가 **공개 발행한 본문**의 목록을 보고, 그 본문을 **자기 연결 계정으로** 다시 발행할 수 있다. 연합 클라이언트 탭과 지식베이스 탭 모두에서 쓴다. 화면은 [SYNDICATION_ENDPOINT_DESIGN.md §3.9](SYNDICATION_ENDPOINT_DESIGN.md)에 있다.
 
 **격리를 깨지 않는 구조**
 

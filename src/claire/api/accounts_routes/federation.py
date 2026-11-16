@@ -2,7 +2,7 @@
 
 Admin routes. Other principals get the same 404 as for the other admin routes.
 
-- ``GET /api/admin/federation``: the switch state, the instance mode, the readiness checks GF1 to GF7, and the last sidecar heartbeat.
+- ``GET /api/admin/federation``: the switch state, the server mode, the readiness checks GF1 to GF7, and the last sidecar heartbeat.
 - ``POST /api/admin/federation``: set the switch. The change to ``on`` requires that all readiness checks pass. The change to ``off`` has no readiness condition.
 - ``GET``, ``POST``, ``DELETE /api/admin/federation/domain-blocks``: list, add, and remove a blocked domain. A change requires the same origin and recent authentication, and writes an ``admin_audit`` row.
 - ``GET /admin/federation``: the console section.
@@ -27,7 +27,7 @@ Federation client routes, for the owner of the account, in network mode only (FE
 - ``PATCH /api/federation/timeline/{item_id}``: ``unread`` and ``starred``.
 - ``POST /api/federation/timeline/{item_id}/context``: ask for a fetch of the thread of an item from the remote server (Section 6.5 rule 4, unit FP4-6).
 - ``GET /api/federation/objects``: one cursor page of the published documents of the caller (stage 3 of the stage bar).
-- ``GET /render/remote/{item_id}``: the body of an item on the app origin, only when the instance has no ``usercontent`` host (Section 8 rule 5).
+- ``GET /render/remote/{item_id}``: the body of an item on the app origin, only when the server has no ``usercontent`` host (Section 8 rule 5).
 
 ``POST /api/federation/timeline/{item_id}/ingest`` is in ``server``, because it uses the ingest service of a theme.
 
@@ -73,7 +73,7 @@ FEDERATION_STATUS_API_PATH = "/api/federation/status"
 FEDERATION_FOLLOWERS_API_PATH = "/api/federation/followers"
 FEDERATION_PUBLISH_API_PATH = "/api/federation/publish"
 FEDERATION_RETRACT_API_PATH = "/api/federation/retract"
-# FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the instance and the retention of an account.
+# FP4-2 (FEDERATION_REMOTE_READING_DESIGN.md Section 10): the reading settings of the server and the retention of an account.
 ADMIN_FEDERATION_READING_API_PATH = "/api/admin/federation/reading"
 FEDERATION_SETTINGS_API_PATH = "/api/federation/settings"
 # FP4-3 (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.1 and 5.3): follows of the own account.
@@ -83,7 +83,7 @@ FOLLOWING_PAGE_MAX = 80
 FEDERATION_TIMELINE_API_PATH = "/api/federation/timeline"
 FEDERATION_OBJECTS_API_PATH = "/api/federation/objects"
 REMOTE_RENDER_PATH = "/render/remote"
-# FP4-7 (Section 9.1): the media proxy on the app origin, for an instance without a media host.
+# FP4-7 (Section 9.1): the media proxy on the app origin, for a server without a media host.
 REMOTE_MEDIA_PATH = "/media/remote"
 TIMELINE_PAGE_MAX = 80
 TIMELINE_FILTERS = ("unread", "starred", "mention")
@@ -142,7 +142,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 report = federation_readiness.check_federation_readiness(conn, ctx.settings)
                 return {
                     "federation": store.federation_state(),
-                    "mode": store.instance_mode(),
+                    "mode": store.server_mode(),
                     "readiness": report.to_dict(),
                     "heartbeat": _heartbeat_view(ctx.data_dir),
                 }
@@ -237,14 +237,14 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
         return JSONResponse(await asyncio.to_thread(_execute), headers=_NO_STORE)
 
-    def _account_settings_view(client: Any, account_id: int, instance_value: int) -> dict[str, Any]:
+    def _account_settings_view(client: Any, account_id: int, server_value: int) -> dict[str, Any]:
         return {
             "retention_days": federation_client_store.get_account_retention(client, account_id),
-            "instance_retention_days": instance_value,
-            "effective_retention_days": federation_client_store.effective_retention_days(client, account_id, instance_value=instance_value),
+            "server_retention_days": server_value,
+            "effective_retention_days": federation_client_store.effective_retention_days(client, account_id, server_value=server_value),
         }
 
-    def _instance_retention(conn: Any) -> int:
+    def _server_retention(conn: Any) -> int:
         return int(federation_client_store.get_reading_settings(conn)["retention_days"])
 
     async def federation_settings_get(request: Request) -> Response:
@@ -257,12 +257,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 if not _network_mode(conn):
                     return None
-                instance_value = _instance_retention(conn)
+                server_value = _server_retention(conn)
             finally:
                 conn.close()
             client = open_client_db(ctx)
             try:
-                return _account_settings_view(client, account_id, instance_value)
+                return _account_settings_view(client, account_id, server_value)
             finally:
                 client.close()
 
@@ -275,7 +275,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if account_id is None:
             return not_found()
         body = await read_json_body(request)
-        # Sealed body: one field. ``null`` returns to the instance value.
+        # Sealed body: one field. ``null`` returns to the server value.
         if not isinstance(body, dict) or set(body) != {"retention_days"}:
             return json_error(400, "invalid_request", detail="The body must be an object with one field, retention_days (null or an integer)")
         value = body["retention_days"]
@@ -285,17 +285,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 if not _network_mode(conn):
                     return None
-                instance_value = _instance_retention(conn)
+                server_value = _server_retention(conn)
             finally:
                 conn.close()
             client = open_client_db(ctx)
             try:
                 try:
-                    federation_client_store.set_account_retention(client, account_id, value, instance_max=instance_value, now=time.time())
+                    federation_client_store.set_account_retention(client, account_id, value, server_max=server_value, now=time.time())
                 except federation_client_store.ReadingSettingsError as exc:
                     return 400, {"error": "invalid_request", "detail": str(exc)}
                 client.commit()
-                return 200, _account_settings_view(client, account_id, instance_value)
+                return 200, _account_settings_view(client, account_id, server_value)
             finally:
                 client.close()
 
@@ -428,7 +428,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
     def _network_mode(conn: Any) -> bool:
         # ``ROUTE_POLICY`` gives 404 in single mode before the handler runs. This check keeps the handler safe without the policy.
-        return accounts_store.AccountStore(conn).instance_mode() == "network"
+        return accounts_store.AccountStore(conn).server_mode() == "network"
 
     async def federation_status_get(request: Request) -> Response:
         account_id = _owner_account_id(request)
@@ -767,7 +767,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return None if roles is None else roles.origin("usercontent")
 
     def _render_url(account_id: int, item_id: int) -> str:
-        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the instance has no such host (development, Section 8 rule 5). The token binds the account and the item."""
+        """The address of the body of an item for a sandbox ``iframe``: the ``usercontent`` origin, or this origin when the server has no such host (development, Section 8 rule 5). The token binds the account and the item."""
         token = usercontent.create_remote_token(account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None))
         return f"{_usercontent_origin() or ''}{REMOTE_RENDER_PATH}/{item_id}?t={token}"
 
@@ -997,7 +997,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         token = request.query_params.get("t", "")
         if item is None or item["account_id"] != account_id or not usercontent.verify_remote_token(token, account_id, item_id, secret_service=getattr(ctx.settings, "secret_service", None)):
             return not_found()
-        # Section 9.1 rule 1: the media comes from the media host, or from this origin when the instance has no media host (development).
+        # Section 9.1 rule 1: the media comes from the media host, or from this origin when the server has no media host (development).
         media_origin = _media_origin()
         media_url = usercontent.remote_media_urls(ctx.db_file, account_id=account_id, content_html=item["content_html"], attachments=item["attachments"], media_base=media_origin or "", secret_service=getattr(ctx.settings, "secret_service", None))
         return usercontent.remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN"}, media_url=media_url, media_source=media_origin or "'self'")
@@ -1017,7 +1017,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return _proxy_holder[0]
 
     async def remote_media_fallback(request: Request) -> Response:
-        """Remote media on the app origin (Section 9.1), only for an instance without a media host. With a media host this path does not exist here. The caller is the owner of the account of the token."""
+        """Remote media on the app origin (Section 9.1), only for a server without a media host. With a media host this path does not exist here. The caller is the owner of the account of the token."""
         from ...media_proxy import proxy_response, verify_media_token
 
         account_id = _owner_account_id(request)

@@ -10,10 +10,10 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 
 | Function | State |
 | :--- | :--- |
-| WebFinger, NodeInfo, actor document, instance actor | Implemented |
+| WebFinger, NodeInfo, actor document, server actor | Implemented |
 | Internal federation API: `config`, `heartbeat`, `actors`, `keys` | Implemented |
 | Actor keys in `auth.db` | Implemented |
-| Instance switch `federation`, readiness checks GF1 to GF7 | Implemented (API, CLI, and the console section `/admin/federation`) |
+| Server switch `federation`, readiness checks GF1 to GF7 | Implemented (API, CLI, and the console section `/admin/federation`) |
 | Step-up condition on `profile_public`, alternate link on the profile page | Implemented |
 | `claire.db` version 17: followers, tombstones, domain blocks (Section 5.6) | Implemented (FP2-1). No code writes a tombstone before phase FP3. |
 | Internal federation API: `inbox-events`, `followers`, `domain-blocks` (Section 5.3) | Implemented (FP2-2). The sidecar uses them for the inboxes and the followers collection (FP2-3). |
@@ -36,7 +36,7 @@ Phase FP1 implements discovery only. A remote server can resolve the handle `@us
 | Quotes (FEP-044f): `client.db` version 6 (quote columns of `federation_notes`, `federation_quote_authorizations`), `claire.db` version 24 (`federation_objects.quote_policy`), contract 1.7, outbound `QuoteRequest` with the quote states, inbound requests with the quote policy, the authorization path `/ap/quote-authorizations/{id}` with 410 after a revoke, quote controls of the client (Section 26) | Implemented (FP4-9Q) |
 | End-to-end with a remote server and retention: the DrFed 0.1.0 test stack in Docker with scenarios of a real Claire process and its sidecar, the development switch `allow_private_addresses` (contract 1.8), the retention run of the timeline items in the daily cleanup and in `claire federation prune` | Unit FP4-10 complete. See Section 27. |
 
-The sidecar makes these outbound requests: the public self-check to the public origin of this instance (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25), and deliveries of the quote activities with the fetch of the authorization of an `Accept` (Section 26).
+The sidecar makes these outbound requests: the public self-check to the public origin of this server (Section 7.2), signed fetches of remote actor documents and keys for the signature check of an inbox activity, deliveries of `Accept` and `Reject` for a `Follow` (Section 4.3), deliveries of published objects to the inboxes of followers (Section 4.4), deliveries of own notes, favourites, and boosts with the fetches of the actors that get them (Section 25), and deliveries of the quote activities with the fetch of the authorization of an `Accept` (Section 26).
 
 ## 2. Architecture
 
@@ -64,15 +64,15 @@ flowchart LR
 | `src/claire/accounts/federation_readiness.py` | Readiness checks GF1 to GF7 |
 | `src/claire/api/accounts_routes/federation.py` | `GET` and `POST /api/admin/federation` |
 | `sidecar/fedify/src/internal_api.ts` | Signed client of the internal API with sealed response shapes |
-| `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, instance actor, public self-check |
+| `sidecar/fedify/src/sidecar.ts` | WebFinger, NodeInfo, actor documents, server actor, public self-check |
 | `sidecar/fedify/src/main.ts` | Entry point: database, Unix socket client, heartbeat, HTTP listener |
 
 ## 3. Actor Rule
 
 An account is a federation actor only when all these conditions are true:
 
-1. The instance setting `federation` is `on`.
-2. The instance mode is `network`.
+1. The server setting `federation` is `on`.
+2. The server mode is `network`.
 3. The account status is `active`.
 4. `profile_public` is 1.
 5. The account has a USERNAME.
@@ -91,7 +91,7 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 | `GET` | `/.well-known/nodeinfo` | Link to `{origin}/nodeinfo/2.1` |
 | `GET` | `/nodeinfo/2.1` | `software.name` `claire-bible`, `software.version`, `protocols` `["activitypub"]`, `openRegistrations` `false`, `usage.users.total` = number of federation actors, `localPosts` 0, `localComments` 0 |
 | `GET` | `/ap/actors/{public_id}` | Actor document of type `Person` |
-| `GET` | `/ap/actors/instance` | Instance actor of type `Application` |
+| `GET` | `/ap/actors/server` | Server actor of type `Application` |
 | `POST` | `/ap/actors/{public_id}/inbox` | Personal inbox (Section 4.3) |
 | `POST` | `/ap/inbox` | Shared inbox (Section 4.3) |
 | `GET` | `/ap/actors/{public_id}/followers` | `OrderedCollection` with `totalItems` and no follower |
@@ -124,14 +124,14 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 
 - `followers` is `{actor ID}/followers`.
 - The document has no `outbox`, `following`, `summary`, or `icon` property.
-- The document has no email address, no external identity value, no instance role, and no internal `accounts.id`.
+- The document has no email address, no external identity value, no server role, and no internal `accounts.id`.
 
-### 4.2 Instance Actor
+### 4.2 Server Actor
 
-- Path `/ap/actors/instance`, type `Application`, `preferredUsername` `claire`, `name` = the handle host, `manuallyApprovesFollowers` `true`.
+- Path `/ap/actors/server`, type `Application`, `preferredUsername` `claire`, `name` = the handle host, `manuallyApprovesFollowers` `true`.
 - The WebFinger handle is `acct:claire@{handle_host}`. `claire` is in `RESERVED_USERNAMES`, so no account can have this USERNAME.
-- The instance actor has its own key pairs (`actor_keys.account_id` 0).
-- Claire has no actor record for `instance`: `GET /internal/federation/v1/actors/instance` returns 404. The sidecar makes the document from `config` and the keys.
+- The server actor has its own key pairs (`actor_keys.account_id` 0).
+- Claire has no actor record for `server`: `GET /internal/federation/v1/actors/server` returns 404. The sidecar makes the document from `config` and the keys.
 
 ### 4.3 Inboxes and the Followers Collection (Unit FP2-3)
 
@@ -148,10 +148,10 @@ Answer of an inbox path, in this sequence:
 | The host of the `actor` of the activity is a blocked domain | 403. This answer comes only after a valid signature. |
 | All other conditions | 202 |
 
-- Fedify verifies the activity (HTTP Signatures, Linked Data Signatures, or Object Integrity Proofs) and fetches the key of the remote actor. That fetch is signed: with the key of the recipient for a personal inbox, and with the key of the instance actor for the shared inbox.
+- Fedify verifies the activity (HTTP Signatures, Linked Data Signatures, or Object Integrity Proofs) and fetches the key of the remote actor. That fetch is signed: with the key of the recipient for a personal inbox, and with the key of the server actor for the shared inbox.
 - With the queue of `data/fedify/fedify.db`, Fedify gives 202 and then runs the listener from the inbox queue. If the listener fails (for example, the internal API is not available), Fedify tries again. The sidecar never accepts an activity on behalf of Claire.
 - One listener gets all activity types. It makes the event of Section 5.7 and sends it to `POST /inbox-events`. Claire decides: the sidecar has no list of the v1 types.
-- Event fields: `object_type` has a value only for an `Undo` (the type of the activity that is undone). `recipient_public_id` is null for the shared inbox and for the inbox of the instance actor. `verified_by` names the strongest mechanism that the activity has (`proof`, then `signature`, then the HTTP signature); the sidecar cannot see which mechanism Fedify used.
+- Event fields: `object_type` has a value only for an `Undo` (the type of the activity that is undone). `recipient_public_id` is null for the shared inbox and for the inbox of the server actor. `verified_by` names the strongest mechanism that the activity has (`proof`, then `signature`, then the HTTP signature); the sidecar cannot see which mechanism Fedify used.
 - `accepted` with `reply` `accept` for a `Follow`: the sidecar sends `Accept` to the inbox of the remote actor, signed with the key of the actor that was followed. The `Accept` ID is `{actor ID}#accepts/{hash of the Follow ID}`. The object is the `Follow` with IDs only.
 - `rejected` for a `Follow`: the sidecar sends `Reject` only for the reason `recipient_mismatch` and only when the actor that was followed has a key. For the other reasons there is no key to sign with (the account is not an actor, federation is off), or a delivery is not permitted (blocked domain, address that is not permitted).
 - The sidecar drops an activity without a call to Claire when: the actor host is blocked; the activity has no ID or no actor; or the document of the remote actor has no inbox or cannot be read. A `Delete` of an actor whose document is gone is in this group.
@@ -193,7 +193,7 @@ Answer of an inbox path, in this sequence:
 | All other conditions | 404, the same body as for all 404 answers |
 | The `Accept` header does not permit an ActivityPub format | 406 |
 
-**Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article`: a reader gets it from the object path. The collection has the objects of public themes only (Section 5.8). An account that is not an actor, and the instance actor, get 404.
+**Outbox collection.** `GET /ap/actors/{public_id}/outbox` gives `totalItems` and the link `first`. A page (`?cursor=`) has 20 items at most, newest first, and the link `next` when Claire has more objects. An item is `Create` with the activity ID of the table above, `actor`, `published`, `to`, `cc`, and the object ID as `object`. An item does not have the `Article`: a reader gets it from the object path. The collection has the objects of public themes only (Section 5.8). An account that is not an actor, and the server actor, get 404.
 
 ## 5. Internal Federation API
 
@@ -255,7 +255,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | `POST` | `/heartbeat` | Request: `contract_version` (`major.minor`), `sidecar_version`, `queue_depth`, `self_check` (`ok`: true, false, or null; `checked_at`). Response: `contract_version`, `federation`. |
 | `GET` | `/actors/by-username/{username}` | Actor record, or 404. The lookup changes the USERNAME to lowercase. |
 | `GET` | `/actors/{public_id}` | Actor record, 404, or 410 `{"error": "gone", "gone_at"}` for a purged actor (Section 8.5) |
-| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `instance`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
+| `GET` | `/actors/{public_id}/keys` | `public_id`, `keys`: list of `alg` (`rsa2048`, `ed25519`), `public_jwk`, `private_jwk`. `{public_id}` can be `server`. 404 when the account is not an actor, or when federation is not active. A purged actor with a `delete_actor` task that waits gets its keys (Section 8.5). |
 | `GET` | `/actors/{public_id}/followers` | `public_id`, `total`, `items` (newest first: `id`, `actor_iri`, `inbox_iri`, `shared_inbox_iri`), `next_max_id`. Query: one of `max_id`, `min_id`, `since_id`, and `limit` (1 to 80, default 20). 404 when the account is not an actor: the exception is a purged actor with a `delete_actor` task that waits. 400 `invalid_request` for a query that is not valid. |
 | `POST` | `/inbox-events` | One verified inbound activity. The response is the decision (Section 5.7). |
 | `GET` | `/actors/{public_id}/outbox` | `public_id`, `total`, `items` (newest first: `id`, `published_at`, `updated_at`), `next_max_id`. The query is that of `/followers`. 404 when the account is not an actor. |
@@ -280,7 +280,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.
-- Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this instance. The version is 1.3. No shape that existed changed.
+- Unit FP4-3 added `GET /client-tasks`, `POST /client-tasks/{id}/ack`, `GET /actors/{public_id}/following`, and the decisions for `Accept` and `Reject` of a follow of this server. The version is 1.3. No shape that existed changed.
 - Unit FP4-4 added `POST /timeline-events` and `GET /timeline-interest` (Section 18). The version stayed 1.3: no shape that existed changed.
 - Unit FP4-8 changed the shapes of the timeline event and of the two decisions (Section 22.1). The version is 1.4.
 - Unit FP4-6 added `GET /context-tasks` and `POST /context-objects` (Section 24.1). The version is 1.5. No shape that existed changed.
@@ -294,13 +294,13 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 - Directory: `tests/fixtures/federation_contract/`. Each JSON file is one call, with the keys `request`, `status`, and `response`.
 - The Python test `tests/test_federation_routes.py` and the Deno tests in `sidecar/fedify/tests/` read the same files. Each side has a test that fails when a fixture file has no test.
-- The key pairs in `actor_keys.json` and `instance_actor_keys.json` are test keys.
+- The key pairs in `actor_keys.json` and `server_actor_keys.json` are test keys.
 
 ### 5.6 Follower Data (`claire.db` Version 17)
 
 - Tables: `federation_followers` (key `(account_id, actor_iri)`, `public_id` is the time-ordered cursor number), `federation_tombstones`, `federation_domain_blocks`. The definitions are in [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md).
 - Store functions: `src/claire/store/federation.py`. No function there commits.
-- Domain form: lowercase ASCII (punycode) without a trailing dot. An IPv4 address is permitted, for development instances. `normalize_domain` refuses a scheme, a port, a path, and a space.
+- Domain form: lowercase ASCII (punycode) without a trailing dot. An IPv4 address is permitted, for development servers. `normalize_domain` refuses a scheme, a port, a path, and a space.
 - A block of a domain also applies to its subdomains (`blocking_domain`). An IP address has an exact comparison only. The port has no effect.
 - The entity tag of the block list is the first 32 hexadecimal characters of the SHA-256 of the domains in order, with one line for each domain, in double quotation marks.
 
@@ -323,7 +323,7 @@ Response: `decision` (`accepted`, `rejected`, `ignored`), `reply` (`accept` or n
 Claire makes the decision in this sequence:
 
 1. Federation is not active (the switch is `off`, or the mode is `single`): `rejected`, reason `federation_off`.
-2. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the instance uses `http` (development). An address with credentials, without a valid host, or on the origin of this instance is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
+2. An address of the remote actor is not permitted: `rejected`, reason `invalid_actor`. The scheme must be `https`. `http` is permitted only when the canonical origin of the server uses `http` (development). An address with credentials, without a valid host, or on the origin of this server is not permitted. The rule applies to `iri`, `inbox`, and `shared_inbox`.
 3. The host of one of these addresses is blocked: `rejected`, reason `blocked_domain`. This check comes before the type check.
 4. The type is outside the v1 set: `ignored`, reason `unsupported_type`. The v1 set is `Follow`; `Undo` with `object_type` `Follow`; `Delete` with `object_iri` equal to `actor.iri`; `Update` with `object_iri` equal to `actor.iri`.
 5. `Delete` of the remote actor: Claire deletes the actor from the followers of all accounts. `accepted`.
@@ -355,7 +355,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 
 ## 6. Keys
 
-- Table `actor_keys` in `auth.db` (version 5, see [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). Primary key `(account_id, alg)`. `account_id` 0 is the instance actor.
+- Table `actor_keys` in `auth.db` (version 5, see [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). Primary key `(account_id, alg)`. `account_id` 0 is the server actor.
 - Each actor has two key pairs: `rsa2048` (RSA 2048, public exponent 65537, for HTTP Signatures) and `ed25519` (for Object Integrity Proofs). The `cryptography` package generates them.
 - The public key is a JWK in plaintext (`public_jwk`). The private key is a JWK that `SecretService` encrypts (AES-256-GCM) with the additional authenticated data `actor_key|{account_id}|{alg}`. A ciphertext that is moved to a different account or algorithm does not decrypt.
 - Lazy generation: Claire generates the keys at the first `GET /actors/{public_id}/keys` request for an actor. A later request returns the same keys. The `profile_public` change does not generate keys.
@@ -364,11 +364,11 @@ Claire writes one log line for each event with the type, the decision, and the r
 - `ActorKeyPair` hides the private JWK in its `repr`. The end-to-end test examines the sidecar log for private key fields.
 - Sidecar database: `data/fedify/fedify.db` (Fedify `SqliteKvStore` and `SqliteMessageQueue`, WAL mode). The sidecar makes the file with mode 0600 and sets the mode again at each start. A Fedify queue message for a delivery contains the private keys of the sender (design item FT3), thus the file is a secret store. The FP1 code sends no activity, so no delivery is queued now.
 
-## 7. Instance Switch and Readiness Checks
+## 7. Server Switch and Readiness Checks
 
 ### 7.1 Switch
 
-- The switch is the key `federation` in `instance_settings` of `claire.db`. Values: `off` and `on`. No row means `off`. An unknown value raises `RuntimeError` (`AccountStore.federation_state`). No schema version change was necessary.
+- The switch is the key `federation` in `server_settings` of `claire.db`. Values: `off` and `on`. No row means `off`. An unknown value raises `RuntimeError` (`AccountStore.federation_state`). No schema version change was necessary.
 - `CB_FEDERATION=1` starts the sidecar container only. It does not change this switch.
 
 ### 7.2 Checks GF1 to GF7
@@ -377,7 +377,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 
 | ID | Passes when |
 | :--- | :--- |
-| GF1 | The instance mode is `network`. |
+| GF1 | The server mode is `network`. |
 | GF2 | `{data_dir}/run/federation_heartbeat.json` has a `received_at` time that is 0 to 120 seconds old (`HEARTBEAT_MAX_AGE_SECONDS`), and its contract major version is that of Claire. A time that is later than the clock fails. |
 | GF3 | `{data_dir}/auth/fedify_service.key` is a regular file with mode 0600 and 32 bytes. |
 | GF4 | `SecretService` can load the master key (`CLAIRE_SECRET_KEY` or `{data_dir}/auth/master.key`). The check does not make a key file. |
@@ -386,7 +386,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 | GF7 | One `GET {public origin}/.well-known/oauth-authorization-server` returns status 200 and a JSON object whose `issuer` is the public origin. Timeout 5 seconds, no redirects, no environment proxy settings, 65536 bytes at most. |
 
 - The sidecar sends a heartbeat at its start and then each 30 seconds.
-- Public self-check of the sidecar (`publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. Each answer of the sidecar has the header `X-Claire-Fedify-Instance` with a random value of that sidecar process. The check passes when the answer has the value of this process. The status of the answer is not important. This shows that the reverse proxy sends the federation paths to this sidecar. The header value shows no instance data.
+- Public self-check of the sidecar (`publicSelfCheck`): `GET {origin}/.well-known/webfinger?resource=acct:claire@{handle_host}`, no redirects, timeout 10 seconds. Each answer of the sidecar has the header `X-Claire-Fedify-Server` with a random value of that sidecar process. The check passes when the answer has the value of this process. The status of the answer is not important. This shows that the reverse proxy sends the federation paths to this sidecar. The header value shows no server data.
 - The sidecar does the self-check at each heartbeat, also while `federation` is `off` or the mode is `single` (the WebFinger answer is then 404, with the header). Thus GF6 can pass before the admin sets the switch to `on`. `tests/test_fedify_sidecar.py` does this with a real Claire process and a real sidecar process.
 - GF7 shows that the reverse proxy still sends `/.well-known/oauth-authorization-server` to Claire. The process that does the check (the `api` process or the CLI process) sends the request.
 
@@ -424,11 +424,11 @@ The change to `off` has no readiness condition.
 ### 7.4 CLI
 
 ```bash
-uv run claire instance check --federation --json
+uv run claire server check --federation --json
 ```
 
 ```bash
-./cb-manuscript app instance check --federation --json
+./cb-manuscript app server check --federation --json
 ```
 
 - The JSON output is `{"check": "federation", "items": [...], "passed": true}`. Without `--json` the command prints one line for each check and a summary line.
@@ -569,7 +569,7 @@ The page keeps its HTML format for all `Accept` values. The path has no content 
 
 ### 8.3 Mode Change Refusal
 
-`POST /api/admin/instance/mode` refuses the change from `network` to `single` while `federation` is `on`: 400 `{"error": "federation_enabled", "detail": "Cannot switch to single mode while federation is on"}`. The admin must set `federation` to `off` first.
+`POST /api/admin/server/mode` refuses the change from `network` to `single` while `federation` is `on`: 400 `{"error": "federation_enabled", "detail": "Cannot switch to single mode while federation is on"}`. The admin must set `federation` to `off` first.
 
 ### 8.4 Pause
 
@@ -655,7 +655,7 @@ deno run --frozen --cached-only --allow-net --allow-read=/data,/app --allow-writ
 1. Set `CB_FEDERATION=1` (and `CB_FEDIFY_PORT` if necessary) in the env file.
 2. Run `./cb-manuscript update` or `./cb-manuscript up`. `claire migrate` (a step of `install` and `update`) makes the service key.
 3. Configure the reverse proxy (Section 10).
-4. Run `./cb-manuscript app instance check --federation --json`.
+4. Run `./cb-manuscript app server check --federation --json`.
 5. Set the switch with `POST /api/admin/federation`. Read the first item of Section 12 before this step.
 
 ## 10. Reverse Proxy Rules
@@ -704,7 +704,7 @@ These statements are true for the code now.
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
 11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
-13. A development instance on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
+13. A development server on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
 16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.
@@ -722,7 +722,7 @@ These statements are true for the code now.
 | `GET`, `PUT /api/admin/federation` with the switch, the domain blocks, and the sidecar health (§9.2) | `GET`, `POST /api/admin/federation` for the switch and the health. The domain blocks are at `/api/admin/federation/domain-blocks` (`GET`, `POST`, `DELETE`). |
 | `GET /api/federation/status` has the follower count and the pending task count (§9.2) | The follower list is a second route, `GET /api/federation/followers`. |
 | After a follower removal the sidecar sends `Reject(Follow)` (§11 item 2) | Not sent before the outbox of FP3 |
-| End-to-end test: follow from a second development instance (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second instance (FS1). |
+| End-to-end test: follow from a second development server (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second server (FS1). |
 | Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
 | `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 410 for an account that was an actor at its purge (Section 8.5). 404 for an account that was never an actor. |
 | If the sidecar is not available at purge, the purge waits in a visible state (§8.1) | The purge request gets 409 and the account keeps its status. There is no separate waiting status. |
@@ -779,7 +779,7 @@ deno task check
 
 ### 14.1 Debugging with DrFed
 
-DrFed is an ActivityPub debugging platform of the Fedify team. It shows objects and activities and helps to find where a delivery fails. It is a tool of the developer only: it is not in the repository, not in CI, and not part of the service (owner decision RD19, 2026-11-13). Run it separately (it needs Node.js 26 or newer) and point it at a development instance. Do not point it at the production server.
+DrFed is an ActivityPub debugging platform of the Fedify team. It shows objects and activities and helps to find where a delivery fails. It is a tool of the developer only: it is not in the repository, not in CI, and not part of the service (owner decision RD19, 2026-11-13). Run it separately (it needs Node.js 26 or newer) and point it at a development server. Do not point it at the production server.
 
 ## 15. Account Feeds (Units FP4-F1 and FP4-F2)
 
@@ -851,8 +851,8 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 | Part | Where |
 | :--- | :--- |
-| Instance values (Section 10 table) | `claire.db`, `instance_settings` key `federation_reading` (JSON with the values that differ from the default). `store/federation_client.py` (`READING_DEFAULTS`, `validate_reading_update`, `get_reading_settings`, `set_reading_settings`) |
-| Retention of an account | `client.db`, `federation_account_settings`. `set_account_retention` refuses a value above the instance value; `effective_retention_days` gives the lower value |
+| Server values (Section 10 table) | `claire.db`, `server_settings` key `federation_reading` (JSON with the values that differ from the default). `store/federation_client.py` (`READING_DEFAULTS`, `validate_reading_update`, `get_reading_settings`, `set_reading_settings`) |
+| Retention of an account | `client.db`, `federation_account_settings`. `set_account_retention` refuses a value above the server value; `effective_retention_days` gives the lower value |
 | Follows and client tasks (FP4-3 uses them) | `client.db`, `federation_following` and `federation_client_outbox` (`add_following`, `add_client_task`) |
 
 Routes:
@@ -861,10 +861,10 @@ Routes:
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/admin/federation/reading` | admin | `{"settings": {...}, "defaults": {...}}` |
 | `PUT` | `/api/admin/federation/reading` | admin, same origin, recent authentication | A partial object of known keys in range; 400 for an unknown key or a value outside its range. An audit record `federation.reading.update`. |
-| `GET` | `/api/federation/settings` | owner, network mode | `{"retention_days", "instance_retention_days", "effective_retention_days"}` |
-| `PUT` | `/api/federation/settings` | owner, network mode | `{"retention_days": null or 1 to the instance value}`; another body is 400 |
+| `GET` | `/api/federation/settings` | owner, network mode | `{"retention_days", "server_retention_days", "effective_retention_days"}` |
+| `PUT` | `/api/federation/settings` | owner, network mode | `{"retention_days": null or 1 to the server value}`; another body is 400 |
 
-Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the instance" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has the retention of the account, with the choice "use the instance value". Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
+Console fields (FP4-5): `/admin/federation` has the form "Reading settings of the server" with one field for each key (the two size limits in MiB); `console_admin.js` sends only the changed values. `/settings/federation` has the retention of the account, with the choice "use the server value". Tests: `tests/test_e2e_federation_reading_settings.py`, `tests/test_client_db.py`.
 
 
 ## 17. Follows of an Account (Unit FP4-3)
@@ -901,7 +901,7 @@ Flow:
 1. The sidecar gets a verified activity. A `Create`, an `Update`, or an `Announce` of a `Note`, `Article`, `Page`, or `Question`, a `Delete` of an object that is not the actor, and an `Undo(Announce)` are timeline events. All other activities stay inbox events (Section 5).
 2. For a `Create` and an `Announce`, the sidecar first asks `GET /timeline-interest?actor={iri}`. When no account that is an actor follows the actor, the sidecar fetches nothing and sends the activity as an inbox event (Claire ignores it). An `Update` has its object in the activity and changes only an item that exists, so it asks no interest.
 3. The sidecar makes the normal form (`sidecar/fedify/src/timeline.ts`): the object of a `Create` or an `Update` must have the actor as its author; the object of an `Announce` and its author are fetched with a signed request. An object without the public collection in `to` or `cc` goes to Claire with `public: false` and without content. An attachment that is not in the object document is not fetched.
-4. For a reply, the sidecar fetches the parents with `inReplyTo`, nearest first, `context_depth` levels at most, when `context_fetch` is `on`. The chain stops at a parent that is not a public post, has no author, is on this instance, is on a blocked domain, or is not available.
+4. For a reply, the sidecar fetches the parents with `inReplyTo`, nearest first, `context_depth` levels at most, when `context_fetch` is `on`. The chain stops at a parent that is not a public post, has no author, is on this server, is on a blocked domain, or is not available.
 5. `POST /timeline-events`: Claire checks the actor, the domain blocks (actor, author, host of the object IRI), and the limits, and makes one item for each account that is an actor and has an accepted follow of the actor (the author of a `Create`, the announcer of an `Announce`). Each parent is an item with `in_timeline` = 0.
 6. Timeline rule: an item has `in_timeline` = 1 when it is not a reply, or when the parent author is the author, the account itself (its actor or a published object of the account), or a followed actor. When Claire does not know the parent (no parent in the event and no item with that IRI), the value is 0.
 
@@ -946,7 +946,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 | `PATCH` | `/api/federation/timeline/{item_id}` | Body: `unread` and `starred` (booleans, one or both). Answer `{"item", "counts"}`. |
 | `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`theme_id`, `document_id`). The item stays in the timeline. |
 | `GET` | `/api/federation/objects` | `{"total", "items": [{"id", "theme_id", "document_id", "published_at", "updated_at"}], "next_max_id"}`: the published documents of the caller, for the filter of stage 3. |
-| `GET` | `/render/remote/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the instance has no `usercontent` host. |
+| `GET` | `/render/remote/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
 - An item of the list has `id`, `object_iri`, `url`, `type`, `author`, `announced_by`, `name`, `summary`, `sensitive`, `text`, `language`, `attachments` (a number), `in_reply_to`, `in_timeline`, `published_at`, `updated_at`, `received_at`, `unread`, `starred`, `mention`, and `linked`. `text` is plain text (the tags are removed on the server, 600 characters at most). It is empty for an item with a content warning. The list has no remote HTML.
 - `counts`: `total`, `unread`, `starred`, `mentions`, `unread_mentions`, `ingested` (items of the timeline), and `published` (published documents of the account).
@@ -956,7 +956,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 
 1. `render_url` has a viewing token of the kind `remote`. The token binds `(account_id, item_id, exp)` (HMAC, one hour). A document token is not valid for an item, and the reverse. A token that is absent, expired, or of another item or account gets the same 404 as an item that does not exist.
 2. The page has the HTML after `sanitize_remote_html` (the `nh3` allowlist without `picture`, `source`, `audio`, `video`, `track`, `map`, and `area`; no `style` and no `id`; links with `rel="nofollow noopener noreferrer"` and `target="_blank"`) and the attachments. An `img` stays only with the address of the media proxy in place of its remote address (Section 21); without a media proxy address the element becomes its `alt` text.
-3. Policy of the page: `default-src 'none'; img-src {media}; media-src {media}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {app origin}; sandbox allow-popups allow-popups-to-escape-sandbox`. `{media}` is the origin of the media host, or `'self'` for the page on the app origin of an instance without a media host. No script runs, and no resource loads from a remote server. The client puts the page in an `iframe` with the same `sandbox` value.
+3. Policy of the page: `default-src 'none'; img-src {media}; media-src {media}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors {app origin}; sandbox allow-popups allow-popups-to-escape-sandbox`. `{media}` is the origin of the media host, or `'self'` for the page on the app origin of a server without a media host. No script runs, and no resource loads from a remote server. The client puts the page in an `iframe` with the same `sandbox` value.
 4. With a `usercontent` host the body renders on that origin only: the path on the app origin gives 404. Without one (development), the path on the app origin needs the session of the owner of the item and the token, and `frame-ancestors` is `'self'`.
 5. The page has one fixed light surface. It cannot read the theme of the page around it, because its origin is opaque.
 
@@ -993,7 +993,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 | Store of the process | `get_media_store`: the admin settings with the mode `s3`, else local storage. No environment variable sets the store. With object storage the store is `FallbackMediaStore`: writes go to the bucket, and a key that is not in the bucket is read from local storage. |
 | Keys | An object key has only `[A-Za-z0-9/_.-]` (`is_object_storage_key`). `S3MediaStore` refuses another key before a request goes out, so the signed path and the sent path are the same (RT5). |
 | Media host | A legacy image that the migration moved has the object key `images/{name}`; the media host looks for it after the key of the URL and the local file. When the object store is not available and the key is not local, the answer is 503 with `Retry-After: 60`. |
-| Settings | `claire.db` `instance_settings`: `media_storage` (the fields; the secret key as AES-256-GCM ciphertext with the additional authenticated data `media_storage:s3`), `media_storage_test` (the last test), `media_storage_migration` (the last migration run with `--apply`). A stored setting that cannot be read (for example another master key) is logged and gives local storage; the process starts. |
+| Settings | `claire.db` `server_settings`: `media_storage` (the fields; the secret key as AES-256-GCM ciphertext with the additional authenticated data `media_storage:s3`), `media_storage_test` (the last test), `media_storage_migration` (the last migration run with `--apply`). A stored setting that cannot be read (for example another master key) is logged and gives local storage; the process starts. |
 
 ### 20.2 Routes
 
@@ -1017,7 +1017,7 @@ The console section `/admin/storage` shows the store for new media, the state of
 - Design Section 9.2 rule 3 said that the environment variables `CLAIRE_MEDIA_S3_*` win over the admin settings and lock the console. The rule changed on 2026-11-15: the console is the only place for the settings, the same as for the provider models. A process imports the old variables one time, when all four necessary variables are set and the admin settings were never saved (`_import_legacy_environment`); the log has a warning, and the variables have no effect after that.
 - The ingest writes document images to `data/images` with any mode. A later run of the migration command moves them into the bucket.
 - The public URL base is stored and given to `S3MediaStore`, but no route sends media of public themes to it.
-- The app route `/image` (an instance without a media host) reads the local disk only.
+- The app route `/image` (a server without a media host) reads the local disk only.
 
 Tests: `tests/test_media_storage.py` (S3 client, settings, media host fallback and 503, migration, probe, Garage), `tests/test_e2e_media_object_storage.py` (admin routes, console section, migration command), `tests/s3_test_server.py` (the local S3-compatible server).
 
@@ -1072,7 +1072,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 2. Each such URL gets the address `{media}/media/remote/{url_hash}?t={token}`. The token is `{account_id}.{exp}.{signature}` (HMAC, one hour) and binds `(account_id, url_hash, exp)`.
 3. An attachment with the type `image/*` (not `image/svg+xml`), `video/mp4`, `video/webm`, or `audio/*` is an `img`, `video`, or `audio` element (`preload="none"`). Each attachment has a link to its remote address; the viewer contacts the remote server only by a click (RS3). Another attachment is the link only.
 4. A URL with the state `failed` or `too_large` has no element in a later render, only the link.
-5. An instance with a `usercontent` host and no `media` host has no media in the body (the page on the `usercontent` host has no cookie for the app origin). An instance without the two hosts (development) uses the app origin for the two.
+5. A server with a `usercontent` host and no `media` host has no media in the body (the page on the `usercontent` host has no cookie for the app origin). A server without the two hosts (development) uses the app origin for the two.
 
 ### 21.3 Proxy Route
 
@@ -1118,8 +1118,8 @@ This unit adds no route. It changes these answers:
 | :--- | :--- | :--- |
 | `GET` | `/api/federation/timeline` | The filter `mention=1` now has items. `counts` has `private_messages`: the number of non-public messages that the account got (Section 22.5). |
 | `GET` | `/api/federation/objects` | Each item has `likes` and `announces`: the counters of the published document. |
-| `POST` | `/internal/federation/v1/timeline-events` | Request: `actor_type` (`Person`, `Group`, `Service`, `Application`, `Organization`, or null), `mentioned` (actor IRIs of this instance, 16 at most), `in_reply_to` (the reply target of the object, also when `object` is null). Response: the reason `rate_limited`, and `notices` (a list of `actor_public_id`, `content`, `language`). |
-| `POST` | `/internal/federation/v1/inbox-events` | `Like`, `Announce`, and `Undo` of them for an object path of this instance get a decision (Section 22.4). New reason: `no_object`. No shape of the request changed. |
+| `POST` | `/internal/federation/v1/timeline-events` | Request: `actor_type` (`Person`, `Group`, `Service`, `Application`, `Organization`, or null), `mentioned` (actor IRIs of this server, 16 at most), `in_reply_to` (the reply target of the object, also when `object` is null). Response: the reason `rate_limited`, and `notices` (a list of `actor_public_id`, `content`, `language`). |
+| `POST` | `/internal/federation/v1/inbox-events` | `Like`, `Announce`, and `Undo` of them for an object path of this server get a decision (Section 22.4). New reason: `no_object`. No shape of the request changed. |
 
 Contract 1.4 changed the shapes of the timeline event and of the two decisions. The shapes are sealed: Claire and the sidecar must come from the same commit.
 
@@ -1131,7 +1131,7 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 
 ### 22.3 Mentions and Replies (Section 6.6 Rules 1, 2, and 6)
 
-1. The sidecar asks `timeline-interest` for the actor of a `Create`, as before. When no account follows the actor, the sidecar reads only the object that is in the activity, with a loader that refuses each fetch. The activity becomes a timeline event only when the object has a `Mention` tag with an actor of this instance, has such an actor in `to` or `cc`, or has `inReplyTo` on this instance. If not, it stays an inbox event, and Claire ignores it. The sidecar fetches no parent for an actor that no account follows.
+1. The sidecar asks `timeline-interest` for the actor of a `Create`, as before. When no account follows the actor, the sidecar reads only the object that is in the activity, with a loader that refuses each fetch. The activity becomes a timeline event only when the object has a `Mention` tag with an actor of this server, has such an actor in `to` or `cc`, or has `inReplyTo` on this server. If not, it stays an inbox event, and Claire ignores it. The sidecar fetches no parent for an actor that no account follows.
 2. `mentioned` is read for each `Create`, also from a followed actor. An `Announce` has an empty list.
 3. Claire makes one item for each account that is an actor and that follows the actor, is in `mentioned`, or owns the published document in `in_reply_to` of the object. An item of the last two groups has `mention` = 1 and `in_timeline` = 1. An item that exists changes `mention` from 0 to 1 only.
 4. The domain blocks and the limits of Section 18 apply. A mention that is not public is not stored (`not_public`).
@@ -1139,7 +1139,7 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 
 ### 22.4 Reactions to Own Objects (Section 6.6 Rules 3 and 4)
 
-1. A `Like`, an `Announce` whose object is on this instance, and an `Undo` of one stay inbox events. The sidecar does not fetch the object. For an `Undo`, `object_type` is the type of the activity that is undone, and that activity must be in the `Undo`.
+1. A `Like`, an `Announce` whose object is on this server, and an `Undo` of one stay inbox events. The sidecar does not fetch the object. For an `Undo`, `object_type` is the type of the activity that is undone, and that activity must be in the `Undo`.
 2. Claire applies the event when `object_iri` is `{origin}/ap/objects/{public_id}`. A new reaction needs a published document whose account is an actor and whose theme is public; Claire stores the actor one time for each object and kind. An `Undo` deletes the row of the same actor in all states of the object. A repeated activity and a repeated `Undo` give `accepted` and change nothing.
 3. An object path without an object gives `ignored` with the reason `no_object`. An object of another server gives `unsupported_type`, as before. The check of the domain blocks comes first.
 4. A reaction makes no item. The counter of an object is the number of its rows; `GET /api/federation/objects` gives `likes` and `announces`.
@@ -1148,8 +1148,8 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 
 1. A `Create` of an object that is not public and that mentions or addresses an account goes to Claire with `public: false`, without content, with `mentioned`, `actor_type`, and `in_reply_to`.
 2. For each account in `mentioned` that is an actor, Claire counts the message in `federation_auto_replies`. Claire answers with one notice for the account when the sender has no row, or when `auto_reply_hours` (reading settings, default 24) are over since the last notice.
-3. Rules that stop a loop: no notice when `actor_type` is `Service`, `Application`, or null; no notice when `in_reply_to` is the ID of an automatic notice of this instance (`{actor}#auto-replies/...`); no notice for a blocked domain (the event is `rejected` before this step). Such a message is not counted.
-4. The text is the catalog key `federation.auto_reply.text` in the locale of the account (`en` or `ko`), else the instance locale (`CLAIRE_LANG`), else English. `content` is one paragraph of escaped text.
+3. Rules that stop a loop: no notice when `actor_type` is `Service`, `Application`, or null; no notice when `in_reply_to` is the ID of an automatic notice of this server (`{actor}#auto-replies/...`); no notice for a blocked domain (the event is `rejected` before this step). Such a message is not counted.
+4. The text is the catalog key `federation.auto_reply.text` in the locale of the account (`en` or `ko`), else the server locale (`CLAIRE_LANG`), else English. `content` is one paragraph of escaped text.
 5. The sidecar sends each notice at once: `Create` of a `Note` from the actor of the account, with the ID `{actor}#auto-replies/{digest}` (the first 16 bytes of the SHA-256 of the object ID, hexadecimal), `inReplyTo` = the object, `to` = the sender only, a `Mention` of the sender, and `content` with `contentMap`. The `Note` is not public and not in the outbox collection.
 
 ### 22.6 View
@@ -1165,7 +1165,7 @@ Contract 1.4 changed the shapes of the timeline event and of the two decisions. 
 - The counters are not columns of `federation_objects` (design Section 6.6 rule 3). They are the number of rows in `federation_object_reactions`. Reason: the object table is in `claire.db`, and the reactions are in `client.db`; one file has the full state.
 - `federation_object_reactions` has the column `account_id`, which design Section 7.1 does not have. The account purge needs it.
 - The rows of a retracted document stay until the account purge. The object number is not used again, so no list shows them.
-- An actor of this instance in `to` or `cc` counts as a mention, also without a `Mention` tag.
+- An actor of this server in `to` or `cc` counts as a mention, also without a `Mention` tag.
 - The mention rate limit counts stored items. An item that the author deleted is not in the count.
 - `count` in `federation_auto_replies` is the number of non-public messages of the sender, also those without a notice. The client shows the sum; it has no reset. The rows have no cleanup before the account purge.
 - A message from a `Service`, an `Application`, or an actor of an unknown type is not counted.
@@ -1187,7 +1187,7 @@ All routes are for the owner of the account, in single mode and in network mode 
 | `GET` | `/api/feeds/items/{item_id}` | `{"item"}`: the keys of the list, `has_body`, and `render_url`. |
 | `POST` | `/api/feeds/discover` | Body: `url`. `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}`. The address is a feed (one entry), or a page whose `<link rel="alternate">` elements with a feed type give the entries (20 at most). `error` is the reason when the address gave no body (for example `http_404`, `blocked_address`). 400 `invalid_url`. |
 | `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
-| `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the instance has no `usercontent` host. |
+| `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
 Changes of the routes of Section 15.3:
 
@@ -1227,7 +1227,7 @@ A feed item and a timeline item of the same account are the same post when the `
 - The discovery finds feeds only. It does not look for an ActivityPub actor of the same site and does not offer a follow in place of the feed.
 - No route to rename a feed or to move it to a different folder, no WebSub subscription, no auto-ingest rule, no retention run for feed items (as in Section 15.6).
 - The media cleanup (Section 21.4) counts only timeline items as users of an entry. An entry of a feed item goes at the daily cleanup and comes back at the next render.
-- An instance with a `usercontent` host and no `media` host shows no image in the body of a feed item (Section 21.2 rule 5).
+- A server with a `usercontent` host and no `media` host shows no image in the body of a feed item (Section 21.2 rule 5).
 - `GET /api/feeds/items/{item_id}` and `POST /api/feeds/discover` are not in the design. The reader and the subscribe form need them.
 
 Tests: `tests/test_e2e_feed_view.py` (a local site and feed server: discovery, subscribe, poll, read with the render on the two origins, star, ingest; network mode: merge by URL and account isolation), `e2e/feed_view.spec.js` (the view in a browser), the route matrix in `tests/test_route_surface_contract.py` and `tests/test_api_security.py`.
@@ -1257,7 +1257,7 @@ The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17),
 ### 24.3 Fetch Rules (Sidecar, `sidecar/fedify/src/context.ts`)
 
 1. The sidecar has a loop for the thread fetches that is separate from the loop of the other tasks (`main.ts`): each 5 seconds, 2 tasks at most in one call, one call at a time.
-2. Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address (Section 11). No request goes to this instance or to a blocked domain.
+2. Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address (Section 11). No request goes to this server or to a blocked domain.
 3. The sidecar reads the FEP-7888 `context` of the start object as a collection (FEP-f228) with `@fedify/backfill` (strategy `context-auto`: objects, or `Create` activities with their objects). When that gives no object, it reads the reply tree (strategy `reply-tree`): the `inReplyTo` parents and the `replies` collections, `max_depth` levels at most.
 4. Limits of one task: `max_items` objects, `3 × max_items + 20` requests, and 120 seconds. After a limit, the objects that the sidecar has go to Claire.
 5. An object in a collection document is not used as it is. Each object that goes to Claire comes from a document on the origin of its own ID (the sidecar reads it again when it was in a collection of a server), is a public post (`Note`, `Article`, `Page`, `Question`), and has an author on the same origin. The author profile comes from the actor document; without it, the profile has the ID only.
@@ -1279,7 +1279,7 @@ The sidecar acknowledges a task with `POST /client-tasks/{id}/ack` (Section 17),
 
 - The sidecar takes the tasks with `context-tasks`, not with `client-tasks`. Reason: the task has limits and no activity, and one fetch can make many requests; a separate call and a separate loop keep the follow tasks quick. The acknowledgement is the same call as for the other client tasks.
 - The design names one internal endpoint (`context-objects`). `context-tasks` is not in the design.
-- No setting `context_max_requests` (RT6 result). The request limit comes from `context_max_items`. Reason: one more value for the admin has no use before a real instance shows a need.
+- No setting `context_max_requests` (RT6 result). The request limit comes from `context_max_items`. Reason: one more value for the admin has no use before a real server shows a need.
 - The reply tree runs when the context collection gives no object, also when the object has a `context` that is not a collection (the RT6 result says "no `context`"). Reason: the `context` of many servers is an address without a collection.
 - The public route `POST /api/federation/timeline/{item_id}/context` is not in the route table of design Section 5.3. A `GET` of the thread makes no task.
 - The limit `context_max_items` applies in the sidecar to one task. Claire applies it to each `context-objects` request, not to the sum of the requests of one task.
@@ -1432,7 +1432,7 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 
 1. `POST /api/federation/notes` with `quote_of` stores the note with the quoted object, its author, and the state `pending`, and makes one `quote_request` task (not a `note` task), in one transaction. The HTML of the note gets a last paragraph `RE:` with a link to the quoted object (class `quote-inline`), in all quote states.
 2. Sidecar, task `quote_request`: it sends `QuoteRequest` (ID `{note}#quote-request`, `object` = the quoted object, `instrument` = the `Note`) to the author, and then `Create` of the note to the followers, the mentioned actors, and the author. The `Note` has `quote` and `quoteUrl` (Fedify writes `quoteUrl` also as `_misskey_quote` and `quoteUri`, RT9). When the author is not available, only the `Create` goes out, and the quote stays `pending`.
-3. `Accept`: the sidecar sends a quote event when `objectId` of the activity is `{note}#quote-request` on this instance. It never calls `getObject()` for the request (RT9). It reads the `QuoteAuthorization` in `result` with the loader of Fedify: an embedded object of another origin is fetched again. When the authorization is not available, the inbox run fails, and the sender tries again.
+3. `Accept`: the sidecar sends a quote event when `objectId` of the activity is `{note}#quote-request` on this server. It never calls `getObject()` for the request (RT9). It reads the `QuoteAuthorization` in `result` with the loader of Fedify: an embedded object of another origin is fetched again. When the authorization is not available, the inbox run fails, and the sender tries again.
 4. Claire makes the quote `approved` only when all these are true: the actor of the `Accept` is the stored author of the quoted object; the authorization is on the origin of that actor; `interactingObject` is the note; `interactionTarget` is the quoted object; `attributedTo` is absent or is that actor. If not, the decision is `rejected` (`not_the_author`, `invalid_authorization`), and the state does not change.
 5. `Reject` of the request by the author makes the quote `refused`.
 6. Revoke: a `Delete` whose object is the stored authorization, from the author, makes the quote `revoked` (the `Delete` comes as a timeline event). Claire never changes a quote state from a lookup (RT9).
@@ -1441,7 +1441,7 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 
 ### 26.4 Inbound Requests (Section 6.6 Rule 5) and the Quote Policy (Section 5.4 Rule 6)
 
-1. The sidecar sends a `QuoteRequest` whose object is on this instance as a quote event, with the IDs of the object and of the quoting object (`instrument`). It fetches nothing.
+1. The sidecar sends a `QuoteRequest` whose object is on this server as a quote event, with the IDs of the object and of the quoting object (`instrument`). It fetches nothing.
 2. Claire applies these checks in sequence: federation is active; the addresses of the actor are permitted and not blocked; the object is a published document or a note that is public now (if not: `ignored`, `no_object`, and no answer goes out); the quoting object is on the host of the actor (`invalid_object`); the inbox is that of the owner or the shared inbox (`recipient_mismatch`); the rate limit (rule 6).
 3. Policy: `public` → `approved`. `followers` → `approved` for a follower of the owner (`federation_followers`), else `refused`. `manual` → `pending`. `nobody` → `refused`. The default is `public` for a note and `manual` for a published document.
 4. `approved` makes a `quote_authorize` task: the sidecar sends `Accept` (ID `{actor}#quote-accepts/{id}`) with the request by its ID and the `QuoteAuthorization` in `result`. `refused` makes a `quote_reject` task: `Reject` (ID `{actor}#quote-rejects/{id}`). `pending` makes no task: the request is in `GET /api/federation/quotes`.
@@ -1478,7 +1478,7 @@ Internal API (contract 1.7, prefix `/internal/federation/v1`):
 - A `Reject` from the author after an `Accept` also makes the quote `refused`. An `Accept` after a `Reject` makes it `approved`.
 - The owner can approve a refused request later. The owner cannot change a revoked authorization; the quoting actor must delete its post and ask again with a new one.
 - The quoting object of a request must be on the host of its actor. A server that keeps objects on another host than its actors gets `invalid_object` and no answer.
-- A quote of an own note is refused (409 `own_item`): this unit has no approval inside one instance.
+- A quote of an own note is refused (409 `own_item`): this unit has no approval inside one server.
 - Claire does not fetch the quoting object. The owner sees its address and its actor, not its text.
 - Claire does not verify the authorization of a quote in an inbound post: the view shows a link to the quoted object for each inbound quote.
 - The rate limit of quote requests uses `mention_rate_per_hour`; there is no separate setting.
@@ -1497,7 +1497,7 @@ Design: [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READ
 
 ### 27.1 DrFed Test Stack (Development Test Only)
 
-DrFed 0.1.0 (`@drfed/drfed`, license AGPL-3.0-only) is a test server for ActivityPub implementations: it makes test instances and actors, makes `Note` and `Article` objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). It sends no activity to a remote inbox. It runs only as a separate program in a test container; no Claire Bible code links to it, and no Claire Bible image has it.
+DrFed 0.1.0 (`@drfed/drfed`, license AGPL-3.0-only) is a test server for ActivityPub implementations: it makes test servers and actors, makes `Note` and `Article` objects, and records each delivery that arrives at an inbox (the activity type, the result of the signature check, and the JSON-LD body). It sends no activity to a remote inbox. It runs only as a separate program in a test container; no Claire Bible code links to it, and no Claire Bible image has it.
 
 `tests/drfed/docker-compose.yml` and `tests/drfed_stack.py` start the stack. It is not a part of a deployment.
 
@@ -1505,18 +1505,18 @@ DrFed 0.1.0 (`@drfed/drfed`, license AGPL-3.0-only) is a test server for Activit
 | :--- | :--- |
 | Image | `tests/drfed/Dockerfile`: `node:26-slim` with the npm package (DrFed needs Node.js 26 or later and has no official image). The account is made before the server starts (`drfed-account create --migrate`, then `drfed-server`), because PGlite gives the data directory to one process. |
 | Networks | DrFed listens only on its address of the internal network `backend` and has no published port. A TLS gateway (nginx) is on `backend` and on `edge`. A client on `edge` reaches only port 443 of the gateway. DrFed is also on `edge` for its own requests (it reads the actor of a sender to check a signature). |
-| Names | The root origin is `https://drfed.test`; each DrFed instance is a subdomain. The service `dns` (dnsmasq) answers the root name and each name below it with the address of the gateway (`--address=/drfed.test/{gateway}`, with `--local` for an empty IPv6 answer). A container uses it with `dns:`. A Docker network alias cannot be a wildcard, and the name of an instance is made at run time, thus a DNS service is the method. A test process on the host connects each such name to the gateway and keeps the name in the Host header and in the TLS server name. |
-| TLS | Each start makes a private certificate authority and one certificate for `drfed.test` and `*.drfed.test`. The gateway sends the Host header as it came: DrFed selects the instance from it and ignores the forwarded headers. |
-| Automation | The helper does all steps with GraphQL (`/graphql` of the root origin), without the web UI: it asks for a login mail, reads the login link in the log of DrFed (`--mail-log-content`), completes the challenge, and makes one instance with actors. |
+| Names | The root origin is `https://drfed.test`; each DrFed server is a subdomain. The service `dns` (dnsmasq) answers the root name and each name below it with the address of the gateway (`--address=/drfed.test/{gateway}`, with `--local` for an empty IPv6 answer). A container uses it with `dns:`. A Docker network alias cannot be a wildcard, and the name of a server is made at run time, thus a DNS service is the method. A test process on the host connects each such name to the gateway and keeps the name in the Host header and in the TLS server name. |
+| TLS | Each start makes a private certificate authority and one certificate for `drfed.test` and `*.drfed.test`. The gateway sends the Host header as it came: DrFed selects the server from it and ignores the forwarded headers. |
+| Automation | The helper does all steps with GraphQL (`/graphql` of the root origin), without the web UI: it asks for a login mail, reads the login link in the log of DrFed (`--mail-log-content`), completes the challenge, and makes one server with actors. |
 | Claire side | The profile `claire` adds the Fedify sidecar of a Claire process as a container (image of `sidecar/fedify`, with the DNS service and the certificate authority as `DENO_CERT`). The Claire process runs on the host in the development environment; the sidecar reaches it through the Unix socket of its data directory. The public origin of Claire is `http://{gateway}:8080` (the development rule of `WebRuntimeConfig`: http and an IPv4 address); the gateway sends that port to the sidecar. |
 
-Manual work: `python -m tests.drfed_stack up` shows the root origin, the instance, the actors, the certificate authority, and the access token; `info` shows them again; `down` removes the containers, the networks, and the run directory (`.dev/drfed-test`, which Git ignores). The automatic scenarios run only with `CB_DRFED_TEST=1` (`CB_DRFED_TEST=1 pytest tests/test_drfed_docker.py`).
+Manual work: `python -m tests.drfed_stack up` shows the root origin, the server, the actors, the certificate authority, and the access token; `info` shows them again; `down` removes the containers, the networks, and the run directory (`.dev/drfed-test`, which Git ignores). The automatic scenarios run only with `CB_DRFED_TEST=1` (`CB_DRFED_TEST=1 pytest tests/test_drfed_docker.py`).
 
 ### 27.2 Scenarios (`tests/test_drfed_docker.py`)
 
 | Group | Scenario |
 | :--- | :--- |
-| Stack | The helper signs in and makes an instance with actors. Each name below the root resolves to the gateway, and only port 443 is open. An unknown certificate authority stops the connection. The gateway keeps the Host header. The actor, the WebFinger answer, and a public note are readable. |
+| Stack | The helper signs in and makes a server with actors. Each name below the root resolves to the gateway, and only port 443 is open. An unknown certificate authority stops the connection. The gateway keeps the Host header. The actor, the WebFinger answer, and a public note are readable. |
 | Follow | `POST /api/federation/following` with a handle of DrFed: the sidecar reads the WebFinger answer and the actor (TLS with the private authority, a private address), and the `Follow` arrives at the inbox with a verified signature. DrFed sends no `Accept`: the follow stays `pending`. |
 | Published document | `Create` with the `Article` (title, share link, no body) and `Update` at a second publish arrive with a verified signature. The object is readable at its address. |
 | Notes | A reply arrives as `Create(Note)` with `inReplyTo`, a `Mention` of the author of the parent, a `Hashtag`, the content warning, and `contentMap`. An edit arrives as `Update(Note)` with `updated`. A delete arrives as `Delete` with a `Tombstone`, and the object address gives 410. |
@@ -1532,11 +1532,11 @@ Outside the range that the stack confirms (DrFed 0.1.0 sends no activity to a re
 
 ### 27.3 Development Switch for Private Addresses (Contract 1.8)
 
-Fedify refuses each document address that is not public (`UrlError: Invalid or private address`), also an address of a documentation range. The sidecar had no option for it (FS1), thus a Claire instance could not read an actor of a server on the same host or network. Contract 1.8 adds `allow_private_addresses` to the config: true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (the setting that the media proxy and the feed fetcher use). The sidecar then makes Fedify with `allowPrivateAddress`. In production the value is always false. A sidecar test fails when the option has a constant value or is in a second place.
+Fedify refuses each document address that is not public (`UrlError: Invalid or private address`), also an address of a documentation range. The sidecar had no option for it (FS1), thus a Claire server could not read an actor of a server on the same host or network. Contract 1.8 adds `allow_private_addresses` to the config: true only when the environment is `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` is on (the setting that the media proxy and the feed fetcher use). The sidecar then makes Fedify with `allowPrivateAddress`. In production the value is always false. A sidecar test fails when the option has a constant value or is in a second place.
 
 ### 27.4 Retention Run
 
-- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of its account by `received_at` (the lower of the account value and the instance value), is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
+- `store.federation_client.expired_item_ids`: an item of the timeline goes when it is older than the retention of its account by `received_at` (the lower of the account value and the server value), is not starred, and has no ingested document. An own note that is not deleted keeps its item. An item with `in_timeline` = 0 that is the parent of an item that stays also stays, through all levels.
 - The daily cleanup of the `api` process (`media_proxy.run_cleanup_scheduler`) does the retention run first and the media cleanup after it, so that the media of the items that went go in the same cycle.
 - `claire federation prune` shows `retention_days` and `expired_items` with the media numbers; `--apply` deletes.
 - An ingested document is never deleted (RD17). Feed items have no retention run.

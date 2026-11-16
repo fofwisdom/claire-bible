@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
-from ...accounts.username_policy import instance_reserved_labels
+from ...accounts.username_policy import server_reserved_labels
 from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, interpolate, t
 from ...i18n.catalog import BrowserCatalogScope
 from ...presentation.favicon import inject_favicon_head_tags
@@ -43,8 +43,8 @@ class AccountsContext:
     db_file: Path
     auth_db_file: Path
     config: security.WebRuntimeConfig
-    # §8.1-4 인스턴스 예약 라벨(현재 호스트 설정값에서 뽑는다).
-    instance_reserved: frozenset[str]
+    # §8.1-4 서버 예약 라벨(현재 호스트 설정값에서 뽑는다).
+    server_reserved: frozenset[str]
     data_dir: Path | None = None
     # 계정 기능(번들·백업)이 앱 설정(공개 URL·테마 관리자)을 쓴다. 테스트 대역은 None일 수 있다.
     settings: Any = None
@@ -65,8 +65,8 @@ def _host_of(value: Any) -> str:
     return raw.rstrip("/")
 
 
-def instance_hosts(settings: Any, config: security.WebRuntimeConfig) -> tuple[str, ...]:
-    """USERNAME 인스턴스 예약에 쓸 호스트 이름들: 공개 URL authority, ``CLAIRE_FQDN``, ``CLAIRE_SITE_DOMAIN``(P2에서 생기면)."""
+def server_hosts(settings: Any, config: security.WebRuntimeConfig) -> tuple[str, ...]:
+    """USERNAME 서버 예약에 쓸 호스트 이름들: 공개 URL authority, ``CLAIRE_FQDN``, ``CLAIRE_SITE_DOMAIN``(P2에서 생기면)."""
     hosts = [config.expected_authority]
     for name in ("fqdn", "effective_fqdn", "site_domain"):
         try:
@@ -83,7 +83,7 @@ def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsC
         db_file=Path(settings.db_file),
         auth_db_file=auth_db.auth_db_path(data_dir),
         config=config,
-        instance_reserved=instance_reserved_labels(instance_hosts(settings, config)),
+        server_reserved=server_reserved_labels(server_hosts(settings, config)),
         data_dir=data_dir,
         settings=settings,
     )
@@ -236,7 +236,7 @@ def escape(value: Any) -> str:
 
 
 # /admin/* 화면 중 실제 서버 설정에 닿지 않는 요소(프로토타입·시뮬레이션·브라우저 저장·정적 표)의 표식.
-# 운영자가 실제 인스턴스 설정으로 오인하지 않도록 서버가 그린다(JS 없이도 보임). 모양은 console_shell.html의 .proto-badge/.proto-note.
+# 운영자가 실제 서버 설정으로 오인하지 않도록 서버가 그린다(JS 없이도 보임). 모양은 console_shell.html의 .proto-badge/.proto-note.
 PROTOTYPE_KINDS = ("prototype", "simulation", "client_only", "static")
 
 

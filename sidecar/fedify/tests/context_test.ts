@@ -90,7 +90,7 @@ Deno.test("a start object that is not available rejects the task, and federation
   }
 });
 
-Deno.test("a paged context collection stops at the item limit, and the fetch makes no request to this instance or to a blocked domain", async () => {
+Deno.test("a paged context collection stops at the item limit, and the fetch makes no request to this server or to a blocked domain", async () => {
   const { add, fetchWith, fetched, iris, restore } = setup();
   try {
     await add(note(ROOT, DAN, { contexts: [new URL(CONTEXT)] }));

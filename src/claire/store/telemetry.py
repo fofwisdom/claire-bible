@@ -96,7 +96,7 @@ def connect_telemetry(db_path: Path | str) -> sqlite3.Connection:
 
 
 def _migrate_support_bundles_account_id(conn: sqlite3.Connection) -> None:
-    """``support_bundles``에 소유 계정 열을 더한다(멱등). NULL은 인스턴스 전체 번들(관리자 전용)이다."""
+    """``support_bundles``에 소유 계정 열을 더한다(멱등). NULL은 서버 전체 번들(관리자 전용)이다."""
     existing = {str(r[1]) for r in conn.execute("PRAGMA table_info(support_bundles)")}
     if "account_id" not in existing:
         conn.execute("ALTER TABLE support_bundles ADD COLUMN account_id INTEGER")

@@ -592,7 +592,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
 
     with TestClient(mcp_app, base_url="http://localhost:8765") as client:
         # A. Account 1 Principal (Admin owner)
-        p_admin = Principal(account_id=1, instance_role="admin", scope="owner", channel="bearer", credential_id="cred1")
+        p_admin = Principal(account_id=1, server_role="admin", scope="owner", channel="bearer", credential_id="cred1")
         tok = current_principal.set(p_admin)
         try:
             # Can read own Theme 0
@@ -610,7 +610,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
             current_principal.reset(tok)
 
         # B. Account 2 Principal (Member readonly)
-        p_member = Principal(account_id=2, instance_role="member", scope="readonly", channel="bearer", credential_id="cred2")
+        p_member = Principal(account_id=2, server_role="member", scope="readonly", channel="bearer", credential_id="cred2")
         tok = current_principal.set(p_member)
         try:
             # Default theme (theme=None) resolves to Bob's default theme (Theme 2)
@@ -632,7 +632,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
             current_principal.reset(tok)
 
         # C. Collaborator Principal (Member collaborator scope)
-        p_collab = Principal(account_id=2, instance_role="member", scope="collaborator", channel="bearer", credential_id="cred3")
+        p_collab = Principal(account_id=2, server_role="member", scope="collaborator", channel="bearer", credential_id="cred3")
         tok = current_principal.set(p_collab)
         try:
             # Theme 2 is not public and not collaborator_accessible -> theme not found
@@ -774,7 +774,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
                 if binding is not None:
                     request.state.claire_principal = Principal(
                         account_id=binding.account_id,
-                        instance_role="member" if binding.account_id > 1 else "admin",
+                        server_role="member" if binding.account_id > 1 else "admin",
                         scope=binding.scope,  # type: ignore
                         channel="bearer",
                         credential_id=binding.credential_id,

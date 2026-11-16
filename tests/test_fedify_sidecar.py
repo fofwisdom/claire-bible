@@ -203,8 +203,8 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
             assert time.monotonic() < deadline, f"the sidecar did not take the outbox task: {polled_status}"
             time.sleep(0.5)
 
-        instance = httpx.get(f"{base}/ap/actors/instance", headers={"Accept": "application/activity+json"}, timeout=10)
-        assert instance.status_code == 200 and instance.json()["type"] == "Application"
+        server = httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10)
+        assert server.status_code == 200 and server.json()["type"] == "Application"
         nodeinfo = httpx.get(f"{base}/nodeinfo/2.1", timeout=10).json()
         assert nodeinfo["software"]["name"] == "claire-bible" and nodeinfo["usage"]["users"]["total"] == 2
 
@@ -268,7 +268,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
             httpx.get(finger_url, params={"resource": f"acct:admin_kim@127.0.0.1:{claire_port}"}, timeout=10),
             httpx.get(finger_url, params={"resource": f"{origin}/ap/actors/{admin_public_id}"}, timeout=10),
             httpx.get(f"{base}/ap/actors/{admin_public_id}", headers={"Accept": "application/activity+json"}, timeout=10),
-            httpx.get(f"{base}/ap/actors/instance", headers={"Accept": "application/activity+json"}, timeout=10),
+            httpx.get(f"{base}/ap/actors/server", headers={"Accept": "application/activity+json"}, timeout=10),
             httpx.get(f"{base}/.well-known/nodeinfo", timeout=10),
             httpx.get(f"{base}/nodeinfo/2.1", timeout=10),
         ]
@@ -292,7 +292,7 @@ def test_e2e_sidecar_resolves_a_handle_through_a_real_claire(tmp_path):
 def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
     """The admin can set the switch to ``on`` only after GF6 passes. Thus the sidecar self-check must pass while federation is off.
 
-    The public origin of this instance is the address of the sidecar. This stands for a reverse proxy that sends the federation paths to the sidecar.
+    The public origin of this server is the address of the sidecar. This stands for a reverse proxy that sends the federation paths to the sidecar.
     """
     claire_port, sidecar_port = _free_port(), _free_port()
     data_dir = tmp_path / "data"
@@ -363,7 +363,7 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
         assert finger.status_code == 404 and finger.text == "Not Found"
 
         # The readiness checks that depend on the sidecar pass. GF7 fails here only because this test has no reverse proxy that sends the other paths to Claire.
-        check = subprocess.run([sys.executable, "-m", "claire.cli", "instance", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+        check = subprocess.run([sys.executable, "-m", "claire.cli", "server", "check", "--federation", "--json"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
         report = json.loads(check.stdout)
         items = {item["id"]: item["passed"] for item in report["data"]["items"]}
         assert items == {"GF1": True, "GF2": True, "GF3": True, "GF4": True, "GF5": True, "GF6": True, "GF7": False}, check.stdout
@@ -376,7 +376,7 @@ def test_e2e_self_check_passes_while_federation_is_off(tmp_path):
 def test_e2e_remote_server_follows_an_actor_of_a_real_claire(tmp_path):
     """Phase FP2 end to end: a signed ``Follow`` goes through the sidecar code to a real Claire process, and the follower is in ``claire.db``.
 
-    The remote server is in the Deno process (``sidecar/fedify/e2e/follow_e2e.ts``). Claire has no function that sends a ``Follow``, and Fedify refuses the loopback address of a second development instance (FS1).
+    The remote server is in the Deno process (``sidecar/fedify/e2e/follow_e2e.ts``). Claire has no function that sends a ``Follow``, and Fedify refuses the loopback address of a second development server (FS1).
     """
     claire_port = _free_port()
     data_dir = tmp_path / "data"

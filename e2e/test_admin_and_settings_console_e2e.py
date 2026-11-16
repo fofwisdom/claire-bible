@@ -42,7 +42,7 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("instance", "federation", "accounts", "idp", "providers", "limits", "themes", "tokens", "mcp")
+ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "themes", "tokens", "mcp")
 SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
 MEMBER_SETTINGS_SECTIONS: tuple[str, ...] = ("account", "federation", "keys", "themes", "tokens", *SETTINGS_SECTIONS[2:])
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/api/admin/mcp/telemetry")
@@ -213,7 +213,7 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     assert who.status_code == 200
     assert who.json()["is_admin"] is True
     assert who.json()["scope"] == "owner"
-    assert who.json()["instance"] == {"mode": mode}
+    assert who.json()["server"] == {"mode": mode}
 
     # 인라인된 app.js가 is_admin=true일 때 #consolelinkbtn을 🛠️ 아이콘(관리자 콘솔 → /admin)으로 바꾼다.
     assert "IS_ADMIN = d.is_admin === true" in html
@@ -228,10 +228,10 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
 
     entry = _get(env, "/admin", env.admin)
     assert entry.status_code == 302
-    assert entry.headers["location"] == "/admin/instance"
+    assert entry.headers["location"] == "/admin/server"
 
-    landing = _assert_console_page(_get(env, entry.headers["location"], env.admin), "/admin/instance")
-    _assert_admin_sidebar(landing, "/admin/instance")
+    landing = _assert_console_page(_get(env, entry.headers["location"], env.admin), "/admin/server")
+    _assert_admin_sidebar(landing, "/admin/server")
 
     # 사이드바 링크를 실제로 따라가며 모든 관리자 섹션을 연다.
     for slug in ADMIN_SECTIONS:
@@ -275,7 +275,7 @@ def test_member_isolation_in_network_mode(console_e2e):
 
     who = _get(env, f"/@{MEMBER_USERNAME}/whoami", env.alice)
     assert who.status_code == 200
-    assert who.json() == {"scope": "owner", "instance": {"mode": "network"}, "relation": "owner", "is_admin": False}
+    assert who.json() == {"scope": "owner", "server": {"mode": "network"}, "relation": "owner", "is_admin": False}
 
     root = _get(env, f"/@{MEMBER_USERNAME}/", env.alice)
     assert root.status_code == 200, root.status_code
@@ -301,7 +301,7 @@ def test_member_isolation_in_network_mode(console_e2e):
         assert "pref-mcp-audit-tbody" not in body, path
         assert "pref-idp-tbody" not in body, path
         assert "System administration and settings (administrator)" not in body, path
-        assert "Instance · Accounts · Authentication (administrator)" not in body, path
+        assert "Server · Accounts · Authentication (administrator)" not in body, path
         for slug2 in MEMBER_SETTINGS_SECTIONS:
             assert f'href="/settings/{slug2}"' in body, (path, slug2)
         assert "Bob Console Secret" not in body, path
@@ -371,7 +371,7 @@ def test_single_mode_never_emits_username_on_console_or_whoami(console_e2e):
 
     who = _get(env, "/whoami", env.admin)
     assert who.status_code == 200
-    assert who.json() == {"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": True}
+    assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
 
     for path in ("/admin", "/settings", "/settings/themes", "/settings/tokens"):

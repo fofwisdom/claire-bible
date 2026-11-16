@@ -1,4 +1,4 @@
-"""End-to-end test for instance network mode transition lifecycle.
+"""End-to-end test for server network mode transition lifecycle.
 
 Verifies readiness check evaluation, server tier configuration, gate enforcement,
 and clean transition from single mode to network mode and back.
@@ -103,7 +103,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     headers = _admin_headers(admin_token)
 
     # 1. Initially in single mode
-    init_resp = app_env.client.get("/api/admin/instance", headers=headers)
+    init_resp = app_env.client.get("/api/admin/server", headers=headers)
     assert init_resp.status_code == 200
     init_data = init_resp.json()
     assert init_data["mode"] == "single"
@@ -122,7 +122,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     assert init_data["readiness"]["passed"] is False
 
     # 2. Attempt transition to network mode -> rejected due to G5 failure
-    fail_switch = app_env.client.post("/api/admin/instance/mode", json={"mode": "network"}, headers=headers)
+    fail_switch = app_env.client.post("/api/admin/server/mode", json={"mode": "network"}, headers=headers)
     assert fail_switch.status_code == 400
     fail_body = fail_switch.json()
     assert fail_body["error"] == "readiness_failed"
@@ -134,14 +134,14 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     assert tier_resp.json()["ok"] is True
 
     # 4. Check readiness report again -> all G1-G9 passed
-    ready_resp = app_env.client.get("/api/admin/instance", headers=headers)
+    ready_resp = app_env.client.get("/api/admin/server", headers=headers)
     assert ready_resp.status_code == 200
     ready_data = ready_resp.json()
     assert ready_data["readiness"]["passed"] is True
     assert all(item["passed"] for item in ready_data["readiness"]["items"])
 
     # 5. Transition single -> network mode -> succeeds
-    switch_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "network"}, headers=headers)
+    switch_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "network"}, headers=headers)
     assert switch_resp.status_code == 200
     switch_body = switch_resp.json()
     assert switch_body["mode"] == "network"
@@ -151,7 +151,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     whoami_resp = app_env.client.get("/whoami", headers=headers)
     assert whoami_resp.status_code == 200
     whoami_data = whoami_resp.json()
-    assert whoami_data["instance"]["mode"] == "network"
+    assert whoami_data["server"]["mode"] == "network"
     assert whoami_data["relation"] == "owner"
 
     # 6a. Verify service access in network mode
@@ -185,14 +185,14 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
             fed_conn.close()
 
     _set_federation("on")
-    refused = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    refused = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
     assert refused.status_code == 400
     assert refused.json()["error"] == "federation_enabled"
-    assert app_env.client.get("/whoami", headers=headers).json()["instance"]["mode"] == "network"
+    assert app_env.client.get("/whoami", headers=headers).json()["server"]["mode"] == "network"
     _set_federation("off")
 
     # 7. Transition back network -> single mode -> succeeds when no non-admin members exist
-    back_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    back_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
     assert back_resp.status_code == 200
     back_body = back_resp.json()
     assert back_body["mode"] == "single"
@@ -201,7 +201,7 @@ def test_e2e_network_mode_transition_lifecycle(app_env):
     # 8. Verify whoami reflects single mode again
     whoami_back = app_env.client.get("/whoami", headers=headers)
     assert whoami_back.status_code == 200
-    assert whoami_back.json()["instance"]["mode"] == "single"
+    assert whoami_back.json()["server"]["mode"] == "single"
 
 
 def test_e2e_network_mode_web_interface_lifecycle(app_env):
@@ -209,30 +209,30 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     admin_token = _login_admin(app_env)
     headers = _admin_headers(admin_token)
 
-    # 1. Verify static JavaScript delivery for instance_mode.js
-    js_resp = app_env.client.get("/static/js/instance_mode.js")
+    # 1. Verify static JavaScript delivery for server_mode.js
+    js_resp = app_env.client.get("/static/js/server_mode.js")
     assert js_resp.status_code == 200
     assert "data-mode-switch-form" in js_resp.text
     assert "data-mode-switch-reauth" in js_resp.text
-    assert "/api/admin/instance/mode" in js_resp.text
+    assert "/api/admin/server/mode" in js_resp.text
 
-    # 2. Verify admin navigation links to /admin/instance
+    # 2. Verify admin navigation links to /admin/server
     acc_page = app_env.client.get("/admin/accounts", headers=headers)
     assert acc_page.status_code == 200
-    assert 'href="/admin/instance"' in acc_page.text
+    assert 'href="/admin/server"' in acc_page.text
 
     idp_page = app_env.client.get("/admin/idp", headers=headers)
     assert idp_page.status_code == 200
-    assert 'href="/admin/instance"' in idp_page.text
+    assert 'href="/admin/server"' in idp_page.text
 
     # 3. Initial page in Single Mode with G5 unconfigured
-    init_page = app_env.client.get("/admin/instance", headers=headers)
+    init_page = app_env.client.get("/admin/server", headers=headers)
     assert init_page.status_code == 200
-    assert '<section class="card" aria-label="Instance mode" id="instance-mode">' in init_page.text
+    assert '<section class="card" aria-label="Server mode" id="server-mode">' in init_page.text
     assert 'data-mode-switch-form' in init_page.text
     assert 'data-mode-switch-reauth' in init_page.text
     assert 'name="target_mode" value="network"' in init_page.text
-    assert '<script src="/static/js/instance_mode.js" defer></script>' in init_page.text
+    assert '<script src="/static/js/server_mode.js" defer></script>' in init_page.text
     assert "Readiness checks not passed (" in init_page.text
     form_slice = init_page.text.split("data-mode-switch-form")[1].split("</form>")[0]
     assert "disabled" in form_slice
@@ -242,7 +242,7 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     assert tier_resp.status_code == 200
 
     # 5. Page in Single Mode is now ready for transition
-    ready_page = app_env.client.get("/admin/instance", headers=headers)
+    ready_page = app_env.client.get("/admin/server", headers=headers)
     assert ready_page.status_code == 200
     assert "9/9 passed" in ready_page.text
     assert "The readiness checks are complete: the switch to network mode is possible." in ready_page.text
@@ -251,12 +251,12 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     assert "Switch to network mode</button>" in ready_form_slice
 
     # 6. Execute transition to Network Mode
-    switch_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "network"}, headers=headers)
+    switch_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "network"}, headers=headers)
     assert switch_resp.status_code == 200
     assert switch_resp.json()["mode"] == "network"
 
     # 7. Page now renders Network Mode controls
-    net_page = app_env.client.get("/admin/instance", headers=headers)
+    net_page = app_env.client.get("/admin/server", headers=headers)
     assert net_page.status_code == 200
     assert '<span class="badge">Network mode</span>' in net_page.text
     assert 'name="target_mode" value="single"' in net_page.text
@@ -276,7 +276,7 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
     finally:
         conn.close()
 
-    blocked_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    blocked_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
     assert blocked_resp.status_code == 400
     assert blocked_resp.json()["error"] == "members_exist"
 
@@ -289,12 +289,12 @@ def test_e2e_network_mode_web_interface_lifecycle(app_env):
         conn.close()
 
     # 9. Rollback to Single Mode succeeds
-    back_resp = app_env.client.post("/api/admin/instance/mode", json={"mode": "single"}, headers=headers)
+    back_resp = app_env.client.post("/api/admin/server/mode", json={"mode": "single"}, headers=headers)
     assert back_resp.status_code == 200
     assert back_resp.json()["mode"] == "single"
 
     # 10. Page is back in Single Mode
-    final_page = app_env.client.get("/admin/instance", headers=headers)
+    final_page = app_env.client.get("/admin/server", headers=headers)
     assert final_page.status_code == 200
     assert '<span class="badge">Single mode</span>' in final_page.text
     assert 'name="target_mode" value="network"' in final_page.text

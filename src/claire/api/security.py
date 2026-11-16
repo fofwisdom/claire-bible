@@ -32,7 +32,7 @@ from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..store import accounts as accounts_store
-from ..store.accounts import InstanceMode
+from ..store.accounts import ServerMode
 from ..store import db as dbm
 from .principal import ANONYMOUS, PRINCIPAL_STATE_KEY, Principal
 from .namespace import (
@@ -263,8 +263,8 @@ RouteKey = tuple[str, str]
 # 라우트 표면(§9.1). root: 루트 GET / 전용, system: 루트에서만(접두 아래 404),
 # namespaced: 네임스페이스 필요(N1–N3), any: 접두를 무시한다.
 RouteSurface = Literal["root", "system", "namespaced", "any"]
-ALL_MODES: frozenset[InstanceMode] = frozenset({"single", "network"})
-NETWORK_ONLY: frozenset[InstanceMode] = frozenset({"network"})
+ALL_MODES: frozenset[ServerMode] = frozenset({"single", "network"})
+NETWORK_ONLY: frozenset[ServerMode] = frozenset({"network"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,25 +274,25 @@ class RouteRule:
     # 기본값에 기대지 않는다(tests/test_route_surface_contract.py가 AST로 확인한다).
     surface: RouteSurface = "namespaced"
     # 현재 모드가 없으면 404(N5).
-    modes: frozenset[InstanceMode] = ALL_MODES
+    modes: frozenset[ServerMode] = ALL_MODES
 
 
-def _root(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+def _root(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """루트 ``GET /`` 전용(§9.1). 접두 아래에서는 namespaced 홈으로 동작한다."""
     return RouteRule(access=access, surface="root", modes=modes)
 
 
-def _system(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+def _system(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """루트에서만 받는다. 접두 아래에서는 404(N5)."""
     return RouteRule(access=access, surface="system", modes=modes)
 
 
-def _namespaced(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+def _namespaced(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """네임스페이스가 필요하다(N1–N3)."""
     return RouteRule(access=access, surface="namespaced", modes=modes)
 
 
-def _any(access: AccessLevel, *, modes: frozenset[InstanceMode] = ALL_MODES) -> RouteRule:
+def _any(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """네임스페이스와 무관하다. 접두를 검증한 뒤 무시하고 자격증명 계정을 쓴다."""
     return RouteRule(access=access, surface="any", modes=modes)
 
@@ -497,12 +497,12 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/usernames/retired"): _system("admin"),
     ("HEAD", "/api/admin/usernames/retired"): _system("admin"),
     ("POST", "/api/admin/usernames/release"): _system("admin"),
-    ("GET", "/admin/instance"): _system("admin"),
-    ("HEAD", "/admin/instance"): _system("admin"),
-    ("GET", "/api/admin/instance"): _system("admin"),
-    ("HEAD", "/api/admin/instance"): _system("admin"),
-    ("POST", "/api/admin/instance/mode"): _system("admin"),
-    ("POST", "/api/admin/instance/legacy-hosts/sunset"): _system("admin"),
+    ("GET", "/admin/server"): _system("admin"),
+    ("HEAD", "/admin/server"): _system("admin"),
+    ("GET", "/api/admin/server"): _system("admin"),
+    ("HEAD", "/api/admin/server"): _system("admin"),
+    ("POST", "/api/admin/server/mode"): _system("admin"),
+    ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin"),
     ("GET", "/api/admin/federation"): _system("admin"),
     ("HEAD", "/api/admin/federation"): _system("admin"),
     ("POST", "/api/admin/federation"): _system("admin"),
@@ -1198,7 +1198,7 @@ class _Credential:
 
     scope: str
     account_id: int
-    instance_role: Literal["admin", "member"]
+    server_role: Literal["admin", "member"]
     credential_id: str
     authenticated_at: float | None = None
     # accounts.locale of the bound account. The environment token credential does not read the database and has None.
@@ -1207,7 +1207,7 @@ class _Credential:
     def principal(self, channel: Literal["cookie", "bearer", "x-session"]) -> Principal:
         return Principal(
             account_id=self.account_id,
-            instance_role=self.instance_role,
+            server_role=self.server_role,
             scope=self.scope,  # type: ignore[arg-type]  # 허용 판정이 scope 값을 거른 뒤에만 쓴다
             channel=channel,
             credential_id=self.credential_id,
@@ -1220,11 +1220,11 @@ class _Credential:
 
 
 def _env_token_credential(scope: str) -> _Credential:
-    """환경변수 토큰은 인스턴스 설정이므로 관리자 계정의 것이다(§8.3). DB를 읽지 않는다."""
+    """환경변수 토큰은 서버 설정이므로 관리자 계정의 것이다(§8.3). DB를 읽지 않는다."""
     return _Credential(
         scope=scope,
         account_id=accounts_store.ADMIN_ACCOUNT_ID,
-        instance_role="admin",
+        server_role="admin",
         credential_id=f"env:{scope}",
     )
 
@@ -1248,7 +1248,7 @@ def _bind_account(
     return _Credential(
         scope=scope,
         account_id=account.id,
-        instance_role=account.role,
+        server_role=account.role,
         credential_id=credential_id,
         authenticated_at=authenticated_at,
         locale=account.locale,
@@ -1677,7 +1677,7 @@ class AuthenticationMiddleware:
         # 모드(§4)를 읽는다. 없으면 싱글 모드다(DB 없는 단위 시험).
         self.namespace_directory = namespace_directory
 
-    def _mode(self) -> InstanceMode:
+    def _mode(self) -> ServerMode:
         if self.namespace_directory is None:
             return "single"
         return self.namespace_directory.mode()
@@ -1705,7 +1705,7 @@ class AuthenticationMiddleware:
 
         username = await asyncio.to_thread(_username)
         if not username:
-            # 계정 홈을 만들 수 없으면 인스턴스 루트로 보낸다(관리자 이름으로 대신하지 않는다).
+            # 계정 홈을 만들 수 없으면 서버 루트로 보낸다(관리자 이름으로 대신하지 않는다).
             return "/"
         return account_home_path(mode, username)
 
@@ -2088,7 +2088,7 @@ class AuthenticationMiddleware:
                 # admin: owner 범위이면서 관리자 계정일 때만(§9.1). 아니면 존재를 숨기는 404.
                 and (
                     access != "admin"
-                    or (credential is not None and credential.instance_role == "admin")
+                    or (credential is not None and credential.server_role == "admin")
                 )
             )
             or (
@@ -2292,7 +2292,7 @@ class SafeAccessLogMiddleware:
 class _PublicDirectoryNamespaceResolver(NamespaceResolverMiddleware):
     """네트워크 모드 루트(GET /)를 공개 디렉터리로 라우팅한다 (P3 L3-g, D4)."""
 
-    def _root(self, mode: InstanceMode, scope: Scope) -> _Outcome | Response:
+    def _root(self, mode: ServerMode, scope: Scope) -> _Outcome | Response:
         if mode == "single":
             return super()._root(mode, scope)
         query_string = scope.get("query_string", b"") or b""

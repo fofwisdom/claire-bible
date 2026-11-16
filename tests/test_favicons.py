@@ -287,7 +287,7 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
             "page_title": "콘솔",
             "storage_key": "1",
             "active_area": "admin",
-            "active_section": "instance",
+            "active_section": "server",
             "graph_href": "/",
             "syndication_href": "/syndication",
             "scope_badge": "",

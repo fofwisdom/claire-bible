@@ -1,6 +1,6 @@
 """End-to-end test of the reading settings (FEDERATION_REMOTE_READING_DESIGN.md Section 10, unit FP4-2).
 
-A real app in network mode: the admin sets the instance values, the owner of an account sets the own retention, and Section 10 rule 1 holds (the effective value is the lower one; an account value above the instance value is refused; a later decrease of the instance value does not change the account value).
+A real app in network mode: the admin sets the server values, the owner of an account sets the own retention, and Section 10 rule 1 holds (the effective value is the lower one; an account value above the server value is refused; a later decrease of the server value does not change the account value).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def test_e2e_admin_and_owner_reading_settings(env):
     # Defaults of Section 10.
     data = c.request("GET", READING, session=env.admin).json()
     assert data["settings"]["retention_days"] == 90 and data["settings"]["following_limit"] == 1000 and data["settings"]["context_fetch"] == "on"
-    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": None, "instance_retention_days": 90, "effective_retention_days": 90}
+    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": None, "server_retention_days": 90, "effective_retention_days": 90}
 
     # The admin changes two values; the change has an audit record.
     res = c.request("PUT", READING, session=env.admin, json={"retention_days": 30, "context_fetch": "off"})
@@ -45,14 +45,14 @@ def test_e2e_admin_and_owner_reading_settings(env):
     assert c.request("GET", READING, session=env.alpha_session).status_code == 404
     assert c.request("PUT", READING, session=env.alpha_session, json={"retention_days": 10}).status_code == 404
 
-    # The owner: a value above the instance value is refused, a lower value is the effective value.
+    # The owner: a value above the server value is refused, a lower value is the effective value.
     assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 60}).status_code == 400
     res = c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 20})
-    assert res.json() == {"retention_days": 20, "instance_retention_days": 30, "effective_retention_days": 20}
-    # The admin decreases the instance value: the account value stays, and the effective value is the lower one.
+    assert res.json() == {"retention_days": 20, "server_retention_days": 30, "effective_retention_days": 20}
+    # The admin decreases the server value: the account value stays, and the effective value is the lower one.
     c.request("PUT", READING, session=env.admin, json={"retention_days": 10})
-    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": 20, "instance_retention_days": 10, "effective_retention_days": 10}
-    # null returns to the instance value; a body outside the model is refused.
+    assert c.request("GET", SETTINGS, session=env.alpha_session).json() == {"retention_days": 20, "server_retention_days": 10, "effective_retention_days": 10}
+    # null returns to the server value; a body outside the model is refused.
     assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": None}).json()["effective_retention_days"] == 10
     assert c.request("PUT", SETTINGS, session=env.alpha_session, json={"retention_days": 5, "x": 1}).status_code == 400
 

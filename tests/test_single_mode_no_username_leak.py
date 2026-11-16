@@ -2,7 +2,7 @@
 
 싱글 모드에서는 관리자 USERNAME이 익명·방문자 응답(헤더·본문) 어디에도 노출되지 않아야 한다(S9).
 HTML 셸의 부트스트랩 메타태그 ``storage-key``는 계정의 public_id 기반(``a{public_id}``)이어야 한다(O9).
-인스턴스 모드 설정·전환, 준비 검사 G1–G9, 레거시 호스트 일몰 시계 API, 로그인·설정 리다이렉트를 함께 검증한다.
+서버 모드 설정·전환, 준비 검사 G1–G9, 레거시 호스트 일몰 시계 API, 로그인·설정 리다이렉트를 함께 검증한다.
 모든 테스트는 tmp_path를 사용하고 CLAIRE_* 환경변수로부터 완전히 격리된다(§18.2-6).
 """
 
@@ -128,7 +128,7 @@ def test_whoami_anonymous_in_single_mode_does_not_leak_admin_username(app_env):
     assert resp.status_code == 200
     data = resp.json()
     assert data["scope"] == "anonymous"
-    assert data["instance"]["mode"] == "single"
+    assert data["server"]["mode"] == "single"
     assert data["relation"] == "visitor"
     assert SECRET_ADMIN_USERNAME not in resp.text
     assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values())
@@ -206,7 +206,7 @@ def test_single_mode_at_username_redirects_308_when_published(app_env):
     conn = dbm.connect_existing(app_env.db_file)
     try:
         conn.execute(
-            f"INSERT INTO instance_settings (key, value, updated_at) VALUES ('{ADMIN_USERNAME_PUBLISHED_KEY}', '1', ?)",
+            f"INSERT INTO server_settings (key, value, updated_at) VALUES ('{ADMIN_USERNAME_PUBLISHED_KEY}', '1', ?)",
             (time.time(),),
         )
         conn.commit()
@@ -289,11 +289,11 @@ def test_readiness_g4_production_behavior(app_env):
 
 
 def test_readiness_g5_server_tier_setting(app_env):
-    """G5 passes when server_tier is configured in instance_settings."""
+    """G5 passes when server_tier is configured in server_settings."""
     conn = dbm.connect_existing(app_env.db_file)
     try:
         conn.execute(
-            "INSERT INTO instance_settings (key, value, updated_at) VALUES ('server_tier', 'none', ?)",
+            "INSERT INTO server_settings (key, value, updated_at) VALUES ('server_tier', 'none', ?)",
             (time.time(),),
         )
         conn.commit()
@@ -302,7 +302,7 @@ def test_readiness_g5_server_tier_setting(app_env):
         # A bare 'none' string is not a valid ServerTier JSON object (P4 L4-c).
         assert item_g5.passed is False
         conn.execute(
-            "UPDATE instance_settings SET value=? WHERE key='server_tier'",
+            "UPDATE server_settings SET value=? WHERE key='server_tier'",
             (json.dumps(ServerTier().to_dict()),),
         )
         conn.commit()
@@ -360,29 +360,29 @@ def test_readiness_g9_passes_when_fallback_removed(app_env, monkeypatch):
 
 
 # ==============================================================================
-# Instance Administration Routes: GET /admin/instance & /api/admin/instance
+# Server Administration Routes: GET /admin/server & /api/admin/server
 # ==============================================================================
 
 
-def test_get_admin_instance_page_requires_admin(app_env):
-    """GET /admin/instance returns 404 for anonymous and 200 for admin."""
+def test_get_admin_server_page_requires_admin(app_env):
+    """GET /admin/server returns 404 for anonymous and 200 for admin."""
     # Anonymous: 404
-    anon_resp = app_env.client.get("/admin/instance")
+    anon_resp = app_env.client.get("/admin/server")
     assert anon_resp.status_code == 404
 
     # Admin session: 200
     token = _login_admin(app_env)
-    admin_resp = app_env.client.get("/admin/instance", headers=_admin_headers(token))
+    admin_resp = app_env.client.get("/admin/server", headers=_admin_headers(token))
     assert admin_resp.status_code == 200
-    assert "Instance settings" in admin_resp.text
+    assert "Server settings" in admin_resp.text
     assert "Readiness checks for network mode (G1–G9)" in admin_resp.text
     assert "Sunset clock of legacy hosts" in admin_resp.text
 
 
-def test_get_api_admin_instance_json(app_env):
-    """GET /api/admin/instance returns current mode, readiness report, and policy."""
+def test_get_api_admin_server_json(app_env):
+    """GET /api/admin/server returns current mode, readiness report, and policy."""
     token = _login_admin(app_env)
-    resp = app_env.client.get("/api/admin/instance", headers=_admin_headers(token))
+    resp = app_env.client.get("/api/admin/server", headers=_admin_headers(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "single"
@@ -394,15 +394,15 @@ def test_get_api_admin_instance_json(app_env):
 
 
 # ==============================================================================
-# Instance Administration Routes: POST /api/admin/instance/mode
+# Server Administration Routes: POST /api/admin/server/mode
 # ==============================================================================
 
 
-def test_post_api_admin_instance_mode_single_to_network_rejected(app_env, monkeypatch):
+def test_post_api_admin_server_mode_single_to_network_rejected(app_env, monkeypatch):
     """Switching single -> network is rejected with 400 when readiness checks fail (G5 not set)."""
     token = _login_admin(app_env)
     resp = app_env.client.post(
-        "/api/admin/instance/mode",
+        "/api/admin/server/mode",
         json={"mode": "network"},
         headers=_admin_headers(token),
     )
@@ -414,7 +414,7 @@ def test_post_api_admin_instance_mode_single_to_network_rejected(app_env, monkey
     # Also check gate if NETWORK_MODE_AVAILABLE were disabled
     monkeypatch.setattr(readiness, "NETWORK_MODE_AVAILABLE", False)
     resp_gate = app_env.client.post(
-        "/api/admin/instance/mode",
+        "/api/admin/server/mode",
         json={"mode": "network"},
         headers=_admin_headers(token),
     )
@@ -422,7 +422,7 @@ def test_post_api_admin_instance_mode_single_to_network_rejected(app_env, monkey
     assert resp_gate.json()["error"] == "network_mode_not_available"
 
 
-def test_post_api_admin_instance_mode_requires_step_up_auth(app_env):
+def test_post_api_admin_server_mode_requires_step_up_auth(app_env):
     """Mode switching requires step-up authentication within STEP_UP_WINDOW_SECONDS."""
     # Create an old session where authenticated_at is older than 15 minutes
     conn = dbm.connect_existing(app_env.db_file)
@@ -434,7 +434,7 @@ def test_post_api_admin_instance_mode_requires_step_up_auth(app_env):
         conn.close()
 
     resp = app_env.client.post(
-        "/api/admin/instance/mode",
+        "/api/admin/server/mode",
         json={"mode": "network"},
         headers=_admin_headers(old_token),
     )
@@ -442,12 +442,12 @@ def test_post_api_admin_instance_mode_requires_step_up_auth(app_env):
     assert resp.json()["error"] == "reauth_required"
 
 
-def test_post_api_admin_instance_mode_network_to_single_when_members_exist(app_env):
+def test_post_api_admin_server_mode_network_to_single_when_members_exist(app_env):
     """Switching network -> single is rejected when non-admin members exist."""
-    # Manually put instance into network mode and add an active member
+    # Manually put server into network mode and add an active member
     conn = dbm.connect_existing(app_env.db_file)
     try:
-        conn.execute("INSERT OR REPLACE INTO instance_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
+        conn.execute("INSERT OR REPLACE INTO server_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
         conn.execute(
             "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, updated_at) "
             "VALUES (2, 222222222222222222, 'member_bob', 'member', 'active', 'Bob', 1, ?, ?)",
@@ -459,7 +459,7 @@ def test_post_api_admin_instance_mode_network_to_single_when_members_exist(app_e
 
     token = _login_admin(app_env)
     resp = app_env.client.post(
-        "/api/admin/instance/mode",
+        "/api/admin/server/mode",
         json={"mode": "single"},
         headers=_admin_headers(token),
     )
@@ -470,19 +470,19 @@ def test_post_api_admin_instance_mode_network_to_single_when_members_exist(app_e
     assert data["members"][0]["username"] == "member_bob"
 
 
-def test_post_api_admin_instance_mode_network_to_single_success(app_env):
+def test_post_api_admin_server_mode_network_to_single_success(app_env):
     """Switching network -> single succeeds without members and sets admin_username_published='1' (O15)."""
-    # Put instance into network mode without non-admin members
+    # Put server into network mode without non-admin members
     conn = dbm.connect_existing(app_env.db_file)
     try:
-        conn.execute("INSERT OR REPLACE INTO instance_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
+        conn.execute("INSERT OR REPLACE INTO server_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
         conn.commit()
     finally:
         conn.close()
 
     token = _login_admin(app_env)
     resp = app_env.client.post(
-        "/api/admin/instance/mode",
+        "/api/admin/server/mode",
         json={"mode": "single"},
         headers=_admin_headers(token),
     )
@@ -496,18 +496,18 @@ def test_post_api_admin_instance_mode_network_to_single_success(app_env):
     conn = dbm.connect_existing(app_env.db_file)
     try:
         store = accounts_store.AccountStore(conn)
-        assert store.instance_mode() == "single"
+        assert store.server_mode() == "single"
         assert store.get_setting(ADMIN_USERNAME_PUBLISHED_KEY) == "1"
     finally:
         conn.close()
 
 
 # ==============================================================================
-# Sunset Clock API: POST /api/admin/instance/legacy-hosts/sunset
+# Sunset Clock API: POST /api/admin/server/legacy-hosts/sunset
 # ==============================================================================
 
 
-def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
+def test_post_api_admin_server_legacy_hosts_sunset_actions(app_env):
     """O6: activate, extend, keep_indefinitely, and update_policy operations."""
     token = _login_admin(app_env)
 
@@ -524,7 +524,7 @@ def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
 
     # 1. Activate sunset clock
     resp_act = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "activate", "days": 45},
         headers=_admin_headers(token),
     )
@@ -534,7 +534,7 @@ def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
 
     # 2. Extend sunset clock
     resp_ext = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "extend", "host": "old.example.com", "days": 15},
         headers=_admin_headers(token),
     )
@@ -544,7 +544,7 @@ def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
 
     # 3. Keep indefinitely
     resp_keep = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "keep_indefinitely", "host": "old.example.com"},
         headers=_admin_headers(token),
     )
@@ -554,7 +554,7 @@ def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
 
     # 4. Update policy
     resp_pol = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "update_policy", "after_sunset_status": 421, "sunset_days": 60},
         headers=_admin_headers(token),
     )
@@ -563,13 +563,13 @@ def test_post_api_admin_instance_legacy_hosts_sunset_actions(app_env):
     assert resp_pol.json()["policy"]["sunset_days"] == 60
 
 
-def test_post_api_admin_instance_sunset_error_cases(app_env):
+def test_post_api_admin_server_sunset_error_cases(app_env):
     """Sunset API returns 404 for unknown host and 400 for invalid inputs."""
     token = _login_admin(app_env)
 
     # Extend nonexistent host -> 404
     resp_404 = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "extend", "host": "nonexistent.example.com", "days": 10},
         headers=_admin_headers(token),
     )
@@ -577,7 +577,7 @@ def test_post_api_admin_instance_sunset_error_cases(app_env):
 
     # Invalid action -> 400
     resp_inv = app_env.client.post(
-        "/api/admin/instance/legacy-hosts/sunset",
+        "/api/admin/server/legacy-hosts/sunset",
         json={"action": "unknown_action"},
         headers=_admin_headers(token),
     )
@@ -606,7 +606,7 @@ def test_login_redirect_in_single_and_network_modes(app_env):
     # Switch to network mode
     conn = dbm.connect_existing(app_env.db_file)
     try:
-        conn.execute("INSERT OR REPLACE INTO instance_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
+        conn.execute("INSERT OR REPLACE INTO server_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
         conn.commit()
     finally:
         conn.close()
@@ -669,7 +669,7 @@ def test_setup_redirect_in_network_mode(tmp_path: Path):
     conn = dbm.connect(db_file)
     try:
         dbm.init_db(conn)
-        conn.execute("INSERT OR REPLACE INTO instance_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
+        conn.execute("INSERT OR REPLACE INTO server_settings (key, value, updated_at) VALUES ('mode', 'network', ?)", (time.time(),))
         conn.commit()
         setup_token = accounts_store.create_account_session(conn, account_id=1, scope="owner", now=time.time())
     finally:

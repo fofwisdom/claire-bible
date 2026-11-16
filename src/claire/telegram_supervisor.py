@@ -2,7 +2,7 @@
 
 한 프로세스(``claire bot``)가 여러 봇을 long-polling으로 함께 돌린다.
 
-- 인스턴스 봇: ``TELEGRAM_BOT_TOKEN``이 있으면 관리자 계정 봇으로 돌린다(운영자 로그인 승인·알림 호환).
+- 서버 봇: ``TELEGRAM_BOT_TOKEN``이 있으면 관리자 계정 봇으로 돌린다(운영자 로그인 승인·알림 호환).
 - 계정 봇: auth.db ``account_telegram_bots``에서 켜진(``enabled=1``) 봇 가운데 계정 상태가 ``active``인 것.
 
 ``POLL_INTERVAL_SECONDS``마다 원하는 봇 목록을 다시 읽어, 새 봇은 시작하고 지운·끈·바뀐 봇은 멈추거나 다시 시작한다.
@@ -71,15 +71,15 @@ class BotSupervisor:
             conn.close()
 
     def desired(self) -> dict[BotKey, telegram_bots.TelegramBotProfile]:
-        from .telegram_bot import instance_bot_profile
+        from .telegram_bot import server_bot_profile
 
         out: dict[BotKey, telegram_bots.TelegramBotProfile] = {}
-        instance = instance_bot_profile(self.s)
-        if instance is not None:
-            out[_key(instance)] = instance
+        server = server_bot_profile(self.s)
+        if server is not None:
+            out[_key(server)] = server
         try:
             active = self._active_account_ids()
-        except Exception as exc:  # noqa: BLE001  # 지식 DB가 아직 없으면 인스턴스 봇만 돌린다
+        except Exception as exc:  # noqa: BLE001  # 지식 DB가 아직 없으면 서버 봇만 돌린다
             log.warning("account list unavailable: %s", type(exc).__name__)
             return out
         conn = auth_db.connect_auth_db(auth_db.auth_db_path(self.s.data_dir))
@@ -88,10 +88,10 @@ class BotSupervisor:
             for account_id, message in errors.items():
                 telegram_bots.set_status(conn, account_id=account_id, status="error", error=message)
             for profile in profiles:
-                if instance is not None and instance.bot_id and profile.bot_id == instance.bot_id:
+                if server is not None and server.bot_id and profile.bot_id == server.bot_id:
                     telegram_bots.set_status(
                         conn, account_id=profile.account_id, status="error",
-                        error="this bot is already used as the instance bot", fingerprint=profile.fingerprint,
+                        error="this bot is already used as the server bot", fingerprint=profile.fingerprint,
                     )
                     continue
                 out[_key(profile)] = profile
@@ -214,6 +214,6 @@ def run_supervisor(settings: Settings | None = None) -> int:
                 pass
         await BotSupervisor(s).run(stop)
 
-    print("claire telegram bot runner 시작 (인스턴스 봇 + 계정 봇, long-polling). Ctrl+C 로 종료.")
+    print("claire telegram bot runner 시작 (서버 봇 + 계정 봇, long-polling). Ctrl+C 로 종료.")
     asyncio.run(_main())
     return 0

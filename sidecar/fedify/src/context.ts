@@ -3,7 +3,7 @@
 // Rules of this module:
 // - A thread fetch task has no activity. The sidecar reads the FEP-7888 `context` collection of the start object (FEP-f228) with `@fedify/backfill`. When that collection gives no object, it reads the reply tree: the `inReplyTo` parents and the `replies` collections.
 // - The limits of one task: `max_items` objects (`context_max_items`), `max_depth` levels of the reply tree (`context_depth`), a number of requests (requestLimit), and a time (TASK_SECONDS).
-// - Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address, as for the other fetches of the sidecar. No request goes to this instance or to a blocked domain.
+// - Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address, as for the other fetches of the sidecar. No request goes to this server or to a blocked domain.
 // - An object in a collection is not trusted as it is: a collection of one server can contain an object with the ID of another server. Each object that goes to Claire comes from a document on the origin of its own ID, and its author is on that origin too.
 // - Only a public post goes to Claire, as the normal form of Section 6.3. Claire makes the final decision for each object.
 
@@ -30,7 +30,7 @@ export interface ThreadFetchOptions {
   // Signed loader of Fedify. It refuses a private network address.
   documentLoader: DocumentLoader;
   contextLoader: DocumentLoader;
-  // The canonical origin of this instance.
+  // The canonical origin of this server.
   origin: string;
   isBlocked: (host: string) => Promise<boolean>;
   maxItems: number;

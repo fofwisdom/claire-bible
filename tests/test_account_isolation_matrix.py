@@ -131,7 +131,7 @@ def test_environment(tmp_path: Path):
     _add_account(conn, 2, "alice", role="member")
     _add_account(conn, 3, "bob", role="member")
 
-    # 2. Set instance mode to network
+    # 2. Set server mode to network
     store = accounts_store.AccountStore(conn)
     store.set_setting("mode", "network", updated_by=1)
     conn.close()

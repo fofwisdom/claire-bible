@@ -66,7 +66,7 @@ def _isolate(monkeypatch):
 
 
 def _prepare(tmp_path: Path, **overrides: Any) -> tuple[_Settings, int, int]:
-    """A network-mode instance with the admin and two members. The admin and the first member have a password. The members have a private profile."""
+    """A network-mode server with the admin and two members. The admin and the first member have a password. The members have a private profile."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path, **overrides)
     conn = dbm.connect(settings.db_file)
     try:
@@ -150,7 +150,7 @@ class _Client:
         self.client = client
 
     def request(self, method: str, path: str, *, session: str | None = None, headers: dict[str, str] | None = None, origin: str | None = PUBLIC_URL, **kwargs: Any):
-        """Send one request. A request that changes data has the ``Origin`` header of the instance, unless ``origin`` is ``None``."""
+        """Send one request. A request that changes data has the ``Origin`` header of the server, unless ``origin`` is ``None``."""
         headers = dict(headers or {})
         if session is not None:
             headers["Cookie"] = f"claire_session={session}"

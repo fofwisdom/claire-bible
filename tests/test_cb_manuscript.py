@@ -1049,7 +1049,7 @@ def test_app_rejects_lock_contention_before_subprocess(tmp_path):
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
 
-    with cb.InstanceLock(runtime), patch.object(cb.subprocess, "run") as run:
+    with cb.ServerLock(runtime), patch.object(cb.subprocess, "run") as run:
         assert cb.main(["app", "status"], root=tmp_path) == 73
 
     run.assert_not_called()

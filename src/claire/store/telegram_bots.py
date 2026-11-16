@@ -34,7 +34,7 @@ class TelegramBotError(RuntimeError):
 
 
 class TelegramBotConflict(TelegramBotError):
-    """같은 봇이 이미 다른 계정 또는 인스턴스 봇(``TELEGRAM_BOT_TOKEN``)으로 등록되어 있다."""
+    """같은 봇이 이미 다른 계정 또는 서버 봇(``TELEGRAM_BOT_TOKEN``)으로 등록되어 있다."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +77,7 @@ class TelegramBotProfile:
     token: str
     allowed_user_ids: tuple[int, ...]
     fingerprint: str
-    source: Literal["account", "instance"] = "account"
+    source: Literal["account", "server"] = "account"
 
     def __repr__(self) -> str:  # 로그·예외에 원문이 찍히지 않게
         return (
@@ -209,7 +209,7 @@ def put_bot(
 ) -> TelegramBotMeta:
     """등록·교체. 교체하면 새 ``key_id``와 nonce를 쓰고 상태를 ``pending``으로 되돌린다.
 
-    ``reserved_bot_ids``(인스턴스 봇 ID)와 같거나 다른 계정이 이미 등록한 봇이면 ``TelegramBotConflict``.
+    ``reserved_bot_ids``(서버 봇 ID)와 같거나 다른 계정이 이미 등록한 봇이면 ``TelegramBotConflict``.
     """
     parsed = parse_bot_token(token)
     if parsed is None:
@@ -220,7 +220,7 @@ def put_bot(
     if not allowed:
         raise TelegramBotError("allowed_user_ids must not be empty")
     if bot_id in set(int(i) for i in reserved_bot_ids):
-        raise TelegramBotConflict("bot is already used as the instance bot")
+        raise TelegramBotConflict("bot is already used as the server bot")
     sec = _service(secret_service)
     ts = time.time() if now is None else now
     key_id = secrets.token_hex(16)

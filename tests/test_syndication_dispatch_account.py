@@ -177,7 +177,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     )
     assert res_inaccessible.status_code in {403, 404}
 
-    # 3. Instance Owner (admin role) can dispatch across accounts from Theme 1 to Theme 3:
+    # 3. Server Owner (admin role) can dispatch across accounts from Theme 1 to Theme 3:
     res_owner_ok = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc1_id, "source_theme_id": t1_id, "target_theme_id": t3_id, "focus": "Cross-account sync"},

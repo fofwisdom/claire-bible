@@ -65,7 +65,7 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 > 또한 비표준 헤더인 `X-Token`은 사용이 엄격히 금지되며 감지 시 즉시 거부된다. Cross-Origin(CORS) 요청은 오직 `Authorization: Bearer` 방식만 허용된다.
 
 ### 1.5 스텔스 모드 (Fail-Closed Invariant)
-`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 인스턴스 또는 비공개 테마(`is_public=false`)에 대해 자격증명이 없는 읽기 요청이 인입될 경우, 외부 정찰에 엔드포인트나 테마의 존재 여부를 일절 노출하지 않기 위해 `401 Unauthorized` 또는 `403 Forbidden` 대신 **HTTP `404 Not Found`**를 반환한다.
+`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 서버 또는 비공개 테마(`is_public=false`)에 대해 자격증명이 없는 읽기 요청이 인입될 경우, 외부 정찰에 엔드포인트나 테마의 존재 여부를 일절 노출하지 않기 위해 `401 Unauthorized` 또는 `403 Forbidden` 대신 **HTTP `404 Not Found`**를 반환한다.
 
 ### 1.6 요청 크기 제한
 모든 API 및 MCP 요청 본문은 최대 1MB (`1,048,576` bytes)로 하드 제한된다. 초과 시 즉시 HTTP `413 Request Entity Too Large`로 차단된다.
@@ -94,12 +94,12 @@ curl -s https://claire.example.com/health
 ```
 
 #### `GET /whoami` (Read)
-현재 요청에 적용된 인증 스코프, 인스턴스 모드, 네임스페이스와의 관계(`owner`·`delegate`·`visitor`), 관리자 여부를 확인한다. `is_admin`은 관리자 계정의 owner 자격증명일 때만 `true`다. 응답에 USERNAME은 없다.
+현재 요청에 적용된 인증 스코프, 서버 모드, 네임스페이스와의 관계(`owner`·`delegate`·`visitor`), 관리자 여부를 확인한다. `is_admin`은 관리자 계정의 owner 자격증명일 때만 `true`다. 응답에 USERNAME은 없다.
 ```bash
 curl -s -H "Authorization: Bearer <TOKEN>" https://claire.example.com/whoami
 ```
 ```json
-{"scope": "owner", "instance": {"mode": "single"}, "relation": "owner", "is_admin": true}
+{"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": true}
 ```
 
 #### `GET /stats` (Read)
@@ -348,7 +348,7 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 ### 2.7 연합 발행 API (`/api/federation/*`, 네트워크 모드)
 
-네이티브 연합 액터로 문서를 발행하거나 철회한다. 인스턴스 설정 `federation`이 `on`이고 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다. 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
+네이티브 연합 액터로 문서를 발행하거나 철회한다. 서버 설정 `federation`이 `on`이고 호출자 계정이 연합 액터(`profile_public` 1, `active`, USERNAME 있음)일 때만 발행할 수 있다. 단독 모드에서는 세 경로 모두 404다. 전체 규칙은 [`FEDERATION.md`](FEDERATION.md) 7.5–7.7절, 스키마는 [`openapi.yaml`](openapi.yaml)에 있다.
 
 | 메서드 | 경로 | 스코프 | 기능 |
 | :--- | :--- | :--- | :--- |

@@ -18,7 +18,7 @@
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const $ = (id) => document.getElementById(id);
 
-  const AVAILABLE = cfg.authScope === "owner" && cfg.instanceMode === "network";
+  const AVAILABLE = cfg.authScope === "owner" && cfg.serverMode === "network";
   const KNOWN_ERRORS = ["not_actor", "empty_content", "content_too_long", "summary_too_long", "too_many_mentions", "too_many_tags", "invalid_language", "invalid_mention", "blocked_domain", "item_not_found", "note_not_found", "own_item", "invalid_quote_policy"];
   const QUOTE_ERRORS = ["quote_not_found", "invalid_state", "object_not_found"];
   const QUOTE_STATES = ["pending", "approved", "refused", "revoked"];

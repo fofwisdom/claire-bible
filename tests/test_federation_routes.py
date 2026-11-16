@@ -140,7 +140,7 @@ class _Internal:
 
 @pytest.fixture
 def internal(tmp_path):
-    """A network-mode instance with federation on. ``alice`` is an actor and has three followers, two published objects, one deleted object, and two outbox tasks. The other accounts are not actors. One domain is blocked."""
+    """A network-mode server with federation on. ``alice`` is an actor and has three followers, two published objects, one deleted object, and two outbox tasks. The other accounts are not actors. One domain is blocked."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -211,7 +211,7 @@ def _store_fixture_keys(internal: _Internal, account_id: int, name: str) -> None
         auth.close()
 
 
-# --- Instance setting (I/O) ---
+# --- Server setting (I/O) ---
 
 
 def test_federation_setting_default_and_values(tmp_path):
@@ -252,9 +252,9 @@ def test_heartbeat_agrees_with_fixture_and_is_recorded(internal):
 
 def test_keys_agree_with_fixtures(internal):
     _store_fixture_keys(internal, internal.alice, "actor_keys")
-    _store_fixture_keys(internal, actor_keys.INSTANCE_ACTOR_ACCOUNT_ID, "instance_actor_keys")
+    _store_fixture_keys(internal, actor_keys.SERVER_ACTOR_ACCOUNT_ID, "server_actor_keys")
     internal.assert_fixture("actor_keys")
-    internal.assert_fixture("instance_actor_keys")
+    internal.assert_fixture("server_actor_keys")
 
 
 def test_thread_fetch_agrees_with_fixtures(internal):
@@ -287,7 +287,7 @@ def test_thread_fetch_agrees_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "instance_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}
@@ -341,7 +341,7 @@ def test_non_federated_account_gets_the_same_404(internal, username, public_id):
 @pytest.mark.parametrize("state", [{"federation": "off"}, {"mode": "single"}])
 def test_no_actor_when_federation_is_off_or_the_mode_is_single(internal, state):
     internal.set_state(**state)
-    for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", f"/actors/{ALICE_PUBLIC_ID}/followers", f"/actors/{ALICE_PUBLIC_ID}/outbox", f"/objects/{OBJECT_ID}", "/actors/instance/keys"):
+    for path in ("/actors/by-username/alice", f"/actors/{ALICE_PUBLIC_ID}", f"/actors/{ALICE_PUBLIC_ID}/keys", f"/actors/{ALICE_PUBLIC_ID}/followers", f"/actors/{ALICE_PUBLIC_ID}/outbox", f"/objects/{OBJECT_ID}", "/actors/server/keys"):
         assert internal.get(path).status_code == 404, path
     assert internal.get("/outbox-tasks").json() == {"tasks": []}
     # The config endpoint stays available. The sidecar reads the state from it.
@@ -351,15 +351,15 @@ def test_no_actor_when_federation_is_off_or_the_mode_is_single(internal, state):
     assert "alice" not in "".join(internal.bodies)
 
 
-@pytest.mark.parametrize("raw", ["0", "01", "+1", "-1", "1e3", "abc", "%EF%BC%91%EF%BC%92", "9" * 20, "Instance"])
+@pytest.mark.parametrize("raw", ["0", "01", "+1", "-1", "1e3", "abc", "%EF%BC%91%EF%BC%92", "9" * 20, "Server"])
 def test_invalid_public_id_is_404(internal, raw):
     assert internal.get(f"/actors/{raw}").status_code == 404
     assert internal.get(f"/actors/{raw}/keys").status_code == 404
 
 
-def test_username_lookup_ignores_case_and_instance_is_not_an_actor_record(internal):
+def test_username_lookup_ignores_case_and_server_is_not_an_actor_record(internal):
     assert internal.get("/actors/by-username/ALICE").json()["public_id"] == str(ALICE_PUBLIC_ID)
-    assert internal.get("/actors/instance").status_code == 404
+    assert internal.get("/actors/server").status_code == 404
 
 
 # --- Keys ---
@@ -371,9 +371,9 @@ def test_keys_are_generated_one_time_and_decrypt_for_the_actor_only(internal):
     assert [k["alg"] for k in first.json()["keys"]] == ["rsa2048", "ed25519"]
     assert internal.get(f"/actors/{ALICE_PUBLIC_ID}/keys").json() == first.json()
 
-    instance = internal.get("/actors/instance/keys").json()
-    assert instance["public_id"] == "instance"
-    assert instance["keys"] != first.json()["keys"]
+    server = internal.get("/actors/server/keys").json()
+    assert server["public_id"] == "server"
+    assert server["keys"] != first.json()["keys"]
     auth = auth_db.connect_auth_db(auth_db.auth_db_path(internal.settings.data_dir))
     try:
         owners = [tuple(r) for r in auth.execute("SELECT account_id, alg FROM actor_keys ORDER BY account_id, alg")]
@@ -389,13 +389,13 @@ def test_no_identity_field_in_any_response(internal):
     for name in ("config", "heartbeat", "actor_by_username", "actor", *FP2_FIXTURES, *FP3_FIXTURES):
         internal.call(fixture(name)["request"])
     internal.get(f"/actors/{ALICE_PUBLIC_ID}/keys")
-    internal.get("/actors/instance/keys")
+    internal.get("/actors/server/keys")
     blob = "".join(internal.bodies)
     for canary in (CANARY_ISS, CANARY_SUB, CANARY_PROVIDER, "idp-canary"):
         assert canary not in blob
     record = internal.get(f"/actors/{ALICE_PUBLIC_ID}").json()
     assert set(record) == {"public_id", "username", "display_name", "activated_at", "updated_at", "profile_url"}
-    # The internal account ID and the instance role are not in the record.
+    # The internal account ID and the server role are not in the record.
     assert internal.alice not in record.values() and "member" not in record.values()
 
 
@@ -517,7 +517,7 @@ def test_delete_and_update_of_a_remote_actor_apply_to_all_accounts(internal):
         ({"object_iri": None}, "not_an_actor"),
         ({"object_iri": "https://other.example/ap/actors/116412345678901234"}, "not_an_actor"),
         ({"object_iri": f"{ALICE_IRI}/"}, "not_an_actor"),
-        ({"object_iri": "https://claire.example.com/ap/actors/instance", "recipient_public_id": None}, "not_an_actor"),
+        ({"object_iri": "https://claire.example.com/ap/actors/server", "recipient_public_id": None}, "not_an_actor"),
         ({"object_iri": "https://claire.example.com/ap/actors/316412345678901234", "recipient_public_id": None}, "not_an_actor"),
         ({"object_iri": "https://claire.example.com/ap/actors/999999999999999999", "recipient_public_id": None}, "not_an_actor"),
         ({"recipient_public_id": "216412345678901234"}, "recipient_mismatch"),
@@ -953,7 +953,7 @@ def test_e2e_follow_events_through_the_internal_socket(tmp_path):
             assert [i["inbox_iri"] for i in rest["items"]] == [f"{remote}/users/bob/inbox"]
 
             assert call("POST", "/inbox-events", event("Like", "bob")).json()["decision"] == "ignored"
-            # An address on the origin of this instance is not a remote actor.
+            # An address on the origin of this server is not a remote actor.
             assert call("POST", "/inbox-events", event("Follow", "x", actor={"iri": f"{origin}/users/x", "inbox": f"{origin}/users/x/inbox", "shared_inbox": None})).json()["reason"] == "invalid_actor"
 
             # A block from a different connection (the admin API of a later unit) has an effect on the next event.
