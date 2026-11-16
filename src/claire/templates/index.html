@@ -41,13 +41,9 @@
 
   // Watchdog of the loading state: after a network delay, a blocked CDN, or a runtime exception, the loading text does not stay. It is cleared in 2.5 seconds.
   // The loading text is the server translation of the page (the tj slots are JSON strings).
-  var LOADING = { auth: ${tj:ws.bar.auth_checking}, docs: ${tj:ws.list.docs_loading}, stat: ${tj:ws.list.loading} };
+  var LOADING = { docs: ${tj:ws.list.docs_loading}, stat: ${tj:ws.list.loading} };
   window.__CLAIRE_CLEAR_LOADING = function(reason) {
     try {
-      var auth = document.getElementById('authstate');
-      if (auth && auth.textContent === LOADING.auth) {
-        auth.textContent = ${tj:ws.bar.auth_anonymous} + (reason ? ' (' + reason + ')' : '');
-      }
       var dl = document.getElementById('doclist');
       if (dl && (dl.innerHTML.indexOf(LOADING.docs) !== -1 || dl.querySelector('.docskel'))) {
         dl.innerHTML = (typeof doclistToolbarHtml==='function'?doclistToolbarHtml():'')+
@@ -78,73 +74,7 @@
 <link rel=stylesheet href=/static/css/reader.css/>
 </head>
 <body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">
-<header id="bar" class="appbar">
-  <div class="bar-brand-group">
-    <a class="brand" href="./" onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}" title="${t:ws.bar.brand_title}">
-      <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
-      Claire Bible
-    </a>
-    <div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>
-      <label for="theme-select" class="sr-only">${t:nav.theme_select}</label>
-      <div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>
-        <span class="theme-icon" id="theme-curr-icon" aria-hidden="true">📚</span>
-        <select id="theme-select" class="theme-select" onchange="switchKnowledgeTheme(this.value)" title="${t:ws.bar.theme_title}" aria-label="${t:nav.theme_select}">
-          <option value="0">${t:ws.bar.theme_default}</option>
-        </select>
-        <span class="theme-caret" aria-hidden="true">▾</span>
-      </div>
-      <div class="theme-plain-display" id="theme-plain-display" __THEME_PLAIN_STYLE_ATTR__>
-        <span class="theme-icon" id="theme-plain-icon" aria-hidden="true">__THEME_PLAIN_ICON__</span>
-        <span class="theme-plain-label" id="theme-plain-label">__THEME_PLAIN_LABEL__</span>
-      </div>
-    </div>
-    <button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>
-  </div>
-  <div id="centerhead" class="center-head-bar">
-      <div id="netsearch">
-        <button id="palettetrigger" type="button" class="palette-trigger" onclick="if(window.ClaireCommandPalette) window.ClaireCommandPalette.open()" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title">
-          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
-          <span class="palette-trigger-label" data-i18n="nav.palette.trigger">Search · Go · Commands</span>
-          <kbd aria-hidden="true">/</kbd>
-        </button>
-      </div>
-      <div class="center-tab-group" id="centertab-group">
-        <button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="${t:ws.list.open}" aria-label="${t:nav.list}">
-          <span class="btn-icon" data-icon="list"></span> <span class="btn-label">${t:nav.list}</span>
-        </button>
-        <nav id="centertabs" class="center-tabs" data-i18n-aria-label="nav.views">
-          <button id="centertab-home" type="button" class="center-tab-btn" aria-current="page" onclick="enterHome({reason:'nav'})" data-i18n-title="nav.home">
-            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/></svg></span> <span class="btn-label" data-i18n="nav.home">Home</span>
-          </button>
-          <button id="centertab-reader" type="button" class="center-tab-btn" onclick="setCenterView('reader')" title="${t:ws.view.reader_title}" aria-label="${t:ws.view.reader}">
-            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg></span> <span class="btn-label">${t:ws.view.reader}</span>
-          </button>
-          <button id="centertab-graph" type="button" class="center-tab-btn" onclick="setCenterView('graph')" title="${t:ws.view.graph_title}" aria-label="${t:nav.graph}">
-            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg></span> <span class="btn-label">${t:nav.graph}</span>
-          </button>
-          <button id="centertab-presentation" type="button" class="center-tab-btn" onclick="setCenterView('presentation')" title="${t:ws.view.presentation_title}" aria-label="${t:ws.view.presentation}">
-            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-11zM8 10.5v3M5.5 13.5h5"/></svg></span> <span class="btn-label">${t:ws.view.presentation}</span>
-          </button>
-        </nav>
-        <nav id="streamtabs" class="center-tabs stream-tabs" aria-label="${t:ws.view.stream_nav}">
-          <button id="centertab-stream" type="button" class="center-tab-btn" onclick="setCenterView('stream')" title="${t:ws.view.stream_title}" aria-label="${t:ws.view.stream}">
-            <span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg></span> <span class="btn-label">${t:ws.view.stream}</span>
-          </button>
-        </nav>
-      </div>
-  </div>
-  <div id="viewoptions" class="appbar-end">
-    <button id="addbtn" type="button" class="pri bar-ingest-btn" onclick="openIngest()" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
-    <button id="managebtn" type="button" class="bar-icon-btn" popovertarget="moremenu" aria-haspopup="menu" data-i18n-title="nav.manage" data-i18n-aria-label="nav.manage"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></svg></button>
-    <span id="authstate" class="bar-auth">${t:ws.bar.auth_checking}</span>
-    <a id="syndlink" class="bar-icon-btn" href="/syndication" hidden data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/></svg></a>
-    <a id="consolelinkbtn" class="bar-icon-btn" href="/settings" title="${t:nav.settings}" aria-label="${t:nav.settings}" style="display:none" data-icon="settings"></a>
-    <button id="themebtn" type="button" class="bar-icon-btn" title="${t:nav.theme_toggle}" aria-label="${t:nav.theme_toggle}" onclick="toggleTheme()" data-icon="moon"></button>
-    <button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
-    <button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane"
-      data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>
-  </div>
-</header>
+<!-- __COMMON_APPBAR__ -->
 <div id="format-warn-banner" class="status-banner banner-warning" role="status" aria-live="polite">
   <div class="status-banner-content">
     <span id="format-warn-badge" class="status-banner-badge">
@@ -156,30 +86,6 @@
   <div class="status-banner-actions">
     <button id="format-warn-actbtn" type="button" class="banner-act-btn" style="display:none" onclick="ClaireStatusBanner.handleAction()"></button>
     <button class="close-btn" onclick="ClaireStatusBanner.hide()" title="${t:common.action.close}" aria-label="${t:ws.banner.close}">✕</button>
-  </div>
-</div>
-<div id="moremenu" popover role="menu" data-i18n-aria-label="nav.manage">
-  <div class="palette-menu-row">
-    <button type="button" role="menuitem" id="palettebtn" class="sec" onclick="openCommandPaletteFromMenu()" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open"><span class="btn-icon">⌘</span> <span class="btn-label" data-i18n="nav.palette.open">Command palette</span></button>
-  </div>
-  <div class="action-btn-row">
-    <button type="button" role="menuitem" id="reingestbtn" class="sec" onclick="openReingest()" title="${t:ws.menu.reingest_title}" aria-label="${t:ws.menu.reingest}"><span class="btn-icon" data-icon="restore"></span> <span class="btn-label">${t:ws.menu.reingest}</span></button>
-    <button type="button" role="menuitem" id="regenbtn" class="sec" onclick="openRegen()" title="${t:ws.menu.regen_title}" aria-label="${t:ws.menu.regen}"><span class="btn-icon" data-icon="repeat"></span> <span class="btn-label">${t:ws.menu.regen}</span></button>
-    <button type="button" role="menuitem" id="dedupbtn" class="sec" onclick="openDedup()" title="${t:ws.menu.dedup_title}" aria-label="${t:ws.menu.dedup}"><span class="btn-icon" data-icon="merge"></span> <span class="btn-label">${t:ws.menu.dedup}</span></button>
-  </div>
-  <div id="graph-section" class="menu-section" aria-label="${t:ws.menu.graph_tools}">
-    <div class="menu-section-head">
-      <span class="menu-section-title" id="menu-section-title">${t:ws.menu.section_title}</span>
-    </div>
-    <div class="action-btn-row">
-      <button type="button" role="menuitem" id="pathbtn" class="sec" onclick="togglePathMode()" title="${t:ws.menu.path_title}" aria-label="${t:ws.menu.path}"><span class="btn-icon" data-icon="link"></span> <span class="btn-label">${t:ws.menu.path}</span></button>
-      <button type="button" role="menuitem" id="synthbtn" onclick="synth()" title="${t:ws.menu.synth} (0)"><span class="btn-icon" data-icon="puzzle"></span> <span class="btn-label">${t:ws.menu.synth} (0)</span></button>
-    </div>
-  </div>
-  <div class="menu-section menu-danger">
-    <div class="action-btn-row">
-      <button type="button" role="menuitem" id="purgebtn" class="sec" onclick="openPurge()" title="${t:ws.menu.purge_title}" aria-label="${t:ws.menu.purge}"><span class="btn-icon" data-icon="flame"></span> <span class="btn-label">${t:ws.menu.purge}</span></button>
-    </div>
   </div>
 </div>
 <div id="drawerbackdrop" onclick="closeAllDrawers()" aria-hidden="true"></div>
@@ -522,13 +428,25 @@
 </nav>
 <!-- A small summary popup at the mouse position when the pointer is on a node. -->
 <div id="nodepop"></div>
-<dialog id="cmdpalette" class="cmd-palette" closedby="any" aria-labelledby="cmdpalette-title">
-  <h2 id="cmdpalette-title" class="sr-only" data-i18n="nav.palette.title">Command palette</h2>
-  <div class="cmd-palette-head">
-    <input id="cmdpalette-input" type="search" autofocus autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="cmdpalette-list" data-i18n-placeholder="nav.palette.placeholder" data-i18n-aria-label="nav.palette.input_aria"/>
+<!-- __COMMON_CMDPALETTE__ -->
+<!-- __COMMON_INGEST_MODALS__ -->
+<dialog id="modal-dedup" closedby="any" aria-labelledby="modal-dedup-title" class="claire-dialog claire-dialog-wide">
+  <div class="claire-dialog-body">
+    <div class="claire-dialog-head">
+      <h2 id="modal-dedup-title"><span data-icon="merge"></span> <span data-i18n="ws.dedup.title">${t:ws.dedup.title}</span></h2>
+      <button type="button" data-close-dialog="modal-dedup" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <div id="dedup-modal-body"></div>
   </div>
-  <div id="cmdpalette-list" class="cmd-palette-list" role="listbox"></div>
-  <div class="cmd-palette-foot"><span data-i18n="nav.palette.hint">↑↓ move · Enter run · Esc close</span></div>
+</dialog>
+<dialog id="modal-purge" closedby="any" aria-labelledby="modal-purge-title" class="claire-dialog">
+  <div class="claire-dialog-body">
+    <div class="claire-dialog-head">
+      <h2 id="modal-purge-title"><span data-icon="flame"></span> <span data-i18n="ws.purge.title">${t:ws.purge.title}</span></h2>
+      <button type="button" data-close-dialog="modal-purge" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <div id="purge-modal-body"></div>
+  </div>
 </dialog>
 <script>
   window.__CLAIRE_CONFIG = {
@@ -542,6 +460,9 @@
   };
 </script>
 <script src=/static/js/i18n.js></script>
+<script src=/static/js/icons.js></script>
+<script src=/static/js/appbar.js></script>
+<script src=/static/js/ingest_dialogs.js></script>
 <script src=/static/js/graph/core.js></script>
 <script src=/static/js/graph/simulation.js></script>
 <script src=/static/js/graph/renderers.js></script>

@@ -29,8 +29,9 @@ def test_the_workspace_is_rendered_in_the_locale_of_the_request() -> None:
     assert '<html lang="en">' in english and "<title>Claire Bible — Home</title>" in english
     assert 'aria-label="Document text"' in english and 'aria-label="문서 본문"' in korean
     assert '<html lang="ko">' in korean and "<title>Claire Bible — 홈</title>" in korean
-    # The watchdog of the loading state compares the text with the same translation (a JSON string in the inline script).
-    assert 'auth: "Checking permissions"' in english and '<span id="authstate" class="bar-auth">Checking permissions</span>' in english
+    # The watchdog of the loading state compares the text with the same translation (a JSON string in the inline script), and the shared top bar omits #authstate.
+    assert 'docs: "Loading documents…"' in english and '<button id="palettetrigger" type="button" class="palette-trigger"' in english
+    assert 'id="authstate"' not in english and 'title="Open command palette (/)"' in english
 
 
 def test_the_share_page_gets_only_the_keys_of_the_document_view() -> None:

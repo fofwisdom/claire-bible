@@ -205,9 +205,11 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     assert 'id="manage-section"' not in html
     for gone in ("providermanagebtn", "limitmanagebtn", "thememanagebtn", "tokenmanagebtn", "openProviderManager", "openLimitManager", "openThemeManager", "openTokenManager", "ClaireManagePanels"):
         assert gone not in html, gone
-    # 콘솔 단추는 상단바에서 라이트/다크 전환(#themebtn) 바로 왼쪽의 아이콘이다.
-    topbar = html[html.index('<div id="viewoptions" class="appbar-end">'):html.index('</header>')]
-    assert re.search(r'<a id="consolelinkbtn"[^>]*data-icon="settings"></a>\s*<button id="themebtn"', topbar)
+    # 우측 상단 공통 아이콘 순서는 오른쪽 끝부터 햄버거, 신디케이션, 유저홈이며 콘솔 단추는 햄버거 메뉴 안에 있다.
+    topbar = html[html.index('<div class="appbar-end" id="viewoptions">'):html.index('</header>')]
+    assert 'id="authstate"' not in html
+    assert topbar.index('id="homelinkbtn"') < topbar.index('id="syndlink"') < topbar.index('id="hamburger-btn"')
+    assert topbar.index('id="pop-hamburger-menu"') < topbar.index('id="consolelinkbtn"') < topbar.index('action="/logout"')
 
     who = _get(env, "/whoami", env.admin)
     assert who.status_code == 200
@@ -215,10 +217,10 @@ def test_admin_root_topbar_console_icon_and_no_drawer_manage_panels(console_e2e,
     assert who.json()["scope"] == "owner"
     assert who.json()["server"] == {"mode": mode}
 
-    # 인라인된 app.js가 is_admin=true일 때 #consolelinkbtn을 🛠️ 아이콘(관리자 콘솔 → /admin)으로 바꾼다.
+    # 인라인된 app.js가 is_admin=true일 때 ClaireAppBar.setConsoleLink로 햄버거 내 #consolelinkbtn을 /admin + wrench 아이콘으로 승격한다.
     assert "IS_ADMIN = d.is_admin === true" in html
-    assert "clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings')" in html
-    assert "clBtn.setAttribute('data-icon', IS_ADMIN ? 'wrench' : 'settings')" in html
+    assert "href: IS_ADMIN ? '/admin' : '/settings'" in html
+    assert "icon: IS_ADMIN ? 'wrench' : 'settings'" in html
 
 
 @pytest.mark.parametrize("mode", MODES)

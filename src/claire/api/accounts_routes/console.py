@@ -20,7 +20,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ... import ids
+from ... import ids, ui_chrome
 from ...i18n import SUPPORTED_LOCALES, get_locale, t
 from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store import accounts as accounts_store
@@ -1313,6 +1313,22 @@ def _render_console_section(
         **built_extra,
         **(extra_bootstrap or {}),
     }
+    common_appbar_html = ui_chrome.render_appbar_html(
+        bar_id="console-bar",
+        brand_id="console-back-graph",
+        brand_href=graph_href,
+        brand_extra_html=theme_selector_html,
+        center_id="console-bar-center",
+        center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="settings"></span> ${{t:nav.topbar.console}}</span><span class="console-badge" id="console-scope-badge">{escape(scope_badge)}</span>',
+        end_id="console-bar-end",
+        ingest_enabled=False,
+        home_href=graph_href,
+        synd_href=syndication_href,
+        console_href="/admin" if admin_viewer else "/settings",
+        console_icon="wrench" if admin_viewer else "settings",
+        console_current=True,
+        show_logout=True,
+    )
     return render_template(
         "console_shell.html",
         text={
@@ -1328,6 +1344,7 @@ def _render_console_section(
             "section_desc": spec.description,
         },
         markup={
+            "common_appbar_html": common_appbar_html,
             "section_icon_html": icon_html(spec.icon),
             "theme_selector_html": theme_selector_html,
             "sidebar_nav_html": sidebar_html,

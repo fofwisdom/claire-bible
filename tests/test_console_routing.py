@@ -469,9 +469,15 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert 'data-nav-group-toggle="workspace"' in member_html
     assert 'id="console-grp-workspace"' in member_html
     assert 'id="console-nav-drawer"' in member_html
+    assert 'id="palettetrigger"' in member_html
     assert 'id="cmdpalette"' in member_html
+    assert '/static/js/appbar.js' in member_html
     assert '/static/js/command_palette.js' in member_html
     assert '/static/js/console_shell.js' in member_html
+    assert 'id="authstate"' not in member_html
+    # 우측 상단 공통 아이콘 순서(오른쪽 끝부터 햄버거, 신디케이션, 유저홈)와 햄버거 내 로그아웃/콘솔 링크 배치 검증.
+    assert member_html.index('id="homelinkbtn"') < member_html.index('id="syndlink"') < member_html.index('id="hamburger-btn"')
+    assert member_html.index('id="pop-hamburger-menu"') < member_html.index('id="consolelinkbtn"') < member_html.index('action="/logout"')
     assert '/admin/' not in member_html
     assert 'data-nav-group="admin_server"' not in member_html
     assert 'console_admin.js' not in member_html
@@ -480,3 +486,5 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert 'data-nav-group="admin_server"' in admin_html
     assert 'data-nav-group-toggle="admin_system"' in admin_html
     assert 'console_admin.js' in admin_html
+    assert 'id="palettetrigger"' in admin_html
+    assert admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="hamburger-btn"')

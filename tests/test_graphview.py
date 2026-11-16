@@ -120,7 +120,7 @@ def test_graph_html_self_contained_markers():
     assert "mode:searchMode" in GRAPH_HTML  # FTS / Hybrid 명시적 모드 전달
     assert 'id="netsearch"' in GRAPH_HTML and 'id="barsearch"' in GRAPH_HTML  # 헤더 통합 검색창
     assert "synthSet" in GRAPH_HTML and "addToSynth" in GRAPH_HTML      # 종합 수집(inspect와 분리)
-    assert "id=\"authstate\"" in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
+    assert 'id="authstate"' not in GRAPH_HTML and 'id="hamburger-btn"' in GRAPH_HTML and 'id="pop-hamburger-menu"' in GRAPH_HTML and "setAccessScope" in GRAPH_HTML
     assert '<body class="ro ctx-closed" data-auth-scope="unknown" data-active-pane="graph" data-center-view="home">' in GRAPH_HTML
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
@@ -128,7 +128,7 @@ def test_graph_html_self_contained_markers():
     assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "updateCenterSearchMode" in GRAPH_HTML
-    assert "ws.bar.auth_anonymous" in GRAPH_HTML
+    assert "ClaireAppBar.setConsoleLink" in GRAPH_HTML and "ws.bar.my_settings" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
     # 적재 폼은 CLI의 분량/사고 수준 옵션을 원클릭 선택으로 제공하고 초점을 별도 입력한다.
@@ -248,13 +248,15 @@ def test_right_menu_compact_icon_mode_markers():
 
 
 def test_right_menu_graph_section_markers():
-    """우측 메뉴 내 그래프/문서 도구 전용 섹션 분리 및 공통 탭 바 내 전환 단추 검증."""
+    """햄버거 메뉴 내 그래프/문서 도구 전용 섹션 분리, 적재 드롭다운, 모달 팝업 및 우측 상단 공통 아이콘 순서 검증."""
     assert 'id="graph-section"' in GRAPH_HTML
-    assert 'class="menu-section-title" id="menu-section-title">${t:ws.menu.section_title}<' in GRAPH_HTML
-    assert "#moremenu .menu-section" in GRAPH_HTML
-    assert "border-top:1px solid var(--border)" in GRAPH_HTML
-    assert "#moremenu .menu-section-title" in GRAPH_HTML
-    assert "#moremenu .menu-section-head" in GRAPH_HTML
+    assert 'class="app-menu-sec-title" id="menu-section-title">${t:ws.menu.section_title}<' in GRAPH_HTML
+    assert ".app-menu-sec{" in GRAPH_HTML
+    assert ".app-menu-sep{" in GRAPH_HTML
+    assert ".app-menu-sec-title{" in GRAPH_HTML
+    assert 'id="addbtn"' in GRAPH_HTML and 'id="pop-ingest-menu"' in GRAPH_HTML
+    assert 'id="modal-ingest"' in GRAPH_HTML and 'id="modal-reingest"' in GRAPH_HTML and 'id="modal-regen"' in GRAPH_HTML
+    assert GRAPH_HTML.index('id="homelinkbtn"') < GRAPH_HTML.index('id="syndlink"') < GRAPH_HTML.index('id="hamburger-btn"')
     assert 'id="centertab-graph"' in GRAPH_HTML
     assert 'id="centertab-reader"' in GRAPH_HTML
     assert 'id="centertab-stream"' in GRAPH_HTML
@@ -991,7 +993,7 @@ def test_default_graph_view_and_stream_tabs_separation():
     assert '<nav id="streamtabs" class="center-tabs stream-tabs"' in GRAPH_HTML
 
     c_start = GRAPH_HTML.index('<nav id="centertabs"')
-    c_end = GRAPH_HTML.index('</nav>\n        <nav id="streamtabs"')
+    c_end = GRAPH_HTML.index('</nav><nav id="streamtabs"')
     centertabs_content = GRAPH_HTML[c_start:c_end]
 
     # centertabs 에는 홈, 본문, 그래프, 프레젠테이션 순서로 위치
@@ -1004,7 +1006,7 @@ def test_default_graph_view_and_stream_tabs_separation():
 
     # streamtabs 에 의사결정 스트림 탭이 분리 배치됨
     s_start = GRAPH_HTML.index('<nav id="streamtabs"')
-    s_end = GRAPH_HTML.index('  <div id="viewoptions" class="appbar-end">')
+    s_end = GRAPH_HTML.index('<div class="appbar-end" id="viewoptions">', s_start)
     streamtabs_content = GRAPH_HTML[s_start:s_end]
     assert 'id="centertab-stream"' in streamtabs_content
 
@@ -1079,7 +1081,7 @@ def test_mobile_view_improvements_and_drawer_navigation():
 
     # 1. 센터 탭 그룹은 한 줄에 모두 담김 (mobile-doclist-btn, centertabs[reader, graph, presentation], streamtabs[stream])
     g_start = GRAPH_HTML.index('<div class="center-tab-group"')
-    g_end = GRAPH_HTML.index('  <div id="viewoptions" class="appbar-end">')
+    g_end = GRAPH_HTML.index('<div class="appbar-end" id="viewoptions">', g_start)
     g_tabs = GRAPH_HTML[g_start:g_end]
     assert 'id="mobile-doclist-btn"' in g_tabs
     assert 'id="centertab-reader"' in g_tabs

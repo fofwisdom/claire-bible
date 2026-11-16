@@ -174,7 +174,7 @@ def test_theme_web_default_focus(tmp_path: Path):
     assert '<span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))}' in html
 
     # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
-    assert "updateFocusPlaceholder" in graph_html
+    assert "getFocusPlaceholder" in graph_html and "syncFocusPlaceholder" in graph_html
     assert "ws.ingest.focus_default_placeholder" in graph_html
 
 

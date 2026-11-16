@@ -26,20 +26,24 @@ test('the workspace shows English text for an English browser', async ({ page })
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page).toHaveTitle('Claire Bible — Home');
   await expect(page.locator('#centertab-reader .btn-label')).toHaveText('Text');
-  await expect(page.locator('#authstate')).toHaveText('Authenticated');
+  await expect(page.locator('#authstate')).toHaveCount(0);
+  await expect(page.locator('#palettetrigger .palette-trigger-label')).toHaveText('Search · Go · Commands');
 
-  // The application bar and the view menu: no Korean text (the theme name is account data and is not in these parts).
-  const texts = await controlTexts(page, '#centerhead, .appbar-end, #moremenu, #listswitch');
+  // The application bar, hamburger menu, ingest menu, and view controls: no Korean text (the theme name is account data and is not in these parts).
+  const texts = await controlTexts(page, '#centerhead, .appbar-end, #pop-hamburger-menu, #pop-ingest-menu, #listswitch');
   expect(texts.length).toBeGreaterThan(20);
   for (const text of texts) {
     expect(HANGUL.test(text), text.slice(0, 80)).toBe(false);
   }
 
-  // The ingestion panel that app.js renders.
+  // The unified ingestion modal dialog that ClaireIngestDialogs + app.js render.
   await page.evaluate(() => openIngest());
-  const panel = page.locator('#detailpane');
-  await expect(panel.locator('h2')).toContainText('Ingest material');
-  await expect(panel.getByRole('button', { name: 'Start the ingestion' })).toBeVisible();
+  const modal = page.locator('dialog#modal-ingest');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('h2')).toContainText('Ingest material');
+  await expect(modal.getByRole('button', { name: 'Start the ingestion' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
 
   // The reader chrome that reader.js renders for a document.
   await page.evaluate(() => { selectDoc(allDocs[0].id); setCenterView('reader'); });

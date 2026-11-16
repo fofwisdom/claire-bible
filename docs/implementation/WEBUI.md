@@ -16,29 +16,39 @@ This document tells how the web workspace works now. The design principles are i
 
 | File | Content |
 | :--- | :--- |
-| `src/claire/templates/index.html` | Markup of the workspace: application bar, manage menu, list pane, center views, context panel, bottom bar, command palette dialog. |
-| `src/claire/static/css/appbar.css` | Rules of the application bar. The workspace, `/syndication`, and the console use it. |
+| `src/claire/ui_chrome.py` | Single-source builder for the shared application bar (`render_appbar_html()`), command palette (`render_cmdpalette_html()`), and ingestion modals (`render_ingest_modals_html()`). Future routes (`themes`, `kb`, etc.) must use this module instead of duplicating chrome HTML. |
+| `src/claire/templates/partials/common_appbar.html` | Shared `<header class="appbar">` partial rendered across the workspace, `/syndication`, and the console (`/settings/*`, `/admin/*`). |
+| `src/claire/templates/partials/common_cmdpalette.html` | Shared `<dialog id="cmdpalette" closedby="any">` markup rendered on every page. |
+| `src/claire/templates/partials/common_ingest_modals.html` | Shared centered modal dialogs `#modal-ingest`, `#modal-reingest`, and `#modal-regen`. |
+| `src/claire/templates/index.html` | Markup of the workspace: expandable common chrome markers, list pane, center views, context panel, `#modal-dedup` / `#modal-purge`, bottom bar. |
+| `src/claire/static/css/appbar.css` | Shared rules of the application bar, popover menus (`#pop-ingest-menu`, `#pop-hamburger-menu`), command palette dialog, and `.claire-dialog` modals. |
 | `src/claire/static/css/workspace.css` | Grid, list pane, context panel, home view, ingest cockpit, narrow screens. |
 | `src/claire/static/css/reader.css` | Reader text and the entity mark highlight. |
-| `src/claire/static/js/app.js` | Workspace state, home entry, lists, context panel, home cards, local graph, palette configuration. |
+| `src/claire/static/js/appbar.js` | Shared `ClaireAppBar`: theme toggle, `closedBy` backdrop close fallback, native popover & fallback toggle controller, `#palettetrigger` binder. |
+| `src/claire/static/js/ingest_dialogs.js` | Shared `ClaireIngestDialogs`: dropdown dispatcher for `[data-ingest-cmd]` (`ingest`, `reingest`, `regen`) and unified modal controllers. |
+| `src/claire/static/js/app.js` | Workspace state, home entry, lists, context panel, home cards, local graph, workspace dialog adapters (`openIngest`, `openReingest`, `openRegen`, `openDedup`, `openPurge`), palette configuration. |
 | `src/claire/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
-| `src/claire/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace and `/syndication`. |
+| `src/claire/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
 | `src/claire/static/js/icons.js` | `ClaireIcons`: line icons (Section 9). |
-| `src/claire/graphview.py` | Builds the workspace bundle and resolves its translation slots for each locale ([`I18N.md`](I18N.md) §4). |
+| `src/claire/graphview.py` | Builds the workspace and `/syndication` bundles using `ui_chrome.py` and resolves translation slots for each locale ([`I18N.md`](I18N.md) §4). |
 
 ---
 
 ## 2. Application Bar
 
-**[code]** The workspace header is `<header id="bar" class="appbar">`. It has three parts:
+**[code]** Every main page (workspace `/`, `/syndication`, console `/settings/*` and `/admin/*`, and future routes such as themes or kb) renders the unified header from `src/claire/ui_chrome.py` (`src/claire/templates/partials/common_appbar.html`) styled by `src/claire/static/css/appbar.css` and controlled by `src/claire/static/js/appbar.js`. It has three parts:
 
-1. Start (`.bar-brand-group`): brand link, theme picker, list toggle (`#listtoggle`).
-2. Center (`#centerhead`): the palette button (`#palettetrigger`) and the view navigation (`<nav id="centertabs">`: Home, Reader, Graph, Presentation; `<nav id="streamtabs">`: Decision stream). The active view button has `aria-current="page"`. The bar has no text field.
-3. End (`.appbar-end`): ingest button (`#addbtn`), manage menu button (`#managebtn`), authentication state, link to `/syndication` (`#syndlink`, owner only), console link, light and dark switch, context panel toggle (`#ctxbtn`).
+1. Start (`.bar-brand-group`): brand link (`Claire Bible`), page-specific theme picker, workspace list toggle (`#listtoggle`).
+2. Center (`.appbar-center`): always includes the unified command palette trigger button (`#palettetrigger`, keyboard shortcut `/`) inside `.appbar-palette-slot`, followed by page-specific center content (workspace view tabs `#centertabs` and `#streamtabs`, or syndication stream title, or console title/badge). The bar has no text `<input>`.
+3. End (`.appbar-end`): optional page actions to the left (`#addbtn` ingest dropdown on workspace & `/syndication`, `#ctxbtn` / `#morebtn` on workspace, `#btn-note-new` on `/syndication`), light/dark switch (`#themebtn`), and then the three shared rightmost icons ordered strictly from the rightmost edge inward:
+   - Hamburger menu button (`#hamburger-btn`, rightmost edge) opening `#pop-hamburger-menu` (`popover="auto"`, `focusgroup="menu nomemory"`)
+   - Syndication link (`#syndlink`, hidden on `/` until owner permission check passes)
+   - User Home link (`#homelinkbtn`, left of `#syndlink`)
 
-- The brand link is `<a class="brand" href="./">`. A plain left click calls `enterHome({reason:'brand'})`. Ctrl, Cmd, or a middle click uses the browser default (a new tab is a new page load).
-- The manage menu `#moremenu` is an element with `popover` and `role="menu"`: command palette, re-ingest, regenerate, deduplicate, path, synthesis, and the permanent delete (`#purgebtn`) last, in its own section. The script sets the position before the menu opens and moves the focus with the arrow keys. A browser without the Popover API gets the class `no-popover` and a class switch.
-- `/syndication` and the console use the same bar classes. The page table and its tests are in [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) §1.5. The light and dark switch writes `localStorage` key `claireTheme` on the three pages.
+- **Top bar omissions and Hamburger contents**: `#authstate` and a top-level sign-out button are removed from `.appbar`. Console navigation (`#consolelinkbtn`: `/admin` with `wrench` icon for admin, `/settings` with `settings` icon for non-admin owner; server-stripped on anonymous/read-only) and Sign out (`#menu-logout-form` → `POST /logout`) live inside `#pop-hamburger-menu` under `<hr id="menu-account-sep"/>`, below any page-specific hamburger sections (`#graph-section` on workspace, view/list-style items on `/syndication`).
+- **Ingest dropdown and unified modal popups**: `#addbtn` toggles `#pop-ingest-menu` (`popover="auto"`) with three actions (`ingest`, `reingest`, `regen`). Selecting any option (or `#dedupbtn` / `#purgebtn` in workspace's `#pop-hamburger-menu`) opens centered `<dialog closedby="any">` popups (`#modal-ingest`, `#modal-reingest`, `#modal-regen`, plus `#modal-dedup` and `#modal-purge` on workspace) instead of rendering forms inside `#detailpane`.
+- The workspace brand link and `#homelinkbtn` use `<a href="./">`. A plain left click calls `enterHome({reason:'brand'})` or `enterHome({reason:'nav'})`. Ctrl, Cmd, or a middle click uses the browser default (a new tab is a new page load).
+- Popovers use native `commandfor` / `command="toggle-popover"` and CSS anchor positioning (`position-area: block-end span-inline-start`) where supported, with `appbar.js` providing a click/viewport-clamped positioning fallback on older browsers. The light and dark switch writes `localStorage` key `claireTheme` on every page.
 
 ---
 
@@ -178,7 +188,7 @@ The share page keeps its own truncation tag, because it has no source badge.
 
 ## 7. Command Palette
 
-**[code]** `<dialog id="cmdpalette" closedby="any">` opens with `showModal()`. The `/` key opens it when the focus is not in a text field and no dialog is open (Ctrl+K is not bound). The header button and the manage menu also open it. A browser without `closedby` gets a click handler that checks the dialog rectangle.
+**[code]** `<dialog id="cmdpalette" closedby="any">` opens with `showModal()`. The `/` key opens it when the focus is not in a text field and no dialog is open (Ctrl+K is not bound). `#palettetrigger` in the shared `.appbar-center` opens it on every page, and `#palettebtn` inside `#pop-hamburger-menu` also opens it on the workspace. A browser without `closedby` gets a click handler in `appbar.js` / `command_palette.js` that checks the dialog rectangle.
 
 Rows of the workspace configuration (`ClaireCommandPalette.init()` in `app.js`):
 

@@ -22,39 +22,7 @@
 </head>
 <body data-auth-scope="__AUTH_SCOPE__" data-app-tab="kb" data-stage="ingest" data-layout="three-panel" data-list-style="list">
 
-  <!-- Application bar: the same structure and rules as the header of the workspace (static/css/appbar.css; docs/implementation/WEBUI.md §2). -->
-  <header class="appbar" id="synd-bar">
-    <div class="bar-brand-group">
-      <a class="brand" href="/" data-i18n-title="nav.brand_home">
-        <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
-        Claire Bible
-      </a>
-      <div class="theme-picker-wrap kb-only">
-        <label for="theme-selector" class="sr-only" data-i18n="nav.theme_select">Select knowledge theme</label>
-        <div class="theme-select-control">
-          <select id="theme-selector" class="theme-select" data-i18n-aria-label="nav.theme_select"></select>
-          <span class="theme-caret" aria-hidden="true">▾</span>
-        </div>
-      </div>
-    </div>
-    <div class="appbar-center">
-      <span id="active-stream-title" class="appbar-title kb-only" data-i18n="synd.kb.stream.all">All ingested documents</span>
-      <span id="client-stream-title" class="appbar-title client-only"></span>
-      <button type="button" id="btn-palette" class="palette-trigger" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title">
-        <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
-        <span class="palette-trigger-label" data-i18n="nav.palette.trigger">Search · Go · Commands</span>
-        <kbd aria-hidden="true">/</kbd>
-      </button>
-    </div>
-    <div class="appbar-end">
-      <button type="button" id="btn-open-ingest" class="bar-ingest-btn kb-only" data-i18n-title="nav.ingest_title"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg> <span class="btn-label" data-i18n="nav.ingest">Ingest</span></button>
-      <button type="button" id="btn-note-new" class="bar-ingest-btn client-only" data-i18n-title="synd.compose.new_note_title" hidden><span data-icon="edit"></span> <span class="btn-label" data-i18n="synd.compose.new_note">New note</span></button>
-      <a id="syndlink" class="bar-icon-btn" href="/syndication" aria-current="page" data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2.5 9.5 2-6h7l2 6v3h-11zM2.5 9.5h3.2l.8 1.5h3l.8-1.5h3.2"/></svg></a>
-      <a id="top-pref-link" class="bar-icon-btn" href="/settings/reader" data-settings-path="/settings/reader" data-i18n-title="nav.settings" data-i18n-aria-label="nav.settings"><span data-icon="settings"></span></a>
-      <button type="button" id="themebtn" class="bar-icon-btn" onclick="toggleClaireTheme()" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" data-icon="moon"></button>
-      <button type="button" class="bar-icon-btn" popovertarget="pop-main-menu" aria-haspopup="menu" data-i18n-title="nav.menu" data-i18n-aria-label="nav.menu"><span data-icon="menu"></span></button>
-    </div>
-  </header>
+  <!-- __COMMON_APPBAR__ -->
 
   <!-- Stage bar (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 6, RD14): collection, ingestion, publication. Stage 1 opens the federation client view; stages 2 and 3 open the knowledge base view. For the owner only. -->
   <nav id="stagebar" class="synd-stagebar" data-i18n-aria-label="home.flow.label" hidden>
@@ -92,28 +60,6 @@
     <button type="button" class="tt-pop-item" data-sort="newest"><span data-i18n="synd.kb.sort.newest_long">Newest first</span></button>
     <button type="button" class="tt-pop-item" data-sort="oldest"><span data-i18n="synd.kb.sort.oldest_long">Oldest first</span></button>
     <button type="button" class="tt-pop-item" data-sort="entities"><span data-i18n="synd.kb.sort.entities_long">Number of entities</span></button>
-  </div>
-
-  <div id="pop-main-menu" popover="auto" class="tt-popover tt-popover-end">
-    <a id="menu-pref-link" class="tt-pop-item" href="/settings/reader" data-settings-path="/settings/reader"><span><span data-icon="settings"></span> <span data-i18n="synd.kb.menu.preferences">Preferences…</span></span></a>
-    <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec" data-i18n="synd.kb.menu.section_kb">Knowledge base and ingestion</div>
-    <button type="button" id="menu-open-ingest" class="tt-pop-item"><span>+ <span data-i18n="synd.kb.menu.ingest">Ingest a document…</span></span></button>
-    <a class="tt-pop-item" href="/settings/connections" data-settings-path="/settings/connections"><span><span data-icon="lock"></span> <span data-i18n="synd.kb.menu.connections">Connected accounts and permissions…</span></span></a>
-    <a class="tt-pop-item" href="/settings/tags" data-settings-path="/settings/tags"><span><span data-icon="tag"></span> <span data-i18n="synd.kb.menu.tags">Rules from source tags to entities…</span></span></a>
-    <a class="tt-pop-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span><span data-icon="repeat"></span> <span data-i18n="synd.kb.menu.outbound">Boost and publication settings…</span></span></a>
-    <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec" data-i18n="synd.kb.list_style.title">List style</div>
-    <button type="button" class="tt-pop-item" data-set-list-style="list"><span data-list-style-label>☰</span><kbd>l</kbd></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="compact"><span data-list-style-label>≡</span></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="card"><span data-list-style-label>▤</span></button>
-    <button type="button" class="tt-pop-item" data-set-list-style="roomy"><span data-list-style-label>▭</span></button>
-    <div class="tt-pop-sep"></div>
-    <div class="tt-pop-sec" data-i18n="synd.kb.layout.title">Layout</div>
-    <button type="button" id="menu-layout-3pane" class="tt-pop-item"><span id="menu-layout-3pane-label"></span><kbd>m</kbd></button>
-    <button type="button" id="menu-layout-2pane" class="tt-pop-item"><span id="menu-layout-2pane-label"></span></button>
-    <div class="tt-pop-sep"></div>
-    <a class="tt-pop-item" href="/"><span data-i18n="nav.brand_home">Claire Bible home</span></a>
   </div>
 
   <div id="pop-article-actions" popover="auto" class="tt-popover tt-popover-end">
@@ -231,27 +177,8 @@
     <span id="footer-stats" style="font-family:'D2Coding',monospace"></span>
   </footer>
 
-  <!-- Live Ingest Modal -->
-  <dialog id="modal-ingest" closedby="any" aria-labelledby="modal-ingest-title" class="synd-dialog">
-    <form id="form-ingest" style="padding:18px;display:flex;flex-direction:column;gap:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 id="modal-ingest-title" style="margin:0;font-size:16px;font-weight:700" data-i18n="synd.kb.ingest.dialog_title">Ingest a document into the theme</h2>
-        <button type="button" data-close-dialog="modal-ingest" class="tt-btn" data-i18n-aria-label="common.action.close"><span data-icon="close"></span></button>
-      </div>
-      <div>
-        <label for="ingest-payload" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.payload_label">URL or source text</label>
-        <textarea id="ingest-payload" required rows="5" class="tt-search" style="width:100%;height:auto;padding:8px;font-family:inherit" data-i18n-placeholder="synd.kb.ingest.payload_placeholder"></textarea>
-      </div>
-      <div>
-        <label for="ingest-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.focus_label">Extraction focus (optional)</label>
-        <input id="ingest-focus" type="text" class="tt-search" style="width:100%;height:34px" data-i18n-placeholder="synd.kb.ingest.focus_placeholder"/>
-      </div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
-        <button type="button" data-close-dialog="modal-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
-        <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri"><span data-icon="download"></span> <span data-i18n="synd.kb.ingest.submit">Ingest</span></button>
-      </div>
-    </form>
-  </dialog>
+  <!-- Unified Ingestion Popups -->
+  <!-- __COMMON_INGEST_MODALS__ -->
 
   <!-- Ingest of one item of the timeline (design Section 4.4, FP4-5) -->
   <dialog id="modal-item-ingest" closedby="any" aria-labelledby="modal-item-ingest-title" class="synd-dialog">
@@ -342,14 +269,7 @@
     </form>
   </dialog>
 
-  <dialog id="cmdpalette" class="cmd-palette" closedby="any" aria-labelledby="cmdpalette-title">
-    <h2 id="cmdpalette-title" class="sr-only" data-i18n="nav.palette.title">Command palette</h2>
-    <div class="cmd-palette-head">
-      <input id="cmdpalette-input" type="search" autofocus autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="cmdpalette-list" data-i18n-placeholder="nav.palette.placeholder" data-i18n-aria-label="nav.palette.input_aria"/>
-    </div>
-    <div id="cmdpalette-list" class="cmd-palette-list" role="listbox"></div>
-    <div class="cmd-palette-foot"><span data-i18n="nav.palette.hint">↑↓ move · Enter run · Esc close</span></div>
-  </dialog>
+  <!-- __COMMON_CMDPALETTE__ -->
 
   <!-- Live Cross-Theme Dispatch Modal -->
   <dialog id="modal-dispatch" closedby="any" aria-labelledby="modal-dispatch-title" class="synd-dialog synd-dialog-wide">
@@ -374,20 +294,13 @@
       serverMode: '__SERVER_MODE__',
       themes: __THEMES_JSON__
     };
-    function toggleClaireTheme() {
-      const cur = document.documentElement.getAttribute("data-theme") || "light";
-      const next = cur === "dark" ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", next);
-      try { localStorage.setItem("claireTheme", next); } catch (_) {}
-      const btn = document.getElementById("themebtn");
-      if (btn) btn.setAttribute("data-icon", next === "dark" ? "sun" : "moon");
-    }
-    (function(){ const btn=document.getElementById("themebtn"); if(btn) btn.setAttribute("data-icon", document.documentElement.getAttribute("data-theme")==="dark"?"sun":"moon"); })();
   </script>
   <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
   <!-- __I18N_CATALOG__ -->
   <script src="/static/js/i18n.js"></script>
   <script src="/static/js/icons.js"></script>
+  <script src="/static/js/appbar.js"></script>
+  <script src="/static/js/ingest_dialogs.js"></script>
   <script src="/static/js/command_palette.js"></script>
   <script src="/static/js/syndication_live.js"></script>
   <script src="/static/js/syndication_compose.js"></script>

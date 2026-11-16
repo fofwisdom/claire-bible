@@ -1,8 +1,8 @@
-/* --- Claire Bible: application bar (docs/implementation/WEBUI.md §2) ---
- * One set of rules for the header of the workspace (index.html), of /syndication (syndication.html), and of the console (console_shell.html).
- * Structure: <header class="appbar"> with .bar-brand-group (brand link, theme picker, list toggle), .appbar-center (view navigation or page title, palette button), and .appbar-end (actions, page links, light and dark switch).
- * Rules for one page only stay in the stylesheet of that page.
+/* --- Claire Bible: unified application bar, popover menus, command palette, and dialog chrome (docs/implementation/WEBUI.md §2) ---
+ * Single source of rules loaded by the workspace (index.html), /syndication (syndication.html), console (console_shell.html), and future routes (themes, kb).
+ * Right-top icons from rightmost edge: hamburger (#hamburger-btn) -> syndication (#syndlink) -> user home (#homelinkbtn).
  */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .appbar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 12px;min-height:48px;box-sizing:border-box;flex-shrink:0;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
 .appbar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px}
 .appbar .brand img{display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))}
@@ -10,8 +10,9 @@
 .appbar b{color:var(--accent2)}
 .bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
 .appbar-center{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:34px}
+.appbar-palette-slot{display:flex;align-items:center;flex:1 1 200px;max-width:380px;min-width:140px}
 .appbar-end{display:flex;align-items:center;gap:6px}
-.appbar-title{display:inline-block;flex:0 1 auto;min-width:0;font-size:13.5px;font-weight:700;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.appbar-title{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;font-size:13.5px;font-weight:700;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .appbar-title[hidden]{display:none}
 
 /* Theme picker */
@@ -37,7 +38,8 @@
 .bar-icon-btn:disabled{opacity:.4;cursor:default}
 .bar-ingest-btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;box-sizing:border-box;background:var(--btn-bg);color:var(--btn-fg);border:1px solid transparent;border-radius:4px;font-weight:700;font-size:12.5px;cursor:pointer}
 .bar-ingest-btn[hidden]{display:none}
-.bar-auth{display:inline-flex;align-items:center;justify-content:center;height:28px;min-height:28px;padding:0 8px;font-size:12px;color:var(--muted);background:var(--sec-bg);border:1px solid var(--border);border-radius:4px;white-space:nowrap;user-select:none;box-sizing:border-box}
+.bar-ingest-btn[aria-expanded="true"]{filter:brightness(1.08)}
+.ingest-caret{font-size:10px;opacity:.85;line-height:1}
 .bar-form{margin:0;display:inline-flex}
 
 /* Button of the command palette */
@@ -46,17 +48,108 @@
 .palette-trigger-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .palette-trigger kbd{flex:none;min-width:18px;padding:0 5px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font:inherit;font-size:11px;line-height:18px;text-align:center}
 
+/* Popover dropdown menus (modern anchor positioning with fixed fallback) */
+.app-popover{padding:6px;min-width:236px;max-width:min(320px,calc(100vw - 16px));background:var(--card-bg,var(--panel-bg));color:var(--fg);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 28px var(--shadow,rgba(0,0,0,0.22));font-size:13px;z-index:85;white-space:normal}
+.app-popover[popover]:is(:popover-open, .\:popover-open){display:flex;flex-direction:column}
+@supports (position-area: block-end){
+  .app-popover{inset:auto;margin:0;margin-block-start:6px;position-area:block-end span-inline-end;position-try-fallbacks:flip-block,flip-inline,flip-block flip-inline}
+  .app-popover.app-popover-end{position-area:block-end span-inline-start}
+}
+@supports not (position-area: block-end){
+  .app-popover{position:fixed;inset:auto;margin:0}
+}
+@media (prefers-reduced-motion: no-preference){
+  .app-popover{opacity:0;translate:0 -0.25rem;transition:opacity 0.14s ease,translate 0.14s ease,display 0.14s ease,overlay 0.14s ease;transition-behavior:allow-discrete}
+  .app-popover[popover]:is(:popover-open, .\:popover-open){opacity:1;translate:0 0}
+  @starting-style{.app-popover[popover]:is(:popover-open, .\:popover-open){opacity:0;translate:0 -0.25rem}}
+}
+.app-popover [focusgroup~="menu"]{display:flex;flex-direction:column;gap:2px}
+.app-menu-sec-title{padding:4px 9px 2px;font-size:11px;font-weight:700;color:var(--accent2,var(--muted));text-transform:uppercase;letter-spacing:.03em}
+.app-menu-sec{display:flex;flex-direction:column;gap:2px}
+.app-menu-sec[hidden]{display:none}
+.app-menu-sep{border:0;border-top:1px solid var(--border);margin:4px 2px;width:calc(100% - 4px)}
+.app-menu-sep[hidden]{display:none}
+.app-menu-form{margin:0;display:flex;flex-direction:column}
+.app-menu-form[hidden]{display:none}
+.app-popover [focusgroup~="menu"] button,.app-popover [focusgroup~="menu"] a,.app-menu-item{display:flex;align-items:flex-start;gap:8px;width:100%;box-sizing:border-box;padding:7px 9px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:inherit;font-size:13px;font-weight:500;text-align:left;text-decoration:none;cursor:pointer}
+.app-popover [focusgroup~="menu"] button[hidden],.app-popover [focusgroup~="menu"] a[hidden],.app-menu-item[hidden]{display:none}
+.app-popover [focusgroup~="menu"] button:hover,.app-popover [focusgroup~="menu"] a:hover,.app-popover [focusgroup~="menu"] button:focus-visible,.app-popover [focusgroup~="menu"] a:focus-visible,.app-menu-item:hover,.app-menu-item:focus-visible{background:var(--hover);outline:none}
+.app-menu-item[aria-current="page"]{background:var(--active,var(--sec-bg));color:var(--accent);font-weight:700}
+.app-popover .btn-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:18px;margin-top:1px}
+.app-menu-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.app-menu-label{font-weight:600;line-height:1.3}
+.app-menu-desc{font-size:11.5px;color:var(--muted);line-height:1.35}
+.app-menu-kbd{margin-left:auto;font-family:'D2Coding',monospace;font-size:11px;color:var(--muted);align-self:center}
+.app-menu-danger{color:#cf222e !important}
+[data-theme="dark"] .app-menu-danger{color:#ff7b72 !important}
+
+/* Command palette dialog + native modal scroll containment */
+dialog:modal{overscroll-behavior:contain}
+dialog::backdrop{overflow:hidden;overscroll-behavior:contain}
+.cmd-palette{margin:min(12vh,80px) auto auto;padding:0;width:min(560px,calc(100vw - 24px));max-width:560px;border:1px solid var(--border);border-radius:10px;background:var(--card-bg,var(--panel-bg));color:var(--fg);box-shadow:0 18px 48px rgba(0,0,0,.35)}
+.cmd-palette::backdrop{background:rgba(0,0,0,.45)}
+.cmd-palette-head{padding:10px 12px;border-bottom:1px solid var(--border)}
+.cmd-palette-head input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:14px}
+.cmd-palette-head input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cmd-palette-list{max-height:min(54vh,420px);overflow-y:auto;padding:8px}
+.cmd-palette-group{margin-bottom:8px}
+.cmd-palette-group:last-child{margin-bottom:0}
+.cmd-palette-group-title{padding:4px 8px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cmd-palette-row{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--fg);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.cmd-palette-row:hover,.cmd-palette-row.is-active{background:var(--hover);border-color:var(--accent)}
+.cmd-palette-icon{flex:0 0 auto;width:18px;text-align:center;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.cmd-palette-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd-palette-meta{flex:0 0 auto;font-size:11px;color:var(--muted)}
+.cmd-palette-empty{padding:18px 12px;text-align:center;font-size:13px;color:var(--muted)}
+.cmd-palette-foot{padding:7px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+
+/* Unified modal dialogs (ingest, reingest, regenerate, dedup, purge) */
+dialog.claire-dialog{background:var(--card-bg,var(--panel-bg));color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:0;width:min(94vw,600px);max-height:90dvh;overflow-y:auto;box-shadow:0 18px 44px var(--shadow,rgba(0,0,0,0.35));margin:auto}
+dialog.claire-dialog-wide{width:min(94vw,720px)}
+dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(2px)}
+.claire-dialog-form,.claire-dialog-body{padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.claire-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.claire-dialog-head h2{margin:0;font-size:16px;font-weight:700;display:flex;align-items:center;gap:7px;color:var(--fg)}
+.claire-dialog-close{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--panel-bg);color:var(--fg);cursor:pointer}
+.claire-dialog-close:hover{background:var(--hover)}
+.claire-dialog-intro{margin:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.claire-dialog .ingest-field{display:flex;flex-direction:column;gap:4px}
+.claire-dialog .ingest-label{font-size:12px;font-weight:700;color:var(--fg)}
+.claire-dialog .ingest-help{font-weight:500;color:var(--muted);font-size:11.5px;margin-left:4px}
+.claire-dialog textarea,.claire-dialog input[type="text"],.claire-dialog select{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit;font-size:13px}
+.claire-dialog textarea:focus-visible,.claire-dialog input:focus-visible,.claire-dialog select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.claire-dialog fieldset.ingest-options{border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin:0}
+.claire-dialog .ingest-choice-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.claire-dialog .ingest-choice{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.claire-dialog .ingest-choice input{margin:0;cursor:pointer}
+.claire-dialog .ingest-choice label{cursor:pointer}
+.claire-dialog-sub{font-size:12px;color:var(--muted)}
+.claire-dialog-check{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer}
+.claire-dialog-msg{margin:0;font-size:12.5px;font-weight:600}
+.claire-dialog-msg:empty{display:none}
+.claire-dialog-msg[data-state="error"]{color:#cf222e}
+.claire-dialog-msg[data-state="ok"]{color:#1a7f37}
+.claire-dialog-result{max-height:260px;overflow-y:auto;font-size:12.5px}
+.claire-dialog-result:empty{display:none}
+.claire-dialog-foot{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border)}
+.claire-dialog-foot button{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg)}
+.claire-dialog-foot button.pri{background:var(--btn-bg,var(--accent));color:var(--btn-fg,#fff);border-color:transparent}
+.claire-dialog-foot button:disabled{opacity:0.5;cursor:not-allowed}
+
 @media (forced-colors:active){.bar-icon-btn[aria-current="page"]{outline:2px solid}}
 
-/* Narrow screens (Section 4.6): larger targets, and the center part is the second row of the bar. */
+/* Narrow screens: compact Row 1 targets so rightmost icons never overflow; command palette moves to Row 2. */
 @media (max-width:720px){
-  .appbar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 12px 6px;flex-wrap:wrap}
-  .appbar .brand{font-size:14px}
+  .appbar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 10px 6px;flex-wrap:wrap;gap:6px}
+  .appbar .brand{font-size:13.5px}
   .bar-brand-group{gap:6px}
-  .theme-select{max-width:85px}
+  .theme-select{max-width:72px}
   .theme-select-control{height:34px;padding:2px 4px 2px 6px}
-  .appbar-center{order:10;flex:1 0 100%}
+  .appbar-center{order:10;flex:1 0 100%;gap:6px}
+  .appbar-palette-slot{max-width:none;min-width:0;width:100%}
   .appbar-center .palette-trigger{max-width:none}
-  .appbar-end .bar-icon-btn,.appbar-end .bar-auth,.appbar-end .bar-ingest-btn{min-width:38px;min-height:38px;height:38px;padding:4px 8px}
-  .appbar-end .bar-auth{font-size:12px}
+  .appbar-end{gap:4px}
+  .appbar-end .bar-icon-btn{min-width:34px;min-height:36px;height:36px;padding:0 6px}
+  .appbar-end .bar-ingest-btn{min-width:36px;min-height:36px;height:36px;padding:0 8px}
+  .appbar-end .bar-ingest-btn .btn-label{display:none}
 }

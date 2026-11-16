@@ -10,10 +10,10 @@ test.describe('line icons', () => {
     await expect(page.locator('#panel-kb')).toBeVisible();
 
     // Markup with `data-icon` gets an inline SVG that uses the text color.
-    const prefIcon = page.locator('#top-pref-link svg.lineicon');
-    await expect(prefIcon).toBeVisible();
-    expect(await prefIcon.evaluate(el => getComputedStyle(el).stroke)).toBe(await page.locator('#top-pref-link').evaluate(el => getComputedStyle(el).color));
-    expect(await prefIcon.evaluate(el => getComputedStyle(el).fill)).toBe('none');
+    const syndIcon = page.locator('#syndlink svg.lineicon');
+    await expect(syndIcon).toBeVisible();
+    expect(await syndIcon.evaluate(el => getComputedStyle(el).stroke)).toBe(await page.locator('#syndlink').evaluate(el => getComputedStyle(el).color));
+    expect(await syndIcon.evaluate(el => getComputedStyle(el).fill)).toBe('none');
 
     // The light and dark switch changes its icon through the `data-icon` attribute.
     const themeBtn = page.locator('#themebtn');
@@ -27,7 +27,9 @@ test.describe('line icons', () => {
     // The tree that a script draws has line icons too.
     await expect(page.locator('.tt-tree-item svg.lineicon').first()).toBeVisible();
 
-    for (const selector of ['#top-pref-link', '#pop-main-menu']) {
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#menu-pref-link svg.lineicon')).toBeVisible();
+    for (const selector of ['#syndlink', '#homelinkbtn', '#hamburger-btn', '#pop-hamburger-menu']) {
       const texts = await page.locator(selector).evaluateAll(nodes => nodes.map(node => node.textContent));
       for (const text of texts) expect(text).not.toMatch(EMOJI);
     }

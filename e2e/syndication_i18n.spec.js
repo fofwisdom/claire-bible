@@ -20,7 +20,7 @@ test('the knowledge base view of /syndication shows English text for an English 
   await expect(page.locator('#active-stream-title')).toHaveText('All ingested documents');
   await expect(page.locator('#stream-search')).toHaveAttribute('placeholder', /Search title/);
 
-  for (const selector of ['.synd-toolbar', '#pane-tree summary', '#tree-specials', '#activity-ticker', '#pop-main-menu', '#pop-sort', '#pop-list-style', '#pop-article-actions']) {
+  for (const selector of ['#synd-center', '#synd-end', '.synd-toolbar', '#pane-tree summary', '#tree-specials', '#activity-ticker', '#pop-hamburger-menu', '#pop-ingest-menu', '#pop-sort', '#pop-list-style', '#pop-article-actions']) {
     const texts = await page.locator(selector).evaluateAll((nodes) => nodes.map((node) => node.textContent));
     expect(texts.length, selector).toBeGreaterThan(0);
     for (const text of texts) expect(HANGUL.test(text), `${selector}: ${text.trim().slice(0, 80)}`).toBe(false);

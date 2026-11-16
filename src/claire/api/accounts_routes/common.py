@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
+from ... import ui_chrome
 from ...accounts.username_policy import server_reserved_labels
 from ...i18n import SUPPORTED_LOCALES, browser_catalog_json, get_locale, interpolate, t
 from ...i18n.catalog import BrowserCatalogScope
@@ -306,17 +307,51 @@ def render_template(
 
     I18N design Section 6.2: every template gets ``$html_lang`` (the active locale), ``$i18n_bootstrap_html`` (inline catalog and ``i18n.js``, for pages that have scripts) and ``$locale_switch_html`` (the form of the pages in ``LOCALE_FORM_RETURN_PATHS``, empty for other pages). A slot ``${t:catalog.key}`` becomes the escaped translation; the ``text`` values are its ``{name}`` parameters.
     """
-    source = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **(text or {}))).replace("$", "$$"), (TEMPLATES_DIR / name).read_text(encoding="utf-8"))
+    raw_source = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+    tx = text or {}
+    mk = markup or {}
+    source = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)).replace("$", "$$"), raw_source)
     template = string.Template(source)
     return_path = LOCALE_FORM_RETURN_PATHS.get(name)
     # The console shell gets the keys of the console scripts; only a page of the administrator area gets the keys of the administrator scripts.
     scope: BrowserCatalogScope = "page"
     if name == "console_shell.html":
-        scope = "console_admin" if (text or {}).get("active_area") == "admin" else "console"
+        scope = "console_admin" if tx.get("active_area") == "admin" else "console"
     values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
-    values.update({k: escape(v) for k, v in (text or {}).items()})
-    values.update(markup or {})
+    values.update({k: escape(v) for k, v in tx.items()})
+    values.update(mk)
     body = template.substitute(values)
+    if "<!-- __COMMON_APPBAR__ -->" in body:
+        appbar_raw = mk.get("common_appbar_html")
+        if appbar_raw is None:
+            is_admin_area = tx.get("active_area") == "admin"
+            graph_href = str(tx.get("graph_href", "/"))
+            synd_href = str(tx.get("syndication_href", "/syndication"))
+            scope_badge_escaped = escape(tx.get("scope_badge", ""))
+            appbar_raw = ui_chrome.render_appbar_html(
+                bar_id="console-bar",
+                brand_id="console-back-graph",
+                brand_href=graph_href,
+                brand_extra_html=mk.get("theme_selector_html", ""),
+                center_id="console-bar-center",
+                center_extra_html=f'<span class="appbar-title console-brand"><span data-icon="settings"></span> ${{t:nav.topbar.console}}</span><span class="console-badge" id="console-scope-badge">{scope_badge_escaped}</span>',
+                end_id="console-bar-end",
+                ingest_enabled=False,
+                home_href=graph_href,
+                synd_href=synd_href,
+                console_href="/admin" if is_admin_area else "/settings",
+                console_icon="wrench" if is_admin_area else "settings",
+                console_current=True,
+                show_logout=True,
+            )
+        appbar_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), appbar_raw)
+        body = body.replace("<!-- __COMMON_APPBAR__ -->", appbar_rendered)
+    if "<!-- __COMMON_CMDPALETTE__ -->" in body:
+        palette_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), ui_chrome.render_cmdpalette_html())
+        body = body.replace("<!-- __COMMON_CMDPALETTE__ -->", palette_rendered)
+    if "<!-- __COMMON_INGEST_MODALS__ -->" in body:
+        ingest_rendered = _TRANSLATION_SLOT.sub(lambda m: escape(t(m.group(1), **tx)), ui_chrome.render_ingest_modals_html())
+        body = body.replace("<!-- __COMMON_INGEST_MODALS__ -->", ingest_rendered)
     include_script = name not in ("login.html", "setup.html")
     body = inject_favicon_head_tags(body, include_pwa_register=include_script)
     response = HTMLResponse(body, status_code=status_code)

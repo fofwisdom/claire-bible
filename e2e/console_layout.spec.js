@@ -11,6 +11,9 @@ async function ensureOwnerState(browser) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await page.goto(`/?t=${CONSOLE_LAYOUT_TOKEN}`, { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  await expect(page.locator('#hamburger-btn')).toBeVisible();
+  await page.locator('#hamburger-btn').click();
   await expect(page.locator('#consolelinkbtn')).toBeVisible();
   ownerStorageState = await ctx.storageState();
   await ctx.close();
@@ -93,8 +96,9 @@ test('console command palette opens with / shortcut and sidebar trigger button t
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/settings/account', { waitUntil: 'networkidle' });
 
-  // Open with trigger button and close with Escape even while input is focused
-  await page.locator('#console-palette-trigger').click();
+  // Open with top-bar command palette trigger and close with Escape even while input is focused
+  await expect(page.locator('#console-palette-trigger')).toHaveCount(0);
+  await page.locator('#palettetrigger').click();
   const dialog = page.locator('#cmdpalette');
   await expect(dialog).toBeVisible();
   await page.locator('#cmdpalette-input').fill('test');
@@ -137,6 +141,10 @@ test('mobile viewport uses single-node drawer without duplicate links or horizon
   expect(layout.navLinks).toBeGreaterThan(0);
   expect(layout.navLinks).toBe(layout.uniqueNavHrefs);
 
+  await expect(page.locator('#palettetrigger')).toBeVisible();
+  await expect(page.locator('#homelinkbtn')).toBeVisible();
+  await expect(page.locator('#syndlink')).toBeVisible();
+  await expect(page.locator('#hamburger-btn')).toBeVisible();
   await expect(page.locator('#console-mob-menu')).toBeVisible();
   await expect(page.locator('#console-sidebar')).toBeHidden();
 

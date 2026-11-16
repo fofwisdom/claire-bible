@@ -104,7 +104,10 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
         # 싱글 모드에서는 상단 복귀 링크에 /@username 네임스페이스가 노출되지 않는다 (S9).
         assert f"/@{ADMIN_USERNAME}" not in body
         assert '<a class="brand" href="/" id="console-back-graph"' in body
-        assert '<a href="/syndication" class="bar-icon-btn" id="console-back-syndication"' in body
+        assert '<a id="syndlink" class="bar-icon-btn" href="/syndication"' in body
+        assert '<button id="palettetrigger"' in body
+        assert 'id="hamburger-btn"' in body and 'action="/logout"' in body
+        assert 'id="authstate"' not in body
         # 통합 사이드바에 /admin/* 8개 경로가 모두 포함된다.
         for path in (
             "/admin/server",

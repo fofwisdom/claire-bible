@@ -4,9 +4,9 @@ const { test, expect } = require('@playwright/test');
 // A login token of the seed database is for one login. Each test has its own token (e2e/seed_db.py).
 const login = (n) => `/?t=e2e-appbar${n}-token-0123456789abcde`;
 const PAGES = [
-  { name: 'workspace', path: '/', current: null },
-  { name: 'syndication', path: '/syndication', current: '/syndication' },
-  { name: 'console', path: '/settings/reader', current: '/settings' },
+  { name: 'workspace', path: '/', currentPattern: /^\/$/ },
+  { name: 'syndication', path: '/syndication', currentPattern: /^\/syndication$/ },
+  { name: 'console', path: '/settings/reader', currentPattern: /^\/(?:admin|settings)$/ },
 ];
 
 async function barFacts(page) {
@@ -15,14 +15,26 @@ async function barFacts(page) {
     const style = getComputedStyle(bar);
     const brand = bar.querySelector('.bar-brand-group a.brand');
     const current = bar.querySelector('.appbar-end a[aria-current="page"]');
+    const visibleEndOrder = ['#themebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((sel) => {
+      const el = bar.querySelector(`.appbar-end ${sel}`);
+      if (!el || el.hidden) return null;
+      const r = el.getBoundingClientRect();
+      return { sel, left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
+    });
+    const visibleTopLogout = Array.from(bar.querySelectorAll('form[action="/logout"], a[href="/logout"]')).filter((el) => !el.closest('#pop-hamburger-menu') && el.offsetParent !== null).length;
     return {
       height: Math.round(bar.getBoundingClientRect().height),
       background: style.backgroundColor,
       brandText: brand ? brand.textContent.trim() : null,
       brandPath: brand ? new URL(brand.href).pathname : null,
-      syndicationLinks: bar.querySelectorAll('.appbar-end a[href^="/syndication"]').length,
-      // The console link of the workspace goes to /admin for an administrator and to /settings for other accounts.
-      settingsLinks: bar.querySelectorAll('.appbar-end a[href^="/settings"], .appbar-end a[href^="/admin"]').length,
+      paletteVisible: !!bar.querySelector('.appbar-center #palettetrigger') && getComputedStyle(bar.querySelector('#palettetrigger')).display !== 'none',
+      authStateCount: document.querySelectorAll('#authstate').length,
+      visibleTopLogout,
+      visibleEndOrder,
+      syndicationLinks: bar.querySelectorAll('.appbar-end > a[href^="/syndication"]').length,
+      homeLinks: bar.querySelectorAll('.appbar-end > a#homelinkbtn').length,
+      hamburgerConsoleLinks: bar.querySelectorAll('#pop-hamburger-menu a#consolelinkbtn').length,
+      hamburgerLogoutForms: bar.querySelectorAll('#pop-hamburger-menu form[action="/logout"]').length,
       themeSwitch: !!bar.querySelector('.appbar-end #themebtn'),
       currentPath: current ? new URL(current.href).pathname : null,
       inputs: bar.querySelectorAll('input').length,
@@ -30,7 +42,7 @@ async function barFacts(page) {
   });
 }
 
-test('the three pages have the same application bar', async ({ page }) => {
+test('the three pages share one app bar, palette trigger, right-to-left icons, hamburger menu, and ingest popups', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 800 });
   await page.goto(login(1), { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#syndlink')).toBeVisible();
@@ -38,18 +50,69 @@ test('the three pages have the same application bar', async ({ page }) => {
   for (const target of PAGES) {
     await page.goto(target.path, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('header.appbar')).toHaveCount(1);
+    await expect(page.locator('#syndlink')).toBeVisible();
     const fact = await barFacts(page);
     expect(fact.brandText, target.name).toBe('Claire Bible');
     expect(fact.brandPath, target.name).toBe('/');
+    expect(fact.paletteVisible, target.name).toBe(true);
+    expect(fact.authStateCount, target.name).toBe(0);
+    expect(fact.visibleTopLogout, target.name).toBe(0);
+    expect(fact.homeLinks, target.name).toBe(1);
     expect(fact.syndicationLinks, target.name).toBe(1);
-    expect(fact.settingsLinks, target.name).toBe(1);
+    expect(fact.hamburgerConsoleLinks, target.name).toBe(1);
+    expect(fact.hamburgerLogoutForms, target.name).toBe(1);
     expect(fact.themeSwitch, target.name).toBe(true);
-    expect(fact.currentPath, target.name).toBe(target.current);
+    expect(fact.currentPath, target.name).toMatch(target.currentPattern);
     expect(fact.inputs, target.name).toBe(0);
+
+    // Order from left to right along .appbar-end: themebtn -> homelinkbtn -> syndlink -> hamburger-btn (rightmost).
+    expect(fact.visibleEndOrder.every((item) => item && item.width > 0), target.name).toBe(true);
+    for (let i = 1; i < fact.visibleEndOrder.length; i += 1) {
+      expect(fact.visibleEndOrder[i].left, `${target.name} ${fact.visibleEndOrder[i].sel}`).toBeGreaterThan(fact.visibleEndOrder[i - 1].left);
+    }
+
+    // Command palette opens from the top bar trigger on every page.
+    await page.locator('#palettetrigger').click();
+    await expect(page.locator('#cmdpalette')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#cmdpalette')).toBeHidden();
+
+    // Hamburger menu exposes console link and sign-out action.
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+    await expect(page.locator('#consolelinkbtn')).toBeVisible();
+    await expect(page.locator('#menu-logout-form')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#pop-hamburger-menu')).toBeHidden();
+
     facts.push(fact);
   }
   expect(new Set(facts.map((fact) => fact.height)).size, JSON.stringify(facts.map((fact) => fact.height))).toBe(1);
   expect(new Set(facts.map((fact) => fact.background)).size).toBe(1);
+
+  // Ingest button opens the shared dropdown and opens modal popups identically on / and /syndication.
+  for (const path of ['/', '/syndication']) {
+    await page.goto(path, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#addbtn')).toBeVisible();
+    await page.locator('#addbtn').click();
+    await expect(page.locator('#pop-ingest-menu')).toBeVisible();
+    await page.locator('#ingest-opt-new').click();
+    await expect(page.locator('dialog#modal-ingest')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('dialog#modal-ingest')).toBeHidden();
+
+    await page.locator('#addbtn').click();
+    await page.locator('#ingest-opt-reingest').click();
+    await expect(page.locator('dialog#modal-reingest')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('dialog#modal-reingest')).toBeHidden();
+
+    await page.locator('#addbtn').click();
+    await page.locator('#ingest-opt-regen').click();
+    await expect(page.locator('dialog#modal-regen')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('dialog#modal-regen')).toBeHidden();
+  }
 });
 
 test('the light and dark switch of one page applies to the other pages', async ({ page }) => {
@@ -66,14 +129,18 @@ test('the light and dark switch of one page applies to the other pages', async (
   }
 });
 
-test('a narrow screen shows the bar and the link to /syndication', async ({ page }) => {
+test('a narrow screen keeps top bar controls accessible without overflow across all three pages', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(login(3), { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#syndlink')).toBeVisible();
-  await page.locator('#syndlink').click();
-  await expect(page).toHaveURL(/\/syndication/);
-  await expect(page.locator('header.appbar a.brand')).toBeVisible();
-  await expect(page.locator('#btn-palette')).toBeVisible();
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(overflow).toBeLessThanOrEqual(0);
+  for (const target of PAGES) {
+    await page.goto(target.path, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('header.appbar a.brand')).toBeVisible();
+    await expect(page.locator('#palettetrigger')).toBeVisible();
+    await expect(page.locator('#homelinkbtn')).toBeVisible();
+    await expect(page.locator('#syndlink')).toBeVisible();
+    await expect(page.locator('#hamburger-btn')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, target.name).toBeLessThanOrEqual(0);
+  }
 });

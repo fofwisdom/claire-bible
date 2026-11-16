@@ -51,7 +51,7 @@
       if (NAV_SLUGS.indexOf(a.getAttribute("data-nav-section")) === -1) return;
       a.setAttribute("href", withTheme(a.getAttribute("href"), ref));
     });
-    var back = byId("console-back-syndication");
+    var back = byId("syndlink") || byId("console-back-syndication");
     if (back) back.setAttribute("href", withTheme(back.getAttribute("href"), ref));
   }
 

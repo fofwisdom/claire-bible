@@ -321,12 +321,12 @@
 - **콘솔 셸 레이아웃과 내비게이션 (`console_shell.html`, `console_shell.js`, `command_palette.js`)**:
   - 문서 본체(`html`, `body`)가 자연 스크롤을 쓰며(`overflow: visible`), 데스크톱(`> 860px`) 사이드바 `.console-sidebar`는 상단바 아래에 `position: sticky`로 고정한다.
   - `_build_sidebar_html`은 각 그룹을 접이식 아코디언(`.console-nav-group`, `button[data-nav-group-toggle]`, `ul.console-nav-list`)으로 렌더링한다. `console_shell.js`는 접힘 상태를 계정별 `sessionStorage`에 저장하되 현재 섹션(`a[aria-current="page"]`)을 포함한 그룹은 항상 펼쳐 둔다.
-  - 사이드바 상단 버튼 `#console-palette-trigger`와 단축키 `/`는 `ClaireCommandPalette`(`command_palette.js`, `<dialog id="cmdpalette" closedby="any">`)를 연다. 팔레트는 서버가 사이드바에 내려준 섹션 링크와 현재 페이지 제목(`#console-section-body h2, h3`)만 색인하므로 비관리자 HTML에 `/admin/*` 항목이 절대 노출되지 않는다.
+  - 공통 상단바(`src/claire/ui_chrome.py`, `src/claire/templates/partials/common_appbar.html`, `appbar.js`)의 `.appbar-center` 버튼 `#palettetrigger`와 단축키 `/`는 `ClaireCommandPalette`(`command_palette.js`, `<dialog id="cmdpalette" closedby="any">`)를 연다. 팔레트는 서버가 사이드바에 내려준 섹션 링크와 현재 페이지 제목(`#console-section-body h2, h3`)만 색인하므로 비관리자 HTML에 `/admin/*` 항목이 절대 노출되지 않는다.
   - 좁은 화면(`<= 860px`)에서는 `.console-mob-bar`를 통해 `<dialog id="console-nav-drawer" closedby="any">` 오프캔버스 드로어를 연다. `console_shell.js`는 `#console-sidebar-inner` 단일 노드를 뷰포트에 맞춰 사이드바와 드로어 사이로 이동해 중복 ID/링크를 만들지 않는다.
   - 본문 `#console-section-body`는 `@container cmain` 기반 Split Setting Row(`.is-split`, 왼쪽 제목·설명 / 오른쪽 조작부), 우측 Sticky 목차(`#console-toc`, 제목 3개 이상일 때 표시), Subgrid KPI 카드(`.pref-stat-row`), `@container` 반응형 스택 테이블(`td[data-label]`), 크로스브라우저 토글 스위치(`input[type="checkbox"][switch]`), 크로스 문서 `@view-transition { navigation: auto; }`를 점진적으로 적용한다. 설계: [CONSOLE_LAYOUT_DESIGN.md](../design/CONSOLE_LAYOUT_DESIGN.md).
-- **S9**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이고 `@username`을 내지 않는다. 네트워크 모드이고 USERNAME이 있으면 그래프 링크만 `/@{username}/`이고 고유 기능 경로인 신디케이션 링크는 항상 `/syndication`이다.
+- **S9**: 싱글 모드에서는 셸의 그래프·신디케이션 링크가 `/`, `/syndication`이고 `@username`을 내지 않는다. 네트워크 모드이고 USERNAME이 있으면 그래프 링크만 `/@{username}/`이고 고유 기능 경로인 신디케이션 링크는 항상 `/syndication`이다. 상단바 오른쪽 끝 공통 아이콘 순서는 오른쪽부터 햄버거(`#hamburger-btn`), 신디케이션(`#syndlink`), 유저 홈(`#homelinkbtn`)이며 콘솔 링크(`#consolelinkbtn`)와 로그아웃(`/logout`)은 `#pop-hamburger-menu` 안에 둔다.
 - **부트스트랩 JSON**: 셸의 `<script type="application/json">`에는 `area`, `section`, `path`, `mode`, `is_admin`, `theme`과 섹션별 값이 들어간다. `<`, `>`, `&`는 `<`, `>`, `&`으로 이스케이프한다.
-- **루트 `/` 진입점**: 상세 메뉴에는 '관리 및 설정' 패널이 없다(프로바이더·적재 제한·테마 관리·API/MCP 키는 콘솔에서만 다룬다. 콘솔 설계 D2의 드로어 빠른 패널은 폐지). 상단바에서 라이트/다크 전환(`#themebtn`) 바로 왼쪽의 아이콘 링크 `#consolelinkbtn`이 owner에게만 보인다. `GET /whoami`의 `is_admin`이 참이면 `🛠️`(`/admin`, 이름 '관리자 콘솔'), 아니면 `⚙️`(`/settings`, 이름 '내 설정')이다. 협업자·읽기 전용·익명에게는 보이지 않는다.
+- **루트 `/` 진입점**: 상세 메뉴에는 '관리 및 설정' 패널이 없다(프로바이더·적재 제한·테마 관리·API/MCP 키는 콘솔에서만 다룬다. 콘솔 설계 D2의 드로어 빠른 패널은 폐지). 상단바의 인증 상태 배지(`#authstate`)와 상단 바깥 로그아웃 단추는 두지 않고, 햄버거 메뉴(`#pop-hamburger-menu`) 안의 `#consolelinkbtn`이 owner에게만 보인다. `GET /whoami`의 `is_admin`이 참이면 `wrench`(`/admin`, 이름 '관리자 콘솔'), 아니면 `settings`(`/settings`, 이름 '내 설정')이다. 협업자·읽기 전용·익명에게는 보이지 않는다.
 
 ### 5.10 옛 `/syndication/preferences` 호환 302
 

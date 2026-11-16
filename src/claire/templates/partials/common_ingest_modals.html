@@ -1,0 +1,149 @@
+<dialog id="modal-ingest" closedby="any" aria-labelledby="modal-ingest-title" class="claire-dialog">
+  <form id="form-ingest" class="claire-dialog-form">
+    <div class="claire-dialog-head">
+      <h2 id="modal-ingest-title"><span data-icon="plus"></span> <span data-i18n="ws.ingest.title">${t:ws.ingest.title}</span></h2>
+      <button type="button" data-close-dialog="modal-ingest" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <p class="claire-dialog-intro" data-i18n="ws.ingest.intro">${t:ws.ingest.intro}</p>
+    <div id="ingest-theme-wrap" class="ingest-field" hidden>
+      <label class="ingest-label" for="ingtheme"><span data-i18n="ws.ingest.target_theme">${t:ws.ingest.target_theme}</span> <span id="ingtheme-help" class="ingest-help"></span></label>
+      <select id="ingtheme" class="ingest-theme-select"></select>
+    </div>
+    <div class="ingest-field">
+      <label class="ingest-label" for="ingin"><span data-i18n="ws.ingest.material">${t:ws.ingest.material}</span> <span class="ingest-help" data-i18n="ws.ingest.url_or_text">${t:ws.ingest.url_or_text}</span></label>
+      <textarea id="ingin" rows="5" required autofocus placeholder="https://example.com/article"></textarea>
+    </div>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label" data-i18n="ws.ingest.amount">${t:ws.ingest.amount}</legend>
+      <div class="ingest-choice-grid">
+        <div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked/><label for="ingamount-standard" data-i18n-title="ws.ingest.amount_standard_title" title="${t:ws.ingest.amount_standard_title}" data-i18n="ws.ingest.amount_standard">${t:ws.ingest.amount_standard}</label></div>
+        <div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"/><label for="ingamount-full" data-i18n-title="ws.ingest.amount_full_title" title="${t:ws.ingest.amount_full_title}" data-i18n="ws.ingest.amount_full">${t:ws.ingest.amount_full}</label></div>
+      </div>
+    </fieldset>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div class="ingest-choice-grid effort">
+        <div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked/><label for="ingeffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"/><label for="ingeffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"/><label for="ingeffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"/><label for="ingeffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"/><label for="ingeffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"/><label for="ingeffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
+        <div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"/><label for="ingeffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
+      </div>
+    </fieldset>
+    <div class="ingest-field">
+      <label class="ingest-label" for="ingfocus"><span data-i18n="ws.ingest.focus">${t:ws.ingest.focus}</span> <span class="ingest-help" data-i18n="ws.ingest.optional">${t:ws.ingest.optional}</span></label>
+      <textarea id="ingfocus" rows="2" data-i18n-placeholder="ws.ingest.focus_placeholder" placeholder="${t:ws.ingest.focus_placeholder}"></textarea>
+    </div>
+    <p id="ingest-modal-msg" class="claire-dialog-msg" role="status" aria-live="polite"></p>
+    <div class="claire-dialog-foot">
+      <button type="button" data-close-dialog="modal-ingest" class="sec" data-i18n="common.action.cancel">${t:common.action.cancel}</button>
+      <button type="submit" id="btn-submit-ingest" class="pri"><span data-icon="plus"></span> <span data-i18n="ws.ingest.start">${t:ws.ingest.start}</span></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-reingest" closedby="any" aria-labelledby="modal-reingest-title" class="claire-dialog">
+  <form id="form-reingest" class="claire-dialog-form">
+    <div class="claire-dialog-head">
+      <h2 id="modal-reingest-title"><span data-icon="restore"></span> <span data-i18n="ws.reingest.title">${t:ws.reingest.title}</span></h2>
+      <button type="button" data-close-dialog="modal-reingest" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <p class="claire-dialog-intro" data-i18n="ws.reingest.intro">${t:ws.reingest.intro}</p>
+    <div id="reingest-theme-wrap" class="ingest-field" hidden>
+      <label class="ingest-label" for="reingtheme"><span data-i18n="ws.reingest.target_theme">${t:ws.reingest.target_theme}</span> <span id="reingtheme-help" class="ingest-help"></span></label>
+      <select id="reingtheme" class="ingest-theme-select"></select>
+    </div>
+    <div class="ingest-field">
+      <label class="ingest-label" for="reingtarget"><span data-i18n="ws.reingest.target">${t:ws.reingest.target}</span> <span class="ingest-help" data-i18n="ws.reingest.target_hint">${t:ws.reingest.target_hint}</span></label>
+      <textarea id="reingtarget" rows="3" required autofocus placeholder="https://example.com/article"></textarea>
+      <small id="reingest-selected-doc" class="claire-dialog-sub" hidden></small>
+    </div>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label" data-i18n="ws.ingest.amount">${t:ws.ingest.amount}</legend>
+      <div class="ingest-choice-grid">
+        <div class="ingest-choice"><input id="reingamount-standard" type="radio" name="reingest-amount" value="standard" checked/><label for="reingamount-standard" data-i18n-title="ws.ingest.amount_standard_title" title="${t:ws.ingest.amount_standard_title}" data-i18n="ws.ingest.amount_standard">${t:ws.ingest.amount_standard}</label></div>
+        <div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"/><label for="reingamount-full" data-i18n-title="ws.ingest.amount_full_title" title="${t:ws.ingest.amount_full_title}" data-i18n="ws.ingest.amount_full">${t:ws.ingest.amount_full}</label></div>
+      </div>
+    </fieldset>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div class="ingest-choice-grid effort">
+        <div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked/><label for="reingeffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"/><label for="reingeffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"/><label for="reingeffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"/><label for="reingeffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"/><label for="reingeffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"/><label for="reingeffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
+        <div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"/><label for="reingeffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
+      </div>
+    </fieldset>
+    <div class="ingest-field">
+      <label class="ingest-label" for="reingfocus"><span data-i18n="ws.ingest.focus">${t:ws.ingest.focus}</span> <span class="ingest-help" data-i18n="ws.ingest.optional">${t:ws.ingest.optional}</span></label>
+      <textarea id="reingfocus" rows="2" data-i18n-placeholder="ws.ingest.focus_placeholder" placeholder="${t:ws.ingest.focus_placeholder}"></textarea>
+    </div>
+    <div class="ingest-field">
+      <label class="claire-dialog-check"><input type="checkbox" id="reinguntombstone" checked/><span data-i18n="ws.reingest.untombstone">${t:ws.reingest.untombstone}</span></label>
+    </div>
+    <p id="reingest-modal-msg" class="claire-dialog-msg" role="status" aria-live="polite"></p>
+    <div class="claire-dialog-foot">
+      <button type="button" data-close-dialog="modal-reingest" class="sec" data-i18n="common.action.cancel">${t:common.action.cancel}</button>
+      <button type="submit" id="btn-submit-reingest" class="pri"><span data-icon="restore"></span> <span data-i18n="ws.reingest.start">${t:ws.reingest.start}</span></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-regen" closedby="any" aria-labelledby="modal-regen-title" class="claire-dialog claire-dialog-wide">
+  <form id="form-regen" class="claire-dialog-form">
+    <div class="claire-dialog-head">
+      <h2 id="modal-regen-title"><span data-icon="repeat"></span> <span data-i18n="ws.regen.title">${t:ws.regen.title}</span></h2>
+      <button type="button" data-close-dialog="modal-regen" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
+    </div>
+    <p class="claire-dialog-intro" data-i18n="ws.regen.intro">${t:ws.regen.intro}</p>
+    <div id="regen-theme-wrap" class="ingest-field" hidden>
+      <label class="ingest-label" for="regentheme"><span data-i18n="ws.regen.target_theme">${t:ws.regen.target_theme}</span> <span id="regentheme-help" class="ingest-help"></span></label>
+      <select id="regentheme" class="ingest-theme-select"></select>
+    </div>
+    <div class="ingest-field">
+      <label class="ingest-label" for="regentarget"><span data-i18n="ws.regen.target">${t:ws.regen.target}</span> <span class="ingest-help" data-i18n="ws.regen.target_hint">${t:ws.regen.target_hint}</span></label>
+      <input type="text" id="regentarget" class="ingest-input" required autofocus data-i18n-placeholder="ws.regen.target_placeholder" placeholder="${t:ws.regen.target_placeholder}"/>
+      <small id="regen-selected-doc" class="claire-dialog-sub" hidden></small>
+    </div>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label" data-i18n="ws.regen.component">${t:ws.regen.component}</legend>
+      <div class="ingest-choice-grid">
+        <div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" checked/><label for="regencomp-all" data-i18n-title="ws.regen.comp_all_title" title="${t:ws.regen.comp_all_title}" data-i18n="ws.regen.comp_all">${t:ws.regen.comp_all}</label></div>
+        <div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail"/><label for="regencomp-detail" data-i18n-title="ws.regen.comp_detail_title" title="${t:ws.regen.comp_detail_title}" data-i18n="ws.regen.comp_detail">${t:ws.regen.comp_detail}</label></div>
+        <div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary"/><label for="regencomp-summary" data-i18n-title="ws.regen.comp_summary_title" title="${t:ws.regen.comp_summary_title}" data-i18n="ws.regen.comp_summary">${t:ws.regen.comp_summary}</label></div>
+        <div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph"/><label for="regencomp-graph" data-i18n-title="ws.regen.comp_graph_title" title="${t:ws.regen.comp_graph_title}" data-i18n="ws.regen.comp_graph">${t:ws.regen.comp_graph}</label></div>
+      </div>
+    </fieldset>
+    <fieldset class="ingest-options">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div class="ingest-choice-grid effort">
+        <div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked/><label for="regeneffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"/><label for="regeneffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"/><label for="regeneffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"/><label for="regeneffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"/><label for="regeneffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"/><label for="regeneffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
+        <div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"/><label for="regeneffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
+      </div>
+    </fieldset>
+    <div class="ingest-field">
+      <label class="ingest-label" for="regenfocus"><span data-i18n="ws.regen.focus">${t:ws.regen.focus}</span> <span class="ingest-help" data-i18n="ws.regen.focus_hint">${t:ws.regen.focus_hint}</span></label>
+      <textarea id="regenfocus" rows="2" data-i18n-placeholder="ws.regen.focus_placeholder" placeholder="${t:ws.regen.focus_placeholder}"></textarea>
+    </div>
+    <div class="ingest-field">
+      <label class="claire-dialog-check"><input type="checkbox" id="regenrefetch"/><span data-i18n="ws.regen.refetch">${t:ws.regen.refetch}</span></label>
+    </div>
+    <p id="regen-modal-msg" class="claire-dialog-msg" role="status" aria-live="polite"></p>
+    <div id="regenresult" class="claire-dialog-result"></div>
+    <div class="claire-dialog-foot">
+      <button type="button" data-close-dialog="modal-regen" class="sec" data-i18n="common.action.cancel">${t:common.action.cancel}</button>
+      <button type="button" id="btn-regen-dryrun" class="sec"><span data-icon="search"></span> <span data-i18n="ws.common.dry_run">${t:ws.common.dry_run}</span></button>
+      <button type="submit" id="btn-submit-regen" class="pri readbtn"><span data-icon="repeat"></span> <span data-i18n="ws.regen.start">${t:ws.regen.start}</span></button>
+    </div>
+  </form>
+</dialog>

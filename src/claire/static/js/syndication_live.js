@@ -895,6 +895,7 @@
     document.querySelectorAll(".tt-popover").forEach((p) => {
       try { if (p.matches(":popover-open") || p.classList.contains(":popover-open")) p.hidePopover(); } catch (_) {}
     });
+    if (window.ClaireAppBar) window.ClaireAppBar.closePopovers();
   }
 
   function setListStyle(style) {
@@ -1001,56 +1002,202 @@
       });
     });
 
-    const ingestModal = document.getElementById("modal-ingest");
+    function getSyndDialogThemeConfig() {
+      const list = Object.values(THEMES || {});
+      return {
+        visible: list.length > 1,
+        themes: list.map((t) => ({ value: String(t.id), label: t.label || String(t.id), icon: t.icon || "" })),
+        selectedValue: String(state.themeId)
+      };
+    }
+
     function openIngestModal() {
       closeOpenPopovers();
-      if (ingestModal) ingestModal.showModal();
-    }
-    const btnOpenIngest = document.getElementById("btn-open-ingest");
-    if (btnOpenIngest) btnOpenIngest.addEventListener("click", openIngestModal);
-    const menuOpenIngest = document.getElementById("menu-open-ingest");
-    if (menuOpenIngest) menuOpenIngest.addEventListener("click", openIngestModal);
-
-    const formIngest = document.getElementById("form-ingest");
-    if (formIngest) {
-      formIngest.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const payloadEl = document.getElementById("ingest-payload");
-        const focusEl = document.getElementById("ingest-focus");
-        const submitBtn = document.getElementById("btn-submit-ingest");
-        const payload = payloadEl ? payloadEl.value.trim() : "";
-        const focus = focusEl ? focusEl.value.trim() : "";
-        if (!payload) return;
-        if (submitBtn) submitBtn.disabled = true;
-        ticker(tr("synd.kb.ingest.sending"));
-        try {
-          const resp = await fetch("/ingest", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({
-              payload,
-              focus: focus || undefined,
-              theme: themeRefOf(state.themeId)
-            })
-          });
-          const data = await resp.json().catch(() => ({}));
-          if (!resp.ok || data.error) {
-            ticker(tr("synd.kb.ingest.failed", { error: data.detail || data.error || resp.status }));
-          } else {
-            if (ingestModal) ingestModal.close();
-            if (payloadEl) payloadEl.value = "";
-            if (focusEl) focusEl.value = "";
-            if (data.document_id) state.selectedDocId = data.document_id;
-            ticker(tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
-            await syncLiveThemeDb();
-          }
-        } catch (err) {
-          ticker(tr("synd.kb.ingest.failed", { error: err.message || err }));
-        } finally {
-          if (submitBtn) submitBtn.disabled = false;
+      if (!window.ClaireIngestDialogs) return;
+      window.ClaireIngestDialogs.openIngestDialog({
+        themeConfig: getSyndDialogThemeConfig(),
+        getFocusPlaceholder: (tid) => {
+          const th = THEMES[String(tid || state.themeId)];
+          return (th && th.defaultFocus) ? th.defaultFocus : tr("synd.kb.ingest.focus_placeholder");
         }
       });
     }
+
+    async function submitIngestModal() {
+      const payloadEl = document.getElementById("ingin");
+      const focusEl = document.getElementById("ingfocus");
+      const themeEl = document.getElementById("ingtheme");
+      const submitBtn = document.getElementById("btn-submit-ingest");
+      const payload = payloadEl ? payloadEl.value.trim() : "";
+      const focus = focusEl ? focusEl.value.trim() : "";
+      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
+      const amountChoice = document.querySelector('input[name="ingest-amount"]:checked');
+      const effortChoice = document.querySelector('input[name="ingest-effort"]:checked');
+      if (!payload) return;
+      if (submitBtn) submitBtn.disabled = true;
+      ticker(tr("synd.kb.ingest.sending"));
+      try {
+        const bodyObj = { payload, full_content: !!(amountChoice && amountChoice.value === "full"), theme: themeRefOf(targetThemeKey) };
+        if (focus) bodyObj.focus = focus;
+        if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
+        const resp = await fetch("/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(bodyObj)
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) {
+          const errText = tr("synd.kb.ingest.failed", { error: data.detail || data.error || resp.status });
+          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("ingest-modal-msg", errText, true);
+          ticker(errText);
+        } else {
+          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog("modal-ingest");
+          if (payloadEl) payloadEl.value = "";
+          if (focusEl) focusEl.value = "";
+          if (data.document_id) state.selectedDocId = data.document_id;
+          ticker(tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
+          await syncLiveThemeDb();
+        }
+      } catch (err) {
+        const errText = tr("synd.kb.ingest.failed", { error: err.message || err });
+        if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("ingest-modal-msg", errText, true);
+        ticker(errText);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    }
+
+    function openReingestModal() {
+      closeOpenPopovers();
+      if (!window.ClaireIngestDialogs) return;
+      const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
+      window.ClaireIngestDialogs.openReingestDialog({
+        themeConfig: getSyndDialogThemeConfig(),
+        target: curDoc ? (curDoc.url || curDoc.id || "") : "",
+        selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
+      });
+    }
+
+    async function submitReingestModal() {
+      const targetEl = document.getElementById("reingtarget");
+      const focusEl = document.getElementById("reingfocus");
+      const themeEl = document.getElementById("reingtheme");
+      const untombEl = document.getElementById("reinguntombstone");
+      const submitBtn = document.getElementById("btn-submit-reingest");
+      const target = targetEl ? targetEl.value.trim() : "";
+      const focus = focusEl ? focusEl.value.trim() : "";
+      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
+      const amountChoice = document.querySelector('input[name="reingest-amount"]:checked');
+      const effortChoice = document.querySelector('input[name="reingest-effort"]:checked');
+      if (!target) return;
+      if (submitBtn) submitBtn.disabled = true;
+      ticker(tr("ws.reingest.starting"));
+      try {
+        const bodyObj = { target, full_content: !!(amountChoice && amountChoice.value === "full"), untombstone: !!(untombEl && untombEl.checked), theme: themeRefOf(targetThemeKey) };
+        if (focus) bodyObj.focus = focus;
+        if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
+        const resp = await fetch("/reingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(bodyObj)
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) {
+          const errText = `${tr("ws.reingest.failed")} ${data.detail || data.error || resp.status}`;
+          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("reingest-modal-msg", errText, true);
+          ticker(errText);
+        } else {
+          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog("modal-reingest");
+          if (data.document_id) state.selectedDocId = data.document_id;
+          ticker(tr("ws.ingest.updated"));
+          await syncLiveThemeDb();
+        }
+      } catch (err) {
+        const errText = `${tr("ws.reingest.failed")} ${err.message || err}`;
+        if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("reingest-modal-msg", errText, true);
+        ticker(errText);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    }
+
+    function openRegenModal() {
+      closeOpenPopovers();
+      if (!window.ClaireIngestDialogs) return;
+      const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
+      window.ClaireIngestDialogs.openRegenDialog({
+        themeConfig: getSyndDialogThemeConfig(),
+        target: curDoc ? (curDoc.id || curDoc.url || "") : "",
+        selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
+      });
+    }
+
+    async function submitRegenModal(isDryRun) {
+      const targetEl = document.getElementById("regentarget");
+      const focusEl = document.getElementById("regenfocus");
+      const themeEl = document.getElementById("regentheme");
+      const refetchEl = document.getElementById("regenrefetch");
+      const resDiv = document.getElementById("regenresult");
+      const submitBtn = document.getElementById("btn-submit-regen");
+      const compChoice = document.querySelector('input[name="regen-comp"]:checked');
+      const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
+      const target = targetEl ? targetEl.value.trim() : "";
+      const focus = focusEl ? focusEl.value.trim() : "";
+      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
+      const component = compChoice ? compChoice.value : "all";
+      if (!target) return;
+      if (isDryRun && resDiv) resDiv.innerHTML = `<p class="synd-note">${esc(tr("ws.regen.analyzing"))}</p>`;
+      if (!isDryRun && submitBtn) submitBtn.disabled = true;
+      try {
+        const bodyObj = { target, component, dry_run: !!isDryRun, refetch: !!(refetchEl && refetchEl.checked), theme: themeRefOf(targetThemeKey) };
+        if (focus) bodyObj.focus = focus;
+        if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
+        const resp = await fetch("/regenerate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(bodyObj)
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.error) {
+          const errText = `${tr(isDryRun ? "ws.common.dry_run_failed" : "ws.regen.failed")} ${data.detail || data.error || resp.status}`;
+          if (isDryRun && resDiv) resDiv.innerHTML = `<p class="synd-note">${esc(errText)}</p>`;
+          else if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("regen-modal-msg", errText, true);
+          return;
+        }
+        if (isDryRun) {
+          const tgts = data.targets || [];
+          let h = `<div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px"><p class="synd-note">${esc(tr("ws.regen.dry_counts", { count: data.count || tgts.length, component }))}</p>`;
+          if (tgts.length) {
+            h += "<ul style='margin:6px 0;padding-left:18px;font-size:12px'>" + tgts.map((t) => `<li><b>${esc(t.title || t.document_id)}</b> <small>(${esc(t.document_id)})</small></li>`).join("") + "</ul>";
+          } else {
+            h += `<p class="synd-note">${esc(tr("ws.common.no_matching_doc"))}</p>`;
+          }
+          h += "</div>";
+          if (resDiv) resDiv.innerHTML = h;
+          return;
+        }
+        if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog("modal-regen");
+        ticker(tr("ws.regen.done"));
+        await syncLiveThemeDb();
+      } catch (err) {
+        const errText = `${tr("ws.regen.failed")} ${err.message || err}`;
+        if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("regen-modal-msg", errText, true);
+      } finally {
+        if (!isDryRun && submitBtn) submitBtn.disabled = false;
+      }
+    }
+
+    if (window.ClaireIngestDialogs) {
+      window.ClaireIngestDialogs.init({
+        openIngest: openIngestModal,
+        submitIngest: submitIngestModal,
+        openReingest: openReingestModal,
+        submitReingest: submitReingestModal,
+        openRegen: openRegenModal,
+        submitRegen: submitRegenModal
+      });
+    }
+    bridge.openIngestModal = openIngestModal;
 
     document.addEventListener("keydown", (e) => {
       if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;

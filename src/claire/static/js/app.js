@@ -887,11 +887,7 @@ function buildGroups(){ const g={}, th=T();
   return g; }
 function syncThemeBtn(){ const b=document.getElementById('themebtn');
   if(b) b.setAttribute('data-icon', curTheme()==='dark'?'sun':'moon'); }
-// 라이트/다크 전환 — localStorage 영속 + vis 캔버스 색(글자/엣지/테두리) 즉시 갱신.
-function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  try{ localStorage.setItem('claireTheme', next); }catch(e){}
-  syncThemeBtn();
+function onAppThemeChanged(next){
   const presFrame = document.getElementById('presentation-frame');
   if(presFrame && presFrame.contentWindow){
     try{ presFrame.contentWindow.postMessage({type: 'cb-theme-change', theme: next}, '*'); }catch(_){}
@@ -902,6 +898,18 @@ function toggleTheme(){ const next = curTheme()==='dark'?'light':'dark';
       groups:buildGroups()});
     applyView(); }   // 노드별 테두리(lit/normal)도 새 테마 색으로 다시 칠함
   if(typeof drawHomeMiniMap === 'function' && centerView === 'home') drawHomeMiniMap();
+}
+window.__CLAIRE_ON_THEME_CHANGE = onAppThemeChanged;
+function toggleTheme(){
+  if(window.ClaireAppBar && typeof window.ClaireAppBar.toggleTheme === 'function'){
+    return window.ClaireAppBar.toggleTheme();
+  }
+  const next = curTheme()==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try{ localStorage.setItem('claireTheme', next); }catch(e){}
+  syncThemeBtn();
+  onAppThemeChanged(next);
+  return next;
 }
 
 // 마크다운/AsciiDoc → 안전한 HTML. DOMPurify 로 스크랩 본문 유래 위험 태그 제거.
@@ -2353,94 +2361,65 @@ function renderIngestStatus(){
   panel.innerHTML = h;
 }
 
+function buildDialogThemeConfig(selectedThemeId, helpOwnerKey, collabDeniedKey){
+  const isMulti = isMultiThemeEnabled();
+  if(!isMulti || !Array.isArray(availableThemes) || availableThemes.length === 0){
+    return { visible: false, themes: [] };
+  }
+  const curVal = String(selectedThemeId || activeThemeId || '0');
+  if(AUTH_SCOPE === 'collaborator'){
+    const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
+    if(eligibleThemes.length === 0){
+      return {
+        visible: false,
+        themes: [],
+        deniedMsg: tr(collabDeniedKey || 'ws.ingest.no_collab_theme')
+      };
+    }
+    const selKey = eligibleThemes.some(t => getThemeKey(t) === curVal) ? curVal : getThemeKey(eligibleThemes[0]);
+    const optionsHtml = eligibleThemes.map(t => {
+      const tKey = getThemeKey(t);
+      const icon = esc(t.icon || '📚');
+      const label = esc(t.label);
+      return `<option value="${esc(tKey)}" ${tKey === selKey ? 'selected' : ''}>${icon} ${label}</option>`;
+    }).join('');
+    return { visible: true, themes: eligibleThemes, optionsHtml, selectedValue: selKey, helpText: tr('ws.ingest.collab_themes') };
+  }
+  if(availableThemes.length <= 1){
+    return { visible: false, themes: [] };
+  }
+  return {
+    visible: true,
+    themes: availableThemes,
+    optionsHtml: renderThemeOptions(curVal),
+    selectedValue: curVal,
+    helpText: tr(helpOwnerKey || 'ws.ingest.owner_themes')
+  };
+}
+
 function openIngest(){
   if(!canIngest()) return;
   if(activeIngest && activeIngest.running){
     renderIngestStatus();
     return;
   }
-  const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.ingest.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
-        const opts = eligibleThemes.map(t => {
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="ingtheme" class="ingest-theme-select">'+
-            opts+
-          '</select>'+
-        '</div>');
+  const themeConfig = buildDialogThemeConfig(activeThemeId, 'ws.ingest.owner_themes', 'ws.ingest.no_collab_theme');
+  if(window.ClaireIngestDialogs){
+    window.ClaireIngestDialogs.openIngestDialog({
+      themeConfig,
+      getFocusPlaceholder: function(tid){
+        const effectiveTid = tid || (isMultiThemeEnabled() ? String(activeThemeId || '0') : '0');
+        const themeObj = findTheme(effectiveTid);
+        if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
+          return tr('ws.ingest.focus_default_placeholder', { focus: themeObj.default_focus });
+        }
+        return tr('ws.ingest.focus_placeholder');
       }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.owner_themes") + '</span></label>'+
-        '<select id="ingtheme" class="ingest-theme-select">'+
-          renderThemeOptions(activeThemeId)+
-        '</select>'+
-      '</div>');
+    });
+    if(themeConfig.deniedMsg){
+      window.ClaireIngestDialogs.showMsg('ingest-modal-msg', themeConfig.deniedMsg, true);
     }
   }
-  panel.innerHTML='<h2><span data-icon="plus"></span> ' + tr("ws.ingest.title") + '</h2>'+
-    '<p class=al>' + tr("ws.ingest.intro") + '</p>'+
-    '<div class="ingest-form">'+
-      themeFieldHtml +
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingin">' + tr("ws.ingest.material") + ' <span class="ingest-help">' + tr("ws.ingest.url_or_text") + '</span></label>'+
-        '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
-      '</div>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.ingest.amount") + '</legend>'+
-        '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked><label for="ingamount-standard" title="' + tr("ws.ingest.amount_standard_title") + '">' + tr("ws.ingest.amount_standard") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"><label for="ingamount-full" title="' + tr("ws.ingest.amount_full_title") + '">' + tr("ws.ingest.amount_full") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
-        '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked><label for="ingeffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"><label for="ingeffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"><label for="ingeffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"><label for="ingeffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"><label for="ingeffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"><label for="ingeffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
-          '<div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"><label for="ingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
-        '<textarea id="ingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
-      '</div>'+
-      '<div class="ingest-submit"><button type="button" onclick="runIngest()">' + tr("ws.ingest.start") + '</button></div>'+
-    '</div>';
-  openDetailPane();
-  const ta=document.getElementById('ingin'); if(ta) ta.focus();
-
-  const ingthemeEl = document.getElementById('ingtheme');
-  const ingfocusEl = document.getElementById('ingfocus');
-  function updateFocusPlaceholder(){
-    if(!ingfocusEl) return;
-    const tid = ingthemeEl ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
-    const themeObj = findTheme(tid);
-    if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
-      ingfocusEl.placeholder = tr('ws.ingest.focus_default_placeholder', { focus: themeObj.default_focus });
-    } else {
-      ingfocusEl.placeholder = tr("ws.ingest.focus_placeholder");
-    }
-  }
-  if(ingthemeEl){
-    ingthemeEl.addEventListener('change', updateFocusPlaceholder);
-  }
-  updateFocusPlaceholder();
 }
 async function runIngest(){
   if(!canIngest()) return;
@@ -2454,13 +2433,14 @@ async function runIngest(){
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
   const ingthemeEl = document.getElementById('ingtheme');
-  const targetThemeId = (isMulti && ingthemeEl) ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = (isMulti && ingthemeEl && ingthemeEl.value) ? String(ingthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.ingest.collab_default_denied"));
       return;
     }
   }
+  if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-ingest');
   const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
@@ -2635,78 +2615,18 @@ function openReingest(){
   const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
   const defTarget = (curDoc && (curDoc.url || curDoc.canonical_url || curDoc.id || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
-  const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
   const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? String(curDoc.theme_id) : String(activeThemeId || '0');
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.reingest.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => getThemeKey(t) === curDocThemeId) ? curDocThemeId : getThemeKey(eligibleThemes[0]);
-        const opts = eligibleThemes.map(t => {
-          const tKey = getThemeKey(t);
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${esc(tKey)}" ${tKey === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="reingtheme" class="ingest-theme-select">'+opts+'</select>'+
-        '</div>');
-      }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
-        '<select id="reingtheme" class="ingest-theme-select">'+
-          renderThemeOptions(curDocThemeId)+
-        '</select>'+
-      '</div>');
+  const themeConfig = buildDialogThemeConfig(curDocThemeId, 'nav.theme_select', 'ws.reingest.no_collab_theme');
+  if(window.ClaireIngestDialogs){
+    window.ClaireIngestDialogs.openReingestDialog({
+      themeConfig,
+      target: defTarget,
+      selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
+    });
+    if(themeConfig.deniedMsg){
+      window.ClaireIngestDialogs.showMsg('reingest-modal-msg', themeConfig.deniedMsg, true);
     }
   }
-
-  panel.innerHTML = '<h2><span data-icon="restore"></span> ' + tr("ws.reingest.title") + '</h2>'+
-    '<p class="al">' + tr("ws.reingest.intro") + '</p>'+
-    '<div class="ingest-form">'+
-      themeFieldHtml +
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingtarget">' + tr("ws.reingest.target") + ' <span class="ingest-help">' + tr("ws.reingest.target_hint") + '</span></label>'+
-        '<textarea id="reingtarget" rows="4" placeholder="https://example.com/article 또는 ' + tr("list.documents") + ' ID">'+esc(defTarget)+'</textarea>'+
-        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
-      '</div>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.ingest.amount") + '</legend>'+
-        '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="reingamount-standard" type="radio" name="reingest-amount" value="standard" checked><label for="reingamount-standard" title="' + tr("ws.ingest.amount_standard_title") + '">' + tr("ws.ingest.amount_standard") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"><label for="reingamount-full" title="' + tr("ws.ingest.amount_full_title") + '">' + tr("ws.ingest.amount_full") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
-        '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked><label for="reingeffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"><label for="reingeffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"><label for="reingeffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"><label for="reingeffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"><label for="reingeffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"><label for="reingeffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
-          '<div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"><label for="reingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
-        '<textarea id="reingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
-      '</div>'+
-      '<div class="ingest-field" style="margin-top:6px">'+
-        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
-          '<input type="checkbox" id="reinguntombstone" checked> '+
-          '<span>' + tr("ws.reingest.untombstone") + '</span>'+
-        '</label>'+
-      '</div>'+
-      '<div class="ingest-submit"><button type="button" onclick="runReingest()">' + tr("ws.reingest.start") + '</button></div>'+
-    '</div>';
-  openDetailPane();
 }
 
 async function runReingest(){
@@ -2721,13 +2641,14 @@ async function runReingest(){
   const target=((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.reingest.need_target")); return; }
   const reingthemeEl = document.getElementById('reingtheme');
-  const targetThemeId = (isMulti && reingthemeEl) ? String(reingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = (isMulti && reingthemeEl && reingthemeEl.value) ? String(reingthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.reingest.collab_default_denied"));
       return;
     }
   }
+  if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-reingest');
   const focus=((document.getElementById('reingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
@@ -2875,86 +2796,19 @@ function openRegen(docIdOverride, compOverride){
                  (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
   const defTarget = (docIdOverride || (curDoc && (curDoc.id || curDoc.url || '')) || '');
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
-  const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
   const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.regen.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
-        const opts = eligibleThemes.map(t => {
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="regentheme" class="ingest-theme-select">'+opts+'</select>'+
-        '</div>');
-      }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
-        '<select id="regentheme" class="ingest-theme-select">'+
-          renderThemeOptions(curDocThemeId)+
-        '</select>'+
-      '</div>');
+  const themeConfig = buildDialogThemeConfig(curDocThemeId, 'nav.theme_select', 'ws.regen.no_collab_theme');
+  if(window.ClaireIngestDialogs){
+    window.ClaireIngestDialogs.openRegenDialog({
+      themeConfig,
+      target: defTarget,
+      component: compOverride || 'all',
+      selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
+    });
+    if(themeConfig.deniedMsg){
+      window.ClaireIngestDialogs.showMsg('regen-modal-msg', themeConfig.deniedMsg, true);
     }
   }
-
-  const selectedComp = compOverride || 'all';
-
-  panel.innerHTML = '<h2><span data-icon="repeat"></span> ' + tr("ws.regen.title") + '</h2>'+
-    '<p class="al">' + tr("ws.regen.intro") + '</p>'+
-    '<div class="ingest-form">'+
-      themeFieldHtml +
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="regentarget">' + tr("ws.regen.target") + ' <span class="ingest-help">' + tr("ws.regen.target_hint") + '</span></label>'+
-        '<input type="text" id="regentarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.regen.target_placeholder") + '">'+
-        (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
-      '</div>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.regen.component") + '</legend>'+
-        '<div class="ingest-choice-grid">'+
-          '<div class="ingest-choice"><input id="regencomp-all" type="radio" name="regen-comp" value="all" '+(selectedComp==='all'?'checked':'')+'><label for="regencomp-all" title="' + tr("ws.regen.comp_all_title") + '">' + tr("ws.regen.comp_all") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-detail" type="radio" name="regen-comp" value="detail" '+(selectedComp==='detail'?'checked':'')+'><label for="regencomp-detail" title="' + tr("ws.regen.comp_detail_title") + '">' + tr("ws.regen.comp_detail") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-summary" type="radio" name="regen-comp" value="summary" '+(selectedComp==='summary'?'checked':'')+'><label for="regencomp-summary" title="' + tr("ws.regen.comp_summary_title") + '">' + tr("ws.regen.comp_summary") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph" '+(selectedComp==='graph'?'checked':'')+'><label for="regencomp-graph" title="' + tr("ws.regen.comp_graph_title") + '">' + tr("ws.regen.comp_graph") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<fieldset class="ingest-options">'+
-        '<legend class="ingest-label">' + tr("ws.ingest.effort") + ' <span class="ingest-help">' + tr("ws.ingest.effort_hint") + '</span></legend>'+
-        '<div class="ingest-choice-grid effort">'+
-          '<div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked><label for="regeneffort-default">' + tr("ws.ingest.effort_default") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"><label for="regeneffort-none">' + tr("ws.ingest.effort_none") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"><label for="regeneffort-minimal">' + tr("ws.ingest.effort_minimal") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"><label for="regeneffort-low">' + tr("ws.ingest.effort_low") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"><label for="regeneffort-medium">' + tr("ws.ingest.effort_medium") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"><label for="regeneffort-high">' + tr("ws.ingest.effort_high") + '</label></div>'+
-          '<div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"><label for="regeneffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
-        '</div>'+
-      '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="regenfocus">' + tr("ws.regen.focus") + ' <span class="ingest-help">' + tr("ws.regen.focus_hint") + '</span></label>'+
-        '<textarea id="regenfocus" rows="2" placeholder="' + tr("ws.regen.focus_placeholder") + '"></textarea>'+
-      '</div>'+
-      '<div class="ingest-field" style="margin-top:6px">'+
-        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
-          '<input type="checkbox" id="regenrefetch"> '+
-          '<span>' + tr("ws.regen.refetch") + '</span>'+
-        '</label>'+
-      '</div>'+
-      '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runRegen(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">' + tr("ws.common.dry_run") + '</span></button>'+
-        '<button type="button" class="readbtn" onclick="runRegen(false)" style="background:var(--accent,#2da44e);color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="repeat"></span></span> <span class="btn-label">' + tr("ws.regen.start") + '</span></button>'+
-      '</div>'+
-      '<div id="regenresult" style="margin-top:14px"></div>'+
-    '</div>';
-  openDetailPane();
-  const inp=document.getElementById('regentarget'); if(inp) inp.focus();
 }
 
 async function runRegen(isDryRun){
@@ -2969,7 +2823,7 @@ async function runRegen(isDryRun){
   const target = ((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.regen.need_target")); return; }
   const regenthemeEl = document.getElementById('regentheme');
-  const targetThemeId = (isMulti && regenthemeEl) ? String(regenthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = (isMulti && regenthemeEl && regenthemeEl.value) ? String(regenthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.regen.collab_default_denied"));
@@ -3042,6 +2896,7 @@ async function runRegen(isDryRun){
   }
 
   // 실제 재생성 실행 (스트리밍)
+  if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-regen');
   let labelText = tr("ws.regen.starting");
   const optionLabels = [];
   const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
@@ -3194,6 +3049,8 @@ function openPurge(){
     alert(tr("ws.purge.owner_only"));
     return;
   }
+  const host = document.getElementById('purge-modal-body') || panel;
+  const dlg = document.getElementById('modal-purge');
   const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
   const defTarget = (curDoc && (curDoc.id || curDoc.url || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
@@ -3208,34 +3065,34 @@ function openPurge(){
     '</div>');
   }
 
-  panel.innerHTML = '<h2><span data-icon="flame"></span> ' + tr("ws.purge.title") + '</h2>'+
-    '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
+  host.innerHTML = '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
       '<span data-icon="warning"></span> <b>' + tr("ws.purge.warning_title") + '</b><br>' + tr("ws.purge.warning")+
     '</div>'+
     '<div class="ingest-form">'+
       themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="purgetarget">' + tr("ws.purge.target") + ' <span class="ingest-help">' + tr("ws.purge.target_hint") + '</span></label>'+
-        '<input type="text" id="purgetarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.purge.target_placeholder") + '">'+
+        '<input type="text" id="purgetarget" class="ingest-input" value="'+esc(defTarget)+'" placeholder="' + tr("ws.purge.target_placeholder") + '">'+
         (defTitle ? '<small style="color:var(--muted);display:block;margin-top:3px">' + tr("ws.common.selected_doc") + ' <b>'+defTitle+'</b></small>' : '')+
       '</div>'+
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="purgereason">' + tr("ws.purge.reason") + ' <span class="ingest-help">' + tr("ws.purge.reason_hint") + '</span></label>'+
-        '<input type="text" id="purgereason" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="web_purge" placeholder="manual_purge">'+
+        '<input type="text" id="purgereason" class="ingest-input" value="web_purge" placeholder="manual_purge">'+
       '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
-        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
+        '<label class="claire-dialog-check">'+
           '<input type="checkbox" id="purgetombstone" checked> '+
           '<span>' + tr("ws.purge.tombstone") + ' <small style="color:var(--muted)">' + tr("ws.purge.tombstone_hint") + '</small></span>'+
         '</label>'+
       '</div>'+
-      '<div class="action-btn-row" style="margin-top:12px;gap:8px">'+
-        '<button type="button" class="sec" onclick="runPurgeCheck(true)" style="padding:6px 12px;cursor:pointer"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">' + tr("ws.common.dry_run") + '</span></button>'+
-        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none;padding:6px 12px;cursor:pointer;border-radius:4px"><span class="btn-icon"><span data-icon="flame"></span></span> <span class="btn-label">' + tr("ws.purge.run") + '</span></button>'+
+      '<div class="claire-dialog-foot" style="margin-top:12px">'+
+        '<button type="button" data-close-dialog="modal-purge" class="sec">' + tr("common.action.cancel") + '</button>'+
+        '<button type="button" class="sec" onclick="runPurgeCheck(true)"><span class="btn-icon"><span data-icon="search"></span></span> <span class="btn-label">' + tr("ws.common.dry_run") + '</span></button>'+
+        '<button type="button" class="readbtn" onclick="runPurgeCheck(false)" style="background:#e03131;color:#fff;border:none"><span class="btn-icon"><span data-icon="flame"></span></span> <span class="btn-label">' + tr("ws.purge.run") + '</span></button>'+
       '</div>'+
-      '<div id="purgeresult" style="margin-top:14px"></div>'+
+      '<div id="purgeresult" class="claire-dialog-result" style="margin-top:10px"></div>'+
     '</div>';
-  openDetailPane();
+  if(dlg){ if(!dlg.open) dlg.showModal(); } else openDetailPane();
   const inp=document.getElementById('purgetarget'); if(inp) inp.focus();
 }
 
@@ -3343,27 +3200,30 @@ async function runPurgeCheck(isDryRun){
 // 병합 직전 정본은 서버가 내부 checkpoint로 보존한다(파괴적 작업 안전장치).
 // keeper(유지) 외 문서는 참조(엔티티/관계 sources 등)를 keeper 로 재배치한 뒤 삭제.
 let dedupClusters=[];
+function dedupTargetHost(){ return document.getElementById('dedup-modal-body') || panel; }
 async function openDedup(){
   if(!canWrite()) return;
-  panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class="al">' + tr("ws.dedup.checking") + ' '+
+  const host = dedupTargetHost();
+  const dlg = document.getElementById('modal-dedup');
+  host.innerHTML='<p class="al">' + tr("ws.dedup.checking") + ' '+
     '<small>' + tr("ws.dedup.slow_hint") + '</small></p>';
-  openDetailPane();
+  if(dlg){ if(!dlg.open) dlg.showModal(); } else openDetailPane();
   let d;
   try{
     const r=await fetch(apiUrl('dedup/scan'),{method:'POST'});
     if(r.status===401||r.status===404){ expireWriteAccess();
-      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
+      host.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
     d=await r.json();
-  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class=hint>' + tr("ws.dedup.failed") + ' '+esc(String(e))+'</p>'; return; }
+  }catch(e){ host.innerHTML='<p class=hint>' + tr("ws.dedup.failed") + ' '+esc(String(e))+'</p>'; return; }
   renderDedup(d);
 }
 function renderDedup(d){
   if(!canWrite()) return;
-  if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
+  const host = dedupTargetHost();
+  if(d.error){ host.innerHTML='<p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
   dedupClusters=d.clusters||[];
-  let h='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.title") + '</h2>';
-  h+='<p class=al>'+tr('ws.dedup.counts', { docs: d.documents||0, clusters: dedupClusters.length })+'</p>';
-  if(!dedupClusters.length){ h+='<p class=al>' + tr("ws.dedup.none") + '</p>'; panel.innerHTML=h; return; }
+  let h='<p class=al>'+tr('ws.dedup.counts', { docs: d.documents||0, clusters: dedupClusters.length })+'</p>';
+  if(!dedupClusters.length){ h+='<p class=al>' + tr("ws.dedup.none") + '</p>'; host.innerHTML=h; return; }
   h+='<p class=al><small>' + tr("ws.dedup.intro") + '</small></p>';
   dedupClusters.forEach((c,ci)=>{
     h+='<div class=doc><p class=al>'+tr('ws.dedup.similarity')+' '+(c.score!=null?(+c.score).toFixed(2):'-')+'</p>';
@@ -3376,32 +3236,33 @@ function renderDedup(d){
     });
     h+='<button class=readbtn onclick="runDedupMerge('+ci+')">' + tr("ws.dedup.merge") + '</button></div>';
   });
-  panel.innerHTML=h;
+  host.innerHTML=h;
 }
 async function runDedupMerge(ci){
   if(!canWrite()) return;
+  const host = dedupTargetHost();
   const c=dedupClusters[ci]; if(!c) return;
   const sel=document.querySelector('input[name="keep'+ci+'"]:checked');
   const keeper=sel?sel.value:c.keeper;
   const losers=c.docs.map(x=>x.id).filter(id=>id!==keeper);
   if(!losers.length){ alert(tr("ws.dedup.nothing")); return; }
   if(!confirm(tr('ws.dedup.merge_confirm', { count: losers.length }))) return;
-  panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.dedup.merging") + '</h2><p class=al>' + tr("ws.dedup.merging_detail") + '</p>';
+  host.innerHTML='<p class=al>' + tr("ws.dedup.merging_detail") + '</p>';
   try{
     const r=await fetch(apiUrl('dedup/merge'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({keeper:keeper, losers:losers})});
     if(r.status===401||r.status===404){ expireWriteAccess();
-      panel.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
+      host.innerHTML='<p class=hint>' + tr("ws.common.session_expired") + '</p>'; return; }
     const d=await r.json();
     if(!canWrite()) return;
-    if(d.error){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.stream.merge") + '</h2><p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
-    let h='<h2><span data-icon="check-circle"></span> ' + tr("ws.dedup.done") + '</h2>';
+    if(d.error){ host.innerHTML='<p class=hint>' + tr("ws.common.error_prefix") + ' '+esc(d.error)+'</p>'; return; }
+    let h='<h3><span data-icon="check-circle"></span> ' + tr("ws.dedup.done") + '</h3>';
     h+='<p class=al>'+tr('ws.dedup.merged', { docs: d.deleted||0, entities: d.entities_repointed||0, relations: d.relations_repointed||0 })+'</p>';
     if(d.checkpoint) h+='<p class=al><small>'+esc(tr('ws.dedup.checkpoint', { path: d.checkpoint }))+'</small></p>';
     h+='<p><a href="#" onclick="openDedup();return false">' + tr("ws.dedup.again") + '</a></p>';
-    panel.innerHTML=h;
+    host.innerHTML=h;
     refreshGraph();   // 문서목록·그래프(병합으로 줄어든 sources) 갱신
-  }catch(e){ panel.innerHTML='<h2><span data-icon="merge"></span> ' + tr("ws.stream.merge") + '</h2><p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; }
+  }catch(e){ host.innerHTML='<p class=hint>' + tr("ws.common.request_failed") + ' '+esc(String(e))+'</p>'; }
 }
 
 
@@ -5886,29 +5747,25 @@ function setAccessScope(scope, reason){
   READONLY = !canWrite();
   document.body.dataset.authScope=AUTH_SCOPE;
   document.body.classList.toggle('ro', READONLY);
-  const label=document.getElementById('authstate');
-  if(label) label.textContent =
-    AUTH_SCOPE==='owner' ? tr("ws.bar.auth_owner") :
-    AUTH_SCOPE==='collaborator' ? tr("ws.bar.auth_collaborator") :
-    AUTH_SCOPE==='readonly' ? tr("ws.bar.auth_readonly") :
-    AUTH_SCOPE==='anonymous' ? tr("ws.bar.auth_anonymous") :
-    reason==='expired' ? tr("ws.bar.auth_write_expired") : tr("ws.bar.auth_failed");
-  // 관리·설정 기능은 콘솔(/admin/*, /settings/*)에 있다. 상단바의 아이콘 단추가 콘솔로 이동한다.
-  const clBtn = document.getElementById('consolelinkbtn');
-  if(clBtn){
-    const showConsole = canWrite();
-    clBtn.style.display = showConsole ? '' : 'none';
-    if(showConsole){
-      const label = IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings");
-      clBtn.setAttribute('href', IS_ADMIN ? '/admin' : '/settings');
-      clBtn.title = label;
-      clBtn.setAttribute('aria-label', label);
-      clBtn.setAttribute('data-icon', IS_ADMIN ? 'wrench' : 'settings');
-    }
+  const addBtn = document.getElementById('addbtn');
+  if(addBtn) addBtn.hidden = !canIngest();
+  // 관리·설정 기능은 콘솔(/admin/*, /settings/*)에 있다. 햄버거 메뉴의 콘솔 항목으로 이동한다.
+  if(window.ClaireAppBar){
+    window.ClaireAppBar.setConsoleLink({
+      visible: canWrite(),
+      href: IS_ADMIN ? '/admin' : '/settings',
+      label: IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings"),
+      icon: IS_ADMIN ? 'wrench' : 'settings'
+    });
+    window.ClaireAppBar.setLogoutVisible(AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'collaborator');
+    window.ClaireAppBar.setSyndicationVisible(canWrite());
   }
-  // The link to /syndication (collection, ingestion, publication) is for the owner. The stage strip with counts is unit HW-8.
-  const syndLink = document.getElementById('syndlink');
-  if(syndLink) syndLink.hidden = !canWrite();
+  ['synthbtn', 'dedupbtn', 'purgebtn'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.hidden = !canWrite();
+  });
+  const dangerSep = document.querySelector('#graph-section .menu-danger-sep');
+  if(dangerSep) dangerSep.hidden = !canWrite();
   if(!canWrite()){
     synthSet.clear();
     showHidden=false;
@@ -6653,42 +6510,11 @@ function loadHomeStats(){
   });
 })();
 
-// --- Manage menu: a popover with role=menu. The browser gives the light dismiss and the Escape key; this code gives the position and the arrow keys. ---
+// --- Hamburger menu sync hook ---
 function syncManageButton(){
-  const btn = document.getElementById('managebtn'); if(!btn) return;
-  // The menu always has an item: the command palette is for each user.
-  btn.hidden = false;
+  const btn = document.getElementById('hamburger-btn');
+  if(btn) btn.hidden = false;
 }
-(function(){
-  const menu = document.getElementById('moremenu'), btn = document.getElementById('managebtn');
-  if(!menu || !btn) return;
-  const native = 'popover' in HTMLElement.prototype;
-  const items = () => [...menu.querySelectorAll('[role="menuitem"]')].filter(el => el.offsetParent !== null);
-  const place = () => {
-    const r = btn.getBoundingClientRect();
-    menu.style.top = (r.bottom + 6) + 'px';
-    menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
-  };
-  const close = () => { if(native){ try{ menu.hidePopover(); }catch(_){} } else menu.classList.remove('open'); };
-  if(native){
-    menu.addEventListener('beforetoggle', e => { if(e.newState === 'open') place(); });
-    menu.addEventListener('toggle', e => { if(e.newState === 'open'){ const f = items()[0]; if(f) f.focus(); } });
-  } else {
-    // A browser without the Popover API: the same element with a class switch.
-    menu.classList.add('no-popover');
-    btn.addEventListener('click', () => { place(); menu.classList.toggle('open'); const f = items()[0]; if(f && menu.classList.contains('open')) f.focus(); });
-    document.addEventListener('click', e => { if(!menu.contains(e.target) && !btn.contains(e.target)) menu.classList.remove('open'); });
-    document.addEventListener('keydown', e => { if(e.key === 'Escape' && menu.classList.contains('open')){ menu.classList.remove('open'); btn.focus(); } });
-  }
-  menu.addEventListener('click', e => { if(e.target.closest('[role="menuitem"]')) close(); });
-  menu.addEventListener('keydown', e => {
-    if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const all = items(), i = all.indexOf(document.activeElement);
-    if(!all.length) return;
-    all[(i + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length].focus();
-    e.preventDefault();
-  });
-})();
 
 // The content of the panel changes when the context changes (a node, a document, or the default hint), thus the open state of the context panel follows it.
 if(panel && typeof MutationObserver === 'function'){
@@ -7874,15 +7700,23 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Open command palette from the manage popover menu (HW-7).
+// Open command palette from the hamburger menu (HW-7).
 function openCommandPaletteFromMenu(){
-  const menu = document.getElementById('moremenu');
-  if(menu && typeof menu.hidePopover === 'function'){
-    try{ menu.hidePopover(); }catch(_){}
-  }
+  if(window.ClaireAppBar) window.ClaireAppBar.closePopovers();
   if(window.ClaireCommandPalette) window.ClaireCommandPalette.open();
 }
 window.openCommandPaletteFromMenu = openCommandPaletteFromMenu;
+
+if(window.ClaireIngestDialogs){
+  window.ClaireIngestDialogs.init({
+    openIngest: openIngest,
+    submitIngest: runIngest,
+    openReingest: openReingest,
+    submitReingest: runReingest,
+    openRegen: openRegen,
+    submitRegen: runRegen
+  });
+}
 
 if(window.ClaireCommandPalette){
   window.ClaireCommandPalette.init({

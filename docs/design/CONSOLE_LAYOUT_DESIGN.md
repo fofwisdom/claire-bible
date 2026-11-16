@@ -16,12 +16,12 @@
 설정 및 관리 콘솔(`/settings/*`, `/admin/*`)을 현대 웹 표준 기반의 **단일 셸 정보 구조**로 개편한다.
 
 1. **문서 자연 스크롤 우선**: `theme.css`의 워크스페이스용 `body { overflow: hidden }`을 콘솔에서 해제하고(`height: auto; min-height: 100dvh; overflow: visible`), 사이드바와 본문 목차에 `position: sticky`를 써서 잘림 없는 스크롤과 OS 텍스트 배율(`<meta name="text-scale" content="scale">`)을 보장한다.
-2. **단일 접이식 사이드바 + Command Palette (`/`)**: 2단 레일/중첩 셸 대신 단일 그룹 아코디언 사이드바(`button[data-nav-group-toggle]`)와 기존 워크스페이스 `ClaireCommandPalette`(`<dialog id="cmdpalette" closedby="any">`)를 결합해 섹션 전환과 페이지 내 항목 점프를 통합한다.
+2. **단일 접이식 사이드바 + 공통 상단바 Command Palette (`/`)**: 2단 레일/중첩 셸 대신 단일 그룹 아코디언 사이드바(`button[data-nav-group-toggle]`)를 두고, `ClaireCommandPalette`(`<dialog id="cmdpalette" closedby="any">`) 트리거(`#palettetrigger`)는 사이드바나 모바일 유틸리티 바가 아니라 모든 페이지 공통 상단바(`.appbar-center`) 안에 유지해 섹션 전환과 페이지 내 항목 점프를 통합한다.
 3. **권한 경계 우선 (CL11 / Invariants 1–3)**:
    - 비관리자의 `/admin/*` 요청은 계속 `404`로 응답한다.
    - 비관리자 응답 HTML에는 `/admin/*` 링크·마크업·스크립트(`console_admin.js`)·관리자 i18n 키(`console.js.admin.*`)를 싣지 않는다.
    - `console_shell.js` Command Palette는 서버가 이미 렌더링한 `#console-sidebar-inner a[data-nav-section]`만 색인하므로 클라이언트 JS가 관리자 경로를 보유하지 않는다.
-4. **기존 상단바 구조 유지**: `header.appbar.console-topbar`는 워크스페이스·`/syndication`과 동일한 높이·배경·버튼 배치(상단바 내부 `<input>` 없음)를 유지한다.
+4. **공통 상단바 단일 원본 규약 (`src/claire/ui_chrome.py`)**: 콘솔(`header.appbar`), 워크스페이스, `/syndication` 및 향후 확장 경로(`themes`, `kb` 등)는 `partials/common_appbar.html` · `static/css/appbar.css` · `static/js/appbar.js`를 공유한다. 오른쪽 끝 아이콘 순서는 오른쪽부터 햄버거(`#hamburger-btn`) → 신디케이션(`#syndlink`) → 유저 홈(`#homelinkbtn`)으로 통일하고, 콘솔 진입(`#consolelinkbtn`)과 로그아웃(`/logout`)은 햄버거 메뉴(`#pop-hamburger-menu`) 안에서 호출한다(상단바 내부 `<input>`, 인증 상태 배지, 바깥 로그아웃 없음).
 
 ---
 
@@ -54,7 +54,7 @@
 
 ### 3.2 모바일 (`<= 860px`) 오프캔버스 드로어
 
-- **유틸리티 바**: `.console-mob-bar`가 상단바 아래에 sticky 고정되어 메뉴 버튼(`#console-mob-menu`), 현재 섹션 제목, `/` 팔레트 버튼(`#console-mob-palette`)을 제공한다.
+- **유틸리티 바**: `.console-mob-bar`가 상단바 아래에 sticky 고정되어 메뉴 버튼(`#console-mob-menu`)과 현재 섹션 제목을 제공한다(모바일에서도 `#palettetrigger`는 공통 상단바 `.appbar-center` 2행에 위치한다).
 - **단일 DOM 이동 + `<dialog closedby="any">`**: `console_shell.js`가 `matchMedia('(max-width: 860px)')`에 따라 `#console-sidebar-inner`를 `.console-sidebar`와 `<dialog id="console-nav-drawer">` 사이로 이동한다. 복제하지 않으므로 ID·`aria-current`·이벤트 중복이 발생하지 않는다.
 - **스크롤 스냅 드로어 + `overscroll-behavior: contain`**: 가로 `scroll-snap-type: x mandatory` 트랙과 `IntersectionObserver`로 스와이프 닫기, 백드롭 클릭 닫기, `Esc` 닫기를 모두 지원한다.
 

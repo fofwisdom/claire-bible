@@ -1,0 +1,33 @@
+<header class="appbar" id="__APPBAR_ID__">
+  <div class="bar-brand-group">
+    <a class="brand" href="__BRAND_HREF__" id="__BRAND_ID__"__BRAND_ONCLICK_ATTR__ title="${t:__BRAND_TITLE_KEY__}">
+      <img src="/favicon.svg" width="20" height="20" alt="" aria-hidden="true"/>
+      Claire Bible
+    </a>
+    __BRAND_EXTRA_HTML__
+  </div>
+  <div class="appbar-center" id="__CENTER_ID__">
+    <div class="appbar-palette-slot">
+      <button id="palettetrigger" type="button" class="palette-trigger" aria-haspopup="dialog" aria-keyshortcuts="/" data-i18n-title="nav.palette.open_title" title="${t:nav.palette.open_title}">
+        <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/></svg>
+        <span class="palette-trigger-label" data-i18n="nav.palette.trigger">${t:nav.palette.trigger}</span>
+        <kbd aria-hidden="true">/</kbd>
+      </button>
+    </div>
+    __CENTER_EXTRA_HTML__
+  </div>
+  <div class="appbar-end" id="__END_ID__">
+    __INGEST_CONTROL_HTML__
+    __END_EXTRA_HTML__
+    <button type="button" id="themebtn" class="bar-icon-btn" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" title="${t:nav.theme_toggle}" aria-label="${t:nav.theme_toggle}" data-icon="moon"></button>
+    <a id="homelinkbtn" class="bar-icon-btn" href="__HOME_HREF__"__HOME_ONCLICK_ATTR____HOME_CURRENT_ATTR__ data-i18n-title="nav.home_aria" data-i18n-aria-label="nav.home_aria" title="${t:nav.home_aria}" aria-label="${t:nav.home_aria}" data-icon="home"></a>
+    <a id="syndlink" class="bar-icon-btn" href="__SYND_HREF__"__SYND_HIDDEN_ATTR____SYND_CURRENT_ATTR____SYND_EXTRA_ATTRS__ data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication" title="${t:nav.syndication}" aria-label="${t:nav.syndication}" data-icon="inbox"></a>
+    <button type="button" id="hamburger-btn" class="bar-icon-btn app-hamburger-btn" commandfor="pop-hamburger-menu" command="toggle-popover" aria-haspopup="menu" aria-expanded="false" data-i18n-title="nav.menu" data-i18n-aria-label="nav.menu" title="${t:nav.menu}" aria-label="${t:nav.menu}" data-icon="menu"></button>
+    <div id="pop-hamburger-menu" popover="auto" class="app-popover app-popover-end">
+      <div focusgroup="menu nomemory" aria-labelledby="hamburger-btn">
+        __HAMBURGER_EXTRA_HTML__
+        __HAMBURGER_ACCOUNT_HTML__
+      </div>
+    </div>
+  </div>
+</header>

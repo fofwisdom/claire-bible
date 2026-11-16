@@ -224,16 +224,6 @@
       getEntities: function(){ return []; }
     });
 
-    ['console-palette-trigger', 'console-mob-palette'].forEach(function(btnId){
-      const btn = document.getElementById(btnId);
-      if(!btn) return;
-      btn.addEventListener('click', function(){
-        if(window.ClaireCommandPalette && typeof window.ClaireCommandPalette.open === 'function'){
-          window.ClaireCommandPalette.open();
-        }
-      });
-    });
-
     const dialog = document.getElementById('cmdpalette');
     const input = document.getElementById('cmdpalette-input');
     if(dialog && input){
@@ -427,7 +417,7 @@
   }
 
   function syncTopbarHeight(){
-    const bar = document.querySelector('.console-topbar');
+    const bar = document.querySelector('header.appbar');
     if(!bar) return;
     const h = Math.round(bar.getBoundingClientRect().height);
     if(h > 0) document.documentElement.style.setProperty('--console-topbar-h', h + 'px');

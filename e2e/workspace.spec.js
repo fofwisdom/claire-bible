@@ -39,17 +39,22 @@ test('mobile primary view displays the bottom view bar and the graph, and the co
   // 2. 바텀 바 및 단추 제거 확인
   await expect(page.locator('#worktabs')).toBeHidden();
 
-  // 3. 라이트/다크모드 전환 단추 오른쪽에 상세 메뉴 꺼내기(#morebtn) 단추가 위치하는지 확인
+  // 3. 모바일 상단 바에 문맥 드로어 단추(#morebtn)와 우측 공통 햄버거 메뉴(#hamburger-btn)가 표시되는지 확인
   const themebtn = page.locator('#themebtn');
   const morebtn = page.locator('#morebtn');
+  const hamburgerBtn = page.locator('#hamburger-btn');
   await expect(themebtn).toBeVisible();
   await expect(morebtn).toBeVisible();
+  await expect(hamburgerBtn).toBeVisible();
 
   const themeBox = await themebtn.boundingBox();
   const moreBox = await morebtn.boundingBox();
+  const hamburgerBox = await hamburgerBtn.boundingBox();
   expect(themeBox).not.toBeNull();
   expect(moreBox).not.toBeNull();
-  expect(moreBox.x).toBeGreaterThan(themeBox.x);
+  expect(hamburgerBox).not.toBeNull();
+  expect(moreBox.x).toBeLessThan(themeBox.x);
+  expect(hamburgerBox.x).toBeGreaterThan(themeBox.x);
   expect(moreBox.height).toBeGreaterThanOrEqual(38);
   expect(moreBox.width).toBeGreaterThanOrEqual(38);
 
@@ -104,17 +109,16 @@ test('tablet and desktop layouts do not squeeze the graph into three fixed colum
   await page.keyboard.press('Escape');
   await expect(page.locator('#detailpane')).toBeHidden();
 
-  await page.locator('#managebtn').click();
-  await expect(page.locator('#moremenu')).toBeVisible();
-  await expect(page.locator('#authstate')).toContainText('익명 읽기전용');
-  await expect(page.locator('#synthbtn')).toBeHidden();
+  await expect(page.locator('#authstate')).toHaveCount(0);
   await expect(page.locator('#addbtn')).toBeHidden();
-  await expect(page.locator('#reingestbtn')).toBeHidden();
-  await expect(page.locator('#regenbtn')).toBeHidden();
-  await expect(page.locator('#purgebtn')).toBeHidden();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+  await expect(page.locator('#synthbtn')).toBeHidden();
   await expect(page.locator('#dedupbtn')).toBeHidden();
+  await expect(page.locator('#purgebtn')).toBeHidden();
+  await expect(page.locator('#menu-logout-form')).toBeHidden();
   await page.keyboard.press('Escape');
-  await expect(page.locator('#moremenu')).toBeHidden();
+  await expect(page.locator('#pop-hamburger-menu')).toBeHidden();
 
   await page.setViewportSize({ width: 1600, height: 900 });
   await expectNoHorizontalOverflow(page);
@@ -726,17 +730,20 @@ test('provider management lives in the admin console and the root topbar shows o
     () => page.evaluate(() => window.claireDebug?.stabilized),
   ).toBe(true);
 
-  // 3. The admin owner sees the 🛠️ console icon directly left of the light/dark toggle
+  // 3. The admin owner sees right-to-left icons (#hamburger-btn -> #syndlink -> #homelinkbtn) and finds the 🛠️ console icon inside the hamburger menu
+  const endOrder = await page.evaluate(() => ['#themebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((s) => document.querySelector(s).getBoundingClientRect().left));
+  for (let i = 1; i < endOrder.length; i += 1) {
+    expect(endOrder[i]).toBeGreaterThan(endOrder[i - 1]);
+  }
+  await page.locator('#hamburger-btn').click();
   const consoleBtn = page.locator('#consolelinkbtn');
   await expect(consoleBtn).toBeVisible();
   await expect(consoleBtn).toHaveAttribute('href', '/admin');
-  await expect(consoleBtn).toHaveAttribute('data-icon', 'wrench');
+  await expect(consoleBtn.locator('[data-icon]')).toHaveAttribute('data-icon', 'wrench');
   await expect(consoleBtn.locator('svg.lineicon')).toHaveCount(1);
   await expect(consoleBtn).toHaveAttribute('aria-label', '관리자 콘솔');
-  const nextId = await consoleBtn.evaluate(el => el.nextElementSibling && el.nextElementSibling.id);
-  expect(nextId).toBe('themebtn');
 
-  // 4. Follow the icon into the console, then open the provider section
+  // 4. Follow the icon from the hamburger menu into the console, then open the provider section
   await consoleBtn.click();
   await expect(page).toHaveURL(/\/admin\/server$/);
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
@@ -1348,21 +1355,22 @@ test('WebUI regenerate button opens form and executes without client script erro
   await page.goto('/?t=e2e-regen-token-0123456789abcdef01', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 
-  // 2. Open Manage menu (#managebtn) and click #regenbtn
-  await page.locator('#managebtn').click();
-  const regenBtn = page.locator('#regenbtn');
-  await expect(regenBtn).toBeVisible();
-  await regenBtn.click();
+  // 2. Open Ingest dropdown (#addbtn) and click #ingest-opt-regen
+  await page.locator('#addbtn').click();
+  const regenOpt = page.locator('#ingest-opt-regen');
+  await expect(regenOpt).toBeVisible();
+  await regenOpt.click();
 
-  // 3. Verify regeneration form rendered in #panel
-  const panel = page.locator('#panel');
-  await expect(panel.locator('h2')).toContainText('문서 컴포넌트 재생성');
+  // 3. Verify regeneration modal dialog rendered
+  const modal = page.locator('dialog#modal-regen');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('h2')).toContainText('문서 컴포넌트 재생성');
   await expect(page.locator('#regentarget')).toBeVisible();
 
   // 4. Fill target and click Dry-Run
   // The target is a seed document with no entity. The pattern doc_1 also matches doc-1, and a real regeneration of doc-1 removes the entities that other tests use.
   await page.locator('#regentarget').fill('doc-regen-1');
-  const dryRunBtn = panel.locator('button:has-text("영향 분석 (Dry-Run)")');
+  const dryRunBtn = modal.locator('#btn-regen-dryrun');
   await expect(dryRunBtn).toBeVisible();
   await dryRunBtn.click();
 
@@ -1370,7 +1378,7 @@ test('WebUI regenerate button opens form and executes without client script erro
   await expect(page.locator('#regenresult')).toBeVisible();
 
   // 6. Click '재생성 시작' and verify no uncaught reference errors occurred
-  const startBtn = panel.locator('button.readbtn:has-text("재생성 시작")');
+  const startBtn = modal.locator('button.readbtn:has-text("재생성 시작")');
   await expect(startBtn).toBeVisible();
   await startBtn.click();
 
@@ -3267,8 +3275,8 @@ test.describe('command palette (HW-7)', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
 
-    // 2. Open palette from the manage menu and filter for a document.
-    await page.locator('#managebtn').click();
+    // 2. Open palette from the hamburger menu and filter for a document.
+    await page.locator('#hamburger-btn').click();
     await page.locator('#palettebtn').click();
     await expect(dialog).toBeVisible();
 

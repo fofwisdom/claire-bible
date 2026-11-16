@@ -685,7 +685,7 @@
             { icon: "3", label: tr("synd.palette.stage_publish"), keywords: "publish", run: () => setStage("publish") }
           );
         }
-        commands.push({ icon: "+", label: tr("nav.palette.cmd_ingest"), run: () => { setStage("ingest"); const btn = $("btn-open-ingest"); if (btn) btn.click(); } });
+        commands.push({ icon: "+", label: tr("nav.palette.cmd_ingest"), run: () => { setStage("ingest"); if (bridge.openIngestModal) bridge.openIngestModal(); } });
         return commands;
       },
       getCachedDocuments: (query) => {
@@ -694,8 +694,11 @@
       },
       onSelectDocument: (d) => { setStage("ingest"); bridge.showDocument(bridge.state.themeId, d.id); }
     });
-    const paletteBtn = $("btn-palette");
-    if (paletteBtn) paletteBtn.addEventListener("click", () => window.ClaireCommandPalette.open());
+    const paletteBtn = $("palettetrigger");
+    if (paletteBtn && paletteBtn.dataset.paletteInit !== "1") {
+      paletteBtn.dataset.paletteInit = "1";
+      paletteBtn.addEventListener("click", () => window.ClaireCommandPalette.open());
+    }
   }
 
   if (Compose) {

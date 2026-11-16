@@ -23,6 +23,7 @@ from .store.queries import (
     synthesize,
     theme_summary,
 )
+from . import ui_chrome
 from .i18n import browser_catalog_json, get_locale, t
 from .presentation.favicon import (
     FAVICON_TAGS_HTML,
@@ -49,6 +50,8 @@ def _build_standalone_graph_html() -> str:
     )
     adoc_js = (_STATIC_DIR / "js" / "renderers" / "adoc_parser.js").read_text(encoding="utf-8")
     reader_js = (_STATIC_DIR / "js" / "reader.js").read_text(encoding="utf-8")
+    appbar_js = (_STATIC_DIR / "js" / "appbar.js").read_text(encoding="utf-8")
+    ingest_dialogs_js = (_STATIC_DIR / "js" / "ingest_dialogs.js").read_text(encoding="utf-8")
     command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
     app_js = (_STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
     # The i18n runtime reads the inline catalog element that render_graph_html() puts in the head (slot __I18N_CATALOG__).
@@ -57,6 +60,82 @@ def _build_standalone_graph_html() -> str:
     # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     index_tmpl = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+
+    ws_brand_extra = (
+        '<div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>'
+        '<label for="theme-select" class="sr-only">${t:nav.theme_select}</label>'
+        '<div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>'
+        '<span class="theme-icon" id="theme-curr-icon" aria-hidden="true">📚</span>'
+        '<select id="theme-select" class="theme-select" onchange="switchKnowledgeTheme(this.value)" title="${t:ws.bar.theme_title}" aria-label="${t:nav.theme_select}"><option value="0">${t:ws.bar.theme_default}</option></select>'
+        '<span class="theme-caret" aria-hidden="true">▾</span>'
+        "</div>"
+        '<div class="theme-plain-display" id="theme-plain-display" __THEME_PLAIN_STYLE_ATTR__>'
+        '<span class="theme-icon" id="theme-plain-icon" aria-hidden="true">__THEME_PLAIN_ICON__</span>'
+        '<span class="theme-plain-label" id="theme-plain-label">__THEME_PLAIN_LABEL__</span>'
+        "</div></div>"
+        '<button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>'
+    )
+    ws_center_extra = (
+        '<div class="center-tab-group" id="centertab-group">'
+        '<button id="mobile-doclist-btn" type="button" class="mobile-doclist-btn" onclick="openDocDrawer()" title="${t:ws.list.open}" aria-label="${t:nav.list}"><span class="btn-icon" data-icon="list"></span> <span class="btn-label">${t:nav.list}</span></button>'
+        '<nav id="centertabs" class="center-tabs" data-i18n-aria-label="nav.views">'
+        '<button id="centertab-home" type="button" class="center-tab-btn" aria-current="page" onclick="enterHome({reason:\'nav\'})" data-i18n-title="nav.home"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/></svg></span> <span class="btn-label" data-i18n="nav.home">${t:nav.home}</span></button>'
+        '<button id="centertab-reader" type="button" class="center-tab-btn" onclick="setCenterView(\'reader\')" title="${t:ws.view.reader_title}" aria-label="${t:ws.view.reader}"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg></span> <span class="btn-label">${t:ws.view.reader}</span></button>'
+        '<button id="centertab-graph" type="button" class="center-tab-btn" onclick="setCenterView(\'graph\')" title="${t:ws.view.graph_title}" aria-label="${t:nav.graph}"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg></span> <span class="btn-label">${t:nav.graph}</span></button>'
+        '<button id="centertab-presentation" type="button" class="center-tab-btn" onclick="setCenterView(\'presentation\')" title="${t:ws.view.presentation_title}" aria-label="${t:ws.view.presentation}"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-11zM8 10.5v3M5.5 13.5h5"/></svg></span> <span class="btn-label">${t:ws.view.presentation}</span></button>'
+        "</nav>"
+        '<nav id="streamtabs" class="center-tabs stream-tabs" aria-label="${t:ws.view.stream_nav}">'
+        '<button id="centertab-stream" type="button" class="center-tab-btn" onclick="setCenterView(\'stream\')" title="${t:ws.view.stream_title}" aria-label="${t:ws.view.stream}"><span class="btn-icon"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg></span> <span class="btn-label">${t:ws.view.stream}</span></button>'
+        "</nav></div>"
+    )
+    ws_end_extra = (
+        '<button id="ctxbtn" type="button" class="bar-icon-btn" aria-expanded="false" aria-controls="detailpane" onclick="toggleContextPanel()" data-i18n-title="nav.context_toggle" data-i18n-aria-label="nav.context_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>'
+        '<button id="morebtn" class="hamburg-btn" aria-expanded="false" aria-controls="detailpane" data-i18n-aria-label="nav.context_toggle" data-i18n-title="nav.context_toggle" onclick="toggleDrawer()"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM10 3.5v9"/></svg></button>'
+    )
+    ws_hamburger_extra = (
+        '<button type="button" id="palettebtn" onclick="openCommandPaletteFromMenu()" data-i18n-title="nav.palette.open_title" data-i18n-aria-label="nav.palette.open"><span class="btn-icon" data-icon="search"></span> <span class="app-menu-label" data-i18n="nav.palette.open">${t:nav.palette.open}</span><kbd class="app-menu-kbd">/</kbd></button>'
+        '<div id="graph-section" class="app-menu-sec" aria-label="${t:ws.menu.graph_tools}">'
+        '<hr class="app-menu-sep"/>'
+        '<div class="app-menu-sec-title" id="menu-section-title">${t:ws.menu.section_title}</div>'
+        '<button type="button" id="pathbtn" onclick="togglePathMode()" title="${t:ws.menu.path_title}" aria-label="${t:ws.menu.path}"><span class="btn-icon" data-icon="link"></span> <span class="btn-label">${t:ws.menu.path}</span></button>'
+        '<button type="button" id="synthbtn" onclick="synth()" title="${t:ws.menu.synth} (0)" hidden><span class="btn-icon" data-icon="puzzle"></span> <span class="btn-label">${t:ws.menu.synth} (0)</span></button>'
+        '<button type="button" id="dedupbtn" onclick="openDedup()" title="${t:ws.menu.dedup_title}" aria-label="${t:ws.menu.dedup}" hidden><span class="btn-icon" data-icon="merge"></span> <span class="btn-label">${t:ws.menu.dedup}</span></button>'
+        '<hr class="app-menu-sep menu-danger-sep" hidden/>'
+        '<button type="button" id="purgebtn" class="app-menu-danger" onclick="openPurge()" title="${t:ws.menu.purge_title}" aria-label="${t:ws.menu.purge}" hidden><span class="btn-icon" data-icon="flame"></span> <span class="btn-label">${t:ws.menu.purge}</span></button>'
+        "</div>"
+    )
+    ws_appbar = ui_chrome.render_appbar_html(
+        bar_id="bar",
+        brand_id="appbar-brand",
+        brand_href="./",
+        brand_onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}",
+        brand_title_key="ws.bar.brand_title",
+        brand_extra_html=ws_brand_extra,
+        center_id="centerhead",
+        center_extra_html=ws_center_extra,
+        end_id="viewoptions",
+        ingest_enabled=True,
+        ingest_hidden=True,
+        end_extra_html=ws_end_extra,
+        home_href="./",
+        home_onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'nav'});}",
+        home_current=True,
+        synd_href="/syndication",
+        synd_hidden=True,
+        hamburger_extra_html=ws_hamburger_extra,
+        console_href="/settings",
+        console_label_key="ws.bar.my_settings",
+        console_icon="settings",
+        console_hidden=True,
+        show_logout=True,
+        logout_hidden=True,
+    )
+    ws_appbar = ws_appbar.replace('<div class="appbar-palette-slot">', '<div id="netsearch" class="appbar-palette-slot">')
+    index_tmpl = (
+        index_tmpl.replace("<!-- __COMMON_APPBAR__ -->", ws_appbar)
+        .replace("<!-- __COMMON_CMDPALETTE__ -->", ui_chrome.render_cmdpalette_html())
+        .replace("<!-- __COMMON_INGEST_MODALS__ -->", ui_chrome.render_ingest_modals_html())
+    )
 
     # The rules of the application bar (static/css/appbar.css) are the same for the workspace, /syndication, and the console.
     appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
@@ -78,7 +157,7 @@ def _build_standalone_graph_html() -> str:
   };
   window.__CLAIRE_THEMES__ = window.__CLAIRE_CONFIG.themes;"""
 
-    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
+    js_bundle = f"<script>\n{config_js}\n\n{i18n_js}\n{icons_js}\n{appbar_js}\n{ingest_dialogs_js}\n{graph_js}\n{adoc_js}\n{reader_js}\n{command_palette_js}\n{app_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>")
     return html
 
@@ -110,12 +189,76 @@ def _build_standalone_syndication_html() -> str:
     synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
     synd_live_js = (_STATIC_DIR / "js" / "syndication_live.js").read_text(encoding="utf-8")
     syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
+    synd_brand_extra = (
+        '<div class="theme-picker-wrap kb-only">'
+        '<label for="theme-selector" class="sr-only" data-i18n="nav.theme_select">Select knowledge theme</label>'
+        '<div class="theme-select-control">'
+        '<select id="theme-selector" class="theme-select" data-i18n-aria-label="nav.theme_select"></select>'
+        '<span class="theme-caret" aria-hidden="true">▾</span>'
+        "</div></div>"
+    )
+    synd_center_extra = (
+        '<span id="active-stream-title" class="appbar-title kb-only" data-i18n="synd.kb.stream.all">All ingested documents</span>'
+        '<span id="client-stream-title" class="appbar-title client-only"></span>'
+    )
+    synd_end_extra = (
+        '<button type="button" id="btn-note-new" class="bar-ingest-btn client-only" data-i18n-title="synd.compose.new_note_title" hidden>'
+        '<span data-icon="edit"></span> <span class="btn-label" data-i18n="synd.compose.new_note">${t:synd.compose.new_note}</span>'
+        "</button>"
+    )
+    synd_hamburger_extra = (
+        '<div class="app-menu-sec kb-only">'
+        '<div class="app-menu-sec-title" data-i18n="synd.kb.menu.section_kb">${t:synd.kb.menu.section_kb}</div>'
+        '<a id="menu-pref-link" class="app-menu-item" href="/settings/reader" data-settings-path="/settings/reader"><span class="btn-icon" data-icon="settings"></span> <span class="app-menu-label" data-i18n="synd.kb.menu.preferences">${t:synd.kb.menu.preferences}</span></a>'
+        '<a class="app-menu-item" href="/settings/connections" data-settings-path="/settings/connections"><span class="btn-icon" data-icon="lock"></span> <span class="app-menu-label" data-i18n="synd.kb.menu.connections">${t:synd.kb.menu.connections}</span></a>'
+        '<a class="app-menu-item" href="/settings/tags" data-settings-path="/settings/tags"><span class="btn-icon" data-icon="tag"></span> <span class="app-menu-label" data-i18n="synd.kb.menu.tags">${t:synd.kb.menu.tags}</span></a>'
+        '<a class="app-menu-item" href="/settings/outbound" data-settings-path="/settings/outbound"><span class="btn-icon" data-icon="repeat"></span> <span class="app-menu-label" data-i18n="synd.kb.menu.outbound">${t:synd.kb.menu.outbound}</span></a>'
+        '<hr class="app-menu-sep"/>'
+        '<div class="app-menu-sec-title" data-i18n="synd.kb.list_style.title">${t:synd.kb.list_style.title}</div>'
+        '<button type="button" data-set-list-style="list"><span class="app-menu-label" data-list-style-label>☰</span><kbd class="app-menu-kbd">l</kbd></button>'
+        '<button type="button" data-set-list-style="compact"><span class="app-menu-label" data-list-style-label>≡</span></button>'
+        '<button type="button" data-set-list-style="card"><span class="app-menu-label" data-list-style-label>▤</span></button>'
+        '<button type="button" data-set-list-style="roomy"><span class="app-menu-label" data-list-style-label>▭</span></button>'
+        '<hr class="app-menu-sep"/>'
+        '<div class="app-menu-sec-title" data-i18n="synd.kb.layout.title">${t:synd.kb.layout.title}</div>'
+        '<button type="button" id="menu-layout-3pane"><span id="menu-layout-3pane-label"></span><kbd class="app-menu-kbd">m</kbd></button>'
+        '<button type="button" id="menu-layout-2pane"><span id="menu-layout-2pane-label"></span></button>'
+        "</div>"
+    )
+    synd_appbar = ui_chrome.render_appbar_html(
+        bar_id="synd-bar",
+        brand_id="appbar-brand",
+        brand_href="/",
+        brand_title_key="nav.brand_home",
+        brand_extra_html=synd_brand_extra,
+        center_id="synd-center",
+        center_extra_html=synd_center_extra,
+        end_id="synd-end",
+        ingest_enabled=True,
+        ingest_btn_class="kb-only",
+        end_extra_html=synd_end_extra,
+        home_href="/",
+        synd_href="/syndication",
+        synd_current=True,
+        hamburger_extra_html=synd_hamburger_extra,
+        console_href="/settings/reader",
+        console_label_key="nav.topbar.console",
+        console_icon="settings",
+        show_logout=True,
+    )
+    syndication_tmpl = (
+        syndication_tmpl.replace("<!-- __COMMON_APPBAR__ -->", synd_appbar)
+        .replace("<!-- __COMMON_CMDPALETTE__ -->", ui_chrome.render_cmdpalette_html())
+        .replace("<!-- __COMMON_INGEST_MODALS__ -->", ui_chrome.render_ingest_modals_html())
+    )
     appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
     css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     # The i18n runtime, the shared command palette (HW-7), and the federation client view (FP4-5) are in the same bundle. The inline catalog element of the template comes before the bundle.
     i18n_js = (_STATIC_DIR / "js" / "i18n.js").read_text(encoding="utf-8")
+    appbar_js = (_STATIC_DIR / "js" / "appbar.js").read_text(encoding="utf-8")
+    ingest_dialogs_js = (_STATIC_DIR / "js" / "ingest_dialogs.js").read_text(encoding="utf-8")
     command_palette_js = (_STATIC_DIR / "js" / "command_palette.js").read_text(encoding="utf-8")
     synd_client_js = (_STATIC_DIR / "js" / "syndication_client.js").read_text(encoding="utf-8")
     # The feed view (FP4-F3) loads before the client view: the client view calls it.
@@ -125,7 +268,7 @@ def _build_standalone_syndication_html() -> str:
     # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     html = re.sub(r'<script src="/static/js/[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{command_palette_js}\n{synd_live_js}\n{synd_compose_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
+    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{appbar_js}\n{ingest_dialogs_js}\n{command_palette_js}\n{synd_live_js}\n{synd_compose_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 
@@ -782,8 +925,11 @@ def _render_syndication_bundle(
 
     caller_account_id: int | None = None
     is_network_mode = False
+    is_admin_viewer = False
+    account_username: str | None = None
     if request is not None:
         try:
+            from .api.accounts_routes.admin import is_admin
             from .api.namespace import request_namespace
             from .api.principal import request_principal
 
@@ -792,6 +938,7 @@ def _render_syndication_bundle(
                 is_network_mode = ns.mode == "network"
                 caller_account_id = ns.account_id
             principal = request_principal(request)
+            is_admin_viewer = is_admin(principal)
             if caller_account_id is None and principal.account_id is not None:
                 caller_account_id = principal.account_id
             if caller_account_id is None and not is_network_mode and getattr(principal, "scope", "anonymous") != "anonymous":
@@ -838,7 +985,7 @@ def _render_syndication_bundle(
 
         bootstrap = shell_bootstrap(request)
     raw_storage_key = (bootstrap or {}).get("storage-key", "anon")
-    if raw_storage_key == "anon" and caller_account_id is not None and getattr(s, "db_file", None):
+    if caller_account_id is not None and getattr(s, "db_file", None):
         try:
             from .store import accounts as accounts_store
             from .store import db as dbm
@@ -846,14 +993,16 @@ def _render_syndication_bundle(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 acc = accounts_store.AccountStore(conn).get(int(caller_account_id))
-                raw_storage_key = f"a{acc.public_id}"
+                if raw_storage_key == "anon":
+                    raw_storage_key = f"a{acc.public_id}"
+                account_username = acc.username
             finally:
                 conn.close()
         except Exception:
             pass
     storage_key = _html.escape(raw_storage_key, quote=True)
 
-    return (
+    rendered = (
         bundle_html.replace("__SOURCE_BASE_URL__", base_url)
         .replace("__GITHUB_REPOSITORY__", repo)
         .replace("<!-- __GA_TAG__ -->", ga_tag)
@@ -868,6 +1017,18 @@ def _render_syndication_bundle(
         .replace("__SERVER_MODE__", "network" if is_network_mode else "single")
         .replace("<!-- __I18N_CATALOG__ -->", f'<script id="claire-i18n-catalog" type="application/json">{browser_catalog_json()}</script>')
     )
+    if is_network_mode and account_username:
+        home_url = _html.escape(f"/@{account_username}/", quote=True)
+        rendered = rendered.replace('href="/" id="appbar-brand"', f'href="{home_url}" id="appbar-brand"').replace(
+            'id="homelinkbtn" class="bar-icon-btn" href="/"',
+            f'id="homelinkbtn" class="bar-icon-btn" href="{home_url}"',
+        )
+    if is_admin_viewer:
+        rendered = rendered.replace(
+            '<a id="consolelinkbtn" class="app-menu-item" href="/settings/reader"',
+            '<a id="consolelinkbtn" class="app-menu-item" href="/admin"',
+        )
+    return rendered
 
 
 def render_syndication_html(
