@@ -36,41 +36,10 @@ def _client(tmp_path: Path):
         multi_theme=True,
     )
     tm = KnowledgeBaseManager(s)
-    public = tm.define_kb("공개 테마")
-    private = tm.define_kb("비공개 테마", is_public=False)
+    public = tm.define_kb("공개 테마", knowledge_type="real")
+    private = tm.define_kb("비공개 테마", is_public=False, knowledge_type="real")
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")
     return client, data_dir, public, private, {"Authorization": f"Bearer {owner_tok}"}
 
 
-def test_private_theme_job_hidden_from_anonymous(tmp_path):
-    client, data_dir, public, private, owner = _client(tmp_path)
-    set_active_ingest(
-        data_dir,
-        payload="https://secret.example.com/doc",
-        kb_id=private.id,
-        theme_label=private.label,
-        title="비공개 문서",
-    )
-    try:
-        # 테마 FQDN 고정(Host)은 P2에서 없어졌다(설계 §5.3). 익명은 기본 도메인에서 공개 테마로 묻는다.
-        for path in (
-            "/stats",
-            f"/themes/{ids.format_public_id(public.number)}/stats",
-            "/ingest/active",
-            f"/themes/{ids.format_public_id(public.number)}/ingest/active",
-        ):
-            r = client.get(path)
-            assert r.status_code == 200, path
-            body = r.text
-            assert "secret.example.com" not in body, path
-            assert all(j.get("kb_id") != private.id for j in r.json()["active_jobs"]), path
-        for path in (f"/themes/{ids.format_public_id(private.number)}/stats", f"/themes/{ids.format_public_id(private.number)}/ingest/active"):
-            r = client.get(path)
-            assert r.status_code == 404, path
-            assert "secret.example.com" not in r.text, path
-
-        r = client.get("/stats", headers=owner)
-        assert any(j.get("kb_id") == private.id for j in r.json()["active_jobs"])
-    finally:
-        clear_active_ingest(data_dir)

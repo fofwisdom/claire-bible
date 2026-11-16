@@ -408,7 +408,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
     conn0.close()
 
     tm = KnowledgeBaseManager(s)
-    t1 = tm.define_kb("격리 테마 1")
+    t1 = tm.define_kb("격리 테마 1", knowledge_type="real")
     t1_s = tm.get_settings_for_kb(t1.id, s)
     conn1 = dbm.connect(t1_s.db_file)
     dbm.init_db(conn1)

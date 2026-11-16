@@ -106,7 +106,7 @@ def test_define_theme_assigns_number_from_db(tmp_path: Path) -> None:
     settings = _settings(tmp_path, multi=True)
     manager = KnowledgeBaseManager(base_settings=settings)
     before_ms = time.time_ns() // 1_000_000
-    theme = manager.define_kb("번호 테마")
+    theme = manager.define_kb("번호 테마", knowledge_type="real")
     after_ms = time.time_ns() // 1_000_000
 
     assert theme.number is not None and theme.number >= ids.MIN_CURRENT_NUMBER
@@ -126,8 +126,8 @@ def test_define_theme_retries_same_millisecond_collision(tmp_path: Path) -> None
     manager = KnowledgeBaseManager(base_settings=settings)
     fixed_ms = 1_893_456_000_000
     manager._number_clock = lambda: fixed_ms
-    first = manager.define_kb("첫째")
-    second = manager.define_kb("둘째")
+    first = manager.define_kb("첫째", knowledge_type="real")
+    second = manager.define_kb("둘째", knowledge_type="real")
 
     conn = dbm.connect(settings.db_file)
     try:
@@ -143,9 +143,9 @@ def test_define_theme_fails_after_max_collisions(tmp_path: Path) -> None:
     manager = KnowledgeBaseManager(base_settings=settings)
     manager._number_clock = lambda: 1_893_456_000_000
     for i in range(ids.MAX_INSERT_ATTEMPTS):
-        manager.define_kb(f"테마 {i}")
+        manager.define_kb(f"테마 {i}", knowledge_type="real")
     with pytest.raises(ids.TimestampIdExhausted):
-        manager.define_kb("넘침")
+        manager.define_kb("넘침", knowledge_type="real")
     labels = {r["label"] for r in _rows(settings)}
     assert "넘침" not in labels
 
@@ -188,10 +188,10 @@ def test_define_and_update_reject_fqdn(tmp_path: Path) -> None:
     settings = _settings(tmp_path, multi=True)
     manager = KnowledgeBaseManager(base_settings=settings)
     with pytest.raises(ValueError, match="theme FQDN is retired"):
-        manager.define_kb("도메인 테마", fqdn="ai.example.com")
+        manager.define_kb("도메인 테마", fqdn="ai.example.com", knowledge_type="real")
     assert [r["id"] for r in _rows(settings)] == [0]
 
-    theme = manager.define_kb("일반 테마", fqdn="")
+    theme = manager.define_kb("일반 테마", fqdn="", knowledge_type="real")
     with pytest.raises(ValueError) as exc:
         manager.update_kb(theme.id, label="바뀌면 안 됨", fqdn="ai.example.com")
     assert str(exc.value) == THEME_FQDN_RETIRED_MESSAGE
@@ -203,7 +203,7 @@ def test_define_and_update_reject_fqdn(tmp_path: Path) -> None:
 def test_update_with_empty_fqdn_keeps_legacy_column(tmp_path: Path) -> None:
     settings = _settings(tmp_path, multi=True)
     manager = KnowledgeBaseManager(base_settings=settings)
-    theme = manager.define_kb("레거시")
+    theme = manager.define_kb("레거시", knowledge_type="real")
     conn = dbm.connect(settings.db_file)
     try:
         conn.execute("UPDATE knowledge_bases SET fqdn='old.example.com' WHERE id=?", (theme.id,))
@@ -251,7 +251,7 @@ def test_single_mode_keeps_settings_driven_fields(tmp_path: Path) -> None:
     assert _db_row(settings, 0)["presentation_enabled"] == 0
     assert t0.db_path == str(settings.db_path)
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화"):
-        manager.define_kb("새 테마")
+        manager.define_kb("새 테마", knowledge_type="real")
 
 
 def test_single_mode_recreates_missing_theme_zero_in_db(
@@ -296,8 +296,8 @@ def test_single_mode_readonly_without_db_uses_default(tmp_path: Path) -> None:
 def multi_manager(tmp_path: Path) -> tuple[KnowledgeBaseManager, Settings]:
     settings = _settings(tmp_path, multi=True)
     manager = KnowledgeBaseManager(base_settings=settings)
-    manager.define_kb("Alpha Research")
-    manager.define_kb("베타")
+    manager.define_kb("Alpha Research", knowledge_type="real")
+    manager.define_kb("베타", knowledge_type="real")
     return manager, settings
 
 
@@ -316,9 +316,13 @@ def test_get_theme_by_number(multi_manager) -> None:
 def test_list_account_themes_number_descending(multi_manager) -> None:
     manager, settings = multi_manager
     _add_other_account_theme(settings, kb_id=10, label="Bob Notes")
-    listed = manager.list_account_kbs(1)
-    assert {t.id for t in listed} == {0, 1, 2}
-    numbers = [t.number for t in listed]
+    # list_account_kbs: the knowledge bases that the account owns (its personal one). The selector also has the shared ones.
+    assert {t.id for t in manager.list_account_kbs(1)} == {0}
+    listed = manager.list_selectable_kbs(1)
+    assert {t.id for t in listed} >= {0, 1, 2}
+    # The personal knowledge base is first; the shared ones follow, newest first.
+    assert listed[0].id == 0
+    numbers = [t.number for t in listed[1:]]
     assert numbers == sorted(numbers, reverse=True)
     assert [t.id for t in manager.list_account_kbs(2)] == [10]
     assert manager.list_account_kbs(3) == []

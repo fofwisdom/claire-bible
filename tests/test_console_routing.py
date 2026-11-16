@@ -193,10 +193,10 @@ def test_prefixed_paths_return_404_for_settings_and_admin(console_env):
         f"/@{MEMBER_USERNAME}/settings",
         f"/@{MEMBER_USERNAME}/settings/account",
         f"/@{MEMBER_USERNAME}/settings/reader",
-        f"/themes/{console_env.alice_def.number}/settings/reader",
+        f"/kb/{console_env.alice_def.number}/settings/reader",
         f"/@{SECRET_ADMIN_USERNAME}/admin",
         f"/@{SECRET_ADMIN_USERNAME}/admin/providers",
-        f"/themes/{console_env.admin_extra.number}/admin/limits",
+        f"/kb/{console_env.admin_extra.number}/admin/limits",
     )
     for path in prefixed_paths:
         for headers in (console_env.admin_owner, console_env.alice_owner):

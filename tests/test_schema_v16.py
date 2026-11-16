@@ -133,7 +133,7 @@ def test_v15_upgrade_fills_numbers_with_floor(tmp_path: Path, monkeypatch: pytes
         # 기존 행은 기본 epoch 1, 임베딩 미정.
         assert {r["visibility_epoch"] for r in conn.execute("SELECT visibility_epoch FROM knowledge_bases")} == {1}
         # 기존 데이터는 그대로다.
-        assert conn.execute("SELECT label, account_id FROM knowledge_bases WHERE id=2").fetchone()[:] == ("later", 1)
+        assert conn.execute("SELECT label, created_by_account_id FROM knowledge_bases WHERE id=2").fetchone()[:] == ("later", 1)
     finally:
         conn.close()
 

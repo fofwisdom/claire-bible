@@ -70,11 +70,11 @@ def test_theme_manager_presentation_flag_persistence_io(tmp_path: Path):
     assert def_theme.presentation_enabled is False
 
     # 2. Define theme with presentation_enabled=True
-    t1 = manager.define_kb(label="AI Slides", presentation_enabled=True)
+    t1 = manager.define_kb(label="AI Slides", presentation_enabled=True, knowledge_type="real")
     assert t1.presentation_enabled is True
 
     # 3. Define theme without presentation flag (defaults to False)
-    t2 = manager.define_kb(label="Plain Docs")
+    t2 = manager.define_kb(label="Plain Docs", knowledge_type="real")
     assert t2.presentation_enabled is False
 
     # 4. The database keeps the flag (themes.json is retired, v27)
@@ -137,7 +137,7 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
         # 2. POST /themes with presentation_enabled=True
         post_res = client.post(
             "/themes",
-            json={"label": "Pitch Decks", "presentation_enabled": True},
+            json={"knowledge_type": "real", "label": "Pitch Decks", "presentation_enabled": True},
             headers=owner_headers,
         )
         assert post_res.status_code == 201

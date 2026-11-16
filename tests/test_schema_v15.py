@@ -134,8 +134,9 @@ def test_v14_database_upgrades_and_binds_rows_to_admin(tmp_path: Path, monkeypat
     try:
         dbm.init_db(conn)
         assert dbm.require_current_schema(conn) == dbm.SCHEMA_VERSION
-        themes = conn.execute("SELECT id, account_id FROM knowledge_bases ORDER BY id").fetchall()
-        assert [(r["id"], r["account_id"]) for r in themes] == [(0, 1), (1, 1)]
+        # v15 binds each row to the admin; v28 then converts the knowledge base that is not personal to a shared one (no owner, the admin made it).
+        themes = conn.execute("SELECT id, account_id, created_by_account_id FROM knowledge_bases ORDER BY id").fetchall()
+        assert [(r["id"], r["account_id"], r["created_by_account_id"]) for r in themes] == [(0, 1, None), (1, None, 1)]
         session = conn.execute("SELECT account_id, authenticated_at FROM auth_sessions").fetchone()
         assert session["account_id"] == 1
         # 이관은 사람 인증 시각을 만들어 내지 않는다.
@@ -313,13 +314,15 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
         CLAIRE_MULTI_THEME=True,
     )
     manager = KnowledgeBaseManager(base_settings=settings)
-    assert {t.id: t.account_id for t in manager.list_kbs(include_private=True)} == {0: 1, 1: 1}
-    manager.define_kb("new one")
+    # The entry without account_id is of the admin; version 28 converts it to a shared knowledge base that the admin made.
+    assert {t.id: (t.account_id, t.created_by_account_id) for t in manager.list_kbs(include_private=True)} == {0: (1, None), 1: (None, 1)}
+    manager.define_kb("new one", knowledge_type="real")
     # v27: the file is retired after its entries are in the database.
     assert not (data_dir / "themes.json").exists()
     assert (data_dir / "themes.json.retired").is_file()
     conn = dbm.connect(data_dir / "claire.db")
     try:
-        assert {r["account_id"] for r in conn.execute("SELECT account_id FROM knowledge_bases")} == {1}
+        # The personal knowledge base has the admin as owner; the shared ones (version 28) have no owner and the admin as founder.
+        assert {(r["account_id"], r["created_by_account_id"]) for r in conn.execute("SELECT account_id, created_by_account_id FROM knowledge_bases")} == {(1, None), (None, 1)}
     finally:
         conn.close()

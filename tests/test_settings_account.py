@@ -201,7 +201,8 @@ def test_account_page_single_mode_admin_hides_username_and_profile_public(env):
     assert 'data-account-field="profile_public"' not in html
     assert "data-profile-public-hint" not in html
     assert 'data-lifecycle="admin"' in html
-    assert "Admin Vault" in html
+    # "Admin Vault" is a shared knowledge base after version 28: the account page lists only the personal knowledge base of the account.
+    assert "Admin Vault" not in html
     assert ADMIN_USERNAME not in json.dumps(_bootstrap(html), ensure_ascii=False)
 
 

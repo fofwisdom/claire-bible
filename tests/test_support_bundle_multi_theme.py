@@ -99,7 +99,7 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
 
     # 2. 테마 1 생성
     tm = KnowledgeBaseManager(base_settings=settings)
-    theme1 = tm.define_kb(label="스타레일 테마", icon="🚂")
+    theme1 = tm.define_kb(label="스타레일 테마", icon="🚂", knowledge_type="real")
     theme1_db = Path(theme1.db_path)
 
     # 3. 테마 1에만 문서 및 공유 토큰 적재
@@ -186,7 +186,7 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
     conn0.close()
 
     tm = KnowledgeBaseManager(base_settings=settings)
-    theme1 = tm.define_kb(label="연구자료", icon="🔬")
+    theme1 = tm.define_kb(label="연구자료", icon="🔬", knowledge_type="real")
     theme1_db = Path(theme1.db_path)
 
     doc_id = "doc_research_999"

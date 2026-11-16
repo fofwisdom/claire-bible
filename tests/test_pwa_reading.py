@@ -238,7 +238,7 @@ def test_render_graph_html_account_isolation_owner(tmp_path: Path):
     assert "Admin Public Base" in admin_html
     assert "Admin Secret Theme" in admin_html
     assert "Alice Public Work" not in admin_html
-    assert "Alice Secret Work" not in admin_html
+    assert "Alice Secret Work" in admin_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
     assert "Bob Public Work" not in admin_html
 
     # 2. Alice (account_id=2) view
@@ -247,7 +247,7 @@ def test_render_graph_html_account_isolation_owner(tmp_path: Path):
     assert "Alice Collab Work" in alice_html
     assert "Alice Secret Work" in alice_html
     assert "Admin Public Base" not in alice_html
-    assert "Admin Secret Theme" not in alice_html
+    assert "Admin Secret Theme" in alice_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
     assert "Bob Public Work" not in alice_html
 
     # 3. Bob (account_id=3) view
@@ -255,7 +255,7 @@ def test_render_graph_html_account_isolation_owner(tmp_path: Path):
     assert "Bob Public Work" in bob_html
     assert "Bob Secret Work" in bob_html
     assert "Alice Public Work" not in bob_html
-    assert "Admin Secret Theme" not in bob_html
+    assert "Admin Secret Theme" in bob_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
 
 
 def test_render_graph_html_account_isolation_collaborator(tmp_path: Path):
@@ -270,7 +270,7 @@ def test_render_graph_html_account_isolation_collaborator(tmp_path: Path):
     )
     assert "Alice Public Work" in alice_collab_html
     assert "Alice Collab Work" in alice_collab_html
-    assert "Alice Secret Work" not in alice_collab_html
+    assert "Alice Secret Work" in alice_collab_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
     assert "Admin Public Base" not in alice_collab_html
 
 
@@ -285,8 +285,8 @@ def test_render_graph_html_account_isolation_anonymous(tmp_path: Path):
         collaborator=False,
     )
     assert "Alice Public Work" in alice_anon_html
-    assert "Alice Collab Work" not in alice_anon_html
-    assert "Alice Secret Work" not in alice_anon_html
+    assert "Alice Collab Work" in alice_anon_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
+    assert "Alice Secret Work" in alice_anon_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
     assert "Admin Public Base" not in alice_anon_html
     assert "Bob Public Work" not in alice_anon_html
 
@@ -315,7 +315,7 @@ def test_render_graph_html_theme_param_account_fallback(tmp_path: Path):
 
     html = render_graph_html(s, theme=alice_theme, account_id=None, include_private=True)
     assert "Alice Public Work" in html
-    assert "Admin Secret Theme" not in html
+    assert "Admin Secret Theme" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
 
 
 # =========================================================================
@@ -422,7 +422,7 @@ def test_workspace_html_themes_bootstrap_owner(tmp_path: Path):
         assert "Alice Public Work" in html
         assert "Alice Secret Work" in html
         assert "Bob Public Work" not in html
-        assert "Admin Secret Theme" not in html
+        assert "Admin Secret Theme" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
 
 
 def test_workspace_html_themes_bootstrap_visitor(tmp_path: Path):
@@ -436,9 +436,9 @@ def test_workspace_html_themes_bootstrap_visitor(tmp_path: Path):
         assert res.status_code == 200
         html = res.text
         assert "Alice Public Work" in html
-        assert "Alice Secret Work" not in html
-        assert "Bob Secret Work" not in html
-        assert "Admin Secret Theme" not in html
+        assert "Alice Secret Work" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
+        assert "Bob Secret Work" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
+        assert "Admin Secret Theme" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
 
 
 def test_workspace_html_themes_bootstrap_anonymous(tmp_path: Path):
@@ -451,7 +451,7 @@ def test_workspace_html_themes_bootstrap_anonymous(tmp_path: Path):
         assert res.status_code == 200
         html = res.text
         assert "Alice Public Work" in html
-        assert "Alice Secret Work" not in html
+        assert "Alice Secret Work" in html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)
         assert "Bob Public Work" not in html
 
 

@@ -245,10 +245,10 @@ def test_theme_services_for_cycle_skips_suspended_and_deleting_accounts(tmp_path
     themes = [
         KnowledgeBaseInfo(id=0, seq=0, label="관리자 기본", db_path=str(db_file), is_personal=True, account_id=1, number=1 << 56, created_at=now, updated_at=now),
         KnowledgeBaseInfo(id=10, seq=1, label="관리자 테마10", db_path=str(db_file), is_personal=False, account_id=1, number=(1 << 56) + 10, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=20, seq=2, label="정지 계정 테마", db_path=str(db_file), is_personal=False, account_id=2, number=(1 << 56) + 20, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=30, seq=3, label="삭제중 계정 테마", db_path=str(db_file), is_personal=False, account_id=3, number=(1 << 56) + 30, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=40, seq=4, label="소각 계정 테마", db_path=str(db_file), is_personal=False, account_id=4, number=(1 << 56) + 40, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=50, seq=5, label="활성 멤버 테마", db_path=str(db_file), is_personal=False, account_id=5, number=(1 << 56) + 50, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=20, seq=2, label="정지 계정 테마", db_path=str(db_file), is_personal=True, account_id=2, number=(1 << 56) + 20, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=30, seq=3, label="삭제중 계정 테마", db_path=str(db_file), is_personal=True, account_id=3, number=(1 << 56) + 30, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=40, seq=4, label="소각 계정 테마", db_path=str(db_file), is_personal=True, account_id=4, number=(1 << 56) + 40, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=50, seq=5, label="활성 멤버 테마", db_path=str(db_file), is_personal=True, account_id=5, number=(1 << 56) + 50, created_at=now, updated_at=now),
     ]
     _save_themes_registry(data_dir, db_file, themes)
 
@@ -265,7 +265,8 @@ def test_theme_services_for_cycle_skips_suspended_and_deleting_accounts(tmp_path
     # 1. 1차 cycle 실행: active 상태인 계정 1과 5의 테마만 포함되어야 함
     services = cli._theme_services_for_cycle(settings, state, factory)
     included_ids = [theme.id for theme, _ in services]
-    assert included_ids == [0, 10, 50]
+    # Workers take only personal knowledge bases (CT10): the shared knowledge base 10 is not in the cycle.
+    assert included_ids == [0, 50]
     assert 20 not in included_ids  # suspended 계정
     assert 30 not in included_ids  # deleting 계정
     assert 40 not in included_ids  # purged 계정
@@ -279,7 +280,7 @@ def test_theme_services_for_cycle_skips_suspended_and_deleting_accounts(tmp_path
     # 다음 cycle 실행 시 테마 50이 서비스 풀에서 제거되고 결과에서 제외되어야 함
     next_services = cli._theme_services_for_cycle(settings, state, factory)
     next_included_ids = [theme.id for theme, _ in next_services]
-    assert set(next_included_ids) == {0, 10}
+    assert set(next_included_ids) == {0}
     assert 50 not in next_included_ids
     assert 50 not in state.services
 
@@ -296,12 +297,13 @@ def test_e2e_recover_cycle_skips_suspended_account_themes(tmp_path: Path, monkey
     conn = _init_test_db(db_file)
     _insert_account(conn, 1, "active_owner", status="active", role="admin")
     _insert_account(conn, 2, "suspended_owner", status="suspended", role="member")
+    _insert_account(conn, 3, "active_member", status="active", role="member")
 
     now = time.time()
     themes = [
         KnowledgeBaseInfo(id=0, seq=0, label="관리자 기본", db_path=str(db_file), is_personal=True, account_id=1, number=1 << 56, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=1, seq=1, label="활성 테마", db_path=str(db_file), is_personal=False, account_id=1, number=(1 << 56) + 1, created_at=now, updated_at=now),
-        KnowledgeBaseInfo(id=2, seq=2, label="정지 테마", db_path=str(db_file), is_personal=False, account_id=2, number=(1 << 56) + 2, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=1, seq=1, label="활성 테마", db_path=str(db_file), is_personal=True, account_id=3, number=(1 << 56) + 1, created_at=now, updated_at=now),
+        KnowledgeBaseInfo(id=2, seq=2, label="정지 테마", db_path=str(db_file), is_personal=True, account_id=2, number=(1 << 56) + 2, created_at=now, updated_at=now),
     ]
     _save_themes_registry(data_dir, db_file, themes)
 
@@ -311,9 +313,9 @@ def test_e2e_recover_cycle_skips_suspended_account_themes(tmp_path: Path, monkey
         source="cli",
         payload="활성 계정 복구 테스트 본문 내용입니다.",
         kind="text",
-        kb_id=1,
+        kb_id=0,
     )
-    dbm.update_inbox(conn, inbox1_id, status="error", error="temporary fail", kb_id=1)
+    dbm.update_inbox(conn, inbox1_id, status="error", error="temporary fail", kb_id=0)
     conn.execute("UPDATE raw_inbox SET next_retry_at = ? WHERE id = ?", (now - 100, inbox1_id))
 
     inbox2_id = dbm.log_inbox(
@@ -341,15 +343,15 @@ def test_e2e_recover_cycle_skips_suspended_account_themes(tmp_path: Path, monkey
     # _run_recover_cycle 실행
     cycle = cli._run_recover_cycle(settings, args, state, IngestService)
 
-    # 테마 1의 inbox 항목만 복구되어 결과에 포함되어야 함
+    # Only the inbox row of the personal knowledge base of the active account is recovered
     assert len(cycle["results"]) >= 1
     processed_kb_ids = {r.get("_kb_id") for r in cycle["results"]}
-    assert 1 in processed_kb_ids
+    assert 0 in processed_kb_ids  # the personal knowledge base of the active admin
     assert 2 not in processed_kb_ids
 
     # DB 상태 확인: 테마 1은 완료(done 또는 duplicate) 상태로 전이, 테마 2는 error 상태 그대로 유지
     verify_conn = dbm.connect_existing(db_file, readonly=True)
-    row1 = dbm.get_inbox(verify_conn, inbox1_id, kb_id=1)
+    row1 = dbm.get_inbox(verify_conn, inbox1_id, kb_id=0)
     row2 = dbm.get_inbox(verify_conn, inbox2_id, kb_id=2)
     verify_conn.close()
 

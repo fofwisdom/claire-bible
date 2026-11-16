@@ -755,6 +755,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
     _migrate_v28_shared_kb_schema(conn)
+    _migrate_v28_convert_knowledge_bases(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1431,6 +1432,64 @@ def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
             continue
         conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
         logger.warning("schema v28: table %s had %d row(s); it is kept as %s", table, rows, retired)
+
+
+def _migrate_v28_convert_knowledge_bases(conn: sqlite3.Connection) -> None:
+    """v28 conversion (Section 12.2 step 2, CT6): each knowledge base that is not personal and has an owner becomes a shared knowledge base. Idempotent (A3); it runs at each start for the rows that still have the old shape.
+
+    One savepoint for each knowledge base. In it: the owner becomes ``created_by_account_id`` and the row gets no owner, is public, and has the type ``real``; the old owner gets the membership ``moderator`` when its account is ``active`` or ``suspended``, or is the admin before its first setup (``setup_required``); else the admin moderates; each document gets one contribution with the origin ``migration`` and the credit to the old owner; watch stops and the refresh and expand queues lose the rows of the knowledge base (CT10).
+    A knowledge base whose savepoint fails stays as it was: its row breaks the kinds of Section 11.2, the store treats it as unavailable, and the next start tries again (step 3). The start continues (operator rule).
+    """
+    if not _table_exists(conn, "knowledge_bases") or not _table_exists(conn, "accounts"):
+        return
+    rows = conn.execute(
+        "SELECT id, account_id FROM knowledge_bases WHERE COALESCE(is_personal, 0) = 0 AND account_id IS NOT NULL ORDER BY id"
+    ).fetchall()
+    if not rows:
+        return
+    from . import kb_collab
+
+    now = time.time()
+    clock = [time.time_ns() // 1_000_000]
+
+    def _next_ms() -> int:
+        clock[0] += 1
+        return clock[0]
+
+    for row in rows:
+        kb_id, owner = int(row[0]), int(row[1])
+        conn.execute("SAVEPOINT v28_convert_kb")
+        try:
+            conn.execute(
+                "UPDATE knowledge_bases SET created_by_account_id=?, account_id=NULL, is_public=1, join_policy='approval', state='active', knowledge_type='real' WHERE id=?",
+                (owner, kb_id),
+            )
+            account = conn.execute("SELECT status FROM accounts WHERE id=?", (owner,)).fetchone()
+            if account is not None and str(account[0]) in ("setup_required", "active", "suspended") and kb_collab.get_membership(conn, kb_id, owner) is None:
+                kb_collab.add_membership(conn, kb_id=kb_id, account_id=owner, role="moderator", state="active", now=now, now_ms=_next_ms())
+            for doc in conn.execute("SELECT id, COALESCE(hidden, 0) FROM documents WHERE kb_id=? ORDER BY id", (kb_id,)).fetchall():
+                if kb_collab.get_contribution_for_document(conn, kb_id, str(doc[0])) is not None:
+                    continue
+                kb_collab.add_contribution(
+                    conn,
+                    kb_id=kb_id,
+                    document_id=str(doc[0]),
+                    origin="migration",
+                    state="hidden" if int(doc[1]) == 1 else "visible",
+                    contributor_account_id=owner,
+                    approved_at=now,
+                    now=now,
+                    now_ms=_next_ms(),
+                )
+            conn.execute("UPDATE documents SET watch_enabled=0 WHERE kb_id=?", (kb_id,))
+            for queue in ("refresh_queue", "expand_queue"):
+                if _table_exists(conn, queue):
+                    conn.execute(f"DELETE FROM {queue} WHERE kb_id=?", (kb_id,))
+            conn.execute("RELEASE SAVEPOINT v28_convert_kb")
+        except Exception:  # noqa: BLE001
+            conn.execute("ROLLBACK TO SAVEPOINT v28_convert_kb")
+            conn.execute("RELEASE SAVEPOINT v28_convert_kb")
+            logger.warning("schema v28: knowledge base %d was not converted to a shared knowledge base; it is unavailable until the next start", kb_id, exc_info=True)
 
 
 # v27 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1, 12.1): names only, no change of behavior.

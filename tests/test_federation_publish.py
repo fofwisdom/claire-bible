@@ -56,10 +56,11 @@ def _isolate(monkeypatch):
     reset_secret_service()
 
 
-def _add_theme(conn, kb_id: int, number: int, account_id: int, *, is_public: int = 1, collaborator: int = 1) -> None:
+def _add_theme(conn, kb_id: int, number: int, account_id: int, *, is_public: int = 1, collaborator: int = 1, personal: int = 0) -> None:
+    """``personal=1``: the personal knowledge base of the account (it publishes from this one). Else a row with the shape before version 28: the next start converts it to a shared knowledge base."""
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, 0, ?, ?, 1, 1, ?, ?)",
-        (kb_id, kb_id, f"theme-{kb_id}", is_public, collaborator, account_id, number),
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)",
+        (kb_id, kb_id, f"theme-{kb_id}", personal, is_public, 0 if personal else collaborator, account_id, number),
     )
 
 
@@ -83,10 +84,10 @@ def env(tmp_path):
             cur = conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 0, 0)", (public_id, username, username))
             members.append(int(cur.lastrowid))
         alpha, beta = members
-        _add_theme(conn, 11, ALPHA_THEME, alpha)
+        _add_theme(conn, 11, ALPHA_THEME, alpha, personal=1)
         _add_theme(conn, 12, ALPHA_PRIVATE_THEME, alpha, is_public=0)
         _add_theme(conn, 13, ALPHA_OWNER_ONLY_THEME, alpha, collaborator=0)
-        _add_theme(conn, 21, BETA_THEME, beta)
+        _add_theme(conn, 21, BETA_THEME, beta, personal=1)
         _add_document(conn, "doc-a", 11)
         _add_document(conn, "doc-hidden", 11, hidden=1)
         _add_document(conn, "doc-empty", 11, detail="  ")
@@ -167,6 +168,8 @@ def test_v17_database_migrates_and_the_migration_is_idempotent(tmp_path, monkeyp
         fed.retract_object(conn, obj, now=101.0)
         fed.publish_document(conn, account_id=1, kb_id=11, document_id="e", published_by_account_id=1, salt=salt, now=102.0)
         conn.commit()
+        # The first start after the insert converts the row of the old shape to a shared knowledge base (version 28); the next starts change nothing.
+        dbm.init_db(conn)
         first = list(conn.iterdump())
         dbm.init_db(conn)
         dbm.init_db(conn)
@@ -273,7 +276,8 @@ def test_object_row_and_task_row_are_in_one_transaction(env, monkeypatch):
 @pytest.mark.parametrize(
     "document_id, theme, status, error",
     [
-        ("doc-private", ALPHA_PRIVATE_THEME, 409, "theme_not_public"),
+        # A knowledge base that is not personal is a shared knowledge base after version 28: an account publishes only from its personal knowledge base.
+        ("doc-private", ALPHA_PRIVATE_THEME, 404, "theme_not_found"),
         ("doc-hidden", ALPHA_THEME, 409, "document_not_public"),
         ("doc-empty", ALPHA_THEME, 409, "document_has_no_body"),
         ("no-such-doc", ALPHA_THEME, 404, "document_not_found"),
@@ -316,16 +320,19 @@ def test_each_task_has_the_account_of_the_caller_and_the_admin_cannot_publish_fo
 
 def test_collaborator_can_publish_only_in_a_theme_that_it_can_use_and_readonly_cannot_publish(env):
     collaborator = env.session(env.alpha, "collaborator")
-    assert _publish(env, session_token=collaborator).status_code == 202
+    # The collaborator scope cannot use the personal knowledge base (the scope goes away in unit CT-2).
+    assert _publish(env, session_token=collaborator).status_code == 404
     hidden = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME, session_token=collaborator)
     assert (hidden.status_code, hidden.json()) == (404, {"error": "theme_not_found"})
-    assert _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME).status_code == 202
+    # A shared knowledge base (version 28) is not a knowledge base of the account: also the owner session gets 404.
+    shared = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME)
+    assert (shared.status_code, shared.json()) == (404, {"error": "theme_not_found"})
 
     readonly = env.session(env.alpha, "readonly")
     for token in (readonly, None):
         refused = _publish(env, session_token=token)
         assert refused.status_code in (401, 403, 404), refused.status_code
-    assert len(_tasks(env.settings)) == 2
+    assert len(_tasks(env.settings)) == 0
 
 
 def test_publish_with_a_cookie_needs_the_same_origin(env):

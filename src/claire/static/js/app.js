@@ -188,9 +188,8 @@ function findTheme(themeRef){
     || null;
 }
 
-// Design Section 5.2 (CT23): the path selects the knowledge base. API_BASE ends with "themes/<number>/" when the page path pins one.
-const KB_PIN_RE = /themes\/(\d+)\/$/;
-const ACCOUNT_HOME_BASE = API_BASE.replace(KB_PIN_RE, '');
+// Design Sections 5.2 and 7: the path selects the knowledge base. API_BASE is "/kb/<number>/" when the page path pins a shared knowledge base; else it is the path of a personal knowledge base.
+const KB_PIN_RE = /^\/kb\/(\d+)\/$/;
 let activeThemeId = (function(){
   const m = API_BASE.match(KB_PIN_RE);
   return m ? m[1] : '0';
@@ -202,9 +201,14 @@ function currentKbNumber(){
   return /^[1-9]\d*$/.test(n) ? n : '';
 }
 window.currentKbNumber = currentKbNumber;
+// The page path of a knowledge base. A shared one: "/kb/<number>/". The personal one: this page when it is not pinned; else "/kb/<its number>/", and the server sends 308 to its own path (design Section 7).
 function kbHomePath(themeKey){
   const key = String(themeKey ?? '0');
-  return key === '0' ? ACCOUNT_HOME_BASE : ACCOUNT_HOME_BASE + 'themes/' + encodeURIComponent(key) + '/';
+  if(key !== '0') return ROOT_BASE + 'kb/' + encodeURIComponent(key) + '/';
+  if(!KB_PIN_RE.test(API_BASE)) return API_BASE;
+  const personal = (typeof findTheme === 'function') ? findTheme('0') : null;
+  const n = personal && personal.number != null ? String(personal.number) : '';
+  return /^[1-9]\d*$/.test(n) ? ROOT_BASE + 'kb/' + encodeURIComponent(n) + '/' : ROOT_BASE;
 }
 
 

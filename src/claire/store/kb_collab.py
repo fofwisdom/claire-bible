@@ -77,6 +77,7 @@ def add_membership(
     state: str,
     decided_by_account_id: int | None = None,
     now: float | None = None,
+    now_ms: int | None = None,
 ) -> int:
     """Insert one membership and return its public ID. A second membership of the same account in the same knowledge base raises ``sqlite3.IntegrityError``."""
     if role not in ROLES:
@@ -92,7 +93,7 @@ def add_membership(
             (int(kb_id), int(account_id), number, role, state, ts, decided_at, decided_by_account_id),
         )
 
-    return _new_public_id(conn, "kb_memberships", "public_id", _insert)
+    return _new_public_id(conn, "kb_memberships", "public_id", _insert, now_ms=now_ms)
 
 
 def get_membership(conn: sqlite3.Connection, kb_id: int, account_id: int) -> dict[str, Any] | None:
@@ -134,6 +135,7 @@ def add_contribution(
     approved_at: float | None = None,
     approved_by_account_id: int | None = None,
     now: float | None = None,
+    now_ms: int | None = None,
 ) -> int:
     """Insert one contribution and return its public ID. One document has at most one contribution in a knowledge base (``UNIQUE (kb_id, document_id)``)."""
     if origin not in CONTRIBUTION_ORIGINS:
@@ -153,7 +155,7 @@ def add_contribution(
             ),
         )
 
-    return _new_public_id(conn, "kb_contributions", "public_id", _insert)
+    return _new_public_id(conn, "kb_contributions", "public_id", _insert, now_ms=now_ms)
 
 
 _CONTRIBUTION_KEYS = (

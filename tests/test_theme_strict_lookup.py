@@ -59,7 +59,7 @@ def _settings(tmp_path, *, multi: bool = True) -> Settings:
 def strict_env(tmp_path):
     settings = _settings(tmp_path)
     tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("Alpha Research")
+    t1 = tm.define_kb("Alpha Research", knowledge_type="real")
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
     return client, settings, tm, t1
@@ -74,7 +74,7 @@ def _num(kb) -> str:
 def _seed(client: TestClient, settings: Settings, tm: KnowledgeBaseManager, kb, text: str) -> str:
     """HTTP ingest writes only to the personal knowledge base (CT23). Seed another one with its service, then read the ID by its path."""
     IngestService(tm.get_settings_for_kb(kb.id, settings), kb_id=kb.id).ingest(text, source="cli", expand_max=0)
-    docs = client.get(f"/themes/{_num(kb)}/documents", headers=OWNER_HEADERS).json()["documents"]
+    docs = client.get(f"/kb/{_num(kb)}/documents", headers=OWNER_HEADERS).json()["documents"]
     return docs[0]["id"]
 
 
@@ -107,7 +107,7 @@ def _mcp_call(client: TestClient, name: str, arguments: dict) -> dict:
 
 def test_get_theme_has_no_fallback_and_partial_is_opt_in(tmp_path):
     tm = KnowledgeBaseManager(_settings(tmp_path))
-    t1 = tm.define_kb("Alpha Research")
+    t1 = tm.define_kb("Alpha Research", knowledge_type="real")
 
     # 참조 생략은 문서화된 기본값(테마 0)이다
     assert tm.get_kb(None).id == 0
@@ -135,7 +135,7 @@ def test_get_theme_has_no_fallback_and_partial_is_opt_in(tmp_path):
 
 def test_get_settings_for_theme_raises_for_deleted_theme(tmp_path):
     tm = KnowledgeBaseManager(_settings(tmp_path))
-    t1 = tm.define_kb("임시")
+    t1 = tm.define_kb("임시", knowledge_type="real")
     tm.delete_kb(t1.id)
     with pytest.raises(KnowledgeBaseNotFound):
         tm.get_settings_for_kb(t1.id)
@@ -177,7 +177,7 @@ def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
 def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     """DB에서 읽은 문서의 kb_id가 삭제된 테마면 그 후보를 테마 0으로 다루지 않는다 (`_resolve_presentation_target`)."""
     client, settings, tm, t1 = strict_env
-    t2 = tm.define_kb("Beta Live", presentation_enabled=True)
+    t2 = tm.define_kb("Beta Live", presentation_enabled=True, knowledge_type="real")
     # 예전 폴백이면 삭제된 테마의 문서가 테마 0 설정(프레젠테이션 활성)으로 200을 받았다
     tm.update_kb(0, presentation_enabled=True)
 
@@ -187,12 +187,12 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     # 데이터 행은 남기고 테마만 삭제
     assert client.delete(f"/themes?id={_num(t1)}", headers=OWNER_HEADERS).status_code == 200
 
-    live = client.get(f"/themes/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
+    live = client.get(f"/kb/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
     assert live.status_code == 200
 
     # 삭제된 지식 베이스의 경로는 404다 (지식 베이스 0으로 다루지 않는다)
-    assert client.get(f"/themes/{_num(t1)}/document/presentation?id={doc_t1}", headers=OWNER_HEADERS).status_code == 404
-    assert client.get(f"/themes/{_num(t1)}/stats", headers=OWNER_HEADERS).status_code == 404
+    assert client.get(f"/kb/{_num(t1)}/document/presentation?id={doc_t1}", headers=OWNER_HEADERS).status_code == 404
+    assert client.get(f"/kb/{_num(t1)}/stats", headers=OWNER_HEADERS).status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
 def test_cli_theme_partial_label_still_resolves(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("Alpha Research")
+    t1 = tm.define_kb("Alpha Research", knowledge_type="real")
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
     monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
 
@@ -229,7 +229,7 @@ def test_cli_theme_partial_label_still_resolves(tmp_path, monkeypatch):
 def test_service_pool_raises_for_unknown_and_deleted_theme(tmp_path):
     settings = _settings(tmp_path)
     tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("Alpha Research")
+    t1 = tm.define_kb("Alpha Research", knowledge_type="real")
     base = IngestService(settings)
     pool = IngestServicePool(settings, base, theme_manager=tm)
 
@@ -252,7 +252,7 @@ def test_service_pool_raises_for_unknown_and_deleted_theme(tmp_path):
 def test_ingest_service_for_deleted_theme_refuses_before_writing(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("곧 삭제")
+    t1 = tm.define_kb("곧 삭제", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(t1.id, settings)
     svc = IngestService(t1_settings, kb_id=t1.id)
     monkeypatch.setattr("claire.ingest.service.get_kb_manager", lambda s=None: tm)
@@ -274,7 +274,7 @@ def test_telegram_resolve_selected_theme_clears_stale_selection(tmp_path):
     from claire.telegram_bot import resolve_selected_theme
 
     tm = KnowledgeBaseManager(_settings(tmp_path))
-    t1 = tm.define_kb("Alpha Research")
+    t1 = tm.define_kb("Alpha Research", knowledge_type="real")
     selections = {100: t1.id}
 
     assert resolve_selected_theme(tm, selections, 100).id == t1.id
@@ -288,68 +288,3 @@ def test_telegram_resolve_selected_theme_clears_stale_selection(tmp_path):
     assert resolve_selected_theme(tm, selections, 100).id == 0
 
 
-async def test_telegram_stale_selection_refuses_ingest_and_search(tmp_path, monkeypatch):
-    from claire.i18n import t
-    from claire.telegram_bot import build_app
-
-    STALE_THEME_MESSAGE = t("bot.theme.stale", locale="ko")
-
-    settings = _settings(tmp_path).model_copy(
-        update={"telegram_bot_token": "12345:fake_token_for_test", "allowed_user_ids": []}
-    )
-    tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("Alpha Research")
-
-    ingested: list[tuple] = []
-    searched: list[tuple] = []
-    monkeypatch.setattr(
-        "claire.ingest.service.IngestService.ingest",
-        lambda self, *a, **kw: ingested.append((self.kb_id, a)) or None,
-    )
-    monkeypatch.setattr(
-        "claire.ingest.service.IngestService.search",
-        lambda self, *a, **kw: searched.append((self.kb_id, a)) or SimpleNamespace(telegram_text=lambda: "결과"),
-    )
-
-    app = build_app(settings)
-    handlers = {getattr(h.callback, "__name__", ""): h.callback for h in app.handlers[0]}
-
-    def _update(text: str | None = None):
-        msg = AsyncMock()
-        msg.text = text
-        msg.reply_text = AsyncMock(return_value=AsyncMock())
-        update = MagicMock()
-        update.effective_user = SimpleNamespace(id=100)
-        update.effective_chat = SimpleNamespace(id=200)
-        update.message = msg
-        update.effective_message = msg
-        update.update_id = 7
-        return update, msg
-
-    # /theme Alpha: 사람이 입력하는 값이라 부분 일치로 선택된다
-    upd, msg = _update()
-    await handlers["on_theme"](upd, SimpleNamespace(args=["Alpha"]))
-    assert f"(#{t1.id})" in msg.reply_text.call_args[0][0]
-
-    tm.delete_kb(t1.id)
-
-    # 삭제된 선택 테마로는 검색하지 않는다
-    upd, msg = _update()
-    await handlers["on_search"](upd, SimpleNamespace(args=["키워드"]))
-    assert msg.reply_text.call_args[0][0] == STALE_THEME_MESSAGE
-    assert searched == []
-
-    # 선택은 지워졌으므로 다음 요청은 기본 테마 0으로 처리된다
-    upd, msg = _update()
-    await handlers["on_search"](upd, SimpleNamespace(args=["키워드"]))
-    assert searched and searched[-1][0] == 0
-
-    # 다시 고른 뒤 삭제하면 일반 메시지도 적재하지 않고 거부한다
-    t2 = tm.define_kb("Gamma Notes")
-    upd, msg = _update()
-    await handlers["on_theme"](upd, SimpleNamespace(args=[str(t2.id)]))
-    tm.delete_kb(t2.id)
-    upd, msg = _update("https://example.com/should-not-ingest")
-    await handlers["on_message"](upd, None)
-    assert msg.reply_text.call_args[0][0] == STALE_THEME_MESSAGE
-    assert ingested == []

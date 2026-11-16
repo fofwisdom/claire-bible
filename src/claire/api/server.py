@@ -6,6 +6,7 @@ Starlette는 라우팅/응답 계층만 담당하고 Uvicorn은 단일 worker로
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import html
 import json
@@ -48,7 +49,9 @@ from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
+from .. import kb_access
 from ..store import accounts as accounts_store
+from ..store import kb_collab
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
@@ -58,7 +61,7 @@ from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .host_router import LegacyHost
 from . import collections
-from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
+from .namespace import SqliteNamespaceDirectory, _public_origin, kb_base_path, namespace_link, request_namespace
 from .principal import request_principal
 from ..ontology.label_language import display_label
 from .mcp_tools import build_mcp_app
@@ -84,6 +87,8 @@ from .security import (
 )
 
 log = logging.getLogger("claire.api")
+# The account of the requester in a shared knowledge base, for the provider context of the request (set by ``_get_theme_ctx``).
+_kb_acting_account: contextvars.ContextVar[int | None] = contextvars.ContextVar("claire_kb_acting_account", default=None)
 # 계정 자동 백업 주기 검사(초). 백업 주기 자체는 계정 정책(매일·매주)이 정한다.
 ACCOUNT_BACKUP_SCHEDULER_START_DELAY = 60.0
 ACCOUNT_BACKUP_SCHEDULER_INTERVAL = 600.0
@@ -275,7 +280,58 @@ def create_app(
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
 
+    def _kb_actor(request: Request, kb: KnowledgeBaseInfo) -> kb_access.Actor:
+        """The requester for the capability matrix (design Section 6.2). A ``readonly`` credential and an anonymous request cannot write."""
+        principal = request_principal(request)
+        membership: tuple[str, str] | None = None
+        if kb.is_shared and principal.account_id is not None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_membership(conn, kb.id, principal.account_id)
+            finally:
+                conn.close()
+            if row is not None:
+                membership = (str(row["role"]), str(row["state"]))
+        return kb_access.Actor(
+            account_id=principal.account_id,
+            is_admin=principal.server_role == "admin",
+            can_write=principal.scope in ("owner", "collaborator"),
+            membership=membership,
+        )
+
+    def _kb_decide(request: Request, kb: KnowledgeBaseInfo, capability: str) -> str:
+        """One function decides each capability (design Section 6.9 rule 1)."""
+        return kb_access.decide(
+            is_personal=kb.is_personal,
+            owner_account_id=kb.account_id,
+            is_public=kb.is_public,
+            capability=capability,
+            actor=_kb_actor(request, kb),
+        )
+
+    def _require_kb(request: Request, kb: KnowledgeBaseInfo, capability: str) -> None:
+        decision = _kb_decide(request, kb, capability)
+        if decision == "not_found":
+            raise HTTPException(status_code=404, detail="theme not found")
+        if decision == "forbidden":
+            raise HTTPException(status_code=403, detail="kb_capability_required")
+
+    def _request_capability(request: Request) -> str:
+        """The capability of a request on a shared knowledge base until each route declares its own (unit CT-2): a read needs ``read``, each other request needs ``maintain``."""
+        is_search = request.method == "POST" and request.url.path.rstrip("/").endswith("/search")
+        return "read" if (request.method in ("GET", "HEAD") or is_search) else "maintain"
+
+    def _sees_hidden(request: Request, kb: KnowledgeBaseInfo) -> bool:
+        """Hidden documents: not for an anonymous request; in a shared knowledge base only for reviewers (design Section 6.2 ``review``)."""
+        if request_auth_scope(request) == "anonymous":
+            return False
+        if kb.is_shared:
+            return _kb_decide(request, kb, "review") == "allow"
+        return True
+
     def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
+        if theme.is_shared:
+            return _kb_decide(request, theme, _request_capability(request)) == "allow"
         try:
             ns = request_namespace(request)
         except Exception:
@@ -350,10 +406,20 @@ def create_app(
                 theme = theme_mgr.personal_kb_for(ns.account_id)
             if not getattr(s, "multi_theme", False) and theme.id != 0:
                 raise KnowledgeBaseNotFound(theme.id)
-            if not _theme_accessible(request, theme):
+            if theme.is_shared:
+                _require_kb(request, theme, _request_capability(request))
+            elif not _theme_accessible(request, theme):
                 raise HTTPException(status_code=404, detail="theme not found")
             theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
-            theme_svc = service_pool.get_service(theme.id)
+            if theme.is_shared:
+                # Design Section 13.1 rule 5: work in a shared knowledge base runs with the provider context of the requester, never with the one of the server.
+                acting = request_principal(request).account_id
+                _kb_acting_account.set(acting)
+                if acting is not None and hasattr(theme_settings, "model_copy"):
+                    theme_settings = theme_settings.model_copy(update={"account_id": acting})
+                theme_svc = service_pool.get_service(theme.id, acting_account_id=acting)
+            else:
+                theme_svc = service_pool.get_service(theme.id)
         except KnowledgeBaseNotFound as exc:
             # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
             raise HTTPException(status_code=404, detail="theme not found") from exc
@@ -415,12 +481,21 @@ def create_app(
             tier=tier,
         )
 
+    def _provider_account_of(theme: KnowledgeBaseInfo) -> int | None:
+        """The account whose provider context pays the work: the owner of a personal knowledge base; in a shared knowledge base the requester (design Section 13.1 rule 5). A shared knowledge base without a requester account is refused."""
+        if not theme.is_shared:
+            return getattr(theme, "account_id", None)
+        acting = _kb_acting_account.get()
+        if acting is None:
+            raise policy.ProviderNotAllowed("shared knowledge base: no requester account", remedy="Sign in to use this function.")
+        return acting
+
     def _theme_provider_context(theme: KnowledgeBaseInfo, theme_svc: Any | None = None) -> policy.ProviderContext | None:
         """테마 작업의 프로바이더 컨텍스트. 서비스가 붙인 컨텍스트(L4-a2i)를 먼저 쓰고, 없으면 테마 소유 계정으로 정한다."""
         ctx = getattr(theme_svc, "provider_context", None) if theme_svc is not None else None
         if isinstance(ctx, policy.ProviderContext):
             return ctx
-        account_id = getattr(theme, "account_id", None)
+        account_id = _provider_account_of(theme)
         if _account_limits_context(account_id) is None:
             return None
         return policy.resolve_provider_context(account_id, settings=s)
@@ -432,7 +507,7 @@ def create_app(
             if isinstance(ctx, policy.ProviderContext):
                 policy.require_feature(ctx, feature)
                 return
-            policy.require_feature(_account_limits_context(getattr(theme, "account_id", None)), feature)
+            policy.require_feature(_account_limits_context(_provider_account_of(theme)), feature)
             return
         policy.require_feature(_theme_provider_context(theme, theme_svc), feature)
 
@@ -448,7 +523,8 @@ def create_app(
         from ..store.vectors import resolve_embed_identity
 
         try:
-            ctx = _theme_provider_context(theme)
+            # The embeddings of a shared knowledge base use the provider of the server (CT24).
+            ctx = None if theme.is_shared else _theme_provider_context(theme)
         except policy.ProviderPolicyError:
             return False
         if ctx is None:
@@ -555,8 +631,8 @@ def create_app(
         )
 
     async def stats(request: Request) -> JSONResponse:
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _counts() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
@@ -633,7 +709,7 @@ def create_app(
             )
 
         def _fetch_themes_data() -> tuple[list[KnowledgeBaseInfo], list[KnowledgeBaseInfo]]:
-            owned = theme_mgr.list_account_kbs(account_id)
+            owned = theme_mgr.list_selectable_kbs(account_id)
             if not getattr(s, "multi_theme", False):
                 owned = [t for t in owned if t.id == 0]
             if visible_scope in {"owner", "readonly"}:
@@ -981,18 +1057,10 @@ def create_app(
         principal = request_principal(request)
         target_account_id = principal.account_id if principal.account_id is not None else 1
 
-        def _check_theme_quota() -> None:
-            lim = _account_limits_context(target_account_id)
-            if lim is None:
-                return
-            conn = dbm.connect_existing(s.db_file, readonly=True)
-            try:
-                server_tier.check_theme_quota(conn, lim)
-            finally:
-                conn.close()
-
-        # 멤버는 서버 등급의 max_themes를 넘겨 만들 수 없다(§10.3, 자기 키가 있어도 적용).
-        await asyncio.to_thread(_check_theme_quota)
+        # Design Section 10.1: each active account makes shared knowledge bases, without a limit (CT3). The founder selects the knowledge type (required, CT12).
+        knowledge_type = body.get("knowledge_type")
+        if knowledge_type not in ("real", "fictional"):
+            raise HTTPException(status_code=400, detail="knowledge_type_required")
         try:
             theme = theme_mgr.define_kb(
                 label,
@@ -1004,6 +1072,7 @@ def create_app(
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
                 account_id=target_account_id,
+                knowledge_type=knowledge_type,
             )
             return JSONResponse({"ok": True, "theme": theme.to_dict()}, status_code=201)
         except ValueError as val_err:
@@ -1039,16 +1108,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="id is required")
 
         try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        try:
             target_theme = theme_mgr.get_kb_by_reference(kb_id)
         except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
-        if target_theme.account_id != account_id:
-            raise HTTPException(status_code=404, detail="theme not found")
+        # Personal: only its owner. Shared: the capability ``settings`` (moderator or admin, design Section 6.2).
+        _require_kb(request, target_theme, "settings")
 
         label = body.get("label")
         desc = body.get("description") if "description" in body else body.get("desc")
@@ -1146,16 +1210,11 @@ def create_app(
             purge = bool(body.get("purge", False))
 
         try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        try:
             target_theme = theme_mgr.get_kb_by_reference(kb_id)
         except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
-        if target_theme.account_id != account_id:
-            raise HTTPException(status_code=404, detail="theme not found")
+        # Shared: the capability ``delete`` (admin only, design Section 6.2). Personal: only its owner asks; the store refuses the delete.
+        _require_kb(request, target_theme, "settings" if target_theme.is_personal else "delete")
 
         try:
             deleted = theme_mgr.delete_kb(target_theme.id, purge=purge)
@@ -1800,7 +1859,7 @@ def create_app(
             principal.account_id is not None
             and getattr(theme, "account_id", None) is not None
             and principal.account_id != theme.account_id
-        )
+        ) or (theme.is_shared and _kb_decide(request, theme, "review") != "allow")
         include_hidden = (scope != "anonymous") and not is_cross_account
         requested_mode = str(body.get("mode") or "").strip().lower()
         if scope == "anonymous" or is_cross_account:
@@ -1862,8 +1921,8 @@ def create_app(
         from ..store.queries import graph_json
 
         _graph_json = _resolve_query_func("graph_json", graph_json)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
@@ -2656,8 +2715,8 @@ def create_app(
         from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
         render_format = getattr(theme_settings, "render_format", "adoc")
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
@@ -2731,8 +2790,8 @@ def create_app(
         if not node_id:
             raise HTTPException(status_code=400, detail="id required")
 
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
         # docs=brief: the source documents have no detail text (the WebUI sends it). The keyword is sent only in this mode, thus the default call does not change.
         detail_kwargs: dict[str, Any] = {"docs_brief": True} if request.query_params.get("docs", "") == "brief" else {}
         detail_kwargs.update(_entity_language_kwargs(request))
@@ -2766,8 +2825,8 @@ def create_app(
         fmt = request.query_params.get("format", "markdown").strip().lower()
         if fmt not in ("markdown", "md"):
             return JSONResponse({"error": "unsupported_format", "formats": ["markdown"]}, status_code=400)
-        include_hidden = request_auth_scope(request) != "anonymous"
         theme, theme_settings, _ = _get_theme_ctx(request)
+        include_hidden = _sees_hidden(request, theme)
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
@@ -3806,7 +3865,7 @@ def create_app(
         if not document_id:
             raise HTTPException(status_code=400, detail="doc_id required")
 
-        include_hidden = request_auth_scope(request) != "anonymous"
+        include_hidden = _sees_hidden(request, theme)
 
         def _share(settings: Settings, target_theme_info: KnowledgeBaseInfo) -> str | None:
             conn = dbm.connect_existing(settings.db_file)
@@ -4781,16 +4840,18 @@ def create_app(
             return None
         if theme.id != legacy.kb_id or theme.number is None:
             return None
+        if theme.is_shared:
+            return kb_base_path(theme.number)
         mode = namespace_directory.mode()
         if mode == "single":
-            return theme_base_path(mode, None, theme.number)
+            return "/"
         try:
             owner = namespace_directory.account(theme.account_id)
         except accounts_store.AccountNotFound:
             return None
         if owner.status != "active" or not owner.username:
             return None
-        return theme_base_path(mode, owner.username, theme.number)
+        return f"/@{owner.username}/"
 
     legacy_hosts = SqliteLegacyHostDirectory(s.db_file, theme_location=_legacy_theme_location)
     # GateMiddleware는 없앴다(§5.1 Rev. 2.3). 정적 자산도 HostRouter와 보안 헤더 안쪽을 지난다.

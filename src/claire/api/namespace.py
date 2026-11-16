@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .. import ids
 from ..accounts.username_policy import USERNAME_RE
 from ..store import accounts as accounts_store
+from ..store import kb_collab
 from ..store.accounts import Account, ServerMode
 from .principal import PRINCIPAL_STATE_KEY, Principal
 
@@ -46,6 +47,7 @@ __all__ = [
     "parse_request_path",
     "request_namespace",
     "shell_bootstrap",
+    "kb_base_path",
     "theme_base_path",
 ]
 
@@ -86,8 +88,9 @@ class ParsedPrefix:
 
     prefix: str                 # 떼어 낸 접두(예: "/@alice/themes/116412345678901234"). 없으면 ""
     username: str | None        # 소문자로 정규화한 USERNAME. ``/@`` 접두가 없으면 None
-    theme_number: int | None    # ``/themes/{번호}`` 접두의 번호. 없으면 None
+    theme_number: int | None    # ``/themes/{번호}`` 접두의 번호(옛 링크: 308만 한다). 없으면 None
     inner_path: str             # 남은 경로. 비어 있으면 "/"
+    kb_number: int | None = None  # ``/kb/{번호}`` 접두의 번호(루트에서만). 공유 지식 베이스를 고정한다(설계 §7)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +143,7 @@ class NamespaceDirectory(Protocol):
 # 64비트 시간 정렬 번호(§7.2). 앞자리 0은 받지 않는다(표기 하나, §6.4).
 _THEME_NUMBER_RE = re.compile(r"[1-9][0-9]{0,18}")
 _THEMES_SEGMENT = "/themes/"
+_KB_SEGMENT = "/kb/"
 # Location에 다시 실을 때 인코딩하지 않는 문자. ``%``는 넣지 않는다(디코딩된 경로를 다시 인코딩하므로 ``%25``가 되어야 한다).
 _PATH_SAFE = "/:@!$&'()*+,;=-._~"
 _QUERY_SAFE = _PATH_SAFE + "%?"
@@ -225,13 +229,28 @@ def parse_request_path(path: str, raw_path: bytes | None, query_string: bytes = 
         rest = after
         redirect = redirect or rest == ""
 
+    # ``/kb/{number}`` pins a shared knowledge base. Only at the root: a shared knowledge base has no owner namespace (design Section 7). ``/kb`` (exactly) is not a prefix.
+    kb_number: int | None = None
+    if username is None and number is None and rest.startswith(_KB_SEGMENT):
+        start = len(_KB_SEGMENT)
+        end = rest.find("/", start)
+        number_text = rest[start:] if end < 0 else rest[start:end]
+        after = "" if end < 0 else rest[end:]
+        if _THEME_NUMBER_RE.fullmatch(number_text) is None or int(number_text) > ids.MAX_NUMBER:
+            raise PathRejected(404, "knowledge base number syntax")
+        kb_number = int(number_text)
+        rest = after
+        redirect = redirect or rest == ""
+
     prefix = ("" if username is None else "/@" + username) + (
         "" if number is None else _THEMES_SEGMENT + number_text
     )
+    if kb_number is not None:
+        prefix = _KB_SEGMENT + number_text
     inner = rest or "/"
     if redirect:
         raise PathRedirect(_location(prefix + inner, query_string))
-    return ParsedPrefix(prefix=prefix, username=username, theme_number=number, inner_path=inner)
+    return ParsedPrefix(prefix=prefix, username=username, theme_number=number, inner_path=inner, kb_number=kb_number)
 
 
 def _inner_raw_path(raw_path: Any, prefix: str, inner_path: str) -> bytes:
@@ -410,6 +429,8 @@ class NamespaceResolverMiddleware:
         directory = self.directory
         query_string = scope.get("query_string", b"") or b""
         owner: Account | None = None
+        if parsed.kb_number is not None:
+            return self._kb_path(mode, parsed, principal, query_string, any_surface=any_surface)
         if parsed.username is not None:
             if mode == "single":
                 return self._single_mode_account_prefix(parsed, query_string)
@@ -422,21 +443,8 @@ class NamespaceResolverMiddleware:
             if principal.account_id != owner.id and not owner.profile_public:
                 return _not_found()
         elif parsed.theme_number is not None:
-            theme = directory.theme_by_number(parsed.theme_number)
-            if mode == "network":
-                return self._root_theme_resolver(parsed, principal, theme, query_string)
-            # 싱글 모드 루트 고정: 관리자 테마만(N2)
-            if theme is None or theme.account_id != accounts_store.ADMIN_ACCOUNT_ID:
-                return _not_found()
-            if any_surface:
-                return self._any_outcome(mode, principal, has_prefix=True)
-            return _Outcome(
-                ResolvedNamespace(
-                    mode, accounts_store.ADMIN_ACCOUNT_ID, None, theme.id, parsed.prefix, True
-                ),
-                public_id=self._admin_public_id(),
-                ga_measurement_id=str(getattr(theme, "ga_measurement_id", "") or ""),
-            )
+            # Old link ``/themes/{number}/…`` with the number of a knowledge base (design Section 7): 308 only.
+            return self._old_theme_link(mode, parsed, principal, query_string)
         elif mode == "network" and not any_surface:
             # N3: 접두 없는 namespaced는 자격증명 계정. 익명은 CLAIRE_ANONYMOUS_READONLY=1이어도 404.
             if principal.account_id is None:
@@ -448,12 +456,11 @@ class NamespaceResolverMiddleware:
             if owner.username is None:
                 return _not_found()
 
+        if parsed.theme_number is not None:
+            # Old link ``/@{u}/themes/{number}/…`` (design Section 7): 308 only.
+            return self._old_theme_link(mode, parsed, principal, query_string)
         if any_surface:
             # 접두를 검증한 뒤 무시한다(존재를 숨기는 404는 위에서 같다).
-            if parsed.theme_number is not None and owner is not None:
-                pinned = directory.theme_by_number(parsed.theme_number)
-                if pinned is None or pinned.account_id != owner.id:
-                    return _not_found()
             return self._any_outcome(mode, principal, has_prefix=bool(parsed.prefix))
 
         if mode == "single":
@@ -464,31 +471,59 @@ class NamespaceResolverMiddleware:
             )
 
         assert owner is not None and owner.username is not None
-        pinned_theme = None
-        if parsed.theme_number is not None:
-            pinned_theme = directory.theme_by_number(parsed.theme_number)
-            # N2: 번호가 그 계정의 테마가 아니면 404
-            if pinned_theme is None or pinned_theme.account_id != owner.id:
-                return _not_found()
-        prefix = f"/@{owner.username}"
-        if pinned_theme is not None:
-            prefix += f"{_THEMES_SEGMENT}{parsed.theme_number}"
         return _Outcome(
-            ResolvedNamespace(
-                mode,
-                owner.id,
-                owner.username,
-                None if pinned_theme is None else pinned_theme.id,
-                prefix,
-                bool(parsed.prefix),
-            ),
+            ResolvedNamespace(mode, owner.id, owner.username, None, f"/@{owner.username}", bool(parsed.prefix)),
             public_id=owner.public_id,
-            ga_measurement_id=(
-                None
-                if pinned_theme is None
-                else str(getattr(pinned_theme, "ga_measurement_id", "") or "")
-            ),
         )
+
+    def _personal_path(self, mode: ServerMode, kb: Any, principal: Principal, inner_path: str, query_string: bytes) -> Response:
+        """308 to the path of a personal knowledge base when the requester can read it, else the 404 that hides it (design Section 7)."""
+        if not self.directory.can_view_theme(principal, kb):
+            return _not_found()
+        if mode == "single":
+            if kb.account_id != accounts_store.ADMIN_ACCOUNT_ID:
+                return _not_found()
+            return _redirect(_location(inner_path, query_string))
+        try:
+            owner = self.directory.account(int(kb.account_id))
+        except accounts_store.AccountNotFound:
+            return _not_found()
+        if owner.status != "active" or owner.username is None:
+            return _not_found()
+        # 리다이렉트가 비공개 프로필의 USERNAME을 드러내지 않게 한다(N1과 같은 기준).
+        if principal.account_id != owner.id and not owner.profile_public:
+            return _not_found()
+        return _redirect(_location(f"/@{owner.username}{inner_path}", query_string))
+
+    def _kb_path(self, mode: ServerMode, parsed: ParsedPrefix, principal: Principal, query_string: bytes, *, any_surface: bool) -> _Outcome | Response:
+        """``/kb/{number}/…``: a shared knowledge base is pinned with no namespace account; the number of a personal knowledge base gets 308 to its own path (design Section 7)."""
+        kb = self.directory.theme_by_number(int(parsed.kb_number or 0))
+        if kb is None:
+            return _not_found()
+        if kb.is_personal:
+            return self._personal_path(mode, kb, principal, parsed.inner_path, query_string)
+        if any_surface:
+            return self._any_outcome(mode, principal, has_prefix=True)
+        public_id: int | None = None
+        if principal.account_id is not None:
+            try:
+                public_id = self.directory.account(principal.account_id).public_id
+            except accounts_store.AccountNotFound:
+                public_id = None
+        return _Outcome(
+            ResolvedNamespace(mode, None, None, kb.id, parsed.prefix, True),
+            public_id=public_id,
+            ga_measurement_id=str(getattr(kb, "ga_measurement_id", "") or ""),
+        )
+
+    def _old_theme_link(self, mode: ServerMode, parsed: ParsedPrefix, principal: Principal, query_string: bytes) -> Response:
+        """Old links ``/themes/{number}/…`` and ``/@{u}/themes/{number}/…``: shared → 308 ``/kb/{number}/…``; personal → 308 to its path when readable, else 404."""
+        kb = self.directory.theme_by_number(int(parsed.theme_number or 0))
+        if kb is None:
+            return _not_found()
+        if kb.is_personal:
+            return self._personal_path(mode, kb, principal, parsed.inner_path, query_string)
+        return _redirect(_location(f"{_KB_SEGMENT}{parsed.theme_number}{parsed.inner_path}", query_string))
 
     def _single_mode_account_prefix(self, parsed: ParsedPrefix, query_string: bytes) -> Response:
         """싱글 모드의 ``/@…``은 404(N1). 네트워크에서 돌아온 뒤 관리자 이름만 ``/…``로 308(O15)."""
@@ -502,24 +537,6 @@ class NamespaceResolverMiddleware:
             return _not_found()
         pin = "" if parsed.theme_number is None else f"{_THEMES_SEGMENT}{parsed.theme_number}"
         return _redirect(_location(pin + parsed.inner_path, query_string))
-
-    def _root_theme_resolver(
-        self, parsed: ParsedPrefix, principal: Principal, theme: Any | None, query_string: bytes
-    ) -> Response:
-        """N2': 볼 수 있으면 소유자 경로로 308, 아니면 존재를 숨기는 404."""
-        if theme is None or not self.directory.can_view_theme(principal, theme):
-            return _not_found()
-        try:
-            owner = self.directory.account(int(theme.account_id))
-        except accounts_store.AccountNotFound:
-            return _not_found()
-        if owner.status != "active" or owner.username is None:
-            return _not_found()
-        # 리다이렉트가 비공개 프로필의 USERNAME을 드러내지 않게 한다(N1과 같은 기준).
-        if principal.account_id != owner.id and not owner.profile_public:
-            return _not_found()
-        target = f"/@{owner.username}{_THEMES_SEGMENT}{parsed.theme_number}{parsed.inner_path}"
-        return _redirect(_location(target, query_string))
 
 
 def _redirect(location: str) -> Response:
@@ -600,6 +617,9 @@ class SqliteNamespaceDirectory:
             if "knowledge_bases" in tables and "number" in _table_columns(conn, "knowledge_bases"):
                 for row in conn.execute("SELECT * FROM knowledge_bases WHERE number IS NOT NULL").fetchall():
                     theme = _row_to_theme(row, default_db_path=str(self.db_file))
+                    # A row that is neither personal nor shared is unavailable: each route gives 404 (design Section 12.2 step 3).
+                    if kb_collab.kind_violation_reason(theme.is_personal, theme.account_id, theme.is_public, theme.knowledge_type):
+                        continue
                     if theme.number is not None:
                         themes[int(theme.number)] = theme
         finally:
@@ -657,11 +677,8 @@ class SqliteNamespaceDirectory:
     def can_view_theme(self, principal: Principal, theme: Any) -> bool:
         if bool(getattr(theme, "is_public", False)):
             return True
-        if principal.account_id is None or principal.account_id != getattr(theme, "account_id", None):
-            return False
-        if principal.scope == "collaborator":
-            return bool(getattr(theme, "is_collaborator_accessible", False))
-        return principal.scope in ("owner", "readonly")
+        # A private knowledge base is personal: only its owner reads it (design Section 6.5).
+        return principal.account_id is not None and principal.account_id == getattr(theme, "account_id", None)
 
 
 # --- 라우트·링크 헬퍼 (§6.6) -----------------------------------------------
@@ -686,6 +703,11 @@ def account_home_path(mode: ServerMode, username: str | None) -> str:
     if not username:
         raise ValueError("network mode account home needs a username")
     return f"/@{username}/"
+
+
+def kb_base_path(number: int) -> str:
+    """The pinned path of a shared knowledge base: ``/kb/{number}/`` in each mode (design Section 7)."""
+    return f"{_KB_SEGMENT}{ids.format_public_id(number)}/"
 
 
 def theme_base_path(mode: ServerMode, username: str | None, number: int) -> str:

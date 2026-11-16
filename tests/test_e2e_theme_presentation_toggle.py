@@ -62,8 +62,8 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
 
     # 2. Define Theme 1 (presentation_enabled=True) and Theme 2 (presentation_enabled=False)
     mgr = get_kb_manager(s)
-    t1 = mgr.define_kb(label="Theme One Slides", presentation_enabled=True)
-    t2 = mgr.define_kb(label="Theme Two Docs", presentation_enabled=False)
+    t1 = mgr.define_kb(label="Theme One Slides", presentation_enabled=True, knowledge_type="real")
+    t2 = mgr.define_kb(label="Theme Two Docs", presentation_enabled=False, knowledge_type="real")
 
     conn1 = dbm.connect(t1.db_path)
     dbm.init_db(conn1)

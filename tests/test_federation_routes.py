@@ -798,7 +798,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice")
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 0, 1, 1, 1, 1, ?, ?)", (alice, theme_number))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 0, 1, 1, ?, ?)", (alice, theme_number))
         # The body has Markdown marks and a script; RD21 keeps both out of the object.
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', ?, 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         conn.commit()

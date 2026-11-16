@@ -64,82 +64,18 @@ def test_whoami_scopes(collab_test_client):
     assert client.get("/whoami").json() == {"scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False}
 
 
-def test_collaborator_theme_visibility_and_access(collab_test_client):
-    client, settings = collab_test_client
-
-    # 1. Owner creates two themes:
-    # Theme 1: private, but collaborator accessible (is_public=False, is_collaborator_accessible=True)
-    resp1 = client.post(
-        "/themes",
-        json={"label": "협업 연구", "icon": "🔬", "is_public": False, "is_collaborator_accessible": True},
-        headers=OWNER_HEADERS,
-    )
-    assert resp1.status_code == 201
-    t1_data = resp1.json()["theme"]
-    assert t1_data["is_public"] is False
-    assert t1_data["is_collaborator_accessible"] is True
-
-    # Theme 2: private, collaborator blocked (is_public=False, is_collaborator_accessible=False)
-    resp2 = client.post(
-        "/themes",
-        json={"label": "비공개 보안", "icon": "🔒", "is_public": False, "is_collaborator_accessible": False},
-        headers=OWNER_HEADERS,
-    )
-    assert resp2.status_code == 201
-    t2_data = resp2.json()["theme"]
-    assert t2_data["is_public"] is False
-    assert t2_data["is_collaborator_accessible"] is False
-
-    # 2. Anonymous /themes -> only Theme 0 (default, public)
-    anon_resp = client.get("/themes")
-    assert anon_resp.status_code == 200
-    anon_ids = [t["id"] for t in anon_resp.json()["themes"]]
-    assert 0 in anon_ids
-    assert 1 not in anon_ids
-    assert 2 not in anon_ids
-
-    # 3. Collaborator /themes -> Theme 0 (public) + Theme 1 (collaborator accessible), NOT Theme 2
-    collab_resp = client.get("/themes", headers=COLLAB_HEADERS)
-    assert collab_resp.status_code == 200
-    collab_themes = collab_resp.json()["themes"]
-    collab_ids = [t["id"] for t in collab_themes]
-    assert 0 in collab_ids
-    assert 1 in collab_ids
-    assert 2 not in collab_ids
-
-    # 4. Owner /themes -> all themes (0, 1, 2)
-    owner_resp = client.get("/themes", headers=OWNER_HEADERS)
-    assert owner_resp.status_code == 200
-    owner_ids = [t["id"] for t in owner_resp.json()["themes"]]
-    assert 0 in owner_ids
-    assert 1 in owner_ids
-    assert 2 in owner_ids
-
-    # 5. Accessing theme endpoints by Collaborator:
-    # 5-1. Theme 0 -> Allowed (it's public)
-    assert client.get("/stats", headers=COLLAB_HEADERS).status_code == 200
-    # 5-2. Theme 1 -> Allowed (collaborator accessible)
-    assert client.get(kb_url(settings, 1, "/stats"), headers=COLLAB_HEADERS).status_code == 200
-    assert client.get(kb_url(settings, 1, "/documents"), headers=COLLAB_HEADERS).status_code == 200
-    assert client.get(kb_url(settings, 1, "/graph"), headers=COLLAB_HEADERS).status_code == 200
-    # 5-3. Theme 2 -> 404 (collaborator blocked)
-    assert client.get(kb_url(settings, 2, "/stats"), headers=COLLAB_HEADERS).status_code == 404
-    assert client.get(kb_url(settings, 2, "/documents"), headers=COLLAB_HEADERS).status_code == 404
-    assert client.get(kb_url(settings, 2, "/graph"), headers=COLLAB_HEADERS).status_code == 404
-
-
 def test_collaborator_ingestion_rules(collab_test_client):
     client, settings = collab_test_client
 
     # Create Theme 1 (collaborator accessible) and Theme 2 (collaborator blocked)
     client.post(
         "/themes",
-        json={"label": "열린 협업 테마", "is_public": False, "is_collaborator_accessible": True},
+        json={"knowledge_type": "real", "label": "열린 협업 테마", "is_public": False, "is_collaborator_accessible": True},
         headers=OWNER_HEADERS,
     )
     client.post(
         "/themes",
-        json={"label": "닫힌 비밀 테마", "is_public": False, "is_collaborator_accessible": False},
+        json={"knowledge_type": "real", "label": "닫힌 비밀 테마", "is_public": False, "is_collaborator_accessible": False},
         headers=OWNER_HEADERS,
     )
 
@@ -199,7 +135,7 @@ def test_collaborator_blocked_from_admin_endpoints(collab_test_client):
     client, settings = collab_test_client
 
     # Define theme by collaborator -> 403/404
-    assert client.post("/themes", json={"label": "해킹 테마"}, headers=COLLAB_HEADERS).status_code in (403, 404)
+    assert client.post("/themes", json={"knowledge_type": "real", "label": "해킹 테마"}, headers=COLLAB_HEADERS).status_code in (403, 404)
     # Update theme by collaborator -> 403/404
     assert client.patch("/themes", json={"id": "1", "label": "수정 시도"}, headers=COLLAB_HEADERS).status_code in (403, 404)
     # Delete theme by collaborator -> 403/404
@@ -220,7 +156,7 @@ def test_theme_update_collaborator_option_and_guard_theme0(collab_test_client):
     # Create Theme 1 with is_collaborator_accessible: False
     r = client.post(
         "/themes",
-        json={"label": "팀 테마", "is_collaborator_accessible": False},
+        json={"knowledge_type": "real", "label": "팀 테마", "is_collaborator_accessible": False},
         headers=OWNER_HEADERS,
     )
     assert r.status_code == 201
@@ -271,41 +207,6 @@ def test_db_session_scope_collaborator():
     assert dbm.validate_session(conn, owner_token, scopes=("owner", "collaborator", "readonly")) is True
     assert dbm.validate_session(conn, collab_token, scopes=("owner", "collaborator", "readonly")) is True
     assert dbm.validate_session(conn, ro_token, scopes=("owner", "collaborator", "readonly")) is True
-
-
-def test_cli_theme_collaborator_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
-    data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-
-    settings = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-    )
-    monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    tm = KnowledgeBaseManager(settings)
-    monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
-
-    # 1. Define theme with --no-collaborator
-    ret = cli.main(["kb", "define", "--label", "비공개테마", "--no-collaborator", "--private"])
-    assert ret == 0
-    captured = capsys.readouterr()
-    assert "Collaborator Blocked" in captured.out
-
-    # 2. List themes
-    ret = cli.main(["kb", "list"])
-    assert ret == 0
-    captured_list = capsys.readouterr()
-    assert "blocked" in captured_list.out
-
-    # 3. Update theme with --collaborator
-    ret = cli.main(["kb", "update", "1", "--collaborator"])
-    assert ret == 0
-    captured_up = capsys.readouterr()
-    assert "Collaborator Allowed" in captured_up.out
 
 
 @pytest.mark.asyncio

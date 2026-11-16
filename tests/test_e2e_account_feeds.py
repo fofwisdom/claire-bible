@@ -302,7 +302,7 @@ def test_network_mode_feeds_are_per_account_and_purge_keeps_documents(tmp_path: 
     settings, members, session = _make_env(tmp_path, network=True)
     alice_id, bob_id = members["alice_feeds"], members["bob_feeds"]
     # The ingest target of the item: a theme that the purge of Alice does not delete.
-    theme = KnowledgeBaseManager(settings).define_kb("Shared Garden", account_id=1, is_personal=False)
+    theme = KnowledgeBaseManager(settings).define_kb("Shared Garden", account_id=1, is_personal=False, knowledge_type="real")
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         alice, bob = session(alice_id), session(bob_id)

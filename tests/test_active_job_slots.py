@@ -302,7 +302,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         multi_theme=True,
     )
     tm = KnowledgeBaseManager(s)
-    theme1 = tm.define_kb("Network")
+    theme1 = tm.define_kb("Network", knowledge_type="real")
 
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")

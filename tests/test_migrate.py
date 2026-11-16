@@ -111,7 +111,7 @@ def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, c
     dbm.init_db(conn)
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("추가 테마")
+    theme = manager.define_kb("추가 테마", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     for path in (s.db_file, themed.db_file):
         conn = dbm.connect(path)
@@ -148,7 +148,7 @@ def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, ca
     conn.commit()
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("미래 스키마")
+    theme = manager.define_kb("미래 스키마", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute(
@@ -378,7 +378,7 @@ def test_migrate_restores_v12_for_every_active_theme(
     dbm.init_db(conn)
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("v12 테마")
+    theme = manager.define_kb("v12 테마", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     _create_retired_support_v12(s.db_file)
     monkeypatch.setattr(cli, "get_settings", lambda: s)

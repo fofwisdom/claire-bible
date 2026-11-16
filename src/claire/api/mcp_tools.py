@@ -413,7 +413,10 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         except KnowledgeBaseNotFound:
             return None
 
-        # 계정 격리: 해당 주체의 account_id 소유 지식 베이스(또는 collaborator인 경우 is_public 또는 is_collaborator_accessible)만 조회/접근 허용
+        # A shared knowledge base is public: each principal reads it (design Section 6.2 ``read``).
+        if getattr(t_info, "is_shared", False):
+            return t_info.id
+        # 계정 격리: 개인 지식 베이스는 그 계정만 읽는다.
         if t_info.account_id != account_id:
             return None
 

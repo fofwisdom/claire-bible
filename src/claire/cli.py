@@ -846,6 +846,7 @@ def cmd_theme(args) -> int:
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
                 presentation_enabled=pres_enabled,
+                knowledge_type=getattr(args, "knowledge_type", None),
             )
             if getattr(args, "json", False):
                 print(json.dumps({"ok": True, "theme": theme.to_dict()}, ensure_ascii=False, indent=2))
@@ -1230,6 +1231,9 @@ def _theme_services_for_cycle(
     active = KnowledgeBaseManager(
         base_settings, writable=False
     ).active_kb_settings(base_settings)
+
+    # CT10: watch, refresh, expand, and recover run only in personal knowledge bases. A shared knowledge base has no owner, so no worker takes its rows (the server provider must not pay for them).
+    active = [(theme, theme_settings) for theme, theme_settings in active if not getattr(theme, "is_shared", False)]
 
     account_statuses: dict[int, str] | None = None
     db_file = getattr(base_settings, "db_file", None) or getattr(base_settings, "db_path", None)
@@ -5055,6 +5059,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register a new theme and provision isolated data storage directories.",
     )
     ptd.add_argument("--label", "-l", required=True, help="theme label (display name)")
+    ptd.add_argument("--type", dest="knowledge_type", required=True, choices=("real", "fictional"), help="knowledge type of the shared knowledge base: real (the real world) or fictional (an invented world)")
     ptd.add_argument("--desc", "--description", default="", help="theme description (shown in WebUI and Telegram bot)")
     ptd.add_argument("--icon", default="📁", help="theme emoji icon (default: 📁)")
     ptd_vis = ptd.add_mutually_exclusive_group()

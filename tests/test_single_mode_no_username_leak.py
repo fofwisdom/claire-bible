@@ -151,7 +151,7 @@ def test_root_html_shell_in_single_mode_does_not_leak_admin_username(app_env):
 
 
 def test_themes_collection_in_single_mode_does_not_leak_admin_username(app_env):
-    """S9: GET /themes collection uses /themes/{n}/ and does not leak admin username."""
+    """S9: GET /themes collection uses /kb/{n}/ and does not leak admin username."""
     resp = app_env.client.get("/themes", headers={"Accept": "application/json"})
     assert resp.status_code == 200
     assert SECRET_ADMIN_USERNAME not in resp.text

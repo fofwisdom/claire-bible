@@ -123,7 +123,7 @@ def test_multi_theme_health_aggregates_and_reports_each_database(monkeypatch, tm
     conn.commit()
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("추가 테마")
+    theme = manager.define_kb("추가 테마", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute("INSERT INTO raw_inbox(status,payload) VALUES ('failed','theme')")
@@ -144,7 +144,7 @@ def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_pa
     dbm.init_db(conn)
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("오래된 테마")
+    theme = manager.define_kb("오래된 테마", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     conn = dbm.connect(themed.db_file)
     conn.execute(
@@ -170,7 +170,7 @@ def test_multi_theme_liveness_fails_for_each_database_fault(
     dbm.init_db(conn)
     conn.close()
     manager = KnowledgeBaseManager(s)
-    theme = manager.define_kb("점검 대상")
+    theme = manager.define_kb("점검 대상", knowledge_type="real")
     themed = manager.get_settings_for_kb(theme.id, s)
     if failure == "missing":
         themed.db_file.unlink()

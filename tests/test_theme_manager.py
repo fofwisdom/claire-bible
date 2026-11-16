@@ -51,7 +51,7 @@ def test_theme_manager_single_mode(tmp_path):
     assert not registry_file.exists()
 
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.define_kb("새 테마")
+        manager.define_kb("새 테마", knowledge_type="real")
 
     with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
         manager.update_kb(0, label="수정")
@@ -83,8 +83,8 @@ def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
 
 def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_env):
     manager, _, _ = temp_theme_env
-    manager.define_kb("첫 번째")
-    manager.define_kb("두 번째")
+    manager.define_kb("첫 번째", knowledge_type="real")
+    manager.define_kb("두 번째", knowledge_type="real")
 
     active = manager.active_kb_settings(manager.settings)
 
@@ -119,7 +119,8 @@ def test_legacy_registry_entries_are_inserted_once_and_the_file_is_retired(temp_
     assert not legacy.exists()
     assert (manager.settings.data_dir / "themes.json.retired").is_file()
     kb = manager.get_kb(7)
-    assert kb.label == "only in the file" and kb.account_id == 1 and kb.is_personal is False
+    # The entry of the old shape (the admin as owner) is converted to a shared knowledge base that the admin made (version 28).
+    assert kb.label == "only in the file" and kb.account_id is None and kb.created_by_account_id == 1 and kb.is_shared
 
 
 def test_default_theme_initialization(temp_theme_env):
@@ -136,7 +137,7 @@ def test_default_theme_initialization(temp_theme_env):
 
 def test_define_new_theme_uses_sequence(temp_theme_env):
     manager, data_dir, vault_dir = temp_theme_env
-    t1 = manager.define_kb("기술 및 AI", description="테크 연구", icon="💻")
+    t1 = manager.define_kb("기술 및 AI", description="테크 연구", icon="💻", knowledge_type="real")
     assert t1.id == 1
     assert t1.seq == 1
     assert t1.label == "기술 및 AI"
@@ -145,7 +146,7 @@ def test_define_new_theme_uses_sequence(temp_theme_env):
     assert "claire.db" in t1.db_path.replace("\\", "/")
 
     # 두 번째 테마 정의 시 seq 2 발급
-    t2 = manager.define_kb("철학 및 인문학", icon="🏛️")
+    t2 = manager.define_kb("철학 및 인문학", icon="🏛️", knowledge_type="real")
     assert t2.id == 2
     assert t2.seq == 2
     assert "claire.db" in t2.db_path.replace("\\", "/")
@@ -153,7 +154,7 @@ def test_define_new_theme_uses_sequence(temp_theme_env):
 
 def test_update_theme_label_does_not_change_folder(temp_theme_env):
     manager, _, _ = temp_theme_env
-    t1 = manager.define_kb("초기 레이블", icon="📁")
+    t1 = manager.define_kb("초기 레이블", icon="📁", knowledge_type="real")
     orig_db_path = t1.db_path
 
     # 레이블 및 아이콘 수정
@@ -187,7 +188,7 @@ def test_cannot_delete_default_theme(temp_theme_env):
 
 def test_delete_and_purge_custom_theme(temp_theme_env):
     manager, _, _ = temp_theme_env
-    t1 = manager.define_kb("임시 테마")
+    t1 = manager.define_kb("임시 테마", knowledge_type="real")
     assert manager.get_kb(t1.id).id == t1.id
 
     # 테마 이름(레이블)으로 삭제 및 소각(purge)
@@ -206,53 +207,10 @@ def test_delete_and_purge_custom_theme(temp_theme_env):
 
 
 
-def test_theme_visibility_define_and_update(temp_theme_env):
-    """지식 관리자의 테마별 공개/비공개 설정 및 조회 격리 검증."""
-    manager, _, _ = temp_theme_env
-
-    # 1. 비공개 테마 생성 (is_public=False)
-    t1 = manager.define_kb("비공개 전략", is_public=False)
-    assert t1.id == 1
-    assert t1.is_public is False
-
-    # 2. 공개 테마 생성 (is_public=True)
-    t2 = manager.define_kb("공개 브리핑", is_public=True)
-    assert t2.id == 2
-    assert t2.is_public is True
-
-    # 3. include_private=True 시 전체 조회
-    all_themes = manager.list_kbs(include_private=True)
-    assert len(all_themes) == 3
-    assert any(t.id == 1 and not t.is_public for t in all_themes)
-    assert any(t.id == 2 and t.is_public for t in all_themes)
-
-    # 4. include_private=False 시 비공개 테마(t1) 배제
-    public_themes = manager.list_kbs(include_private=False)
-    assert len(public_themes) == 2
-    assert not any(t.id == 1 for t in public_themes)
-    assert any(t.id == 2 for t in public_themes)
-
-    # 5. get_kb 에서 include_private=False 동작: 기본 공개 테마로 대신하지 않고 KnowledgeBaseNotFound
-    with pytest.raises(KnowledgeBaseNotFound) as private_exc:
-        manager.get_kb(1, include_private=False)
-    # 비공개 테마의 존재가 드러나지 않도록 없는 테마와 같은 메시지
-    with pytest.raises(KnowledgeBaseNotFound) as missing_exc:
-        manager.get_kb(999, include_private=False)
-    assert str(private_exc.value) == "테마를 찾을 수 없습니다: 1"
-    assert str(missing_exc.value) == "테마를 찾을 수 없습니다: 999"
-
-    # 6. 테마 공개 여부 업데이트 (비공개 -> 공개)
-    updated = manager.update_kb(1, is_public=True)
-    assert updated.is_public is True
-    public_themes_after = manager.list_kbs(include_private=False)
-    assert len(public_themes_after) == 3
-    assert any(t.id == 1 for t in public_themes_after)
-
-
 def test_theme_update_all_options_and_by_label(temp_theme_env):
     """테마 생성 시 제공되는 모든 옵션(label, description, icon, is_public)에 대한 변경 및 레이블 검색 수정 검증."""
     manager, _, _ = temp_theme_env
-    t1 = manager.define_kb("초기 테마", description="초기 설명", icon="📁", is_public=True)
+    t1 = manager.define_kb("초기 테마", description="초기 설명", icon="📁", is_public=True, knowledge_type="real")
     assert t1.id == 1
 
     # 1. 모든 옵션을 한 번에 변경
@@ -261,12 +219,11 @@ def test_theme_update_all_options_and_by_label(temp_theme_env):
         label="완전 개편 테마",
         description="완전 개편 설명",
         icon="🚀",
-        is_public=False,
     )
     assert updated.label == "완전 개편 테마"
     assert updated.description == "완전 개편 설명"
     assert updated.icon == "🚀"
-    assert updated.is_public is False
+    assert updated.is_public is True  # a shared knowledge base is always public (CT5)
 
     # 2. 레이블(이름)을 인자로 넘겨서 수정 가능한지 검증
     by_name = manager.update_kb("완전 개편 테마", description="이름으로 찾아서 바꾼 설명", icon="⚡")
@@ -288,7 +245,7 @@ def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
     from claire.store import db as dbm
 
     manager, data_dir, vault_dir = temp_theme_env
-    t1 = manager.define_kb("보조 지식베이스")
+    t1 = manager.define_kb("보조 지식베이스", knowledge_type="real")
     assert t1.id == 1
 
     t0_settings = manager.get_settings_for_kb(0)
@@ -357,7 +314,7 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     manager, data_dir, vault_dir = temp_theme_env
 
     # 1. 새 테마 생성
-    theme = manager.define_kb("Honkai", icon="🌑", description="붕괴 시리즈")
+    theme = manager.define_kb("Honkai", icon="🌑", description="붕괴 시리즈", knowledge_type="real")
     tid = theme.id
     assert tid == 1
     t_settings = manager.get_settings_for_kb(tid)
@@ -403,7 +360,7 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     conn2.close()
 
     # 6. 다음 테마 생성 시 ID 시퀀스가 건너뛰지 않고 정상 발급되는지 검증
-    next_theme = manager.define_kb("Zenless", icon="⚡")
+    next_theme = manager.define_kb("Zenless", icon="⚡", knowledge_type="real")
     assert next_theme.id == 2
 
 
@@ -412,7 +369,7 @@ def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
     manager, _, _ = temp_theme_env
 
     # 1. 지식 관리자 지정하여 테마 생성
-    t1 = manager.define_kb("AI 아키텍처", sorcerer="alice_architect")
+    t1 = manager.define_kb("AI 아키텍처", sorcerer="alice_architect", knowledge_type="real")
     assert t1.sorcerer == "alice_architect"
     assert t1.knowledge_manager == "alice_architect"
     assert t1.to_dict()["sorcerer"] == "alice_architect"

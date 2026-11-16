@@ -866,7 +866,7 @@ def test_support_bundle_no_false_positive_for_multitheme_database(tmp_path: Path
     # The knowledge base rows of claire.db name both files (themes.json is retired, v27).
     conn = dbm.connect(s.db_file)
     conn.execute("UPDATE knowledge_bases SET db_path=? WHERE id=0", (str(s.db_file),))
-    conn.execute("INSERT OR REPLACE INTO knowledge_bases (id, seq, label, db_path, is_personal, created_at, updated_at, account_id) VALUES (1, 1, 'Theme 1', ?, 0, 1, 1, 1)", (str(theme1_db),))
+    conn.execute("INSERT OR REPLACE INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, knowledge_type, created_by_account_id, created_at, updated_at, account_id) VALUES (1, 1, 'Theme 1', ?, 0, 1, 'real', 1, 1, 1, NULL)", (str(theme1_db),))
     conn.commit()
     conn.close()
     s.multi_theme = True

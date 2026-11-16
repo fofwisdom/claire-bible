@@ -93,7 +93,7 @@ def env(tmp_path):
             members.append(int(cur.lastrowid))
         alpha, beta = members
         for kb_id in (11, 12):
-            conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, 0, 1, 1, 1, 1, ?, ?)", (kb_id, kb_id, f"theme-{kb_id}", alpha, 316412345678901200 + kb_id))
+            conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, ?, 1, ?, 1, 1, ?, ?)", (kb_id, kb_id, f"theme-{kb_id}", 1 if kb_id == 11 else 0, 0 if kb_id == 11 else 1, alpha, 316412345678901200 + kb_id))  # 11: the personal knowledge base of alpha; 12: a row of the old shape, converted to a shared knowledge base at the next start
         objects = {}
         for document_id, kb_id in (("doc-a", 11), ("doc-b", 11), ("doc-c", 12)):
             conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES (?, ?, ?, 'Body', 'md', 0, 1)", (document_id, kb_id, document_id))

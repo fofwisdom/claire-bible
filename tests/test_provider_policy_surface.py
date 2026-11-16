@@ -241,7 +241,7 @@ def synth_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 def test_member_research_is_403_even_with_byok(env, research_calls):
     for setup in (lambda: None, lambda: _register_byok(env)):
         setup()
-        r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/research", env.alice, json={"query": "why"})
+        r = _post(env, f"/kb/{ids.format_public_id(env.alice_pub.number)}/research", env.alice, json={"query": "why"})
         _assert_policy(r, 403, "provider_not_allowed")
     # 세션(쿠키) 경로도 같다.
     conn = dbm.connect_existing(env.db_file)
@@ -251,7 +251,7 @@ def test_member_research_is_403_even_with_byok(env, research_calls):
         conn.close()
     env.client.cookies.clear()
     r = env.client.post(
-        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/research",
+        f"/kb/{ids.format_public_id(env.alice_pub.number)}/research",
         headers={"Cookie": f"claire_session={sess}", "Origin": PUBLIC_URL},
         json={"query": "why"},
     )
@@ -261,7 +261,7 @@ def test_member_research_is_403_even_with_byok(env, research_calls):
 
 
 def test_admin_research_path_unchanged(env, research_calls):
-    r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/research", env.admin, json={"query": "why"})
+    r = _post(env, f"/kb/{ids.format_public_id(env.admin_theme.number)}/research", env.admin, json={"query": "why"})
     assert r.status_code == 200, r.text
     assert '"done": true' in r.text and "fake" in r.text
     assert len(research_calls) == 1
@@ -271,14 +271,14 @@ def test_admin_research_path_unchanged(env, research_calls):
 
 
 def test_synthesize_denied_when_tier_feature_off(env, synth_calls):
-    r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
+    r = _post(env, f"/kb/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
     _assert_policy(r, 403, "provider_not_allowed")
     assert synth_calls == []
 
 
 def test_synthesize_allowed_with_byok_and_uses_member_provider(env, synth_calls):
     _register_byok(env)
-    r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
+    r = _post(env, f"/kb/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
     assert r.status_code == 200, r.text
     assert r.json()["answer"] == "synthesized"
     provider = synth_calls[0][0]
@@ -290,10 +290,10 @@ def test_synthesize_allowed_when_tier_feature_on(tmp_path, synth_calls):
     e = _build_env(tmp_path, gemini_key=SERVER_KEY)
     with e.client:
         _set_tier(e, provider="gemini", model="gemini-x", monthly_tokens=1000, features=frozenset({"synthesize"}))
-        r = _post(e, f"/@alice/themes/{ids.format_public_id(e.alice_pub.number)}/synthesize", e.alice, json={"node_ids": ["e1"]})
+        r = _post(e, f"/kb/{ids.format_public_id(e.alice_pub.number)}/synthesize", e.alice, json={"node_ids": ["e1"]})
         assert r.status_code == 200, r.text
         # 같은 등급에서 presentation은 꺼져 있다.
-        r = _post(e, f"/@alice/themes/{ids.format_public_id(e.alice_pub.number)}/document/presentation/compose", e.alice, json={"id": "doc_x"})
+        r = _post(e, f"/kb/{ids.format_public_id(e.alice_pub.number)}/document/presentation/compose", e.alice, json={"id": "doc_x"})
         _assert_policy(r, 403, "provider_not_allowed")
         assert SERVER_KEY not in "".join(x.text for x in e.responses)
 
@@ -308,10 +308,10 @@ def test_presentation_authoring_denied_for_member_without_feature(env, monkeypat
     monkeypatch.setattr(PresentationService, "compile_presentation", _never)
     monkeypatch.setattr(PresentationService, "get_or_create_presentation", _never)
     for route in ("generate", "compose", "compile"):
-        r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/document/presentation/{route}", env.alice, json={"id": "doc_x"})
+        r = _post(env, f"/kb/{ids.format_public_id(env.alice_pub.number)}/document/presentation/{route}", env.alice, json={"id": "doc_x"})
         _assert_policy(r, 403, "provider_not_allowed")
     r = env.client.put(
-        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/document/presentation/adoc?id=doc_x",
+        f"/kb/{ids.format_public_id(env.alice_pub.number)}/document/presentation/adoc?id=doc_x",
         headers=_h(env.alice), json={"presentation_adoc": "= x"},
     )
     _assert_policy(r, 403, "provider_not_allowed")
@@ -320,15 +320,17 @@ def test_presentation_authoring_denied_for_member_without_feature(env, monkeypat
 # --- 테마 한도 (§10.3) --------------------------------------------------------------
 
 
-def test_member_theme_quota_and_admin_unchanged(env):
-    _set_tier(env, max_themes=2)  # alice는 이미 2개
-    r = _post(env, "/@alice/themes", env.alice, json={"label": "Third"})
-    _assert_policy(r, 429, "provider_budget_exceeded")
-    _set_tier(env, max_themes=3)
-    assert _post(env, "/@alice/themes", env.alice, json={"label": "Third"}).status_code == 201
+def test_shared_knowledge_bases_have_no_limit_and_need_a_knowledge_type(env):
+    """CT3: each active account makes shared knowledge bases without a limit; the tier field max_themes has no function. CT12: the knowledge type is required."""
+    _set_tier(env, max_themes=1)
+    assert _post(env, "/@alice/themes", env.alice, json={"label": "No type"}).status_code == 400
+    for label in ("Third", "Fourth"):
+        r = _post(env, "/@alice/themes", env.alice, json={"knowledge_type": "real", "label": label})
+        assert r.status_code == 201, r.text
+        assert r.json()["theme"]["account_id"] is None and r.json()["theme"]["created_by_account_id"] == 2
     # 관리자는 한도를 받지 않는다.
     _set_tier(env, max_themes=1)
-    assert _post(env, "/@admin/themes", env.admin, json={"label": "Admin Two"}).status_code == 201
+    assert _post(env, "/@admin/themes", env.admin, json={"knowledge_type": "real", "label": "Admin Two"}).status_code == 201
 
 
 # --- 정책 오류 형식 -----------------------------------------------------------------
@@ -368,7 +370,7 @@ def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
     monkeypatch.setattr(PresentationService, "compile_presentation", _boom)
     monkeypatch.setattr(PresentationService, "get_or_create_presentation", _boom)
     for route in ("generate", "compose", "compile"):
-        r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/document/presentation/{route}", env.admin, json={"id": "doc_x"})
+        r = _post(env, f"/kb/{ids.format_public_id(env.admin_theme.number)}/document/presentation/{route}", env.admin, json={"id": "doc_x"})
         assert r.status_code == 500
         assert "[REDACTED]" in r.text
 
@@ -378,7 +380,7 @@ def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
     import claire.ingest.service as ingest_service
 
     monkeypatch.setattr(ingest_service.IngestService, "regenerate_components", _ingest_boom)
-    r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/regenerate", env.admin, json={"doc_id": "doc_x"})
+    r = _post(env, f"/kb/{ids.format_public_id(env.admin_theme.number)}/regenerate", env.admin, json={"doc_id": "doc_x"})
     assert r.status_code == 500 and "[REDACTED]" in r.text
 
     logging.getLogger("claire.provider.test").warning("provider said %s / %s", CANARY, CANARY_SHAPED)
@@ -435,13 +437,16 @@ def test_telegram_theme_selection_limited_to_admin_themes(env):
     scoped = AdminThemeScope(env.tm)
     assert parse_message_theme("hello #Alice", scoped) == ("hello #Alice", None)
     assert parse_message_theme(f"hello #{env.alice_pub.id}", scoped)[1] is None
-    assert parse_message_theme("note #Admin", scoped) == ("note", env.admin_theme.id)
+    # A knowledge base that is not personal is a shared one after version 28: a tag does not select it as an ingest target (CT4).
+    assert parse_message_theme("note #Admin", scoped) == ("note #Admin", None)
     # 감싸지 않은 관리자에서도 account_id를 주면 같다.
     assert parse_message_theme("hello #Alice", env.tm, account_id=1)[1] is None
 
     with pytest.raises(KnowledgeBaseNotFound):
         scoped.get_kb(env.alice_pub.id)
-    assert scoped.get_kb(env.admin_theme.id).id == env.admin_theme.id
+    with pytest.raises(KnowledgeBaseNotFound):
+        scoped.get_kb(env.admin_theme.id)  # a shared knowledge base is not of the admin
+    assert scoped.get_kb(None).is_personal and scoped.get_kb(None).account_id == 1
     assert {t.account_id for t in scoped.list_kbs()} == {1}
 
     from claire.ingest.service import IngestServicePool
@@ -449,5 +454,5 @@ def test_telegram_theme_selection_limited_to_admin_themes(env):
     pool = IngestServicePool(env.settings, theme_manager=scoped, account_id=1)
     with pytest.raises(KnowledgeBaseNotFound):
         pool.get_service(env.alice_pub.id)
-    svc = pool.get_service(env.admin_theme.id)
+    svc = pool.get_service(None)  # the personal knowledge base of the admin
     assert svc.provider_context.is_admin

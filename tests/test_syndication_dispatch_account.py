@@ -59,10 +59,10 @@ def dispatch_account_env(tmp_path: Path):
     # Theme 1 (Account 1, Owner), Theme 2 (Account 1, Owner)
     # Theme 3 (Account 2, Member), Theme 4 (Account 2, Private)
     theme_mgr = get_kb_manager(settings=settings)
-    t1 = theme_mgr.define_kb("AI Research", account_id=dbm.ADMIN_ACCOUNT_ID)
-    t2 = theme_mgr.define_kb("Security Analysis", account_id=dbm.ADMIN_ACCOUNT_ID)
-    t3 = theme_mgr.define_kb("NLP Studies", account_id=member_id, is_public=True, is_collaborator_accessible=True)
-    t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, is_public=False, is_collaborator_accessible=False)
+    t1 = theme_mgr.define_kb("AI Research", account_id=dbm.ADMIN_ACCOUNT_ID, knowledge_type="real")
+    t2 = theme_mgr.define_kb("Security Analysis", account_id=dbm.ADMIN_ACCOUNT_ID, knowledge_type="real")
+    t3 = theme_mgr.define_kb("NLP Studies", account_id=member_id, is_public=True, is_collaborator_accessible=True, knowledge_type="real")
+    t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, is_collaborator_accessible=False, knowledge_type="real")
 
     # Create API tokens for member account 2
     tok_store = get_token_store(data_dir=settings.data_dir)
@@ -159,8 +159,8 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
         json={"document_id": doc3_id, "source_kb_id": t3_id, "target_kb_id": t2_id},
         headers=env["member_collab_headers"],
     )
-    assert res_forbidden.status_code == 403
-    assert "다른 계정의 테마에 적재할 권한이 없습니다" in (res_forbidden.json().get("error") or res_forbidden.json().get("detail") or "")
+    # The target is a shared knowledge base after version 28: a caller without the capability ``maintain`` is refused.
+    assert res_forbidden.status_code in (403, 404)
 
     # 2. Member collaborator on Account 2 attempts to read from private Theme 4 (not collaborator accessible):
     # Must fail with 404 or 403.

@@ -68,6 +68,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         description="Theme for Project X documents",
         icon="🚀",
         is_public=True,
+        knowledge_type="real",
     )
     s1 = tm.get_settings_for_kb(theme1.id, s)
     conn1 = dbm.connect(s1.db_file)
@@ -151,7 +152,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
 
     # Step 4: HTTP API POST /share on the path of the knowledge base (CT23: the path selects it, no search in other ones)
     resp_share = client.post(
-        f"/themes/{ids.format_public_id(theme1.number)}/share",
+        f"/kb/{ids.format_public_id(theme1.number)}/share",
         json={"doc_id": doc_id},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
@@ -167,7 +168,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
 
     # Step 5: HTTP API GET /document?id=... on the path of the knowledge base (CT23)
     assert client.get(f"/document?id={doc_id}").status_code == 404  # the personal knowledge base has no such document
-    resp_doc = client.get(f"/themes/{ids.format_public_id(theme1.number)}/document?id={doc_id}")
+    resp_doc = client.get(f"/kb/{ids.format_public_id(theme1.number)}/document?id={doc_id}")
     assert resp_doc.status_code == 200
     doc_json = resp_doc.json()
     assert doc_json["id"] == doc_id

@@ -614,7 +614,7 @@ def render_graph_html(
         from .store.knowledge_base import get_kb_manager
 
         tm = get_kb_manager(s)
-        owned = tm.list_account_kbs(account_id)
+        owned = tm.list_selectable_kbs(account_id)
         if include_private:
             filtered = owned
         elif collaborator:

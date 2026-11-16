@@ -92,11 +92,21 @@
 
 **[코드]** 지식 베이스 선택 규칙(공유 지식 베이스 설계 §5.2, CT23, `_get_theme_ctx`):
 
-1. **네임스페이스 라우트**: 경로만 선택한다. 고정 경로(`/themes/{number}/…`, `/@{u}/themes/{number}/…`)는 그 지식 베이스(`pinned_kb_id`), 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다.
+1. **네임스페이스 라우트**: 경로만 선택한다. `/kb/{number}/…`는 그 공유 지식 베이스를 고정한다(`pinned_kb_id`, 네임스페이스 계정 없음, 모드와 무관). 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다. 개인 지식 베이스의 번호로 `/kb/{number}/…`를 요청하면 읽을 수 있을 때 그 계정 경로(`/@{u}/…`, 싱글 모드 `/…`)로 308, 아니면 404다. 옛 링크 `/themes/{number}/…`·`/@{u}/themes/{number}/…`는 공유면 `/kb/{number}/…`로, 개인이면 그 계정 경로로 308이다(설계 §7).
 2. **네임스페이스가 없는 라우트**(`any`·`system` 표면, 예: `/p/presentation`, `/api/me/data-bundles`, MCP 읽기 도구): 매개변수 `kb`(번호)가 필수다. 없으면 400 `kb_required`. `KnowledgeBaseManager.get_kb_by_reference`는 번호만 받는다(내부 ID·레이블·빈 값은 404).
 3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_personal_only`, 다른 계정의 네임스페이스는 404다.
 4. **옛 이름**: 쿼리·본문 `theme`, `X-Claire-Theme` 헤더, 내부 ID 참조는 모르는 필드처럼 무시한다. `Deprecation`·`Sunset` 헤더도 없다. 문서를 다른 지식 베이스에서 찾아 대상을 바꾸는 폴백(`/share`, `/document`, 재생성, 프레젠테이션, 배급 원본)은 없다. 공유 토큰(`/p?s=`, `/p/presentation?s=`)은 토큰이 자기 지식 베이스를 정한다.
 5. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
+
+**[코드] 지식 베이스의 두 종류와 권한(CT-1, 설계 §6.2·§6.5·§11.2)**:
+
+- **개인**(`is_personal=1`, `account_id`=계정, `knowledge_type` NULL): 계정마다 하나(CT1). 공개 또는 비공개. 소유자만 쓴다.
+- **공유**(`is_personal=0`, `account_id` NULL, 항상 공개, `knowledge_type`은 `real`·`fictional`): 소유자가 없다. `define_kb(..., knowledge_type=..., account_id=창립자)`가 만들고 창립자는 `created_by_account_id`와 첫 `moderator` 멤버십이 된다(CT8). `POST /themes`는 `knowledge_type`이 없으면 400 `knowledge_type_required`다. 개수 한도는 없다(CT3, 등급의 `max_themes`는 쓰지 않는다). 레이블은 겹쳐도 된다.
+- **권한 판정**은 함수 하나다: `claire.kb_access.decide`(§6.2 표 전체와 §6.5). 서버는 `_kb_decide`·`_require_kb`로만 쓴다. 공유 지식 베이스에서 읽기는 `read`, 그 밖의 요청은 라우트별 권한이 생길 때까지(CT-2) `maintain`(collaborator·moderator·관리자)이 필요하다. 익명은 404, 권한 없는 계정은 403 `kb_capability_required`다. 설정 변경(`PATCH /themes`)은 `settings`, 삭제는 `delete`(관리자)다. 숨긴 문서는 `review` 권한자만 본다.
+- **프로바이더(§13.1 규칙 5)**: 공유 지식 베이스에서 사람이 시작한 작업(재생성, 프레젠테이션, 합성 등)은 **요청자 계정의 프로바이더 컨텍스트**로 실행한다(`IngestServicePool.get_service(..., acting_account_id=)`, `_provider_account_of`). 서버의 프로바이더를 쓰지 않는다. 재임베딩 필요 표시는 서버 임베딩과 비교한다(CT24).
+- **워커(CT10)**: `_theme_services_for_cycle`은 공유 지식 베이스를 돌지 않는다(watch·refresh·expand·recover는 개인 지식 베이스만).
+- **목록**: `list_account_kbs`는 계정이 소유한 것(개인), `list_selectable_kbs`는 선택기용(개인 + 모든 공유)이다.
+- **콘솔·텔레그램**: `/settings/*`의 `?kb=`와 계정 백업·데이터 번들은 개인 지식 베이스만 받는다. 텔레그램의 테마 선택은 소유한 것만 보므로 공유 지식 베이스는 대상이 아니다(정리는 CT-8). 연합 발행(`POST /api/federation/publish`)도 개인 지식 베이스에서만 한다.
 
 **[코드]** `_theme_accessible`의 접근 검사(`_get_theme_ctx`가 쓰고, 실패하면 404)는 다음과 같다.
 

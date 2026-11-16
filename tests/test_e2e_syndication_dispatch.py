@@ -60,7 +60,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     # 1. Create Theme 1: AI Research
     res_t1 = client.post(
         "/themes",
-        json={"label": "인공지능 연구", "description": "AI 모델 연구 테마", "icon": "🧠"},
+        json={"knowledge_type": "real", "label": "인공지능 연구", "description": "AI 모델 연구 테마", "icon": "🧠"},
         headers=OWNER_HEADERS,
     )
     assert res_t1.status_code == 201
@@ -71,7 +71,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     res_t2 = client.post(
         "/themes",
         json={
-            "label": "정보보안",
+            "knowledge_type": "real", "label": "정보보안",
             "description": "보안 위협 및 취약점 분석",
             "icon": "🛡️",
         },

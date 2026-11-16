@@ -93,11 +93,11 @@
     return t && t.number != null ? String(t.number) : String(themeKey);
   }
 
-  // Design Section 5.2 (CT23): the path selects the knowledge base. The personal knowledge base has the plain path; another one has "/themes/<number>" before the route (the server sends 308 to the path of the owner).
+  // Design Sections 5.2 and 7: the path selects the knowledge base. The personal knowledge base has the plain path; a shared one has "/kb/<number>" before the route.
   function kbPath(themeKey, route) {
     const t = THEMES[String(themeKey)];
     if (!t || t.isPersonal || String(themeKey) === "0") return route;
-    return `/themes/${encodeURIComponent(themeRefOf(themeKey))}${route}`;
+    return `/kb/${encodeURIComponent(themeRefOf(themeKey))}${route}`;
   }
 
   function slotKey(themeKey) {

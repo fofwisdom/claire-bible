@@ -77,16 +77,15 @@ def theme_env(monkeypatch, tmp_path):
 
 
 def test_theme_services_for_cycle_passes_kb_id(theme_env):
-    """Verify _theme_services_for_cycle passes kb_id to service_factory."""
+    """_theme_services_for_cycle gives the knowledge base ID to the service factory, and takes only personal knowledge bases (CT10)."""
     tm, base_settings = theme_env
-    t1 = tm.define_kb("AI")
+    shared = tm.define_kb("AI", knowledge_type="real")
     state = _ThemeLoopState()
 
     services = _theme_services_for_cycle(base_settings, state, IngestService)
     kb_ids = [t.id for t, _ in services]
-    assert t1.id in kb_ids
+    assert kb_ids == [0] and shared.id not in kb_ids
 
-    svc_map = {t.id: s for t, s in services}
-    t1_svc = svc_map[t1.id]
-    assert isinstance(t1_svc, IngestService)
-    assert t1_svc.kb_id == t1.id
+    svc = services[0][1]
+    assert isinstance(svc, IngestService)
+    assert svc.kb_id == 0

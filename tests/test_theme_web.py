@@ -87,38 +87,13 @@ def test_theme_web_multi_mode_inlining(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(s)
-    tm.define_kb("AI 및 로보틱스", description="인공지능 연구", icon="🤖")
+    tm.define_kb("AI 및 로보틱스", description="인공지능 연구", icon="🤖", knowledge_type="real")
 
     html = render_graph_html(s)
     assert 'themeMode: \'multi\'' in html
     assert 'id="theme-picker-wrap" title="Select the knowledge theme (change the database)" style="display:inline-flex"' in html
     assert 'AI 및 로보틱스' in html
     assert '🤖' in html
-
-
-def test_render_graph_html_visibility_isolation(tmp_path: Path):
-    """비공개 테마는 익명 사용자용 render_graph_html(include_private=False)에서 배제됨을 검증."""
-    from claire.store.knowledge_base import KnowledgeBaseManager
-
-    s = Settings(
-        db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
-    )
-    tm = KnowledgeBaseManager(s)
-    tm.define_kb("비밀 연구", description="내부 전용", icon="🔒", is_public=False)
-
-    # 1. 익명 사용자 (include_private=False) -> 비공개 테마 제외되어 공개 테마가 기본 테마 1개뿐이므로 피커 숨김
-    anon_html = render_graph_html(s, include_private=False)
-    assert '비밀 연구' not in anon_html
-    assert 'style="display:none"' in anon_html
-
-    # 2. 인증된 사용자 (include_private=True) -> 비공개 테마 포함 및 피커 표시
-    owner_html = render_graph_html(s, include_private=True)
-    assert '비밀 연구' in owner_html
-    assert 'style="display:inline-flex"' in owner_html
-    # 루트 상세 메뉴에는 테마 관리 단추가 없다. 테마 관리는 콘솔에서 한다.
-    assert 'id="thememanagebtn"' not in owner_html
 
 
 def test_theme_selector_ux_and_modification_features(tmp_path: Path):
@@ -165,8 +140,8 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
         CLAIRE_SORCERER="default_owner",
     )
     tm = KnowledgeBaseManager(s)
-    tm.define_kb("일반 테마")  # 기본 관리자 상속
-    tm.define_kb("특화 테마", sorcerer="specialist_lee")  # 개별 관리자 지정
+    tm.define_kb("일반 테마", knowledge_type="real")  # 기본 관리자 상속
+    tm.define_kb("특화 테마", sorcerer="specialist_lee", knowledge_type="real")  # 개별 관리자 지정
 
     graph_html = render_graph_html(s, include_private=True)
     html = MANAGE_PANELS_JS

@@ -2,7 +2,7 @@
 
 검증 항목:
 1. v16 테마 번호 하한 (MIN_CURRENT_NUMBER >= 2^56, created_at=0 하한 고정 포함)
-2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /themes/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
+2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /kb/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 4. 고정과 다른 ?theme= 가 들어오면 400 거부
 5. 다른 계정의 테마 번호 요청 시 404
@@ -221,7 +221,7 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
         CLAIRE_ENVIRONMENT="development",
     )
     mgr = KnowledgeBaseManager(s)
-    new_theme = mgr.define_kb("Fresh Theme")
+    new_theme = mgr.define_kb("Fresh Theme", knowledge_type="real")
     assert new_theme.number is not None
     assert new_theme.number >= MIN_NUMBER
     assert ids.parse_public_id(new_theme.number) == new_theme.number
@@ -242,11 +242,11 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     assert theme0.number is not None
     assert theme0.number >= MIN_NUMBER
 
-    # /themes/{number}/documents 및 /themes/{number}/ 동작 검증
-    resp_pin_docs = client.get(f"/themes/{theme0.number}/documents")
+    # /kb/{number}/documents 및 /kb/{number}/ 동작 검증
+    resp_pin_docs = client.get(f"/kb/{theme0.number}/documents", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_docs.status_code == 200
 
-    resp_pin_root = client.get(f"/themes/{theme0.number}/")
+    resp_pin_root = client.get(f"/kb/{theme0.number}/", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert resp_pin_root.status_code == 200
 
     # ?theme={number} 동작 검증
@@ -272,9 +272,9 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     # ``theme`` is ignored (CT23): the root path is knowledge base 0
     assert client.get("/documents?theme=1").status_code == 200
     assert client.get(f"/documents?theme={num1}").status_code == 200
-    assert client.get(f"/themes/{num1}/documents").status_code == 404
-    assert client.get("/themes/99999999999999999/documents").status_code == 404
-    assert client.get("/themes/99999999999999999/").status_code == 404
+    assert client.get(f"/kb/{num1}/documents").status_code == 404
+    assert client.get("/kb/99999999999999999/documents").status_code == 404
+    assert client.get("/kb/99999999999999999/").status_code == 404
 
 
 # ============================================================================
@@ -286,12 +286,12 @@ def test_theme_pinning_binds_pinned_kb_id(tmp_path: Path) -> None:
     client, _, theme0, theme1 = _create_multi_theme_client(tmp_path)
 
     # 경로에 테마 번호가 포함되면 graph API에서 해당 테마의 내부 ID를 반환
-    r0 = client.get(f"/themes/{theme0.number}/graph")
+    r0 = client.get(f"/kb/{theme0.number}/graph", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert r0.status_code == 200
     assert r0.json().get("kb_id") == 0
     assert r0.json().get("theme_label") == theme0.label
 
-    r1 = client.get(f"/themes/{theme1.number}/graph")
+    r1 = client.get(f"/kb/{theme1.number}/graph")
     assert r1.status_code == 200
     assert r1.json().get("kb_id") == 1
     assert r1.json().get("theme_label") == theme1.label
@@ -312,9 +312,9 @@ def test_cross_account_theme_number_returns_404(tmp_path: Path) -> None:
     num_alice = info["num_alice_pub"]
     num_carol = info["num_carol_pub"]
 
-    # Alice 네임스페이스 아래에서 Carol의 테마 번호 경로 요청 시 404
-    r_path = client.get(f"/@alice/themes/{num_carol}/documents")
-    assert r_path.status_code == 404
+    # The number of the personal knowledge base of Carol: 308 to its own path when the requester can read it, else 404 (design Section 7)
+    r_path = client.get(f"/kb/{num_carol}/documents")
+    assert r_path.status_code in (308, 404)
 
     # ``theme`` is ignored (CT23): the path selects the personal knowledge base of Alice, not the one of Carol or of the admin
     r_query = client.get(f"/@alice/documents?theme={num_carol}")
@@ -322,7 +322,7 @@ def test_cross_account_theme_number_returns_404(tmp_path: Path) -> None:
     assert r_query.json() == client.get("/@alice/documents").json()
 
     # Alice 본인의 테마 요청은 정상 200
-    assert client.get(f"/@alice/themes/{num_alice}/documents").status_code == 200
+    assert client.get(f"/kb/{num_alice}/documents", follow_redirects=True).status_code == 200
     assert client.get(f"/@alice/documents?theme={num_alice}").status_code == 200
 
 
@@ -365,18 +365,18 @@ def test_root_theme_resolver_in_network_mode(tmp_path: Path) -> None:
     num_alice_pub = info["num_alice_pub"]
     num_alice_priv = info["num_alice_priv"]
 
-    # 공개 테마 루트 접근 시 /@{owner}/themes/{number}/... 로 308 리다이렉트
-    r_root_theme = client.get(f"/themes/{num_alice_pub}/")
+    # 공개 테마 루트 접근 시 /@{owner}/kb/{number}/... 로 308 리다이렉트
+    r_root_theme = client.get(f"/kb/{num_alice_pub}/")
     assert r_root_theme.status_code == 308
-    assert r_root_theme.headers.get("location") == f"/@alice/themes/{num_alice_pub}/"
+    assert r_root_theme.headers.get("location") == "/@alice/"
 
-    r_root_theme_doc = client.get(f"/themes/{num_alice_pub}/documents")
+    r_root_theme_doc = client.get(f"/kb/{num_alice_pub}/documents")
     assert r_root_theme_doc.status_code == 308
-    assert r_root_theme_doc.headers.get("location") == f"/@alice/themes/{num_alice_pub}/documents"
+    assert r_root_theme_doc.headers.get("location") == "/@alice/documents"
 
-    # 비공개 테마는 익명 요청 시 404로 숨김
-    assert client.get(f"/themes/{num_alice_priv}/").status_code == 404
-    assert client.get("/themes/99999999999999999/").status_code == 404
+    # A knowledge base that is not personal is a shared knowledge base after version 28: public at /kb/{number}/
+    assert client.get(f"/kb/{num_alice_priv}/").status_code == 200
+    assert client.get("/kb/99999999999999999/").status_code == 404
 
 
 # ============================================================================
@@ -398,8 +398,8 @@ def test_no_deprecation_headers_on_v16_public_number(tmp_path: Path) -> None:
     assert "deprecation" not in r_num.headers
     assert "sunset" not in r_num.headers
 
-    # 테마 고정 경로 /themes/{number}/documents
-    r_pin = client.get(f"/themes/{theme0.number}/documents")
+    # 테마 고정 경로 /kb/{number}/documents
+    r_pin = client.get(f"/kb/{theme0.number}/documents", follow_redirects=True)  # the number of the personal knowledge base: 308 to its own path
     assert r_pin.status_code == 200
     assert "deprecation" not in r_pin.headers
     assert "sunset" not in r_pin.headers

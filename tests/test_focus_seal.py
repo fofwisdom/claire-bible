@@ -134,7 +134,7 @@ def test_cli_has_no_focus_option():
     from claire.cli import build_parser
 
     parser = build_parser()
-    for argv in (["ingest", "x"], ["reingest", "x"], ["regenerate", "x"], ["backfill-detail"], ["kb", "define", "--label", "x"], ["kb", "update", "x"]):
+    for argv in (["ingest", "x"], ["reingest", "x"], ["regenerate", "x"], ["backfill-detail"], ["kb", "define", "--type", "real", "--label", "x"], ["kb", "update", "x"]):
         parser.parse_args(argv)  # the command exists without the option
         with pytest.raises(SystemExit):
             parser.parse_args([*argv, "--focus", "y"])

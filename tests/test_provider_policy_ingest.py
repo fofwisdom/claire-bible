@@ -284,7 +284,8 @@ def test_pool_cache_separates_accounts_and_tracks_credentials(world, host_cli, f
     pool = IngestServicePool(world.settings, theme_manager=KnowledgeBaseManager(world.settings))
 
     a1 = pool.get_service(MEMBER_THEME)
-    a2 = pool.get_service(MEMBER_THEME2)
+    # MEMBER_THEME2 is a shared knowledge base after version 28: work in it runs with the context of the acting account (design Section 13.1 rule 5).
+    a2 = pool.get_service(MEMBER_THEME2, acting_account_id=MEMBER_ID)
     b = pool.get_service(OTHER_THEME)
     assert a1 is pool.get_service(MEMBER_THEME)  # 같은 컨텍스트는 캐시
     assert a1.provider is a2.provider  # 같은 계정·자격의 테마는 프로바이더를 함께 쓴다
@@ -478,7 +479,7 @@ def test_fetcher_stt_vlm_use_member_context(world, host_cli, fake_genai, member_
     # 서버 등급 none: STT·VLM은 자리표시자, 관리자 키·mock으로 대체되지 않는다
     captured.clear()
     del member_keys[MEMBER_ID]
-    svc_none = IngestService(_theme_settings(world, MEMBER_THEME2), provider=MockProvider(), kb_id=MEMBER_THEME2)
+    svc_none = IngestService(_theme_settings(world, MEMBER_THEME), provider=MockProvider(), kb_id=MEMBER_THEME)
     svc_none.ingest("https://example.test/video2", source="cli")
     assert captured["settings"].gemini_api_key == ""
     assert type(captured["stt"]).__name__ == "UnavailableTranscriptProvider"
@@ -502,7 +503,8 @@ def test_loop_services_carry_owner_context(world, host_cli, fake_genai, member_k
     state = cli._ThemeLoopState()
 
     services = dict((t.id, svc) for t, svc in cli._theme_services_for_cycle(world.settings, state, IngestService))
-    assert set(services) == {ADMIN_THEME, ADMIN_THEME2, MEMBER_THEME, MEMBER_THEME2, OTHER_THEME}
+    # Workers take only personal knowledge bases (CT10): the shared ones (ADMIN_THEME2, MEMBER_THEME2) are not in the cycle.
+    assert set(services) == {ADMIN_THEME, MEMBER_THEME, OTHER_THEME}
     member = services[MEMBER_THEME]
     assert member.provider_context.account_id == MEMBER_ID and member.provider_context.source == "none"
     assert isinstance(member.provider, UnavailableProvider)
@@ -521,7 +523,7 @@ def test_loop_services_carry_owner_context(world, host_cli, fake_genai, member_k
 def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkeypatch):
     settings = world.settings.model_copy(update={"provider": "mock"})
     conn = dbm.connect(world.db_file)
-    for tid in (ADMIN_THEME2, MEMBER_THEME):
+    for tid in (ADMIN_THEME, MEMBER_THEME):
         iid = dbm.log_inbox(conn, source="cli", payload=LONG_TEXT + f" {tid}", kind="text", kb_id=tid)
         dbm.update_inbox(conn, iid, status="error", error="temporary", kb_id=tid)
     conn.execute("UPDATE raw_inbox SET next_retry_at=?", (time.time() - 100,))
@@ -532,7 +534,7 @@ def test_recover_cycle_member_failure_is_coded_and_admin_unchanged(world, monkey
     cycle = cli._run_recover_cycle(settings, args, cli._ThemeLoopState(), IngestService)
 
     by_theme = {r["_kb_id"]: r for r in cycle["results"]}
-    assert by_theme[ADMIN_THEME2]["status"] in ("done", "duplicate")
+    assert by_theme[ADMIN_THEME]["status"] in ("done", "duplicate")
     assert by_theme[MEMBER_THEME]["status"] == "error"
     assert by_theme[MEMBER_THEME]["error"].startswith("provider_not_configured")
 

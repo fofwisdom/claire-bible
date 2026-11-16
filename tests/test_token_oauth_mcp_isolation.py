@@ -108,23 +108,10 @@ def _create_test_theme(
     is_public: bool = True,
     is_collaborator_accessible: bool = True,
 ) -> KnowledgeBaseInfo:
-    theme = tm.define_kb(
-        label,
-        is_public=is_public,
-        is_collaborator_accessible=is_collaborator_accessible,
-    )
-    conn = dbm.connect(settings.db_file)
-    try:
-        conn.execute(
-            "UPDATE knowledge_bases SET account_id = ?, is_personal = ? WHERE id = ?",
-            (account_id, 1 if is_personal else 0, theme.id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    tm.reload()
-    return tm.get_kb(theme.id)
+    """``is_personal=True``: the personal knowledge base of the account (public or private). Else a shared knowledge base that the account made: no owner and always public (CT5), so ``is_public`` has no effect on it."""
+    if is_personal:
+        return tm.define_kb(label, is_personal=True, is_public=is_public, account_id=account_id)
+    return tm.define_kb(label, account_id=account_id, is_collaborator_accessible=is_collaborator_accessible, knowledge_type="real")
 
 
 def _build_oauth_test_app(config: WebRuntimeConfig, settings: Any = None) -> Starlette:

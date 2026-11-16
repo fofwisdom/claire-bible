@@ -62,7 +62,7 @@ def test_cli_theme_single_mode(tmp_path, monkeypatch, capsys):
     assert "CLAIRE_MULTI_THEME=1" in captured
 
     # 2. define 명령 -> 차단 및 에러 메시지
-    ret = cli.main(["kb", "define", "--label", "금지된 테마"])
+    ret = cli.main(["kb", "define", "--type", "real", "--label", "금지된 테마"])
     assert ret == 1
     err = capsys.readouterr().err
     assert "Multi-theme mode is off" in err
@@ -98,7 +98,7 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     settings, tm = cli_theme_env
 
     # 1. 테마 정의
-    ret = cli.main(["kb", "define", "--label", "개발 및 시스템", "--desc", "소프트웨어 아키텍처", "--icon", "💻"])
+    ret = cli.main(["kb", "define", "--type", "real", "--label", "개발 및 시스템", "--desc", "소프트웨어 아키텍처", "--icon", "💻"])
     assert ret == 0
     captured = capsys.readouterr().out
     assert "Theme #1 is made" in captured
@@ -146,47 +146,12 @@ def test_cli_theme_define_update_delete(cli_theme_env, capsys):
     assert 1 not in [t.id for t in tm.list_kbs()]
 
 
-def test_cli_theme_visibility_flags(cli_theme_env, capsys):
-    """CLI에서 --public / --private 옵션으로 테마 공개 여부 정의 및 수정 검증."""
-    settings, tm = cli_theme_env
-
-    # 1. 비공개 테마 정의 (--private)
-    ret = cli.main(["kb", "define", "--label", "비공개 보안", "--private", "--desc", "내부 전용"])
-    assert ret == 0
-    captured = capsys.readouterr().out
-    assert "Private 🔒" in captured
-
-    # 2. 목록 확인 (테이블 및 JSON)
-    ret = cli.main(["kb", "list"])
-    assert ret == 0
-    table_out = capsys.readouterr().out
-    assert "private 🔒" in table_out
-
-    ret = cli.main(["kb", "list", "--json"])
-    assert ret == 0
-    data = _unwrap_json(capsys.readouterr().out)
-    t1 = next(t for t in data["themes"] if t["id"] == 1)
-    assert t1["is_public"] is False
-
-    # 3. 공개 테마로 수정 (--public)
-    ret = cli.main(["kb", "update", "1", "--public"])
-    assert ret == 0
-    captured_update = capsys.readouterr().out
-    assert "Public" in captured_update
-
-    ret = cli.main(["kb", "list", "--json"])
-    assert ret == 0
-    data_after = _unwrap_json(capsys.readouterr().out)
-    t1_after = next(t for t in data_after["themes"] if t["id"] == 1)
-    assert t1_after["is_public"] is True
-
-
 def test_cli_theme_update_full_options(cli_theme_env, capsys):
     """CLI에서 생성 시 지원하는 모든 옵션(--label, --desc, --icon, --public/--private) 및 이름 기반 수정 검증."""
     settings, tm = cli_theme_env
 
     # 1. 새 테마 정의
-    ret = cli.main(["kb", "define", "--label", "초기 테마", "--desc", "설명 원본", "--icon", "📁"])
+    ret = cli.main(["kb", "define", "--type", "real", "--label", "초기 테마", "--desc", "설명 원본", "--icon", "📁"])
     assert ret == 0
     capsys.readouterr()
 
@@ -196,14 +161,15 @@ def test_cli_theme_update_full_options(cli_theme_env, capsys):
         "--label", "전면 개편",
         "--description", "업데이트된 상세 설명",
         "--icon", "🚀",
-        "--private",
     ])
     assert ret == 0
     captured = capsys.readouterr().out
     assert "전면 개편" in captured
     assert "업데이트된 상세 설명" in captured
     assert "🚀" in captured
-    assert "Private 🔒" in captured
+    # A shared knowledge base is always public (CT5): --private is refused.
+    assert cli.main(["kb", "update", "1", "--private"]) == 1
+    capsys.readouterr()
 
     # 3. 테마 이름(레이블)으로 찾아 수정
     ret = cli.main([
@@ -228,7 +194,7 @@ def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
     assert "cannot delete the default theme" in err
 
     # 2. 추가 테마 생성
-    ret = cli.main(["kb", "define", "--label", "삭제용 테마"])
+    ret = cli.main(["kb", "define", "--type", "real", "--label", "삭제용 테마"])
     assert ret == 0
     capsys.readouterr()
 
@@ -247,7 +213,7 @@ def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
     from claire.store import db as dbm
 
     settings, tm = cli_theme_env
-    t1 = tm.define_kb("클라우드 엔지니어링")
+    t1 = tm.define_kb("클라우드 엔지니어링", knowledge_type="real")
     assert t1.id == 1
 
     t1_settings = tm.get_settings_for_kb(1)
@@ -324,7 +290,7 @@ def test_cli_theme_dispatch_commands(cli_theme_env, capsys, monkeypatch):
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     settings, tm = cli_theme_env
     settings.allow_purge = True
-    t1 = tm.define_kb("데이터베이스 테마")
+    t1 = tm.define_kb("데이터베이스 테마", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     conn1 = dbm.connect(t1_settings.db_file)
@@ -378,7 +344,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     from pathlib import Path
 
     settings, tm = cli_theme_env
-    t1 = tm.define_kb("리셋 대상 테마", description="리셋 테스트용")
+    t1 = tm.define_kb("리셋 대상 테마", description="리셋 테스트용", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 DB 및 볼트에 데이터 적재

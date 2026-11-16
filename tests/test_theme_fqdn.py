@@ -116,8 +116,8 @@ def test_theme_manager_rejects_new_fqdn_but_keeps_ga(tmp_path):
     )
     tm = KnowledgeBaseManager(base_settings=settings)
     with pytest.raises(ValueError):
-        tm.define_kb("AI 테마", fqdn="ai.example.com")
-    t = tm.define_kb("AI 테마", ga_measurement_id="G-AI12345678")
+        tm.define_kb("AI 테마", fqdn="ai.example.com", knowledge_type="real")
+    t = tm.define_kb("AI 테마", ga_measurement_id="G-AI12345678", knowledge_type="real")
     assert t.ga_measurement_id == "G-AI12345678" and tm.has_any_ga_enabled() is True
     with pytest.raises(ValueError):
         tm.update_kb(t.id, fqdn="ai.example.com")
@@ -174,7 +174,7 @@ async def test_theme_origin_and_host_are_not_trusted_without_legacy_directory(tm
 
     inner_app = Starlette(routes=[Route("/health", _inner_test_endpoint)])
     tm = _theme_manager(s.db_file)
-    theme = tm.define_kb("AI 테마")
+    theme = tm.define_kb("AI 테마", knowledge_type="real")
     _set_legacy_fqdn(s.db_file, theme.id, "ai.example.com")
     tm.reload()
     assert tm.has_registered_fqdn("ai.example.com") is True
@@ -205,7 +205,7 @@ async def test_dynamic_csp_headers_on_theme_ga(tmp_path):
     assert "googletagmanager.com" not in csp
     assert "google-analytics.com" not in csp
 
-    t = tm.define_kb("GA 테마", ga_measurement_id="G-DYNAMICTEST1")
+    t = tm.define_kb("GA 테마", ga_measurement_id="G-DYNAMICTEST1", knowledge_type="real")
     csp = client.get("/health").headers.get("content-security-policy", "")
     assert "https://*.googletagmanager.com" in csp
     assert "https://*.google-analytics.com" in csp
@@ -245,7 +245,7 @@ def multi_theme_server_env(tmp_path):
 
 
 def _create_theme(client: TestClient, label: str, **extra) -> tuple[int, str]:
-    r = client.post("/themes", json={"label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
+    r = client.post("/themes", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
     assert r.status_code == 201, r.text
     theme = r.json()["theme"]
     return theme["id"], theme["number"]
@@ -270,24 +270,24 @@ def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_serve
         "/documents?theme=2&q=x", headers={"Host": "ai.example.com", **noisy}, follow_redirects=False
     )
     assert resp.status_code == 308
-    assert resp.headers["location"] == f"{APP_ORIGIN}/themes/{number}/documents?theme=2&q=x"
+    assert resp.headers["location"] == f"{APP_ORIGIN}/kb/{number}/documents?theme=2&q=x"
     assert "set-cookie" not in resp.headers
     assert "access-control-allow-origin" not in resp.headers
 
     root = client.head("/", headers={"Host": "AI.example.com:8765"}, follow_redirects=False)
     assert root.status_code == 308
-    assert root.headers["location"] == f"{APP_ORIGIN}/themes/{number}/"
+    assert root.headers["location"] == f"{APP_ORIGIN}/kb/{number}/"
 
     # 쓰기 메서드는 리다이렉트하지 않는다.
     assert client.post("/search", json={"q": "x"}, headers={"Host": "ai.example.com"}).status_code == 421
     assert (
-        client.post("/themes", json={"label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
+        client.post("/themes", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
         == 421
     )
     # 정적 자산도 레거시 호스트에서 직접 열리지 않고 정본 경로로 간다.
     static = client.get("/static/js/app.js", headers={"Host": "ai.example.com"}, follow_redirects=False)
     assert static.status_code == 308
-    assert static.headers["location"] == f"{APP_ORIGIN}/themes/{number}/static/js/app.js"
+    assert static.headers["location"] == f"{APP_ORIGIN}/kb/{number}/static/js/app.js"
 
 
 def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
@@ -319,7 +319,7 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
 
 def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env):
     client, _, _ = multi_theme_server_env
-    _create_theme(client, "기밀 테마", is_public=False)
+    _create_theme(client, "기밀 테마")
     for host in ("ai.example.com", "secret.example.com"):
         for path in ("/", "/documents", "/themes"):
             anon = client.get(path, headers={"Host": host})
@@ -333,11 +333,11 @@ def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
 
     for fqdn in ("research.example.com", "http://invalid-fqdn/"):
-        assert client.post("/themes", json={"label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
+        assert client.post("/themes", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
 
     r_bad_ga = client.post(
         "/themes",
-        json={"label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
+        json={"knowledge_type": "real", "label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
         headers=OWNER_HEADERS,
     )
     assert r_bad_ga.status_code == 400

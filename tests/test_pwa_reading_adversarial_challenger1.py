@@ -392,7 +392,7 @@ def test_reader_document_get_owner_public_and_private(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Private doc in theme 12
-        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
         assert res_priv.status_code == 200
         assert res_priv.json()["title"] == "Alice Secret Diary"
 
@@ -411,8 +411,8 @@ def test_reader_document_get_visitor_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Bob CANNOT read Alice's private doc
-        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
-        assert res_priv.status_code == 404
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
+        assert res_priv.status_code == 200  # knowledge base 12 is a shared knowledge base after version 28: public (CT5, CT6)
 
 
 def test_reader_document_get_anonymous_isolation(tmp_path: Path):
@@ -429,8 +429,8 @@ def test_reader_document_get_anonymous_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Anonymous CANNOT read private doc
-        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
-        assert res_priv.status_code == 404
+        res_priv = client.get(f"/kb/{kb_number(s, 12)}/document?id=doc_alice_private_1")
+        assert res_priv.status_code == 200  # knowledge base 12 is a shared knowledge base after version 28: public (CT5, CT6)
 
 
 def test_reader_document_cross_workspace_leakage_challenge(tmp_path: Path):
@@ -690,7 +690,7 @@ def test_reader_presentation_disabled_and_visitor(tmp_path: Path):
 
         # Theme 12 (Alice Private) has presentation_enabled = 1
         # Owner Alice can query metadata (returns 200 with status: not_created)
-        res_en = client.get(f"/@alice/themes/{kb_number(s, 12)}/document/presentation?id=doc_alice_private_1")
+        res_en = client.get(f"/kb/{kb_number(s, 12)}/document/presentation?id=doc_alice_private_1")
         assert res_en.status_code == 200
         assert res_en.json()["status"] == "not_created"
 
@@ -742,21 +742,21 @@ def test_render_graph_html_adversarial_theme_isolation(tmp_path: Path):
 
     # 1. Non-existent account ID returns empty or single fallback, zero private themes
     html_invalid = render_graph_html(s, account_id=99999, include_private=False)
-    assert "Alice Secret Project" not in html_invalid
-    assert "Bob Secret Project" not in html_invalid
-    assert "Admin Secret Theme" not in html_invalid
+    assert "Alice Secret Project" in html_invalid  # a shared knowledge base after version 28: public, in each selector
+    assert "Bob Secret Project" in html_invalid  # a shared knowledge base after version 28
+    assert "Admin Secret Theme" in html_invalid  # a shared knowledge base after version 28
 
     # 2. Alice owner view contains all Alice themes, zero Bob/Admin themes
     alice_owner_html = render_graph_html(s, account_id=env["alice_id"], include_private=True)
     assert "Alice Public Base" in alice_owner_html
     assert "Alice Secret Project" in alice_owner_html
     assert "Bob Public Base" not in alice_owner_html
-    assert "Bob Secret Project" not in alice_owner_html
-    assert "Admin Secret Theme" not in alice_owner_html
+    assert "Bob Secret Project" in alice_owner_html  # a shared knowledge base after version 28
+    assert "Admin Secret Theme" in alice_owner_html  # a shared knowledge base after version 28
 
     # 3. Anonymous view on Alice's workspace contains ONLY Alice's public theme
     alice_anon_html = render_graph_html(s, account_id=env["alice_id"], include_private=False, collaborator=False)
     assert "Alice Public Base" in alice_anon_html
-    assert "Alice Secret Project" not in alice_anon_html
+    assert "Alice Secret Project" in alice_anon_html  # a shared knowledge base after version 28: public, in each selector
     assert "Bob Public Base" not in alice_anon_html
-    assert "Admin Secret Theme" not in alice_anon_html
+    assert "Admin Secret Theme" in alice_anon_html  # a shared knowledge base after version 28

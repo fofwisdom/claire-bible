@@ -222,25 +222,22 @@ def test_admin_viewer_mcp_section_links_to_admin_tokens(env):
     assert 'href="/settings/tokens" id="pref-mcp-tokens-link"' not in resp.text
 
 
-def test_theme_query_scopes_section_to_selected_owned_theme(env):
+def test_kb_query_scopes_section_to_the_personal_knowledge_base(env):
+    """The settings of ``/settings/*`` are of the account: ``?kb=`` takes only the personal knowledge base of the caller (CT1). A shared knowledge base and a knowledge base of another account give 404."""
     _set_mode(env.db_file, "network")
-    ref = str(env.alice_private.number)
+    ref = str(env.alice_def.number)
     resp = env.client.get(f"/settings/webmcp?kb={ref}", headers=env.alice_owner)
     assert resp.status_code == 200
     body = resp.text
     assert f'data-theme-ref="{ref}"' in body
-    assert 'data-theme-public="false"' in body
-    # 시드 순번은 소유 테마 목록 안의 위치다. 두 테마가 서로 다른 슬롯을 받아야 한다.
-    other = env.client.get(f"/settings/webmcp?kb={env.alice_def.number}", headers=env.alice_owner).text
-    seeds = {re.search(r'data-theme-seed="(\d+)"', html).group(1) for html in (body, other)}
-    assert len(seeds) == 2
-    # 테마 라벨은 이스케이프된 data 속성으로만 들어간다.
-    assert 'data-theme-label="Alice &lt;Private&gt;"' in body
+    assert 'data-theme-label="Alice Default"' in body
     boot = _bootstrap(body)
     assert boot["syndication"]["theme_ref"] == ref
-    assert sorted(boot["syndication"]["owned_theme_refs"]) == sorted([str(env.alice_def.number), ref])
+    assert boot["syndication"]["owned_theme_refs"] == [ref]
     assert str(env.bob_def.number) not in body
     assert str(env.admin_theme.number) not in body
+    # ``Alice <Private>`` had an owner before version 28; now it is a shared knowledge base and not of the account.
+    assert env.client.get(f"/settings/webmcp?kb={env.alice_private.number}", headers=env.alice_owner).status_code == 404
     assert env.client.get(f"/settings/webmcp?kb={env.bob_def.number}", headers=env.alice_owner).status_code == 404
 
 

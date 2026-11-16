@@ -9,7 +9,7 @@ Covers:
   * Dispatch records dispatched_by_account_id=1.
 - Network mode:
   * Member legacy /@{username}/syndication/preferences?tab= redirects to root-mounted /settings/* (?tab=idp|userdb → /settings/account), never with /@{username} in Location.
-  * Namespaced access /@{username}/syndication and /@{username}/themes/{theme_number}/syndication.
+  * Namespaced access /@{username}/syndication and /@{username}/kb/{theme_number}/syndication.
   * Caller's account_id is recorded in syndication_dispatches.dispatched_by_account_id.
   * Cross-account write protection: member cannot dispatch into another member's theme.
 """
@@ -235,7 +235,7 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         # 1. Network mode: /syndication is a root-mounted _system route. The old /prototype/syndication route is removed (RD20).
-        # Prefixed paths under /@{username}/... or /themes/{n}/... fail closed with 404 (rule N5).
+        # Prefixed paths under /@{username}/... or /kb/{n}/... fail closed with 404 (rule N5).
         alice_headers = {"Authorization": f"Bearer {alice_token}"}
         res_root = client.get("/syndication", headers=alice_headers)
         assert res_root.status_code == 200
@@ -248,8 +248,8 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             "/@alice/syndication",
             "/@alice/prototype/syndication",
             "/@alice/syndication/preferences",
-            f"/@alice/themes/{alice_theme.number}/syndication",
-            f"/themes/{alice_theme.number}/syndication",
+            f"/kb/{alice_theme.number}/syndication",
+            f"/kb/{alice_theme.number}/syndication",
         ):
             assert client.get(bad_path, headers=alice_headers, follow_redirects=False).status_code == 404, bad_path
 

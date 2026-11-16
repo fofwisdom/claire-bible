@@ -27,8 +27,8 @@ def kb_number(settings: Any, kb_id: int) -> str:
 
 
 def kb_url(settings: Any, kb_id: int, route: str) -> str:
-    """The pinned path of a route (``/themes/{number}{route}``). The server sends 308 to the path of the owner in network mode."""
-    return f"/themes/{kb_number(settings, kb_id)}{route}"
+    """The pinned path of a route in a shared knowledge base: ``/kb/{number}{route}`` (design Section 7)."""
+    return f"/kb/{kb_number(settings, kb_id)}{route}"
 
 
 def seed(settings: Any, kb_id: int, payload: str, **kwargs: Any) -> Any:

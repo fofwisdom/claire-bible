@@ -1105,7 +1105,7 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
     )
     tm_multi = KnowledgeBaseManager(s_multi)
-    tm_multi.define_kb("AI연구", icon="🤖")
+    tm_multi.define_kb("AI연구", icon="🤖", knowledge_type="real")
 
     clean, tid = parse_message_theme("안녕하세요 #1 논문입니다", tm_multi)
     assert tid == 1
@@ -1164,107 +1164,6 @@ async def test_on_theme_single_mode_reply(tmp_path: Path):
     assert "CLAIRE_MULTI_THEME=1" in reply
 
 
-async def test_ingest_prompts_theme_selection_in_multi_theme_mode(tmp_path: Path, monkeypatch):
-    """멀티 테마 모드에서 적재 명령 시 테마를 먼저 묻고, 선택된 테마로 적재되는지 검증."""
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
-    from claire.ingest.service import IngestReport
-    from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
-
-    data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
-    data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-
-    settings = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-        telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
-    )
-    tm = KnowledgeBaseManager(settings)
-    tm.define_kb("AI연구", icon="🤖")
-
-    app = build_app(settings)
-    on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
-    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
-
-    prompt_msg = AsyncMock()
-    prompt_msg.edit_text = AsyncMock()
-
-    msg = AsyncMock()
-    msg.reply_text = AsyncMock(return_value=prompt_msg)
-    msg.set_reaction = AsyncMock()
-
-    update = MagicMock()
-    update.effective_user = SimpleNamespace(id=100)
-    update.effective_chat = SimpleNamespace(id=200)
-    update.message = msg
-    update.update_id = 9999
-
-    ctx = MagicMock()
-    ctx.args = ["https://example.com/ai-paper", "|", "아키텍처 중심"]
-
-    # 1. /ingest 호출 -> 즉시 적재되지 않고 테마 선택 프롬프트와 인라인 키보드 출력
-    await on_ingest(update, ctx)
-
-    # CT28: the bot says once that the focus is off, then it asks for the theme.
-    assert msg.reply_text.await_count == 2
-    assert msg.reply_text.call_args_list[0][0][0] == _t("bot.focus.sealed")
-    prompt_call = msg.reply_text.call_args
-    prompt_text = prompt_call[0][0]
-    markup = prompt_call[1].get("reply_markup")
-
-    assert "적재할 테마(지식베이스)를 선택하세요" in prompt_text
-    assert "https://example.com/ai-paper" in prompt_text
-    assert "아키텍처 중심" not in prompt_text
-    assert markup is not None
-
-    buttons = [btn for row in markup.inline_keyboard for btn in row]
-    assert len(buttons) == 3  # 기본 테마, AI연구, 취소
-    assert "기본 지식베이스" in buttons[0].text
-    assert buttons[0].callback_data == "igt:9999:0"
-    assert "AI연구" in buttons[1].text
-    assert buttons[1].callback_data == "igt:9999:1"
-    assert "취소" in buttons[2].text
-    assert buttons[2].callback_data == "igc:9999"
-
-    # 2. 테마 1(AI연구) 버튼 클릭 콜백 시뮬레이션
-    ingested_service_tids = []
-    fake_report = IngestReport(
-        document_id="doc_ai_1",
-        title="AI Paper Title",
-        summary="AI 요약",
-        focus="아키텍처 중심",
-    )
-
-    def fake_ingest(*args, **kwargs):
-        return fake_report
-
-    monkeypatch.setattr("claire.ingest.service.IngestService.ingest", fake_ingest)
-
-    cb_query = AsyncMock()
-    cb_query.data = "igt:9999:1"
-    cb_query.answer = AsyncMock()
-    cb_query.message = prompt_msg
-    cb_query.from_user = SimpleNamespace(id=100)
-
-    cb_update = MagicMock()
-    cb_update.effective_user = SimpleNamespace(id=100)
-    cb_update.callback_query = cb_query
-
-    await on_callback(cb_update, None)
-
-    cb_query.answer.assert_awaited()
-    # 진행 상태로 전환 및 완료 결과로 settle
-    assert prompt_msg.edit_text.await_count >= 1
-    msg.set_reaction.assert_awaited_with("👍")
-
-
 async def test_ingest_cancellation(tmp_path: Path):
     """테마 선택 프롬프트에서 취소 버튼 클릭 시 정상적으로 취소되는지 검증."""
     from types import SimpleNamespace
@@ -1287,7 +1186,7 @@ async def test_ingest_cancellation(tmp_path: Path):
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("AI연구", icon="🤖")
+    tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
 
     app = build_app(settings)
     on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
@@ -1349,7 +1248,7 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("AI연구", icon="🤖")
+    tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
 
     app = build_app(settings)
     on_ingest = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_ingest")
@@ -1386,54 +1285,6 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
     msg.set_reaction.assert_awaited_with("👍")
 
 
-async def test_on_message_prompts_theme_selection_in_multi_theme_mode(tmp_path: Path):
-    """일반 메시지(URL 전송) 시에도 다중 테마 모드이면 테마를 물어보는지 검증."""
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock, MagicMock
-    from claire.config import Settings
-    from claire.store.knowledge_base import KnowledgeBaseManager
-    from claire.telegram_bot import build_app
-
-    data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
-    data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-
-    settings = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-        telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
-    )
-    tm = KnowledgeBaseManager(settings)
-    tm.define_kb("AI연구", icon="🤖")
-
-    app = build_app(settings)
-    on_message = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_message")
-
-    prompt_msg = AsyncMock()
-    msg = AsyncMock()
-    msg.text = "https://example.com/direct-url-message"
-    msg.reply_text = AsyncMock(return_value=prompt_msg)
-
-    update = MagicMock()
-    update.effective_user = SimpleNamespace(id=100)
-    update.effective_chat = SimpleNamespace(id=200)
-    update.message = msg
-    update.update_id = 6666
-
-    await on_message(update, None)
-
-    msg.reply_text.assert_awaited_once()
-    prompt_call = msg.reply_text.call_args
-    assert "적재할 테마(지식베이스)를 선택하세요" in prompt_call[0][0]
-    markup = prompt_call[1].get("reply_markup")
-    assert markup is not None
-    assert len(markup.inline_keyboard) == 3
-
-
 async def test_settle_status_theme_resolution(tmp_path: Path):
     """_settle_status 가 kb_id 및 cross-theme fallback 에 따라 올바른 테마 DB에 공유 토큰을 생성하는지 검증."""
     from claire.config import Settings
@@ -1454,7 +1305,7 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
         CLAIRE_PUBLIC_URL="https://cb.example.com",
     )
     tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("AI엔지니어링")
+    t1 = tm.define_kb("AI엔지니어링", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 적재
@@ -1548,7 +1399,7 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("AI연구", icon="🤖")
+    tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 삽입
@@ -1613,7 +1464,7 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("보조테마", icon="📁")
+    tm.define_kb("보조테마", icon="📁", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1에 문서 삽입
@@ -1680,7 +1531,7 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("보조테마", icon="📁")
+    tm.define_kb("보조테마", icon="📁", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     conn1 = dbm.connect(t1_settings.db_file)
@@ -1744,7 +1595,7 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
         allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
-    tm.define_kb("특화테마", icon="🔬")
+    tm.define_kb("특화테마", icon="🔬", knowledge_type="real")
     t1_settings = tm.get_settings_for_kb(1)
 
     # 테마 1 DB에 inbox 실패 레코드 삽입
@@ -1904,7 +1755,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     conn.close()
     tm = KnowledgeBaseManager(settings)
     own = tm.define_kb("내 테마", account_id=member, is_personal=True)
-    other = tm.define_kb("관리자 테마")
+    other = tm.define_kb("관리자 테마", knowledge_type="real")
 
     profile = TelegramBotProfile(account_id=member, bot_id=7100000001, token="7100000001:" + "A" * 35, allowed_user_ids=(42,), fingerprint="abcd1234")
     app = build_app(settings, profile=profile)

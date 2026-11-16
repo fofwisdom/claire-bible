@@ -2088,8 +2088,13 @@ class IngestServicePool:
         self,
         theme_ref: int | str | None = None,
         account_id: int | None = None,
+        *,
+        acting_account_id: int | None = None,
     ) -> IngestService:
-        """테마의 적재 서비스. 없는(삭제된) 테마면 ThemeNotFound를 그대로 올린다(캐시된 서비스도 쓰지 않는다)."""
+        """테마의 적재 서비스. 없는(삭제된) 테마면 ThemeNotFound를 그대로 올린다(캐시된 서비스도 쓰지 않는다).
+
+        A shared knowledge base has no owner: work that a person starts in it runs with the provider context of that person (``acting_account_id``; design Section 13.1 rule 5). Without it (server jobs), the server context applies.
+        """
         eff_account_id = account_id if account_id is not None else self.account_id
         if theme_ref is None or str(theme_ref).strip() == "":
             if eff_account_id is not None:
@@ -2100,6 +2105,8 @@ class IngestServicePool:
             theme = self.theme_manager.get_kb(theme_ref)
 
         owner_id = getattr(theme, "account_id", eff_account_id)
+        if owner_id is None and getattr(theme, "is_shared", False):
+            owner_id = acting_account_id
         theme_settings = self.theme_manager.get_settings_for_kb(theme.id, self.base_settings)
         ctx, error = resolve_service_context(theme_settings, owner_id)
         key = context_cache_key(ctx, error)

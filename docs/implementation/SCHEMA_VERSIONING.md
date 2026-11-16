@@ -273,7 +273,7 @@ The retired v12 recovery is described above. Other stores have their own version
 - **[코드] 코드 이름**: `store/knowledge_base.py`, `KnowledgeBaseManager`, `KnowledgeBaseInfo`, `KnowledgeBaseNotFound`, `get_kb_manager`, 메서드 `get_kb`·`list_kbs`·`define_kb`·`update_kb`·`delete_kb`·`reset_kb`·`personal_kb_for` 등. 응답 JSON의 키도 `kb_id`·`is_personal`이다. 내부 설정 `CLAIRE_THEME_ID`는 `CLAIRE_KB_ID`다.
 - **[테스트]** `tests/test_schema_v27.py`.
 
-## v28 (공유 지식 베이스와 테마의 스키마, CT-1 (a))
+## v28 (공유 지식 베이스와 테마, CT-1)
 
 확인 기준: 공유 지식 베이스 설계 단위 CT-1의 스키마 부분 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.4, §11.2, §11.4.
 
@@ -282,5 +282,7 @@ The retired v12 recovery is described above. Other stores have their own version
 - **[코드] 퇴역 테이블**: 읽는 코드가 없는 v14 테이블 `theme_members`와 `users`는 행이 없으면 지우고, 행이 있으면 `<name>_retired_v28`로 이름만 바꾸고 경고 로그를 쓴다. 기동은 멈추지 않는다.
 - **[코드] 저장소 경계**: `store/kb_collab.py`만 협업 테이블을, `store/themes.py`만 테마 테이블을 읽고 쓴다. `kb_collab.kind_violations`는 개인·공유 두 종류에 맞지 않는 `knowledge_bases` 행을 찾는다.
 - **[코드] 번호(§5.4)**: `ids.insert_with_timestamp_id`의 `is_taken`으로, 테마 번호는 지식 베이스 번호를, 지식 베이스 번호는 테마 번호를 피해 다음 `seq`로 넘어간다.
-- **[미구현]** 지식 베이스 변환(§12.2: 개인이 아닌 지식 베이스를 공유 지식 베이스로, 모더레이터 멤버십, 문서마다 `migration` 기여), `is_collaborator_accessible` 열 제거, 종류에 맞지 않는 행의 404 처리는 CT-1 (b)에서 한다.
-- **[테스트]** `tests/test_schema_v28.py`.
+- **[코드] 변환**(`_migrate_v28_convert_knowledge_bases`, 설계 §12.2, 기동마다 옛 모양으로 남은 행에 실행): 개인이 아니고 소유자가 있는 지식 베이스마다 savepoint 하나로 공유 지식 베이스로 바꾼다. `created_by_account_id = 옛 소유자`, `account_id = NULL`, `is_public = 1`, `join_policy = 'approval'`, `state = 'active'`, `knowledge_type = 'real'`. **비공개였던 추가 테마도 공개가 된다(CT5·CT6).** 옛 소유자의 계정 상태가 `active`·`suspended`이거나 첫 설정 전 관리자(`setup_required`)이면 `moderator` 멤버십을 넣고, 아니면 넣지 않는다(관리자가 중재). 문서마다 기여 한 건(`origin 'migration'`, 크레딧은 옛 소유자, 루트 없음, `hidden=1`이면 `hidden` 아니면 `visible`, `approved_at` = 이관 시각). 그 문서들의 `watch_enabled = 0`, `refresh_queue`·`expand_queue`의 그 지식 베이스 행 삭제(CT10). 이미 있는 멤버십·기여는 다시 넣지 않는다.
+- **[코드] 실패한 변환**: savepoint가 실패한 행은 그대로 남고 경고 로그를 쓴다. 그 행은 두 종류(§11.2 표)에 맞지 않으므로 `KnowledgeBaseManager`가 서비스하지 않는다(모든 라우트 404, `unavailable_kbs()`가 사유와 함께 돌려준다). 다음 기동이 다시 시도한다. 기동은 멈추지 않는다.
+- **[미구현]** `is_collaborator_accessible` 열 제거와 자격증명 scope 변경은 CT-2, `/admin/kb` 화면의 경고 표시는 CT-9에서 한다.
+- **[테스트]** `tests/test_schema_v28.py`, `tests/test_shared_kb.py`.

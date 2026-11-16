@@ -635,7 +635,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
 | `kb list` | `claire kb list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
-| `kb define` | `claire kb define --label <L> [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
+| `kb define` | `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
 | `kb update` | `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개/협력자 접근 권한 수정 |
 | `kb reset` | `claire kb reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID와 경로(`/themes/<number>/`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
 | `kb delete` | `claire kb delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`kb_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
@@ -649,7 +649,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **`--json`**: 기계 가독형 JSON 배열로 출력.
 
 #### `claire kb define`
-* **사용법**: `claire kb define --label <L> [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **사용법**: `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
 * **주요 옵션**:
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).

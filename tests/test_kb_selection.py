@@ -43,7 +43,7 @@ def _settings(tmp_path) -> Settings:
 def kb_env(tmp_path):
     settings = _settings(tmp_path)
     tm = KnowledgeBaseManager(settings)
-    other = tm.define_kb("Other knowledge base")
+    other = tm.define_kb("Other knowledge base", knowledge_type="real")
     # Seed one document in each knowledge base without the HTTP ingest (which writes only to the personal one).
     IngestService(tm.get_settings_for_kb(0, settings), kb_id=0).ingest("Personal\npersonal knowledge text.", source="cli", expand_max=0)
     IngestService(tm.get_settings_for_kb(other.id, settings), kb_id=other.id).ingest("Other\nother knowledge text.", source="cli", expand_max=0)
@@ -76,8 +76,8 @@ def test_old_names_give_the_same_result_as_without_them(kb_env):
 
 def test_the_path_selects_the_knowledge_base(kb_env):
     client, _settings, _tm, other = kb_env
-    assert _titles(client.get(f"/themes/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
-    assert client.get(f"/themes/{(1 << 60) + 3}/documents", headers=OWNER_HEADERS).status_code == 404
+    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
+    assert client.get(f"/kb/{(1 << 60) + 3}/documents", headers=OWNER_HEADERS).status_code == 404
 
 
 def test_e2e_ingest_writes_only_to_the_personal_knowledge_base(kb_env):
@@ -86,9 +86,9 @@ def test_e2e_ingest_writes_only_to_the_personal_knowledge_base(kb_env):
     assert resp.status_code == 200, resp.text
     assert resp.json()["kb_id"] == 0
     assert _titles(client.get("/documents", headers=OWNER_HEADERS)) == ["New", "Personal"]
-    assert _titles(client.get(f"/themes/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
+    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
 
-    pinned = client.post(f"/themes/{_number(other)}/ingest", json={"payload": "Title: Pinned\nBody: text."}, headers=OWNER_HEADERS)
+    pinned = client.post(f"/kb/{_number(other)}/ingest", json={"payload": "Title: Pinned\nBody: text."}, headers=OWNER_HEADERS)
     assert pinned.status_code == 403
     assert pinned.json() == {"error": "kb_ingest_personal_only"}
 

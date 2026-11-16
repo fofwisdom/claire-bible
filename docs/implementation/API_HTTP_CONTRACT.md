@@ -185,3 +185,11 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 - 타임라인 항목(`GET /api/federation/timeline`, `GET /api/federation/timeline/{item_id}`)에는 `quote` 키가 있다: `null`, 또는 `{"iri", "item_id", "state"}`. `state`는 자기 노트의 인용 상태(`pending`, `approved`, `refused`, `revoked`)이고, 원격 게시물이면 `null`이다.
 - `note`에는 `quote_policy`, `quotes`(승인한 인용 수), `quote`(`{"iri", "state"}` 또는 `null`)가 있다. `GET /api/federation/objects`의 항목에는 `quote_policy`와 `quotes`가 있다.
 - 승인의 공개 경로 `GET /ap/quote-authorizations/{id}`는 사이드카가 응답한다([FEDERATION.md](FEDERATION.md) §26.1). 철회한 승인은 410이다.
+
+## 공유 지식 베이스 경로와 생성 (CT-1)
+
+- **[코드]** `/kb/{number}/…`: 공유 지식 베이스를 고정한 네임스페이스 라우트(모든 모드). 읽기는 누구나 200. 쓰기는 권한(`maintain`)이 없으면 403 `kb_capability_required`, 익명은 404. 적재는 403 `kb_ingest_personal_only`. 종류에 맞지 않는 행과 없는 번호는 404.
+- **[코드]** 옛 링크 `/themes/{number}/…`, `/@{u}/themes/{number}/…`: 공유는 308 `/kb/{number}/…`, 개인은 읽을 수 있으면 308 그 계정 경로, 아니면 404.
+- **[코드]** `POST /themes`: 본문 `label`, `knowledge_type`(`real`·`fictional`, 필수: 없으면 400 `knowledge_type_required`), 선택 `description`·`icon` 등. 201 `{"ok": true, "theme": {..., "account_id": null, "created_by_account_id": <계정>, "knowledge_type": ...}}`. `is_public: false`는 400(공유 지식 베이스는 항상 공개).
+- **[코드]** `PATCH /themes`(`id` = 번호): 개인은 소유자, 공유는 `settings` 권한. `DELETE /themes`: 공유는 관리자만(`delete`), 개인은 삭제할 수 없다(400).
+- **[미구현]** `/kb` 컬렉션, `/@{u}/kb`, `POST /kb`·`PATCH /kb/{number}` 이름, 멤버십·기여 라우트는 CT-2 이후다. 지금은 관리 라우트 이름이 `/themes`로 남아 있다.

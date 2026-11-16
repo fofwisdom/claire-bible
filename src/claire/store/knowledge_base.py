@@ -106,7 +106,13 @@ class KnowledgeBaseInfo:
     updated_at: float = 0.0
     # 소유 계정(§13.1). v15 이전 항목과 기본값은 관리자(1)다. 새로 쓰는 themes.json 항목에는 항상 들어간다.
     # P1 싱글 모드에서는 관리자(1)다. P3 L3-e에서 명시 인자로 바꾼다.
-    account_id: int = dbm.ADMIN_ACCOUNT_ID
+    # None for a shared knowledge base: it has no owner (CT2).
+    account_id: int | None = dbm.ADMIN_ACCOUNT_ID
+    # v28 (shared knowledge bases, design Section 11.2). ``knowledge_type`` is None for a personal knowledge base (CT18).
+    created_by_account_id: int | None = None
+    knowledge_type: str | None = None
+    join_policy: str = "approval"
+    state: str = "active"
     # v16(§13.2). 외부 번호(항상 >= 2^56, §7.2). 내부 ``id``는 내부 키로 남는다(K9).
     number: int | None = None
     # 공개 상태 변경·문서 purge 때 올린다. 열람 capability URL을 즉시 무효화한다(§5.2).
@@ -118,6 +124,11 @@ class KnowledgeBaseInfo:
     @property
     def knowledge_manager(self) -> str:
         return self.sorcerer
+
+    @property
+    def is_shared(self) -> bool:
+        """A shared knowledge base: not personal and without an owner (design Section 11.2)."""
+        return not self.is_personal and self.account_id is None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -201,11 +212,13 @@ def _visibility_epoch(raw: Any, source: str, kb_id: Any) -> int:
     return raw
 
 
-def _owner_account_id(data: dict[str, Any], source: str) -> int:
-    """``account_id``가 없는 항목은 v15 이전 관리자 것(1)이다. 값이 NULL·비정수면 추측하지 않고 실패한다(C1)."""
+def _owner_account_id(data: dict[str, Any], source: str, *, allow_none: bool = False) -> int | None:
+    """``account_id``가 없는 항목은 v15 이전 관리자 것(1)이다. 값이 비정수면 추측하지 않고 실패한다(C1). NULL은 공유 지식 베이스의 행에서만 받는다(``allow_none``)."""
     if "account_id" not in data:
         return dbm.ADMIN_ACCOUNT_ID
     raw = data["account_id"]
+    if raw is None and allow_none:
+        return None
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise ValueError(f"{source}: theme {data.get('id')!r} has invalid account_id {raw!r}")
     return raw
@@ -233,7 +246,11 @@ def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
         created_at=float(d.get("created_at", 0.0)),
         updated_at=float(d.get("updated_at", 0.0)),
         # 열이 없는 행은 v15 이전 DB(관리자 것)다. v15 DB의 NULL은 이관 결함이므로 거부한다.
-        account_id=_owner_account_id(d, "themes table"),
+        account_id=_owner_account_id(d, "knowledge_bases table", allow_none=True),
+        created_by_account_id=d.get("created_by_account_id"),
+        knowledge_type=d.get("knowledge_type"),
+        join_policy=str(d.get("join_policy") or "approval"),
+        state=str(d.get("state") or "active"),
         # 열이 없는 행은 v16 이전 DB(읽기 전용 점검)다.
         number=_theme_number(d.get("number"), "themes table", tid),
         visibility_epoch=_visibility_epoch(d.get("visibility_epoch"), "themes table", tid),
@@ -259,6 +276,8 @@ class KnowledgeBaseManager:
         self._themes: dict[int, KnowledgeBaseInfo] = {}
         self._fqdn_to_kb_id: dict[str, int] = {}
         self._next_seq: int = 1
+        # Rows that are neither a personal nor a shared knowledge base (design Section 12.2 step 3): no route serves them; the admin page lists them.
+        self._unavailable: dict[int, tuple[KnowledgeBaseInfo, str]] = {}
         if self.writable:
             self._init_db_file()
         self.reload()
@@ -338,14 +357,12 @@ class KnowledgeBaseManager:
                     rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
                 except (sqlite3.OperationalError, sqlite3.DatabaseError):
                     rows = []
-                loaded = {}
-                for r in rows:
-                    t = _row_to_theme(r, default_db_path=str(db_file))
-                    loaded[t.id] = t
-                if 0 not in loaded:
+                loaded, unavailable = self._split_by_kind(rows, str(db_file))
+                if 0 not in loaded and 0 not in unavailable:
                     loaded[0] = self._build_default_theme()
                 self._themes = loaded
-                self._next_seq = max((t.seq for t in self._themes.values()), default=0) + 1
+                self._unavailable = unavailable
+                self._next_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0) + 1
                 self._rebuild_fqdn_index()
                 return
             finally:
@@ -374,22 +391,42 @@ class KnowledgeBaseManager:
             if 0 not in existing_ids:
                 self._insert_theme_row(conn, self._build_default_theme(), db_path=str(db_file))
 
+            # Rows from the legacy paths have the old shape (an owner and not personal): convert them now (design Section 12.2).
+            dbm._migrate_v28_convert_knowledge_bases(conn)
             # 레거시 경로(themes.json·다중 DB 가져오기)로 들어온 행에도 번호를 준다. DB가 번호의 원천이다.
             dbm.backfill_theme_numbers(conn)
             conn.commit()
             rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
 
-            loaded: dict[int, KnowledgeBaseInfo] = {}
-            for r in rows:
-                t = _row_to_theme(r, default_db_path=str(db_file))
-                loaded[t.id] = t
-
+            loaded, unavailable = self._split_by_kind(rows, str(db_file))
             self._themes = loaded
-            max_seq = max((t.seq for t in self._themes.values()), default=0)
+            self._unavailable = unavailable
+            max_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0)
             self._next_seq = max(max_seq + 1, legacy_next_seq)
             self._rebuild_fqdn_index()
         finally:
             conn.close()
+
+    @staticmethod
+    def _split_by_kind(rows: Any, default_db_path: str) -> tuple[dict[int, KnowledgeBaseInfo], dict[int, tuple[KnowledgeBaseInfo, str]]]:
+        """Rows of the two kinds (personal, shared) and the rows that break the kinds (unavailable, with the reason)."""
+        from . import kb_collab
+
+        loaded: dict[int, KnowledgeBaseInfo] = {}
+        unavailable: dict[int, tuple[KnowledgeBaseInfo, str]] = {}
+        for r in rows:
+            t = _row_to_theme(r, default_db_path=default_db_path)
+            reason = kb_collab.kind_violation_reason(t.is_personal, t.account_id, t.is_public, t.knowledge_type)
+            if reason:
+                unavailable[t.id] = (t, reason)
+            else:
+                loaded[t.id] = t
+        return loaded, unavailable
+
+    def unavailable_kbs(self) -> list[tuple[KnowledgeBaseInfo, str]]:
+        """The rows that no route serves, with the reason (for the admin page)."""
+        self.reload()
+        return [self._unavailable[k] for k in sorted(self._unavailable)]
 
     def _retire_legacy_registry(self, conn: sqlite3.Connection, existing_ids: set[int], *, db_file: str) -> int:
         """Insert the entries that are only in ``data/themes.json`` (the admin owns an entry without ``account_id``), then rename the file to ``themes.json.retired``. Return the ``next_seq`` of the file (1 when there is no file).
@@ -668,6 +705,16 @@ class KnowledgeBaseManager:
             reverse=True,
         )
 
+    def list_selectable_kbs(self, account_id: int) -> list[KnowledgeBaseInfo]:
+        """The knowledge bases that the selector of an account shows: its personal knowledge base, then all shared knowledge bases (they are public, CT5), newest first."""
+        self.reload()
+        shared = sorted(
+            (t for t in self._themes.values() if t.is_shared),
+            key=lambda t: (t.number is not None, t.number or 0, t.id),
+            reverse=True,
+        )
+        return [*self.list_account_kbs(account_id), *shared]
+
     def personal_kb_for(self, account_id: int) -> KnowledgeBaseInfo:
         """그 계정의 ``is_personal=1`` 테마. 없으면 ``KnowledgeBaseNotFound``(C1)."""
         self.reload()
@@ -691,8 +738,21 @@ class KnowledgeBaseManager:
         knowledge_manager: str = "",
         presentation_enabled: bool = False,
         account_id: int = dbm.ADMIN_ACCOUNT_ID,
+        knowledge_type: str | None = None,
     ) -> KnowledgeBaseInfo:
-        """지식 관리자: 순차 일련번호를 발급하여 새 테마 디렉터리 생성 및 DB 스키마 초기화."""
+        """Make a knowledge base.
+
+        - ``is_personal=True``: the one personal knowledge base of ``account_id`` (CT1). It has no knowledge type.
+        - Else a shared knowledge base (CT2, CT3): it has no owner, is public, and needs ``knowledge_type`` (``real`` or ``fictional``, CT12; there is no default). ``account_id`` is the founder: it becomes ``created_by_account_id`` and the first moderator (CT8). Labels need not be unique.
+        """
+        if is_personal:
+            if knowledge_type is not None:
+                raise ValueError("a personal knowledge base has no knowledge type")
+        else:
+            if knowledge_type not in ("real", "fictional"):
+                raise ValueError("knowledge_type_required")
+            if not is_public:
+                raise ValueError("a shared knowledge base is always public")
         if not getattr(self.settings, "multi_theme", False):
             raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
@@ -709,10 +769,6 @@ class KnowledgeBaseManager:
         self.reload()
 
         # 동일 계정 내 동일 레이블 중복 방지 (account_id, label)
-        for t in self._themes.values():
-            if t.account_id == account_id and t.label.strip().lower() == cleaned_label.lower():
-                raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
-
         seq = self._next_seq
         self._next_seq += 1
 
@@ -737,7 +793,9 @@ class KnowledgeBaseManager:
             presentation_enabled=bool(presentation_enabled),
             created_at=now,
             updated_at=now,
-            account_id=account_id,
+            account_id=account_id if is_personal else None,
+            created_by_account_id=None if is_personal else account_id,
+            knowledge_type=None if is_personal else knowledge_type,
         )
 
         conn = dbm.connect(db_file)
@@ -752,8 +810,8 @@ class KnowledgeBaseManager:
                         is_personal, is_public, is_collaborator_accessible,
                         fqdn, ga_measurement_id, sorcerer,
                         presentation_enabled, created_at, updated_at, account_id,
-                        number, visibility_epoch
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        number, visibility_epoch, created_by_account_id, knowledge_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         theme.id,
@@ -774,6 +832,8 @@ class KnowledgeBaseManager:
                         theme.account_id,
                         number,
                         theme.visibility_epoch,
+                        theme.created_by_account_id,
+                        theme.knowledge_type,
                     ),
                 )
 
@@ -788,6 +848,11 @@ class KnowledgeBaseManager:
                 # Section 5.4: a knowledge base number is never a theme number.
                 is_taken=lambda n: _themes_store.number_is_theme_number(conn, n),
             )
+            if not is_personal:
+                # CT8: the founder is the first moderator.
+                from . import kb_collab
+
+                kb_collab.add_membership(conn, kb_id=theme.id, account_id=account_id, role="moderator", state="active", now=now)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -849,9 +914,6 @@ class KnowledgeBaseManager:
             if not cleaned_label:
                 raise ValueError("테마 레이블은 비어 있을 수 없습니다.")
             # 동일 계정의 다른 테마와 레이블 중복 검사
-            for other in self._themes.values():
-                if other.id != tid and other.account_id == theme.account_id and other.label.strip().lower() == cleaned_label.lower():
-                    raise ValueError(f"이미 존재하는 테마 레이블입니다: '{cleaned_label}'")
             theme.label = cleaned_label
 
         if description is not None:
@@ -863,6 +925,8 @@ class KnowledgeBaseManager:
         became_private = False
         if is_public is not None:
             new_public = bool(is_public)
+            if theme.is_shared and not new_public:
+                raise ValueError("a shared knowledge base is always public")
             if new_public != theme.is_public:
                 became_private = not new_public
                 theme.is_public = new_public
