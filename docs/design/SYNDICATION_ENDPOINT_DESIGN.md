@@ -217,7 +217,7 @@ flowchart TD
   - Thread view built from ancestors, the focused post, and replies (`GET /api/v1/statuses/:id/context` or `app.bsky.feed.getPostThread`), with edit history, object URI / status id or AT URI / CID, own-post quote policy, the full action bar, and the **지식베이스 연계 panel** (not in KB / in inbox / ingested, as before).
   - **Profile view** (click any avatar or name): bio, fields with verified links, counts, follow (new-post notifications, show boosts), lists, private note, mute, block, report, featured hashtags, pinned and recent posts, and "⇢ 지식베이스 수집 대상 등록" for the account's posts.
 - **Dialogs**: compose (Section 3.5.3), report (category, server rules, attached posts, comment, forward to the remote server), connect.
-- Tab 2's reader shows `🌐 연합 클라이언트에서 스레드 보기` for any item with a matching post.
+- Tab 2's reader shows `🌐 연합 클라이언트에서 글타래 보기` for any item with a matching post.
 
 #### 3.5.3 Mastodon 5.0 Client Feature Matrix and Server API Mapping
 

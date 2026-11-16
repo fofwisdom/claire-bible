@@ -33,7 +33,7 @@
 
 1. **통합 적재 파이프라인**: 텔레그램 봇, CLI, 로컬 REST API, Web UI, MCP(Model Context Protocol) 도구가 단일 정규화 파이프라인(`svc.ingest`)을 공유한다.
 2. **다양한 소스 수집 및 정규화**:
-   - 일반 웹 문서, 리다이렉트 체인, X(트위터) 스레드, YouTube 자막 및 메타데이터 변환.
+   - 일반 웹 문서, 리다이렉트 체인, X(트위터) 글타래, YouTube 자막 및 메타데이터 변환.
    - **Pre-LLM Content Guard**: 차단·저품질 HTTP 페이지 사전 감지 및 필터링.
    - **PDF 적응형 추론(Adaptive Effort)**: 문서 복잡도에 따른 추론 예산 자동 조정.
    - **비디오 & 프레젠테이션 복합 번들**: 비디오 STT 전사 및 VMware Explore 발표 슬라이드 동시 적재.
