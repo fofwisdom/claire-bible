@@ -837,9 +837,9 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
 
             assert internal("GET", "/outbox-tasks").json() == {"tasks": []}
             # A readonly credential cannot cause an outbound activity.
-            assert public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-1"}, readonly).status_code in (401, 403, 404)
+            assert public("/api/federation/publish", {"kb": str(theme_number), "document_id": "doc-1"}, readonly).status_code in (401, 403, 404)
 
-            published = public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-1"})
+            published = public("/api/federation/publish", {"kb": str(theme_number), "document_id": "doc-1"})
             assert published.status_code == 202, published.text
             object_id = published.json()["object"]["id"]
 
@@ -858,7 +858,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
             assert [i["id"] for i in internal("GET", f"/actors/{ALICE_PUBLIC_ID}/outbox").json()["items"]] == [object_id]
 
             # A second publish is an update of the same object. A retract gives a delete task and 410.
-            assert public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-1"}).json()["task"]["kind"] == "update"
+            assert public("/api/federation/publish", {"kb": str(theme_number), "document_id": "doc-1"}).json()["task"]["kind"] == "update"
             assert public("/api/federation/retract", {"object_id": object_id}).status_code == 202
             kinds = [(t["kind"], t["object_public_id"]) for t in internal("GET", "/outbox-tasks").json()["tasks"]]
             assert kinds == [("update", object_id), ("delete", object_id)]

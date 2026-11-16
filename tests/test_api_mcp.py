@@ -16,6 +16,8 @@ from typing import Any
 
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number
+
 from claire.api import server
 from claire.store import db as dbm
 
@@ -152,7 +154,7 @@ def test_mcp_readonly_session_tools_list_and_call(tmp_path: Path) -> None:
 
         resp2 = client.post(
             "/mcp",
-            json=_rpc("tools/call", {"name": "stats", "arguments": {}}, req_id=2),
+            json=_rpc("tools/call", {"name": "stats", "arguments": {"kb": kb_number(s, 0)}}, req_id=2),
             headers={"X-Session": tok},
         )
         assert resp2.status_code == 200
@@ -213,7 +215,7 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
         # 2. tools/call 호출 (stats) -> tool_call SUCCESS 계측
         resp2 = client.post(
             "/mcp",
-            json=_rpc("tools/call", {"name": "stats", "arguments": {}}),
+            json=_rpc("tools/call", {"name": "stats", "arguments": {"kb": kb_number(s, 0)}}),
             headers={"Authorization": f"Bearer {OWNER_TOKEN}"},
         )
         assert resp2.status_code == 200

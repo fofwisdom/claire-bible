@@ -350,7 +350,7 @@ def _redirect(location: str) -> Response:
 def _append_theme_query(path: str, theme_query: str | None) -> str:
     if not theme_query:
         return path
-    return f"{path}?{urlencode({'theme': theme_query})}"
+    return f"{path}?{urlencode({'kb': theme_query})}"
 
 
 def _resolve_caller_theme_and_list(
@@ -359,7 +359,7 @@ def _resolve_caller_theme_and_list(
     account_id: int,
     raw_theme: str | None,
 ) -> tuple[KnowledgeBaseInfo | None, list[KnowledgeBaseInfo], str | None] | None:
-    """``?theme=``가 주어졌으면 호출자 계정의 테마인지 엄격히 검증한다(C1).
+    """``?kb=``(번호)가 주어졌으면 호출자 계정의 지식 베이스인지 엄격히 검증한다(C1, CT23). 없으면 콘솔의 주인인 계정의 개인 지식 베이스다: ``/settings/*``는 그 계정의 콘솔이다.
 
     유효하지 않거나 다른 계정의 테마면 ``None``을 돌려줘 호출자가 404를 내게 한다.
     """
@@ -377,10 +377,12 @@ def _resolve_caller_theme_and_list(
         if not cleaned:
             return None
         try:
-            resolved = tm.resolve_theme_ref(cleaned, account_id=account_id)
+            resolved = tm.get_kb_by_reference(cleaned)
         except KnowledgeBaseNotFound:
             return None
-        return resolved.theme, owned, cleaned
+        if resolved.account_id != account_id:
+            return None
+        return resolved, owned, cleaned
     default_theme = owned[0] if owned else None
     for t in owned:
         if t.is_personal:
@@ -1346,7 +1348,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         if raw_theme is not None:
             assert principal.account_id is not None
             if _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme) is None:
@@ -1358,7 +1360,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if not _is_owner(principal):
             return not_found()
         assert principal.account_id is not None
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         validated_theme: str | None = None
         if raw_theme is not None:
             resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -1375,7 +1377,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         spec = ADMIN_CONSOLE_BY_PATH.get(request.url.path)
         if spec is None:
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         return await asyncio.to_thread(
             _render_console_section,
             ctx,
@@ -1392,8 +1394,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if spec is None:
             return not_found()
         assert principal.account_id is not None
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
-        # D3: 관리자가 /settings/themes 또는 /settings/tokens를 요청하면 ?theme= 검증 후 /admin/*으로 302 이동한다.
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
+        # D3: 관리자가 /settings/themes 또는 /settings/tokens를 요청하면 ?kb= 검증 후 /admin/*으로 302 이동한다.
         if is_admin(principal) and spec.slug in {"themes", "tokens"}:
             validated_theme: str | None = None
             if raw_theme is not None:

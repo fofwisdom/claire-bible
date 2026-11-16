@@ -281,18 +281,18 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             assert res_tab.status_code == 302, tab
             assert res_tab.headers["location"] == target, tab
             sep = "&" if query else "?"
-            res_theme = client.get(f"/syndication/preferences{query}{sep}theme={alice_ref}", headers=alice_headers, follow_redirects=False)
+            res_theme = client.get(f"/syndication/preferences{query}{sep}kb={alice_ref}", headers=alice_headers, follow_redirects=False)
             assert res_theme.status_code == 302, tab
-            expected = target if target == "/settings/account" else f"{target}?theme={alice_ref}"
+            expected = target if target == "/settings/account" else f"{target}?kb={alice_ref}"
             assert res_theme.headers["location"] == expected, tab
-        res_member_settings = client.get(f"/settings/feeds?theme={alice_ref}", headers=alice_headers, follow_redirects=False)
+        res_member_settings = client.get(f"/settings/feeds?kb={alice_ref}", headers=alice_headers, follow_redirects=False)
         assert res_member_settings.status_code == 200
         assert "/admin/" not in res_member_settings.text
         assert "/@alice/syndication" not in res_member_settings.text
-        assert 'href="/syndication?theme=' in res_member_settings.text
+        assert 'href="/syndication?kb=' in res_member_settings.text
         # Unknown tab and a theme of another account fail closed with 404 (C1).
         assert client.get("/syndication/preferences?tab=nope", headers=alice_headers, follow_redirects=False).status_code == 404
-        assert client.get(f"/syndication/preferences?theme={bob_theme.number}", headers=alice_headers, follow_redirects=False).status_code == 404
+        assert client.get(f"/syndication/preferences?kb={bob_theme.number}", headers=alice_headers, follow_redirects=False).status_code == 404
         # A collaborator (Bob) and anonymous callers never see a redirect target.
         bob_prefs = client.get("/syndication/preferences", headers={"Authorization": f"Bearer {bob_token}"}, follow_redirects=False)
         assert bob_prefs.status_code in (401, 403, 404)

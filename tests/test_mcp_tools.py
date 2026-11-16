@@ -7,6 +7,8 @@ from pathlib import Path
 import sqlite3
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number
+
 from claire.api.mcp_tools import (
     DEFAULT_DOCUMENTS_LIMIT,
     MAX_DOCUMENTS,
@@ -391,124 +393,7 @@ def test_build_mcp_app_tools_have_optional_theme(tmp_path):
         assert expected_tools <= found_names
         for t in tools:
             if t["name"] in expected_tools:
-                assert "theme" in t["inputSchema"].get("properties", {})
-
-
-def test_build_mcp_app_document_cross_theme_resolution(tmp_path):
-    """MCP document 툴: theme이 None일 때 기본 DB에 없으면 타 테마 DB 자동 검색 및 연결."""
-    db_file = tmp_path / "claire.db"
-    vault = tmp_path / "vault"
-    vault.mkdir()
-    s = Settings(CLAIRE_DB_PATH=str(db_file), CLAIRE_VAULT_PATH=str(vault), CLAIRE_MULTI_THEME=True)
-
-    # 1. 테마 0(기본 DB) 초기화 및 문서 doc0 적재
-    conn0 = dbm.connect(s.db_file)
-    dbm.init_db(conn0)
-    dbm.insert_document(
-        conn0,
-        Document(
-            id="doc0",
-            url="https://example.com/0",
-            title="Theme 0 Doc",
-            raw_text="doc0 text",
-            source_type="web",
-            content_hash="h0",
-        ),
-    )
-    conn0.close()
-
-    # 2. 테마 1 정의 및 문서 doc1 적재
-    tm = KnowledgeBaseManager(s)
-    t1 = tm.define_kb("AI 테마")
-    t1_s = tm.get_settings_for_kb(t1.id, s)
-    conn1 = dbm.connect(t1_s.db_file)
-    dbm.init_db(conn1)
-    dbm.insert_document(
-        conn1,
-        Document(
-            id="doc1",
-            url="https://example.com/1",
-            title="Theme 1 Doc",
-            raw_text="doc1 text",
-            source_type="web",
-            content_hash="h1",
-        ),
-        kb_id=t1.id,
-    )
-    conn1.close()
-
-    app = build_mcp_app(s, theme_mgr=tm)
-    with TestClient(app, base_url="http://localhost:8765") as client:
-        # A. 기본 DB에 있는 doc0 조회 (theme=None) -> 정상 반환
-        r0 = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "doc0"}},
-            },
-        )
-        assert r0.status_code == 200
-        data0 = json.loads(r0.json()["result"]["content"][0]["text"])
-        assert data0["id"] == "doc0"
-        assert data0["title"] == "Theme 0 Doc"
-
-        # B. 기본 DB에 없는 doc1 조회 (theme=None) -> 테마 1 자동 해석되어 정상 반환
-        r1 = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "doc1"}},
-            },
-        )
-        assert r1.status_code == 200
-        data1 = json.loads(r1.json()["result"]["content"][0]["text"])
-        assert data1["id"] == "doc1"
-        assert data1["title"] == "Theme 1 Doc"
-
-        # C. 명시적 theme=1 전달 시 정상 반환
-        r1_exp = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "doc1", "theme": 1}},
-            },
-        )
-        assert r1_exp.status_code == 200
-        data1_exp = json.loads(r1_exp.json()["result"]["content"][0]["text"])
-        assert data1_exp["id"] == "doc1"
-
-        # D. 명시적 theme=0(doc1 없음) 전달 시 not found
-        r1_wrong = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "doc1", "theme": 0}},
-            },
-        )
-        assert r1_wrong.status_code == 200
-        data1_wrong = json.loads(r1_wrong.json()["result"]["content"][0]["text"])
-        assert data1_wrong.get("error") == "not found"
-
-        # E. 어디에도 없는 문서 -> not found
-        r_none = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 5,
-                "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "doc_none"}},
-            },
-        )
-        assert r_none.status_code == 200
-        assert json.loads(r_none.json()["result"]["content"][0]["text"]).get("error") == "not found"
+                assert "kb" in t["inputSchema"].get("properties", {})
 
 
 def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
@@ -550,7 +435,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "stats", "arguments": {"theme": 0}},
+                "params": {"name": "stats", "arguments": {"kb": kb_number(s, 0)}},
             },
         )
         assert json.loads(r_s0.json()["result"]["content"][0]["text"])["documents"] == 0
@@ -561,7 +446,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "stats", "arguments": {"theme": 1}},
+                "params": {"name": "stats", "arguments": {"kb": kb_number(s, 1)}},
             },
         )
         assert json.loads(r_s1.json()["result"]["content"][0]["text"])["documents"] == 1
@@ -573,7 +458,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 3,
                 "method": "tools/call",
-                "params": {"name": "documents", "arguments": {"theme": 0}},
+                "params": {"name": "documents", "arguments": {"kb": kb_number(s, 0)}},
             },
         )
         assert len(json.loads(r_d0.json()["result"]["content"][0]["text"])["documents"]) == 0
@@ -584,7 +469,7 @@ def test_build_mcp_app_tools_respect_theme_isolation(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 4,
                 "method": "tools/call",
-                "params": {"name": "documents", "arguments": {"theme": 1}},
+                "params": {"name": "documents", "arguments": {"kb": kb_number(s, 1)}},
             },
         )
         docs1 = json.loads(r_d1.json()["result"]["content"][0]["text"])["documents"]
@@ -623,7 +508,7 @@ def test_build_mcp_app_single_theme_mode(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "single_doc"}},
+                "params": {"name": "document", "arguments": {"document_id": "single_doc", "kb": kb_number(s, 0)}},
             },
         )
         assert json.loads(r_found.json()["result"]["content"][0]["text"])["id"] == "single_doc"
@@ -635,7 +520,7 @@ def test_build_mcp_app_single_theme_mode(tmp_path):
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": "nonexistent_doc"}},
+                "params": {"name": "document", "arguments": {"document_id": "nonexistent_doc", "kb": kb_number(s, 0)}},
             },
         )
         assert json.loads(r_not_found.json()["result"]["content"][0]["text"]).get("error") == "not found"

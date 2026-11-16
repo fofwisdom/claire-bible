@@ -75,6 +75,7 @@ from ..presentation.favicon import inject_favicon_head_tags
 from .security import (
     ErrorBoundaryMiddleware,
     WebRuntimeConfig,
+    lookup_route_rule,
     read_json_body,
     read_session_cookie,
     request_auth_scope,
@@ -124,7 +125,7 @@ _MAX_EXPENSIVE_JOBS = 4
 _MAX_ANONYMOUS_SEARCH_JOBS = 4
 _PROGRESS_QUEUE_SIZE = 64
 
-# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 테마별 화면이라 ?theme=를 넘긴다.
+# D4: 옛 /syndication/preferences?tab= → /settings/* 대응표 (설계 §2.2). 지식 베이스별 화면이라 ?kb=를 넘긴다.
 _LEGACY_PREFS_SETTINGS_TABS = {
     "reader": "/settings/reader",
     "accounts": "/settings/connections",
@@ -274,44 +275,6 @@ def create_app(
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
 
-    def _extract_theme_ref(
-        request: Request, body: dict[str, Any] | None = None
-    ) -> int | str | None:
-        raw = request.query_params.get("theme")
-        body_theme = body.get("theme") if body else None
-        hdr = request.headers.get("x-claire-theme")
-        explicit: int | str | None = None
-        if raw is not None and str(raw).strip():
-            explicit = str(raw).strip()
-        elif body_theme is not None and str(body_theme).strip():
-            explicit = str(body_theme).strip()
-        elif hdr is not None and hdr.strip():
-            explicit = hdr.strip()
-
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-
-        if ns is not None and ns.pinned_kb_id is not None:
-            if explicit is not None:
-                account_id = ns.account_id if ns.account_id is not None else 1
-                try:
-                    resolved = theme_mgr.resolve_theme_ref(explicit, account_id=account_id)
-                    if resolved.theme.id != ns.pinned_kb_id:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="explicit theme parameter contradicts pinned theme in path",
-                        )
-                except KnowledgeBaseNotFound:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="explicit theme parameter contradicts pinned theme in path",
-                    )
-            return ns.pinned_kb_id
-
-        return explicit
-
     def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
         try:
             ns = request_namespace(request)
@@ -354,72 +317,69 @@ def create_app(
         return visible
 
     def _job_kb_id(request: Request, theme: KnowledgeBaseInfo) -> int:
-        """작업 조회 대상 테마. 멀티 테마에서는 권한 검사를 거친 테마만 쓴다."""
-        if getattr(s, "multi_theme", False):
-            return theme.id
-        raw_theme = request.query_params.get("theme")
-        try:
-            return int(raw_theme) if raw_theme is not None else theme.id
-        except ValueError:
-            return theme.id
+        """작업 조회 대상 지식 베이스: 선택 규칙(``_get_theme_ctx``)이 정한 것이다."""
+        return theme.id
 
     def _get_theme_ctx(
         request: Request, body: dict[str, Any] | None = None
     ) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
+        """Select the knowledge base of the request (design Section 5.2, CT23). ``body`` is not read: no body field selects a knowledge base.
+
+        1. A namespaced route: only the path selects. A pinned path selects that knowledge base; else the personal knowledge base of the account of the namespace.
+        2. A route without a namespace (surface ``any`` or ``system``): the parameter ``kb`` (number) is required, else 400 ``kb_required``.
+        The query ``theme``, the body ``theme``, and the header ``X-Claire-Theme`` are unknown fields and are ignored.
+        """
+        del body
         try:
             ns = request_namespace(request)
         except Exception:
             ns = None
-
-        principal = request_principal(request)
-        if ns is not None and ns.account_id is not None:
-            account_id = ns.account_id
-        elif principal.account_id is not None:
-            account_id = principal.account_id
-        else:
-            account_id = 1
-        ref = _extract_theme_ref(request, body)
-
+        rule = lookup_route_rule(request.method, str(request.scope.get("path") or request.url.path))
+        surface = rule.surface if rule is not None else "namespaced"
         try:
-            if ns is not None and ns.pinned_kb_id is not None:
+            if surface in ("any", "system"):
+                raw = request.query_params.get("kb")
+                if raw is None or not str(raw).strip():
+                    raise HTTPException(status_code=400, detail="kb_required")
+                theme = theme_mgr.get_kb_by_reference(raw)
+            elif ns is not None and ns.pinned_kb_id is not None:
                 theme = theme_mgr.get_kb(ns.pinned_kb_id)
-                via_internal = False
             else:
-                resolved = theme_mgr.resolve_theme_ref(ref, account_id=account_id)
-                theme = resolved.theme
-                via_internal = resolved.via_internal_id
-                if not getattr(s, "multi_theme", False):
-                    if theme.id != 0:
-                        raise KnowledgeBaseNotFound(ref)
-
+                if ns is None or ns.account_id is None:
+                    raise HTTPException(status_code=404, detail="theme not found")
+                theme = theme_mgr.personal_kb_for(ns.account_id)
+            if not getattr(s, "multi_theme", False) and theme.id != 0:
+                raise KnowledgeBaseNotFound(theme.id)
             if not _theme_accessible(request, theme):
                 raise HTTPException(status_code=404, detail="theme not found")
-
-            if via_internal:
-                request.state.claire_theme_deprecated = True
-
             theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
             theme_svc = service_pool.get_service(theme.id)
         except KnowledgeBaseNotFound as exc:
-            # 없는 테마를 테마 0으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 테마의 존재가 드러나지 않는다.
+            # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
             raise HTTPException(status_code=404, detail="theme not found") from exc
         return theme, theme_settings, theme_svc
 
-    def _first_live_target(
-        targets: list[dict[str, Any]],
-    ) -> tuple[dict[str, Any], KnowledgeBaseInfo] | None:
-        """문서 후보 중 테마가 아직 있는 첫 후보와 그 테마. 삭제된 테마에 남은 후보는 건너뛴다(테마 0으로 바꾸지 않는다)."""
-        for target in targets:
-            tid = target.get("kb_id")
-            if tid is None:
-                continue
-            try:
-                return target, theme_mgr.get_kb(tid)
-            except KnowledgeBaseNotFound:
-                continue
-        return None
-
-    # --- 프로바이더 정책 (설계 §10.1–§10.4) ---------------------------------------------
+    def _get_personal_kb_ctx(request: Request) -> tuple[KnowledgeBaseInfo, Settings, IngestService]:
+        """Ingest writes only to the personal knowledge base of the account of the credential (design Section 5.2 rule 3, CT4). The route takes no knowledge base reference; a path that pins another knowledge base gets 403."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        try:
+            ns = request_namespace(request)
+        except Exception:
+            ns = None
+        if ns is not None and ns.account_id is not None and ns.account_id != principal.account_id:
+            # A write in the namespace of another account stays hidden (404), as before.
+            raise HTTPException(status_code=404, detail="theme not found")
+        try:
+            theme = theme_mgr.personal_kb_for(principal.account_id)
+            if ns is not None and ns.pinned_kb_id is not None and ns.pinned_kb_id != theme.id:
+                raise HTTPException(status_code=403, detail="kb_ingest_personal_only")
+            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
+            theme_svc = service_pool.get_service(theme.id)
+        except KnowledgeBaseNotFound as exc:
+            raise HTTPException(status_code=404, detail="theme not found") from exc
+        return theme, theme_settings, theme_svc
 
     def _account_limits_context(account_id: int | None) -> policy.ProviderContext | None:
         """테마 소유 계정의 한도용 컨텍스트. 관리자(또는 호스트 운영자)면 None.
@@ -1084,9 +1044,10 @@ def create_app(
             ns = None
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
         try:
-            resolved = theme_mgr.resolve_theme_ref(kb_id, account_id=account_id)
-            target_theme = resolved.theme
+            target_theme = theme_mgr.get_kb_by_reference(kb_id)
         except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if target_theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
 
         label = body.get("label")
@@ -1190,9 +1151,10 @@ def create_app(
             ns = None
         account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
         try:
-            resolved = theme_mgr.resolve_theme_ref(kb_id, account_id=account_id)
-            target_theme = resolved.theme
+            target_theme = theme_mgr.get_kb_by_reference(kb_id)
         except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if target_theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
 
         try:
@@ -1458,7 +1420,7 @@ def create_app(
 
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
         if scope == "collaborator":
             if theme.is_personal or theme.id == 0:
@@ -1531,12 +1493,8 @@ def create_app(
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
         body = await _json_object(request)
-        # ``theme`` is a theme reference, as for ``POST /ingest``. ``kb_id`` is the name of the design; the two are the same value.
-        if body.get("theme") is None and body.get("kb_id") is not None:
-            body["theme"] = body["kb_id"]
-        if body.get("theme") is None or not str(body["theme"]).strip():
-            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        # Ingest writes only to the personal knowledge base of the caller (design Section 5.2 rule 3). A ``theme`` or ``kb_id`` field is ignored.
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         # The owner must be able to write to the theme: the theme is of the account of the caller.
         if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
@@ -1597,12 +1555,9 @@ def create_app(
         raw_id = request.path_params["item_id"]
         if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        body = await _json_object(request)
-        if body.get("theme") is None and body.get("kb_id") is not None:
-            body["theme"] = body["kb_id"]
-        if body.get("theme") is None or not str(body["theme"]).strip():
-            return JSONResponse({"error": "invalid_request", "fields": ["theme"]}, status_code=400)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        await _json_object(request)
+        # Ingest writes only to the personal knowledge base of the caller (design Section 5.2 rule 3). A ``theme`` or ``kb_id`` field is ignored.
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         if getattr(theme, "account_id", None) is not None and theme.account_id != account_id:
             raise HTTPException(status_code=404, detail="theme not found")
         client_path = client_db.client_db_path(s.db_file)
@@ -1751,26 +1706,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        theme_ref = _extract_theme_ref(request, body)
-        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets,
-                target=target or None,
-                doc_id=doc_id,
-                token=token,
-            )
-            live = _first_live_target(targets)
-            if live is not None:
-                cand_theme = live[1]
-                if cand_theme.id != theme.id:
-                    try:
-                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
-                            theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
-                            theme_svc = service_pool.get_service(theme.id)
-                    except Exception:
-                        pass
 
         if scope == "collaborator":
             if theme.is_personal or theme.id == 0:
@@ -2089,8 +2024,8 @@ def create_app(
                 if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
                     theme = None
             except HTTPException:
-                # 명시한 테마가 없거나 접근할 수 없으면 404다 (첫 테마로 바꿔 보여 주지 않는다)
-                if _extract_theme_ref(request) is not None:
+                # A given ``kb`` that is not there or not readable is 404 (no other knowledge base is shown in its place).
+                if request.query_params.get("kb") is not None:
                     raise
                 theme = None
             except Exception:
@@ -2116,11 +2051,15 @@ def create_app(
     async def syndication_preferences_ui_route(request: Request) -> Response:
         """D4 호환 302: 옛 ``/syndication/preferences?tab=``를 ``/settings/*``(또는 관리자의 ``/admin/*``)로 보낸다 (설계 §2.2).
 
-        ``?theme=``를 먼저 엄격히 검증한다(없거나 접근할 수 없으면 404, C1). 모르는 ``?tab=``도 404다. ``/settings/*``는 루트 경로라 위치에 ``/@USERNAME``을 붙이지 않는다(D1, S9).
+        ``?kb=``(번호)가 있으면 먼저 엄격히 검증한다(없거나 접근할 수 없으면 404, C1). 모르는 ``?tab=``도 404다. ``/settings/*``는 루트 경로라 위치에 ``/@USERNAME``을 붙이지 않는다(D1, S9).
         """
         theme_query: str | None = None
-        if _extract_theme_ref(request) is not None:
+        raw_kb = request.query_params.get("kb")
+        if raw_kb is not None:
             theme, _, _ = _get_theme_ctx(request)
+            # The settings are of the account of the caller: a knowledge base of another account is 404 (C1).
+            if theme.account_id != request_principal(request).account_id:
+                raise HTTPException(status_code=404, detail="theme not found")
             theme_query = ids.format_public_id(theme.number) if theme.number is not None else str(theme.id)
         tab = request.query_params.get("tab") if "tab" in request.query_params else None
         principal = request_principal(request)
@@ -2130,12 +2069,12 @@ def create_app(
         elif tab in _LEGACY_PREFS_SETTINGS_TABS:
             target = _LEGACY_PREFS_SETTINGS_TABS[tab]
         elif tab in _LEGACY_PREFS_ACCOUNT_TABS:
-            # 관리자 화면은 테마와 무관하다. ?theme=를 넘기지 않는다.
+            # 관리자 화면은 테마와 무관하다. ?kb=를 넘기지 않는다.
             target = _LEGACY_PREFS_ACCOUNT_TABS[tab] if caller_is_admin else "/settings/account"
             theme_query = None
         else:
             raise HTTPException(status_code=404, detail="unknown preferences tab")
-        location = f"{target}?{urlencode({'theme': theme_query})}" if theme_query else target
+        location = f"{target}?{urlencode({'kb': theme_query})}" if theme_query else target
         return Response(
             status_code=302,
             headers={"Location": location, "Cache-Control": "no-store", "Referrer-Policy": "same-origin"},
@@ -2233,15 +2172,8 @@ def create_app(
                 except Exception:
                     raise HTTPException(status_code=404, detail="source theme not found")
         else:
-            try:
-                src_theme, _, _ = _get_theme_ctx(request, body)
-            except HTTPException:
-                # 요청에 테마를 명시했는데 없거나 접근할 수 없으면 404다 (대상 테마로 바꾸지 않는다)
-                if _extract_theme_ref(request, body) is not None:
-                    raise
-                src_theme = target_theme
-            except Exception:
-                src_theme = target_theme
+            # No default: the source is required (design Section 5.2, CT23).
+            raise HTTPException(status_code=400, detail="source_kb_id is required")
 
         if not _theme_accessible(request, src_theme):
             raise HTTPException(status_code=404, detail="source theme not found")
@@ -2249,14 +2181,6 @@ def create_app(
         conn = dbm.connect_existing(s.db_file)
         try:
             src_doc = dbm.get_document(conn, document_id, kb_id=src_theme.id)
-            if src_doc is None and theme_mgr is not None:
-                targets = theme_mgr.resolve_document_targets(doc_id=document_id)
-                live = _first_live_target(targets)
-                if live is not None:
-                    src_theme = live[1]
-                    if not _theme_accessible(request, src_theme):
-                        raise HTTPException(status_code=404, detail="source theme not found")
-                    src_doc = dbm.get_document(conn, document_id, kb_id=src_theme.id)
         finally:
             conn.close()
 
@@ -2878,7 +2802,6 @@ def create_app(
 
         include_hidden = request_auth_scope(request) != "anonymous"
         language_kwargs = _entity_language_kwargs(request)
-        theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
@@ -2895,32 +2818,6 @@ def create_app(
 
         report = await asyncio.to_thread(_load, theme_settings, theme)
 
-        if report is None and theme_ref is None and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=document_id
-            )
-            for target in targets:
-                tid = target.get("kb_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_kb(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_kb(cand_theme.id, s)
-                cand_report = await asyncio.to_thread(_load, cand_settings, cand_theme)
-                if cand_report is not None:
-                    report = cand_report
-                    break
-
         if report is None:
             raise HTTPException(status_code=404, detail="not found")
         return JSONResponse(report)
@@ -2935,7 +2832,6 @@ def create_app(
         if not doc_id:
             return PlainTextResponse("Missing document id", status_code=400, headers=raw_security_headers)
 
-        theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
         def _find_raw(t_settings: Settings, t_kb_id: int) -> tuple[str, str] | None:
@@ -2974,33 +2870,6 @@ def create_app(
 
         resolved = await asyncio.to_thread(_find_raw, theme_settings, theme.id)
         active_settings = theme_settings
-
-        if resolved is None and theme_ref is None and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=doc_id
-            )
-            for target in targets:
-                tid = target.get("kb_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_kb(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_kb(cand_theme.id, s)
-                cand_res = await asyncio.to_thread(_find_raw, cand_settings, cand_theme.id)
-                if cand_res is not None:
-                    resolved = cand_res
-                    active_settings = cand_settings
-                    break
 
         if resolved is None:
             return PlainTextResponse("Not Found", status_code=404, headers=raw_security_headers)
@@ -3365,7 +3234,7 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, _, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
         if scope == "collaborator":
             if theme.is_personal or theme.id == 0:
@@ -3643,26 +3512,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        theme_ref = _extract_theme_ref(request, body)
-        if theme_ref is None and getattr(s, "multi_theme", False) and theme_mgr is not None:
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets,
-                target=target or None,
-                doc_id=doc_id,
-                token=token,
-            )
-            live = _first_live_target(targets)
-            if live is not None:
-                cand_theme = live[1]
-                if cand_theme.id != theme.id:
-                    try:
-                        if scope != "collaborator" or cand_theme.is_collaborator_accessible or cand_theme.is_public:
-                            theme = cand_theme
-                            theme_settings = theme_mgr.get_settings_for_kb(theme.id, s)
-                            theme_svc = service_pool.get_service(theme.id)
-                    except Exception:
-                        pass
 
         if scope == "collaborator":
             if theme.is_personal or theme.id == 0:
@@ -3974,33 +3823,6 @@ def create_app(
         token = await asyncio.to_thread(_share, theme_settings, theme)
         target_kb_id = theme.id
 
-        if not token and getattr(s, "multi_theme", False):
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = await asyncio.to_thread(
-                theme_mgr.resolve_document_targets, doc_id=document_id
-            )
-            for target in targets:
-                tid = target.get("kb_id")
-                if tid is None or tid == theme.id:
-                    continue
-                try:
-                    candidate_theme = theme_mgr.get_kb(tid)
-                except Exception:
-                    continue
-                if ns is not None and ns.account_id is not None and candidate_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, candidate_theme):
-                    continue
-                cand_settings = theme_mgr.get_settings_for_kb(candidate_theme.id, s)
-                cand_token = await asyncio.to_thread(_share, cand_settings, candidate_theme)
-                if cand_token:
-                    token = cand_token
-                    target_kb_id = candidate_theme.id
-                    break
-
         if not token:
             raise HTTPException(status_code=404, detail="document not found")
         return JSONResponse({"token": token, "path": "/p?s=" + token, "kb_id": target_kb_id})
@@ -4110,73 +3932,33 @@ def create_app(
     def _resolve_presentation_target(
         request: Request, doc_id: str = "", token: str = ""
     ) -> tuple[KnowledgeBaseInfo, Settings, Path, Path, str, str]:
-        target_theme, theme_settings, _ = _get_theme_ctx(request, None)
-        active_db = theme_settings.db_file
-        active_data_dir = theme_settings.data_dir
-        resolved_doc_id = doc_id
-        resolved_doc_title = ""
+        """The knowledge base of a presentation request.
 
+        A share token selects its own knowledge base (the token is the capability). Else the selection rules apply (design Section 5.2): the path, or ``kb`` on a route without a namespace. There is no search in other knowledge bases.
+        """
         if token:
             resolved = theme_mgr.resolve_share_token(token, include_hidden=False)
-            resolved_theme: KnowledgeBaseInfo | None = None
-            if resolved is not None:
-                try:
-                    resolved_theme = theme_mgr.get_kb(resolved[0])
-                except KnowledgeBaseNotFound:
-                    # 삭제된 테마의 공유 토큰은 찾지 못한 것으로 본다 (테마 0으로 바꾸지 않는다)
-                    resolved = None
-            if resolved is not None and resolved_theme is not None:
-                target_theme = resolved_theme
-                theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
-                active_db = theme_settings.db_file
-                active_data_dir = theme_settings.data_dir
-                doc_obj = resolved[2]
-                if not doc_obj.get("hidden"):
-                    resolved_doc_id = doc_obj.get("id", "")
-                    resolved_doc_title = doc_obj.get("title", "")
-            else:
-                conn = dbm.connect_existing(active_db, readonly=True)
-                try:
-                    cand_id = dbm.resolve_doc_share(conn, token, kb_id=target_theme.id) or ""
-                    if cand_id:
-                        d_obj = dbm.get_document(conn, cand_id, kb_id=target_theme.id)
-                        if d_obj and not bool(d_obj.hidden):
-                            resolved_doc_id = cand_id
-                            resolved_doc_title = d_obj.title or ""
-                finally:
-                    conn.close()
-        elif getattr(s, "multi_theme", False) and resolved_doc_id:
-            try:
-                ns = request_namespace(request)
-            except Exception:
-                ns = None
-            targets = theme_mgr.resolve_document_targets(doc_id=resolved_doc_id)
-            live: tuple[dict[str, Any], KnowledgeBaseInfo] | None = None
-            for target in targets:
-                tid = target.get("kb_id")
-                if tid is None:
-                    continue
-                try:
-                    cand_theme = theme_mgr.get_kb(tid)
-                except KnowledgeBaseNotFound:
-                    continue
-                if ns is not None and ns.account_id is not None and cand_theme.account_id != ns.account_id:
-                    continue
-                if not _theme_accessible(request, cand_theme):
-                    continue
-                live = (target, cand_theme)
-                break
-            if targets and live is None:
-                # 접근 불가 또는 삭제된 테마에만 남은 문서는 찾지 못한 것으로 본다 (테마 0 설정으로 다루지 않는다)
+            if resolved is None:
                 raise HTTPException(status_code=404, detail="not found")
-            if live is not None and live[0].get("db_file"):
-                live_target, target_theme = live
-                active_db = Path(live_target["db_file"])
-                theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
-                if live_target.get("data_dir"):
-                    active_data_dir = Path(live_target["data_dir"])
-
-        return target_theme, theme_settings, active_db, active_data_dir, resolved_doc_id, resolved_doc_title
+            try:
+                target_theme = theme_mgr.get_kb(resolved[0])
+            except KnowledgeBaseNotFound:
+                # 삭제된 지식 베이스의 공유 토큰은 찾지 못한 것으로 본다
+                raise HTTPException(status_code=404, detail="not found") from None
+            theme_settings = theme_mgr.get_settings_for_kb(target_theme.id, s)
+            doc_obj = resolved[2]
+            if doc_obj.get("hidden"):
+                raise HTTPException(status_code=404, detail="not found")
+            return (
+                target_theme,
+                theme_settings,
+                theme_settings.db_file,
+                theme_settings.data_dir,
+                doc_obj.get("id", ""),
+                doc_obj.get("title", ""),
+            )
+        target_theme, theme_settings, _ = _get_theme_ctx(request, None)
+        return target_theme, theme_settings, theme_settings.db_file, theme_settings.data_dir, doc_id, ""
 
     async def presentation_page(request: Request) -> Response:
         from starlette.responses import FileResponse, HTMLResponse

@@ -17,7 +17,6 @@ from claire.config import Settings
 from claire.store import db as dbm
 from claire.store.knowledge_base import (
     THEME_FQDN_RETIRED_MESSAGE,
-    ResolvedThemeRef,
     KnowledgeBaseInfo,
     KnowledgeBaseManager,
     KnowledgeBaseNotFound,
@@ -290,21 +289,6 @@ def test_single_mode_readonly_without_db_uses_default(tmp_path: Path) -> None:
     assert not Path(settings.db_file).exists()
 
 
-def test_single_mode_resolve_theme_ref(tmp_path: Path) -> None:
-    manager = KnowledgeBaseManager(base_settings=_settings(tmp_path, multi=False))
-    t0 = manager.get_kb(0)
-    assert manager.resolve_theme_ref(None, account_id=1) == ResolvedThemeRef(theme=t0, via_internal_id=False)
-    assert manager.resolve_theme_ref("0", account_id=1).via_internal_id is True
-    by_number = manager.resolve_theme_ref(str(t0.number), account_id=1)
-    assert by_number.theme.id == 0 and by_number.via_internal_id is False
-    assert manager.list_account_kbs(1) == [t0]
-    assert manager.list_account_kbs(2) == []
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.personal_kb_for(2)
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.resolve_theme_ref(None, account_id=2)
-
-
 # --- 조회 API (§6.3, §7.3) ---
 
 
@@ -315,76 +299,6 @@ def multi_manager(tmp_path: Path) -> tuple[KnowledgeBaseManager, Settings]:
     manager.define_kb("Alpha Research")
     manager.define_kb("베타")
     return manager, settings
-
-
-def test_resolve_none_and_empty_is_account_default(multi_manager) -> None:
-    manager, _ = multi_manager
-    for ref in (None, "", "   "):
-        resolved = manager.resolve_theme_ref(ref, account_id=1)
-        assert resolved.theme.id == 0 and resolved.via_internal_id is False
-
-
-def test_resolve_internal_id_branch_includes_zero(multi_manager) -> None:
-    manager, _ = multi_manager
-    for ref, tid in (("0", 0), (0, 0), ("1", 1), (2, 2)):
-        resolved = manager.resolve_theme_ref(ref, account_id=1)
-        assert resolved.theme.id == tid
-        assert resolved.via_internal_id is True
-    # 없는 내부 ID는 번호로 다시 해석하지 않는다.
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.resolve_theme_ref("99", account_id=1)
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.resolve_theme_ref(ids.INTERNAL_ID_LIMIT - 1, account_id=1)
-
-
-def test_resolve_number_string_and_int(multi_manager) -> None:
-    manager, _ = multi_manager
-    alpha = manager.get_kb("Alpha Research")
-    for ref in (str(alpha.number), alpha.number, f" {alpha.number} "):
-        resolved = manager.resolve_theme_ref(ref, account_id=1)
-        assert resolved.theme.id == alpha.id and resolved.via_internal_id is False
-    # 내부 ID 대역 밖이지만 등록되지 않은 번호
-    for ref in (ids.INTERNAL_ID_LIMIT, ids.MIN_CURRENT_NUMBER, str(ids.MAX_NUMBER), str(ids.MAX_NUMBER + 1), -1):
-        with pytest.raises(KnowledgeBaseNotFound):
-            manager.resolve_theme_ref(ref, account_id=1)
-
-
-def test_resolve_rejects_non_canonical_and_bad_types(multi_manager) -> None:
-    manager, _ = multi_manager
-    for ref in ("01", "00", "+1", "-1", "1.0", True, False, 1.0, b"1"):
-        with pytest.raises(KnowledgeBaseNotFound):
-            manager.resolve_theme_ref(ref, account_id=1)
-
-
-def test_resolve_label_exact_within_account(multi_manager) -> None:
-    manager, _ = multi_manager
-    resolved = manager.resolve_theme_ref("alpha research", account_id=1)
-    assert resolved.theme.label == "Alpha Research" and resolved.via_internal_id is False
-    assert manager.resolve_theme_ref("베타", account_id=1).theme.label == "베타"
-    # 부분 일치는 없다(D7).
-    for ref in ("Alpha", "Research", "베"):
-        with pytest.raises(KnowledgeBaseNotFound):
-            manager.resolve_theme_ref(ref, account_id=1)
-
-
-def test_resolve_rejects_other_account_theme(multi_manager) -> None:
-    manager, settings = multi_manager
-    other_number = _add_other_account_theme(settings, kb_id=10, label="Bob Notes")
-    manager.reload()
-    for ref in ("10", 10, str(other_number), other_number, "Bob Notes"):
-        with pytest.raises(KnowledgeBaseNotFound) as exc:
-            manager.resolve_theme_ref(ref, account_id=1)
-        # 존재 여부를 드러내지 않는다: 없는 테마와 같은 메시지 형식
-        assert str(exc.value) == f"테마를 찾을 수 없습니다: {ref}"
-    # 그 계정 안에서는 찾는다.
-    assert manager.resolve_theme_ref(str(other_number), account_id=2).theme.id == 10
-    assert manager.resolve_theme_ref(None, account_id=2).theme.id == 10
-    assert manager.personal_kb_for(2).id == 10
-    # 계정 1의 테마는 계정 2에서 보이지 않는다.
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.resolve_theme_ref("0", account_id=2)
-    with pytest.raises(KnowledgeBaseNotFound):
-        manager.resolve_theme_ref("Alpha Research", account_id=2)
 
 
 def test_get_theme_by_number(multi_manager) -> None:
@@ -425,3 +339,13 @@ def test_parse_internal_id_or_number() -> None:
     for bad in ("", "01", "-1", " 1", "１", -1, True, ids.MAX_NUMBER + 1, str(ids.MAX_NUMBER + 1), 1.0):
         with pytest.raises(ValueError):
             ids.parse_internal_id_or_number(bad)
+
+
+def test_get_kb_by_reference_takes_numbers_only(multi_manager) -> None:
+    """The parameter ``kb`` (CT23): the external number only. No internal ID, no label, no empty value."""
+    manager = multi_manager[0]
+    t0 = manager.get_kb(0)
+    assert manager.get_kb_by_reference(ids.format_public_id(t0.number)).id == 0
+    for ref in (None, "", "0", "1", "Alpha Research", " ", True, "-1", "1e3"):
+        with pytest.raises(KnowledgeBaseNotFound):
+            manager.get_kb_by_reference(ref)

@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire import cli
@@ -54,7 +56,7 @@ def collab_test_client(tmp_path: Path):
 
 
 def test_whoami_scopes(collab_test_client):
-    client, _ = collab_test_client
+    client, settings = collab_test_client
 
     assert client.get("/whoami", headers=OWNER_HEADERS).json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     assert client.get("/whoami", headers=COLLAB_HEADERS).json() == {"scope": "collaborator", "server": {"mode": "single"}, "relation": "delegate", "is_admin": False}
@@ -115,19 +117,19 @@ def test_collaborator_theme_visibility_and_access(collab_test_client):
 
     # 5. Accessing theme endpoints by Collaborator:
     # 5-1. Theme 0 -> Allowed (it's public)
-    assert client.get("/stats?theme=0", headers=COLLAB_HEADERS).status_code == 200
+    assert client.get("/stats", headers=COLLAB_HEADERS).status_code == 200
     # 5-2. Theme 1 -> Allowed (collaborator accessible)
-    assert client.get("/stats?theme=1", headers=COLLAB_HEADERS).status_code == 200
-    assert client.get("/documents?theme=1", headers=COLLAB_HEADERS).status_code == 200
-    assert client.get("/graph?theme=1", headers=COLLAB_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/stats"), headers=COLLAB_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/documents"), headers=COLLAB_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/graph"), headers=COLLAB_HEADERS).status_code == 200
     # 5-3. Theme 2 -> 404 (collaborator blocked)
-    assert client.get("/stats?theme=2", headers=COLLAB_HEADERS).status_code == 404
-    assert client.get("/documents?theme=2", headers=COLLAB_HEADERS).status_code == 404
-    assert client.get("/graph?theme=2", headers=COLLAB_HEADERS).status_code == 404
+    assert client.get(kb_url(settings, 2, "/stats"), headers=COLLAB_HEADERS).status_code == 404
+    assert client.get(kb_url(settings, 2, "/documents"), headers=COLLAB_HEADERS).status_code == 404
+    assert client.get(kb_url(settings, 2, "/graph"), headers=COLLAB_HEADERS).status_code == 404
 
 
 def test_collaborator_ingestion_rules(collab_test_client):
-    client, _ = collab_test_client
+    client, settings = collab_test_client
 
     # Create Theme 1 (collaborator accessible) and Theme 2 (collaborator blocked)
     client.post(
@@ -159,14 +161,13 @@ def test_collaborator_ingestion_rules(collab_test_client):
     )
     assert ingest_default.status_code == 403
 
-    # 2. Collaborator ingesting into Theme 1 (collaborator accessible) -> 200 OK
+    # 2. Ingest writes only to the personal knowledge base (CT4, CT23): a ``theme`` field does not move it to Theme 1 -> 403
     ingest_t1 = client.post(
         "/ingest",
         json={"payload": "https://example.com/collab-doc", "theme": 1},
         headers=COLLAB_HEADERS,
     )
-    assert ingest_t1.status_code == 200
-    assert ingest_t1.json().get("kb_id") == 1
+    assert ingest_t1.status_code == 403
 
     # 3. Collaborator ingesting into Theme 2 (collaborator blocked) -> 403 or 404
     ingest_t2 = client.post(
@@ -185,22 +186,22 @@ def test_collaborator_ingestion_rules(collab_test_client):
     )
     assert stream_t0.status_code == 403
 
-    # 4-2. Theme 1 -> 200 streaming
+    # 4-2. A ``theme`` field is ignored (CT23): the stream ingest also writes only to the personal knowledge base -> 403
     stream_t1 = client.post(
         "/ingest-stream",
         json={"payload": "https://example.com/collab-stream-doc", "theme": 1},
         headers=COLLAB_HEADERS,
     )
-    assert stream_t1.status_code == 200
+    assert stream_t1.status_code == 403
 
 
 def test_collaborator_blocked_from_admin_endpoints(collab_test_client):
-    client, _ = collab_test_client
+    client, settings = collab_test_client
 
     # Define theme by collaborator -> 403/404
     assert client.post("/themes", json={"label": "해킹 테마"}, headers=COLLAB_HEADERS).status_code in (403, 404)
     # Update theme by collaborator -> 403/404
-    assert client.patch("/themes", json={"id": 1, "label": "수정 시도"}, headers=COLLAB_HEADERS).status_code in (403, 404)
+    assert client.patch("/themes", json={"id": "1", "label": "수정 시도"}, headers=COLLAB_HEADERS).status_code in (403, 404)
     # Delete theme by collaborator -> 403/404
     assert client.delete("/themes?id=1", headers=COLLAB_HEADERS).status_code in (403, 404)
 
@@ -214,7 +215,7 @@ def test_collaborator_blocked_from_admin_endpoints(collab_test_client):
 
 
 def test_theme_update_collaborator_option_and_guard_theme0(collab_test_client):
-    client, _ = collab_test_client
+    client, settings = collab_test_client
 
     # Create Theme 1 with is_collaborator_accessible: False
     r = client.post(
@@ -228,7 +229,7 @@ def test_theme_update_collaborator_option_and_guard_theme0(collab_test_client):
     # Update Theme 1 to is_collaborator_accessible: True
     r_patch = client.patch(
         "/themes",
-        json={"id": 1, "is_collaborator_accessible": True},
+        json={"id": kb_number(settings, 1), "is_collaborator_accessible": True},
         headers=OWNER_HEADERS,
     )
     assert r_patch.status_code == 200
@@ -237,7 +238,7 @@ def test_theme_update_collaborator_option_and_guard_theme0(collab_test_client):
     # Attempt to set is_collaborator_accessible: True on Theme 0 -> should remain False
     r_patch0 = client.patch(
         "/themes",
-        json={"id": 0, "is_collaborator_accessible": True},
+        json={"id": kb_number(settings, 0), "is_collaborator_accessible": True},
         headers=OWNER_HEADERS,
     )
     assert r_patch0.status_code == 200

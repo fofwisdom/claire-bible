@@ -324,7 +324,7 @@
         ev.preventDefault();
         var theme = dForm.querySelector("select[name='theme']").value;
         show(dForm, tr("console.js.features.bundles.making"), false);
-        request("POST", "/api/me/data-bundles", { theme: theme }).then(function (r) {
+        request("POST", "/api/me/data-bundles", { kb: theme }).then(function (r) {
           show(dForm, r.ok ? tr("console.js.features.bundles.data_made") : errorText(r.status, r.body), !r.ok);
           showShare(dForm, r.ok ? r.body.bundle : null);
           return loadData();

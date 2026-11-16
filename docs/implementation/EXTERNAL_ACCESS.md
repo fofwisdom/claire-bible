@@ -205,22 +205,17 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 멀티 테마 모드(`CLAIRE_MULTI_THEME=1`)에서는 요청별로 대상 테마를 명시적으로 지정하여 `kb_id`로 파티셔닝된 지식 데이터를 조회 및 적재할 수 있다.
 
-### HTTP 요청 시 테마 지정 방식
-1. **HTTP 헤더**: `X-Claire-Theme: <kb_id_or_label>`
-   - 권장 REST/MCP 클라이언트 방식.
-   - 예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: AI 및 클라우드 시스템`
-2. **URL 쿼리 파라미터**: `?theme=<kb_id_or_label>`
-   - 브라우저 주소창 직접 접근 및 공유 링크 방식.
-   - 예: `https://claire.example.com/graph?theme=1`, `https://claire.example.com/doc/42?theme=research`
-3. **폴백 (Fallback)**: 테마 헤더 및 쿼리 파라미터가 모두 생략된 경우, 기본 지식베이스인 Theme `0`으로 자동 라우팅된다.
+### HTTP 요청 시 지식 베이스 지정 방식 (CT23)
+1. **경로**: `/themes/{number}/…`(네트워크 모드 `/@{u}/themes/{number}/…`). 고정이 없으면 계정의 개인 지식 베이스다.
+2. **`kb` 매개변수(번호)**: 네임스페이스가 없는 라우트와 MCP 읽기 도구에 필수다. 없으면 400 `kb_required`.
+3. 폴백은 없다. 옛 `X-Claire-Theme` 헤더와 `?theme=`는 무시한다.
 
 ### 비공개(Private) 테마의 Fail-Closed 보안
 - 테마의 가시성이 `is_public: false`로 설정된 경우, 인증되지 않은 익명 사용자가 해당 테마로 접근하면 보안상 테마의 존재 자체를 은닉하기 위해 `403 Forbidden` 대신 **`404 Not Found`**를 반환한다.
 - `owner`, `collaborator`(허용된 경우), `readonly` 세션을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출된다.
 
 ### Web UI 상태 동기화
-- 웹 인터페이스 우상단 테마 선택기(Theme Selector)에서 사용자가 선택한 테마는 브라우저 `localStorage`(`claire_selected_theme`)에 저장된다.
-- 페이지 전환 시 브라우저 히스토리(`history.pushState`) 및 URL `?theme=` 파라미터와 양방향 동기화되어 새로고침 후에도 선택 테마가 유지된다.
+- 테마 선택기는 지식 베이스의 경로로 페이지를 옮긴다(`switchKnowledgeTheme` → `kbHomePath`). 선택은 `localStorage`가 아니라 경로가 기억한다.
 
 ---
 

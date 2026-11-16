@@ -36,6 +36,8 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number
+
 from claire import ids
 from claire.api.server import create_app
 from claire.config import Settings
@@ -390,7 +392,7 @@ def test_reader_document_get_owner_public_and_private(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Private doc in theme 12
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
+        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
         assert res_priv.status_code == 200
         assert res_priv.json()["title"] == "Alice Secret Diary"
 
@@ -409,7 +411,7 @@ def test_reader_document_get_visitor_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Bob CANNOT read Alice's private doc
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
+        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
         assert res_priv.status_code == 404
 
 
@@ -427,7 +429,7 @@ def test_reader_document_get_anonymous_isolation(tmp_path: Path):
         assert res_pub.json()["title"] == "Alice Public Guide"
 
         # Anonymous CANNOT read private doc
-        res_priv = client.get("/@alice/document?id=doc_alice_private_1")
+        res_priv = client.get(f"/@alice/themes/{kb_number(s, 12)}/document?id=doc_alice_private_1")
         assert res_priv.status_code == 404
 
 
@@ -688,7 +690,7 @@ def test_reader_presentation_disabled_and_visitor(tmp_path: Path):
 
         # Theme 12 (Alice Private) has presentation_enabled = 1
         # Owner Alice can query metadata (returns 200 with status: not_created)
-        res_en = client.get("/@alice/document/presentation?id=doc_alice_private_1")
+        res_en = client.get(f"/@alice/themes/{kb_number(s, 12)}/document/presentation?id=doc_alice_private_1")
         assert res_en.status_code == 200
         assert res_en.json()["status"] == "not_created"
 

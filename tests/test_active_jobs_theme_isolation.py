@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
+from claire import ids
 from claire.api import server
 from claire.config import Settings
 from claire.ingest.active import clear_active_ingest, set_active_ingest
@@ -55,16 +56,16 @@ def test_private_theme_job_hidden_from_anonymous(tmp_path):
         # 테마 FQDN 고정(Host)은 P2에서 없어졌다(설계 §5.3). 익명은 기본 도메인에서 공개 테마로 묻는다.
         for path in (
             "/stats",
-            f"/stats?theme={public.id}",
+            f"/themes/{ids.format_public_id(public.number)}/stats",
             "/ingest/active",
-            f"/ingest/active?theme={public.id}",
+            f"/themes/{ids.format_public_id(public.number)}/ingest/active",
         ):
             r = client.get(path)
             assert r.status_code == 200, path
             body = r.text
             assert "secret.example.com" not in body, path
             assert all(j.get("kb_id") != private.id for j in r.json()["active_jobs"]), path
-        for path in (f"/stats?theme={private.id}", f"/ingest/active?theme={private.id}"):
+        for path in (f"/themes/{ids.format_public_id(private.number)}/stats", f"/themes/{ids.format_public_id(private.number)}/ingest/active"):
             r = client.get(path)
             assert r.status_code == 404, path
             assert "secret.example.com" not in r.text, path

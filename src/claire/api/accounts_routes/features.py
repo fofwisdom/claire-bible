@@ -201,10 +201,7 @@ def _owned_theme(ctx: AccountsContext, account_id: int, raw: Any) -> Any | None:
 
     manager = get_kb_manager(_settings(ctx))
     try:
-        if raw is None or str(raw).strip() == "":
-            theme = manager.personal_kb_for(account_id)
-        else:
-            theme = manager.resolve_theme_ref(str(raw).strip(), account_id=account_id).theme
+        theme = manager.get_kb_by_reference(raw)
     except (KnowledgeBaseNotFound, ValueError, KeyError):
         return None
     return theme if int(getattr(theme, "account_id", -1)) == int(account_id) else None
@@ -412,9 +409,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if denied is not None:
             return denied
         body = await read_json_body(request)
-        if set(body) - {"theme"}:
-            return json_error(400, "invalid_request", fields=["theme"])
-        theme = await asyncio.to_thread(_owned_theme, ctx, principal.account_id, body.get("theme"))
+        if set(body) - {"kb"}:
+            return json_error(400, "invalid_request", fields=["kb"])
+        # Design Section 5.2 rule 2: the parameter ``kb`` (number) is required; there is no default.
+        if body.get("kb") is None or not str(body.get("kb")).strip():
+            return json_error(400, "kb_required")
+        theme = await asyncio.to_thread(_owned_theme, ctx, principal.account_id, body.get("kb"))
         if theme is None:
             return json_error(404, "theme_not_found")
         from ...graph_bundle import create_graph_bundle

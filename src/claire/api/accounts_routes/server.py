@@ -303,7 +303,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
 
         settings = getattr(request.app.state, "settings", None) or ctx.config
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             conn = open_db(ctx)

@@ -241,13 +241,6 @@ def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedThemeRef:
-    theme: KnowledgeBaseInfo
-    # 기존 내부 ID로 들어왔다. 응답에 ``Deprecation``·``Sunset`` 헤더를 붙이고 호출 수를 센다(§7.3, R23-5).
-    via_internal_id: bool
-
-
 class KnowledgeBaseManager:
     """테마 레지스트리 및 단일 데이터베이스 기반 테마 분할 관리자."""
 
@@ -650,40 +643,18 @@ class KnowledgeBaseManager:
                 return theme
         raise KnowledgeBaseNotFound(number)
 
-    def resolve_theme_ref(self, theme_ref: int | str | None, *, account_id: int) -> ResolvedThemeRef:
-        """요청 입력(``?theme=``, 본문 ``theme``, ``X-Claire-Theme``, MCP ``theme``)을 계정 안에서 엄격하게 해석한다(§6.3, §7.3).
-
-        순서: None·빈 값 → 그 계정의 ``is_personal=1`` 테마. ``0 <= 정수 < 2^31`` → 내부 ID(``via_internal_id=True``, ``parse_public_id`` 호출 전에 판정). 그 밖의 정수·숫자열 → 번호. 나머지 → 레이블 정확 일치(``(account_id, label)``).
-        다른 계정의 테마이거나 없으면 ``KnowledgeBaseNotFound``(부분 일치 없음, D7).
-        레이블은 ``get_kb``과 같이 대소문자를 무시한 정확 일치다(레이블 중복 검사도 대소문자를 무시한다).
-        """
-        if theme_ref is None or (isinstance(theme_ref, str) and not theme_ref.strip()):
-            return ResolvedThemeRef(theme=self.personal_kb_for(account_id), via_internal_id=False)
-        if isinstance(theme_ref, bool) or not isinstance(theme_ref, (int, str)):
-            raise KnowledgeBaseNotFound(theme_ref)
-
-        raw: int | str = theme_ref.strip() if isinstance(theme_ref, str) else theme_ref
-        numeric = isinstance(raw, int) or all("0" <= ch <= "9" for ch in raw)
-        if numeric:
-            try:
-                is_internal, value = ids.parse_internal_id_or_number(raw)
-            except ValueError:
-                raise KnowledgeBaseNotFound(theme_ref) from None
-            self.reload()
-            if is_internal:
-                found = self._themes.get(value)
-            else:
-                found = next((t for t in self._themes.values() if t.number == value), None)
-            if found is None or found.account_id != account_id:
-                raise KnowledgeBaseNotFound(theme_ref)
-            return ResolvedThemeRef(theme=found, via_internal_id=is_internal)
-
-        self.reload()
-        wanted = raw.lower()
-        for theme in self._themes.values():
-            if theme.account_id == account_id and theme.label.strip().lower() == wanted:
-                return ResolvedThemeRef(theme=theme, via_internal_id=False)
-        raise KnowledgeBaseNotFound(theme_ref)
+    def get_kb_by_reference(self, raw: str | int | None) -> KnowledgeBaseInfo:
+        """The parameter ``kb``: the external number only (CT23). No internal ID, no label, no default. Else ``KnowledgeBaseNotFound``. The caller checks the access."""
+        if raw is None or isinstance(raw, bool):
+            raise KnowledgeBaseNotFound(raw)
+        text = str(raw).strip()
+        if not text or not text.isascii() or not text.isdigit():
+            raise KnowledgeBaseNotFound(raw)
+        try:
+            number = ids.parse_public_id(text)
+        except ValueError:
+            raise KnowledgeBaseNotFound(raw) from None
+        return self.get_kb_by_number(number)
 
     def list_account_kbs(self, account_id: int) -> list[KnowledgeBaseInfo]:
         """그 계정의 테마를 번호 내림차순으로. 가시성 필터는 호출자 몫이다(§7.6)."""

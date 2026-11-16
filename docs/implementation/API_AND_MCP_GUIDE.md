@@ -71,11 +71,11 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 ### 1.6 요청 크기 제한
 모든 API 및 MCP 요청 본문은 최대 1MB (`1,048,576` bytes)로 하드 제한된다. 초과 시 즉시 HTTP `413 Request Entity Too Large`로 차단된다.
 
-### 1.7 멀티 테마(Multi-Theme) 라우팅
-멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 요청 헤더 또는 쿼리 파라미터로 조회/작업 대상 테마를 명시할 수 있다:
-- **HTTP 헤더 (REST/MCP 권장)**: `X-Claire-Theme: <kb_id_or_label>` (예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: 인공지능`)
-- **URL 쿼리 파라미터 (브라우저/링크 권장)**: `?theme=<kb_id_or_label>`
-- **No theme in the request** [code] (`KnowledgeBaseManager.resolve_theme_ref`): with multiple themes, the default theme (`is_personal=1`) of the account of the credential is used. A number is an internal ID or a theme number. Another value must be an exact label of a theme of the same account. A theme of a different account, or no theme, gives "not found". With one theme (`CLAIRE_MULTI_THEME` off) only Theme `0` exists, and only the admin account can use it.
+### 1.7 지식 베이스 선택 (CT23)
+- **경로**: 네임스페이스 라우트는 경로가 지식 베이스를 정한다. `/themes/{number}/…`(네트워크 모드는 `/@{u}/themes/{number}/…`)는 그 지식 베이스, 고정이 없으면 계정의 개인 지식 베이스다.
+- **`kb` 매개변수**: 네임스페이스가 없는 라우트와 MCP 읽기 도구는 `kb`(번호)가 필수다. 없으면 HTTP 400 `kb_required`, MCP `{"error": "kb_required"}`. 내부 ID와 레이블은 받지 않는다.
+- **적재**는 자격증명 계정의 개인 지식 베이스에만 쓴다.
+- 옛 `X-Claire-Theme` 헤더와 `theme` 쿼리·본문·MCP 인자는 무시한다.
 
 ---
 
@@ -107,7 +107,6 @@ curl -s -H "Authorization: Bearer <TOKEN>" https://claire.example.com/whoami
 지식베이스 규모(문서 수, 엔티티 수, 관계 수, 소스 타입별 통계 등)를 조회한다.
 ```bash
 curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
-        -H "X-Claire-Theme: 0" \
         https://claire.example.com/stats
 ```
 ```json
@@ -175,7 +174,7 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 전체 또는 필터링된 온톨로지 지식 그래프 데이터(nodes, links)를 JSON으로 조회한다.
 ```bash
 curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
-     "https://claire.example.com/graph?theme=0"
+     "https://claire.example.com/graph"
 ```
 
 #### `GET /node` (Read)

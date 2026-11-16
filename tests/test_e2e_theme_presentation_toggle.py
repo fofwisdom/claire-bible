@@ -6,6 +6,8 @@ import argparse
 from pathlib import Path
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire import cli
@@ -88,7 +90,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert "비활성화" in res0.json()["detail"]
 
         # Theme 1 -> 200 OK (auto-resolved to Theme 1 database)
-        res1 = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1 = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1.status_code == 200
         assert res1.json()["status"] == "not_created"
 
@@ -98,11 +100,11 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert "비활성화" in res2.json()["detail"]
 
         # Step 4: Verify HTML guidance pages (/p/presentation)
-        page0 = client.get("/p/presentation?id=doc-0")
+        page0 = client.get(f"/p/presentation?id=doc-0&kb={kb_number(s, 0)}")
         assert page0.status_code == 403
         assert "기능 비활성" in page0.text
 
-        page1 = client.get("/p/presentation?id=doc-1")
+        page1 = client.get(f"/p/presentation?id=doc-1&kb={kb_number(s, 1)}")
         assert page1.status_code == 404
         assert "프레젠테이션이 아직 생성되지 않았습니다" in page1.text
 
@@ -111,7 +113,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert share_res0.status_code == 200
         token0 = share_res0.json()["token"]
 
-        share_res1 = client.post("/share", json={"doc_id": "doc-1"}, headers=owner_headers)
+        share_res1 = client.post(kb_url(s, 1, "/share"), json={"doc_id": "doc-1"}, headers=owner_headers)
         assert share_res1.status_code == 200
         token1 = share_res1.json()["token"]
 
@@ -129,7 +131,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Enable Theme 0
         patch0 = client.patch(
             "/themes",
-            json={"id": 0, "presentation_enabled": True},
+            json={"id": kb_number(s, 0), "presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch0.status_code == 200
@@ -138,7 +140,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Disable Theme 1
         patch1 = client.patch(
             "/themes",
-            json={"id": t1.id, "presentation_enabled": False},
+            json={"id": kb_number(s, t1.id), "presentation_enabled": False},
             headers=owner_headers,
         )
         assert patch1.status_code == 200
@@ -149,7 +151,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert res0_after.status_code == 200
         assert res0_after.json()["status"] == "not_created"
 
-        res1_after = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1_after = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1_after.status_code == 403
 
         share_page1_after = client.get(f"/p/presentation?s={token1}")
@@ -163,6 +165,6 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         assert rc == 0
 
         # Verify access restored via client
-        res1_restored = client.get("/document/presentation?id=doc-1", headers=owner_headers)
+        res1_restored = client.get(kb_url(s, 1, "/document/presentation") + "?id=doc-1", headers=owner_headers)
         assert res1_restored.status_code == 200
         assert res1_restored.json()["status"] == "not_created"

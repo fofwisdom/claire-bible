@@ -300,7 +300,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             from ...accounts import server_tier

@@ -411,7 +411,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
 
         def _render() -> Response:
             body_html, extra = admin_federation_body(ctx)
@@ -676,14 +676,14 @@ def routes(ctx: AccountsContext) -> list[Route]:
         assert account_id is not None
         body = await read_json_body(request)
         document_id = body.get("document_id")
-        if set(body) != {"theme", "document_id"} or not isinstance(document_id, str) or not document_id or len(document_id) > DOCUMENT_ID_MAX_LENGTH:
-            return json_error(400, "invalid_request", fields=["theme", "document_id"])
+        if set(body) != {"kb", "document_id"} or not isinstance(document_id, str) or not document_id or len(document_id) > DOCUMENT_ID_MAX_LENGTH:
+            return json_error(400, "invalid_request", fields=["kb", "document_id"])
         try:
-            number = ids.parse_public_id(body["theme"]) if isinstance(body["theme"], str) else None
+            number = ids.parse_public_id(body["kb"]) if isinstance(body["kb"], str) else None
         except ValueError:
             number = None
         if number is None:
-            return json_error(400, "invalid_request", fields=["theme", "document_id"])
+            return json_error(400, "invalid_request", fields=["kb", "document_id"])
 
         def _execute() -> tuple[int, dict[str, Any]] | None:
             conn = open_db(ctx)

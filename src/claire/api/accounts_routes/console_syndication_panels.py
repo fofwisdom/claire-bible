@@ -25,7 +25,7 @@ SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
     {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
 )
 
-# 사이드바 링크 순서와 같다. JS가 테마 선택을 바꿀 때 이 슬러그의 링크(``data-nav-section``)에만 ``?theme=``를 갱신한다.
+# 사이드바 링크 순서와 같다. JS가 테마 선택을 바꿀 때 이 슬러그의 링크(``data-nav-section``)에만 ``?kb=``를 갱신한다.
 THEME_SCOPED_NAV_SLUGS: tuple[str, ...] = ("reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
 
 PARTIALS_DIR = TEMPLATES_DIR / "partials" / "settings_syndication"
@@ -113,7 +113,7 @@ def build_syndication_section(
         # console.py가 이미 소유 테마만 고른다. 여기 오면 호출 규약 위반이다(C1).
         raise ValueError("selected theme is not in owned_themes")
 
-    client_href = f"{_syndication_base_href(mode, account)}?tab=client&theme={ref}"
+    client_href = f"{_syndication_base_href(mode, account)}?tab=client&kb={ref}"
     tokens_href = "/admin/tokens" if admin_viewer else "/settings/tokens"
     tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     values = {

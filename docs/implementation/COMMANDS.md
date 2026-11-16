@@ -637,7 +637,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
 | `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
 | `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개/협력자 접근 권한 수정 |
-| `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
+| `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID와 경로(`/themes/<number>/`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
 | `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`kb_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
 #### `claire theme list`
@@ -668,7 +668,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 #### `claire theme reset`
 * **사용법**: `claire theme reset <id> [--apply] [-y|--yes] [--json]`
 * **기본은 dry-run**: `--apply` 없이 실행하면 삭제될 문서·엔티티·관계 수만 보고하고 아무것도 바꾸지 않는다. `-y`만으로는 실행되지 않는다. `--json`이면 `{"ok": true, "plan": {"dry_run": true, "data_to_delete": {...}}}`를 출력한다.
-* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
+* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 권한 설정, 생성일, 경로(`/themes/<number>/`). `updated_at`만 갱신된다.
 * **삭제되는 것** (`KnowledgeBaseManager.reset_kb`):
   1. `reset_graph(conn, kb_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
   2. `kb_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.

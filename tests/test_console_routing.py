@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.api import server
@@ -215,9 +217,9 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert r_settings.status_code == 302
     assert r_settings.headers["location"] == "/settings/account"
 
-    r_from_synd = client.get(f"/settings?from=syndication&theme={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    r_from_synd = client.get(f"/settings?from=syndication&kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert r_from_synd.status_code == 302
-    assert r_from_synd.headers["location"] == f"/settings/reader?theme={console_env.alice_def.number}"
+    assert r_from_synd.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
 
     # D3: Admin accessing /settings/themes or /settings/tokens redirects 302 to /admin/themes or /admin/tokens
     for slug in ("themes", "tokens"):
@@ -240,18 +242,18 @@ def test_strict_theme_query_validation_rejects_unknown_or_cross_account_theme(co
     client = console_env.client
 
     # Unknown theme ref -> 404 before any redirect or page render
-    assert client.get("/settings?theme=nonexistent", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings?theme=", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings/reader?theme=999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get("/settings/themes?theme=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
-    assert client.get("/admin/providers?theme=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings?kb=nonexistent", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings?kb=", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings/reader?kb=999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get("/settings/themes?kb=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
+    assert client.get("/admin/providers?kb=nonexistent", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
 
     # Cross-account theme ref (Alice requesting Bob's theme or Admin's theme) -> 404
-    assert client.get(f"/settings/reader?theme={console_env.bob_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    assert client.get(f"/settings/reader?theme={console_env.admin_extra.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get(f"/settings/reader?kb={console_env.bob_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
+    assert client.get(f"/settings/reader?kb={console_env.admin_extra.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
 
     # Own theme ref -> 200 and selector reflects theme
-    ok_resp = client.get(f"/settings/reader?theme={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
+    ok_resp = client.get(f"/settings/reader?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert ok_resp.status_code == 200
     assert str(console_env.alice_def.number) in ok_resp.text
 

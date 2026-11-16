@@ -279,7 +279,7 @@
 
 | 경로 | 동작 |
 | :--- | :--- |
-| `/admin` | 302 `/admin/server`. `?theme=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
+| `/admin` | 302 `/admin/server`. `?kb=`가 있으면 관리자 소유 테마인지 먼저 검사하고 아니면 404 |
 | `/admin/server` | 모드 전환, G1–G9 준비 검사, 레거시 호스트 일몰, 기본 서버 등급 (`server.py`) |
 | `/admin/accounts` | §5.4 (`admin.py`) |
 | `/admin/idp` | 외부 IdP 공급자, 가입 정책, 로그인 시뮬레이터 (`idp.py`, §10) |
@@ -302,7 +302,7 @@
 
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
-| `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?theme=`를 붙인다 |
+| `/settings` | — | 302 `/settings/account`. `?from=syndication`이면 302 `/settings/reader`. 검증한 `?kb=`를 붙인다 |
 | `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 네트워크 모드이고 `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 화면은 만든 직후에만 이 주소를 "주소 복사"·"받기"와 함께 보인다. 목록 응답에는 토큰이 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
@@ -314,8 +314,8 @@
 | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | 2 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
 | `/settings/{mcp,webmcp}` | 3 AI 에이전트 연동 | MCP 연결 안내와 WebMCP 설정 |
 
-- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?theme=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?theme=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
-- **`?theme=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?theme=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.resolve_theme_ref(..., account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
+- **D3 관리자 리디렉트**: 관리자가 `/settings/themes`·`/settings/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/themes`·`/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 두 항목을 `/admin/*` 그룹에만 한 번 보인다. 멤버는 `/settings/themes`·`/settings/tokens`를 그대로 받는다.
+- **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/settings/*` 화면과 두 색인 경로는 `?kb=`가 있으면 호출자 계정의 테마인지 `KnowledgeBaseManager.get_kb_by_reference(번호)와 계정 검사`로 검사한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 Group 2–3 섹션에만 나온다. 모르는 섹션 경로는 404다.
 - **`/settings/account?notice=`**: 허용 목록 `SETTINGS_ACCOUNT_NOTICE_TEXT`의 `password_not_saved`(`/setup`, §5.1), `identity_linked`, `already_linked`(`/auth/oidc/{id}/callback`의 계정 연결, §10)만 안내문(`data-account-notice`)을 그린다. 목록에 없는 값은 아무것도 그리지 않는다.
 - **관리자 마크업 제거**: 비관리자 응답 HTML에는 `/admin/*` 사이드바 링크도 관리자 섹션 마크업도 없다(CSS로 숨기지 않는다). `console_admin.js`는 `/admin/*` 응답에만 싣는다.
 - **콘솔 셸 레이아웃과 내비게이션 (`console_shell.html`, `console_shell.js`, `command_palette.js`)**:
@@ -332,9 +332,9 @@
 
 **[코드]** `server.py:syndication_preferences_ui_route`. 규칙 `_system("owner")`(루트에서만 받으며 접두 경로 `/@{username}/syndication/preferences` 등은 404. owner가 아니면 404, 위치 헤더 없음).
 
-1. `?theme=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
+1. `?kb=`가 있으면 먼저 엄격히 해석한다(`_get_theme_ctx`). 없거나 접근할 수 없으면 404.
 2. `?tab=`을 아래 표로 바꾼다. 빈 값, 대소문자가 다른 값, 모르는 값은 404다. `?tab=`이 없으면 `reader`와 같다.
-3. `/settings/*` 대상에는 검증한 테마의 공개 참조를 `?theme=`로 붙인다. `/admin/*`와 `/settings/account` 대상에는 `?theme=`를 붙이지 않는다.
+3. `/settings/*` 대상에는 검증한 테마의 공개 참조를 `?kb=`로 붙인다. `/admin/*`와 `/settings/account` 대상에는 `?kb=`를 붙이지 않는다.
 4. 응답은 302, `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 위치는 항상 루트 경로다(접두 아래 요청도 `/@{username}`을 붙이지 않는다).
 
 | `?tab=` | 관리자 | 그 밖의 owner |
@@ -421,7 +421,7 @@
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 테이블 제거**: 쓰이지 않던 `syndication_accounts`(토큰 암호화 함수 포함), `syndication_targets`, `syndication_items`는 `claire.db` v20에서 제거했다([SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) "v20" 절).
 - **[코드] 계정 격리**: 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?theme=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/settings/account`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?kb=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트

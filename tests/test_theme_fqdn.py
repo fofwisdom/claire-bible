@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -311,7 +313,7 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
         conn.close()
 
     # 테마를 지우면 legacy_hosts 행도 사라져 421이다.
-    assert client.request("DELETE", "/themes", json={"id": kb_id}, headers=OWNER_HEADERS).status_code == 200
+    assert client.request("DELETE", "/themes", json={"id": kb_number(settings, kb_id)}, headers=OWNER_HEADERS).status_code == 200
     assert status() == 421
 
 
@@ -328,7 +330,7 @@ def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env)
 
 def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
     """POST·PATCH /themes: FQDN 입력은 폐지됐고(O5) GA4 설정은 그대로다."""
-    client, _, _ = multi_theme_server_env
+    client, settings, _ = multi_theme_server_env
 
     for fqdn in ("research.example.com", "http://invalid-fqdn/"):
         assert client.post("/themes", json={"label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
@@ -343,16 +345,16 @@ def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
 
     kb_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
     r_patch_fqdn = client.patch(
-        "/themes", json={"id": kb_id, "fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
+        "/themes", json={"id": kb_number(settings, kb_id), "fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
     )
     assert r_patch_fqdn.status_code == 400
 
     r_patch = client.patch(
-        "/themes", json={"id": kb_id, "ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
+        "/themes", json={"id": kb_number(settings, kb_id), "ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
     )
     assert r_patch.status_code == 200
     assert r_patch.json()["theme"]["ga_measurement_id"] == "G-RESEARCH02"
 
-    r_clear = client.patch("/themes", json={"id": kb_id, "ga_measurement_id": ""}, headers=OWNER_HEADERS)
+    r_clear = client.patch("/themes", json={"id": kb_number(settings, kb_id), "ga_measurement_id": ""}, headers=OWNER_HEADERS)
     assert r_clear.status_code == 200
     assert not r_clear.json()["theme"].get("ga_measurement_id")

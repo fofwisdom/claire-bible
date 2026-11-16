@@ -22,6 +22,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from tests.kb_paths import kb_number
 import zstandard as zstd
 from starlette.testclient import TestClient
 
@@ -311,9 +313,12 @@ def test_data_bundle_lifecycle_and_isolation(env):
     c = env.client
     listing = c.request("GET", "/api/me/data-bundles", session=env.sa).json()
     assert [t["kb_id"] for t in listing["themes"]] == [env.theme_a]
-    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"theme": str(env.theme_b)})
-    assert r.status_code == 404
+    # ``kb`` is required (CT23); a knowledge base of another account is 404.
     r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={})
+    assert r.status_code == 400 and r.json()["error"] == "kb_required"
+    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"kb": kb_number(env.settings, env.theme_b)})
+    assert r.status_code == 404
+    r = c.request("POST", "/api/me/data-bundles", session=env.sa, json={"kb": kb_number(env.settings, env.theme_a)})
     assert r.status_code == 200, r.text
     created = r.json()["bundle"]
     assert created["entities_count"] == 1 and created["documents_count"] == 1

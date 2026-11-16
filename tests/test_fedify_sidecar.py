@@ -503,8 +503,8 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         def public(path: str, body: dict) -> httpx.Response:
             return httpx.post(f"{origin}{path}", json=body, headers={"Cookie": f"claire_session={session}", "Origin": origin}, timeout=10)
 
-        first = public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-1"})
-        second = public("/api/federation/publish", {"theme": str(theme_number), "document_id": "doc-2"})
+        first = public("/api/federation/publish", {"kb": str(theme_number), "document_id": "doc-1"})
+        second = public("/api/federation/publish", {"kb": str(theme_number), "document_id": "doc-2"})
         assert (first.status_code, second.status_code) == (202, 202), first.text + second.text
         object_id, gone_id = first.json()["object"]["id"], second.json()["object"]["id"]
         assert public("/api/federation/retract", {"object_id": gone_id}).status_code == 202

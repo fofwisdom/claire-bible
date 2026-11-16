@@ -511,7 +511,7 @@
     const button = $("btn-item-ingest");
     button.disabled = true;
     msg.textContent = tr("synd.ingest.running");
-    const result = await api("POST", `/api/federation/timeline/${encodeURIComponent(id)}/ingest`, { theme: bridge.themeRefOf(themeKey) });
+    const result = await api("POST", `/api/federation/timeline/${encodeURIComponent(id)}/ingest`, {});
     button.disabled = false;
     if (!result.ok || result.data.error || !result.data.linked) {
       msg.textContent = tr("synd.ingest.failed", { error: errorText(result) });

@@ -387,4 +387,5 @@ def test_theme_icon_escaped_in_html_sinks() -> None:
     src = (STATIC_JS / "app.js").read_text(encoding="utf-8")
     assert "${t.icon || '📁'}" not in src
     assert not re.search(r"const icon = t\.icon \|\|", src)
-    assert src.count("const icon = esc(t.icon ||") == 4
+    # The ingest, re-ingest, and regenerate forms have no theme selector (CT23); the purge form and the selector keep theirs.
+    assert src.count("const icon = esc(t.icon ||") == 1

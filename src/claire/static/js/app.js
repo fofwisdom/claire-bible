@@ -188,64 +188,25 @@ function findTheme(themeRef){
     || null;
 }
 
+// Design Section 5.2 (CT23): the path selects the knowledge base. API_BASE ends with "themes/<number>/" when the page path pins one.
+const KB_PIN_RE = /themes\/(\d+)\/$/;
+const ACCOUNT_HOME_BASE = API_BASE.replace(KB_PIN_RE, '');
 let activeThemeId = (function(){
-  if(!isMultiThemeEnabled()){
-    return '0';
-  }
-  try{
-    const sp = new URLSearchParams(window.location.search);
-    const q = sp.get('theme');
-    if(q !== null && q !== ''){
-      const matched = findTheme(q);
-      return matched ? getThemeKey(matched) : String(q).trim();
-    }
-    const saved = getAccountStorage('claireKnowledgeTheme');
-    if(saved !== null && saved !== ''){
-      const matched = findTheme(saved);
-      if(matched){
-        const canonical = getThemeKey(matched);
-        if(canonical !== saved){
-          setAccountStorage('claireKnowledgeTheme', canonical);
-        }
-        return canonical;
-      }
-      return String(saved).trim();
-    }
-  }catch(_){}
-  return '0';
+  const m = API_BASE.match(KB_PIN_RE);
+  return m ? m[1] : '0';
 })();
+// The number of the knowledge base of this page, for routes without a namespace that need the parameter ``kb`` (design Section 5.2 rule 2).
+function currentKbNumber(){
+  const t = (typeof findTheme === 'function') ? findTheme(activeThemeId) : null;
+  const n = t && t.number != null ? String(t.number) : '';
+  return /^[1-9]\d*$/.test(n) ? n : '';
+}
+window.currentKbNumber = currentKbNumber;
+function kbHomePath(themeKey){
+  const key = String(themeKey ?? '0');
+  return key === '0' ? ACCOUNT_HOME_BASE : ACCOUNT_HOME_BASE + 'themes/' + encodeURIComponent(key) + '/';
+}
 
-(function(){
-  const _origFetch = window.fetch;
-  window.fetch = function(resource, init){
-    init = init || {};
-    let url = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
-    const isRelative = typeof url === 'string' && !url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//');
-    if(isRelative || (url && url.startsWith(window.location.origin))){
-      if(isMultiThemeEnabled() && activeThemeId !== null && activeThemeId !== undefined){
-        let headers = init.headers;
-        if(headers instanceof Headers){
-          if(!headers.has('X-Claire-Theme')){
-            headers.set('X-Claire-Theme', String(activeThemeId));
-          }
-        } else if(Array.isArray(headers)){
-          const hasTheme = headers.some(([k]) => k.toLowerCase() === 'x-claire-theme');
-          if(!hasTheme){
-            headers.push(['X-Claire-Theme', String(activeThemeId)]);
-          }
-        } else {
-          headers = Object.assign({}, headers);
-          const hasTheme = Object.keys(headers).some(k => k.toLowerCase() === 'x-claire-theme');
-          if(!hasTheme){
-            headers['X-Claire-Theme'] = String(activeThemeId);
-          }
-          init.headers = headers;
-        }
-      }
-    }
-    return _origFetch.call(this, resource, init);
-  };
-})();
 
 async function fetchThemes(){
   if(!isMultiThemeEnabled()){
@@ -265,14 +226,6 @@ async function fetchThemes(){
     if(themes && themes.length){
       availableThemes = themes;
       // Migrate stored internal ID if needed (§7.3)
-      const matched = findTheme(activeThemeId);
-      if(matched){
-        const canonical = getThemeKey(matched);
-        if(canonical !== activeThemeId){
-          activeThemeId = canonical;
-          setAccountStorage('claireKnowledgeTheme', canonical);
-        }
-      }
       renderThemeSelector();
     }
   }catch(e){
@@ -492,35 +445,8 @@ async function switchKnowledgeTheme(themeId){
   const themeObj = findTheme(ref);
   const targetId = themeObj ? getThemeKey(themeObj) : ref;
   if(targetId === String(activeThemeId)) return;
-
-  activeThemeId = targetId;
-  setAccountStorage('claireKnowledgeTheme', targetId);
-
-  const url = new URL(window.location);
-  if(targetId === '0'){
-    url.searchParams.delete('theme');
-  } else {
-    url.searchParams.set('theme', targetId);
-  }
-  window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash);
-
-  syncThemeSelectorUI();
-  await enterHome({reason: 'theme'});
-  resetListWindows();   // The two lists of the new knowledge theme start from the first page.
-
-  await Promise.all([
-    reloadThemeData(true),
-    loadThemeDocuments()
-  ]);
-
-  lastStatsSig = null;
-  try{
-    const r = await fetch(apiUrl('stats'));
-    if(r.ok){
-      const d = await r.json();
-      lastStatsSig = [d.documents, d.entities, d.relations].join(':');
-    }
-  }catch(_){}
+  // Navigation between knowledge bases uses paths, not a header (design Section 5.3).
+  window.location.assign(kbHomePath(targetId));
 }
 
 // --- 웹 표준 History API 기반 모바일 뒤로가기/내비게이션 관리 ---
@@ -2360,39 +2286,9 @@ function openIngest(){
     return;
   }
   const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.ingest.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => t.id === activeThemeId) ? activeThemeId : eligibleThemes[0].id;
-        const opts = eligibleThemes.map(t => {
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="ingtheme" class="ingest-theme-select">'+
-            opts+
-          '</select>'+
-        '</div>');
-      }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingtheme">' + tr("ws.ingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.owner_themes") + '</span></label>'+
-        '<select id="ingtheme" class="ingest-theme-select">'+
-          renderThemeOptions(activeThemeId)+
-        '</select>'+
-      '</div>');
-    }
-  }
   panel.innerHTML='<h2><span data-icon="plus"></span> ' + tr("ws.ingest.title") + '</h2>'+
     '<p class=al>' + tr("ws.ingest.intro") + '</p>'+
     '<div class="ingest-form">'+
-      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="ingin">' + tr("ws.ingest.material") + ' <span class="ingest-help">' + tr("ws.ingest.url_or_text") + '</span></label>'+
         '<textarea id="ingin" rows="5" placeholder="https://example.com/article"></textarea>'+
@@ -2433,8 +2329,7 @@ async function runIngest(){
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
-  const ingthemeEl = document.getElementById('ingtheme');
-  const targetThemeId = (isMulti && ingthemeEl) ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = '0';  // Ingest writes only to the personal knowledge base (design Section 5.2 rule 3).
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.ingest.collab_default_denied"));
@@ -2492,7 +2387,6 @@ async function runIngest(){
   }
   try{
     const bodyObj = {payload:payload, full_content:fullContent};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
@@ -2607,40 +2501,10 @@ function openReingest(){
   const defTarget = (curDoc && (curDoc.url || curDoc.canonical_url || curDoc.id || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  const curDocThemeId = (curDoc && curDoc.kb_id !== undefined && curDoc.kb_id !== null) ? String(curDoc.kb_id) : String(activeThemeId || '0');
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.reingest.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => getThemeKey(t) === curDocThemeId) ? curDocThemeId : getThemeKey(eligibleThemes[0]);
-        const opts = eligibleThemes.map(t => {
-          const tKey = getThemeKey(t);
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${esc(tKey)}" ${tKey === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="reingtheme" class="ingest-theme-select">'+opts+'</select>'+
-        '</div>');
-      }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingtheme">' + tr("ws.reingest.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
-        '<select id="reingtheme" class="ingest-theme-select">'+
-          renderThemeOptions(curDocThemeId)+
-        '</select>'+
-      '</div>');
-    }
-  }
 
   panel.innerHTML = '<h2><span data-icon="restore"></span> ' + tr("ws.reingest.title") + '</h2>'+
     '<p class="al">' + tr("ws.reingest.intro") + '</p>'+
     '<div class="ingest-form">'+
-      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="reingtarget">' + tr("ws.reingest.target") + ' <span class="ingest-help">' + tr("ws.reingest.target_hint") + '</span></label>'+
         '<textarea id="reingtarget" rows="4" placeholder="https://example.com/article 또는 ' + tr("list.documents") + ' ID">'+esc(defTarget)+'</textarea>'+
@@ -2687,8 +2551,7 @@ async function runReingest(){
   const ta=document.getElementById('reingtarget');
   const target=((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.reingest.need_target")); return; }
-  const reingthemeEl = document.getElementById('reingtheme');
-  const targetThemeId = (isMulti && reingthemeEl) ? String(reingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.reingest.collab_default_denied"));
@@ -2749,7 +2612,6 @@ async function runReingest(){
   }
   try{
     const bodyObj = {target:target, full_content:fullContent, untombstone:untombstone};
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
     const r=await fetch(apiUrl('reingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
@@ -2838,41 +2700,12 @@ function openRegen(docIdOverride, compOverride){
   const defTarget = (docIdOverride || (curDoc && (curDoc.id || curDoc.url || '')) || '');
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  const curDocThemeId = (curDoc && curDoc.kb_id !== undefined && curDoc.kb_id !== null) ? curDoc.kb_id : activeThemeId;
-  if(isMulti && availableThemes && availableThemes.length > 0){
-    if(AUTH_SCOPE === 'collaborator'){
-      const eligibleThemes = availableThemes.filter(t => t.id > 0 && t.is_collaborator_accessible !== false);
-      if(eligibleThemes.length === 0){
-        themeFieldHtml = '<div class="ingest-field"><p class="hint" style="color:var(--warn,#f39c12);margin:0;"><span data-icon="warning"></span> ' + tr("ws.regen.no_collab_theme") + '</p></div>';
-      } else {
-        const selId = eligibleThemes.some(t => t.id === curDocThemeId) ? curDocThemeId : eligibleThemes[0].id;
-        const opts = eligibleThemes.map(t => {
-          const icon = esc(t.icon || '📁');
-          const label = esc(t.label);
-          return `<option value="${t.id}" ${t.id === selId ? 'selected' : ''}>${icon} ${label}</option>`;
-        }).join('');
-        themeFieldHtml = ('<div class="ingest-field">'+
-          '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("ws.ingest.collab_themes") + '</span></label>'+
-          '<select id="regentheme" class="ingest-theme-select">'+opts+'</select>'+
-        '</div>');
-      }
-    } else if(availableThemes.length > 1){
-      themeFieldHtml = ('<div class="ingest-field">'+
-        '<label class="ingest-label" for="regentheme">' + tr("ws.regen.target_theme") + ' <span class="ingest-help">' + tr("nav.theme_select") + '</span></label>'+
-        '<select id="regentheme" class="ingest-theme-select">'+
-          renderThemeOptions(curDocThemeId)+
-        '</select>'+
-      '</div>');
-    }
-  }
 
   const selectedComp = compOverride || 'all';
 
   panel.innerHTML = '<h2><span data-icon="repeat"></span> ' + tr("ws.regen.title") + '</h2>'+
     '<p class="al">' + tr("ws.regen.intro") + '</p>'+
     '<div class="ingest-form">'+
-      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="regentarget">' + tr("ws.regen.target") + ' <span class="ingest-help">' + tr("ws.regen.target_hint") + '</span></label>'+
         '<input type="text" id="regentarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.regen.target_placeholder") + '">'+
@@ -2926,8 +2759,7 @@ async function runRegen(isDryRun){
   const ta = document.getElementById('regentarget');
   const target = ((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.regen.need_target")); return; }
-  const regenthemeEl = document.getElementById('regentheme');
-  const targetThemeId = (isMulti && regenthemeEl) ? String(regenthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
   if(AUTH_SCOPE === 'collaborator'){
     if(!targetThemeId || targetThemeId === '0'){
       alert(tr("ws.regen.collab_default_denied"));
@@ -2953,9 +2785,6 @@ async function runRegen(isDryRun){
         refetch: refetch,
       };
       if(effort) payload.effort = effort;
-      if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-        payload.theme = targetThemeId;
-      }
       const r = await fetch(apiUrl('regenerate'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -3029,9 +2858,6 @@ async function runRegen(isDryRun){
     refetch: refetch,
   };
   if(effort) payload.effort = effort;
-  if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-    payload.theme = targetThemeId;
-  }
 
   let result = null;
   try{
@@ -3152,22 +2978,12 @@ function openPurge(){
   const defTarget = (curDoc && (curDoc.id || curDoc.url || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
   const isMulti = isMultiThemeEnabled();
-  let themeFieldHtml = '';
-  if(isMulti && availableThemes && availableThemes.length > 1){
-    themeFieldHtml = ('<div class="ingest-field">'+
-      '<label class="ingest-label" for="purgetheme">' + tr("ws.purge.target_theme") + ' <span class="ingest-help">' + tr("ws.purge.target_theme_hint") + '</span></label>'+
-      '<select id="purgetheme" class="ingest-theme-select">'+
-        renderThemeOptions(activeThemeId)+
-      '</select>'+
-    '</div>');
-  }
 
   panel.innerHTML = '<h2><span data-icon="flame"></span> ' + tr("ws.purge.title") + '</h2>'+
     '<div style="margin:0 0 10px;padding:8px 10px;background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.4);border-radius:6px;font-size:12px;color:var(--fg);line-height:1.45">'+
       '<span data-icon="warning"></span> <b>' + tr("ws.purge.warning_title") + '</b><br>' + tr("ws.purge.warning")+
     '</div>'+
     '<div class="ingest-form">'+
-      themeFieldHtml +
       '<div class="ingest-field">'+
         '<label class="ingest-label" for="purgetarget">' + tr("ws.purge.target") + ' <span class="ingest-help">' + tr("ws.purge.target_hint") + '</span></label>'+
         '<input type="text" id="purgetarget" class="ingest-input" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--fg)" value="'+esc(defTarget)+'" placeholder="' + tr("ws.purge.target_placeholder") + '">'+
@@ -3209,8 +3025,7 @@ async function runPurgeCheck(isDryRun){
   const reason = ((reasonInp||{}).value||'').trim() || 'web_purge';
   const tombstoneChk = document.getElementById('purgetombstone');
   const tombstone = !!(tombstoneChk && tombstoneChk.checked);
-  const themeEl = document.getElementById('purgetheme');
-  const targetThemeId = (isMulti && themeEl) ? String(themeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
+  const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
 
   if(!isDryRun){
     if(!confirm(tr("ws.purge.confirm"))){
@@ -3230,9 +3045,6 @@ async function runPurgeCheck(isDryRun){
       tombstone: tombstone,
       reason: reason,
     };
-    if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
-      payload.theme = targetThemeId;
-    }
     const r = await fetch(apiUrl('document/purge'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -5041,17 +4853,15 @@ async function enterHome({reason = 'brand'} = {}){
   if(centerView !== 'matrix') setCenterView('home');
   document.title = HOME_TITLE;
 
-  // URL / History: preserve ?theme=N if non-zero, replaceState without pushing
+  // URL / History: the path selects the knowledge base; replaceState without pushing
   const url = new URL(window.location.href);
-  const currentThemeParam = url.searchParams.get('theme');
-  url.search = (activeThemeId && String(activeThemeId) !== '0') ? ('?theme=' + activeThemeId) : (currentThemeParam ? ('?theme=' + currentThemeParam) : '');
+  url.search = '';
   url.hash = '';
-  window.history.replaceState({ pane: 'graph', modal: null, view: 'home' }, HOME_TITLE, url.pathname + url.search);
+  window.history.replaceState({ pane: 'graph', modal: null, view: 'home' }, HOME_TITLE, url.pathname);
 
-  // Sync brand href with current theme
   const brandLink = document.querySelector('a.brand');
   if(brandLink){
-    brandLink.href = (activeThemeId && String(activeThemeId) !== '0') ? ('./?theme=' + activeThemeId) : './';
+    brandLink.href = kbHomePath(activeThemeId);
   }
 
   let stats = null;

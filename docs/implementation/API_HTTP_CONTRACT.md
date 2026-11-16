@@ -119,15 +119,15 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
-| `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?theme=` |
-| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
+| `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?kb=` |
+| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?kb=` |
 | `GET` | `/api/admin/mcp/telemetry` | `admin` | 200 `{"records": [...], "count": n}` | 400 `invalid_limit`(`limit`이 1–200 정수가 아님), 404 비관리자 |
-| `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?theme=` 유지) | 404 owner 아님, 404 잘못된 `?theme=` |
-| `GET` | `/settings/{account,telegram,bundles,backups,federation,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?theme=` |
-| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?theme=` |
-| `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?theme=`, 404 빈·모르는 `?tab=` |
+| `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/settings/{account,telegram,bundles,backups,federation,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?kb=`, 404 빈·모르는 `?tab=` |
 
-- **[코드]** `?theme=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).
+- **[코드]** `?kb=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).
 - **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
 - **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 싱글 모드에서는 이 경로들과 `GET /whoami`가 `@username`을 내지 않는다(S9).
 - **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.

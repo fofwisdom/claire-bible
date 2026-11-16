@@ -188,9 +188,8 @@ def test_e2e_single_mode_subscribe_read_and_ingest(tmp_path, site, monkeypatch, 
         starred = _call(tc, "GET", "/api/feeds/items?starred=1", owner).json()["items"]
         assert [(i["id"], i["unread"]) for i in starred] == [(item["id"], False)]
 
-        # Ingest of one item into a theme of the owner.
+        # Ingest of one item into the personal knowledge base of the owner (CT23); a ``theme`` field is ignored.
         path = f"/api/feeds/items/{item['id']}/ingest"
-        assert _call(tc, "POST", path, owner, json={}).status_code == 400
         assert _call(tc, "POST", "/api/feeds/items/999999/ingest", owner, json={"theme": "0"}).status_code == 404
         assert _call(tc, "POST", f"/api/feeds/items/{listed[0]['id']}/ingest", owner, json={"theme": "0"}).status_code == 409
         assert calls == []

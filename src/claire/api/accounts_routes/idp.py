@@ -881,7 +881,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         principal = request_principal(request)
         if not _is_admin(principal):
             return not_found()
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         data_dir = ctx.data_dir or ctx.auth_db_file.parent.parent
         providers = await asyncio.to_thread(auth_db.load_idp_providers, data_dir, include_secrets=False)
         origin = ctx.config.public_origin.rstrip("/") if ctx.config.public_origin else str(request.base_url).rstrip("/")

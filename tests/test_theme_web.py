@@ -29,7 +29,7 @@ def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     assert 'onchange="switchKnowledgeTheme(this.value)"' in html
 
     # 2. Ingest form theme selector
-    assert 'id="ingtheme"' in html
+    assert 'id="ingtheme"' not in html  # ingest writes only to the personal knowledge base (CT23)
     assert "renderThemeOptions" in html
 
     # 3. JavaScript theme management functions
@@ -38,8 +38,8 @@ def test_theme_web_ui_elements_in_template_and_graph_html(tmp_path: Path):
     assert "async function switchKnowledgeTheme(" in html
     assert "async function reloadThemeData(" in html
     assert "async function loadThemeDocuments()" in html
-    assert "X-Claire-Theme" in html
-    assert "claireKnowledgeTheme" in html
+    assert "X-Claire-Theme" not in html  # the path selects the knowledge base (CT23)
+    assert "claireKnowledgeTheme" not in html
 
     # 4. CSS styling
     assert ".theme-picker-wrap" in html

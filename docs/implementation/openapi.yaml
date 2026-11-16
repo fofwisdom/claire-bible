@@ -1723,9 +1723,9 @@ paths:
         missing or not accessible). The tab query maps reader (or omitted) to
         /settings/reader, accounts to /settings/connections, and feeds, tags, rules,
         outbound, opml, mcp, webmcp to /settings/ with the same name, keeping the
-        validated theme as ?theme=. idp and userdb go to /admin/idp and
+        validated knowledge base as ?kb=. idp and userdb go to /admin/idp and
         /admin/accounts for the server admin and to /settings/account for other
-        owners, without ?theme=. An empty or unknown tab is 404. The Location is
+        owners, without ?kb=. An empty or unknown tab is 404. The Location is
         always a root path.
       operationId: getSyndicationPreferencesRedirect
       x-claire-access: owner

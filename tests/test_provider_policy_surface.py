@@ -27,6 +27,7 @@ from claire import graphview, secret_scrub
 from claire.accounts import provider_policy as policy
 from claire.accounts import server_tier
 from claire.api import server
+from claire import ids
 from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
@@ -240,7 +241,7 @@ def synth_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 def test_member_research_is_403_even_with_byok(env, research_calls):
     for setup in (lambda: None, lambda: _register_byok(env)):
         setup()
-        r = _post(env, f"/@alice/research?theme={env.alice_pub.id}", env.alice, json={"query": "why"})
+        r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/research", env.alice, json={"query": "why"})
         _assert_policy(r, 403, "provider_not_allowed")
     # 세션(쿠키) 경로도 같다.
     conn = dbm.connect_existing(env.db_file)
@@ -250,7 +251,7 @@ def test_member_research_is_403_even_with_byok(env, research_calls):
         conn.close()
     env.client.cookies.clear()
     r = env.client.post(
-        f"/@alice/research?theme={env.alice_pub.id}",
+        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/research",
         headers={"Cookie": f"claire_session={sess}", "Origin": PUBLIC_URL},
         json={"query": "why"},
     )
@@ -260,7 +261,7 @@ def test_member_research_is_403_even_with_byok(env, research_calls):
 
 
 def test_admin_research_path_unchanged(env, research_calls):
-    r = _post(env, f"/@admin/research?theme={env.admin_theme.id}", env.admin, json={"query": "why"})
+    r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/research", env.admin, json={"query": "why"})
     assert r.status_code == 200, r.text
     assert '"done": true' in r.text and "fake" in r.text
     assert len(research_calls) == 1
@@ -270,14 +271,14 @@ def test_admin_research_path_unchanged(env, research_calls):
 
 
 def test_synthesize_denied_when_tier_feature_off(env, synth_calls):
-    r = _post(env, f"/@alice/synthesize?theme={env.alice_pub.id}", env.alice, json={"node_ids": ["e1"]})
+    r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
     _assert_policy(r, 403, "provider_not_allowed")
     assert synth_calls == []
 
 
 def test_synthesize_allowed_with_byok_and_uses_member_provider(env, synth_calls):
     _register_byok(env)
-    r = _post(env, f"/@alice/synthesize?theme={env.alice_pub.id}", env.alice, json={"node_ids": ["e1"]})
+    r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/synthesize", env.alice, json={"node_ids": ["e1"]})
     assert r.status_code == 200, r.text
     assert r.json()["answer"] == "synthesized"
     provider = synth_calls[0][0]
@@ -289,10 +290,10 @@ def test_synthesize_allowed_when_tier_feature_on(tmp_path, synth_calls):
     e = _build_env(tmp_path, gemini_key=SERVER_KEY)
     with e.client:
         _set_tier(e, provider="gemini", model="gemini-x", monthly_tokens=1000, features=frozenset({"synthesize"}))
-        r = _post(e, f"/@alice/synthesize?theme={e.alice_pub.id}", e.alice, json={"node_ids": ["e1"]})
+        r = _post(e, f"/@alice/themes/{ids.format_public_id(e.alice_pub.number)}/synthesize", e.alice, json={"node_ids": ["e1"]})
         assert r.status_code == 200, r.text
         # 같은 등급에서 presentation은 꺼져 있다.
-        r = _post(e, f"/@alice/document/presentation/compose?theme={e.alice_pub.id}", e.alice, json={"id": "doc_x"})
+        r = _post(e, f"/@alice/themes/{ids.format_public_id(e.alice_pub.number)}/document/presentation/compose", e.alice, json={"id": "doc_x"})
         _assert_policy(r, 403, "provider_not_allowed")
         assert SERVER_KEY not in "".join(x.text for x in e.responses)
 
@@ -307,10 +308,10 @@ def test_presentation_authoring_denied_for_member_without_feature(env, monkeypat
     monkeypatch.setattr(PresentationService, "compile_presentation", _never)
     monkeypatch.setattr(PresentationService, "get_or_create_presentation", _never)
     for route in ("generate", "compose", "compile"):
-        r = _post(env, f"/@alice/document/presentation/{route}?theme={env.alice_pub.id}", env.alice, json={"id": "doc_x"})
+        r = _post(env, f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/document/presentation/{route}", env.alice, json={"id": "doc_x"})
         _assert_policy(r, 403, "provider_not_allowed")
     r = env.client.put(
-        f"/@alice/document/presentation/adoc?theme={env.alice_pub.id}&id=doc_x",
+        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/document/presentation/adoc?id=doc_x",
         headers=_h(env.alice), json={"presentation_adoc": "= x"},
     )
     _assert_policy(r, 403, "provider_not_allowed")
@@ -367,7 +368,7 @@ def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
     monkeypatch.setattr(PresentationService, "compile_presentation", _boom)
     monkeypatch.setattr(PresentationService, "get_or_create_presentation", _boom)
     for route in ("generate", "compose", "compile"):
-        r = _post(env, f"/@admin/document/presentation/{route}?theme={env.admin_theme.id}", env.admin, json={"id": "doc_x"})
+        r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/document/presentation/{route}", env.admin, json={"id": "doc_x"})
         assert r.status_code == 500
         assert "[REDACTED]" in r.text
 
@@ -377,7 +378,7 @@ def test_error_responses_and_logs_never_carry_keys(env, monkeypatch, caplog):
     import claire.ingest.service as ingest_service
 
     monkeypatch.setattr(ingest_service.IngestService, "regenerate_components", _ingest_boom)
-    r = _post(env, f"/@admin/regenerate?theme={env.admin_theme.id}", env.admin, json={"doc_id": "doc_x"})
+    r = _post(env, f"/@admin/themes/{ids.format_public_id(env.admin_theme.number)}/regenerate", env.admin, json={"doc_id": "doc_x"})
     assert r.status_code == 500 and "[REDACTED]" in r.text
 
     logging.getLogger("claire.provider.test").warning("provider said %s / %s", CANARY, CANARY_SHAPED)

@@ -186,7 +186,7 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
     assert "Baseline of the ActivityPub client functions: Mastodon 5.0 or later." in connections
     assert "Client functions of the Mastodon 5.0 baseline" in connections
     assert 'id="pref-accounts-tbody"' in connections
-    assert f'href="/syndication?tab=client&amp;theme={env.alice_def.number}"' in connections
+    assert f'href="/syndication?tab=client&amp;kb={env.alice_def.number}"' in connections
     assert f"/@{MEMBER_USERNAME}/syndication" not in connections
 
     feeds = get("feeds")
@@ -225,13 +225,13 @@ def test_admin_viewer_mcp_section_links_to_admin_tokens(env):
 def test_theme_query_scopes_section_to_selected_owned_theme(env):
     _set_mode(env.db_file, "network")
     ref = str(env.alice_private.number)
-    resp = env.client.get(f"/settings/webmcp?theme={ref}", headers=env.alice_owner)
+    resp = env.client.get(f"/settings/webmcp?kb={ref}", headers=env.alice_owner)
     assert resp.status_code == 200
     body = resp.text
     assert f'data-theme-ref="{ref}"' in body
     assert 'data-theme-public="false"' in body
     # 시드 순번은 소유 테마 목록 안의 위치다. 두 테마가 서로 다른 슬롯을 받아야 한다.
-    other = env.client.get(f"/settings/webmcp?theme={env.alice_def.number}", headers=env.alice_owner).text
+    other = env.client.get(f"/settings/webmcp?kb={env.alice_def.number}", headers=env.alice_owner).text
     seeds = {re.search(r'data-theme-seed="(\d+)"', html).group(1) for html in (body, other)}
     assert len(seeds) == 2
     # 테마 라벨은 이스케이프된 data 속성으로만 들어간다.
@@ -241,7 +241,7 @@ def test_theme_query_scopes_section_to_selected_owned_theme(env):
     assert sorted(boot["syndication"]["owned_theme_refs"]) == sorted([str(env.alice_def.number), ref])
     assert str(env.bob_def.number) not in body
     assert str(env.admin_theme.number) not in body
-    assert env.client.get(f"/settings/webmcp?theme={env.bob_def.number}", headers=env.alice_owner).status_code == 404
+    assert env.client.get(f"/settings/webmcp?kb={env.bob_def.number}", headers=env.alice_owner).status_code == 404
 
 
 def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
@@ -254,7 +254,7 @@ def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
         assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values()), slug
     connections = env.client.get("/settings/connections", headers=env.admin_owner).text
     admin_ref = _bootstrap(connections)["syndication"]["theme_ref"]
-    assert f'href="/syndication?tab=client&amp;theme={admin_ref}"' in connections
+    assert f'href="/syndication?tab=client&amp;kb={admin_ref}"' in connections
 
 
 def test_build_syndication_section_interface(env, tmp_path: Path):

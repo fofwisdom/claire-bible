@@ -1,6 +1,8 @@
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number, kb_url, seed
+
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.ingest.service import IngestService
@@ -82,18 +84,10 @@ def test_theme_api_single_mode_behavior(tmp_path):
         assert resp_del.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
 
-        # 5. POST /ingest with unknown theme -> 엄격 테마 조회로 404 (S2, G1)
-        ingest_resp = client.post(
-            "/ingest",
-            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999},
-            headers=OWNER_HEADERS,
-        )
-        assert ingest_resp.status_code == 404
-
-        # theme 미지정 시 싱글 모드에서는 0번 기본 DB로 정상 적재
+        # 5. POST /ingest: a ``theme`` field is ignored (CT23); the ingest goes to the personal knowledge base 0
         ingest_valid = client.post(
             "/ingest",
-            json={"payload": "싱글 테마 모드 적재 내용"},
+            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999},
             headers=OWNER_HEADERS,
         )
         assert ingest_valid.status_code == 200
@@ -101,7 +95,7 @@ def test_theme_api_single_mode_behavior(tmp_path):
 
 
 def test_get_themes_anonymous_allowed(theme_app_client):
-    client, _ = theme_app_client
+    client, settings = theme_app_client
     resp = client.get("/themes")
     assert resp.status_code == 200
     data = resp.json()
@@ -114,7 +108,7 @@ def test_get_themes_anonymous_allowed(theme_app_client):
 
 
 def test_define_theme_requires_owner(theme_app_client):
-    client, _ = theme_app_client
+    client, settings = theme_app_client
     # 1. 익명 사용자 생성 시도 -> 404 (권한 미달 엔드포인트 숨김)
     resp = client.post("/themes", json={"label": "기술 및 AI"})
     assert resp.status_code in (403, 404)
@@ -141,7 +135,7 @@ def test_define_theme_requires_owner(theme_app_client):
 
 
 def test_theme_data_isolation_ingest_and_search(theme_app_client):
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 1. owner로 새 테마(id: 1) 정의
     client.post(
@@ -151,41 +145,36 @@ def test_theme_data_isolation_ingest_and_search(theme_app_client):
     )
 
     # 2. 테마 1에만 문서 적재
-    ingest_resp = client.post(
-        "/ingest",
-        json={"payload": "테마 1 전용 독점 문서 내용", "theme": 1},
-        headers=OWNER_HEADERS,
-    )
-    assert ingest_resp.status_code == 200
-    assert ingest_resp.json().get("kb_id") == 1
+    ingest_resp = seed(settings, 1, "테마 1 전용 독점 문서 내용")
+    assert ingest_resp.error is None and ingest_resp.document_id
 
     # 3. 기본 테마(0)의 문서 목록 확인 -> 테마 1의 문서는 0건이어야 함
-    docs_t0 = client.get("/documents?theme=0").json()
+    docs_t0 = client.get("/documents").json()
     assert len(docs_t0["documents"]) == 0
 
     # 4. 테마 1의 문서 목록 확인 -> 1건 존재해야 함
-    docs_t1 = client.get("/documents?theme=1").json()
+    docs_t1 = client.get(kb_url(settings, 1, "/documents")).json()
     assert len(docs_t1["documents"]) == 1
 
     # 5. 테마 0에서 검색 -> 0건 매치
     search_t0 = client.post(
         "/search",
-        json={"query": "독점", "theme": 0},
+        json={"query": "독점"},
         headers=OWNER_HEADERS,
     )
     assert len(search_t0.json()["hits"]) == 0
 
     # 6. 테마 1에서 검색 -> 1건 매치
     search_t1 = client.post(
-        "/search",
-        json={"query": "독점", "theme": 1},
+        kb_url(settings, 1, "/search"),
+        json={"query": "독점"},
         headers=OWNER_HEADERS,
     )
     assert len(search_t1.json()["hits"]) == 1
 
 
 def test_theme_update_label(theme_app_client):
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 새 테마 정의
     client.post(
@@ -197,7 +186,7 @@ def test_theme_update_label(theme_app_client):
     # 레이블 수정
     patch_resp = client.patch(
         "/themes",
-        json={"id": 1, "label": "변경된 이름", "icon": "🚀"},
+        json={"id": kb_number(settings, 1), "label": "변경된 이름", "icon": "🚀"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp.status_code == 200
@@ -213,7 +202,7 @@ def test_theme_update_label(theme_app_client):
 
 def test_theme_visibility_api_security(theme_app_client):
     """지식 관리자의 비공개 테마 설정 및 익명 사용자 격리/보안 검증."""
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 1. owner 권한으로 비공개 테마(id: 1, is_public: false) 정의
     resp_create = client.post(
@@ -225,13 +214,8 @@ def test_theme_visibility_api_security(theme_app_client):
     assert resp_create.json()["theme"]["is_public"] is False
 
     # 2. owner 권한으로 비공개 테마에 문서 적재
-    ingest_resp = client.post(
-        "/ingest",
-        json={"payload": "비밀 프로젝트 기밀 문서", "theme": 1},
-        headers=OWNER_HEADERS,
-    )
-    assert ingest_resp.status_code == 200
-    assert ingest_resp.json().get("kb_id") == 1
+    ingest_resp = seed(settings, 1, "비밀 프로젝트 기밀 문서")
+    assert ingest_resp.error is None and ingest_resp.document_id
 
     # 3. 익명(anonymous) 사용자 GET /themes -> 비공개 테마(1)는 목록에서 완전히 배제
     anon_list = client.get("/themes")
@@ -254,23 +238,23 @@ def test_theme_visibility_api_security(theme_app_client):
 
     # 5. 익명 사용자가 비공개 테마에 직접 접근 시도 -> 404 차단
     # 5-1. /stats?theme=1
-    assert client.get("/stats?theme=1").status_code == 404
+    assert client.get(kb_url(settings, 1, "/stats")).status_code == 404
     # 5-2. /documents?theme=1
-    assert client.get("/documents?theme=1").status_code == 404
+    assert client.get(kb_url(settings, 1, "/documents")).status_code == 404
     # 5-3. /graph?theme=1
-    assert client.get("/graph?theme=1").status_code == 404
-    # 5-4. X-Claire-Theme 헤더로 접근
-    assert client.get("/stats", headers={"X-Claire-Theme": "1"}).status_code == 404
+    assert client.get(kb_url(settings, 1, "/graph")).status_code == 404
+    # 5-4. X-Claire-Theme is ignored (CT23): the request reads the public personal knowledge base 0
+    assert client.get("/stats", headers={"X-Claire-Theme": kb_number(settings, 1)}).status_code == 200
 
     # 6. 인증된 owner는 비공개 테마 데이터 접근 정상 허용
-    assert client.get("/stats?theme=1", headers=OWNER_HEADERS).status_code == 200
-    assert client.get("/documents?theme=1", headers=OWNER_HEADERS).status_code == 200
-    assert client.get("/graph?theme=1", headers=OWNER_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/stats"), headers=OWNER_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/documents"), headers=OWNER_HEADERS).status_code == 200
+    assert client.get(kb_url(settings, 1, "/graph"), headers=OWNER_HEADERS).status_code == 200
 
     # 7. 지식 관리자(owner)가 테마를 공개로 전환 (PATCH /themes, is_public: true)
     patch_resp = client.patch(
         "/themes",
-        json={"id": 1, "is_public": True},
+        json={"id": kb_number(settings, 1), "is_public": True},
         headers=OWNER_HEADERS,
     )
     assert patch_resp.status_code == 200
@@ -279,13 +263,13 @@ def test_theme_visibility_api_security(theme_app_client):
     # 8. 공개 전환 후 익명 사용자에게도 정상 노출 및 접근 허용
     anon_list_after = client.get("/themes")
     assert 1 in [t["id"] for t in anon_list_after.json()["themes"]]
-    assert client.get("/stats?theme=1").status_code == 200
-    assert client.get("/documents?theme=1").status_code == 200
+    assert client.get(kb_url(settings, 1, "/stats")).status_code == 200
+    assert client.get(kb_url(settings, 1, "/documents")).status_code == 200
 
 
 def test_delete_theme_api(theme_app_client):
     """기본 테마 삭제 차단 및 추가 테마 삭제/소각(purge) API 검증."""
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 1. 새 테마 생성 (id: 1, 2)
     resp1 = client.post("/themes", json={"label": "삭제 대상 1"}, headers=OWNER_HEADERS)
@@ -294,22 +278,22 @@ def test_delete_theme_api(theme_app_client):
     assert resp2.status_code == 201
 
     # 2. 기본 테마(0) 삭제 시도 -> 400 에러 차단
-    del_default = client.delete("/themes?id=0", headers=OWNER_HEADERS)
+    del_default = client.delete("/themes?id=" + kb_number(settings, 0), headers=OWNER_HEADERS)
     assert del_default.status_code == 400
     err_msg = str(del_default.json().get("error") or del_default.json().get("detail") or "")
     assert "기본 테마" in err_msg or "기본 지식베이스" in err_msg
 
     # 3. 권한 없는 사용자(익명/readonly) 삭제 시도 -> 403/404 차단
-    assert client.delete("/themes?id=1").status_code in (403, 404)
-    assert client.delete("/themes?id=1", headers=READONLY_HEADERS).status_code in (403, 404)
+    assert client.delete("/themes?id=" + kb_number(settings, 1)).status_code in (403, 404)
+    assert client.delete("/themes?id=" + kb_number(settings, 1), headers=READONLY_HEADERS).status_code in (403, 404)
 
     # 4. owner 사용자가 쿼리 파라미터로 추가 테마 1 삭제 (purge=1)
-    del_t1 = client.delete("/themes?id=1&purge=1", headers=OWNER_HEADERS)
+    del_t1 = client.delete("/themes?id=" + kb_number(settings, 1) + "&purge=1", headers=OWNER_HEADERS)
     assert del_t1.status_code == 200
     assert del_t1.json()["deleted"]["id"] == 1
 
     # 5. owner 사용자가 JSON body로 추가 테마 2 삭제 (purge: true)
-    del_t2 = client.request("DELETE", "/themes", json={"id": 2, "purge": True}, headers=OWNER_HEADERS)
+    del_t2 = client.request("DELETE", "/themes", json={"id": kb_number(settings, 2), "purge": True}, headers=OWNER_HEADERS)
     assert del_t2.status_code == 200
     assert del_t2.json()["deleted"]["id"] == 2
 
@@ -321,21 +305,17 @@ def test_delete_theme_api(theme_app_client):
 
 def test_cross_theme_create_share_route(theme_app_client):
     """POST /share 호출 시 테마 미지정 또는 초기 테마 미발견 시 타 테마 자동 검색 및 해당 테마 DB 토큰 발급 검증."""
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 1. 새 테마(id: 1) 정의 및 테마 1에 문서 적재
     client.post("/themes", json={"label": "AI 연구", "icon": "🤖"}, headers=OWNER_HEADERS)
-    ingest_resp = client.post(
-        "/ingest",
-        json={"payload": "테마 1 전용 공유 대상 문서", "theme": 1},
-        headers=OWNER_HEADERS,
-    )
-    assert ingest_resp.status_code == 200
-    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+    ingest_resp = seed(settings, 1, "테마 1 전용 공유 대상 문서")
+    assert ingest_resp.error is None
+    doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
     # 2. 클라이언트가 테마를 지정하지 않고 /share 요청 -> 타 테마(1)에서 문서 자동 검색 후 토큰 발급 및 kb_id: 1 반환
     share_resp = client.post(
-        "/share",
+        kb_url(settings, 1, "/share"),
         json={"doc_id": doc_id},
         headers=OWNER_HEADERS,
     )
@@ -346,15 +326,9 @@ def test_cross_theme_create_share_route(theme_app_client):
     assert data["path"] == "/p?s=" + data["token"]
 
     # 3. 클라이언트가 초기 테마를 0(문서 없음)으로 지정하여 요청 -> 테마 1로 자동 확장 검색되어 정상 발급
-    share_resp_initial_mismatch = client.post(
-        "/share",
-        json={"doc_id": doc_id, "theme": 0},
-        headers=OWNER_HEADERS,
-    )
-    assert share_resp_initial_mismatch.status_code == 200
-    data2 = share_resp_initial_mismatch.json()
-    assert data2["kb_id"] == 1
-    assert "token" in data2
+    # Without the path, the personal knowledge base 0 has no such document: no search in other knowledge bases (CT23)
+    share_resp_personal = client.post("/share", json={"doc_id": doc_id, "theme": 1}, headers=OWNER_HEADERS)
+    assert share_resp_personal.status_code == 404
 
     # 4. 존재하지 않는 문서 ID로 요청 시 404
     resp_404 = client.post("/share", json={"doc_id": "nonexistent_doc_id"}, headers=OWNER_HEADERS)
@@ -363,19 +337,15 @@ def test_cross_theme_create_share_route(theme_app_client):
 
 def test_cross_theme_document_detail_route(theme_app_client):
     """GET /document 호출 시 테마 미지정 시 기본 테마에 없으면 타 테마 자동 검색하여 kb_id/label 포함 반환 검증."""
-    client, _ = theme_app_client
+    client, settings = theme_app_client
 
     # 1. 새 테마(id: 1) 생성 및 문서 적재
     client.post("/themes", json={"label": "보안 연구", "icon": "🛡️"}, headers=OWNER_HEADERS)
-    client.post(
-        "/ingest",
-        json={"payload": "보안 분석 상세 문서 본문", "theme": 1},
-        headers=OWNER_HEADERS,
-    )
-    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+    seed(settings, 1, "보안 분석 상세 문서 본문")
+    doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
     # 2. 테마를 파라미터로 넘기지 않고 GET /document?id=... 호출 -> 테마 1 자동 해석 및 kb_id, theme_label 반환
-    resp_auto = client.get(f"/document?id={doc_id}")
+    resp_auto = client.get(kb_url(settings, 1, "/document") + f"?id={doc_id}")
     assert resp_auto.status_code == 200
     doc_data = resp_auto.json()
     assert doc_data["id"] == doc_id
@@ -383,13 +353,13 @@ def test_cross_theme_document_detail_route(theme_app_client):
     assert doc_data["theme_label"] == "보안 연구"
 
     # 3. 명시적으로 theme=1 을 넘겨 호출 -> 정상 반환
-    resp_explicit = client.get(f"/document?id={doc_id}&theme=1")
+    resp_explicit = client.get(kb_url(settings, 1, "/document") + f"?id={doc_id}")
     assert resp_explicit.status_code == 200
     assert resp_explicit.json()["kb_id"] == 1
 
     # 4. 명시적으로 존재하지 않는 theme=0 을 넘겨 호출 -> 교차 테마 검색을 수행하지 않고 404
-    resp_explicit_wrong = client.get(f"/document?id={doc_id}&theme=0")
-    assert resp_explicit_wrong.status_code == 404
+    resp_explicit_wrong = client.get(f"/document?id={doc_id}&theme=1")
+    assert resp_explicit_wrong.status_code == 404  # the path is the personal knowledge base 0; ``theme`` is ignored
 
 
 def test_cross_theme_shared_doc_page_fallback(theme_app_client):
@@ -400,12 +370,8 @@ def test_cross_theme_shared_doc_page_fallback(theme_app_client):
 
     # 1. 새 테마(id: 1) 생성 및 문서 적재
     client.post("/themes", json={"label": "클라우드 아키텍처"}, headers=OWNER_HEADERS)
-    client.post(
-        "/ingest",
-        json={"payload": "클라우드 설계 원칙 공유 본문", "theme": 1},
-        headers=OWNER_HEADERS,
-    )
-    doc_id = client.get("/documents?theme=1").json()["documents"][0]["id"]
+    seed(settings, 1, "클라우드 설계 원칙 공유 본문")
+    doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
     # 2. 기본 DB(테마 0)의 doc_shares에만 강제로 토큰 생성 (Theme 0 documents 테이블에는 이 문서가 없음)
     conn0 = dbm.connect_existing(settings.db_file)
@@ -454,7 +420,7 @@ def test_theme_knowledge_manager_api(theme_app_client):
     # 3. PATCH /themes 로 지식 관리자 변경
     patch_resp = client.patch(
         "/themes",
-        json={"id": tid, "sorcerer": "lead_auditor"},
+        json={"id": kb_number(settings, tid), "sorcerer": "lead_auditor"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp.status_code == 200
@@ -464,7 +430,7 @@ def test_theme_knowledge_manager_api(theme_app_client):
     # 4. PATCH /themes 에서 knowledge_manager 키로도 변경 가능
     patch_resp2 = client.patch(
         "/themes",
-        json={"id": tid, "knowledge_manager": "chief_trust"},
+        json={"id": kb_number(settings, tid), "knowledge_manager": "chief_trust"},
         headers=OWNER_HEADERS,
     )
     assert patch_resp2.status_code == 200

@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
@@ -146,7 +148,7 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
         # 3. PATCH /themes: toggle presentation_enabled to False
         patch_res = client.patch(
             "/themes",
-            json={"id": kb_id, "presentation_enabled": False},
+            json={"id": kb_number(s, kb_id), "presentation_enabled": False},
             headers=owner_headers,
         )
         assert patch_res.status_code == 200
@@ -156,7 +158,7 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
         # 4. PATCH /themes: toggle presentation_enabled back to True
         patch_res2 = client.patch(
             "/themes",
-            json={"id": kb_id, "presentation_enabled": True},
+            json={"id": kb_number(s, kb_id), "presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch_res2.status_code == 200
@@ -198,7 +200,7 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
         # 1. When presentation_enabled is False (Theme 0)
         # GET /p/presentation?id=...
-        res_page = client.get(f"/p/presentation?id={doc_id}")
+        res_page = client.get(f"/p/presentation?id={doc_id}&kb={kb_number(s, 0)}")
         assert res_page.status_code == 403
         assert "기능 비활성" in res_page.text
         assert "프레젠테이션 기능이 비활성화" in res_page.text
@@ -227,7 +229,7 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
         # 2. Enable presentation on Theme 0 via PATCH /themes
         patch_res = client.patch(
             "/themes",
-            json={"id": 0, "presentation_enabled": True},
+            json={"id": kb_number(s, 0), "presentation_enabled": True},
             headers=owner_headers,
         )
         assert patch_res.status_code == 200
@@ -238,7 +240,7 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
         assert res_get_enabled.status_code == 200
         assert res_get_enabled.json()["status"] == "not_created"
 
-        res_page_enabled = client.get(f"/p/presentation?id={doc_id}")
+        res_page_enabled = client.get(f"/p/presentation?id={doc_id}&kb={kb_number(s, 0)}")
         # Uncreated presentation returns 404 guidance HTML (Option A) rather than 403
         assert res_page_enabled.status_code == 404
         assert "프레젠테이션이 아직 생성되지 않았습니다" in res_page_enabled.text

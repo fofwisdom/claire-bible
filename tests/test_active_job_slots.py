@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
+
 from claire.api import server
 from claire.config import Settings
 from claire.extract.provider import MockProvider
@@ -351,7 +353,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
 
     try:
         # GET /stats for Theme 0
-        r0 = client.get("/stats?theme=0", headers=auth_header)
+        r0 = client.get("/stats", headers=auth_header)
         assert r0.status_code == 200
         d0 = r0.json()
         assert d0["ingesting"] is True
@@ -360,7 +362,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         assert len(d0["active_jobs"]) == 2
 
         # GET /stats for Theme 1
-        r1 = client.get("/stats?theme=1", headers=auth_header)
+        r1 = client.get(kb_url(s, 1, "/stats"), headers=auth_header)
         assert r1.status_code == 200
         d1 = r1.json()
         assert d1["ingesting"] is True
@@ -369,7 +371,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         assert d1["active_ingest"]["stage"] == "extract"
 
         # GET /ingest/active for Theme 1
-        ra1 = client.get("/ingest/active?theme=1", headers=auth_header)
+        ra1 = client.get(kb_url(s, 1, "/ingest/active"), headers=auth_header)
         assert ra1.status_code == 200
         act1 = ra1.json()
         assert act1["active"] is True

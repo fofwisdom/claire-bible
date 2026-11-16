@@ -37,6 +37,8 @@ import pytest
 import zstandard as zstd
 from starlette.testclient import TestClient
 
+from claire import ids
+from tests.kb_paths import seed
 from claire.api import server
 from claire.config import Settings
 from claire.graph_bundle import create_graph_bundle, import_graph_bundle
@@ -198,28 +200,28 @@ def test_permission_matrix_anonymous(test_environment):
     client = env.client
 
     # 1. Read public theme -> 200
-    res_pub = client.get(f"/@alice/graph?theme={env.alice_pub.id}")
+    res_pub = client.get(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph")
     assert res_pub.status_code == 200
 
     # 2. Search public theme -> 200 and forced FTS mode
     res_search = client.post(
-        f"/@alice/search?theme={env.alice_pub.id}",
+        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/search",
         json={"query": "claire", "mode": "hybrid"},
     )
     assert res_search.status_code == 200
     assert res_search.json().get("mode") == "fts"
 
     # 3. Read private collaborator theme -> 404
-    res_priv_collab = client.get(f"/@alice/graph?theme={env.alice_collab.id}")
+    res_priv_collab = client.get(f"/@alice/themes/{ids.format_public_id(env.alice_collab.number)}/graph")
     assert res_priv_collab.status_code == 404
 
     # 4. Read secret private theme -> 404
-    res_priv_sec = client.get(f"/@alice/graph?theme={env.alice_sec.id}")
+    res_priv_sec = client.get(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/graph")
     assert res_priv_sec.status_code == 404
 
     # 5. Ingest write attempt -> 404
     res_write = client.post(
-        f"/@alice/ingest?theme={env.alice_pub.id}",
+        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/ingest",
         json={"payload": "Anonymous ingest attempt"},
     )
     assert res_write.status_code == 404
@@ -232,14 +234,16 @@ def test_permission_matrix_owner(test_environment):
     headers = {"Authorization": f"Bearer {env.alice_owner_tok}"}
 
     # 1. Read public and private themes -> 200
-    assert client.get(f"/@alice/graph?theme={env.alice_pub.id}", headers=headers).status_code == 200
-    assert client.get(f"/@alice/graph?theme={env.alice_sec.id}", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 200
 
-    # 2. Ingest write to public and private themes -> 200
-    res_pub = client.post(f"/@alice/ingest?theme={env.alice_pub.id}", json={"payload": "Owner doc public"}, headers=headers)
-    assert res_pub.status_code == 200
-    res_sec = client.post(f"/@alice/ingest?theme={env.alice_sec.id}", json={"payload": "Owner doc secret"}, headers=headers)
-    assert res_sec.status_code == 200
+    # 2. Ingest writes only to the personal knowledge base (CT4, CT23): 200 there, 403 on a path that pins another one
+    res_def = client.post("/@alice/ingest", json={"payload": "Owner doc personal"}, headers=headers)
+    assert res_def.status_code == 200
+    res_pub = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/ingest", json={"payload": "Owner doc public"}, headers=headers)
+    assert res_pub.status_code == 403
+    res_sec = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/ingest", json={"payload": "Owner doc secret"}, headers=headers)
+    assert res_sec.status_code == 403
 
 
 def test_permission_matrix_collaborator(test_environment):
@@ -251,26 +255,26 @@ def test_permission_matrix_collaborator(test_environment):
     headers = {"Authorization": f"Bearer {env.alice_collab_tok}"}
 
     # 1. Read public theme -> 200
-    assert client.get(f"/@alice/graph?theme={env.alice_pub.id}", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph", headers=headers).status_code == 200
 
     # 2. Read collaborator-accessible private theme -> 200
-    assert client.get(f"/@alice/graph?theme={env.alice_collab.id}", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_collab.number)}/graph", headers=headers).status_code == 200
 
     # 3. Read secret private theme -> 404
-    assert client.get(f"/@alice/graph?theme={env.alice_sec.id}", headers=headers).status_code == 404
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 404
 
     # 4. Collaborator write to default theme (is_personal=1) -> 403 Forbidden
-    res_def_write = client.post(f"/@alice/ingest?theme={env.alice_def.id}", json={"payload": "Collab default ingest"}, headers=headers)
+    res_def_write = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_def.number)}/ingest", json={"payload": "Collab default ingest"}, headers=headers)
     assert res_def_write.status_code == 403
     err_detail = res_def_write.json().get("detail") or res_def_write.json().get("error") or ""
     assert "기본 지식베이스" in err_detail
 
-    # 5. Collaborator write to collaborator-accessible theme -> 200 OK
-    res_collab_write = client.post(f"/@alice/ingest?theme={env.alice_collab.id}", json={"payload": "Collab accessible ingest"}, headers=headers)
-    assert res_collab_write.status_code == 200
+    # 5. Ingest writes only to the personal knowledge base (CT4, CT23): no ingest into a collaborator-accessible theme -> 403
+    res_collab_write = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_collab.number)}/ingest", json={"payload": "Collab accessible ingest"}, headers=headers)
+    assert res_collab_write.status_code == 403
 
     # 6. Collaborator attempting owner-level action (create graph bundle) -> 403 or 404 Forbidden/Not Found
-    res_owner_action = client.post(f"/@alice/graph/bundle?theme={env.alice_collab.id}", json={"kb_id": env.alice_collab.id}, headers=headers)
+    res_owner_action = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_collab.number)}/graph/bundle", json={"kb_id": env.alice_collab.id}, headers=headers)
     assert res_owner_action.status_code in (403, 404)
 
 
@@ -281,11 +285,11 @@ def test_permission_matrix_readonly(test_environment):
     headers = {"Authorization": f"Bearer {env.alice_ro_tok}"}
 
     # 1. Read public and private themes -> 200
-    assert client.get(f"/@alice/graph?theme={env.alice_pub.id}", headers=headers).status_code == 200
-    assert client.get(f"/@alice/graph?theme={env.alice_sec.id}", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 200
 
     # 2. Ingest write attempt -> 403 or 404
-    res_write = client.post(f"/@alice/ingest?theme={env.alice_pub.id}", json={"payload": "Readonly write attempt"}, headers=headers)
+    res_write = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/ingest", json={"payload": "Readonly write attempt"}, headers=headers)
     assert res_write.status_code in (403, 404)
 
 
@@ -296,11 +300,11 @@ def test_permission_matrix_cross_account(test_environment):
     headers = {"Authorization": f"Bearer {env.bob_owner_tok}"}
 
     # 1. Read Alice public theme -> 200
-    assert client.get(f"/@alice/graph?theme={env.alice_pub.id}", headers=headers).status_code == 200
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph", headers=headers).status_code == 200
 
     # 2. Search Alice public theme -> 200 and forced FTS mode
     res_search = client.post(
-        f"/@alice/search?theme={env.alice_pub.id}",
+        f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/search",
         json={"query": "claire", "mode": "hybrid"},
         headers=headers,
     )
@@ -308,17 +312,17 @@ def test_permission_matrix_cross_account(test_environment):
     assert res_search.json().get("mode") == "fts"
 
     # 3. Read Alice private collaborator theme -> 404 (hidden from foreign account)
-    assert client.get(f"/@alice/graph?theme={env.alice_collab.id}", headers=headers).status_code == 404
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_collab.number)}/graph", headers=headers).status_code == 404
 
     # 4. Read Alice secret theme -> 404
-    assert client.get(f"/@alice/graph?theme={env.alice_sec.id}", headers=headers).status_code == 404
+    assert client.get(f"/@alice/themes/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 404
 
     # 5. Ingest write attempt to Alice public theme -> 404 (cross-account write hidden)
-    res_write = client.post(f"/@alice/ingest?theme={env.alice_pub.id}", json={"payload": "Bob cross-write attempt"}, headers=headers)
+    res_write = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/ingest", json={"payload": "Bob cross-write attempt"}, headers=headers)
     assert res_write.status_code == 404
 
     # 6. Graph bundle export attempt on Alice theme -> 404
-    res_bundle = client.post(f"/@alice/graph/bundle?theme={env.alice_pub.id}", json={"kb_id": env.alice_pub.id}, headers=headers)
+    res_bundle = client.post(f"/@alice/themes/{ids.format_public_id(env.alice_pub.number)}/graph/bundle", json={"kb_id": env.alice_pub.id}, headers=headers)
     assert res_bundle.status_code == 404
 
 
@@ -568,6 +572,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     assert res_def.status_code == 201
     team_theme = res_def.json()["theme"]
     team_kb_id = team_theme["id"]
+    team_num = team_theme["number"]
     assert team_theme["account_id"] == 2
 
     # Step 2: Alice issues a collaborator token via /tokens API
@@ -580,17 +585,18 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     collab_token = res_tok.json()["token"]["token"]
     collab_hdr = {"Authorization": f"Bearer {collab_token}"}
 
-    # Step 3: Collaborator ingests into Alice's team theme -> Success
+    # Step 3: Ingest writes only to the personal knowledge base (CT4, CT23): no ingest into the team theme -> 403
     res_ingest_team = client.post(
-        f"/@alice/ingest?theme={team_kb_id}",
+        f"/@alice/themes/{team_num}/ingest",
         json={"payload": "Alice Team Project document notes"},
         headers=collab_hdr,
     )
-    assert res_ingest_team.status_code == 200
+    assert res_ingest_team.status_code == 403
+    seed(env.settings, team_kb_id, "Alice Team Project document notes")
 
     # Step 4: Collaborator attempts to ingest into Alice's default theme -> Blocked 403
     res_ingest_def = client.post(
-        f"/@alice/ingest?theme={env.alice_def.id}",
+        f"/@alice/themes/{ids.format_public_id(env.alice_def.number)}/ingest",
         json={"payload": "Collab default illegal ingest"},
         headers=collab_hdr,
     )
@@ -599,18 +605,18 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 5: Foreign account Bob attempts to ingest into Alice's team theme -> Blocked 404
     res_bob_write = client.post(
-        f"/@alice/ingest?theme={team_kb_id}",
+        f"/@alice/themes/{team_num}/ingest",
         json={"payload": "Bob illegal cross-account ingest"},
         headers=bob_owner_hdr,
     )
     assert res_bob_write.status_code == 404
 
     # Step 6: Bob reads and searches Alice's public team theme -> Success, search forced to FTS
-    res_bob_read = client.get(f"/@alice/graph?theme={team_kb_id}", headers=bob_owner_hdr)
+    res_bob_read = client.get(f"/@alice/themes/{team_num}/graph", headers=bob_owner_hdr)
     assert res_bob_read.status_code == 200
 
     res_bob_search = client.post(
-        f"/@alice/search?theme={team_kb_id}",
+        f"/@alice/themes/{team_num}/search",
         json={"query": "Project", "mode": "hybrid"},
         headers=bob_owner_hdr,
     )
@@ -619,7 +625,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
 
     # Step 7: Alice creates a graph bundle for her team theme via API
     res_bundle = client.post(
-        f"/@alice/graph/bundle?theme={team_kb_id}",
+        f"/@alice/themes/{team_num}/graph/bundle",
         json={"kb_id": team_kb_id},
         headers=alice_owner_hdr,
     )

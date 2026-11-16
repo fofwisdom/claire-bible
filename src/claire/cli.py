@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from . import ids
 from .config import get_settings
 from .store import db as dbm
 from .store.vectors import probe_sqlite_vec
@@ -939,7 +940,7 @@ def cmd_theme(args) -> int:
                     print("  • Remove from the registry: yes")
                     print(f"  • Purge the data permanently: {'yes' if purge else 'no (--purge is not given)'}")
                 else:
-                    print(f"  • Theme ID / URI kept    : #{target_theme.id} (?theme={target_theme.id})")
+                    print(f"  • Theme ID / path kept   : #{target_theme.id} (/themes/{target_theme.number}/)")
                 if counts is not None:
                     print(f"  • Documents to purge     : {counts['documents']}")
                     print(f"  • Entities to purge      : {counts['entities']}")
@@ -960,7 +961,7 @@ def cmd_theme(args) -> int:
                 else:
                     prompt = (
                         f"[warning] Reset all documents, knowledge nodes, and relations of theme #{target_theme.id} [{target_theme.label}]?\n"
-                        f"      The theme ID and its URI (?theme={target_theme.id}) stay. (y/N): "
+                        f"      The theme ID and its path (/themes/{target_theme.number}/) stay. (y/N): "
                     )
                 confirm = input(prompt)
                 if confirm.strip().lower() not in ("y", "yes"):
@@ -988,7 +989,7 @@ def cmd_theme(args) -> int:
                 print(json.dumps({"ok": True, "reset": stats}, ensure_ascii=False, indent=2))
             else:
                 print(f"[done] All data of theme #{stats['kb_id']} [{stats['theme_label']}] is reset.")
-                print(f"  • Theme ID / URI    : #{stats['kb_id']} (?theme={stats['kb_id']}) (kept)")
+                print(f"  • Theme ID           : #{stats['kb_id']} (kept)")
                 print(f"  • Documents purged  : {stats['deleted_documents']}")
                 print(f"  • Entities purged   : {stats['deleted_entities']}")
                 print(f"  • Relations purged  : {stats['deleted_relations']}")
@@ -2791,7 +2792,7 @@ def cmd_presentation(args) -> int:
                     ))
 
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -2856,7 +2857,7 @@ def cmd_presentation(args) -> int:
                     conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val
                 ))
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -3012,7 +3013,7 @@ def cmd_presentation(args) -> int:
                     conn, doc_id, theme=theme_val, transition=trans_val, force_recompile=force_val, focus=focus_val, slide_budget=slide_budget_val
                 ))
                 base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-                presentation_url = f"{base_url}/p/presentation?id={doc_id}"
+                presentation_url = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
                 data = {
                     "status": res.get("status", "ready"),
                     "document_id": doc_id,
@@ -3081,7 +3082,7 @@ def cmd_presentation(args) -> int:
                 return 0
 
             base_url = s.public_url.rstrip("/") if s.public_url else "http://localhost:8000"
-            meta["presentation_url"] = f"{base_url}/p/presentation?id={doc_id}"
+            meta["presentation_url"] = f"{base_url}/p/presentation?id={doc_id}{_presentation_kb_query(s)}"
             meta["title"] = doc_info.get("title", "")
             adoc_path = svc.get_presentation_adoc_path(doc_id)
             meta["has_adoc"] = bool(meta.get("presentation_adoc") or adoc_path.exists())
@@ -4876,6 +4877,21 @@ def cmd_import_graph(args: Any) -> int:
     print("=" * 60)
     return 0
 
+
+
+def _presentation_kb_query(s: Any) -> str:
+    """``/p/presentation`` has no namespace: the parameter ``kb`` (number) selects the knowledge base (design Section 5.2 rule 2)."""
+    try:
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = conn.execute("SELECT number FROM knowledge_bases WHERE id=?", (int(getattr(s, "kb_id", 0) or 0),)).fetchone()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return ""
+    if row is None or row[0] is None:
+        return ""
+    return "&kb=" + ids.format_public_id(int(row[0]))
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(

@@ -448,7 +448,7 @@ def test_cli_theme_reset(cli_theme_env, capsys, monkeypatch):
     assert ret == 0
     out = capsys.readouterr().out
     assert "is reset" in out
-    assert "?theme=1" in out
+    assert "Theme ID           : #1 (kept)" in out
     assert "Documents purged  : 1" in out
     assert "Entities purged   : 1" in out
     assert "Relations purged  : 1" in out

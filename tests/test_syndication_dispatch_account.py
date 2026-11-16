@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_url, seed
+
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import accounts as accounts_store
@@ -92,13 +94,9 @@ def test_syndication_dispatch_records_principal_account_id(dispatch_account_env)
     t2_id = env["theme2_id"]
 
     # Ingest document into Theme 1 by owner
-    ingest_res = client.post(
-        "/ingest",
-        json={"payload": "Research on neural alignment and agentic workflows.", "theme": t1_id, "format": "md"},
-        headers=OWNER_HEADERS,
-    )
-    assert ingest_res.status_code == 200
-    doc_id = ingest_res.json()["document_id"]
+    ingest_res = seed(settings, t1_id, "Research on neural alignment and agentic workflows.")  # HTTP ingest writes only to the personal knowledge base (CT23)
+    assert ingest_res.error is None
+    doc_id = ingest_res.document_id
     assert doc_id
 
     # Dispatch from Theme 1 to Theme 2 by Owner (Account ID 1 in single mode)
@@ -133,13 +131,9 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     t4_id = env["theme4_id"]
 
     # Ingest a document into Theme 1 (Account 1) via API
-    res_ingest = client.post(
-        "/ingest",
-        json={"payload": "Foundational transformer architecture and attention mechanisms.", "theme": t1_id, "format": "md"},
-        headers=OWNER_HEADERS,
-    )
-    assert res_ingest.status_code == 200
-    doc1_id = res_ingest.json()["document_id"]
+    res_ingest = seed(env["settings"], t1_id, "Foundational transformer architecture and attention mechanisms.")  # HTTP ingest writes only to the personal knowledge base (CT23)
+    assert res_ingest.error is None
+    doc1_id = res_ingest.document_id
 
     # Insert a document into Theme 3 (Account 2) via store layer
     from claire.ontology.base import Document, new_id

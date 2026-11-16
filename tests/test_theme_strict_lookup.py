@@ -65,6 +65,19 @@ def strict_env(tmp_path):
     return client, settings, tm, t1
 
 
+def _num(kb) -> str:
+    from claire import ids
+
+    return ids.format_public_id(kb.number)
+
+
+def _seed(client: TestClient, settings: Settings, tm: KnowledgeBaseManager, kb, text: str) -> str:
+    """HTTP ingest writes only to the personal knowledge base (CT23). Seed another one with its service, then read the ID by its path."""
+    IngestService(tm.get_settings_for_kb(kb.id, settings), kb_id=kb.id).ingest(text, source="cli", expand_max=0)
+    docs = client.get(f"/themes/{_num(kb)}/documents", headers=OWNER_HEADERS).json()["documents"]
+    return docs[0]["id"]
+
+
 def _raw_inbox_count(settings: Settings) -> int:
     conn = dbm.connect_existing(settings.db_file, readonly=True)
     try:
@@ -133,82 +146,10 @@ def test_get_settings_for_theme_raises_for_deleted_theme(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_http_unknown_theme_is_404(strict_env):
-    client, settings, _, _ = strict_env
-
-    for path in ("/stats?theme=999", "/graph?theme=nope", "/documents?theme=999"):
-        resp = client.get(path, headers=OWNER_HEADERS)
-        assert resp.status_code == 404, path
-        assert resp.json()["error"] == "theme not found"
-
-    # 헤더로 지정해도 같다
-    resp = client.get("/stats", headers={**OWNER_HEADERS, "X-Claire-Theme": "999"})
-    assert resp.status_code == 404
-
-
-def test_http_ingest_unknown_theme_is_404_without_inbox_row(strict_env):
-    client, settings, _, _ = strict_env
-    before = _raw_inbox_count(settings)
-
-    for theme_ref in (999, "nope", "Alpha"):
-        resp = client.post(
-            "/ingest",
-            json={"payload": "테마를 잘못 적은 적재 요청", "theme": theme_ref},
-            headers=OWNER_HEADERS,
-        )
-        assert resp.status_code == 404, theme_ref
-        assert resp.json()["error"] == "theme not found"
-
-    assert _raw_inbox_count(settings) == before
-    conn = dbm.connect_existing(settings.db_file, readonly=True)
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
-    finally:
-        conn.close()
-
-
-def test_http_partial_label_is_404_but_exact_label_resolves(strict_env):
-    client, _, _, t1 = strict_env
-
-    assert client.get("/stats?theme=Alpha", headers=OWNER_HEADERS).status_code == 404
-
-    exact = client.get("/stats?theme=alpha%20research", headers=OWNER_HEADERS)
-    assert exact.status_code == 200
-    assert exact.json()["kb_id"] == t1.id
-
-
-def test_http_private_theme_and_missing_theme_look_the_same(tmp_path):
-    settings = _settings(tmp_path)
-    tm = KnowledgeBaseManager(settings)
-    private = tm.define_kb("비공개 연구", is_public=False)
-    client = TestClient(create_app(settings=settings), base_url=settings.public_url)
-
-    hidden = client.get(f"/stats?theme={private.id}")
-    missing = client.get("/stats?theme=999")
-    assert hidden.status_code == missing.status_code == 404
-    assert hidden.json() == missing.json() == {"error": "theme not found"}
-
-
-def test_http_omitted_theme_is_theme_zero(strict_env):
-    client, settings, _, _ = strict_env
-
-    resp = client.get("/stats", headers=OWNER_HEADERS)
-    assert resp.status_code == 200
-    assert resp.json()["kb_id"] == 0
-
-    ingest = client.post("/ingest", json={"payload": "테마 생략 적재 문서"}, headers=OWNER_HEADERS)
-    assert ingest.status_code == 200
-    assert ingest.json().get("kb_id") == 0
-
-
 def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
-    client, _, _, t1 = strict_env
+    client, settings, tm, t1 = strict_env
 
-    ingest = client.post(
-        "/ingest", json={"payload": "배급 원본 문서 본문", "theme": t1.id}, headers=OWNER_HEADERS
-    )
-    assert ingest.status_code == 200
-    doc_id = client.get(f"/documents?theme={t1.id}", headers=OWNER_HEADERS).json()["documents"][0]["id"]
+    doc_id = _seed(client, settings, tm, t1, "배급 원본 문서 본문")
 
     bad_target = client.post(
         "/api/syndication/dispatch",
@@ -224,20 +165,13 @@ def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
     )
     assert bad_source.status_code == 404
 
-    # 소스 테마를 본문 대신 ?theme= 로 명시했는데 없으면 대상 테마로 바꾸지 않고 404
-    bad_ctx = client.post(
+    # Without a source there is no default (CT23): the target is not used in its place. ``?theme=`` is ignored.
+    no_source = client.post(
         "/api/syndication/dispatch?theme=999",
         json={"document_id": doc_id, "target_kb_id": 0},
         headers=OWNER_HEADERS,
     )
-    assert bad_ctx.status_code == 404
-
-
-def test_http_syndication_ui_unknown_theme_is_404(strict_env):
-    client, _, _, t1 = strict_env
-    assert client.get("/syndication?theme=999", headers=OWNER_HEADERS).status_code == 404
-    assert client.get("/syndication/preferences?theme=nope", headers=OWNER_HEADERS).status_code == 404
-    assert client.get(f"/syndication?theme={t1.id}", headers=OWNER_HEADERS).status_code == 200
+    assert no_source.status_code == 400
 
 
 def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
@@ -247,25 +181,18 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     # 예전 폴백이면 삭제된 테마의 문서가 테마 0 설정(프레젠테이션 활성)으로 200을 받았다
     tm.update_kb(0, presentation_enabled=True)
 
-    for theme in (t1, t2):
-        resp = client.post(
-            "/ingest", json={"payload": f"{theme.label} 문서 본문", "theme": theme.id}, headers=OWNER_HEADERS
-        )
-        assert resp.status_code == 200
-    doc_t1 = client.get(f"/documents?theme={t1.id}", headers=OWNER_HEADERS).json()["documents"][0]["id"]
-    doc_t2 = client.get(f"/documents?theme={t2.id}", headers=OWNER_HEADERS).json()["documents"][0]["id"]
+    doc_t1 = _seed(client, settings, tm, t1, f"{t1.label} 문서 본문")
+    doc_t2 = _seed(client, settings, tm, t2, f"{t2.label} 문서 본문")
 
     # 데이터 행은 남기고 테마만 삭제
-    assert client.delete(f"/themes?id={t1.id}", headers=OWNER_HEADERS).status_code == 200
+    assert client.delete(f"/themes?id={_num(t1)}", headers=OWNER_HEADERS).status_code == 200
 
-    live = client.get(f"/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
+    live = client.get(f"/themes/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
     assert live.status_code == 200
 
-    orphan = client.get(f"/document/presentation?id={doc_t1}", headers=OWNER_HEADERS)
-    assert orphan.status_code == 404
-
-    # 삭제된 테마를 직접 가리켜도 404
-    assert client.get(f"/stats?theme={t1.id}", headers=OWNER_HEADERS).status_code == 404
+    # 삭제된 지식 베이스의 경로는 404다 (지식 베이스 0으로 다루지 않는다)
+    assert client.get(f"/themes/{_num(t1)}/document/presentation?id={doc_t1}", headers=OWNER_HEADERS).status_code == 404
+    assert client.get(f"/themes/{_num(t1)}/stats", headers=OWNER_HEADERS).status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -292,79 +219,6 @@ def test_cli_theme_partial_label_still_resolves(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # MCP
 # ---------------------------------------------------------------------------
-
-
-def test_mcp_unknown_theme_returns_theme_not_found(tmp_path):
-    settings = _settings(tmp_path)
-    tm = KnowledgeBaseManager(settings)
-    tm.define_kb("Alpha Research")
-    app = build_mcp_app(settings, theme_mgr=tm)
-
-    calls = {
-        "resolve_entity": {"name": "x"},
-        "search": {"query": "x"},
-        "neighbors": {"entity_ids": ["e1"]},
-        "path": {"from_id": "e1", "to_id": "e2"},
-        "context": {"entity_ids": ["e1"]},
-        "overview": {},
-        "node": {"entity_id": "e1"},
-        "documents": {},
-        "document": {"document_id": "doc_x"},
-        "stats": {},
-    }
-    with TestClient(app, base_url="http://localhost:8765") as client:
-        for name, args in calls.items():
-            for theme_ref in (999, "nope", "Alpha"):
-                data = _mcp_call(client, name, {**args, "theme": theme_ref})
-                assert data == {"error": "theme not found"}, (name, theme_ref)
-
-        # 참조 생략과 정확한 레이블은 정상 처리
-        assert "error" not in _mcp_call(client, "stats", {})
-        assert "error" not in _mcp_call(client, "stats", {"theme": "alpha research"})
-
-
-def test_mcp_document_cross_theme_skips_deleted_theme(tmp_path):
-    settings = _settings(tmp_path)
-    tm = KnowledgeBaseManager(settings)
-    t1 = tm.define_kb("곧 삭제")
-    conn = dbm.connect(settings.db_file)
-    try:
-        dbm.init_db(conn)
-        from claire.ontology.base import Document
-
-        dbm.insert_document(
-            conn,
-            Document(
-                id="doc_orphan",
-                url="https://example.com/orphan",
-                title="Orphan Doc",
-                raw_text="orphan text",
-                source_type="web",
-                content_hash="h_orphan",
-            ),
-            kb_id=t1.id,
-        )
-    finally:
-        conn.close()
-    tm.delete_kb(t1.id)
-
-    app = build_mcp_app(settings, theme_mgr=tm)
-    with TestClient(app, base_url="http://localhost:8765") as client:
-        assert _mcp_call(client, "document", {"document_id": "doc_orphan"}) == {"error": "not found"}
-        assert _mcp_call(client, "document", {"document_id": "doc_orphan", "theme": t1.id}) == {
-            "error": "theme not found"
-        }
-
-
-def test_mcp_single_theme_without_manager_only_knows_theme_zero(tmp_path):
-    settings = _settings(tmp_path, multi=False)
-    conn = dbm.connect(settings.db_file)
-    dbm.init_db(conn)
-    conn.close()
-    app = build_mcp_app(settings)
-    with TestClient(app, base_url="http://localhost:8765") as client:
-        assert "error" not in _mcp_call(client, "stats", {"theme": 0})
-        assert _mcp_call(client, "stats", {"theme": 3}) == {"error": "theme not found"}
 
 
 # ---------------------------------------------------------------------------

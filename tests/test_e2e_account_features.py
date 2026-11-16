@@ -14,6 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.kb_paths import kb_number
 from starlette.testclient import TestClient
 
 from claire import secret_scrub, telegram_api
@@ -174,7 +176,7 @@ def test_member_configures_and_controls_every_feature_from_webui(journey):
     assert r.status_code == 200, r.text
     support_id = r.json()["bundle"]["bundle_id"]
     support_url = r.json()["bundle"]["download_url"]
-    r = _call(env, "POST", "/api/me/data-bundles", alice, json={})
+    r = _call(env, "POST", "/api/me/data-bundles", alice, json={"kb": kb_number(env.settings, env.theme.id)})
     assert r.status_code == 200, r.text
     data_id = r.json()["bundle"]["bundle_id"]
     assert r.json()["bundle"]["entities_count"] == 1

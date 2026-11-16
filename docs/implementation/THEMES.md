@@ -32,7 +32,7 @@
 | :--- | :--- | :--- |
 | `src/claire/store/knowledge_base.py` | 테마 레지스트리, 조회, 수명주기, 테마별 설정 | `KnowledgeBaseInfo`, `KnowledgeBaseNotFound`, `KnowledgeBaseManager`(`reload`, `get_kb`, `define_kb`, `update_kb`, `delete_kb`, `reset_kb`, `kb_data_counts`, `get_settings_for_kb`, `active_kb_settings`, `get_kb_by_fqdn`), `THEMES_REGISTRY_FILENAME`, `validate_fqdn`, `get_kb_manager` |
 | `src/claire/store/db.py` | `knowledge_bases` 테이블, `kb_id` 인덱스, 레거시 DB 병합 | `init_db`, `reset_graph`, `migrate_multi_db_to_single_db` |
-| `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_extract_theme_ref`, `_theme_accessible`, `_get_theme_ctx`, `_visible_active_jobs`, `_job_kb_id` |
+| `src/claire/api/server.py` | HTTP 요청의 테마 결정과 접근 검사 | `_theme_accessible`, `_get_theme_ctx`, `_get_personal_kb_ctx`, `_visible_active_jobs`, `_job_kb_id` |
 | `src/claire/ingest/service.py` | 테마별 적재 서비스 | `IngestService.kb_id`, `IngestServicePool` |
 | `src/claire/cli.py` | CLI의 테마 결정 | `get_effective_settings`, `cmd_theme`, `cmd_migrate` |
 | `src/claire/telegram_bot.py` | 텔레그램의 테마 선택 | `on_theme`, `parse_message_theme` |
@@ -62,7 +62,7 @@
 ## 3. 테마 조회 (`KnowledgeBaseManager.get_kb`)
 
 **[코드]** 매칭 순서는 다음과 같다.
-1. 비어 있으면(`None`, 빈 문자열) 관리자 계정의 기본 테마(`personal_kb_for(ADMIN_ACCOUNT_ID)`, 보통 테마 0). 참조를 생략한 경우의 기본값이다. 계정 안에서 해석하는 요청 입력은 `resolve_theme_ref`를 쓴다(§4.6).
+1. 비어 있으면(`None`, 빈 문자열) 관리자 계정의 기본 테마(`personal_kb_for(ADMIN_ACCOUNT_ID)`, 보통 테마 0). 관리 도구(CLI)의 기본값이다. HTTP 요청은 §4.1의 선택 규칙을 따른다.
 2. 숫자 ID 정확 일치
 3. 레이블 정확 일치(대소문자 무시)
 4. 레이블 부분 일치(처음 걸린 테마): `label_match="partial"`일 때만
@@ -90,12 +90,13 @@
 
 ### 4.1 HTTP (`server.py`)
 
-**[코드]** 테마 참조 및 경로 해석 우선순위는 다음과 같다.
+**[코드]** 지식 베이스 선택 규칙(공유 지식 베이스 설계 §5.2, CT23, `_get_theme_ctx`):
 
-1. 경로에 테마 번호가 포함되어 있으면(`/themes/{number}/...`) 해당 테마로 고정(`pinned_kb_id`)한다. 고정과 모순되는 `?theme=` 쿼리나 본문 파라미터는 400으로 거부한다.
-2. 경로에 고정이 없으면 `?theme=` → 본문 `theme` → `X-Claire-Theme` 헤더 순으로 해석한다(`resolve_theme_ref`).
-3. 외부 식별자는 64비트 시간 정렬 번호(`number`, `>= 2^56`)를 사용한다. 내부 ID(`0 <= id < 2^31`)로 들어온 요청은 호환 수용하되 RFC 8594 `Deprecation` 및 `Sunset` 응답 헤더를 부착한다.
-4. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
+1. **네임스페이스 라우트**: 경로만 선택한다. 고정 경로(`/themes/{number}/…`, `/@{u}/themes/{number}/…`)는 그 지식 베이스(`pinned_kb_id`), 고정이 없으면 네임스페이스 계정의 개인 지식 베이스(`personal_kb_for`)다.
+2. **네임스페이스가 없는 라우트**(`any`·`system` 표면, 예: `/p/presentation`, `/api/me/data-bundles`, MCP 읽기 도구): 매개변수 `kb`(번호)가 필수다. 없으면 400 `kb_required`. `KnowledgeBaseManager.get_kb_by_reference`는 번호만 받는다(내부 ID·레이블·빈 값은 404).
+3. **적재**(`/ingest`, `/ingest-stream`, 피드·타임라인 항목 적재): 자격증명 계정의 개인 지식 베이스에만 쓴다(`_get_personal_kb_ctx`). 다른 지식 베이스를 고정한 경로는 403 `kb_ingest_personal_only`, 다른 계정의 네임스페이스는 404다.
+4. **옛 이름**: 쿼리·본문 `theme`, `X-Claire-Theme` 헤더, 내부 ID 참조는 모르는 필드처럼 무시한다. `Deprecation`·`Sunset` 헤더도 없다. 문서를 다른 지식 베이스에서 찾아 대상을 바꾸는 폴백(`/share`, `/document`, 재생성, 프레젠테이션, 배급 원본)은 없다. 공유 토큰(`/p?s=`, `/p/presentation?s=`)은 토큰이 자기 지식 베이스를 정한다.
+5. 개별 테마 FQDN 설정은 폐지되었다(O5). 기존 FQDN 접근은 `HostRouter`에서 308 정본 경로로 리다이렉트된다.
 
 **[코드]** `_theme_accessible`의 접근 검사(`_get_theme_ctx`가 쓰고, 실패하면 404)는 다음과 같다.
 
@@ -124,7 +125,7 @@
 **[코드]** `/stats`와 `/ingest/active`는 다음과 같이 동작한다.
 - `active_jobs`를 `_visible_active_jobs`로 거른다. 요청자가 `_theme_accessible`로 접근할 수 있는 테마의 작업만 남는다.
 - 대표 작업(`active_ingest`)은 거른 목록 안에서만 고른다(`get_primary_active_job(..., jobs=...)`). 이때 전 테마 공용인 레거시 `active_ingest.json`으로 폴백하지 않는다.
-- 멀티 테마 모드에서는 권한 검사를 통과한 테마 ID만 쓰고, 날 `?theme=` 값은 무시한다(`_job_kb_id`).
+- 작업 조회 대상은 선택 규칙(§4.1)이 정한 지식 베이스다(`_job_kb_id`).
 - 이 처리가 없으면 공개 테마 FQDN에서 비공개 테마의 적재 URL과 제목이 보인다(`tests/test_active_jobs_theme_isolation.py`).
 
 ### 4.4 적재 서비스와 워커
@@ -133,13 +134,13 @@
 - **[코드]** `recover-loop`, `refresh-loop`, `expand-loop`와 `app health`, `migrate`는 `active_kb_settings()`로 테마 목록을 매번 다시 읽는다.
 - **[코드]** `cmd_migrate`는 멀티 테마 모드에서 테마마다 `init_db`와 `require_current_schema`를 실행한다. 대상 파일은 모두 같은 단일 DB다.
 
-### 4.6 콘솔 화면의 테마 관리와 `?theme=`
+### 4.6 콘솔 화면의 테마 관리와 `?kb=`
 
 - **[코드] 테마 관리 화면**: 멤버는 `/settings/themes`, 관리자는 `/admin/themes`에서 테마를 관리한다(둘 다 `/themes` API를 부르는 `src/claire/static/js/manage_panels.js`의 `renderThemeManager`). 관리자가 `/settings/themes`를 열면 `/admin/themes`로 302된다. 루트 `/` 상세 메뉴에는 테마 관리 패널이 없다. 협업자는 테마 관리 화면에 들어가지 않는다(테마 선택기만 쓴다). 동작의 정본은 [`ACCOUNTS.md`](ACCOUNTS.md) §5.9다.
 - **[코드] 관리자 화면의 경계**: `/admin/themes`는 관리자 계정(`account_id = 1`)의 테마만 관리하고, 서버 전체는 `COUNT(*)` 집계(`total_themes`, `admin_themes`, `purged`가 아닌 계정 수)만 보인다. 멤버 테마의 레이블·설명·본문은 읽지 않는다.
 - **[코드] `/settings/themes`의 슬롯 표시**: 호출자 계정의 테마 수와 서버 등급의 `max_themes`를 보인다.
-- **[코드] 콘솔의 `?theme=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?theme=`를 `KnowledgeBaseManager.resolve_theme_ref(ref, account_id=호출자)`로 검사한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(§0-3). 쿼리가 없으면 호출자 계정의 기본 테마(`is_personal`)를 쓴다. 테마별 섹션(`/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}`)은 사이드바 링크와 리디렉트에 검증한 `?theme=`를 이어 붙인다.
-- **[코드] 옛 `/syndication/preferences?theme=`**: `_get_theme_ctx`로 먼저 검사해 실패하면 404이고, 통과하면 `/settings/*` 대상에 테마 공개 참조(`ids.format_public_id(number)`)를 `?theme=`로 붙인다.
+- **[코드] 콘솔의 `?kb=`**: `/admin/*`·`/settings/*`(`src/claire/api/accounts_routes/console.py`)는 `?kb=`(번호)를 `get_kb_by_reference`로 찾고 호출자 계정의 것인지 검사한다. 빈 값, 없는 번호, 다른 계정의 지식 베이스는 404다. 쿼리가 없으면 콘솔 주인 계정의 개인 지식 베이스다(`/settings/*`는 그 계정의 콘솔이다).
+- **[코드] 옛 `/syndication/preferences?kb=`**: `?kb=`가 있으면 `_get_theme_ctx`로 검사하고 호출자 계정의 것이 아니면 404, 통과하면 `/settings/*` 대상에 공개 참조를 `?kb=`로 붙인다.
 
 ---
 

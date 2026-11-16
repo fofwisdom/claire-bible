@@ -175,13 +175,12 @@ def test_e2e_ingest_of_one_item_links_the_document(env, monkeypatch):
     monkeypatch.setattr(IngestServicePool, "get_service", lambda self, *args, **kwargs: _Service())
     item_id = _client_rows(env.settings, "SELECT id FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (env.alpha, f"{CAROL}/notes/1"))[0][0]
     path = f"{TIMELINE}/{item_id}/ingest"
-    # The theme is necessary, and it must be a theme of the caller.
-    assert env.client.request("POST", path, session=env.alpha_session, json={}).status_code == 400
-    assert env.client.request("POST", path, session=env.beta_session, json={"theme": str(ALPHA_THEME)}).status_code == 404
-    assert env.client.request("POST", f"{TIMELINE}/999999/ingest", session=env.alpha_session, json={"theme": str(ALPHA_THEME)}).status_code == 404
+    # The ingest writes to the personal knowledge base of the caller (CT23); a ``theme`` field is ignored. Another account does not see the item.
+    assert env.client.request("POST", path, session=env.beta_session, json={}).status_code == 404
+    assert env.client.request("POST", f"{TIMELINE}/999999/ingest", session=env.alpha_session, json={}).status_code == 404
     assert calls == []
 
-    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": str(ALPHA_THEME)})
+    res = env.client.request("POST", path, session=env.alpha_session, json={"theme": "ignored"})
     assert res.status_code == 200, res.text
     assert res.json()["document_id"] == "doc_from_item" and res.json()["linked"] == {"kb_id": 11, "document_id": "doc_from_item"}
     # The existing URL ingest got the address of the post.

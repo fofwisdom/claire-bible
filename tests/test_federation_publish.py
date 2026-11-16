@@ -139,7 +139,7 @@ def _tasks(settings: _Settings) -> list[tuple]:
 
 def _publish(env, document_id: str = "doc-a", theme: int = ALPHA_THEME, **kwargs):
     kwargs.setdefault("session_token", env.alpha_session)
-    return env.post("/api/federation/publish", {"theme": str(theme), "document_id": document_id}, **kwargs)
+    return env.post("/api/federation/publish", {"kb": str(theme), "document_id": document_id}, **kwargs)
 
 
 # --- Schema (I/O) ---
@@ -333,7 +333,7 @@ def test_publish_with_a_cookie_needs_the_same_origin(env):
     assert _objects(env.settings) == []
 
 
-@pytest.mark.parametrize("body", [{}, {"theme": str(ALPHA_THEME)}, {"theme": ALPHA_THEME, "document_id": "doc-a"}, {"theme": "0316", "document_id": "doc-a"}, {"theme": str(ALPHA_THEME), "document_id": ""}, {"theme": str(ALPHA_THEME), "document_id": "x" * 201}, {"theme": str(ALPHA_THEME), "document_id": "doc-a", "account_id": 1}])
+@pytest.mark.parametrize("body", [{}, {"kb": str(ALPHA_THEME)}, {"kb": ALPHA_THEME, "document_id": "doc-a"}, {"kb": "0316", "document_id": "doc-a"}, {"kb": str(ALPHA_THEME), "document_id": ""}, {"kb": str(ALPHA_THEME), "document_id": "x" * 201}, {"kb": str(ALPHA_THEME), "document_id": "doc-a", "account_id": 1}])
 def test_publish_refuses_a_body_outside_the_model(env, body):
     response = env.post("/api/federation/publish", body, session_token=env.alpha_session)
     assert (response.status_code, response.json()["error"]) == (400, "invalid_request")
@@ -380,7 +380,7 @@ def test_single_mode_has_no_publishing_routes(env):
     store.set_federation_state("off", updated_by=1)
     store.set_setting("mode", "single", updated_by=1)
     conn.close()
-    for path, body in (("/api/federation/publish", {"theme": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
+    for path, body in (("/api/federation/publish", {"kb": str(ALPHA_THEME), "document_id": "doc-a"}), ("/api/federation/retract", {"object_id": "5"})):
         assert env.post(path, body, session_token=env.admin_session).status_code == 404
     assert _tasks(env.settings) == []
 

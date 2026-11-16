@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+from claire import ids
 from claire.api.mcp_tools import build_mcp_app
 from claire.api.server import create_app
 from claire.cli import cmd_doc_title, cmd_purge, cmd_regenerate, get_effective_settings
@@ -148,9 +149,9 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert "Project X Guide" in resp_reader.text
     assert "Project X detailed guide content" in resp_reader.text
 
-    # Step 4: HTTP API POST /share without theme parameter (Auto-Resolution)
+    # Step 4: HTTP API POST /share on the path of the knowledge base (CT23: the path selects it, no search in other ones)
     resp_share = client.post(
-        "/share",
+        f"/themes/{ids.format_public_id(theme1.number)}/share",
         json={"doc_id": doc_id},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
@@ -164,8 +165,9 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert resp_reader2.status_code == 200
     assert "Project X Guide" in resp_reader2.text
 
-    # Step 5: HTTP API GET /document?id=... without theme parameter
-    resp_doc = client.get(f"/document?id={doc_id}")
+    # Step 5: HTTP API GET /document?id=... on the path of the knowledge base (CT23)
+    assert client.get(f"/document?id={doc_id}").status_code == 404  # the personal knowledge base has no such document
+    resp_doc = client.get(f"/themes/{ids.format_public_id(theme1.number)}/document?id={doc_id}")
     assert resp_doc.status_code == 200
     doc_json = resp_doc.json()
     assert doc_json["id"] == doc_id
@@ -173,7 +175,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     assert doc_json["theme_label"] == "Project X"
     assert doc_json["title"] == "Project X Guide"
 
-    # Step 6: MCP Tools document() lookup without theme
+    # Step 6: MCP Tools document() lookup with the required ``kb`` (CT23)
     import json
     mcp_app = build_mcp_app(s, theme_mgr=tm)
     with TestClient(mcp_app, base_url="http://127.0.0.1:8765") as mcp_client:
@@ -183,7 +185,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "document", "arguments": {"document_id": doc_id}},
+                "params": {"name": "document", "arguments": {"document_id": doc_id, "kb": ids.format_public_id(theme1.number)}},
             },
         )
         assert r_mcp.status_code == 200

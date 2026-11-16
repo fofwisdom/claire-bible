@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import kb_url, seed
+
 from claire.api.server import create_app
 from claire.config import Settings
 from claire.store import db as dbm
@@ -80,25 +82,17 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert theme2_id == 2
 
     # 3. Ingest document into Theme 1
-    ingest_resp = client.post(
-        "/ingest",
-        json={
-            "payload": "대규모 언어 모델의 프롬프트 인젝션 취약점 분석 및 방어 기법 연구 보고서입니다.",
-            "theme": theme1_id,
-            "format": "md",
-        },
-        headers=OWNER_HEADERS,
-    )
-    assert ingest_resp.status_code == 200
-    doc_id = ingest_resp.json()["document_id"]
+    ingest_resp = seed(settings, theme1_id, "대규모 언어 모델의 프롬프트 인젝션 취약점 분석 및 방어 기법 연구 보고서입니다.")  # HTTP ingest writes only to the personal knowledge base (CT23)
+    assert ingest_resp.error is None
+    doc_id = ingest_resp.document_id
     assert doc_id
 
     # 4. Verify initial isolation: Document is in Theme 1, not in Theme 2
-    docs_t1 = client.get(f"/documents?theme={theme1_id}", headers=OWNER_HEADERS).json()
+    docs_t1 = client.get(kb_url(settings, theme1_id, "/documents"), headers=OWNER_HEADERS).json()
     assert len(docs_t1["documents"]) == 1
     assert docs_t1["documents"][0]["id"] == doc_id
 
-    docs_t2 = client.get(f"/documents?theme={theme2_id}", headers=OWNER_HEADERS).json()
+    docs_t2 = client.get(kb_url(settings, theme2_id, "/documents"), headers=OWNER_HEADERS).json()
     assert len(docs_t2["documents"]) == 0
 
     # 5. Cross-theme dispatch from Theme 1 to Theme 2 via POST /api/syndication/dispatch
@@ -127,11 +121,11 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert target_doc_id != doc_id
 
     # 6. Verify target document in Theme 2
-    docs_t2_after = client.get(f"/documents?theme={theme2_id}", headers=OWNER_HEADERS).json()
+    docs_t2_after = client.get(kb_url(settings, theme2_id, "/documents"), headers=OWNER_HEADERS).json()
     assert len(docs_t2_after["documents"]) == 1
     assert docs_t2_after["documents"][0]["id"] == target_doc_id
 
-    detail_resp = client.get(f"/document?id={target_doc_id}&theme={theme2_id}", headers=OWNER_HEADERS)
+    detail_resp = client.get(kb_url(settings, theme2_id, "/document") + f"?id={target_doc_id}", headers=OWNER_HEADERS)
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["id"] == target_doc_id
@@ -141,7 +135,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert detail_data["meta"]["syndication"]["source_document_id"] == doc_id
 
     # 7. Verify source document in Theme 1 is intact
-    docs_t1_after = client.get(f"/documents?theme={theme1_id}", headers=OWNER_HEADERS).json()
+    docs_t1_after = client.get(kb_url(settings, theme1_id, "/documents"), headers=OWNER_HEADERS).json()
     assert len(docs_t1_after["documents"]) == 1
     assert docs_t1_after["documents"][0]["id"] == doc_id
 
@@ -185,11 +179,14 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert len(matched) == 1
     assert matched[0]["target_kb_id"] == theme2_id
 
-    # 10. Verify alternate paths: POST /syndication/dispatch with auto-resolution of source theme
+    # 10. Alternate path POST /syndication/dispatch: no source means no default (CT23) -> 400; with the source -> 200
+    no_source = client.post("/syndication/dispatch", json={"doc_id": doc_id, "target_theme": theme2_id}, headers=OWNER_HEADERS)
+    assert no_source.status_code == 400
     dispatch2_resp = client.post(
         "/syndication/dispatch",
         json={
             "doc_id": doc_id,
+            "source_theme": theme1_id,
             "target_theme": theme2_id,
         },
         headers=OWNER_HEADERS,
@@ -242,7 +239,7 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     # 5. Non-existent document returns 404
     err_nonexistent = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": "doc_does_not_exist", "target_kb_id": 0},
+        json={"document_id": "doc_does_not_exist", "source_kb_id": 0, "target_kb_id": 0},
         headers=OWNER_HEADERS,
     )
     assert err_nonexistent.status_code == 404

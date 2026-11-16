@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire import ids
@@ -252,7 +254,7 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     assert resp_q_num.status_code == 200
 
     # ?theme=0 동작 검증
-    resp_q_0 = client.get("/documents?theme=0")
+    resp_q_0 = client.get("/documents")
     assert resp_q_0.status_code == 200
 
     # DB에 Theme 1 등 추가 테마가 있어도 CLAIRE_MULTI_THEME=0 에서는 404
@@ -267,8 +269,9 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
-    assert client.get("/documents?theme=1").status_code == 404
-    assert client.get(f"/documents?theme={num1}").status_code == 404
+    # ``theme`` is ignored (CT23): the root path is knowledge base 0
+    assert client.get("/documents?theme=1").status_code == 200
+    assert client.get(f"/documents?theme={num1}").status_code == 200
     assert client.get(f"/themes/{num1}/documents").status_code == 404
     assert client.get("/themes/99999999999999999/documents").status_code == 404
     assert client.get("/themes/99999999999999999/").status_code == 404
@@ -299,37 +302,6 @@ def test_theme_pinning_binds_pinned_kb_id(tmp_path: Path) -> None:
 # ============================================================================
 
 
-def test_contradictory_theme_query_rejected_with_400(tmp_path: Path) -> None:
-    client, _, theme0, theme1 = _create_multi_theme_client(tmp_path)
-    base_pin0 = f"/themes/{theme0.number}"
-
-    # 고정된 테마 0 경로에서 다른 테마(Theme 1 번호, 내부 ID 1, 미존재 번호) 요청 시 400 거부
-    r_diff_num = client.get(f"{base_pin0}/documents?theme={theme1.number}")
-    assert r_diff_num.status_code == 400
-    assert "contradicts pinned theme" in r_diff_num.json().get("error", "")
-
-    r_diff_id = client.get(f"{base_pin0}/documents?theme=1")
-    assert r_diff_id.status_code == 400
-    assert "contradicts pinned theme" in r_diff_id.json().get("error", "")
-
-    r_non_existent = client.get(f"{base_pin0}/documents?theme=99999999999999999")
-    assert r_non_existent.status_code == 400
-
-    # 헤더 및 본문의 모순 요청도 400 거부
-    r_hdr = client.get(f"{base_pin0}/documents", headers={"X-Claire-Theme": "1"})
-    assert r_hdr.status_code == 400
-
-    r_post_diff = client.post(f"{base_pin0}/search", json={"query": "test", "theme": 1})
-    assert r_post_diff.status_code == 400
-
-    # 동일한 테마를 가리키는 파라미터는 정상 통과 (200 OK)
-    assert client.get(f"{base_pin0}/documents?theme={theme0.number}").status_code == 200
-    assert client.get(f"{base_pin0}/documents?theme=0").status_code == 200
-    assert client.get(f"{base_pin0}/documents?theme={theme0.label}").status_code == 200
-    assert client.get(f"{base_pin0}/documents", headers={"X-Claire-Theme": "0"}).status_code == 200
-    assert client.post(f"{base_pin0}/search", json={"query": "test", "theme": 0}).status_code == 200
-
-
 # ============================================================================
 # 5. 다른 계정의 테마 번호 요청 시 404
 # ============================================================================
@@ -344,12 +316,10 @@ def test_cross_account_theme_number_returns_404(tmp_path: Path) -> None:
     r_path = client.get(f"/@alice/themes/{num_carol}/documents")
     assert r_path.status_code == 404
 
-    # Alice 네임스페이스 아래에서 Carol의 테마 번호 쿼리 요청 시 404
+    # ``theme`` is ignored (CT23): the path selects the personal knowledge base of Alice, not the one of Carol or of the admin
     r_query = client.get(f"/@alice/documents?theme={num_carol}")
-    assert r_query.status_code == 404
-
-    # Alice 네임스페이스 아래에서 Theme 0(Admin 테마) 요청 시 404
-    assert client.get("/@alice/documents?theme=0").status_code == 404
+    assert r_query.status_code == client.get("/@alice/documents").status_code
+    assert r_query.json() == client.get("/@alice/documents").json()
 
     # Alice 본인의 테마 요청은 정상 200
     assert client.get(f"/@alice/themes/{num_alice}/documents").status_code == 200
@@ -412,34 +382,6 @@ def test_root_theme_resolver_in_network_mode(tmp_path: Path) -> None:
 # ============================================================================
 # 7. 레거시 내부 ID (0 <= id < 2^31) 요청 시 Deprecation 및 Sunset 헤더 검증
 # ============================================================================
-
-
-def test_deprecation_and_sunset_headers_on_legacy_internal_id(tmp_path: Path) -> None:
-    client, _, _, theme1 = _create_multi_theme_client(tmp_path)
-
-    # 쿼리 파라미터 ?theme=0 (Theme 0 내부 ID)
-    r0 = client.get("/documents?theme=0")
-    assert r0.status_code == 200
-    assert r0.headers.get("deprecation") == "@1798761600"
-    assert r0.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 쿼리 파라미터 ?theme=1 (Theme 1 내부 ID)
-    r1 = client.get(f"/documents?theme={theme1.id}")
-    assert r1.status_code == 200
-    assert r1.headers.get("deprecation") == "@1798761600"
-    assert r1.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 헤더 X-Claire-Theme: 0
-    r_hdr = client.get("/documents", headers={"X-Claire-Theme": "0"})
-    assert r_hdr.status_code == 200
-    assert r_hdr.headers.get("deprecation") == "@1798761600"
-    assert r_hdr.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
-
-    # 요청 본문 {"theme": 0}
-    r_body = client.post("/search", json={"query": "test", "theme": 0})
-    assert r_body.status_code == 200
-    assert r_body.headers.get("deprecation") == "@1798761600"
-    assert r_body.headers.get("sunset") == "Sun, 01 Jan 2027 00:00:00 GMT"
 
 
 # ============================================================================

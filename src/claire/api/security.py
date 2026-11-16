@@ -2273,9 +2273,6 @@ class SafeAccessLogMiddleware:
                     b"permissions-policy",
                     b"camera=(), microphone=(), geolocation=()",
                 )
-                if state.get("claire_theme_deprecated"):
-                    add_header(b"deprecation", b"@1798761600")
-                    add_header(b"sunset", b"Sun, 01 Jan 2027 00:00:00 GMT")
                 message = {**message, "headers": headers}
             await send(message)
 
