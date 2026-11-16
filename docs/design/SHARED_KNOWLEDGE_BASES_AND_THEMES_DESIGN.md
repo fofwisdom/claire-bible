@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Draft, Rev. 4. Owner decisions CT1 to CT28 are locked (2026-11-16). Sections 6.3, 6.6, 9.9, and 9.10 are proposals. Section 15 has the open questions.
+- **Status**: Draft, Rev. 5. Owner decisions CT1 to CT34 are locked (2026-11-16). Section 9.10 is a proposal. Section 15 has the open questions.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -9,6 +9,7 @@
   - Rev. 2 (2026-11-16): a **theme** is a collection of knowledge bases with the same subject. The collaborative database is a **shared knowledge base**. The registry table becomes `knowledge_bases` and the partition column becomes `kb_id` (CT16). New: subject judgement, root page listing, bulk contribution, curation, fork, contribution updates.
   - Rev. 3 (2026-11-16): answers to OQ8 and OQ12 to OQ20: reputation and campaign message (CT18), contribution without a theme (CT21), automatic revisions (CT20), fork of shared knowledge bases only (CT15), server-paid embeddings (CT24), activity records at account purge (CT19).
   - Rev. 4 (2026-11-16): `collaborator` is again a role in a shared knowledge base, given by moderators (CT17); the role model with capabilities, credential scopes, external IdP rules, and step-up authentication (Section 6). Old API names are closed with no fallback; only the path or a required parameter selects a knowledge base (CT23). Answers to OQ21 to OQ23 (CT18, CT26, CT27). The ingest focus is sealed (CT28). Review of a contributor proposal: automatic contribution and partnerships (Sections 9.9 and 9.10), links between duplicates later (Section 13.6).
+  - Rev. 5 (2026-11-16): answers to OQ24 to OQ28 (CT29 to CT34). Automatic contribution is a server switch in the federation menu (CT31). Shared knowledge bases aim at partnerships between servers; the new design [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) starts idea I2 (CT32). Single mode sends `/` to `/@{username}/` of the admin (CT33, replaces CT22).
 - **Related Documents**:
   - [`THEMES.md`](../implementation/THEMES.md) (current implementation of the partition)
   - [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (principal, credentials, OIDC, step-up authentication)
@@ -16,6 +17,7 @@
   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (IdP rules §8.2, Claire as authorization server §8.3)
   - [`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) (RD27 to RD29; this document replaces RD29 rule 1)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (ideas I1 and I2)
+  - [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) (partnerships between servers, idea I2)
   - [`PER_ACCOUNT_FEATURES_DESIGN.md`](PER_ACCOUNT_FEATURES_DESIGN.md) (account backup)
   - [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)
 
@@ -85,13 +87,19 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT19 | **Copies and account purge (OQ14).** A copy made while its source was public stays when the source becomes private, when the owner deletes the source document, and when the owner purges its account. At the purge, the account can select to delete its activity records; this never changes the content of a knowledge base. Text that the account wrote and posted itself (for example replies, Section 13.6) is deleted. |
 | CT20 | **Revisions (OQ15).** A revision is automatic. It comes only from a new fetch of the same source by watch, refresh, or re-ingest; the account cannot change its content. The merge job applies it without approval. A reviewer can stop the updates of a contribution. |
 | CT21 | **Contribution without a theme (OQ16).** An account makes one decision: "contribute this document". It does not select a knowledge base and need not select a theme. The server selects the theme from the entities of the document and sends the contribution to the reviewers of the shared knowledge bases of that theme. The review page shows the decisions of the other reviewers. |
-| CT22 | **Single mode root (OQ17).** `/` stays the home of the personal knowledge base of the admin. The home overview has a theme card with a link to `/themes`. |
+| CT22 | **Single mode root (OQ17).** Replaced by CT33. |
 | CT23 | **Old API names (OQ18, Rev. 4).** The old names (`theme` in query and body, the header `X-Claire-Theme`, the MCP parameter `theme`, internal IDs as references) are closed at once. No code reads them; they are unknown fields and are ignored. No function falls back to a default knowledge base when a reference is missing: the path or a required parameter selects the knowledge base (Section 5.2). Old web links keep their 308 (Section 7). |
 | CT24 | **Embedding cost (OQ19).** The server pays the embeddings of the merge job: the merge job embeds with the provider of the server. The merge job makes no LLM call. |
 | CT25 | **Numbers (OQ20).** Unit CT-5 calibrates the numbers of the judgement with development data. Thresholds are admin settings. |
 | CT26 | **Revisions of copies (OQ22).** The principles of CT19 and CT20 apply: a later change of visibility of the source does not change a copy, and revisions are automatic. Thus each copy follows the revisions of its root document while the root document exists, also after its personal knowledge base becomes private. |
 | CT27 | **`/webco` (OQ23).** The Telegram command `/webco` and its collaborator web link are removed. |
 | CT28 | **Ingest focus sealed.** Tests showed that the focus does not help because of the behavior of the LLM, and it is a large surface for abuse: it is a free-text prompt input, and contributions copy its result into shared knowledge bases. The focus is sealed at all entry points (Section 13.7). A later review decides if it comes back. |
+| CT29 | **Fixed roles (OQ24).** The roles `member`, `collaborator`, and `moderator` are fixed in v1. Moderators do not split capabilities. Section 6.3 has the judgement and the triggers for a new review. |
+| CT30 | **Scope `write` (OQ25).** API tokens get the scope `write` now. OAuth tokens stay `readonly` in this design; a `write` OAuth scope is a separate change. |
+| CT31 | **Automatic contribution (OQ26).** Section 9.9 applies. The admin turns the function on or off for the server with the switch `kb_auto_contribution` in the ActivityPub federation menu (`/admin/federation`). |
+| CT32 | **Partnerships between servers (OQ27).** Shared knowledge bases aim at partnerships between servers. In network mode, the root page shows the partnership information. BookWyrm is the reference for the interaction; a reference needs a clean-room implementation because of its license. [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) has the design. |
+| CT33 | **Single mode and partnership default.** When the ActivityPub functions are complete, partnership communication is on by default, also in single mode. Thus the admin sets the USERNAME (the handle) at the first setup in each mode. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin (partnership design §11). |
+| CT34 | **Old `collaborator` tokens (OQ28).** API tokens with the scope `collaborator` become `readonly`. The console lists them once. |
 
 CT4, CT5, and CT13 replace RD29 rule 1 (collaborator ingest after an invitation) of `DATA_STORE_LAYOUT_DESIGN.md` §5.
 
@@ -116,7 +124,8 @@ Because the production server has only the admin account, the CT6 migration make
 | Revision | A newer version of a root document, applied to its copies automatically (CT20). |
 | Submission | One request "contribute these documents". Each document becomes a submission item with a theme and its target knowledge bases. |
 | Automatic contribution | Contributions that a rule of the account makes without a request (Section 9.9). |
-| Partnership | A standing agreement between two accounts: each becomes a collaborator in the new shared knowledge bases of the other (Section 9.10). |
+| Partnership | Between servers: an agreement of two admins on the scopes of exchange (CT32, partnership design §5). Between accounts: each becomes a collaborator in the new shared knowledge bases of the other (Section 9.10). |
+| Partner server | A server with an active partnership with this server. |
 | Document match | The theme or the knowledge base that fits a document best (Section 8.5). |
 | Fiction-like document | A document of a personal knowledge base whose document match is a theme of the type `fictional`. |
 | Reputation | The exchange level of an account: `good`, `limited`, or `low` (Section 8.6). |
@@ -142,10 +151,10 @@ A query that still uses the old `themes` columns (for example `is_default`) fail
 
 ### 5.2 Selection of a Knowledge Base (CT23)
 
-1. **Namespaced routes.** Only the path selects the knowledge base: `/` (single mode) and `/@{u}/` select the personal knowledge base of the account of the namespace; `/kb/{number}/` selects that knowledge base. No query field, body field, or header selects a knowledge base on these routes.
+1. **Namespaced routes.** Only the path selects the knowledge base: `/@{u}/` selects the personal knowledge base of the account of the namespace; `/kb/{number}/` selects that knowledge base. In single mode the other root paths of the personal knowledge base get 308 to `/@{username}/…` of the admin (CT33). No query field, body field, or header selects a knowledge base on these routes.
 2. **Routes without a namespace that act on one knowledge base** (console panels under `/settings/*`, MCP tools that read): the parameter `kb` (number) is required. A request without it gets 400 with the code `kb_required`. There is no default.
 3. **Write to the personal knowledge base** (ingest, MCP ingest tools): the target is always the personal knowledge base of the account of the credential (CT4). These routes take no knowledge base reference.
-4. **Single mode.** The root namespace is the namespace of the admin account. This is the definition of single mode, not a fallback. In network mode, a namespaced route without a prefix gives 404 (namespace design, N rules) **[unverified]**; unit CT-0 checks it.
+4. **Single mode.** The root paths redirect to the namespace of the admin account (CT33). This is the definition of single mode, not a fallback. While the admin has no USERNAME (`setup_required`), there is no target, and requests get the page "setup not complete" (partnership design §11). In network mode, a namespaced route without a prefix gives 404 (namespace design, N rules) **[unverified]**; unit CT-0 checks it.
 5. **Old names.** No code reads `theme`, `X-Claire-Theme`, or an internal ID as a reference. They are unknown fields like all other unknown fields. Because only rules 1 to 3 select a knowledge base, an ignored field cannot change the target of a request.
 
 ### 5.3 Code and API
@@ -201,7 +210,7 @@ Rules:
 4. A collaborator must be an active member first. To remove the role makes it a member again.
 5. Each route declares one capability. One function decides it from the role, the reputation, and the scope.
 
-### 6.3 Custom Roles: Judgement **[proposal, OQ24]**
+### 6.3 Custom Roles: Judgement (CT29)
 
 Question of the owner: does a moderator need to split the rights of a collaborator into smaller rights?
 
@@ -232,7 +241,7 @@ Judgement: **no custom roles and no split of capabilities in v1.** The roles of 
 
 A private personal knowledge base gives 404 to all accounts except A (today's rule). Nobody forks P (CT15). Only A has rights in P; there are no collaborators of a personal knowledge base.
 
-### 6.6 Credential Scopes **[proposal, OQ25, OQ28]**
+### 6.6 Credential Scopes (CT30, CT34)
 
 A scope limits what a credential does for its account. It never adds a capability.
 
@@ -244,7 +253,7 @@ A scope limits what a credential does for its account. It never adds a capabilit
 
 1. `write` replaces the credential scope `collaborator`. It is for the tools of the account: an AI agent, a script, a bot. It never has `join`, `fork`, `review`, `curate`, `maintain`, `people`, `settings`, `remove`, or role changes: these are decisions of the person.
 2. Migration (auth.db next version, `claire.db` `auth_sessions`, `data/auth/api_tokens.json`): sessions with the scope `collaborator` end (they came from `/webco` links, CT27). API tokens with the scope `collaborator` become `readonly`, the smallest scope; the console lists them once with a notice. The environment token `CLAIRE_COLLABORATOR_TOKEN` is not read any more.
-3. OAuth tokens keep only `readonly` in this design. A `write` OAuth scope (for MCP agents, Section 9.9) needs its own consent text and is OQ25.
+3. OAuth tokens keep only `readonly` in this design. A `write` OAuth scope (for MCP agents, Section 9.9) is a separate change with its own consent text and a Telegram approval push (CT30).
 
 Route review (unit CT-2):
 
@@ -286,8 +295,8 @@ The integration removes: the column `is_collaborator_accessible`; the collaborat
 
 | Path | Content |
 | :--- | :--- |
-| `/` | Single mode: home of the personal knowledge base of the admin, with a theme card (CT22). Network mode: public directory with themes first (Section 8.4). |
-| `/@{u}/` | Network mode: personal knowledge base of `u` |
+| `/` | Single mode: temporary redirect (302) to `/@{username}/` of the admin (CT33). Network mode: public directory with themes and partner servers (Section 8.4). |
+| `/@{u}/` | Personal knowledge base of `u`. In single mode only the admin has this path (CT33). |
 | `/kb` | Collection of shared knowledge bases. `?joined=true`: only those where the requester is an active member. `?type=real` or `?type=fictional`. |
 | `/kb/{number}/…` | Shared knowledge base (pinned). A number of a personal knowledge base gets a 308 to `/@{u}/…` (single mode: `/…`) when the requester can read it, else 404. |
 | `/@{u}/kb` | Collection of the shared knowledge bases where `u` is an active member (CT9) |
@@ -341,8 +350,8 @@ Later runs keep each adjustment.
 
 ### 8.4 Root Page and Theme Page
 
-- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`.
-- **Single mode** (CT22): `/` stays the home of the personal knowledge base of the admin. The home overview has a theme card with a link to `/themes`.
+- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of local and remote shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`. The page also shows the partner servers and the recent activity across servers (partnership design §6.3).
+- **Single mode** (CT33): no root page. `/` sends the request to `/@{username}/` of the admin. The home overview of the personal knowledge base has a theme card with a link to `/themes`.
 - **Theme page `/themes/{number}`**: the knowledge bases of the theme (shared first, then attached personal knowledge bases), the top entities, and the actions "Contribute to this theme" (Section 9.2), "Make a shared knowledge base in this theme", and "Fork" for each shared knowledge base.
 - Each item of a collection has `number`, `label`, `description`, `knowledge_type`, `state`, counts, and `url`.
 
@@ -476,9 +485,11 @@ Each action writes a row in `kb_moderation_log`.
 5. Hidden, pending, rejected, removed, and failed documents of the source are not copied.
 6. The fork joins the themes of its source (Section 8.2, rule 6).
 
-### 9.9 Automatic Contribution **[proposal, OQ26]**
+### 9.9 Automatic Contribution (CT31)
 
 Review of a contributor proposal (2026-11-16): "When a space about a subject appears, the documents that I collected and that fit go there automatically." This extends CT21 from one decision for each document to one decision for each rule.
+
+**Server switch.** The function works only while the switch `kb_auto_contribution` in `server_settings` is `on`. The admin sets it in `/admin/federation`. The default is `off` **[proposal, partnership design PQ6]**. When the admin turns it off, all rules pause and keep their settings; no run starts. Automatic contributions to partner servers also need the scope `auto` of the partnership (partnership design §8.2).
 
 1. **Rule.** An account has at most one automatic rule (`kb_auto_rules`). The rule selects the targets:
    - `memberships`: the shared knowledge bases where the account is an active member, collaborator, or moderator;
@@ -492,9 +503,9 @@ Review of a contributor proposal (2026-11-16): "When a space about a subject app
 7. **AI of the account.** An account can also use its own AI agent for the selection: the MCP tool `kb_candidates` (read: candidates for a knowledge base or a theme, with scores) and the tool `kb_submit` (scope `write`, Section 6.6). The server itself makes no LLM call for the selection.
 8. A rejection of an automatic contribution counts in the approval rate as each other rejection. A rule that sends documents that do not fit lowers the reputation of its account.
 
-### 9.10 Partnerships **[proposal, OQ27]**
+### 9.10 Account Partnerships **[proposal, OQ29]**
 
-Review of the same proposal: "When friends agree, a new space gets their documents automatically after a short wait."
+Review of the same proposal: "When friends agree, a new space gets their documents automatically after a short wait." The partnership between servers (CT32) is the main model; it is in [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md). This section is the partnership between two accounts. It works between accounts of one server first, and between accounts of partner servers when the partnership of their servers has the scope `contribution`.
 
 1. Account A requests a partnership with account B; B accepts. Both actions need a recent sign-in (Section 6.8). Either account ends it at any time.
 2. Effect: when A founds a shared knowledge base, B becomes a collaborator in it at once (`decided_by_account_id` = A, log action `grant_collaborator`), and the reverse. When the rule of B has `partners`, the documents of B that fit go to the new knowledge base without approval (Section 9.9).
@@ -536,6 +547,7 @@ A shared knowledge base without an active moderator has the admin as its only mo
 | `/settings/kb` | Account | Its memberships and roles, the shared knowledge bases it founded, its submissions with the theme and the state of each target, its automatic rule with the dry run and the list of automatic contributions, its partnerships, its reputation with the signals and the fiction-like documents (Section 8.6), the button to make a shared knowledge base |
 | `/settings/kb/{number}` | Reviewer | Collaborator: the review queue with the help of Section 9.3, curation, maintenance. Moderator: also members and roles, join requests, remove, the moderation log, settings. |
 | `/admin/kb` | Admin | All shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs |
+| `/admin/federation` | Admin | The switch `kb_auto_contribution` (CT31), and the partnerships between servers (partnership design §5.4) |
 | `/admin/themes` | Admin | Themes, the last judgement run, `theme_match_threshold`, `document_match_threshold`, `seed_match_threshold`, `auto_match_threshold`, the reputation numbers and limits, the adjustments of Section 8.3, the agreement of decisions (Section 9.3) |
 
 New UI text uses keys of the English and Korean catalogs from the start.
@@ -853,6 +865,7 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 2. **Merge decisions between servers (owner note on CT24).** Each server resolves entities in its own merge job, and the results differ between servers. Exchange between servers (idea I2) needs its own design, for example: federate the merge decisions of another server and propose an integrated ingest to the reviewers of the receiving server.
 3. **Links between duplicates (contributor note).** v1 copies documents into each shared knowledge base. Links between duplicate knowledge across knowledge bases, in place of copies, wait until there is a real need.
 4. **Ingest focus.** A later review decides if the sealed focus (CT28) comes back or is removed.
+5. **Exchange between servers.** [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) designs it (CT32).
 
 ### 13.7 Seal of the Ingest Focus (CT28)
 
@@ -890,15 +903,13 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 
 ## 15. Open Questions
 
-Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27).
+Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34).
+
+The open questions of the partnerships between servers (PQ1 to PQ6) are in [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) §12.
 
 | ID | Question | Proposal |
 | :--- | :--- | :--- |
-| OQ24 | Fixed roles (member, collaborator, moderator) or custom roles with a split of capabilities for each shared knowledge base? | Fixed roles in v1; the judgement and the triggers for a new review of Section 6.3. |
-| OQ25 | A `write` scope for OAuth tokens, so that an MCP agent of the account can submit (Section 9.9, rule 7)? | API tokens get `write` now. OAuth stays `readonly` in this design; `write` for OAuth is a separate change with its own consent text and a Telegram approval push. |
-| OQ26 | Automatic contribution as in Section 9.9: three target kinds, source filter, limits, dry run, step-up? | Yes. |
-| OQ27 | Partnerships as in Section 9.10: each partner becomes a collaborator in the new shared knowledge bases of the other? | Yes. |
-| OQ28 | Existing API tokens with the scope `collaborator`: `readonly` or `write`? | `readonly`, the smallest scope. The console lists them once. |
+| OQ29 | Keep the partnership between two accounts (Section 9.10) together with the partnership between servers? | Yes. It works on one server first, and across partner servers with the scope `contribution`. |
 
 ---
 
@@ -919,4 +930,4 @@ Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5
 | CT-10 | Implementation documents: `THEMES.md` (becomes the knowledge base document), `SCHEMA_VERSIONING.md`, `ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `openapi.yaml`, `COMMANDS.md`, `GLOSSARY.md`, `ENVIRONMENT_VARIABLES.md` | The documents describe the code. This design document is removed after the implementation. |
 | CT-11 | Reputation (Section 8.6) and campaign message (Section 8.7) | Fiction-like documents raise the fiction share; the level changes the theme attachment, the pending limit, the queue order, the direct contribution, and the automatic contribution; an approved contribution to a `fictional` shared knowledge base removes the document from the count; the standing message and the notice show on each surface |
 | CT-12 | Seal of the ingest focus (Section 13.7). Independent of the other units; it can come first. | No entry point gives a focus to the pipeline; stored focus values stay and are not read; the Telegram URL with a separator is ingested without the focus; the UI has no focus control |
-| CT-13 | Automatic contribution and partnerships (Sections 9.9, 9.10), after OQ26 and OQ27 | E2E test: A and B make a partnership; B turns on its rule with `partners` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |
+| CT-13 | Automatic contribution with its server switch (Section 9.9), and account partnerships (Section 9.10) after OQ29 | E2E test: the admin turns on `kb_auto_contribution`; A and B make a partnership; B turns on its rule with `partners` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |

@@ -102,6 +102,8 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | 통합 뷰 (`/explore/*`) | 404 | 제공 (§4.4) |
 | CLI 프로바이더 | 관리자 | 관리자만 (§10) |
 
+*싱글 모드의 `/`, 계정 홈, USERNAME 노출(S9)은 [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) CT33과 [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) §11로 바뀐다 (2026-11-16).*
+
 ### 4.2 저장과 전환
 
 - 모드는 환경변수가 아니라 DB의 `server_settings`에 둔다. 키는 `mode`, `invite_caps`, `id_salt`, `legacy_host_policy`다. 관리자가 `/admin/accounts`에서 바꾼다. 프로바이더·적재 한도를 WebUI 관리 파일로 옮긴 것과 같은 방향이다.
