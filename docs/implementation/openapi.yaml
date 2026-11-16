@@ -1777,7 +1777,7 @@ paths:
         '404':
           description: Not an owner-scope credential.
     patch:
-      summary: Change own display name or profile visibility
+      summary: Change own display name, profile visibility, or interface language
       operationId: updateMe
       x-claire-access: owner
       security:
@@ -1802,6 +1802,10 @@ paths:
                     - type: integer
                       enum: [0, 1]
                     - type: boolean
+                locale:
+                  description: Interface language of the account. Null or an empty string is automatic negotiation. The response also sets or clears the `claire_locale` cookie.
+                  type: ['string', 'null']
+                  enum: [en, ko, '', null]
       responses:
         '200':
           description: Updated account.
@@ -1810,13 +1814,73 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (empty body, or keys other than display_name and profile_public), `invalid_display_name`, or `invalid_profile_public`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, and locale), `invalid_display_name`, `invalid_profile_public`, or `invalid_locale`.'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardError'
         '404':
           description: Not an owner-scope credential.
+
+  /api/locale:
+    post:
+      summary: Select the interface language
+      description: >-
+        Public route; the request must come from the same origin. Sets the `claire_locale` cookie, or clears it for automatic negotiation.
+        For an owner session, the server also stores the choice on the account (`accounts.locale`).
+        A form body (`locale`, `next`) is for the pages without JavaScript (`/login`, `/setup`): the response is 303 to `next`.
+      operationId: setLocale
+      x-claire-access: public
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [locale]
+              properties:
+                locale:
+                  type: ['string', 'null']
+                  enum: [en, ko, '', null]
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [locale, next]
+              properties:
+                locale:
+                  type: string
+                  enum: [en, ko, '']
+                next:
+                  type: string
+                  enum: [/login, /setup]
+      responses:
+        '200':
+          description: The stored choice (`locale`, null for automatic) and the language of the next request (`effective_locale`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [locale, effective_locale]
+                properties:
+                  locale:
+                    type: ['string', 'null']
+                    enum: [en, ko, null]
+                  effective_locale:
+                    type: string
+                    enum: [en, ko]
+        '303':
+          description: Form body. The browser goes back to `next`.
+        '400':
+          description: '`invalid_request` (other keys, or a `next` that is not permitted) or `invalid_locale`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: The request does not come from the same origin.
 
   /api/me/password:
     post:
@@ -3150,6 +3214,14 @@ components:
           type: integer
           enum: [0, 1]
           description: 1 when the profile is public. The default is 0.
+        locale:
+          type: ['string', 'null']
+          enum: [en, ko, null]
+          description: Stored interface language of the account. Null is automatic negotiation.
+        effective_locale:
+          type: string
+          enum: [en, ko]
+          description: Interface language of this request (account, cookie, Accept-Language, CLAIRE_LANG, then en).
 
     AccountSummary:
       type: object
