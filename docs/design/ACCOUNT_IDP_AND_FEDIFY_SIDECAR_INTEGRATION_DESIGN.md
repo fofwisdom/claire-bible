@@ -9,7 +9,7 @@
   - [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) (connected-account client model)
   - [`EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md`](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) (OIDC rules)
   - [`ACCOUNTS.md`](../implementation/ACCOUNTS.md), [`TOKEN_EXCHANGE.md`](../implementation/TOKEN_EXCHANGE.md), [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md)
-- **External Reference**: Fedify (`https://fedify.dev`), MIT License. Release line 2.3.x at the date of this document.
+- **External Reference**: Fedify (`https://fedify.dev`), MIT License. Release line 2.3.x at the date of this document. *The sidecar uses Fedify 2.4.5 since commit `19dc7d85` (2026-11-13); [`FEDERATION.md`](../implementation/FEDERATION.md) §9.3 records the current version. Work uses the latest release.*
 
 Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]** (confirmed in source at the base commit), **[decision]** (owner policy), **[unverified]** (not confirmed; do not cite as fact).
 

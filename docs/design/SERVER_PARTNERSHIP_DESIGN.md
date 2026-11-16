@@ -1,12 +1,13 @@
 # Server Partnerships: Exchange of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-SERVER-PARTNERSHIP-20261116`
-- **Status**: Draft, Rev. 2. The owner direction of Section 2 is locked (CT31 to CT33 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 14 has the open questions.
+- **Status**: Draft, Rev. 3. The owner direction of Section 2 is locked (CT31 to CT33 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 4.5 has a review that can change Sections 5 to 10 (PQ10, PQ11). Section 14 has the open questions; the owner answers them later.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
   - Rev. 1 (2026-11-16): first proposal with BookWyrm as the reference.
   - Rev. 2 (2026-11-16): review of seven more projects from the owner's research (NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, ForgeFed and Forgejo, Lemmy). New: subscription and partnership as two levels, knowledge bases as actors, the `Offer` pattern of ForgeFed, remote collaborators with grants, authority identifiers of entities, the inbox journal, rules for copies. The owner confirmed the single mode rules (Section 13).
+  - Rev. 3 (2026-11-16): interoperation review for each kind of software (Section 4.4): no special communication for software of other domains. The rule for the compact public address (Lemmy) is removed. Fedify baseline (Section 3.4). Review of the need for a server partnership and of the term "directory" (Section 4.5).
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -68,7 +69,7 @@ Read on 2026-11-16 from license files, READMEs, and documentation footers only.
 2. This design takes only ideas and protocol facts from public documentation. Section 4 lists each idea, its project, and the Claire design in our own words.
 3. Specifications with a public-domain or patent-promise license (ForgeFed: CC0 and OWFA 1.0; FEPs: CC0) can be followed directly. Claire still writes its own text and claims no conformance (ForgeFed says that it is "still under construction").
 4. Persons who write Claire code for this design do not read the source code of these projects. They work only from this design and from the specifications.
-5. Interoperation with these projects is not a goal. The exchange is between Claire Bible servers (idea I2). Standard base types (Section 8.1) let other software show Claire objects.
+5. Interoperation with these projects is not a goal. The exchange is between Claire Bible servers (idea I2). Section 4.4 says which software Claire exchanges with through the existing general federation. Standard base types (Section 8.1) let other software show Claire objects.
 6. When a later revision takes a new idea from a project, it adds a row to Section 4 with the page and the date.
 
 ### 3.3 Pages Read (2026-11-16, documentation and license only)
@@ -83,6 +84,10 @@ Read on 2026-11-16 from license files, READMEs, and documentation footers only.
 | Mobilizon | `docs.mobilizon.org` (ActivityPub, instance federation), repository README |
 | ForgeFed, Forgejo | `forgefed.org/spec` (parts of Sections 6 to 8 not reached), `forgefed.org`, Forgejo FAQ, Forgejo federation post of 2023-01-10 |
 | Lemmy, Fedify | `join-lemmy.org/docs/contributors/05-federation.html`, `fedify.dev/tutorial/threadiverse`, repository README; FEP repository README. FEP-1b12 itself could not be read **[unverified]**. |
+
+### 3.4 Fedify Baseline
+
+The sidecar uses Fedify 2.4.5 (`deno.json` pins `~2.4.5`), the latest release on JSR on 2026-11-16 **[code]** FEDERATION.md §9.3. Work for this design uses the latest Fedify release at the time of the work. A fact about an older Fedify version in a tutorial or a report does not apply.
 
 ---
 
@@ -120,7 +125,6 @@ Read on 2026-11-16 from license files, READMEs, and documentation footers only.
 | M2 | Mobilizon | Group members have roles from "invited" to "administrator". | Same idea as the roles of a shared knowledge base (shared knowledge base design §6.2). |
 | L1 | Lemmy | A community is a `Group`; it wraps each received activity in `Announce` and sends it to its followers. | A knowledge base actor sends revisions and decisions to its followers (Section 8.2). |
 | L2 | Lemmy | Moderators of other servers can be added to a community; an admin removal of content in a remote community has effect only on the local server. | Remote collaborators with grants; no remote moderators in v1; a local removal never changes the origin (Sections 10.2, 9.3). |
-| L3 | Lemmy, Fedify | Lemmy rejects the public address in compact form; a strict receiver needs exact forms. | Claire writes full IRIs in addressing (Section 8.1). |
 | F1 | ForgeFed | To open an issue on a remote repository, the author sends `Offer` to the tracker actor; the tracker answers `Accept` with the new IRI in `result`, or `Reject`; the answer can wait for human review. | The contribution across servers (Section 10.1). |
 | F2 | ForgeFed | When the target accepts, it hosts its own copy and controls it; the sender is only the author. Forks are new actors with copies whose `origin` points to the original. | Rules for copies (Section 9.1). |
 | F3 | ForgeFed | Roles (`visit`, `report`, `triage`, `write`, `maintain`, `admin`) are given with `Grant` (context = resource, target = person, object = role, end time) and taken back with `Revoke`; the grant IRI is the capability that later activities carry. | Remote collaborators (Section 10.2). |
@@ -141,6 +145,42 @@ The projects agree on these points. The design follows them.
 4. **The origin is the authority; a receiver keeps its own copy and marks the origin** (ForgeFed, Funkwhale, NeoDB, PeerTube): Section 9.1.
 5. **Shared external identifiers make matching across servers possible** (Inventaire, NeoDB): Section 9.4.
 6. **Received payloads are kept before processing** (Funkwhale): Section 11.
+
+The parser of one project (Lemmy) is stricter than the others about the form of the public address. This is not a rule for Claire; Claire follows the forms that the specifications allow.
+
+### 4.4 Interoperation by Kind of Software
+
+The patterns of Section 4.3 are design references only. Communication is designed only where an exchange with a knowledge platform makes sense.
+
+| Software | Domain | Exchange with Claire |
+| :--- | :--- | :--- |
+| Claire Bible | Knowledge | This design (idea I2) |
+| Mastodon, Misskey, and other microblog software | Posts | Existing general federation: the account actor publishes documents as `Article` (FP3); remote reading receives `Note` and `Article` (FP4); content enters a knowledge base only by an ingest of the owner. No new protocol. |
+| Blog software with ActivityPub (for example WriteFreely, the WordPress plugin, Ghost) | Articles | Same as the line above: their `Article` objects are sources for remote reading and ingest. No new protocol. **[unverified]** the federation state of each product. |
+| BookWyrm, NeoDB | Book and media catalogs, reviews | Their reviews reach other software as `Article` or `Note` (documented by both), so remote reading covers them. Claire does not read their catalog types. Later: their book identifiers (ISBN) as authority identifiers (Section 9.4). |
+| Inventaire | Book data (Wikidata-centered, CC0) | No ActivityPub exchange (its federation is an experiment). Later: its CC0 open data interface as an authority source for book entities, outside ActivityPub. |
+| Lemmy and other forum software | Forums | Their posts reach other software as `Page` and `Note`; remote reading covers them. No special handling. A follow of a knowledge base actor from forum software is idea I1, outside this design. |
+| Forgejo (ForgeFed) | Code forges | No exchange. Only the specification patterns (`Offer`, `Grant`) are used. |
+| Funkwhale | Audio | No exchange. Pattern only (inbox journal). |
+| PeerTube | Video | No exchange (owner, 2026-11-16). Pattern only (server follows, mirror notice). |
+| Mobilizon, Gancio | Events | No exchange (owner, 2026-11-16). Pattern only (server subscriptions). |
+
+### 4.5 Review After Rev. 2 **[proposal, PQ10, PQ11]**
+
+Questions of the owner (2026-11-16): is the partnership controlled only by the admin; is it necessary when themes already share ingested documents; or is it a relation of deeper trust that shares ingested documents at the level of the server, beyond the scope of one person?
+
+1. **Control.** In Rev. 2, yes: only the admin requests, accepts, changes, and ends a subscription or a partnership (Section 5.3). Account-level control stays with moderators and accounts: moderators give roles (also to remote accounts, Section 10.2), accounts contribute.
+2. **What exists without a partnership.** On one server, shared knowledge bases and themes already share documents; a partnership adds nothing there. Between servers, the account actor already publishes documents, and another account can read and ingest them. That path is personal: it runs a new LLM extraction and loses the credit, the origin, and the revisions.
+3. **What the exchange of this design adds.** Copies with their extraction (no LLM call), credit, origin, and automatic revisions; contributions into a shared knowledge base of another server; themes across servers; automatic contributions across servers.
+4. **Which of these needs a server-level agreement.** The first three are already under control without one: the content is public, the reviewers of each shared knowledge base decide each contribution and curation, and the admin blocks bad domains. This is how the reviewed projects work. Only an exchange with no decision of a person for each document needs trust at the level of the server: automatic contributions across servers, and an optional rule that accepts the approvals of the reviewers of a partner as local approvals.
+5. **Proposal (PQ10).** Two levels in place of Section 5:
+   - **Open exchange** (on by default with `partnerships`, no agreement): public collections of shared knowledge bases readable by signed GET, themes across servers, curation, contribution offers, remote collaborators. Controls: reviewers, pending limits, domain blocks.
+   - **Partnership** (admin only, both admins agree): automatic contributions across servers, the optional acceptance of the approvals of the partner, higher limits. This is the relation of deeper trust at the level of the server.
+6. **"Directory" and themes (PQ11).** They are not the same:
+   - The "directory" of Rev. 2 is the list of the shared knowledge bases of one server. This list already exists: the collection `/kb` (shared knowledge base design §7). Thus "directory" is not a new concept: a server follows or reads the `/kb` collection of another server.
+   - A theme is a collection of knowledge bases with the same subject, from the judgement of one server. Both follow the collection contract (Mastodon Collections), but they select different items: `/kb` by origin server, a theme by subject.
+   - The word "directory" also has another meaning in Claire: the public directory on the root page of network mode (namespace design D4). Thus the word "directory" is removed from this design; Section 7 uses "the `/kb` collection of the other server".
+   - Themes are not exchanged: each server computes its own themes and links to the knowledge bases of other servers.
 
 ---
 
@@ -233,8 +273,7 @@ Single mode shows no root page (Section 13).
 ### 8.1 Vocabulary
 
 1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers **[proposal, PQ2]**. Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
-2. Addressing uses full IRIs, for example `https://www.w3.org/ns/activitystreams#Public`, not compact forms (L3).
-3. The vocabulary document is written for Claire only, in our own words (Section 3.2).
+2. The vocabulary document is written for Claire only, in our own words (Section 3.2).
 
 | Type | Base type | Content |
 | :--- | :--- | :--- |
@@ -381,6 +420,8 @@ Switches (`server_settings`, all in `/admin/federation`):
 | PQ7 | Each shared knowledge base as a `Group` actor, with holders as its followers (Section 8.2)? This is the pattern of all reviewed projects, and it prepares idea I1. | Yes. |
 | PQ8 | Remote collaborators with `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 10.2)? | Yes. |
 | PQ9 | Authority identifiers (Wikidata and others) in `sameAs` of entities, matched first by the receiver (Section 9.4)? | Yes, when the entity already has one; linking to an authority is later work. |
+| PQ10 | Open exchange without an agreement, and the partnership only for deeper trust: automatic contributions across servers, acceptance of the approvals of the partner, higher limits (Section 4.5)? | Yes. PQ1 then changes. |
+| PQ11 | Remove the term "directory": a server reads or follows the `/kb` collection of another server; themes stay local judgements (Section 4.5)? | Yes. |
 
 ---
 
