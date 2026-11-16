@@ -1015,11 +1015,6 @@ def create_app(
                 body.get("collaborator_accessible", body.get("collaborator", True)),
             )
         )
-        def_focus = str(
-            body.get("default_focus")
-            or body.get("focus")
-            or ""
-        ).strip()
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
         pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
@@ -1045,7 +1040,6 @@ def create_app(
                 icon=icon,
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
-                default_focus=def_focus,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -1116,11 +1110,6 @@ def create_app(
         )
         if is_collab is not None:
             is_collab = bool(is_collab)
-        def_focus = (
-            body.get("default_focus")
-            if "default_focus" in body
-            else (body.get("focus") if "focus" in body else None)
-        )
         ga_id = (
             body.get("ga_measurement_id")
             if "ga_measurement_id" in body
@@ -1146,7 +1135,6 @@ def create_app(
                 icon=icon,
                 is_public=is_pub,
                 is_collaborator_accessible=is_collab,
-                default_focus=def_focus,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -1488,15 +1476,10 @@ def create_app(
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus:
-            from ..telegram_bot import parse_message_focus
+        # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
+        from ..telegram_bot import parse_message_focus
 
-            payload, parsed_focus = parse_message_focus(payload)
-            if parsed_focus:
-                focus = parsed_focus
-            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                focus = theme.default_focus.strip() or None
+        payload, _sealed_focus = parse_message_focus(payload)
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -1511,8 +1494,6 @@ def create_app(
             ingest_kwargs["effort"] = effort
         if format_arg is not None:
             ingest_kwargs["format"] = format_arg
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(
                 theme_svc.ingest,
@@ -1571,12 +1552,7 @@ def create_app(
         item = await asyncio.to_thread(_load)
         if item is None:
             return JSONResponse({"error": "item_not_found"}, status_code=404)
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
         ingest_kwargs: dict[str, Any] = {"source": "federation"}
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(theme_svc.ingest, item.url or item.object_iri, **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -1644,12 +1620,7 @@ def create_app(
         # The URL ingest needs an address. An item without a link stays in the feed only.
         if not item["url"]:
             return JSONResponse({"error": "item_without_url"}, status_code=409)
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
         ingest_kwargs: dict[str, Any] = {"source": "feed"}
-        if focus is not None:
-            ingest_kwargs["focus"] = focus
         try:
             report = await _run_expensive(theme_svc.ingest, item["url"], **ingest_kwargs)
         except (HTTPException, policy.ProviderPolicyError):
@@ -1698,9 +1669,6 @@ def create_app(
             raise HTTPException(status_code=400, detail="target or payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -1732,7 +1700,6 @@ def create_app(
                     force=True,
                     effort=effort,
                     format=format_arg,
-                    focus=focus,
                 )
                 t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
                 return {
@@ -1746,7 +1713,6 @@ def create_app(
                     "relations_added": t_info.get("relations_added", 0),
                     "full_content": full_content,
                     "effort": effort,
-                    "focus": focus,
                     "theme_id": theme.id,
                     "theme_label": theme.label,
                 }
@@ -1761,8 +1727,6 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                if focus is not None:
-                    ingest_kwargs["focus"] = focus
                 rep = theme_svc.ingest(target, **ingest_kwargs)
                 rep_dict = report_to_dict(rep)
                 rep_dict["theme_id"] = theme.id
@@ -1853,9 +1817,6 @@ def create_app(
         refetch_full = bool(body.get("refetch_full", False))
         effort = str(body.get("effort") or "").strip() or None
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         def _run() -> Any:
             res = theme_svc.regenerate_components(
@@ -1871,7 +1832,6 @@ def create_app(
                 force=force,
                 effort=effort,
                 format=format_arg,
-                focus=focus,
             )
             if isinstance(res, dict) and theme.id != 0:
                 res["theme_id"] = theme.id
@@ -2306,11 +2266,6 @@ def create_app(
         if scope == "collaborator" and not (src_theme.is_public or src_theme.is_collaborator_accessible):
             raise HTTPException(status_code=403, detail="접근 권한이 없는 소스 테마입니다.")
 
-        applied_focus = (
-            str(body.get("focus") or body.get("applied_focus") or "").strip() or None
-        )
-        if not applied_focus and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
-            applied_focus = target_theme.default_focus.strip() or None
 
         from ..ontology.base import Document, new_id
 
@@ -2333,8 +2288,8 @@ def create_app(
             "source_theme_id": src_theme.id,
             "source_document_id": src_doc.id,
         }
-        if applied_focus:
-            target_doc.meta["focus"] = applied_focus
+        # CT28: the copy takes no focus, also not the stored focus of the source.
+        target_doc.meta.pop("focus", None)
 
         target_svc = service_pool.get_service(target_theme.id)
         payload = src_doc.url or src_doc.raw_text or src_doc.title or "cross_theme_dispatch"
@@ -2344,7 +2299,6 @@ def create_app(
                 payload,
                 prefetched=target_doc,
                 source=f"syndication:{src_theme.id}",
-                focus=applied_focus,
             )
         except (HTTPException, policy.ProviderPolicyError):
             raise
@@ -2378,7 +2332,6 @@ def create_app(
                     remote_ref=remote_ref,
                     payload=payload,
                     error=error_msg,
-                    applied_focus=applied_focus,
                     dispatched_by_account_id=dispatched_by_account_id,
                 )
             finally:
@@ -2394,7 +2347,6 @@ def create_app(
                 "target_theme_id": target_theme.id,
                 "document_id": src_doc.id,
                 "target_document_id": remote_ref,
-                "applied_focus": applied_focus,
                 "dispatched_by_account_id": dispatched_by_account_id,
                 "error": error_msg,
             }
@@ -3431,15 +3383,10 @@ def create_app(
             raise HTTPException(status_code=400, detail="payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus:
-            from ..telegram_bot import parse_message_focus
+        # CT28: the focus is sealed. The parser still separates the payload from the text after a separator; the text is ignored.
+        from ..telegram_bot import parse_message_focus
 
-            payload, parsed_focus = parse_message_focus(payload)
-            if parsed_focus:
-                focus = parsed_focus
-            elif not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-                focus = theme.default_focus.strip() or None
+        payload, _sealed_focus = parse_message_focus(payload)
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -3479,8 +3426,6 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                if focus is not None:
-                    ingest_kwargs["focus"] = focus
                 return theme_svc.ingest(
                     payload,
                     **ingest_kwargs,
@@ -3553,9 +3498,6 @@ def create_app(
             raise HTTPException(status_code=400, detail="target or payload required")
         expand_max = body.get("expand_max")
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = str(body.get("effort") or "").strip() or None
@@ -3611,7 +3553,6 @@ def create_app(
                         force=True,
                         effort=effort,
                         format=format_arg,
-                        focus=focus,
                         on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
                     )
                     t_info = res.get("targets", [{}])[0] if res.get("targets") else {}
@@ -3626,7 +3567,6 @@ def create_app(
                         "relations_added": t_info.get("relations_added", 0),
                         "full_content": full_content,
                         "effort": effort,
-                        "focus": focus,
                         "theme_id": theme.id,
                         "theme_label": theme.label,
                     }
@@ -3641,8 +3581,6 @@ def create_app(
                         ingest_kwargs["effort"] = effort
                     if format_arg is not None:
                         ingest_kwargs["format"] = format_arg
-                    if focus is not None:
-                        ingest_kwargs["focus"] = focus
                     rep = theme_svc.ingest(target, **ingest_kwargs)
                     rep_dict = report_to_dict(rep)
                     rep_dict["theme_id"] = theme.id
@@ -3771,9 +3709,6 @@ def create_app(
         refetch_full = bool(body.get("refetch_full", False))
         effort = str(body.get("effort") or "").strip() or None
         format_arg = str(body.get("format") or "").strip() or None
-        focus = str(body.get("focus") or "").strip() or None
-        if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
-            focus = theme.default_focus.strip() or None
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -3813,7 +3748,6 @@ def create_app(
                     force=force,
                     effort=effort,
                     format=format_arg,
-                    focus=focus,
                     on_progress=lambda stage, msg="": on_progress({"stage": stage, "msg": msg or stage}),
                 )
                 if isinstance(res, dict) and theme.id != 0:

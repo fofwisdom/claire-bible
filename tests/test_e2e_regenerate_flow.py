@@ -26,8 +26,8 @@ OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     """E2E test verifying complete document component regeneration lifecycle:
     1. Ingest initial document.
-    2. CLI regenerate detail with custom focus and effort.
-    3. Verify DB detail and focus updated.
+    2. CLI regenerate detail with an effort (the focus is sealed, CT28).
+    3. Verify DB detail updated and no focus stored.
     4. API regenerate summary only.
     5. Verify summary updated and detail preserved.
     6. API regenerate-stream with real-time NDJSON progress events.
@@ -80,19 +80,17 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     assert rep.document_id is not None
     doc_id = rep.document_id
 
-    # Step 2: CLI Regenerate detail with custom focus
-    custom_focus = "System Architecture and Security Hardening"
-    rc_detail = main(["regenerate", doc_id, "--detail", "--focus", custom_focus, "--effort", "high", "--apply", "--yes"])
+    # Step 2: CLI Regenerate detail (the focus is sealed, CT28)
+    rc_detail = main(["regenerate", doc_id, "--detail", "--effort", "high", "--apply", "--yes"])
     assert rc_detail == 0
 
     conn = dbm.connect(db_file)
     doc_after_detail = dbm.get_document(conn, doc_id)
     assert doc_after_detail is not None
-    saved_focus = dbm.get_document_focus(conn, doc_id)
-    assert saved_focus == custom_focus
+    assert dbm.get_document_focus(conn, doc_id) is None
     detail_content = dbm.get_document_detail(conn, doc_id)
     assert detail_content is not None
-    assert f"[focus: {custom_focus}]" in detail_content
+    assert "[focus:" not in detail_content
     conn.close()
 
     # Step 3: WebUI API endpoint /document/regenerate (Summary component only)
@@ -109,8 +107,7 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     assert summ_json.get("count") == 1
 
     conn = dbm.connect(db_file)
-    # Detail and focus must remain preserved after summary-only regenerate
-    assert dbm.get_document_focus(conn, doc_id) == custom_focus
+    # Detail must remain preserved after summary-only regenerate
     detail_preserved = dbm.get_document_detail(conn, doc_id)
     assert detail_preserved == detail_content
     conn.close()

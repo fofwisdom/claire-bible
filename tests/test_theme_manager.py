@@ -266,39 +266,6 @@ def test_theme_update_all_options_and_by_label(temp_theme_env):
     assert t0_updated.icon == "📖"
 
 
-def test_theme_default_focus(temp_theme_env):
-    """추가 테마의 기본 초점(default_focus) 설정/변경 및 기본 테마(0)의 빈 문자열 불변성 검증."""
-    manager, _, _ = temp_theme_env
-
-    # 1. 기본 테마(0)는 생성 시 default_focus가 항상 빈 문자열
-    t0 = manager.get_theme(0)
-    assert t0.default_focus == ""
-
-    # 2. 기본 테마(0)에 default_focus 수정을 시도해도 항상 빈 문자열로 유지/무시
-    t0_up = manager.update_theme(0, default_focus="기본 테마에 초점 강제 시도")
-    assert t0_up.default_focus == ""
-
-    # 3. 추가 테마 정의 시 default_focus 설정
-    t1 = manager.define_theme("AI 아키텍처", default_focus="시스템 아키텍처 및 API 사양 중심")
-    assert t1.id == 1
-    assert t1.default_focus == "시스템 아키텍처 및 API 사양 중심"
-
-    # 4. to_dict 및 reload 이후에도 default_focus 보존 확인
-    d = t1.to_dict()
-    assert d["default_focus"] == "시스템 아키텍처 및 API 사양 중심"
-    manager.reload()
-    reloaded_t1 = manager.get_theme(1)
-    assert reloaded_t1.default_focus == "시스템 아키텍처 및 API 사양 중심"
-
-    # 5. update_theme으로 default_focus 변경
-    updated = manager.update_theme(1, default_focus="보안 및 취약점 분석 중심")
-    assert updated.default_focus == "보안 및 취약점 분석 중심"
-
-    # 6. default_focus를 빈 문자열로 리셋
-    cleared = manager.update_theme(1, default_focus="")
-    assert cleared.default_focus == ""
-
-
 def test_resolve_share_token_cross_theme_fallback(temp_theme_env):
     """공유 토큰이 테마 0에 오배정되었으나 실제 문서는 테마 1에 존재하는 레거시 상황에서 자동 수복(self-heal) 검증."""
     from claire.ontology.base import Document
@@ -374,7 +341,7 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     manager, data_dir, vault_dir = temp_theme_env
 
     # 1. 새 테마 생성
-    theme = manager.define_theme("Honkai", icon="🌑", default_focus="세계관/이야기", description="붕괴 시리즈")
+    theme = manager.define_theme("Honkai", icon="🌑", description="붕괴 시리즈")
     tid = theme.id
     assert tid == 1
     t_settings = manager.get_settings_for_theme(tid)
@@ -408,7 +375,6 @@ def test_theme_reset_preserves_id_and_cleans_data(temp_theme_env):
     assert reloaded_theme.seq == 1
     assert reloaded_theme.label == "Honkai"
     assert reloaded_theme.icon == "🌑"
-    assert reloaded_theme.default_focus == "세계관/이야기"
     assert reloaded_theme.description == "붕괴 시리즈"
 
     # 5. 검증: DB 및 볼트 데이터 100% 클린 리셋 확인

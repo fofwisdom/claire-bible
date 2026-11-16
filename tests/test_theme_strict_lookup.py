@@ -398,18 +398,16 @@ def test_service_pool_raises_for_unknown_and_deleted_theme(tmp_path):
 def test_ingest_service_for_deleted_theme_refuses_before_writing(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     tm = ThemeManager(settings)
-    t1 = tm.define_theme("곧 삭제", default_focus="삭제될 초점")
+    t1 = tm.define_theme("곧 삭제")
     t1_settings = tm.get_settings_for_theme(t1.id, settings)
-    svc = IngestService(t1_settings.model_copy(update={"default_focus": ""}), theme_id=t1.id)
+    svc = IngestService(t1_settings, theme_id=t1.id)
     monkeypatch.setattr("claire.ingest.service.get_theme_manager", lambda s=None: tm)
     tm.delete_theme(t1.id)
 
     with pytest.raises(ThemeNotFound):
         svc.get_theme_label()
     with pytest.raises(ThemeNotFound):
-        svc.get_effective_default_focus()
-    with pytest.raises(ThemeNotFound):
-        svc.ingest("삭제된 테마로 가는 적재", source="cli", expand_max=0, focus="명시 초점")
+        svc.ingest("삭제된 테마로 가는 적재", source="cli", expand_max=0)
     assert _raw_inbox_count(settings) == 0
 
 

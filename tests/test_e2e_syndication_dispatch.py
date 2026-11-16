@@ -72,7 +72,6 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
             "label": "정보보안",
             "description": "보안 위협 및 취약점 분석",
             "icon": "🛡️",
-            "default_focus": "보안 취약점 및 위협 요인",
         },
         headers=OWNER_HEADERS,
     )
@@ -121,7 +120,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert d_data["source_theme_id"] == theme1_id
     assert d_data["target_theme_id"] == theme2_id
     assert d_data["document_id"] == doc_id
-    assert d_data["applied_focus"] == applied_focus
+    assert "applied_focus" not in d_data  # CT28: the focus field is ignored
     dispatch_id = d_data["dispatch_id"]
     target_doc_id = d_data["target_document_id"]
     assert target_doc_id
@@ -137,7 +136,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     detail_data = detail_resp.json()
     assert detail_data["id"] == target_doc_id
     assert detail_data["theme_id"] == theme2_id
-    assert detail_data["meta"]["focus"] == applied_focus
+    assert "focus" not in detail_data["meta"]
     assert detail_data["meta"]["syndication"]["source_theme_id"] == theme1_id
     assert detail_data["meta"]["syndication"]["source_document_id"] == doc_id
 
@@ -168,7 +167,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
         assert disp_row["remote_ref"] == target_doc_id
         assert disp_row["mode"] == "cross_theme"
         assert disp_row["status"] == "done"
-        assert disp_row["applied_focus"] == applied_focus
+        assert disp_row["applied_focus"] is None
         assert disp_row["dispatched_by_account_id"] == 1
     finally:
         conn.close()

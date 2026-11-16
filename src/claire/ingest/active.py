@@ -290,7 +290,6 @@ def active_job(
     theme_id: int = 0,
     theme_label: str = "",
     doc_id: str | None = None,
-    focus: str | None = None,
     title: str | None = None,
     source: str = "web",
     account_id: int | None = None,
@@ -339,7 +338,6 @@ def active_job(
         "theme_label": theme_label,
         "account_id": account_id,
         "doc_id": doc_id,
-        "focus": focus or "",
         "title": short_title,
         "stage": "init",
         "stages": ["fetch", "extract", "resolve", "detail", "done"],
@@ -389,7 +387,6 @@ def set_active_ingest(
     source: str = "web",
     theme_id: int = 0,
     theme_label: str = "",
-    focus: str | None = None,
     title: str | None = None,
     account_id: int | None = None,
 ) -> None:
@@ -398,8 +395,6 @@ def set_active_ingest(
     if current_job is not None:
         if title:
             current_job.state["title"] = title
-        if focus:
-            current_job.state["focus"] = focus
         if account_id is not None and current_job.state.get("account_id") is None:
             current_job.state["account_id"] = account_id
         current_job.state["updated_at"] = time.time()
@@ -429,7 +424,6 @@ def set_active_ingest(
         "theme_id": theme_id,
         "theme_label": theme_label,
         "account_id": account_id,
-        "focus": focus or "",
         "title": short_title,
         "stage": "init",
         "stages": ["fetch", "extract", "resolve", "detail", "done"],

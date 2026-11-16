@@ -63,7 +63,6 @@
       icon: srv.icon || "📚",
       label: srv.label || tr("synd.kb.theme_number", { id: srv.id }),
       isPublic: srv.is_public !== false,
-      defaultFocus: srv.default_focus || "",
       documents: [],
       entities: [],
       dispatches: [],
@@ -465,7 +464,7 @@
           </div>
         </div>
         <h3 class="tt-card-title">${esc(tr("synd.kb.dispatch.source_doc"))}: ${esc(d.document_id)} → ${esc(tr("synd.kb.dispatch.target_doc"))}: ${esc(d.remote_ref || "-")}</h3>
-        <p class="tt-card-snippet">${esc(tr("synd.kb.dispatch.applied_focus"))}: ${esc(d.applied_focus || tr("synd.kb.dispatch.default_focus"))}${d.error ? ` · ${esc(tr("synd.kb.error"))}: ${esc(d.error)}` : ""}</p>
+        <p class="tt-card-snippet">${d.error ? `${esc(tr("synd.kb.error"))}: ${esc(d.error)}` : ""}</p>
       </article>`;
     }).join("");
     readerPane.innerHTML = `<div style="padding:36px;color:var(--muted);font-size:13px">${esc(tr("synd.kb.dispatch.history_count", { count: dispatches.length }))}</div>`;
@@ -627,10 +626,6 @@
         <label for="dispatch-target-theme" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.target_theme"))}</label>
         <select id="dispatch-target-theme" class="tt-btn" style="width:100%;height:34px">${targetOptions}</select>
       </div>
-      <div>
-        <label for="dispatch-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">${esc(tr("synd.kb.dispatch.focus_label"))}</label>
-        <input id="dispatch-focus" type="text" class="tt-search" style="width:100%;height:34px" value="${esc(theme.defaultFocus || "")}" placeholder="${esc(tr("synd.kb.dispatch.focus_placeholder"))}"/>
-      </div>
       <div id="dispatch-status-msg" style="font-size:12px;color:var(--muted)"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
         <button type="button" id="btn-cancel-dispatch" class="tt-btn">${esc(tr("common.action.cancel"))}</button>
@@ -683,7 +678,6 @@
     if (confirmBtn) {
       confirmBtn.addEventListener("click", async () => {
         const targetThemeId = document.getElementById("dispatch-target-theme").value;
-        const focusVal = document.getElementById("dispatch-focus").value.trim();
         const msgEl = document.getElementById("dispatch-status-msg");
         confirmBtn.disabled = true;
         if (msgEl) msgEl.textContent = tr("synd.kb.dispatch.sending");
@@ -694,8 +688,7 @@
             body: JSON.stringify({
               document_id: doc.id,
               source_theme_id: Number(theme.id),
-              target_theme_id: Number(targetThemeId),
-              focus: focusVal || undefined
+              target_theme_id: Number(targetThemeId)
             })
           });
           const data = await resp.json().catch(() => ({}));
@@ -1016,10 +1009,8 @@
       formIngest.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payloadEl = document.getElementById("ingest-payload");
-        const focusEl = document.getElementById("ingest-focus");
         const submitBtn = document.getElementById("btn-submit-ingest");
         const payload = payloadEl ? payloadEl.value.trim() : "";
-        const focus = focusEl ? focusEl.value.trim() : "";
         if (!payload) return;
         if (submitBtn) submitBtn.disabled = true;
         ticker(tr("synd.kb.ingest.sending"));
@@ -1029,7 +1020,6 @@
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify({
               payload,
-              focus: focus || undefined,
               theme: themeRefOf(state.themeId)
             })
           });

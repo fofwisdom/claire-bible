@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from claire.telegram_bot import _run_with_ticker, _settle_status, _status_emoji
+from claire.i18n import t as _t
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
@@ -1211,14 +1212,16 @@ async def test_ingest_prompts_theme_selection_in_multi_theme_mode(tmp_path: Path
     # 1. /ingest 호출 -> 즉시 적재되지 않고 테마 선택 프롬프트와 인라인 키보드 출력
     await on_ingest(update, ctx)
 
-    msg.reply_text.assert_awaited_once()
+    # CT28: the bot says once that the focus is off, then it asks for the theme.
+    assert msg.reply_text.await_count == 2
+    assert msg.reply_text.call_args_list[0][0][0] == _t("bot.focus.sealed")
     prompt_call = msg.reply_text.call_args
     prompt_text = prompt_call[0][0]
     markup = prompt_call[1].get("reply_markup")
 
     assert "적재할 테마(지식베이스)를 선택하세요" in prompt_text
     assert "https://example.com/ai-paper" in prompt_text
-    assert "아키텍처 중심" in prompt_text
+    assert "아키텍처 중심" not in prompt_text
     assert markup is not None
 
     buttons = [btn for row in markup.inline_keyboard for btn in row]

@@ -241,6 +241,14 @@ async def _run_with_ticker(status, label: str, work, interval: float = 5.0):
         tk.cancel()
 
 
+async def _reply_focus_sealed(msg) -> None:
+    """CT28: tell the sender that the text after the separator is not used as a focus."""
+    try:
+        await msg.reply_text(_t("bot.focus.sealed"))
+    except Exception:  # noqa: BLE001
+        log.debug("focus sealed notice failed", exc_info=True)
+
+
 async def _react(msg, emoji: str) -> None:
     """원본 메시지에 reaction(best-effort — 불허 이모지/권한 실패는 무시)."""
     try:
@@ -988,7 +996,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         target_desc: str,
         *,
         kind_label: str = "",
-        focus: str | None = None,
     ):
         # RD24: bot messages use Telegram HTML, not Markdown. Each value is escaped.
         prompt_lines = [
@@ -996,8 +1003,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             "",
             f"• {_t('bot.label.target')}: <code>{_h(target_desc)}</code>" + (f" (<code>{_h(kind_label)}</code>)" if kind_label else ""),
         ]
-        if focus:
-            prompt_lines.append(f"• {_t('bot.label.focus')}: <code>{_h(focus)}</code>")
         prompt_lines.append("")
         prompt_lines.append(_t("bot.ingest.select_theme.hint"))
         prompt_text = "\n".join(prompt_lines)
@@ -1011,8 +1016,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "",
                 f"• {_t('bot.label.target')}: {target_desc}" + (f" ({kind_label})" if kind_label else ""),
             ]
-            if focus:
-                plain_lines.append(f"• {_t('bot.label.focus')}: {focus}")
             plain_lines.append("")
             plain_lines.append(_t("bot.ingest.select_theme.hint"))
             return await msg.reply_text("\n".join(plain_lines), reply_markup=markup)
@@ -1025,15 +1028,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         *,
         payload: str | None = None,
         doc_work=None,
-        focus: str | None = None,
         has_effort: str | None = None,
         has_refetch_full: bool = False,
         kind_label: str = "",
         uid: int | None = None,
         cid: int | None = None,
     ) -> None:
-        if not focus and not target_theme.is_default and target_theme.id > 0 and getattr(target_theme, "default_focus", None):
-            focus = target_theme.default_focus.strip() or None
         label = _t("bot.progress.processing_kind", kind=kind_label) if kind_label else _t("bot.progress.processing")
         if target_theme.id != 0:
             label = f"[{target_theme.icon} {target_theme.label}] " + label
@@ -1041,8 +1041,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             label += " " + _t("bot.progress.tag.full_source")
         if has_effort:
             label += " " + _t("bot.progress.tag.effort", effort=has_effort)
-        if focus:
-            label += " " + _t("bot.progress.tag.focus", focus=focus[:20])
 
         try:
             await status_msg.edit_text(f"⏳ {label}")
@@ -1063,7 +1061,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 source="telegram",
                 user_id=uid,
                 chat_id=cid,
-                focus=focus,
                 effort=has_effort,
                 full_content=has_refetch_full,
             )
@@ -1239,7 +1236,10 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             active_theme = theme_mgr.get_theme(0)
             active_svc = svc
 
-        payload, focus = parse_message_focus(text)
+        # CT28: the parser still separates the URL from the text after a separator; the text is ignored.
+        payload, sealed_focus = parse_message_focus(text)
+        if sealed_focus:
+            await _reply_focus_sealed(update.message)
         payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload)
 
         # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
@@ -1298,14 +1298,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         if target_doc_id:
             # 1. 초점 또는 재수집 플래그가 함께 전달된 경우 -> 즉시 실행
-            if has_refetch or has_refetch_full or has_effort or focus:
+            if has_refetch or has_refetch_full or has_effort:
                 label = _t("bot.regen.progress", doc_id=target_doc_id)
                 if has_refetch_full:
                     label += " " + _t("bot.progress.tag.refetch_full")
                 elif has_refetch:
                     label += " " + _t("bot.progress.tag.refetch")
-                if focus:
-                    label += " " + _t("bot.progress.tag.focus", focus=focus[:20])
                 if has_effort:
                     label += " " + _t("bot.progress.tag.effort", effort=has_effort)
                 status = await msg.reply_text(f"⏳ {label}")
@@ -1318,7 +1316,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                             refetch=has_refetch,
                             refetch_full=has_refetch_full,
                             effort=has_effort,
-                            focus=focus,
                             force=True,
                         ),
                     )
@@ -1327,7 +1324,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         emoji = "👎"
                     elif res.get("count", 0) > 0:
                         tinfo = res["targets"][0]
-                        focus_msg = f"\n{_t('bot.label.focus')}: {focus}" if focus else ""
                         if tinfo.get("refetch_error"):
                             ans = _t("bot.regen.refetch_error", error=tinfo["refetch_error"])
                             emoji = "👎"
@@ -1345,7 +1341,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                                 ref_msg = " (" + _t("bot.regen.note.refetched_full", chars=f"{tinfo.get('new_len', 0):,}") + ")"
                             elif tinfo.get("refetched"):
                                 ref_msg = " (" + _t("bot.regen.note.refetched", chars=f"{tinfo.get('new_len', 0):,}") + ")"
-                            ans = _t("bot.regen.done", title=str(tinfo.get("title", target_doc_id)), detail=ref_msg + focus_msg)
+                            ans = _t("bot.regen.done", title=str(tinfo.get("title", target_doc_id)), detail=ref_msg)
                             emoji = "👍"
                     else:
                         ans = _t("bot.regen.doc_not_found", doc_id=target_doc_id)
@@ -1457,14 +1453,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 themes,
                 target_snippet,
                 kind_label=kind,
-                focus=focus,
             )
             pending_ingest[token] = {
                 "orig_msg": msg,
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "payload": payload_to_ingest,
-                "focus": focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": kind,
@@ -1482,7 +1476,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             active_theme,
             update.update_id,
             payload=payload_to_ingest,
-            focus=focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=kind,
@@ -1512,9 +1505,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if is_multi:
             theme_mgr.reload()
 
-        composite_url, clean_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
+        composite_url, sealed_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
             caption, theme_mgr if is_multi else None
         )
+        if sealed_focus:
+            await _reply_focus_sealed(msg)
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
@@ -1543,7 +1538,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 themes,
                 name if not is_composite else f"{name} + {composite_url[:30]}",
                 kind_label=kind_label,
-                focus=clean_focus,
             )
             def _doc_work_for_theme(target_svc):
                 kept = target_svc.save_inbound_file(int(update.update_id), Path(tmp_path), name)
@@ -1555,7 +1549,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                         source="telegram",
                         user_id=uid,
                         chat_id=cid,
-                        focus=clean_focus,
                         effort=has_effort,
                         full_content=has_refetch_full,
                     )
@@ -1567,7 +1560,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     inbox_kind="document",
                     file_ref=kept,
                     file_name=name,
-                    focus=clean_focus,
                     effort=has_effort,
                     full_content=has_refetch_full,
                 )
@@ -1576,7 +1568,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "doc_work": _doc_work_for_theme,
-                "focus": clean_focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": kind_label,
@@ -1604,7 +1595,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     source="telegram",
                     user_id=uid,
                     chat_id=cid,
-                    focus=clean_focus,
                     effort=has_effort,
                     full_content=has_refetch_full,
                 )
@@ -1616,7 +1606,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 inbox_kind="document",
                 file_ref=kept,
                 file_name=name,
-                focus=clean_focus,
                 effort=has_effort,
                 full_content=has_refetch_full,
             )
@@ -1626,7 +1615,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             active_theme,
             update.update_id,
             doc_work=_work,
-            focus=clean_focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=kind_label,
@@ -1654,7 +1642,9 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         else:
             raw_clean_theme = raw
 
-        payload, focus = parse_message_focus(raw_clean_theme)
+        payload, sealed_focus = parse_message_focus(raw_clean_theme)
+        if sealed_focus:
+            await _reply_focus_sealed(update.message)
         payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload)
         payload_to_ingest = payload_clean or payload
         msg = update.message
@@ -1672,14 +1662,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 themes,
                 target_snippet,
                 kind_label=kind,
-                focus=focus,
             )
             pending_ingest[token] = {
                 "orig_msg": msg,
                 "status_msg": prompt_msg,
                 "update_id": update.update_id,
                 "payload": payload_to_ingest,
-                "focus": focus,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "kind_label": kind,
@@ -1697,7 +1685,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             active_theme,
             update.update_id,
             payload=payload_to_ingest,
-            focus=focus,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             kind_label=kind,
@@ -1779,7 +1766,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 item["update_id"],
                 payload=item.get("payload"),
                 doc_work=item.get("doc_work"),
-                focus=item.get("focus"),
                 has_effort=item.get("has_effort"),
                 has_refetch_full=item.get("has_refetch_full", False),
                 kind_label=item.get("kind_label", ""),

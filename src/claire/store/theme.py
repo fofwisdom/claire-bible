@@ -96,7 +96,6 @@ class ThemeInfo:
     is_default: bool = False
     is_public: bool = True
     is_collaborator_accessible: bool = True
-    default_focus: str = ""
     fqdn: str = ""
     ga_measurement_id: str = ""
     sorcerer: str = ""
@@ -144,11 +143,6 @@ class ThemeInfo:
                     "is_collaborator_accessible",
                     data.get("collaborator_accessible", data.get("collaborator", default_collab)),
                 )
-            ),
-            default_focus=(
-                ""
-                if is_def
-                else str(data.get("default_focus") or "").strip()
             ),
             fqdn=validate_fqdn(data.get("fqdn")),
             ga_measurement_id=validate_ga_measurement_id(
@@ -229,7 +223,6 @@ def _row_to_theme(row: Any, default_db_path: str) -> ThemeInfo:
         is_default=is_def,
         is_public=bool(d.get("is_public", 1)),
         is_collaborator_accessible=bool(d.get("is_collaborator_accessible", not is_def)),
-        default_focus="" if is_def else str(d.get("default_focus") or "").strip(),
         fqdn=validate_fqdn(d.get("fqdn")),
         ga_measurement_id=validate_ga_measurement_id(d.get("ga_measurement_id")),
         sorcerer=str(d.get("sorcerer") or "").strip(),
@@ -470,10 +463,10 @@ class ThemeManager:
             INSERT OR IGNORE INTO themes (
                 id, seq, label, description, icon, db_path,
                 is_default, is_public, is_collaborator_accessible,
-                default_focus, fqdn, ga_measurement_id, sorcerer,
+                fqdn, ga_measurement_id, sorcerer,
                 presentation_enabled, created_at, updated_at, account_id,
                 number, visibility_epoch, embed_provider, embed_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 theme.id,
@@ -485,7 +478,6 @@ class ThemeManager:
                 int(theme.is_default),
                 int(theme.is_public),
                 int(theme.is_collaborator_accessible),
-                theme.default_focus,
                 theme.fqdn,
                 theme.ga_measurement_id,
                 theme.sorcerer,
@@ -762,7 +754,6 @@ class ThemeManager:
         is_default: bool = False,
         is_public: bool = True,
         is_collaborator_accessible: bool = True,
-        default_focus: str = "",
         fqdn: str = "",
         ga_measurement_id: str = "",
         sorcerer: str = "",
@@ -809,7 +800,6 @@ class ThemeManager:
             is_default=bool(is_default),
             is_public=bool(is_public),
             is_collaborator_accessible=False if is_default else bool(is_collaborator_accessible),
-            default_focus="" if is_default else str(default_focus or "").strip(),
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
             sorcerer=mgr,
@@ -829,10 +819,10 @@ class ThemeManager:
                     INSERT INTO themes (
                         id, seq, label, description, icon, db_path,
                         is_default, is_public, is_collaborator_accessible,
-                        default_focus, fqdn, ga_measurement_id, sorcerer,
+                        fqdn, ga_measurement_id, sorcerer,
                         presentation_enabled, created_at, updated_at, account_id,
                         number, visibility_epoch
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         theme.id,
@@ -844,7 +834,6 @@ class ThemeManager:
                         int(theme.is_default),
                         int(theme.is_public),
                         int(theme.is_collaborator_accessible),
-                        theme.default_focus,
                         theme.fqdn,
                         theme.ga_measurement_id,
                         theme.sorcerer,
@@ -876,12 +865,11 @@ class ThemeManager:
         self._themes[seq] = theme
         self._save_registry()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s, 기본 초점: %s, FQDN: %s) 정의 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, 협력자: %s, FQDN: %s) 정의 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
             theme.is_collaborator_accessible,
-            theme.default_focus,
             norm_fqdn or "(없음)",
             db_path,
         )
@@ -896,7 +884,6 @@ class ThemeManager:
         icon: str | None = None,
         is_public: bool | None = None,
         is_collaborator_accessible: bool | None = None,
-        default_focus: str | None = None,
         fqdn: str | None = None,
         ga_measurement_id: str | None = None,
         sorcerer: str | None = None,
@@ -960,12 +947,6 @@ class ThemeManager:
             else:
                 theme.is_collaborator_accessible = bool(is_collaborator_accessible)
 
-        if default_focus is not None:
-            if theme.is_default:
-                theme.default_focus = ""
-            else:
-                theme.default_focus = str(default_focus or "").strip()
-
         if ga_measurement_id is not None:
             theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
 
@@ -990,7 +971,6 @@ class ThemeManager:
                     icon = ?,
                     is_public = ?,
                     is_collaborator_accessible = ?,
-                    default_focus = ?,
                     fqdn = ?,
                     ga_measurement_id = ?,
                     sorcerer = ?,
@@ -1005,7 +985,6 @@ class ThemeManager:
                     theme.icon,
                     int(theme.is_public),
                     int(theme.is_collaborator_accessible),
-                    theme.default_focus,
                     theme.fqdn,
                     theme.ga_measurement_id,
                     theme.sorcerer,
@@ -1211,7 +1190,6 @@ class ThemeManager:
                 "db_path": db_path,
                 "db_file": db_file,
                 "theme_id": theme.id,
-                "default_focus": theme.default_focus,
             }
             if theme.sorcerer:
                 override["sorcerer"] = theme.sorcerer
@@ -1226,7 +1204,6 @@ class ThemeManager:
         if theme.sorcerer and hasattr(st, "sorcerer"):
             st.sorcerer = theme.sorcerer
         st.theme_id = theme.id
-        st.default_focus = theme.default_focus
         return st
 
     def active_theme_settings(

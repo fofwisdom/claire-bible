@@ -202,7 +202,6 @@ class IngestService:
         else:
             self.s = settings_for_context(settings, provider_context)
         self.provider = provider if provider is not None else self._build_provider()
-        self.default_focus = (getattr(settings, "default_focus", "") or "").strip()
 
     # --- 계정 컨텍스트 (P4, 설계 §10.2–§10.3) ---------------------------------------------
 
@@ -281,26 +280,6 @@ class IngestService:
         report.inbox_id = inbox_id
         return report
 
-    def get_effective_default_focus(self) -> str | None:
-        if self.default_focus:
-            return self.default_focus
-        try:
-            tm = get_theme_manager(self.s)
-            theme = tm.get_theme(self.theme_id)
-            if getattr(theme, "is_default", False) or self.theme_id <= 0:
-                return None
-            if theme and theme.id == self.theme_id and getattr(theme, "default_focus", None):
-                focus = str(theme.default_focus).strip()
-                if focus:
-                    self.default_focus = focus
-                    return focus
-        except ThemeNotFound:
-            # 삭제된 테마에 적재하지 않는다 (테마 0으로 대신하지 않는다)
-            raise
-        except Exception:
-            pass
-        return None
-
     def get_theme_label(self) -> str:
         try:
             tm = get_theme_manager(self.s)
@@ -332,7 +311,6 @@ class IngestService:
         inbox_id: int | None = None,
         prefetched: Document | None = None,
         format: str | None = None,
-        focus: str | None = None,
         effort: str | None = None,
         full_content: bool = False,
     ) -> IngestReport:
@@ -340,8 +318,6 @@ class IngestService:
 
         inbox_id 가 주어지면 새 raw_inbox 행을 만들지 않고 기존 행을 재사용(자동복구용). prefetched 가 주어지면 fetch 를 건너뛰고 그 Document 로 적재(1홉 확장의 중복 fetch 방지).
         """
-        if not focus:
-            focus = self.get_effective_default_focus()
         # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
         tlabel = self.get_theme_label()
         if effort:
@@ -360,7 +336,7 @@ class IngestService:
             return self._ingest_now(
                 payload, source=source, expand_max=expand_max, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name, inbox_id=inbox_id,
-                prefetched=prefetched, format=format, focus=focus, effort=effort,
+                prefetched=prefetched, format=format, effort=effort,
                 full_content=full_content, tlabel=tlabel,
             )
 
@@ -378,7 +354,6 @@ class IngestService:
         inbox_id: int | None,
         prefetched: Any,
         format: str | None,
-        focus: str | None,
         effort: str | None,
         full_content: bool,
         tlabel: str,
@@ -399,7 +374,7 @@ class IngestService:
                 expand_max=em, source=source, user_id=user_id, chat_id=chat_id,
                 inbox_kind=inbox_kind, file_ref=file_ref, file_name=file_name,
                 inbox_id=inbox_id, prefetched=prefetched, auto_expand=auto,
-                format=fmt, focus=focus, effort=effort, full_content=full_content,
+                format=fmt, effort=effort, full_content=full_content,
                 theme_id=tid, theme_label=tlabel,
                 settings=self.s, provider_context=getattr(self, "provider_context", None),
             )
@@ -416,7 +391,6 @@ class IngestService:
         expand_max: int | None = None,
         user_id: int | None = None,
         chat_id: int | None = None,
-        focus: str | None = None,
         effort: str | None = None,
         full_content: bool = False,
         inbox_id: int | None = None,
@@ -435,7 +409,7 @@ class IngestService:
             stack.enter_context(_reserved_ingest())
             return self._ingest_composite_now(
                 file_path, file_name, url, source=source, expand_max=expand_max, user_id=user_id,
-                chat_id=chat_id, focus=focus, effort=effort, full_content=full_content,
+                chat_id=chat_id, effort=effort, full_content=full_content,
                 inbox_id=inbox_id, format=format,
             )
 
@@ -449,7 +423,6 @@ class IngestService:
         expand_max: int | None,
         user_id: int | None,
         chat_id: int | None,
-        focus: str | None,
         effort: str | None,
         full_content: bool,
         inbox_id: int | None,
@@ -459,9 +432,6 @@ class IngestService:
         from .composite import compose_composite_document, fetch_composite_components
         from ..extract.provider import emit_progress
 
-        if not focus:
-            focus = self.get_effective_default_focus()
-
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
         try:
@@ -469,7 +439,6 @@ class IngestService:
                 payload_meta = {
                     "url": url,
                     "attachment_name": file_name,
-                    "focus": focus,
                     "effort": effort,
                     "full_content": full_content,
                     "theme_id": self.theme_id,
@@ -505,7 +474,7 @@ class IngestService:
             return rep
 
         composite_doc = compose_composite_document(
-            file_doc, url_doc, file_name, focus=focus, settings=self.s, file_bytes=file_bytes
+            file_doc, url_doc, file_name, settings=self.s, file_bytes=file_bytes
         )
 
         return self.ingest(
@@ -520,7 +489,6 @@ class IngestService:
             inbox_id=inbox_id,
             prefetched=composite_doc,
             format=format,
-            focus=focus,
             effort=effort,
             full_content=full_content,
         )
@@ -594,7 +562,6 @@ class IngestService:
                         conn2, self.provider, vstore, parent_full, child,
                         data_dir=self.s.data_dir,
                         format=self.s.render_format,
-                        focus=self.get_effective_default_focus(),
                         theme_id=self.theme_id,
                         settings=self.s)
                     if m.get("merged"):
@@ -946,7 +913,6 @@ class IngestService:
         limit: int = 0,
         force: bool = False,
         format: str | None = None,
-        focus: str | None = None,
         tables_only: bool = False,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
@@ -978,7 +944,7 @@ class IngestService:
                 with _item_context(reporter, on_progress, idx, did, title=doc.title or "", url=doc.canonical_url or doc.url or "") as step_cb:
                     step_cb("가독 상세(detail) 렌더링 생성 중", f"format={fmt}")
                     if ensure_document_detail(
-                        conn, self.provider, doc, force=force or tables_only, format=fmt, focus=focus
+                        conn, self.provider, doc, force=force or tables_only, format=fmt
                     ):
                         out["ok"] += 1
                     else:
@@ -1115,7 +1081,6 @@ class IngestService:
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
-        focus: str | None = None,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
@@ -1131,7 +1096,6 @@ class IngestService:
         - refetch_full: True 면 환경변수 제한 없이 원문 전체 길이를 수집하여 본문 갱신 후 재생성.
         - force: False(기본) 면 dry-run 진단만 수행하고 DB 변경 없음. True 면 실제 DB 덮어쓰기.
         - effort: LLM 사고/추론 레벨 (low, medium, high 등) 즉석 재정의.
-        - focus: 가독 렌더 상세 작성 초점(focus).
         """
         import json as _json
         import re as _re
@@ -1261,7 +1225,6 @@ class IngestService:
                     theme_id=theme_id,
                     theme_label=theme_label,
                     doc_id=primary_doc_id,
-                    focus=focus,
                     title=clean_title,
                     account_id=self.account_id,
                 )
@@ -1524,14 +1487,11 @@ class IngestService:
                                             doc,
                                             force=True,
                                             format=target_fmt,
-                                            focus=focus,
                                             effort=effort,
                                             out_error=detail_err_box,
                                         )
                                         if detail_ok:
                                             info["detail_format"] = target_fmt
-                                            if focus:
-                                                info["focus"] = focus
                                         else:
                                             err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
                                             info["detail_error"] = f"가독 상세(detail) 생성 실패 ({err_detail})"
@@ -1895,7 +1855,6 @@ class IngestService:
                 cdata = json.loads(row["payload"])
                 curl = cdata.get("url")
                 cname = row["file_name"] or cdata.get("attachment_name") or "attachment"
-                cfocus = cdata.get("focus")
                 ceffort = cdata.get("effort")
                 cfull = bool(cdata.get("full_content"))
                 if curl and Path(row["file_ref"]).exists():
@@ -1905,7 +1864,6 @@ class IngestService:
                         curl,
                         source="manual-retry",
                         inbox_id=inbox_id,
-                        focus=cfocus,
                         effort=ceffort,
                         full_content=cfull,
                     )
@@ -1989,7 +1947,6 @@ class IngestService:
                         cdata = json.loads(row["payload"])
                         curl = cdata.get("url")
                         cname = row["file_name"] or cdata.get("attachment_name") or "attachment"
-                        cfocus = cdata.get("focus")
                         ceffort = cdata.get("effort")
                         cfull = bool(cdata.get("full_content"))
                         if curl and Path(row["file_ref"]).exists():
@@ -2000,7 +1957,6 @@ class IngestService:
                                 curl,
                                 source="recover",
                                 inbox_id=row["id"],
-                                focus=cfocus,
                                 effort=ceffort,
                                 full_content=cfull,
                             )

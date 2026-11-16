@@ -385,7 +385,7 @@ class MockProvider:
         title = (doc.title or doc.url or "untitled").strip()
         text = (doc.raw_text or "").strip()
         images = (doc.meta or {}).get("images") or []
-        focus_val = focus or (doc.meta or {}).get("focus")
+        focus_val = focus
         focus_tag = f" [focus: {focus_val}]" if focus_val else ""
         parts = [f"[mock-detail-adoc]{focus_tag} *{title}*", "", text[:600]]
         if images:

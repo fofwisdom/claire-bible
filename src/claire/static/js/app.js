@@ -2416,31 +2416,11 @@ function openIngest(){
           '<div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"><label for="ingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="ingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
-        '<textarea id="ingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
-      '</div>'+
       '<div class="ingest-submit"><button type="button" onclick="runIngest()">' + tr("ws.ingest.start") + '</button></div>'+
     '</div>';
   openDetailPane();
   const ta=document.getElementById('ingin'); if(ta) ta.focus();
 
-  const ingthemeEl = document.getElementById('ingtheme');
-  const ingfocusEl = document.getElementById('ingfocus');
-  function updateFocusPlaceholder(){
-    if(!ingfocusEl) return;
-    const tid = ingthemeEl ? String(ingthemeEl.value || '0') : (isMulti ? String(activeThemeId || '0') : '0');
-    const themeObj = findTheme(tid);
-    if(themeObj && getThemeKey(themeObj) !== '0' && themeObj.default_focus){
-      ingfocusEl.placeholder = tr('ws.ingest.focus_default_placeholder', { focus: themeObj.default_focus });
-    } else {
-      ingfocusEl.placeholder = tr("ws.ingest.focus_placeholder");
-    }
-  }
-  if(ingthemeEl){
-    ingthemeEl.addEventListener('change', updateFocusPlaceholder);
-  }
-  updateFocusPlaceholder();
 }
 async function runIngest(){
   if(!canIngest()) return;
@@ -2461,7 +2441,6 @@ async function runIngest(){
       return;
     }
   }
-  const focus=((document.getElementById('ingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
   const fullContent=!!amountChoice && amountChoice.value==='full';
@@ -2474,12 +2453,6 @@ async function runIngest(){
   }
   if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus){
-    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
-  } else if(targetThemeObj && getThemeKey(targetThemeObj) !== '0' && targetThemeObj.default_focus){
-    const df = targetThemeObj.default_focus;
-    optionLabels.push(tr('ws.ingest.opt_focus_default', { focus: df.length > 20 ? df.slice(0,20)+'…' : df }));
-  }
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
@@ -2506,7 +2479,7 @@ async function runIngest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(payload, focus, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(payload, targetThemeObj ? targetThemeObj.label : '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2521,7 +2494,6 @@ async function runIngest(){
     const bodyObj = {payload:payload, full_content:fullContent};
     if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
-    if(focus) bodyObj.focus=focus;
     const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
@@ -2606,7 +2578,6 @@ function renderIngestResult(d){
     '<p class=al>' + tr("ws.ingest.kept_for_recover") + '</p>'; return; }
   let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
-  if(d.focus) h+='<p class=al><b>' + tr("ws.ingest.focus_prefix") + '</b> '+esc(d.focus)+'</p>';
   const appliedOptions=[];
   if(d.theme_id !== undefined){
     appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.theme_id) })));
@@ -2694,10 +2665,6 @@ function openReingest(){
           '<div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"><label for="reingeffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="reingfocus">' + tr("ws.ingest.focus") + ' <span class="ingest-help">' + tr("ws.ingest.optional") + '</span></label>'+
-        '<textarea id="reingfocus" rows="2" placeholder="' + tr("ws.ingest.focus_placeholder") + '"></textarea>'+
-      '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
           '<input type="checkbox" id="reinguntombstone" checked> '+
@@ -2728,7 +2695,6 @@ async function runReingest(){
       return;
     }
   }
-  const focus=((document.getElementById('reingfocus')||{}).value||'').trim();
   const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
   const untombstoneChk=document.getElementById('reinguntombstone');
@@ -2743,9 +2709,6 @@ async function runReingest(){
   }
   if(fullContent) optionLabels.push(tr("ws.reingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus){
-    optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
-  }
   if(untombstone) optionLabels.push(tr("ws.reingest.opt_untombstone"));
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
@@ -2773,7 +2736,7 @@ async function runReingest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(target, focus, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(target, targetThemeObj ? targetThemeObj.label : '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2788,7 +2751,6 @@ async function runReingest(){
     const bodyObj = {target:target, full_content:fullContent, untombstone:untombstone};
     if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0') bodyObj.theme = targetThemeId;
     if(effort) bodyObj.effort=effort;
-    if(focus) bodyObj.focus=focus;
     const r=await fetch(apiUrl('reingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});
     if(r.status===401||r.status===404){
@@ -2937,10 +2899,6 @@ function openRegen(docIdOverride, compOverride){
           '<div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"><label for="regeneffort-max">' + tr("ws.ingest.effort_max") + '</label></div>'+
         '</div>'+
       '</fieldset>'+
-      '<div class="ingest-field">'+
-        '<label class="ingest-label" for="regenfocus">' + tr("ws.regen.focus") + ' <span class="ingest-help">' + tr("ws.regen.focus_hint") + '</span></label>'+
-        '<textarea id="regenfocus" rows="2" placeholder="' + tr("ws.regen.focus_placeholder") + '"></textarea>'+
-      '</div>'+
       '<div class="ingest-field" style="margin-top:6px">'+
         '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">'+
           '<input type="checkbox" id="regenrefetch"> '+
@@ -2980,7 +2938,6 @@ async function runRegen(isDryRun){
   const component = compChoice ? compChoice.value : 'all';
   const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
   const effort = effortChoice ? effortChoice.value : '';
-  const focus = ((document.getElementById('regenfocus')||{}).value||'').trim();
   const refetchChk = document.getElementById('regenrefetch');
   const refetch = !!(refetchChk && refetchChk.checked);
 
@@ -2996,7 +2953,6 @@ async function runRegen(isDryRun){
         refetch: refetch,
       };
       if(effort) payload.effort = effort;
-      if(focus) payload.focus = focus;
       if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
         payload.theme = targetThemeId;
       }
@@ -3050,7 +3006,6 @@ async function runRegen(isDryRun){
   }
   optionLabels.push(tr('ws.regen.opt_component', { component: component }));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
-  if(focus) optionLabels.push(tr('ws.ingest.opt_focus', { focus: focus.length > 20 ? focus.slice(0,20)+'…' : focus }));
   if(refetch) optionLabels.push(tr("ws.regen.opt_refetch"));
   if(optionLabels.length){
     labelText += ' (' + optionLabels.join(' · ') + ')';
@@ -3074,7 +3029,6 @@ async function runRegen(isDryRun){
     refetch: refetch,
   };
   if(effort) payload.effort = effort;
-  if(focus) payload.focus = focus;
   if(isMulti && targetThemeId !== undefined && targetThemeId !== null && targetThemeId !== '0'){
     payload.theme = targetThemeId;
   }
@@ -3472,7 +3426,7 @@ let activeMatrixInitialized = false;
 function handleActiveIngestState(activeInfo){
   if(!activeInfo) return;
   if(!activeMatrixInitialized && typeof initIngestMatrixView === 'function'){
-    initIngestMatrixView(activeInfo.payload, activeInfo.focus, activeInfo.theme_label);
+    initIngestMatrixView(activeInfo.payload, activeInfo.theme_label);
     activeMatrixInitialized = true;
   }
   const spin = document.getElementById('matrix-progress-spinner');
@@ -5632,10 +5586,6 @@ function renderDocPanel(dc){
   const tab=DOC_CTX_TABS.includes(activeDocCtxTab)?activeDocCtxTab:'links';
   activeDocCtxTab=tab;
   let h='<div class="ctx-doc-head"><h2>'+esc(dc.title)+' <small>'+esc(dc.source_type||'')+'</small></h2>';
-  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
-  if(focus){
-    h+='<div style="margin:.2em 0;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:5px;font-size:12px"><b style="color:var(--accent2)"><span data-icon="target"></span> ' + tr("ws.ingest.focus_prefix") + '</b> '+esc(focus)+'</div>';
-  }
   if(canWrite()){
     h+='<div class=dochide-row><label class=dochide-label>'+
       '<input type="checkbox" id="panelhidechk" '+(dc.hidden===1?'checked':'')+
@@ -7064,7 +7014,7 @@ function processActiveJobsStats(d){
   }
 }
 
-function initIngestMatrixView(payload, focus, themeLabel){
+function initIngestMatrixView(payload, themeLabel){
   const wrap = document.getElementById('matrixwrap');
   if(!wrap) return;
   const titleEl = document.getElementById('matrix-title');

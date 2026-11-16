@@ -819,8 +819,6 @@ def cmd_theme(args) -> int:
             print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
             if d.get("description"):
                 print(f"     - Description: {d['description']}")
-            if d.get("default_focus"):
-                print(f"     - Default focus: {d['default_focus']}")
             print(f"     ㄴ DB  : {d['db_path']}")
         print("=" * 82)
         return 0
@@ -838,7 +836,6 @@ def cmd_theme(args) -> int:
         is_collab = getattr(args, "is_collaborator_accessible", True)
         if is_collab is None:
             is_collab = True
-        default_focus = str(getattr(args, "default_focus", "") or "").strip()
         pres_enabled = bool(getattr(args, "presentation_enabled", False))
         try:
             theme = tm.define_theme(
@@ -847,7 +844,6 @@ def cmd_theme(args) -> int:
                 icon=icon,
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
-                default_focus=default_focus,
                 presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
@@ -859,7 +855,6 @@ def cmd_theme(args) -> int:
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
                 print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
-                print(f"  • Default focus: {theme.default_focus or '(none)'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  • SQLite path  : {theme.db_path}")
             return 0
@@ -877,7 +872,6 @@ def cmd_theme(args) -> int:
         icon = getattr(args, "icon", None)
         is_public = getattr(args, "is_public", None)
         is_collab = getattr(args, "is_collaborator_accessible", None)
-        default_focus = getattr(args, "default_focus", None)
         pres_enabled = getattr(args, "presentation_enabled", None)
         try:
             theme = tm.update_theme(
@@ -887,7 +881,6 @@ def cmd_theme(args) -> int:
                 icon=icon,
                 is_public=is_public,
                 is_collaborator_accessible=is_collab,
-                default_focus=default_focus,
                 presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
@@ -898,7 +891,6 @@ def cmd_theme(args) -> int:
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
                 print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
-                print(f"  • Default focus: {theme.default_focus or '(none)'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  (The directory path does not change: {theme.db_path})")
             return 0
@@ -1653,11 +1645,6 @@ def cmd_ingest(args) -> int:
     provider = get_provider(s)
     vstore = make_vector_store(conn, s.vector_backend)
     print(f"(provider={provider.name})")
-    focus = getattr(args, "focus", None)
-    if not focus and theme and not theme.is_default and getattr(theme, "default_focus", None):
-        focus = theme.default_focus.strip() or None
-        if focus:
-            print(f"  [Default focus applied: {focus}]")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
     report = ingest(
@@ -1665,7 +1652,6 @@ def cmd_ingest(args) -> int:
         data_dir=s.data_dir, source="cli",
         expand_max=(0 if args.no_expand else s.expand_max),
         format=getattr(args, "format", None),
-        focus=focus,
         effort=effort,
         full_content=full_content,
     )
@@ -1678,7 +1664,7 @@ def cmd_ingest(args) -> int:
             sub = ingest(url, conn=conn, provider=provider, vstore=vstore,
                          data_dir=s.data_dir, source="cli-expand",
                          expand_max=0, format=getattr(args, "format", None),
-                         focus=focus, effort=effort, full_content=full_content)  # 2홉 방지
+                         effort=effort, full_content=full_content)  # 2홉 방지
             print(f"  - {url}\n    {sub.telegram_summary().splitlines()[0]}")
     elif report.candidates:
         print("\n[expand] Candidate URLs (use --expand to ingest them):")
@@ -1716,7 +1702,6 @@ def cmd_reingest(args) -> int:
     dry_run = getattr(args, "dry_run", False)
     full_content = getattr(args, "full_content", False)
     effort = getattr(args, "effort", None)
-    focus = getattr(args, "focus", None)
     fmt = getattr(args, "format", None)
     is_json = getattr(args, "json", False)
 
@@ -1755,7 +1740,6 @@ def cmd_reingest(args) -> int:
                 "targets": matched_targets,
                 "full_content": full_content,
                 "effort": effort,
-                "focus": focus,
             }
             if is_json:
                 import json
@@ -1769,8 +1753,6 @@ def cmd_reingest(args) -> int:
             print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
                 print(f"• Effort                   : {effort}")
-            if focus:
-                print(f"• Focus                    : {focus}")
             print("-" * 60)
             print("Documents:")
             for m in matched_targets:
@@ -1782,8 +1764,6 @@ def cmd_reingest(args) -> int:
             extra = " --full-content" if full_content else ""
             if effort:
                 extra += f" --effort {effort}"
-            if focus:
-                extra += f" --focus '{focus}'"
             if untombstone:
                 extra += " --untombstone"
             print(f"  claire reingest '{query_target}' --apply{extra}")
@@ -1796,7 +1776,6 @@ def cmd_reingest(args) -> int:
                 "payload": query_target,
                 "full_content": full_content,
                 "effort": effort,
-                "focus": focus,
             }
             if is_json:
                 import json
@@ -1810,8 +1789,6 @@ def cmd_reingest(args) -> int:
             print(f"• Collection size          : {'full content (no truncation)' if full_content else 'standard'}")
             if effort:
                 print(f"• Effort                   : {effort}")
-            if focus:
-                print(f"• Focus                    : {focus}")
             print("=" * 60)
             print("[note] To ingest, add the option --apply:")
             print(f"  claire reingest '{query_target}' --apply")
@@ -1852,7 +1829,6 @@ def cmd_reingest(args) -> int:
             force=True,
             effort=effort,
             format=fmt,
-            focus=focus,
             on_progress=_on_progress,
         )
         if is_json:
@@ -1891,7 +1867,6 @@ def cmd_reingest(args) -> int:
                 source="cli-reingest",
                 expand_max=(0 if args.no_expand else s.expand_max),
                 format=fmt,
-                focus=focus,
                 effort=effort,
                 full_content=full_content,
             )
@@ -1971,14 +1946,12 @@ def cmd_backfill_detail(args) -> int:
         print("No document needs a detail backfill.")
         return 0
 
-    focus = getattr(args, "focus", None)
     try:
         with track_batch_progress(f"Detail backfill ({svc.provider.name})", total_docs) as reporter:
             out = svc.backfill_details(
                 limit=args.limit,
                 force=args.force,
                 format=fmt,
-                focus=focus,
                 tables_only=tables_only,
                 reporter=reporter,
             )
@@ -2067,7 +2040,6 @@ def cmd_regenerate(args) -> int:
     force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
-    focus = getattr(args, "focus", None)
 
     if not apply:
         # Dry-run 진단
@@ -2087,7 +2059,6 @@ def cmd_regenerate(args) -> int:
             force=False,
             effort=effort,
             format=fmt,
-            focus=focus,
         )
 
         if getattr(args, "json", False):
@@ -2143,7 +2114,6 @@ def cmd_regenerate(args) -> int:
         force=False,
         effort=effort,
         format=fmt,
-        focus=focus,
     )
     if diag.get("error"):
         print(f"[!] {diag['error']}")
@@ -2168,7 +2138,6 @@ def cmd_regenerate(args) -> int:
                 force=True,
                 effort=effort,
                 format=fmt,
-                focus=focus,
                 reporter=reporter,
             )
             reporter.print_summary()
@@ -5059,7 +5028,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptl = ptheme_sub.add_parser(
         "list",
         help="list registered themes and stats",
-        description="List all registered themes, visibility, permissions, default focus, and statistics.",
+        description="List all registered themes, visibility, permissions, and statistics.",
     )
     ptl.add_argument("--json", action="store_true", help="output in JSON format")
     ptl.set_defaults(func=cmd_theme)
@@ -5081,14 +5050,13 @@ def build_parser() -> argparse.ArgumentParser:
     ptd_pres = ptd.add_mutually_exclusive_group()
     ptd_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=False, help="enable presentation feature for this theme")
     ptd_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", help="disable presentation feature for this theme (default)")
-    ptd.add_argument("--focus", "--default-focus", dest="default_focus", default="", help="default focus instruction applied when ingesting documents into this theme")
     ptd.add_argument("--json", action="store_true", help="output newly created theme details in JSON format")
     ptd.set_defaults(func=cmd_theme)
 
     ptu = ptheme_sub.add_parser(
         "update",
-        help="update theme label, description, icon, focus, visibility, or presentation",
-        description="Update existing theme metadata, visibility, collaborator access, default focus, or presentation.",
+        help="update theme label, description, icon, visibility, or presentation",
+        description="Update existing theme metadata, visibility, collaborator access, or presentation.",
     )
     ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
@@ -5103,7 +5071,6 @@ def build_parser() -> argparse.ArgumentParser:
     ptu_pres = ptu.add_mutually_exclusive_group()
     ptu_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=None, help="enable presentation feature for this theme")
     ptu_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", default=None, help="disable presentation feature for this theme")
-    ptu.add_argument("--focus", "--default-focus", dest="default_focus", default=None, help="update default focus instruction (pass empty string '' to remove)")
     ptu.add_argument("--json", action="store_true", help="output updated theme details in JSON format")
     ptu.set_defaults(func=cmd_theme)
 
@@ -5338,8 +5305,6 @@ def build_parser() -> argparse.ArgumentParser:
                     help="skip 1-hop candidate link detection")
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
-    pi.add_argument("-f", "--focus", dest="focus", default=None,
-                    help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 
@@ -5356,8 +5321,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="re-ingest full content without character limit (lossless ingestion)")
     pri.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
                      help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
-    pri.add_argument("-f", "--focus", dest="focus", default=None,
-                     help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pri.add_argument("--format", choices=["adoc"], default=None,
                      help="detail render format (adoc only, RD23)")
     pri.add_argument("--expand", action="store_true", help="fetch and queue 1-hop related links found in content")
@@ -5406,8 +5369,6 @@ def build_parser() -> argparse.ArgumentParser:
                      help="backfill/regenerate only documents containing tables")
     pbd.add_argument("--format", choices=["adoc"], default=None,
                      help="detail render format (adoc only, RD23)")
-    pbd.add_argument("--focus", dest="focus", default=None,
-                     help="content focus guidance for detail rendering")
     pbd.set_defaults(func=cmd_backfill_detail)
 
     pbs = sub.add_parser(
@@ -5441,7 +5402,6 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
     prep.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     prep.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
-    prep.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     prep.add_argument("--json", action="store_true", help="output result in JSON format")
     prep.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     prep.set_defaults(func=cmd_reprocess)
@@ -5479,7 +5439,6 @@ def build_parser() -> argparse.ArgumentParser:
     preg.add_argument("--yes", "-y", action="store_true", help="confirm regeneration operation without interactive prompt")
     preg.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     preg.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
-    preg.add_argument("--focus", dest="focus", default=None, help="content focus guidance for detail rendering")
     preg.add_argument("--json", action="store_true", help="output result in JSON format")
     preg.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     preg.set_defaults(func=cmd_regenerate)

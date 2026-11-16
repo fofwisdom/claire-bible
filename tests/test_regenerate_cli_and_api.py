@@ -47,7 +47,6 @@ def test_cli_regenerate_parser_options():
         "--apply",
         "-y",
         "--effort", "high",
-        "--focus", "Security focus",
         "--format", "adoc",
         "--json",
     ])
@@ -56,7 +55,6 @@ def test_cli_regenerate_parser_options():
     assert args_alias.apply is True
     assert args_alias.yes is True
     assert args_alias.effort == "high"
-    assert args_alias.focus == "Security focus"
     assert args_alias.format == "adoc"
     assert args_alias.json is True
 
@@ -212,7 +210,7 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     # 4. Streaming regeneration via /regenerate-stream
     res_stream = client.post(
         "/regenerate-stream",
-        json={"target": doc_id, "component": "detail", "dry_run": False, "focus": "Architecture"},
+        json={"target": doc_id, "component": "detail", "dry_run": False},
         headers=OWNER_HEADERS,
     )
     assert res_stream.status_code == 200

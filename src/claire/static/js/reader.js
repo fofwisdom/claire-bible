@@ -446,7 +446,6 @@ function docMetaHtml(dc){
   const isEncodingFlaw = !!(dc.pdf_encoding_flaw_detected || (dc.meta && dc.meta.pdf_encoding_flaw_detected));
   const encodingFlaws = (dc.pdf_encoding_flaws || (dc.meta && dc.meta.pdf_encoding_flaws) || []);
   const isScanned = !!(dc.pdf_is_scanned || (dc.meta && dc.meta.pdf_is_scanned));
-  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
   const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
   const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || isTrunc);
   const hasTranscript = !!(dc.has_transcript || (dc.meta && dc.meta.has_transcript));
@@ -466,8 +465,8 @@ function docMetaHtml(dc){
   }
   const hasRawLink = showOrigin && canAccessRaw && Boolean(dc.has_raw_file);
   const hasRawText = Boolean(rawChars > 0 || dc.has_raw_file || (dc.raw_text && String(dc.raw_text).length > 0));
-  if((showOrigin && !hasUrl && !hasRawLink) && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !hasRawText && !totalChars) return '';
-  if(!showOrigin && !isTrunc && !focus && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !hasRawText && !totalChars) return '';
+  if((showOrigin && !hasUrl && !hasRawLink) && !isTrunc && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !hasRawText && !totalChars) return '';
+  if(!showOrigin && !isTrunc && !isStt && !isCc && !isParserFallback && !hasPresentation && !isEncodingFlaw && !isScanned && !isVlm && !hasRawText && !totalChars) return '';
   let h='<p class=docmeta' + (charTip ? ' title="'+esc(charTip)+'"' : '') + '>';
   if(showOrigin){
     if(hasUrl){
@@ -532,10 +531,6 @@ function docMetaHtml(dc){
     const tip = rtr('reader.tag.bundle_tip', { source: bundleSource })+metaDetail+' · '+artifactState;
     const tagClass = 'prov det focus-tag' + (isStt ? ' stt-tag' : '');
     tags.push('<span class="'+tagClass+'" title="'+esc(tip)+'">'+pdfLabel+'</span>');
-  }
-  if(focus){
-    const dispFocus = focus.length > 25 ? focus.slice(0, 25) + '…' : focus;
-    tags.push('<span class="prov det focus-tag" title="'+esc(rtr('reader.tag.focus_tip', { focus: focus }))+'"><span data-icon="target"></span> '+esc(dispFocus)+'</span>');
   }
   if(isStt && !hasPresentation){
     const sttLang = (dc.stt_language || (dc.meta && dc.meta.stt_language) || '').trim();
@@ -770,10 +765,6 @@ function renderReader(dc){
     h+='<div class="stt-trunc-banner"><span data-icon="warning"></span> '+rtr('reader.banner.stt_trunc', { command: '<code>claire video-reprocess --doc-id '+esc(dc.id||'')+' --apply --full-content</code>' })+'</div>';
   }
   h+=extraSourcesHtml(dc);
-  const focus = (dc.focus || (dc.meta && dc.meta.focus) || '').trim();
-  if(focus){
-    h+='<div class="rsection">' + rtr("ws.ingest.focus") + '</div><div class="doc-content" style="margin-bottom:.8em"><span data-icon="target"></span> <strong>'+esc(focus)+'</strong></div>';
-  }
   if(dc.summary){
     h+='<div class=rsection>' + rtr("reader.section.summary") + '</div><div class="doc-content">'+renderContent(dc.summary, dc.detail_format)+'</div>';
   }else if(dc.detail || dc.detail_html){

@@ -65,15 +65,14 @@ def _save_themes_registry(data_dir: Path, db_path: Path, themes: list[ThemeInfo]
     conn = dbm.connect(db_path)
     for t in themes:
         conn.execute(
-            "INSERT OR REPLACE INTO themes (id, seq, label, description, icon, db_path, is_default, is_public, is_collaborator_accessible, default_focus, created_at, updated_at, account_id, number) "
-            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO themes (id, seq, label, description, icon, db_path, is_default, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) "
+            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?)",
             (
                 t.id,
                 t.seq,
                 t.label,
                 t.db_path,
                 1 if t.is_default else 0,
-                t.default_focus,
                 t.created_at,
                 t.updated_at,
                 t.account_id,
@@ -193,8 +192,8 @@ def test_ingest_service_and_pool_account_context_and_default_theme(tmp_path: Pat
     now = time.time()
     themes = [
         ThemeInfo(id=0, seq=0, label="기본 지식베이스", db_path=str(db_file), is_default=True, account_id=1, number=1 << 56, created_at=now, updated_at=now),
-        ThemeInfo(id=1, seq=1, label="멤버 기본 테마", db_path=str(db_file), is_default=True, account_id=2, default_focus="Member Focus", number=(1 << 56) + 1, created_at=now, updated_at=now),
-        ThemeInfo(id=2, seq=2, label="멤버 서브 테마", db_path=str(db_file), is_default=False, account_id=2, default_focus="Sub Focus", number=(1 << 56) + 2, created_at=now, updated_at=now),
+        ThemeInfo(id=1, seq=1, label="멤버 기본 테마", db_path=str(db_file), is_default=True, account_id=2, number=(1 << 56) + 1, created_at=now, updated_at=now),
+        ThemeInfo(id=2, seq=2, label="멤버 서브 테마", db_path=str(db_file), is_default=False, account_id=2, number=(1 << 56) + 2, created_at=now, updated_at=now),
     ]
     _save_themes_registry(data_dir, db_file, themes)
 
@@ -211,12 +210,8 @@ def test_ingest_service_and_pool_account_context_and_default_theme(tmp_path: Pat
     assert svc.account_id == 2
     assert svc.theme_id == 1
 
-    # 2. theme.is_default 일원화: 기본 테마(is_default=True)는 theme_id > 0이어도 default_focus가 비워짐(None) 검증
-    assert svc.get_effective_default_focus() is None
-
-    # 비기본 테마(is_default=False)는 default_focus가 정상 유지됨
-    svc_sub = IngestService(settings, theme_id=2, account_id=2)
-    assert svc_sub.get_effective_default_focus() == "Sub Focus"
+    # 2. The theme default focus is removed (CT28).
+    assert not hasattr(svc, "get_effective_default_focus")
 
     # 3. IngestServicePool의 계정별 기본 테마 조회 검증
     pool = IngestServicePool(settings, theme_manager=tm, account_id=2)

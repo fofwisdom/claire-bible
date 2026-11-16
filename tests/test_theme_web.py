@@ -154,30 +154,6 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     assert '<span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}' in html
 
 
-def test_theme_web_default_focus(tmp_path: Path):
-    """웹 UI에서 테마 기본 초점(default_focus) 관련 UI 요소 검증."""
-    s = Settings(
-        db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
-    )
-    graph_html = render_graph_html(s)
-    html = MANAGE_PANELS_JS
-
-    # 1. 새 테마 생성 폼에 기본 초점 입력 필드 확인
-    assert 'id="newthemep-focus"' in html
-
-    # 2. 테마 수정 폼에 기본 초점 입력 필드 확인
-    assert 'editthemep-focus-' in html
-
-    # 3. 테마 카드에 기본 초점 표시 템플릿 확인
-    assert '<span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))}' in html
-
-    # 4. Ingest 모달에서 기본 초점 플레이스홀더 동적 반영 함수 확인
-    assert "updateFocusPlaceholder" in graph_html
-    assert "ws.ingest.focus_default_placeholder" in graph_html
-
-
 def test_theme_web_knowledge_manager_display(tmp_path: Path):
     """테마 관리에서 테마 지식베이스의 '지식 관리자' 표시 및 UI 요소 검증."""
     from claire.store.theme import ThemeManager

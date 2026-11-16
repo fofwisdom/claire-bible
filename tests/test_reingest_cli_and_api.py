@@ -39,14 +39,13 @@ def test_cli_reingest_parser_options():
     assert args.untombstone is False
     assert args.full_content is False
 
-    # --apply, --untombstone, --full-content, --effort, --focus
+    # --apply, --untombstone, --full-content, --effort
     args2 = parser.parse_args([
         "reingest", "https://example.com/test",
         "--apply",
         "--untombstone",
         "--full-content",
         "--effort", "high",
-        "--focus", "architecture",
         "--yes",
         "--json",
     ])
@@ -55,7 +54,6 @@ def test_cli_reingest_parser_options():
     assert args2.untombstone is True
     assert args2.full_content is True
     assert args2.effort == "high"
-    assert args2.focus == "architecture"
     assert args2.yes is True
     assert args2.json is True
 

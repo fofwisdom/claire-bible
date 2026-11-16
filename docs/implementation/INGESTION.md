@@ -301,11 +301,11 @@ YouTube has its own fetcher (`fetch_youtube`): `youtube-transcript-api` first, t
 
 ### 11.1 Caption parsing
 
-`on_document` in `src/claire/telegram_bot.py` takes documents, native videos, and audio (`filters.Document.ALL | filters.VIDEO | filters.AUDIO`). `parse_caption_composite(caption, theme_mgr)` removes the theme tag (`parse_message_theme`) and the flags (`parse_regenerate_flags`), then takes the first URL (`router._URL_RE`) as the composite URL. The text before and after the URL becomes the focus. With no URL, the caption is the focus and the file is a single ingest. [code]
+`on_document` in `src/claire/telegram_bot.py` takes documents, native videos, and audio (`filters.Document.ALL | filters.VIDEO | filters.AUDIO`). `parse_caption_composite(caption, theme_mgr)` removes the theme tag (`parse_message_theme`) and the flags (`parse_regenerate_flags`), then takes the first URL (`router._URL_RE`) as the composite URL. The bot ignores the text before and after the URL, because the ingest focus is sealed ([`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4). With no URL, the file is a single ingest. [code]
 
 ### 11.2 Service and composer
 
-- `IngestService.ingest_composite(file_path, file_name, url, …)` writes a `raw_inbox` row with `kind="composite"`, `file_ref`, `file_name`, and a JSON payload (`url`, `attachment_name`, `focus`, `effort`, `full_content`, `theme_id`). The replay of failed rows reads this payload. [code]
+- `IngestService.ingest_composite(file_path, file_name, url, …)` writes a `raw_inbox` row with `kind="composite"`, `file_ref`, `file_name`, and a JSON payload (`url`, `attachment_name`, `effort`, `full_content`, `theme_id`). The replay of failed rows reads this payload. [code]
 - `fetch_composite_components` in `src/claire/ingest/composite.py` reads the file with `fetch_file` and the URL with `router.fetch`. A missing file, a zero-byte file, an empty file text, a URL fetch error, or an empty URL text raises `FetchError`. Then the row gets `status="error"` and no document is written. [code]
 - `compose_composite_document(file_doc, url_doc, file_name, …)` always uses the URL document as the primary document. [code]
   - Video or YouTube URL plus PDF: the PDF block follows the transcript; meta gets `presentation_pdf`, `presentation_pdfs`, and `content_components`.

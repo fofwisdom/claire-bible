@@ -427,7 +427,6 @@
     const select = $("item-ingest-theme");
     const current = String(bridge.state.themeId);
     select.innerHTML = Object.values(bridge.themes).map((t) => `<option value="${esc(t.id)}" ${String(t.id) === current ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
-    $("item-ingest-focus").value = "";
     $("item-ingest-msg").textContent = "";
     $("modal-item-ingest-title").textContent = tr("synd.feeds.ingest_title");
     $("item-ingest-note").textContent = tr("synd.feeds.ingest_note");
@@ -439,12 +438,11 @@
   async function submitIngest() {
     const id = F.ingestItemId;
     const themeKey = $("item-ingest-theme").value;
-    const focus = $("item-ingest-focus").value.trim();
     const msg = $("item-ingest-msg");
     const button = $("btn-item-ingest");
     button.disabled = true;
     msg.textContent = tr("synd.ingest.running");
-    const result = await api("POST", `/api/feeds/items/${encodeURIComponent(id)}/ingest`, { theme: bridge.themeRefOf(themeKey), focus: focus || undefined });
+    const result = await api("POST", `/api/feeds/items/${encodeURIComponent(id)}/ingest`, { theme: bridge.themeRefOf(themeKey) });
     button.disabled = false;
     if (!result.ok || result.data.error || !result.data.linked) {
       msg.textContent = tr("synd.ingest.failed", { error: errorText(result) });

@@ -314,7 +314,6 @@ def ingest(
         payload=payload,
         theme_id=tid,
         theme_label=tlabel,
-        focus=focus,
         title=prefetched.title if prefetched else None,
         source=source,
     ) as job:
@@ -1452,15 +1451,17 @@ def ensure_document_detail(
             out_error.append(f"insufficient_content: {guard_err}")
         return False
 
-    focus_val = focus if focus is not None else (doc.meta or {}).get("focus")
+    # CT28: a stored focus (doc.meta["focus"]) is data only; no render reads it.
+    focus_val = focus
 
     tid = theme_id if theme_id is not None else getattr(conn, "theme_id", 0)
 
     if not force:
         existing_detail = dbm.get_document_detail(conn, doc.id, theme_id=tid)
         existing_fmt = dbm.get_document_detail_format(conn, doc.id, theme_id=tid)
-        existing_focus = (doc.meta or {}).get("focus") or dbm.get_document_focus(conn, doc.id, theme_id=tid)
-        if existing_detail and existing_fmt == fmt and existing_focus == focus_val:
+        # A stored focus is compared only when a caller gives a focus; no entry point gives one (CT28).
+        same_focus = focus_val is None or dbm.get_document_focus(conn, doc.id, theme_id=tid) == focus_val
+        if existing_detail and existing_fmt == fmt and same_focus:
             return False
 
     render = getattr(provider, "render_detail", None)

@@ -129,7 +129,7 @@
 
 ### 3.7. 테마 (Theme / `theme_id`)
 - **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위.
-- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, 기본 초점, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
+- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
 
 ### 3.8. 볼트 (Vault / `vault/`, 영구 제거됨)
 - **정의**: 과거 SQLite DB 정본을 Obsidian 등 외부 마크다운 에디터에서 열람할 수 있도록 단방향(export-only)으로 투영했던 파일시스템 저장소. 현재는 볼트 서브시스템 및 마크다운 파일 동기화가 영구 제거되어 비활성화/폐기되었다.
@@ -181,7 +181,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 도메인 격리 | **테마** | Theme | `Theme`, `ThemeSettings` | `themes` 테이블, `*.theme_id` |
 | 운영 단위 | **서버** | Server | `ServerMode`, `server_mode()`, `claire server check`, 서버 액터 `/ap/actors/server` | `server_settings` 테이블 (v25 전 이름 `instance_settings`). Claire 설치 하나를 Mastodon 문서([Mastodon 101](https://github.com/mastodon/blog/blob/master/content/posts/2018-08-21_Mastodon-101/index.md))처럼 "서버"라고 부른다. "인스턴스"는 쓰지 않는다 |
 | 파일 투영 | **볼트 (폐기됨)** | Vault (Retired) | `vault_path` (legacy default "") | 제거됨 (영구 폐기) |
-| 추출 지향성 | **초점** | Extraction Focus | `focus`, `default_focus` | `documents.meta["focus"]` |
+| 추출 지향성 | **초점** | Extraction Focus | `focus` | `documents.meta["focus"]` (데이터만 남음. 수집 초점은 봉인됨, CT28) |
 | 국소 그래프 | **로컬 그래프** | Local Graph | `renderLocalGraphHtml()`, `ctx-local-graph` | 문서 문맥 패널 연결 탭의 인라인 SVG 그래프 (링 1 문서 엔티티 최대 24, 링 2 타 문서 연결 엔티티 최대 12) |
 | 본문 마크 | **엔티티 마크** | Entity Mark | `applyEntityMarks()`, `claire-entity` | CSS Custom Highlight API 기반 리더 본문 엔티티 하이라이트 (DOM 트리 변경 없음) |
 | 통합 검색·실행 창 | **명령 팔레트** | Command Palette | `ClaireCommandPalette` (`src/claire/static/js/command_palette.js`) | `<dialog id="cmdpalette">` 기반 명령·문서·엔티티 통합 검색 및 이동 모달 (`/` 키) |

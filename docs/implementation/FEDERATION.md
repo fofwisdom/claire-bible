@@ -945,7 +945,7 @@ All routes are for the owner of the account, in network mode only. An item of an
 | `GET` | `/api/federation/timeline` | `{"items", "next_max_id", "counts"}`. Query: `limit` (1 to 80, default 40), `max_id` (cursor: the items with a lower ID), and the filters `unread=1`, `starred=1`, `mention=1`. Only items with `in_timeline` = 1, newest first. |
 | `GET` | `/api/federation/timeline/{item_id}` | `{"item", "thread"}`. `thread` has all stored items of the thread, oldest first, also those with `in_timeline` = 0. Each entry has `render_url`. |
 | `PATCH` | `/api/federation/timeline/{item_id}` | Body: `unread` and `starred` (booleans, one or both). Answer `{"item", "counts"}`. |
-| `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`theme_id`, `document_id`). The item stays in the timeline. |
+| `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value). Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`theme_id`, `document_id`). The item stays in the timeline. |
 | `GET` | `/api/federation/objects` | `{"total", "items": [{"id", "theme_id", "document_id", "published_at", "updated_at"}], "next_max_id"}`: the published documents of the caller, for the filter of stage 3. |
 | `GET` | `/render/remote/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
@@ -1187,7 +1187,7 @@ All routes are for the owner of the account, in single mode and in network mode 
 | :--- | :--- | :--- |
 | `GET` | `/api/feeds/items/{item_id}` | `{"item"}`: the keys of the list, `has_body`, and `render_url`. |
 | `POST` | `/api/feeds/discover` | Body: `url`. `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}`. The address is a feed (one entry), or a page whose `<link rel="alternate">` elements with a feed type give the entries (20 at most). `error` is the reason when the address gave no body (for example `http_404`, `blocked_address`). 400 `invalid_url`. |
-| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value) and optional `focus`. Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
+| `POST` | `/api/feeds/items/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `theme_id` is the same value). Starts the URL ingest of the item `url` into a theme of the caller, with the rules of the timeline route (Section 19.1). The answer is the ingest report with `linked`. 409 `item_without_url` for an item without a link. |
 | `GET` | `/render/feed/{item_id}?t={token}` | The body of one item. On the `usercontent` host; on the app origin only when the server has no `usercontent` host. |
 
 Changes of the routes of Section 15.3:

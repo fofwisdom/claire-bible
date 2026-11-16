@@ -136,14 +136,12 @@ def test_graph_html_contains_truncation_ui_and_css():
     # The cut of the source text is one notice in the reader: the source badge has the counts, and its hover text has the reason.
     assert "reader.trunc.limit" in html
     assert 'data-source-badge="partial"' in html
-    assert '<span data-icon="target"></span>' in html
     assert '<span data-icon="mic"></span> STT' in html
     assert '<span data-icon="captions"></span> CC' in html
     assert "reader.tag.vlm_label" in html
     assert "reader.tag.stt" in html
     assert "reader.tag.cc" in html
     assert "reader.tag.vlm" in html
-    assert "reader.tag.focus_tip" in html
     assert "reader.trunc.appendix" in html
     assert "reader.trunc.limit" in html
     assert "작성된 본문" not in html
@@ -162,7 +160,6 @@ def test_shared_html_contains_docmeta_ui_and_css():
         "appendix_truncated": True,
         "orig_chars": 50000,
         "raw_chars": 20000,
-        "focus": "핵심 알고리즘 분석",
         "is_stt": True,
         "summary": "테스트 요약",
     }
@@ -177,10 +174,8 @@ def test_shared_html_contains_docmeta_ui_and_css():
     assert ".vlm-tag" in html
     assert "docMetaHtml" in html
     assert "share.trunc_part" in html
-    assert '<span data-icon="target"></span>' in html
     assert '<span data-icon="mic"></span> STT' in html
     assert "reader.tag.stt" in html
-    assert "reader.tag.focus_tip" in html
     assert "reader.trunc.appendix" in html
     assert "reader.trunc.limit" in html
     assert "작성된 본문" not in html
@@ -289,31 +284,6 @@ def test_document_detail_and_ui_with_vlm():
     assert "Document written with speech recognition (STT: ko)" in out_stt["html"]
     assert any("Document written with speech recognition (STT: ko)" in m for m in out_stt["msgs"])
 
-
-
-def test_document_detail_and_ui_with_focus():
-    import sqlite3
-
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    dbm.init_db(conn)
-    doc = Document(
-        id="doc_dir_test",
-        title="Focus Doc Test",
-        url="https://example.com/test-dir",
-        raw_text="A" * 1000,
-        source_type="web",
-        meta={
-            "focus": "시스템 아키텍처 및 내부 구조 중심",
-            "raw_truncated": False,
-        },
-    )
-    dbm.insert_document(conn, doc)
-
-    detail = document_detail(conn, "doc_dir_test")
-    assert detail is not None
-    assert detail["focus"] == "시스템 아키텍처 및 내부 구조 중심"
-    assert detail["meta"]["focus"] == "시스템 아키텍처 및 내부 구조 중심"
 
 
 def test_document_detail_and_ui_with_stt():

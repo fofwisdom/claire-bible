@@ -1377,7 +1377,6 @@
   async function updateThemeFromUI(themeId) {
     const labelEl = document.getElementById('editthemep-label-' + themeId);
     const descEl = document.getElementById('editthemep-desc-' + themeId);
-    const focusEl = document.getElementById('editthemep-focus-' + themeId);
     const iconEl = document.getElementById('editthemep-icon-' + themeId);
     const pubEl = document.getElementById('editthemep-pub-' + themeId);
     const collabEl = document.getElementById('editthemep-collab-' + themeId);
@@ -1402,9 +1401,6 @@
     }
     if (presEl) {
       payload.presentation_enabled = presEl.checked;
-    }
-    if (focusEl) {
-      payload.default_focus = focusEl.value.trim();
     }
     if (gaEl) {
       payload.ga_measurement_id = gaEl.value.trim() || null;
@@ -1502,7 +1498,6 @@
   async function createThemeFromUI() {
     const labelEl = document.getElementById('newthemep-label');
     const descEl = document.getElementById('newthemep-desc');
-    const focusEl = document.getElementById('newthemep-focus');
     const iconEl = document.getElementById('newthemep-icon');
     const pubEl = document.getElementById('newthemep-pub');
     const collabEl = document.getElementById('newthemep-collab');
@@ -1513,7 +1508,6 @@
     const label = ((labelEl || {}).value || '').trim();
     if (!label) { alert(trKey("console.js.panels.themes.name_needed")); return; }
     const description = ((descEl || {}).value || '').trim();
-    const default_focus = ((focusEl || {}).value || '').trim();
     const icon = ((iconEl || {}).value || '📁').trim() || '📁';
     const is_public = pubEl ? pubEl.checked : true;
     const is_collaborator_accessible = collabEl ? collabEl.checked : true;
@@ -1521,7 +1515,7 @@
     const ga_measurement_id = ((gaEl || {}).value || '').trim() || null;
     const sorcerer = ((sorcererEl || {}).value || '').trim();
 
-    const payload = { label, description, default_focus, icon, is_public, is_collaborator_accessible, presentation_enabled };
+    const payload = { label, description, icon, is_public, is_collaborator_accessible, presentation_enabled };
     if (sorcerer) payload.sorcerer = sorcerer;
     if (ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
 
@@ -1631,9 +1625,6 @@
       h += '</div></div>';
       if (t.description) h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>`;
       h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}</p>`;
-      if (themeKey !== '0' && t.default_focus) {
-        h += `<p style="margin:4px 0 0;font-size:12px;color:var(--accent,#00ffaa);font-weight:500;"><span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))} ${esc(t.default_focus)}</p>`;
-      }
 
       h += `<div id="theme-options-view-${themeKey}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
       h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> ' + esc(trKey("console.js.panels.themes.options_title")) + '</div>';
@@ -1643,7 +1634,6 @@
       h += `<div>• <b>${esc(trKey("console.js.panels.col_description"))}</b>: ${esc(t.description || esc(trKey("console.js.panels.themes.no_description")))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_legacy"))}</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => esc(trKey("console.js.panels.themes.legacy_host", { host: lh.host, activated: lh.activated_at || '-', sunset: lh.sunset_at || '-' }))).join(', ') : esc(trKey("console.js.panels.themes.none"))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_ga"))}</b>: ${esc(t.ga_measurement_id || esc(trKey("console.js.panels.themes.ga_unset")))}</div>`;
-      if (themeKey !== '0') h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_focus"))}</b>: ${esc(t.default_focus || esc(trKey("console.js.panels.themes.focus_unset")))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_visibility"))}</b>: ${isPub ? esc(trKey("console.js.panels.themes.visibility_public")) : esc(trKey("console.js.panels.themes.private"))}</div>`;
       if (themeKey !== '0') h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab"))}</b>: ${isCollabAcc ? esc(trKey("console.js.panels.themes.collab_open_detail")) : esc(trKey("console.js.panels.themes.collab_blocked"))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab_ingest"))}</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_allowed")) + '</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_default")) + '</span>' : '<span style="color:var(--warn);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_owner")) + '</span>')}</div>`;
@@ -1660,9 +1650,6 @@
           h += `<div style="font-size:11px;color:var(--muted);padding:2px 0;"><span data-icon="globe"></span> ${esc(trKey("console.js.panels.themes.legacy_note"))} ${t.legacy_hosts.map(lh => esc(lh.host)).join(', ')}</div>`;
         }
         h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.ga_label"))}</label><input id="editthemep-ga-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.ga_placeholder"))}" value="${esc(t.ga_measurement_id || '')}"/></div>`;
-        if (themeKey !== '0') {
-          h += `<div><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.focus_label"))}</label><input id="editthemep-focus-${themeKey}" style="width:100%;box-sizing:border-box" placeholder="${esc(trKey("console.js.panels.themes.focus_placeholder_edit"))}" value="${esc(t.default_focus || '')}"/></div>`;
-        }
         h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
         h += `<div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_icon"))}</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>`;
         h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.public_checkbox"))}</label></div>`;
@@ -1690,7 +1677,6 @@
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_manager")) + '</label><input id="newthemep-sorcerer" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.opt_manager")) + '"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.col_description")) + '</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.desc_placeholder")) + '"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.ga_label")) + '</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.ga_placeholder")) + '"/></div>';
-      h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.focus_label")) + '</label><input id="newthemep-focus" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.focus_placeholder_new")) + '"/></div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_icon")) + '</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
       h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pub" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.public_checkbox")) + '</label></div>';
       h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.collab_checkbox")) + '</label></div>';

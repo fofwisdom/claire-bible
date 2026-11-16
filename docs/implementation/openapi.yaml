@@ -252,8 +252,6 @@ paths:
                 is_collaborator_accessible:
                   type: boolean
                   default: true
-                default_focus:
-                  type: string
                 ga_measurement_id:
                   type: string
                 sorcerer:
@@ -322,8 +320,6 @@ paths:
                   type: boolean
                 is_collaborator_accessible:
                   type: boolean
-                default_focus:
-                  type: string
                 ga_measurement_id:
                   type: string
                 sorcerer:
@@ -991,9 +987,6 @@ paths:
                   type: string
                   description: Target URL or raw text content.
                   example: "https://example.com/article"
-                focus:
-                  type: string
-                  description: Optional extraction focus.
                 format:
                   type: string
                   enum: [adoc, md]
@@ -2740,7 +2733,6 @@ paths:
               required: [theme]
               properties:
                 theme: {type: string, description: Public theme reference of the caller.}
-                focus: {type: string}
       responses:
         '200':
           description: The ingest report with linked (theme_id and document_id, or null).

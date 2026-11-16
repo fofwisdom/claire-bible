@@ -177,9 +177,9 @@ def world(tmp_path):
     for t in themes:
         conn.execute(
             "INSERT OR REPLACE INTO themes (id, seq, label, description, icon, db_path, is_default, is_public, "
-            "is_collaborator_accessible, default_focus, created_at, updated_at, account_id, number) "
-            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?, ?)",
-            (t.id, t.seq, t.label, t.db_path, 1 if t.is_default else 0, t.default_focus, t.created_at,
+            "is_collaborator_accessible, created_at, updated_at, account_id, number) "
+            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?)",
+            (t.id, t.seq, t.label, t.db_path, 1 if t.is_default else 0, t.created_at,
              t.updated_at, t.account_id, t.number),
         )
     conn.commit()

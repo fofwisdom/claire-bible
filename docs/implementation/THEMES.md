@@ -20,7 +20,6 @@
 6. **[코드] 기본 테마 불변식의 `theme.is_default` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_default = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_default` 판정으로 일원화했다:
    - 기본 테마는 삭제할 수 없다 (`delete_theme`에서 `theme.is_default`이면 `ValueError`).
    - 기본 테마는 협업자 쓰기·접근이 차단된다 (`is_collaborator_accessible = False`).
-   - 기본 테마는 기본 초점이 빈 문자열로 강제된다 (`default_focus = ""`).
    - 계정당 기본 테마는 정확히 1개이며, `claire.db`의 `idx_themes_account_default ON themes(account_id) WHERE is_default = 1` 유니크 인덱스로 강제된다.
    - 테마 생략 시 `ThemeManager.default_theme_for(account_id)`로 해당 계정의 기본 테마를 단일 진실 공급원으로 조회한다.
 7. **[코드] 테마 레이블 유일성 범위 `(account_id, label)`**: 테마 레이블 중복 검사는 전역이 아니라 **계정 범위** `(account_id, label)`로 판정한다. 서로 다른 계정 간에는 동일한 레이블명을 쓸 수 있으며, 동일 계정 내에서만 대소문자 무시 중복이 거부된다(`define_theme`, `update_theme`).
@@ -49,7 +48,7 @@
 - `reload()`는 DB 행을 읽고, JSON에만 있는 항목은 DB에 `INSERT OR IGNORE`로 넣는다. 그래서 두 곳이 다르면 DB 값이 이긴다.
 - `define_theme`은 DB에 넣고 커밋한 뒤 JSON을 다시 쓴다. ID는 `seq`와 같은 일련번호(`_next_seq`)다.
 
-**[코드] 기본 테마(`theme.is_default=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_default = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있고, 기본 초점은 빈 문자열로 고정된다(`ThemeInfo.from_dict`).
+**[코드] 기본 테마(`theme.is_default=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_default = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있다.
 
 **[코드] 테마로 나뉘는 테이블**: `documents`, `entities`, `relations`, `embeddings`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `document_snapshots`, `document_presentations`, `doc_shares`, `purged_tombstones`, `syndication_dispatches`. `(theme_id, …)` 복합 인덱스는 `init_db`가 만든다.
 
@@ -168,17 +167,10 @@
 
 ---
 
-## 7. Default focus of a theme
+## 7. Default focus of a theme (removed)
 
-- **[code]** An explicit focus in the request (API body, CLI `--focus`, Telegram message parsed by `parse_message_focus`) comes first.
-- **[code]** When the request has no focus, `IngestService.get_effective_default_focus` (`src/claire/ingest/service.py`) gives it:
-  1. The `default_focus` of the `Settings` copy of the theme. `ThemeManager._settings_for_theme_info` writes the theme value into this copy, and `IngestServicePool.get_service` gives the copy to the service.
-  2. Else the `default_focus` of the theme record, when the theme is not a default theme and its ID is above 0.
-  3. Else no focus.
-- **[code]** A default theme always has `default_focus = ""` (`ThemeInfo.from_dict`, `update_theme`). Thus it gives no focus through step 1 or step 2.
-- **[code]** When a service gets `Settings` that are not a theme copy, step 1 reads `CLAIRE_THEME_DEFAULT_FOCUS` (`Settings.default_focus`).
+- **[code]** The theme default focus is removed with the ingest focus seal (CT28, [`DATA_LIFECYCLE.md`](DATA_LIFECYCLE.md) §4). `ThemeInfo` has no `default_focus`, theme create and update ignore the field, and `CLAIRE_THEME_DEFAULT_FOCUS` is not a setting. The column `themes.default_focus` stays as data.
 - **[code]** A deleted theme gives `ThemeNotFound`. The service does not use theme 0 in its place.
-- **[code]** The Telegram bot applies the same rule before it calls the service (`telegram_bot.py`: no focus, theme not default, ID above 0).
 
 ## 8. Public site and analytics of a theme
 

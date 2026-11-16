@@ -210,7 +210,6 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `theme_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
 | `CLAIRE_PRESENTATION_ENABLED` | `0` (`false`) | `0`, `1`, `true`, `false` | 기본 테마(#0)의 프레젠테이션 기능 활성값. 다른 테마는 테마 레지스트리의 테마별 값을 쓴다. |
 | `CLAIRE_THEME_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 테마 번호. 테마 라우팅이 테마별 `Settings` 사본에 채우며(`ThemeManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
-| `CLAIRE_THEME_DEFAULT_FOCUS` | `""` | 문자열 | **[내부]** 테마 기본 초점(Focus). 테마 레지스트리의 `default_focus`가 테마별 `Settings` 사본에 채워진다. 사용자가 `.env`에 설정하지 않는다. |
 | *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY.md](TELEMETRY.md) §2 참조) |
 
 ---

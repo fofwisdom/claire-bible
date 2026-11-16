@@ -240,43 +240,6 @@ def test_cli_theme_delete_additional_only(cli_theme_env, capsys):
     assert "삭제용 테마" in out
 
 
-def test_cli_theme_default_focus(cli_theme_env, capsys):
-    """CLI에서 --focus / --default-focus 옵션으로 기본 초점 정의 및 수정 검증."""
-    settings, tm = cli_theme_env
-
-    # 1. default_focus와 함께 테마 정의
-    ret = cli.main([
-        "theme", "define",
-        "--label", "클라우드 인프라",
-        "--focus", "쿠버네티스 및 분산 시스템 아키텍처 중심",
-    ])
-    assert ret == 0
-    out = capsys.readouterr().out
-    assert "Default focus: 쿠버네티스 및 분산 시스템 아키텍처 중심" in out
-
-    # 2. theme list 출력 시 기본 초점 표시 확인
-    ret = cli.main(["theme", "list"])
-    assert ret == 0
-    list_out = capsys.readouterr().out
-    assert "Default focus: 쿠버네티스 및 분산 시스템 아키텍처 중심" in list_out
-
-    # 3. theme update로 기본 초점 수정
-    ret = cli.main([
-        "theme", "update", "1",
-        "--focus", "클라우드 비용 최적화 및 FinOps 관점",
-    ])
-    assert ret == 0
-    update_out = capsys.readouterr().out
-    assert "Default focus: 클라우드 비용 최적화 및 FinOps 관점" in update_out
-
-    # 4. theme list --json 출력 확인
-    ret = cli.main(["theme", "list", "--json"])
-    assert ret == 0
-    data = _unwrap_json(capsys.readouterr().out)
-    t1 = next(t for t in data["themes"] if t["id"] == 1)
-    assert t1["default_focus"] == "클라우드 비용 최적화 및 FinOps 관점"
-
-
 def test_get_effective_settings_doc_target_auto_resolve(cli_theme_env):
     """--theme 미지정 시 doc_target(또는 args.target)으로 대상을 검색하여 테마를 자동 해소하는지 검증."""
     import argparse

@@ -264,10 +264,9 @@ v15로 올릴 때 한 계정에 기본 테마(`is_default=1`)가 둘 이상이�
 
 #### `ingest <payload>`
 URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지식그래프를 구축한다.
-* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc] [--focus "초점 지침"]`
+* **사용법**: `claire ingest "https://example.com/article" [-t <theme>] [--expand] [--title "제목"] [--format adoc]`
 * **주요 옵션**:
-  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재. 대상 추가 테마에 `default_focus`가 설정되어 있고 명시적 `--focus`가 없으면 해당 기본 초점이 자동 적용된다.
-  * `--focus <focus>`, `-f <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정. 지정 시 테마의 기본 초점(`default_focus`)보다 우선하여 덮어쓴다.
+  * `-t <theme>`, `--theme <theme>`: 적재 대상 테마 지정 (테마 ID, 일련번호, 또는 레이블 이름 지원). 미지정 시 기본 지식베이스(ID 0)에 적재.
   * `--expand`: 본문에서 추출된 외부 링크 URL들을 1홉 확장 큐(`expand_queue`)에 등록.
   * `--title <title>`: 자동 추출 제목 대신 수동 제목 지정.
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
@@ -275,13 +274,12 @@ URL, 일반 텍스트, 또는 로컬 파일로부터 문서를 수집하고 지�
 
 #### `reingest <target>`
 기존 문서 또는 URL을 다시 수집하여 엔티티, 관계, 임베딩, 요약, 상세(detail)를 완전히 재적재한다.
-* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--focus <focus>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
+* **사용법**: `claire reingest <target> [--doc-id <ID>] [--url <URL>] [-t <theme>] [--full-content] [--effort <level>] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`
 * **주요 옵션**:
   * `target`: 재적재 대상 문서 ID, URL, 공유 링크(`/p?s=token`), 검색어, 또는 신규 적재 페이로드.
   * `-t <theme>`, `--theme <theme>`: 대상 테마 지정 (ID, 시퀀스, 또는 레이블).
   * `--full`, `--full-content`: 원문 길이 제한 없이 전체 무절단 수집.
   * `--effort <level>`: LLM 사고/추론 레벨 지정 (`none`, `minimal`, `low`, `medium`, `high`, `max`).
-  * `-f <focus>`, `--focus <focus>`: 가독 상세 작성 초점 지정.
   * `--untombstone`: 대상 문서가 이전에 소각(Purge)되어 툼스톤이 등록된 경우, 툼스톤을 원자적으로 해제하고 재적재 허용.
   * `--apply`: 실제 재적재 실행 (기본값: Dry-Run 진단 리포트 출력).
   * `--dry-run`: 변경 없이 시뮬레이션 진단만 출력 (기본값).
@@ -306,7 +304,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
 | :--- | :--- | :--- | :--- |
 | `reprocess` | `./cb-manuscript app reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | `uv run claire reprocess [...]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
-| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
 | `format-migrate` | `./cb-manuscript app format-migrate [--format adoc] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `./cb-manuscript app format-status [--format adoc] [--json]` | `uv run claire format-status [...]` | 문서 detail이 AsciiDoc인지, 아닌지, 누락인지 통계 출력. `--format`은 `adoc`만 받는다 |
@@ -315,7 +313,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `stt-scan` | `./cb-manuscript app stt-scan [<target>] [--doc-id <ID>] [--json]` | `uv run claire stt-scan [...]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
 | `stt-backfill` | `./cb-manuscript app stt-backfill [<target>] [--doc-id <ID>] [--apply] [--dry-run] [--force] [--json]` | `uv run claire stt-backfill [...]` | 과거 음성/영상 문서의 `is_stt` 메타데이터 및 `stt` 태그 소급 적용 (기본: dry-run, 실행: `--apply`, 단축: `backfill-stt`) |
 | `artifact-migrate` | `./cb-manuscript app artifact-migrate [--level N] [--stop-on-error] [--apply] [--dry-run] [--json]` | `uv run claire artifact-migrate [...]` | 구형 gzip(`.txt.gz`) 원문 아티팩트를 zstandard(`.txt.zst`)로 무손실 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format adoc] [--limit N] [--force] [--focus <focus>]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
+| `backfill-detail` | `./cb-manuscript app backfill-detail [--tables] [--format adoc] [--limit N] [--force]` | `uv run claire backfill-detail [...]` | 상세(detail) 렌더링이 누락되었거나 표가 포함된 문서 일괄 생성 (`reprocess -c detail -s missing`의 별칭) |
 | `backfill-summary` | `./cb-manuscript app backfill-summary [--limit N]` | `uv run claire backfill-summary [...]` | 요약이 누락된 기존 문서의 요약 일괄 생성 (`reprocess -c summary -s missing`의 별칭) |
 | `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
@@ -361,7 +359,6 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--dry-run`: 대상 문서 정보 및 계획만 출력하고 DB 변경 없음 (기본값).
   * `--effort <level>`: Gemini 사고/추론 레벨 오버라이드 (`low`, `medium`, `high`, `minimal`, `none`, 또는 정수 토큰 budget).
   * `--format adoc`: 상세 detail 렌더링 포맷 지정.
-  * `--focus <focus>`: 가독 상세(detail) 작성을 위한 집중 초점 지정.
 
 #### `summary-regenerate`
 `regenerate --summary`의 단축 Alias이다.
@@ -638,8 +635,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
 | `theme list` | `claire theme list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
-| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `themes` 테이블 및 테마 파티션을 프로비저닝 |
-| `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 기본 초점, 공개/협력자 접근 권한 수정 |
+| `theme define` | `claire theme define --label <L> [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `themes` 테이블 및 테마 파티션을 프로비저닝 |
+| `theme update` | `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개/협력자 접근 권한 수정 |
 | `theme reset` | `claire theme reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID 및 호출 URI(`?theme=<id>`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
 | `theme delete` | `claire theme delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`theme_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
@@ -648,33 +645,30 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **출력 항목**:
   * Sequence ID, 레이블(Label), 아이콘(Icon), 설명(Description)
   * 공개 여부 (Public / Private), 협력자 접근 허용 여부 (Collab O/X)
-  * 기본 초점 (Default Focus: 지식 적재 시 자동 적용될 Focus)
   * 문서/엔티티/관계 통계 및 파티션 테마 ID
 * **`--json`**: 기계 가독형 JSON 배열로 출력.
 
 #### `claire theme define`
-* **사용법**: `claire theme define --label <L> [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **사용법**: `claire theme define --label <L> [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
 * **주요 옵션**:
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
-  * `--focus`, `--default-focus`: 해당 테마에 문서 적재 시 기본 적용될 초점(Focus). 사용자가 적재 시 별도 `--focus`를 주지 않으면 이 값이 자동으로 적용된다.
   * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능하다.
   * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능하다.
 * **프로비저닝**: 단일 DB(`data/claire.db`)의 `themes` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `theme_id` 파티션이 준비된다.
 
 #### `claire theme update`
-* **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--focus <F>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **사용법**: `claire theme update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
 * **주요 옵션**:
   * `id`: 대상 테마의 ID, 시퀀스 번호, 또는 레이블.
-  * `--focus ""`: 빈 문자열을 전달하여 기존에 설정된 기본 초점을 해제(초기화) 가능.
   * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
-  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하지만 기본 초점은 `""`로 고정된다.
+  * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하다.
 
 #### `claire theme reset`
 * **사용법**: `claire theme reset <id> [--apply] [-y|--yes] [--json]`
 * **기본은 dry-run**: `--apply` 없이 실행하면 삭제될 문서·엔티티·관계 수만 보고하고 아무것도 바꾸지 않는다. `-y`만으로는 실행되지 않는다. `--json`이면 `{"ok": true, "plan": {"dry_run": true, "data_to_delete": {...}}}`를 출력한다.
-* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 기본 초점, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
+* **보존되는 것**: 테마 ID, 순번, 명칭, 아이콘, 설명, 권한 설정, 생성일, 호출 URI(`?theme=<id>`). `updated_at`만 갱신된다.
 * **삭제되는 것** (`ThemeManager.reset_theme`):
   1. `reset_graph(conn, theme_id=id)`로 해당 테마의 지식 그래프(엔티티, 관계, 임베딩, FTS)를 비운다.
   2. `theme_id` 조건으로 `documents`, `document_snapshots`, `document_presentations`, `raw_inbox`, `extractions`, `proposals`, `jobs`, `refresh_queue`, `expand_queue`, `doc_shares`, `purged_tombstones`, `syndication_dispatches` 행을 삭제한다.

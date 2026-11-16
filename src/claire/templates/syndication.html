@@ -242,10 +242,6 @@
         <label for="ingest-payload" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.payload_label">URL or source text</label>
         <textarea id="ingest-payload" required rows="5" class="tt-search" style="width:100%;height:auto;padding:8px;font-family:inherit" data-i18n-placeholder="synd.kb.ingest.payload_placeholder"></textarea>
       </div>
-      <div>
-        <label for="ingest-focus" style="display:block;font-size:12px;font-weight:700;margin-bottom:4px" data-i18n="synd.kb.ingest.focus_label">Extraction focus (optional)</label>
-        <input id="ingest-focus" type="text" class="tt-search" style="width:100%;height:34px" data-i18n-placeholder="synd.kb.ingest.focus_placeholder"/>
-      </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
         <button type="button" data-close-dialog="modal-ingest" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
         <button type="submit" id="btn-submit-ingest" class="tt-btn tt-btn-pri"><span data-icon="download"></span> <span data-i18n="synd.kb.ingest.submit">Ingest</span></button>
@@ -264,10 +260,6 @@
       <div>
         <label for="item-ingest-theme" data-i18n="synd.ingest.theme_label">Theme</label>
         <select id="item-ingest-theme" class="tt-btn" required></select>
-      </div>
-      <div>
-        <label for="item-ingest-focus" data-i18n="synd.ingest.focus_label">Focus (optional)</label>
-        <input id="item-ingest-focus" type="text" class="tt-search" data-i18n-placeholder="synd.ingest.focus_placeholder"/>
       </div>
       <p id="item-ingest-note" class="synd-note" data-i18n="synd.ingest.note">The post stays in the timeline. The theme rules apply to the new document.</p>
       <div id="item-ingest-msg" class="synd-note" role="status"></div>

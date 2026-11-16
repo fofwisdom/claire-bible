@@ -174,9 +174,8 @@ def test_compose_composite_document_web_and_pdf():
 
 def test_ingest_composite_service_end_to_end(tmp_path: Path):
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -212,13 +211,12 @@ def test_ingest_composite_service_end_to_end(tmp_path: Path):
             pdf_path,
             "test_presentation.pdf",
             "https://kubernetes.io/docs/concepts/scheduling-eviction/",
-            focus="스케줄링 플러그인 구조",
         )
 
     assert report.error is None
     assert report.document_id is not None
     assert report.presentation_pdfs == 1
-    assert "스케줄링 플러그인 구조" in (report.focus or "")
+    assert not report.focus  # CT28: the service gives no focus
     assert "발표자료 PDF 포함" in report.telegram_summary() or "STT×PDF" in report.telegram_summary() or "CC×PDF" in report.telegram_summary()
 
     # DB 저장 상태 검증
@@ -244,9 +242,8 @@ def test_ingest_composite_service_end_to_end(tmp_path: Path):
 
 def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -402,7 +399,7 @@ async def test_telegram_on_document_routes_to_composite(tmp_path: Path):
         call_args = mock_composite.call_args
         assert call_args[0][1] == "ai_infra.pdf"  # file_name
         assert call_args[0][2] == "https://youtube.com/watch?v=infra999"  # url
-        assert call_args[1]["focus"] == "인프라 구조 분석"
+        assert "focus" not in call_args[1]  # CT28
 
 
 @pytest.mark.asyncio
@@ -466,7 +463,7 @@ async def test_telegram_on_document_single_file_fallback(tmp_path: Path):
         assert not mock_composite.called
         assert mock_single.called
         assert mock_single.call_args[1]["file_name"] == "standalone.pdf"
-        assert mock_single.call_args[1]["focus"] == "단순 파일 초점: 성능 튜닝"
+        assert "focus" not in mock_single.call_args[1]  # CT28
 
 
 def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
@@ -474,9 +471,8 @@ def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
     from claire.ingest.fetchers.base import FetchError
 
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -522,9 +518,8 @@ def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
 def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
     """첨부 파일 파싱 실패(또는 빈 파일) 시 원격 링크만 단독 적재되는 것을 차단하고 전체 오류 처리."""
     settings = Settings(
-        data_dir=tmp_path / "data",
-        vault_dir=tmp_path / "vault",
-        db_file=tmp_path / "data" / "claire.db",
+        db_path=str(tmp_path / "data" / "claire.db"),
+        vault_path=str(tmp_path / "vault"),
         vector_backend="sqlite",
         provider="mock",
     )
@@ -628,7 +623,6 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
                 themes,
                 "20261008_kotra_dream_1d3afed7-def9-4c80-b560-bdd4ff8c351b.pdf",
                 kind_label="파일",
-                focus="특수_키워드_분석",
             )
             assert res is not None
             # 1회차 실패 후 2회차 fallback 호출로 총 2회 호출 확인
