@@ -22,6 +22,7 @@ from starlette.routing import Route
 
 from ... import ids
 from ...i18n import SUPPORTED_LOCALES, get_locale, t
+from ...ontology.label_language import ENTITY_LANGUAGES
 from ...store import accounts as accounts_store
 from ...store.telemetry import query_mcp_telemetry
 from ...store.theme import ThemeInfo, ThemeManager, ThemeNotFound
@@ -968,6 +969,7 @@ def _settings_account_body(
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</form>"
         f"{_settings_locale_html(account)}"
+        f"{_settings_entity_language_html(account)}"
         f"{_settings_reauth_form_html(has_password=has_password, form_id='settings-account-reauth')}"
         f'<form class="console-subcard" id="settings-password" data-settings-form="password" data-has-password="{"1" if has_password else "0"}" aria-label="{escape(t("console.settings.account.password"))}">'
         f"<h2><span data-icon='key'></span> {escape(t('console.settings.account.password_change') if has_password else t('console.settings.account.password_setup'))}</h2>"
@@ -1023,6 +1025,24 @@ def _settings_locale_html(account: accounts_store.Account) -> str:
         f'<label for="pref-account-locale" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
         f'<select id="pref-account-locale" class="pref-input" data-settings-locale>{options}</select></label>'
         f'<p class="hint">{escape(t("console.account.locale_hint"))}</p>'
+        '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
+        "</section>"
+    )
+
+
+def _settings_entity_language_html(account: accounts_store.Account) -> str:
+    """The entity language selector ``#pref-account-entity-language`` (ontology.label_language). The empty value shows the stored main labels. ``console_account.js`` sends the change with ``PATCH /api/me``."""
+    title = icon_html("globe") + " " + escape(t("console.account.entity_language_title"))
+    label = escape(t("console.account.entity_language_label"))
+    options = f'<option value=""{"" if account.entity_language else " selected"}>{escape(t("console.account.entity_language_none"))}</option>' + "".join(
+        f'<option value="{code}"{" selected" if account.entity_language == code else ""}>{escape(t(f"entity_language.name.{code}"))}</option>' for code in ENTITY_LANGUAGES
+    )
+    return (
+        f'<section class="console-subcard" id="settings-entity-language" aria-label="{label}">'
+        f"<h2>{title}</h2>"
+        f'<label for="pref-account-entity-language" style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600">{label}'
+        f'<select id="pref-account-entity-language" class="pref-input" data-settings-entity-language>{options}</select></label>'
+        f'<p class="hint">{escape(t("console.account.entity_language_hint"))}</p>'
         '<p class="result" data-settings-result role="status" aria-live="polite"></p>'
         "</section>"
     )

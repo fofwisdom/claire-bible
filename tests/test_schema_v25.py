@@ -57,7 +57,7 @@ def test_version_24_file_keeps_all_settings_under_the_new_name(tmp_path: Path, m
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
-            assert dbm.stored_schema_version(conn) == 25 == dbm.SCHEMA_VERSION
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION >= 25
             tables = _tables(conn)
             assert "server_settings" in tables and OLD not in tables and f"{OLD}_retired_v25" not in tables
             # The same id_salt: the public IDs do not change.

@@ -239,6 +239,7 @@ def test_env_tokens_map_to_admin_without_reading_accounts(data_dir, monkeypatch,
         "credential_id": f"env:{scope}",
         "authenticated_at": None,
         "locale": None,
+        "entity_language": None,
     }
 
 
@@ -255,6 +256,7 @@ def test_api_token_without_account_id_belongs_to_admin(fake_accounts, data_dir):
         "credential_id": "api:3",
         "authenticated_at": None,
         "locale": None,
+        "entity_language": None,
     }
 
 
@@ -304,6 +306,7 @@ def test_cookie_session_carries_authenticated_at(fake_accounts, data_dir):
         "credential_id": "session:aaaa",
         "authenticated_at": ADMIN_AUTH_AT,
         "locale": None,
+        "entity_language": None,
     }
 
 
@@ -333,6 +336,7 @@ def test_oauth_token_maps_to_bound_account(fake_accounts, data_dir):
         "credential_id": "oauth:eeee",
         "authenticated_at": None,
         "locale": None,
+        "entity_language": None,
     }
 
 

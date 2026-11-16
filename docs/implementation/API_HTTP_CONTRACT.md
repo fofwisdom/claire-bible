@@ -70,7 +70,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회. 정렬은 `fetched_at` 내림차순, 같으면 `id` 내림차순. 파라미터가 없으면 기존과 같이 최신 300건을 돌려주고, 응답에 `next_before`(다음 페이지 커서, 마지막 페이지면 `null`)와 `total`(커서를 뺀 필터 일치 건수)만 추가된다. 선택 파라미터: `limit`(1–300, 기본 300), `before=<fetched_at>:<id>`(이전 응답의 `next_before`), `pinned=0\|1`, `hidden=0\|1`, `q`(제목 또는 최신 추출 요약의 부분 일치, 200자 이하), `detail=missing\|mismatched`, `id`(반복 가능, 100개 이하). 잘못된 값은 `400`. `anonymous` 범위는 모든 페이지와 모든 필터에서 숨김 문서를 받지 않는다 |
 | `GET` | `/document` | `read` | 특정 문서 상세 및 본문 조회. `nodes[]`의 각 항목은 `id`, `label`, `group`, `observations`, `aliases` (엔티티 별칭 목록)를 포함한다. `extraction_provider`·`extraction_model`은 최근 추출의 프로바이더와 모델이고 추출 행이 없으면 `null`이다. 응답은 `detail`, `detail_html` 등 기존 필드는 엄격히 유지된다 |
 | `GET` | `/document/export` | `read` | 문서 하나를 파일로 내보낸다. `id`(필수), `format=markdown`(유일한 값, 기본값). AsciiDoc 본문을 Markdown으로 바꾸고 YAML 머리말(title, source, date, summary, claire_document_id)을 붙여 `text/markdown; charset=utf-8` 첨부 파일로 준다. 읽기 전용. 다른 `format`과 `id` 누락은 `400`, 없는 문서는 `404`. Claire가 Markdown을 쓰는 유일한 곳이다(RD24, [MARKDOWN_RETIREMENT_DESIGN.md](../design/MARKDOWN_RETIREMENT_DESIGN.md) §5) |
-| `GET` | `/graph` | `read` | 전체 온톨로지 지식 그래프 데이터 (JSON). `nodes[]`의 각 항목은 `id`, `label`, `group`, `sources`, `obs`, `degree`, `created_at` (`entities.created_at`, 에포크 초)를 가진다 |
+| `GET` | `/graph` | `read` | 전체 온톨로지 지식 그래프 데이터 (JSON). `nodes[]`의 각 항목은 `id`, `label`, `group`, `sources`, `obs`, `degree`, `created_at` (`entities.created_at`, 에포크 초)를 가진다. 요청 계정에 엔티티 언어(`accounts.entity_language`)가 있으면 `label`은 그 언어의 이름이다([ACCOUNTS.md](ACCOUNTS.md) "엔티티 언어") |
 | `GET` | `/node` | `read` | 특정 엔티티 노드 세부정보 및 연결선. 선택 파라미터 `docs=brief`: 각 출처 문서를 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file` 만으로 줄인다(`detail`, `detail_format`, `detail_html` 제외). 파라미터가 없으면 기본 응답은 변하지 않는다 |
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
 | `POST` | `/support/bundle` | `owner` | 진단 및 지원 번들 생성 |
@@ -103,7 +103,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |
 | `GET` | `/me` | `owner` (`_any`, 접두 아래에서도 받음) | 302 `/settings/account` (쿼리를 넘기지 않음) | 404 |
 | `GET` | `/api/me` | `owner` | 200 계정 정보 | 404 |
-| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale` |
+| `PATCH` | `/api/me` | `owner` | 200 계정 정보. 본문 키는 `display_name`, `profile_public`(0·1), `locale`(`en`·`ko`·`null`·`""`, 쿠키 `claire_locale`을 쓰거나 지움), `entity_language`(`en`·`ko`·`ja`·`zh`·`null`·`""`) | 400 `invalid_request`, 400 `invalid_display_name`, 400 `invalid_profile_public`, 400 `invalid_locale`, 400 `invalid_entity_language` |
 | `POST` | `/api/me/password` | `owner` + 단계 인증 | 200 `{"ok": true, "other_sessions_revoked": n}` | 400 `invalid_request`, 400 `password_rejected`, 401 `reauth_required`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `account_not_active`, 429 `too_many_attempts` |
 
 ### 6.1 단계 인증 응답 규약

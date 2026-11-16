@@ -35,6 +35,7 @@ class Principal:
     credential_id: str | None               # 감사 기록용 식별자. 토큰 값이 아니다
     authenticated_at: float | None = None   # 사람이 마지막으로 인증한 시각 (cookie·x-session)
     locale: LocaleCode | None = None        # accounts.locale. None = automatic negotiation (I18N design Section 5.3)
+    entity_language: str | None = None      # accounts.entity_language. None = the stored main labels (ontology.label_language)
 
     @property
     def is_anonymous(self) -> bool:

@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -805,6 +805,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v22_move_feed_tables(conn)
     _migrate_v23_object_content_digest(conn)
     _migrate_v24_object_quote_policy(conn)
+    _migrate_v26_account_entity_language(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1089,6 +1090,11 @@ def _migrate_v17_federation(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _migrate_v26_account_entity_language(conn: sqlite3.Connection) -> None:
+    """v26: the entity language of an account (ontology.label_language). NULL means the stored main labels. Idempotent, adds one nullable column (A3). ``AccountStore.update_entity_language`` validates the value."""
+    _ensure_column(conn, "accounts", "entity_language", "TEXT")
 
 
 def _migrate_v19_account_locale(conn: sqlite3.Connection) -> None:

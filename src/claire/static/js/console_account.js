@@ -752,6 +752,31 @@
     });
   }
 
+  // The entity language selector (ontology.label_language). The setting changes API responses only, thus the page does not load again.
+  function bindEntityLanguageSelect() {
+    var select = document.querySelector("select[data-settings-entity-language]");
+    if (!select) return;
+    var saved = select.value;
+    select.addEventListener("change", function () {
+      var section = select.closest("section") || select.parentElement;
+      var fail = function () {
+        select.value = saved;
+        show(section, tr("console.js.account.entity_language_error"), true);
+      };
+      select.disabled = true;
+      request("PATCH", "/api/me", { entity_language: select.value || null }).then(function (r) {
+        if (r.ok) {
+          saved = select.value;
+          show(section, tr("console.js.common.saved"), false);
+        } else {
+          fail();
+        }
+      }).catch(fail).then(function () {
+        select.disabled = false;
+      });
+    });
+  }
+
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
     // The console page has no app.js apiUrl/rootUrl. Unprefixed /themes and /tokens resolve to the caller's own account (N3).
@@ -1032,6 +1057,7 @@
       bindIdentities(extra);
       bindToggles();
       bindLocaleSelect();
+      bindEntityLanguageSelect();
     } else if (section === "federation") {
       bindFederation();
     } else if (section === "keys") {

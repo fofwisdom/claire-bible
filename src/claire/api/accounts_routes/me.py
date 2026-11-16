@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ...i18n import InvalidLocale, LocaleCode, get_locale, parse_explicit_locale, resolve_web_locale, set_locale
+from ...ontology.label_language import parse_entity_language
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ..principal import Principal, request_principal
@@ -69,6 +70,8 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         # locale: the stored preference (None = automatic). effective_locale: the result of the resolution chain for this request.
         "locale": account.locale,
         "effective_locale": get_locale(),
+        # entity_language: the language of the entity labels that this account sees (None = the stored main labels).
+        "entity_language": account.entity_language,
     }
 
 
@@ -94,6 +97,14 @@ def update_profile_public(ctx: AccountsContext, account_id: int, profile_public:
     conn = open_db(ctx)
     try:
         accounts_store.AccountStore(conn).update_profile_public(account_id, profile_public)
+    finally:
+        conn.close()
+
+
+def update_entity_language(ctx: AccountsContext, account_id: int, entity_language: str | None) -> None:
+    conn = open_db(ctx)
+    try:
+        accounts_store.AccountStore(conn).update_entity_language(account_id, entity_language)
     finally:
         conn.close()
 
@@ -208,8 +219,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "profile_public", "locale"}):
-            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale"])
+        if not body or not (set(body) <= {"display_name", "profile_public", "locale", "entity_language"}):
+            return json_error(400, "invalid_request", fields=["display_name", "profile_public", "locale", "entity_language"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
@@ -232,6 +243,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 locale = parse_explicit_locale(body["locale"])
             except InvalidLocale:
                 return json_error(400, "invalid_locale")
+        entity_language: str | None = None
+        if "entity_language" in body:
+            try:
+                entity_language = parse_entity_language(body["entity_language"])
+            except ValueError:
+                return json_error(400, "invalid_entity_language")
         if principal.account_id is None:
             raise RuntimeError("/api/me requires an account principal")
         # FD11: with federation on, the change 0 -> 1 requires recent authentication. The change 1 -> 0 never does. The check occurs before all writes.
@@ -243,6 +260,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
             await asyncio.to_thread(update_display_name, ctx, principal.account_id, display_name)
         if profile_public is not None:
             await asyncio.to_thread(update_profile_public, ctx, principal.account_id, profile_public)
+        if "entity_language" in body:
+            await asyncio.to_thread(update_entity_language, ctx, principal.account_id, entity_language)
         if "locale" not in body:
             return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
         # The locale needs no recent authentication (I18N design Section 5.4). The response reports the locale after the change.

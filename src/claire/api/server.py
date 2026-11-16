@@ -60,6 +60,7 @@ from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, namespace_link, request_namespace, theme_base_path
 from .principal import request_principal
+from ..ontology.label_language import display_label
 from .mcp_tools import build_mcp_app
 from .oauth import (
     handle_authorization_server_metadata,
@@ -142,6 +143,12 @@ _LEGACY_PREFS_ACCOUNT_TABS = {
 }
 
 _sitemap_cache: dict[str, tuple[float, str, bytes]] = {}
+
+
+def _entity_language_kwargs(request: Request) -> dict[str, Any]:
+    """Keyword for the query functions that select entity labels: the entity language of the account of the request. Empty when the account has none (and for an anonymous visitor), thus those calls do not change."""
+    language = request_principal(request).entity_language
+    return {"entity_language": language} if language else {}
 
 
 def _resolve_query_func(name: str, default: Any) -> Any:
@@ -1947,7 +1954,7 @@ def create_app(
                     {
                         "id": hit.entity.id,
                         "type": hit.entity.type,
-                        "name": hit.entity.name,
+                        "name": display_label(hit.entity.name, hit.entity.aliases, principal.entity_language),
                         "via": hit.via,
                         "score": hit.score,
                     }
@@ -1966,7 +1973,7 @@ def create_app(
         def _graph() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                g = _graph_json(conn, include_hidden=include_hidden, theme_id=theme.id)
+                g = _graph_json(conn, include_hidden=include_hidden, theme_id=theme.id, **_entity_language_kwargs(request))
                 g["theme_id"] = theme.id
                 g["theme_label"] = theme.label
                 return g
@@ -2852,6 +2859,7 @@ def create_app(
         theme, theme_settings, _ = _get_theme_ctx(request)
         # docs=brief: the source documents have no detail text (the WebUI sends it). The keyword is sent only in this mode, thus the default call does not change.
         detail_kwargs: dict[str, Any] = {"docs_brief": True} if request.query_params.get("docs", "") == "brief" else {}
+        detail_kwargs.update(_entity_language_kwargs(request))
 
         def _load() -> dict[str, Any] | None:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
@@ -2917,6 +2925,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
 
         include_hidden = request_auth_scope(request) != "anonymous"
+        language_kwargs = _entity_language_kwargs(request)
         theme_ref = _extract_theme_ref(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
 
@@ -2924,7 +2933,7 @@ def create_app(
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 # GET은 readonly 사용자에게도 열리므로 열람 상태를 변경하지 않는다.
-                rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id)
+                rep = _document_detail(conn, document_id, include_hidden=include_hidden, theme_id=t_info.id, **language_kwargs)
                 if rep is not None:
                     rep["theme_id"] = t_info.id
                     rep["theme_label"] = t_info.label
@@ -3909,6 +3918,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
         if not new_name:
             raise HTTPException(status_code=400, detail="name required")
+        language_kwargs = _entity_language_kwargs(request)
 
         def _select() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file)
@@ -3923,7 +3933,7 @@ def create_app(
                 from ..store.queries import node_detail as _detail
 
                 _detail_fn = _resolve_query_func("node_detail", _detail)
-                rep = _detail_fn(conn, updated.id, theme_id=theme.id)
+                rep = _detail_fn(conn, updated.id, theme_id=theme.id, **language_kwargs)
                 if rep is not None and theme.id != 0:
                     rep["theme_id"] = theme.id
                     rep["theme_label"] = theme.label

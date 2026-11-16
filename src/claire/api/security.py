@@ -1203,6 +1203,8 @@ class _Credential:
     authenticated_at: float | None = None
     # accounts.locale of the bound account. The environment token credential does not read the database and has None.
     locale: str | None = None
+    # accounts.entity_language of the bound account. None for the environment token credential.
+    entity_language: str | None = None
 
     def principal(self, channel: Literal["cookie", "bearer", "x-session"]) -> Principal:
         return Principal(
@@ -1216,6 +1218,7 @@ class _Credential:
                 self.authenticated_at if channel in ("cookie", "x-session") else None
             ),
             locale=self.locale,  # type: ignore[arg-type]  # AccountStore returns 'en', 'ko' or None
+            entity_language=self.entity_language,
         )
 
 
@@ -1252,6 +1255,7 @@ def _bind_account(
         credential_id=credential_id,
         authenticated_at=authenticated_at,
         locale=account.locale,
+        entity_language=account.entity_language,
     )
 
 

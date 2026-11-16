@@ -26,6 +26,7 @@ def _make_v14_database(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         m.setattr(dbm, "_migrate_v15_accounts", lambda conn: None)
         m.setattr(dbm, "_migrate_v16_themes", lambda conn: None)
         m.setattr(dbm, "_migrate_v19_account_locale", lambda conn: None)
+        m.setattr(dbm, "_migrate_v26_account_entity_language", lambda conn: None)
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)

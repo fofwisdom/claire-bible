@@ -1806,6 +1806,10 @@ paths:
                   description: Interface language of the account. Null or an empty string is automatic negotiation. The response also sets or clears the `claire_locale` cookie.
                   type: ['string', 'null']
                   enum: [en, ko, '', null]
+                entity_language:
+                  description: Language of the entity names that the account sees (decided from the script of a name). Null or an empty string shows the stored main labels. The stored data does not change.
+                  type: ['string', 'null']
+                  enum: [en, ko, ja, zh, '', null]
       responses:
         '200':
           description: Updated account.
@@ -1814,7 +1818,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, and locale), `invalid_display_name`, `invalid_profile_public`, or `invalid_locale`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, profile_public, locale, and entity_language), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, or `invalid_entity_language`.'
           content:
             application/json:
               schema:
@@ -3222,6 +3226,10 @@ components:
           type: string
           enum: [en, ko]
           description: Interface language of this request (account, cookie, Accept-Language, CLAIRE_LANG, then en).
+        entity_language:
+          type: ['string', 'null']
+          enum: [en, ko, ja, zh, null]
+          description: Language of the entity names that the account sees in graph, node, document, and search responses. Null shows the stored main labels.
 
     AccountSummary:
       type: object

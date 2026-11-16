@@ -26,8 +26,9 @@
 | 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
 | 23 | 직전 version (아래 "v23" 절) | `federation_objects.content_digest` |
 | 24 | 직전 version (아래 "v24" 절) | `federation_objects.quote_policy` |
-| 25 | 현재 version (아래 "v25" 절) | `instance_settings`를 `server_settings`로 이름 변경 |
-| 26 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
+| 25 | 직전 version (아래 "v25" 절) | `instance_settings`를 `server_settings`로 이름 변경 |
+| 26 | 현재 version (아래 "v26" 절) | 계정 엔티티 언어(`accounts.entity_language`) |
+| 27 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
 
@@ -230,7 +231,18 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 확인 기준: 용어 정리 (2026-11-16). Claire 설치 하나를 Mastodon 문서처럼 "서버"라고 부른다("인스턴스"를 쓰지 않는다).
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 25`.
+- **[코드] 버전 상수**: v25 도입 당시 `SCHEMA_VERSION`은 25였다(현재 값은 아래 "v26" 절).
 - **[코드] 이관**(`_migrate_v25_server_settings`, 멱등): `instance_settings` 테이블을 행과 함께 `server_settings`로 이름만 바꾼다. 이 단계는 v15 단계보다 먼저 실행한다. v15 단계가 `server_settings`를 만들고 `id_salt`를 읽기 때문이다. 순서가 바뀌면 빈 테이블과 새 `id_salt`가 생겨 공개 ID가 바뀐다.
 - **[코드] 안전 규칙**: 두 테이블이 함께 있으면(예상하지 않는 상태) `server_settings`에 없는 행만 복사한다. 옛 테이블의 모든 행이 같은 값으로 `server_settings`에 있을 때만 옛 테이블을 지운다. 아니면 옛 테이블을 `instance_settings_retired_v25`로 이름만 바꾸어 남기고 경고 로그를 쓴다. 기동은 멈추지 않고 행도 잃지 않는다. 운영자가 할 일은 없다.
 - **[테스트]** `tests/test_schema_v25.py`.
+
+## v26 (계정 엔티티 언어)
+
+확인 기준: 엔티티 언어 구현 (2026-11-16).
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 26`.
+- **[코드] 추가 객체**(`_migrate_v26_account_entity_language`, `_ensure_column`으로 멱등. NULL 허용 열 하나만 더한다, A3):
+  - 열 `accounts.entity_language`: `TEXT`. NULL은 "설정 안 함"이며 응답은 저장된 대표 레이블을 그대로 싣는다. 기존 계정과 새 계정의 값은 NULL이다. 인터페이스 언어(`accounts.locale`)와 관계가 없다.
+- **[코드] 데이터 이관**: 없다. `entities.name`과 `entities.aliases`는 바뀌지 않는다.
+- **[코드] 저장소 함수**: `AccountStore.update_entity_language`. `None`과 `""`는 NULL을 쓰고, `en`·`ko`·`ja`·`zh`(`src/claire/ontology/label_language.py`의 `ENTITY_LANGUAGES`)가 아닌 값은 쓰기 전에 `ValueError("invalid_entity_language")`를 낸다. 열에 CHECK를 두지 않아 언어를 더할 때 이관이 필요 없다.
+- **[테스트]** `tests/test_entity_language.py`.

@@ -21,6 +21,7 @@ from .. import ids
 from ..accounts import username_policy
 from ..accounts.username_policy import UsernameRejected
 from ..i18n.locales import SUPPORTED_LOCALE_SET, LocaleCode
+from ..ontology.label_language import parse_entity_language
 from . import db as dbm
 from .raw import remove_artifact
 
@@ -65,7 +66,7 @@ SESSION_SCOPES: frozenset[str] = frozenset({"owner", "collaborator", "readonly"}
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale"
+    "created_at, activated_at, delete_after, updated_at, locale, entity_language"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -95,6 +96,8 @@ class Account:
     updated_at: float
     # Interface locale ('en' or 'ko'). None means automatic negotiation (I18N design Section 5).
     locale: LocaleCode | None = None
+    # Entity language of the viewer (ontology.label_language). None means the stored main labels.
+    entity_language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +115,7 @@ class CredentialBinding:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale,
+        created_at, activated_at, delete_after, updated_at, locale, entity_language,
     ) = tuple(row)
     return Account(
         id=int(account_id),
@@ -127,6 +130,7 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         delete_after=None if delete_after is None else float(delete_after),
         updated_at=float(updated_at),
         locale=None if locale is None else str(locale),  # type: ignore[arg-type]  # the column CHECK admits 'en' and 'ko' only
+        entity_language=None if entity_language is None else str(entity_language),
     )
 
 
@@ -436,6 +440,17 @@ class AccountStore:
             raise ValueError("invalid_locale")
         when = time.time() if now is None else now
         cur = self.conn.execute("UPDATE accounts SET locale=?, updated_at=? WHERE id=?", (value, when, account_id))
+        if cur.rowcount != 1:
+            self.conn.rollback()
+            raise AccountNotFound(account_id)
+        self.conn.commit()
+        return self.get(account_id)
+
+    def update_entity_language(self, account_id: int, entity_language: str | None, *, now: float | None = None) -> Account:
+        """Set the entity language. ``None`` and ``""`` store NULL (the stored main labels). A value that is not an exact supported code raises ``ValueError("invalid_entity_language")`` and writes nothing (C1)."""
+        value = parse_entity_language(entity_language)
+        when = time.time() if now is None else now
+        cur = self.conn.execute("UPDATE accounts SET entity_language=?, updated_at=? WHERE id=?", (value, when, account_id))
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)

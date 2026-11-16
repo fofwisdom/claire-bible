@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from ..ontology.label_language import display_label, display_names
 from . import db as dbm
 
 
@@ -21,10 +22,12 @@ def _is_web_url(url: str | None) -> bool:
     return u.startswith(("http://", "https://"))
 
 
-def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0) -> dict:
+def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: int | None = 0, entity_language: str | None = None) -> dict:
     """엔티티/관계를 vis.js network 형식(nodes/edges)으로. dangling edge 는 제외.
 
     각 노드에 degree(연결 수)를 실어 UI 가 degree-centrality 임계로 핵심 서브그래프만 표시할 수 있게 한다(전체 N개 렌더 → 큰 그래프의 가시성/스케일 문제 해소). include_hidden=False 면 숨김 문서 전용 엔티티 및 엣지를 제외한다.
+
+    entity_language is the entity language of the viewer (ontology.label_language). It selects the label of each node. None gives the stored main label.
     """
     ents = dbm.all_entities(conn, theme_id=theme_id)
     rels = dbm.all_relations(conn, theme_id=theme_id)
@@ -49,7 +52,7 @@ def graph_json(conn: sqlite3.Connection, include_hidden: bool = True, theme_id: 
         visible_ent_ids.add(e.id)
         visible_nodes.append({
             "id": e.id,
-            "label": e.name,
+            "label": display_label(e.name, e.aliases, entity_language),
             "group": e.type,
             "sources": node_sources,  # 문서 기반 필터용(문서 클릭 → 그 문서 엔티티만)
             # 관찰 첫 줄 — hover 시 마우스 위치 커스텀 팝업이 쓴다.
@@ -144,10 +147,13 @@ def node_detail(
     include_hidden: bool = True,
     theme_id: int | None = None,
     docs_brief: bool = False,
+    entity_language: str | None = None,
 ) -> dict | None:
     """한 노드의 '쓸 수 있는 지식': 전체 observations + 소스 문서(제목·요약·URL) + 타입 있는 이웃. 패널에 그대로 펼친다. 없으면 None.
 
     When docs_brief is true, each source document has only id, title, url, summary, fetched_at, has_detail, source_type, and has_raw_file (GET /node?docs=brief). The default result does not change.
+
+    entity_language is the entity language of the viewer. ``name`` is then the label in that language and ``aliases`` has the other names (the stored main label first). The names of the neighbors follow the same rule.
     """
     ent = dbm.get_entity(conn, entity_id, theme_id=theme_id)
     if ent is None:
@@ -169,7 +175,7 @@ def node_detail(
                     continue
             neighbors.append({
                 "id": other.id,
-                "name": other.name,
+                "name": display_label(other.name, other.aliases, entity_language),
                 "type": other.type,
                 "rel": r.type,
                 "dir": "out" if out else "in",
@@ -206,11 +212,12 @@ def node_detail(
                 "fetched_at": row["fetched_at"],
             })
 
+    shown_name, other_names = display_names(ent.name, ent.aliases, entity_language)
     return {
         "id": ent.id,
-        "name": ent.name,
+        "name": shown_name,
         "type": ent.type,
-        "aliases": ent.aliases,
+        "aliases": other_names,
         "observations": ent.observations,
         "provisional": ent.provisional,
         "neighbors": neighbors,
@@ -223,6 +230,7 @@ def document_detail(
     document_id: str,
     include_hidden: bool = True,
     theme_id: int | None = None,
+    entity_language: str | None = None,
 ) -> dict | None:
     """한 문서(article)의 우측 패널용 상세 — 제목·출처·요약·상세(detail). 없으면 None.
 
@@ -234,16 +242,16 @@ def document_detail(
     if not include_hidden and bool(row["hidden"]):
         return None
     ents = dbm.document_entities(conn, document_id, theme_id=theme_id)
-    nodes = [
-        {
+    nodes = []
+    for e in ents:
+        shown_name, other_names = display_names(e.name, e.aliases or [], entity_language)
+        nodes.append({
             "id": e.id,
-            "label": e.name,
+            "label": shown_name,
             "group": e.type,
             "observations": e.observations or [],
-            "aliases": e.aliases or [],
-        }
-        for e in ents
-    ]
+            "aliases": other_names,
+        })
     raw_meta = None
     try:
         raw_meta = row["meta"]
