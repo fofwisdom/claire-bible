@@ -104,8 +104,8 @@ test.describe('federation client view (FP4-5)', () => {
     // Thread fetch (FP4-6): opening a post asks for its thread. While the task waits, the reader shows a note; then the thread loads again with the fetched post.
     expect(threadFetch.requests[0]).toBe('POST /api/federation/timeline/7/context');
     await expect(page.locator('#client-thread-fetch')).toBeVisible();
-    await expect(page.locator('#client-thread-fetch')).toHaveText('이 스레드의 게시물을 더 가져오는 중…');
-    await expect(page.locator('.synd-thread-title')).toHaveText('스레드 · 게시물 2개');
+    await expect(page.locator('#client-thread-fetch')).toHaveText('이 글타래의 게시물을 더 가져오는 중…');
+    await expect(page.locator('.synd-thread-title')).toHaveText('글타래 · 게시물 2개');
     await expect(page.locator('#client-thread-fetch')).toBeHidden();
     await expect(page.locator('#client-reader .synd-entry')).toHaveCount(2);
     expect(threadFetch.calls).toBe(2);

@@ -202,7 +202,7 @@ const connected=[
   {id:"bsky",kind:"bsky",icon:"🦋",handle:"fow.bsky.social",label:"연결 계정",sub:"AT Protocol · 앱 비밀번호"}];
 let posts=[
   {id:"p1",acct:["native","masto"],av:"🧑‍🔬",who:"Alice",h:"@alice@scholar.social",t:"3분",text:"그래프 기반 지식베이스에서 엔티티 해석을 평가하는 새 벤치마크를 공개했습니다. 데이터셋과 평가 스크립트를 함께 올립니다.",tags:["#KnowledgeGraph","#NLP"],unread:true,url:"https://scholar.social/@alice/1"},
-  {id:"p2",acct:["native"],av:"🦀",who:"Rust 포럼",h:"@rust@forum.example",ann:"Rust 포럼 그룹",av2:"🧑‍💻",who2:"bob",t:"12분",text:"[스레드] async 런타임 선택 기준 정리 — tokio, smol, glommio 비교와 실제 운영 경험을 모읍니다.",tags:["#rust"],unread:true,thread:true,url:"https://forum.example/t/42"},
+  {id:"p2",acct:["native"],av:"🦀",who:"Rust 포럼",h:"@rust@forum.example",ann:"Rust 포럼 그룹",av2:"🧑‍💻",who2:"bob",t:"12분",text:"[글타래] async 런타임 선택 기준 정리 — tokio, smol, glommio 비교와 실제 운영 경험을 모읍니다.",tags:["#rust"],unread:true,thread:true,url:"https://forum.example/t/42"},
   {id:"p3",acct:["native"],av:"👩‍🏫",who:"Dana",h:"@dana@hci.town",t:"40분",text:"@fow@claire.example 지난번 공개하신 「Fedify 사이드카 설계」 글에서 키 보관 방식이 인상적이었습니다. 질문이 하나 있어요.",mention:true,replyToMine:"d2",unread:true,url:"https://hci.town/@dana/7"},
   {id:"p4",acct:["masto"],av:"🧑‍🎨",who:"Eun",h:"@eun@mastodon.social",t:"1시간",text:"오늘 읽은 글: 연합 소셜 웹에서 인용 게시물 동의 모델(FEP-044f)이 어떻게 작동하는지.",tags:["#fediverse"],unread:false,url:"https://mastodon.social/@eun/3"},
   {id:"p5",acct:["bsky"],av:"🧑‍🚀",who:"Kai",h:"kai.bsky.social",t:"2시간",text:"Bluesky 커스텀 피드로 논문 소식만 모아 보는 법.",unread:false,url:"https://bsky.app/profile/kai.bsky.social/post/1"},
@@ -354,7 +354,7 @@ function renderClientDetail(){
     <div class="sandbox-note">본문은 usercontent 오리진의 샌드박스 iframe에서 렌더 (K10) · 미디어는 media 호스트 프록시</div>
     <div class="row"><button class="btn" onclick="openCompose({reply:'${p.id}'})">💬 답글</button><button class="btn" onclick="openCompose({quote:'${p.id}'})">❝ 인용</button><button class="btn ${p.boosted?"on":""}" onclick="tog('${p.id}','boosted','🔁 부스트','Announce')">🔁 부스트</button><button class="btn ${p.fav?"on":""}" onclick="tog('${p.id}','fav','♥ 즐겨찾기','Like')">♥</button><span class="grow"></span><button class="btn pri" style="background:var(--kb)" onclick="openIngest('${p.id}')" ${p.ingested?"disabled":""}>📚 적재…</button></div>
     ${p.ingested?`<div class="box">📚 「${esc(themeName(p.ingested))}」 테마에 적재됨 · <a href="#" onclick="S.view='kb';S.docSel='${p.docId}';render();return false">문서 열기 →</a><div class="muted" style="font-size:11px">게시물은 타임라인에 남고, 보존 기간 삭제에서 제외됩니다.</div></div>`:""}
-    ${th.length||p.thread?`<h4 style="margin:12px 0 4px">스레드 <span class="muted" style="font-weight:400">context 수집 (FEP-7888)</span></h4><div class="thread">${th.map(r=>`<div class="tp ${r.mine?"mine":""}"><div class="meta"><span class="who">${esc(r.who)}</span><span>${esc(r.h)}</span></div>${esc(r.text)}${r.quote?`<div class="quote">❝ ${esc(r.quote)}</div>`:""}</div>`).join("")}</div>`:""}
+    ${th.length||p.thread?`<h4 style="margin:12px 0 4px">글타래 <span class="muted" style="font-weight:400">context 수집 (FEP-7888)</span></h4><div class="thread">${th.map(r=>`<div class="tp ${r.mine?"mine":""}"><div class="meta"><span class="who">${esc(r.who)}</span><span>${esc(r.h)}</span></div>${esc(r.text)}${r.quote?`<div class="quote">❝ ${esc(r.quote)}</div>`:""}</div>`).join("")}</div>`:""}
   </div>`}
 function renderCompose(){
   const c=S.compose, tgt=c.reply||c.quote?posts.find(x=>x.id===(c.reply||c.quote)):null, doc=c.doc?docs.find(d=>d.id===c.doc):null;
