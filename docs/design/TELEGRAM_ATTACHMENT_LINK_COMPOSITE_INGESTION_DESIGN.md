@@ -1,6 +1,6 @@
 # Telegram Composite Ingestion: One File and One Link in One Message
 
-- **Status**: Implemented for a file (PDF, ODT, text) plus a link in the caption. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §11. Not implemented: an attached video or audio file as the primary source (the file reader does not read media); this case belongs to the planned [`TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md`](TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md).
+- **Status**: Implemented for a file (PDF, ODT, text) plus a link in the caption. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §11.
 - **Date**: 2026-10-08 · condensed 2026-11-16
 - **Related**: [`VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md`](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md)
 

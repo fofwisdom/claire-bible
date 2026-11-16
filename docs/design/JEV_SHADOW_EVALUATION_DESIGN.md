@@ -1,6 +1,6 @@
 # TypeSafe AI Jev Shadow Evaluation
 
-- **Status**: Shadow evaluation implemented; design principles only. Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow, filter and hybrid modes), §6.2 (shadow evidence in bundles). The filter and hybrid modes (2026-11-15) were added after this design and give Jev a decision role when an administrator selects them; see "Open point" below. The Go / No-Go evaluation (Section "Evaluation") is a planned process, not code.
+- **Status**: Shadow evaluation implemented; design principles only. Current behavior: [`GRAPH_BUNDLE_REVIEW.md`](../implementation/GRAPH_BUNDLE_REVIEW.md) §5 (Jev client, shadow, filter and hybrid modes), §6.2 (shadow evidence in bundles). The filter and hybrid modes (2026-11-15) were added after this design and give Jev a decision role when an administrator selects them (owner decision, implemented). The Go / No-Go evaluation (Section "Evaluation") is a planned process, not code.
 - **Date**: 2026-10-31 · condensed 2026-11-16
 - **Related**: [GOALS.md](../GOALS.md) track 2 (extraction and linking quality), [GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md](GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md), [DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md](DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md)
 
@@ -41,9 +41,9 @@ Two errors made the earlier picture wrong:
 - **Retry failed calls**: adds latency to ingest; the gaps are visible anyway.
 - **Separate call for each candidate**: more requests; the API evaluates many questions on one shared state.
 
-## Open point
+## Decision role (owner, 2026-11-16)
 
-The filter and hybrid modes let Jev skip judge calls and, in hybrid mode, merge without the judge. The default stays shadow. This design does not say whether these modes may be used before the evaluation gate above is passed. The owner must confirm the rule.
+The filter and hybrid modes are implemented and an administrator may select them. They let Jev skip judge calls and, in hybrid mode, merge without the judge. The default stays shadow. The evaluation above is a tool for the administrator, not a gate in the code.
 
 ## Limits for later changes
 

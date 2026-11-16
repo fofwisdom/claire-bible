@@ -85,8 +85,6 @@ Limits:
 
 | 항목 | 결정 (2026-11-13) |
 | :--- | :--- |
-| Jev `filter`·`hybrid` 모드 (2026-11-15 추가) | 결정 대기. 두 모드는 판정을 바꾼다. shadow 평가 설계의 평가 게이트(FPR 0, Precision ≥ 98%, p95 < 500ms)를 먼저 통과해야 하는지 정하지 않았다. 콘솔은 `filter`를 권장으로 표시한다([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) §5). |
-| 프레젠테이션 뷰어 조작부 | 결정 대기. 설정 메뉴(테마·전환·장 번호·자동 넘김), 휴대폰 하단 도크, 회전 안내는 구현된 HUD에 없다([`PRESENTATION.md`](PRESENTATION.md) §6). |
 | HD8 태블릿 폭(721–1100px) | 작업하지 않았다. 문맥 패널은 이 폭에서 서랍이다. |
 | `documents`의 `(theme_id, fetched_at DESC, id DESC)` 인덱스 | 넣지 않는다. 여러 사용자의 목록을 함께 보고 쓰는 프로젝트의 상세 설계에서 스키마 변경과 함께 정한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). 지금은 요청마다 일치 행을 정렬한다. |
 
@@ -129,7 +127,6 @@ Limits:
 4. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
 5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `telegram_bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
 6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
-7. 수집기는 기본적으로 저장 원문을 `raw_char_budget`에서 자른다. 자르지 않는 것은 `--full-content`를 줄 때뿐이다.
 
 ### 4.2 추출과 1홉 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`ONEHOP_MERGE.md`](ONEHOP_MERGE.md))
 

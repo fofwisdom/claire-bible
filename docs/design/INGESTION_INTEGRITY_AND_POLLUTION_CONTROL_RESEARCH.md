@@ -1,6 +1,6 @@
 # 원문 보존·서비스 보호·오염 통제의 상충과 지식 무결성 거버넌스 연구
 
-- **Status**: Research. Partly implemented. Implemented (stage 2 of §4): table-preserving cuts, the record of a cut in the document metadata (`raw_truncated`, `orig_chars`, `raw_chars`), the cut mark in the web UI, the rule that the detail text skips a cut section (principle 4), and the rejection of DTP author artifacts in PDF metadata (principle 5). Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §6 to §8 (cuts, budgets, tables, PDF metadata) and [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.2 (detail rule). Not implemented: principle 1 as a default (fetchers still cut the stored text at the raw character budget unless the request asks for the full content) and the research tasks of §5.
+- **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §6 to §8 (cuts, budgets, tables, PDF metadata) and [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.2 (detail rule). Principle 1 is implemented as a server setting: the server administrator sets the raw character budget, and a request can ask for the full content.
 - **Date**: 2026-08-28 · status corrected 2026-11-16
 - **Related**: [GOALS.md](../GOALS.md) track 1 and track 2, [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
@@ -85,48 +85,13 @@ Claire Bible 시스템은 웹, 파일, API, 메신저 등 다양한 채널을 �
 [2단계: 구조 예외 및 관측성 확보 (구현됨)]
   표 보존 절단, 절단 메타데이터 기록, UI 절단 표시
   → current behavior: implementation/INGESTION.md §7, §8
-
-[3단계: 차세대 지식 무결성 거버넌스 (연구 과제, 미구현)]
-  ├── 도메인 인지형 스토리지 계층 디커플링 (Raw Storage vs Processing View)
-  ├── 구문 인지형 계층적 동적 청킹 (Syntax-Aware Chunking)
-  └── 메타인지적 품질 점수 및 능동적 적재 승인 체계
 ```
 
 ---
 
-## 5. 차세대 아키텍처 연구 과제 (Research & Roadmap)
+## 5. 핵심 설계 원칙 요약
 
-### 과제 1: 도메인 인지형 스토리지 계층 디커플링 (Domain-Aware Tiered Architecture)
-* **스토리지(Layer 1/2)와 프로세싱(LLM Tier)의 완전 분리**:
-  - **Layer 1/2 (Raw Archive)**: `doc.raw_text` 및 `artifacts/*.txt.gz`는 원본 텍스트 전체를 **글자 수 제한 없이 100% 무손실 압축 저장**한다.
-  - **LLM Tier (Extraction View)**: LLM 프롬프트 주입 단계에서만 모델 및 도메인에 맞는 뷰(View)를 동적으로 생성한다.
-* **`source_type` 세분화 및 도메인별 차등 정책**:
-  - `law`(법령/규정), `paper`(논문), `spec`(기술명세), `scripture`(경전/역본), `web`(일반웹), `note`(메모).
-  - 예: `source_type == "law"`인 경우 Gemini의 대용량 컨텍스트 윈도우를 활용하여 100,000자까지 프롬프트 예산을 탄력 배정.
-
----
-
-### 과제 2: 구문 인지형 계층적 동적 청킹 (Syntax-Aware Hierarchical Chunking)
-* **단순 글자 수 하드 컷(Hard-Cut) 탈피**:
-  - **법령 문서**: 장(Chapter) / 절(Section) / 조(Article) 경계 기준 분할.
-  - **기술/마크다운 문서**: H1/H2 헤더 및 코드 블록 경계 기준 분할.
-  - **테이블**: 기존 [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)의 무손실 보존 메커니즘 유지.
-* **다중 청크 맵-리듀스 추출 (Map-Reduce Extraction)**:
-  - 초장문 문서는 섹션별로 부분 엔티티를 추출한 뒤 최상위에서 통합 해소(Resolution)하는 파이프라인 연구.
-
----
-
-### 과제 3: 메타인지적 품질 점수 및 능동적 거버넌스 (Active Quality Governance)
-* **손실률 및 정보 밀도 지표 산출**: $$\text{Truncation Ratio} = 1 - \frac{\text{raw\_chars}}{\text{orig\_chars}}$$
-  - 절단 손실률이 30%를 초과하는 중요 문서가 감지되면 시스템이 경고를 발행하고 운영자에게 예산 확대 재추출(`reextract --budget=extended`)을 추천.
-* **초점(Focus) 기반 가독 본문 가변 스케일링**:
-  - 사용자가 특정 초점(`focus`)을 명시한 경우, 기존 "A4 1~2장 요약" 분량 제약을 넘어 해당 초점에 맞춰 장문 구조를 보존하며 상세 해설을 생성하도록 프롬프트 엔진 확장.
-
----
-
-## 6. 핵심 설계 원칙 요약
-
-1. **무손실 원천 보존 (Lossless Inbound First)**: 인입된 원본은 어떤 경우에도 훼손하거나 임의로 잘라버리지 않고 영구 압축 보관한다.
+1. **원천 보존은 서버 관리자가 정한다 (Lossless Inbound by Server Choice)**: 저장 원문의 상한은 서버 관리자가 설정으로 정하고, 요청은 전체 원문 보존을 요구할 수 있다. 자른 경우에는 원칙 2에 따라 기록한다.
 2. **투명한 제약 관측성 (Observable Constraints)**: 처리 과정에서 리소스 제한으로 인해 절단이나 압축이 발생한 경우, 그 손실 내역(원문 길이, 적재 길이, 절단 여부)을 투명하게 메타데이터로 기록하고 UI에 노출한다.
 3. **정적 단일 정책 배제 (Adaptive Governance over Static Rules)**: 도메인, 스키마, 사용자 초점(`focus`)의 맥락을 고려하는 적응형 파이프라인을 구축한다.
 4. **절단 섹션 상세 작성 배제 (Exclusion of Truncated Sections in Detail Rendering)**: 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션(미완성 문단, 잘린 소제목·조항 등)은 상세를 작성하지 않는다. 불완전한 텍스트 파편에 기반한 환각(Hallucination)과 불완전한 지식 생성(Partial Corruption)을 원천 차단하고 온전히 보존된 섹션까지만 상세 본문으로 구성한다.

@@ -48,5 +48,4 @@ A user can show an ingested document as a technical talk: slides for the audienc
 
 ## Limits for Later Changes
 
-- The 2026-10-01 viewer design had more controls than the implemented toolbar: a settings menu (theme, transition, slide numbers, automatic advance), a bottom dock and a rotate hint on phones, and a gesture guide. They are not implemented, and the owner has not decided if they are still wanted.
 - A new route that composes or compiles must check the per-theme switch and the tier feature.

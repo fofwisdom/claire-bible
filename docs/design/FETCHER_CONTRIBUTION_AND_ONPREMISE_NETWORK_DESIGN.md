@@ -1,6 +1,6 @@
 # Fetcher Contribution Architecture and Private Network Policy
 
-- **Status**: Partly implemented. Implemented: the fetcher and web adapter contracts, the registry with built-in fetchers, the single classifier, and the private network guard ([`INGESTION.md`](../implementation/INGESTION.md) §2, §4). Planned, not implemented: loading local drop-in fetchers and installed-package fetchers at server start (the loader functions exist, but no runtime code calls them).
+- **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §2, §4 (the fetcher and web adapter contracts, the registry with built-in fetchers, the single classifier, and the private network guard).
 - **Date**: 2026-09-15 · condensed 2026-11-16
 - **Related**: [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md)
 
@@ -22,10 +22,6 @@ Before this design, URL classification was duplicated in the router and in the T
 5. **Some networks are never allowed**, whatever the settings: cloud metadata (link-local), multicast, broadcast, and unspecified addresses. Reason: these give credentials or have no fetch purpose.
 6. **Check every resolved address of a host**, not only the first. Reason: one host name can resolve to a public and a private address.
 7. **Limit size and time of responses.** Reason: one bad source must not use all memory or block a worker.
-
-## Planned, not implemented
-
-- **Three discovery tiers.** Tier 1 built-in fetchers (implemented). Tier 2 local drop-in files in an ignored `plugins/fetchers/` folder, loaded at start. Tier 3 installed packages that declare the entry point group `claire.fetchers`. Reason: forks add private fetchers with no change to tracked files. Open item: decide where the server calls the loaders, and what happens when a plugin fails to import (the server must not stop at start).
 
 ## Rejected alternatives
 

@@ -1,6 +1,6 @@
 # PDF Text Budget and Adaptive Reasoning Effort
 
-- **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §5, §6, §7. Planned parser work (layout order, vision tier): [`PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md`](PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md).
+- **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §5, §6, §7.
 - **Date**: 2026-08-29 · condensed 2026-11-16
 - **Related**: [`INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md`](INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md), [`TABLE_INGESTION_DESIGN.md`](TABLE_INGESTION_DESIGN.md)
 

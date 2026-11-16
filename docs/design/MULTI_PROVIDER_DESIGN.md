@@ -1,6 +1,6 @@
 # Multiple LLM Providers
 
-- **Status**: Implemented. Design principles only. Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §2 to §5A. Not implemented: the `openai` LLM provider (configuration exists, no provider class; see `PROVIDERS.md` §7). The TypeSafe Jev engine is now a shadow evaluator: see [`JEV_SHADOW_EVALUATION_DESIGN.md`](JEV_SHADOW_EVALUATION_DESIGN.md).
+- **Status**: Implemented. Design principles only. Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §2 to §5A. The TypeSafe Jev engine is now a shadow evaluator: see [`JEV_SHADOW_EVALUATION_DESIGN.md`](JEV_SHADOW_EVALUATION_DESIGN.md).
 - **Date**: 2026-08-19 · condensed 2026-11-16
 
 ## Goal / problem
