@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Planned, not implemented (draft, Rev. 6). Owner decisions CT1 to CT36 are locked (2026-11-16). Section 9.10 is a proposal. Section 15 has the open questions.
+- **Status**: Planned, not implemented (draft, Rev. 7). Owner decisions CT1 to CT36 are locked (2026-11-16). Section 15 has the open questions.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -11,6 +11,7 @@
   - Rev. 4 (2026-11-16): `collaborator` is again a role in a shared knowledge base, given by moderators (CT17); the role model with capabilities, credential scopes, external IdP rules, and step-up authentication (Section 6). Old API names are closed with no fallback; only the path or a required parameter selects a knowledge base (CT23). Answers to OQ21 to OQ23 (CT18, CT26, CT27). The ingest focus is sealed (CT28). Review of a contributor proposal: automatic contribution and partnerships (Sections 9.9 and 9.10), links between duplicates later (Section 13.6).
   - Rev. 5 (2026-11-16): answers to OQ24 to OQ28 (CT29 to CT34). Automatic contribution is a server switch in the federation menu (CT31). Shared knowledge bases aim at partnerships between servers; the new design [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) starts idea I2 (CT32). Single mode sends `/` to `/@{username}/` of the admin (CT33, replaces CT22).
   - Rev. 6 (2026-11-16): terms as in Mastodon (CT36): **federation** is the open exchange between servers, and **relay** is the server-level subscription; the term "partnership" is retired. Themes share ingested documents between servers without an agreement (CT35). The agreement between two accounts is renamed mutual collaboration (Section 9.10). The exchange between servers is designed in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md).
+  - Rev. 7 (2026-11-16): the mutual collaboration (Section 9.10 and its parts in other sections, OQ29) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner).
 - **Related Documents**:
   - [`THEMES.md`](../implementation/THEMES.md) (current implementation of the partition)
   - [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (principal, credentials, OIDC, step-up authentication)
@@ -102,7 +103,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT33 | **Single mode and federation default.** When the ActivityPub functions are complete, the federation of shared knowledge is on by default, also in single mode. Thus the admin sets the USERNAME (the handle) at the first setup in each mode. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin (federation design §15). |
 | CT34 | **Old `collaborator` tokens (OQ28).** API tokens with the scope `collaborator` become `readonly`. The console lists them once. |
 | CT35 | **Themes across servers without an agreement.** Themes share ingested documents between servers through federation, with no agreement between admins. Shared knowledge bases of other servers join local themes. The reviewers of each shared knowledge base decide each contribution and curation across servers. The controls of the admin are one-sided: switches and domain blocks (federation design §6, §8). |
-| CT36 | **Terms.** As in Mastodon: **federation** is the open exchange between servers, and a **relay** is a server-level subscription for announcements. The term "partnership" is retired: the bilateral agreement between servers is removed, and the agreement between two accounts (Section 9.10) is renamed **mutual collaboration** (federation design §3). |
+| CT36 | **Terms.** As in Mastodon: **federation** is the open exchange between servers, and a **relay** is a server-level subscription for announcements. The term "partnership" is retired: the bilateral agreement between servers is removed, and the agreement between two accounts was renamed **mutual collaboration** (federation design §3). The relay and the mutual collaboration are ideas outside this design ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), Rev. 7). |
 
 CT4, CT5, and CT13 replace RD29 rule 1 (collaborator ingest after an invitation) of `DATA_STORE_LAYOUT_DESIGN.md` §5.
 
@@ -128,9 +129,8 @@ Because the production server has only the admin account, the CT6 migration make
 | Submission | One request "contribute these documents". Each document becomes a submission item with a theme and its target knowledge bases. |
 | Automatic contribution | Contributions that a rule of the account makes without a request (Section 9.9). |
 | Federation | The exchange of shared knowledge between servers without an agreement between admins (CT35, CT36). |
-| Relay | A service actor that sends public announcements of shared knowledge bases to all its subscriber servers (CT36). |
+| Relay | A service actor that sends public announcements of shared knowledge bases to all its subscriber servers (CT36). An idea outside this design. |
 | Known server | A Claire server that this server exchanges shared knowledge with (federation design §6.2). |
-| Mutual collaboration | An agreement of two accounts: each becomes a collaborator in the new shared knowledge bases of the other (Section 9.10). |
 | Document match | The theme or the knowledge base that fits a document best (Section 8.5). |
 | Fiction-like document | A document of a personal knowledge base whose document match is a theme of the type `fictional`. |
 | Reputation | The exchange level of an account: `good`, `limited`, or `low` (Section 8.6). |
@@ -269,22 +269,22 @@ Route review (unit CT-2):
 | `/document/raw` | `write`, with the read rule of the knowledge base |
 | `/api/federation/publish`, `/api/federation/retract`, `/api/syndication/dispatch` | `write`. **[unverified]** Unit CT-2 checks that each takes only documents of the personal knowledge base of the account. |
 | New: `POST /kb/{number}/contributions`, `POST /submissions`, withdraw | `write` |
-| New: membership, review, curation, maintenance, people, settings, remove, roles, automatic rules, mutual collaborations | `owner` |
+| New: membership, review, curation, maintenance, people, settings, remove, roles, automatic rules | `owner` |
 
 The integration removes: the column `is_collaborator_accessible`; the collaborator branches in `can_view_theme`, `_theme_accessible`, `list_themes(collaborator=...)`, `do_ingest`, and the MCP tools; the CLI options `--collaborator` and `--no-collaborator`; the body fields `collaborator_accessible` and `collaborator`; the console texts about collaborator access of each theme; the Telegram command `/webco` (CT27). The text of the token pages uses `write` for the middle scope.
 
 ### 6.7 External IdP
 
 1. An IdP login gives an account and nothing more. The current rules stay: identity by `(iss, sub)` only, no merge by email, sign-up only with an invitation.
-2. No IdP claim (groups, roles, email domain, tenant) gives or changes a server role, a knowledge base role, a credential scope, a mutual collaboration, or an automatic rule. Reason: the IdP administrator is outside the trust boundary of the server. A group change in the IdP would give moderation rights without a decision in Claire.
+2. No IdP claim (groups, roles, email domain, tenant) gives or changes a server role, a knowledge base role, a credential scope, or an automatic rule. Reason: the IdP administrator is outside the trust boundary of the server. A group change in the IdP would give moderation rights without a decision in Claire.
 3. A membership linked to an IdP group (for example a Keycloak group as the members of a shared knowledge base) is not in v1. A later design can allow it only for the role `member`, only after a moderator turns it on for one knowledge base, and with a check at each sign-in.
-4. A back-channel logout ends the sessions of the account and the tokens issued in those sessions. Roles, memberships, rules, and mutual collaborations stay.
-5. A suspended account keeps its roles in storage, but they give no rights. Its automatic rule pauses. Its mutual collaborations pause. A shared knowledge base whose only moderator is suspended appears in `/admin/kb` as "without a moderator".
+4. A back-channel logout ends the sessions of the account and the tokens issued in those sessions. Roles, memberships, and rules stay.
+5. A suspended account keeps its roles in storage, but they give no rights. Its automatic rule pauses. A shared knowledge base whose only moderator is suspended appears in `/admin/kb` as "without a moderator".
 6. An account with only an IdP login can have each role.
 
 ### 6.8 Step-Up Authentication and Audit
 
-1. These actions need `require_recent_auth` (a recent sign-in in a cookie session): give or remove `collaborator` or `moderator`; delete a shared knowledge base; request or accept a mutual collaboration; turn on an automatic rule or make it wider. Thus a bearer credential never changes a role or a standing rule.
+1. These actions need `require_recent_auth` (a recent sign-in in a cookie session): give or remove `collaborator` or `moderator`; delete a shared knowledge base; turn on an automatic rule or make it wider. Thus a bearer credential never changes a role or a standing rule.
 2. Ban, remove, and the other review actions do not need step-up. Moderators must act fast.
 3. Each role change and each review action writes a row in `kb_moderation_log`. An admin action on moderators also writes `admin_audit`.
 
@@ -394,7 +394,7 @@ The reputation of an account controls how far its personal knowledge base and it
 | Pending contributions for each shared knowledge base | 100 | 20 | 5 |
 | Order in the review queue | First | After `good` | Last |
 | Direct contribution as a member | Visible after the merge job | Visible after the merge job | Waits for approval |
-| Contribution as a collaborator or moderator, and contribution under a mutual collaboration | No approval | No approval | Waits for approval |
+| Contribution as a collaborator or moderator | No approval | No approval | Waits for approval |
 | Automatic contribution (Section 9.9) | Yes | Yes, 10 documents for each run and target | Paused |
 
 The account sees its level, its signals, and each fiction-like document that counts, with its matched theme, in `/settings/kb`. Each such document has the action "Contribute to this theme". Reviewers see the level and the approval rate of the contributor on the review page. The admin sees all levels. Other accounts and anonymous requests do not see a reputation.
@@ -499,25 +499,14 @@ Review of a contributor proposal (2026-11-16): "When a space about a subject app
 
 1. **Rule.** An account has at most one automatic rule (`kb_auto_rules`). The rule selects the targets:
    - `memberships`: the shared knowledge bases where the account is an active member, collaborator, or moderator;
-   - `mutual`: the shared knowledge bases that a mutual collaborator founded (Section 9.10);
    - `themes`: the shared knowledge bases of the themes that the account follows for this rule.
 2. **Candidates.** For each target K: the visible documents of the personal knowledge base with a score with K (Section 8.5: the signature of K, else the theme signature, else the seed entities) at least `auto_match_threshold`. Not candidates: documents with the flag "never contribute"; documents from pasted text; documents from uploaded files unless the rule includes them; documents with a contribution in K in any state (a rejected or removed document never goes again to the same K); documents with a tombstone in K.
 3. **Path.** A candidate goes to K as a direct contribution when the account is a member (Section 9.1), with no approval when the account is a collaborator or a moderator, and as a pending contribution in all other cases. The origin is `auto`. The reputation rules apply (Section 8.6).
-4. **When.** After the extraction of a new document; when a new shared knowledge base gets a signature or seed entities; when a mutual collaboration starts; when the rule is turned on; and after each judgement run. Thus "a short wait" after a new space appears.
+4. **When.** After the extraction of a new document; when a new shared knowledge base gets a signature or seed entities; when the rule is turned on; and after each judgement run. Thus "a short wait" after a new space appears.
 5. **Limits.** At most 50 documents for each run and target (admin setting), and the pending limit of the reputation.
 6. **Safety.** Only an `owner` session with a recent sign-in turns the rule on or makes it wider (Section 6.8). Before it turns on, the console shows a dry run: the documents that would go now to each target (PRINCIPLES D2). The account can pause the rule at once and can withdraw each pending contribution. `/settings/kb` lists each automatic contribution.
 7. **AI of the account.** An account can also use its own AI agent for the selection: the MCP tool `kb_candidates` (read: candidates for a knowledge base or a theme, with scores) and the tool `kb_submit` (scope `write`, Section 6.6). The server itself makes no LLM call for the selection.
 8. A rejection of an automatic contribution counts in the approval rate as each other rejection. A rule that sends documents that do not fit lowers the reputation of its account.
-
-### 9.10 Mutual Collaboration **[proposal, OQ29]**
-
-Review of the same proposal: "When friends agree, a new space gets their documents automatically after a short wait." This section is an agreement between two accounts (Rev. 5 called it a partnership; CT36). It works between accounts of one server, and between accounts of different servers through federation with grants (federation design §12.2).
-
-1. Account A requests a mutual collaboration with account B; B accepts. Both actions need a recent sign-in (Section 6.8). Either account ends it at any time.
-2. Effect: when A founds a shared knowledge base, B becomes a collaborator in it at once (`decided_by_account_id` = A, log action `grant_collaborator`), and the reverse. When the rule of B has `mutual`, the documents of B that fit go to the new knowledge base without approval (Section 9.9).
-3. The end of a mutual collaboration does not change roles that it gave; moderators change them. New knowledge bases are not affected after the end.
-4. A mutual collaboration never gives `people`, `settings`, `remove`, or `moderator`.
-5. A suspended or purged account loses its mutual collaborations (suspension: paused; purge: deleted).
 
 ---
 
@@ -527,7 +516,7 @@ Review of the same proposal: "When friends agree, a new space gets their documen
 
 | Action | Who | Effect |
 | :--- | :--- | :--- |
-| Create (`POST /kb`) | Each active account (CT3), no limit | The founder selects the knowledge type (required) and can give up to 20 seed entities. State `active`, join policy `approval`. The founder becomes the first moderator (CT8). Mutual collaborators of the founder become collaborators (Section 9.10). |
+| Create (`POST /kb`) | Each active account (CT3), no limit | The founder selects the knowledge type (required) and can give up to 20 seed entities. State `active`, join policy `approval`. The founder becomes the first moderator (CT8). |
 | Change settings (`PATCH /kb/{number}`) | Capability `settings` | Label, description, icon, seed entities, join policy, knowledge type |
 | Archive, unarchive | Capability `settings` | `archived`: read-only; no join, no contribution, no merge job; contributions to a theme and automatic contributions do not target it |
 | Delete (`DELETE /kb/{number}`) | Admin only, step-up | Same as `delete_theme(purge=True)` today; dry-run first (PRINCIPLES D2, D3) |
@@ -550,10 +539,10 @@ A shared knowledge base without an active moderator has the admin as its only mo
 
 | Page | Who | Content |
 | :--- | :--- | :--- |
-| `/settings/kb` | Account | Its memberships and roles, the shared knowledge bases it founded, its submissions with the theme and the state of each target, its automatic rule with the dry run and the list of automatic contributions, its mutual collaborations, its reputation with the signals and the fiction-like documents (Section 8.6), the button to make a shared knowledge base |
+| `/settings/kb` | Account | Its memberships and roles, the shared knowledge bases it founded, its submissions with the theme and the state of each target, its automatic rule with the dry run and the list of automatic contributions, its reputation with the signals and the fiction-like documents (Section 8.6), the button to make a shared knowledge base |
 | `/settings/kb/{number}` | Reviewer | Collaborator: the review queue with the help of Section 9.3, curation, maintenance. Moderator: also members and roles, join requests, remove, the moderation log, settings. |
 | `/admin/kb` | Admin | All shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs |
-| `/admin/federation` | Admin | The switch `kb_auto_contribution` (CT31), the known servers, the domain blocks, and the relays (federation design §6.5) |
+| `/admin/federation` | Admin | The switch `kb_auto_contribution` (CT31), the known servers and the domain blocks (federation design §6.5) |
 | `/admin/themes` | Admin | Themes, the last judgement run, `theme_match_threshold`, `document_match_threshold`, `seed_match_threshold`, `auto_match_threshold`, the reputation numbers and limits, the adjustments of Section 8.3, the agreement of decisions (Section 9.3) |
 
 New UI text uses keys of the English and Korean catalogs from the start.
@@ -668,7 +657,6 @@ CREATE TABLE IF NOT EXISTS kb_auto_rules (
     account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
     state TEXT NOT NULL CHECK (state IN ('active', 'paused')),
     to_memberships INTEGER NOT NULL DEFAULT 0,
-    to_mutual INTEGER NOT NULL DEFAULT 0,
     include_uploads INTEGER NOT NULL DEFAULT 0,
     activated_at REAL,
     updated_at REAL NOT NULL
@@ -684,17 +672,6 @@ CREATE TABLE IF NOT EXISTS kb_contribution_blocks (
     document_id TEXT PRIMARY KEY,               -- document of a personal knowledge base: "never contribute"
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     created_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS kb_mutual_collaborations (
-    account_low INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    account_high INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    requested_by_account_id INTEGER NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pending', 'active')),
-    created_at REAL NOT NULL,
-    decided_at REAL,
-    PRIMARY KEY (account_low, account_high),
-    CHECK (account_low < account_high)
 );
 
 CREATE TABLE IF NOT EXISTS kb_moderation_log (
@@ -771,7 +748,7 @@ CREATE TABLE IF NOT EXISTS kb_document_matches (
 CREATE INDEX IF NOT EXISTS idx_kb_document_matches_kb ON kb_document_matches(kb_id, knowledge_type);
 ```
 
-Store boundary (RD27 R2): only `store/kb_collab.py` reads and writes the collaboration tables, the automatic rules, the mutual collaborations, and `account_reputation`; only `store/themes.py` reads and writes the theme tables. The judgement reads entities through store functions of the knowledge tables. The reputation and the automatic contribution read document matches through store functions of `store/themes.py`.
+Store boundary (RD27 R2): only `store/kb_collab.py` reads and writes the collaboration tables, the automatic rules, and `account_reputation`; only `store/themes.py` reads and writes the theme tables. The judgement reads entities through store functions of the knowledge tables. The reputation and the automatic contribution read document matches through store functions of `store/themes.py`.
 
 ### 11.3 Credential Stores
 
@@ -838,7 +815,7 @@ All versions complete on their own at startup and keep all data (operator rule).
 | Contributions, curations, and fork copies with the credit of the account | Kept; `contributor_account_id = NULL` (CT7, CT19). This includes copies made while the personal knowledge base was public. |
 | Revisions | Copies with a root in the deleted personal knowledge base keep their last version |
 | Pending contributions of the account | Deleted; they are not yet content of a knowledge base |
-| Automatic rule, contribution blocks, mutual collaborations | Deleted |
+| Automatic rule, contribution blocks | Deleted |
 | `created_by_account_id`, `curator_account_id`, `approved_by_account_id`, `kb_moderation_log.actor_account_id` | Set to NULL ("deleted account") |
 | `account_reputation`, `kb_document_matches` of the account | Deleted |
 
@@ -898,10 +875,9 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 | CS9 | A token of a tool changes roles or moderates | The scope `write` has no capability of a person (Section 6.6). Role changes need step-up, which a bearer credential cannot pass (Section 6.8). |
 | CS10 | Reviewers lower the reputation of an account on purpose | The decisions of one shared knowledge base count for at most one third; only reason codes about the content count; the admin sees the agreement of decisions (Section 9.3). |
 | CS11 | A wrong document match lowers a reputation | The account sees each counted document and its matched theme. The reputation never stops reading, ingest, or publication. The admin changes `document_match_threshold`. |
-| CS12 | An IdP claim gives rights | No claim gives a role, a scope, a mutual collaboration, or a rule (Section 6.7). |
+| CS12 | An IdP claim gives rights | No claim gives a role, a scope, or a rule (Section 6.7). |
 | CS13 | A collaborator sends bad content without review | Moderators remove the role at once; each contribution of a collaborator is in the log; the reputation `low` sends its contributions to review. |
 | CS14 | An automatic rule publishes private notes | Pasted text never goes; uploaded files only when the rule includes them; the flag "never contribute"; dry run and step-up before the rule turns on; pause at once (Section 9.9). |
-| CS15 | A mutual collaborator misuses the collaborator role | Either account ends the mutual collaboration at once; moderators remove the role; a mutual collaboration never gives `people`, `settings`, or `remove` (Section 9.10). |
 | CS16 | A request goes to a wrong knowledge base by a default | Only the path or a required parameter selects a knowledge base (Section 5.2). Tests call each route without its reference and expect 400 or 404. |
 | CS17 | The focus injects instructions into the extraction | The focus is sealed (Section 13.7). |
 
@@ -911,11 +887,9 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 
 Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34).
 
-The open questions of the federation between servers (PQ2 to PQ9, PQ12, PQ13) are in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §16.
+The open questions of the federation between servers (PQ2 to PQ9, PQ13) are in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §16.
 
-| ID | Question | Proposal |
-| :--- | :--- | :--- |
-| OQ29 | Keep the mutual collaboration between two accounts (Section 9.10)? | Yes. It works on one server and, with grants, between servers (federation design §12.2). |
+No question of this design is open. OQ29 (mutual collaboration) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) in Rev. 7.
 
 ---
 
@@ -936,4 +910,4 @@ The open questions of the federation between servers (PQ2 to PQ9, PQ12, PQ13) ar
 | CT-10 | Implementation documents: `THEMES.md` (becomes the knowledge base document), `SCHEMA_VERSIONING.md`, `ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `openapi.yaml`, `COMMANDS.md`, `GLOSSARY.md`, `ENVIRONMENT_VARIABLES.md` | The documents describe the code. This design document is removed after the implementation. |
 | CT-11 | Reputation (Section 8.6) and campaign message (Section 8.7) | Fiction-like documents raise the fiction share; the level changes the theme attachment, the pending limit, the queue order, the direct contribution, and the automatic contribution; an approved contribution to a `fictional` shared knowledge base removes the document from the count; the standing message and the notice show on each surface |
 | CT-12 | Seal of the ingest focus (Section 13.7). Independent of the other units; it can come first. | No entry point gives a focus to the pipeline; stored focus values stay and are not read; the Telegram URL with a separator is ingested without the focus; the UI has no focus control |
-| CT-13 | Automatic contribution with its server switch (Section 9.9), and mutual collaboration (Section 9.10) after OQ29 | E2E test: the admin turns on `kb_auto_contribution`; A and B make a mutual collaboration; B turns on its rule with `mutual` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |
+| CT-13 | Automatic contribution with its server switch (Section 9.9) | E2E test: the admin turns on `kb_auto_contribution`; B follows a theme for its rule and turns the rule on after the dry run; A makes a shared knowledge base with seed entities in that theme; after the run, the matching documents of B are pending in it; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |

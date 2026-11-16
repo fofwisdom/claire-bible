@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Planned, not implemented (draft, Rev. 4). The owner direction of Section 2 is locked (CT31, CT33, CT35, CT36 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 16 has the open questions; the owner answers them later.
+- **Status**: Planned, not implemented (draft, Rev. 5). The owner direction of Section 2 is locked (CT31, CT33, CT35, CT36 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 16 has the open questions; the owner answers them later.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -9,6 +9,7 @@
   - Rev. 2 (2026-11-16): review of NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, ForgeFed and Forgejo, and Lemmy; subscription and partnership as two levels with scopes.
   - Rev. 3 (2026-11-16): interoperation review for each kind of software; Fedify baseline; review of the need for a partnership.
   - Rev. 4 (2026-11-16): the terms follow Mastodon (Section 3): **federation** is the open exchange without an agreement, and **relay** is the server-level subscription. The term "partnership" is retired, with its bilateral agreement and its scopes. Themes share ingested documents between servers through federation (owner). The file is renamed.
+  - Rev. 5 (2026-11-16): the relay, the mutual collaboration, and the history of the old partnership moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only.
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -34,6 +35,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | :--- | :--- |
 | Aim | Shared knowledge bases and themes share ingested documents between servers. Themes do this without a partnership (owner, Rev. 4). |
 | Terms | The open exchange is **federation**; the earlier meaning of "partnership" is **relay**, as in Mastodon. One set of terms in all documents (owner, Rev. 4; Section 3). |
+| Scope | The ideas from the old partnership (relay, mutual collaboration) are out of this design and kept in [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) (owner, Rev. 5). |
 | Root page | In network mode, the root page shows this information. |
 | Reference | BookWyrm and the projects of the owner's research list (NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, Gancio, Forgejo with ForgeFed, Lemmy). A reference needs a clean-room implementation because of the licenses. Software of other domains (events, video, audio, code) needs no communication design. |
 | Default | When the ActivityPub functions are complete, the federation of shared knowledge is on by default, also in single mode. |
@@ -68,21 +70,11 @@ Checked on 2026-11-16 against the Mastodon documentation and the READMEs of rela
 | The Mastodon documentation has no page about relays (the expected page gave 404). | Mastodon docs |
 | Mobilizon calls the internal actor of its subscriptions between two servers `relay`; the other admin approves. | Mobilizon docs (Rev. 2 review) |
 
-**In Claire:** a relay is a channel that the admin opts into. It brings announcements of shared knowledge bases from servers that no account of the server knows yet, so that themes across servers grow beyond the follows of persons. It carries only public announcements, no documents and no contributions (Section 7).
+**In Claire:** the relay is an idea outside this design ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3).
 
 ### 3.3 Retired Term "Partnership"
 
-Rev. 1 to Rev. 3 used "partnership" for a bilateral agreement of two admins with negotiated scopes. Mastodon has no such concept. Its parts go to these places:
-
-| Part of the old partnership | New place |
-| :--- | :--- |
-| Reading the shared knowledge bases of another server | Federation (Section 6) |
-| One-way subscription by the admin to receive announcements | Relay (Section 7) |
-| Curation and contributions across servers | Federation; the reviewers of each knowledge base decide (Sections 11, 12) |
-| Trust for one remote account | A grant of the role `collaborator` by a moderator (Section 12.2) |
-| Automatic contributions across servers | Federation, with the switch `kb_auto_contribution` on both servers (Section 12.3) |
-| Acceptance of the approvals of another server, higher limits | Removed; nobody asked for them |
-| "Partnership" between two accounts (shared knowledge base design §9.10) | Renamed "mutual collaboration" |
+Rev. 1 to Rev. 3 used "partnership" for a bilateral agreement of two admins. The term is retired (CT36). [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) keeps where its parts went and the ideas that came from it.
 
 ---
 
@@ -162,12 +154,12 @@ The sidecar uses Fedify 2.4.5 (`deno.json` pins `~2.4.5`), the latest release on
 | B7 | BookWyrm | Custom types reach other software as `Article` or `Note`. | Standard base types (Section 9.1). |
 | B8 | BookWyrm | The receiving server decides what it shows. | Each server decides what it shows and keeps (Sections 10, 11). |
 | B9 | BookWyrm | Custom types without a published JSON-LD context. | Claire publishes its context from the first version (Section 9.1). |
-| P1 | PeerTube | The platform actor (`Application`) follows other platforms; the followed admin can require manual approval. | The subscription to a relay (Section 7). |
+| P1 | PeerTube | The platform actor (`Application`) follows other platforms; the followed admin can require manual approval. | The relay idea ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3). |
 | P2 | PeerTube | An admin can follow the platforms of an index list automatically. | An index list gives suggestions of known servers only (Section 6.2). |
 | P3 | PeerTube | A following platform receives metadata with links to the files, not the files. | `/kb` collections carry metadata and signatures, not documents (Section 8.1). |
 | P4 | PeerTube | A mirror server tells the origin with a `CacheFile` object that it holds a copy; the origin controls who may mirror. | The alternative to knowledge base actors (Section 9.2, rule 6). |
 | P5 | PeerTube | A channel is a `Group` actor that several accounts manage. | A shared knowledge base as an actor (Section 9.2). |
-| M1 | Mobilizon | Servers subscribe to each other through an internal `relay` actor; the other admin approves; only public content created after the subscription is sent. | Relay (Section 7); a full read at first contact (Section 8.1). |
+| M1 | Mobilizon | Servers subscribe to each other through an internal `relay` actor; the other admin approves; only public content created after the subscription is sent. | A full read at first contact (Section 8.1); the relay idea ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3). |
 | M2 | Mobilizon | Group members have roles from "invited" to "administrator". | Same idea as the roles of a shared knowledge base (shared knowledge base design §6.2). |
 | L1 | Lemmy | A community is a `Group`; it wraps each received activity in `Announce` and sends it to its followers. | A knowledge base actor sends revisions and decisions to its followers (Section 9.2). |
 | L2 | Lemmy | Moderators of other servers can be added to a community; an admin removal of content in a remote community has effect only on the local server. | Remote collaborators with grants; no remote moderators in v1; a local removal never changes the origin (Sections 12.2, 10.3). |
@@ -178,13 +170,13 @@ The sidecar uses Fedify 2.4.5 (`deno.json` pins `~2.4.5`), the latest release on
 | W2 | Funkwhale | A library is an actor and a collection; the service actor of a pod is the authority for the objects of its domain. | Knowledge base actors; the origin is the authority (Sections 9.2, 6.4). |
 | N1 | NeoDB | A remote review lands on an existing item that shares an external ID (ISBN, Open Library, Goodreads). | Authority identifiers of entities (Section 10.4). |
 | N2 | NeoDB | Follow the origin: lists keep possibly stale mirrors and do not serve them again as ActivityPub. | A holder never serves a remote object as its own (Section 10.1). |
-| N3 | NeoDB | An optional relay sends public activities between servers. | Relay (Section 7). |
+| N3 | NeoDB | An optional relay sends public activities between servers. | The relay idea ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3). |
 | I1 | Inventaire | Entities have `wd:` (Wikidata) and `inv:` (local) identifiers; data is CC0. | Authority identifiers of entities (Section 10.4). |
 
 ### 5.3 Common Patterns
 
 1. **Exchange without an agreement; one-sided admin controls** (Mastodon): Section 6.
-2. **A relay as an opt-in hub for discovery** (relay software, NeoDB, Mobilizon): Section 7.
+2. **A relay as an opt-in hub for discovery** (relay software, NeoDB, Mobilizon): an idea outside this design ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3).
 3. **A container is an actor with followers** (Lemmy, PeerTube, Mobilizon, Funkwhale, ForgeFed): Section 9.2.
 4. **A submission to a remote container is an offer that the container accepts or rejects** (ForgeFed): Section 12.1.
 5. **The origin is the authority; a receiver keeps its own copy and marks the origin** (ForgeFed, Funkwhale, NeoDB, PeerTube): Section 10.1.
@@ -224,8 +216,7 @@ A Claire server becomes known when:
 
 1. an account of this server follows, reads, joins, curates from, or contributes to something on it;
 2. an account of that server contributes to or curates from a shared knowledge base of this server;
-3. the admin adds its domain in `/admin/federation`;
-4. a relay brings an announcement from it (Section 7).
+3. the admin adds its domain in `/admin/federation`.
 
 The server reads NodeInfo and the server actor of a known server and keeps its software, version, counts, last read, and errors. An index list of Claire servers (P2) and the known servers of known servers are suggestions in the console; the admin adds them by hand.
 
@@ -255,21 +246,14 @@ A level "limit" for domain blocks (offers from that domain always wait for appro
 | Switches | `federation`, `kb_auto_contribution` (Section 14) |
 | Known servers | Domain, software, version, how it became known, counts of shared knowledge bases, last read, errors; add a domain |
 | Domain blocks | Existing list |
-| Relays | Subscriptions and their state (Section 7) |
 | Suggestions | Known servers of known servers, index lists |
 | Journal | The inbox journal of Section 13, with replay of a failed activity |
 
 ---
 
-## 7. Relay **[proposal, PQ12]**
+## 7. Relay (Idea)
 
-1. A relay is a service actor that sends the public announcements that it receives to all its subscribers again (Section 3.2).
-2. The admin subscribes the server to a relay with `Follow` from the server actor. The relay operator can approve. `Undo` ends the subscription. Each action needs a recent sign-in and writes `admin_audit`.
-3. A subscribed server sends the public announcements of its shared knowledge bases (`Create`, `Update`, `Delete` of `claire:KnowledgeBase`) to the relay and receives those of the other subscribers. Each sender becomes a known server (Section 6.2).
-4. A relay carries no documents, no contributions, and no decisions. The exchange of content stays in federation between the two servers.
-5. **[unverified]** Generic relay software sends again only payloads with a linked-data signature. Unit KF6 checks which proof the relays accept (for example FEP-8b32 object integrity proofs) before Claire depends on one.
-6. A Claire server that acts as a relay (as the internal `relay` actor of Mobilizon) is later work.
-7. Default: no relay.
+The relay is not part of this design. [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) §3 keeps it as an idea (owner, Rev. 5).
 
 ---
 
@@ -334,8 +318,6 @@ Single mode shows no root page (Section 15).
 | `Offer` | Account actor → knowledge base actor | `claire:Contribution` | Pending contribution (Section 12.1) |
 | `Accept` with `result`, `Reject` | Knowledge base actor → account actor | The `Offer` | Decision of the reviewers; `result` is the IRI of the contribution on the target |
 | `Grant`, `Revoke` | Knowledge base actor → account actor | Role `collaborator` | Remote collaborator (Section 12.2) |
-| `Follow`, `Undo` | Server actor → relay actor | — | Relay subscription (Section 7) |
-| `Create`, `Update`, `Delete` | Server → relay | `claire:KnowledgeBase` (public) | Announcement through the relay (Section 7) |
 
 Curation and the first read use signed GET requests of the collections of the other server.
 
@@ -390,7 +372,6 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 3. `Revoke` ends the grant at once. The moderator can renew a grant before its end time.
 4. A remote collaborator has only the capabilities `contribute_direct` and `contribute_theme` across servers. Review, curation, and maintenance stay with local accounts in v1, because they need a session on B.
 5. No remote moderators in v1. The admin of B is responsible for its moderators.
-6. Mutual collaboration between accounts of different servers (shared knowledge base design §9.10) uses the same grants.
 
 ### 12.3 Automatic Contribution Across Servers
 
@@ -418,8 +399,7 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 | KS3 | Another server floods the review queue | Pending limits for each remote account and each domain; domain block. |
 | KS4 | Another server tells a false reputation or merge decision | Neither is received; each server computes its own (Sections 10.4, 12.1). |
 | KS5 | Private data leaves the server | Only shared knowledge bases (always public) and their visible documents leave the server. Personal knowledge bases are not in `/kb` (PQ5). No IdP data goes into federation (existing rule). |
-| KS6 | A relay brings spam announcements | Announcements only add known servers and records of remote knowledge bases, never content; the admin ends the subscription or blocks the domain. |
-| KS7 | A relay subscription or a domain change by mistake or with a stolen token | Recent sign-in for each admin action; `admin_audit`. |
+| KS7 | A domain block or a switch change by mistake or with a stolen token | Recent sign-in for each admin action; `admin_audit`. |
 | KS8 | A grant is used after it should end | End time of 6 months; `Revoke`; each use checks the grant (Section 12.2). |
 | KS9 | An activity is processed twice or lost | Inbox journal with idempotent processing (Section 13). |
 
@@ -445,7 +425,7 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
 ## 16. Open Questions
 
-Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnership) by the owner direction of Section 2: federation without an agreement, relay for the server-level subscription. PQ11 (the term "directory") is applied with the unification of terms: the text uses "the `/kb` collection of another server"; the owner can reverse it.
+Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnership) by the owner direction of Section 2: federation without an agreement, relay for the server-level subscription. PQ11 (the term "directory") is applied with the unification of terms: the text uses "the `/kb` collection of another server"; the owner can reverse it. PQ12 (relay) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) in Rev. 5.
 
 | ID | Question | Proposal |
 | :--- | :--- | :--- |
@@ -457,7 +437,6 @@ Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnershi
 | PQ7 | Each shared knowledge base as a `Group` actor, with holders and theme members as its followers (Section 9.2)? | Yes. |
 | PQ8 | Remote collaborators with `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 12.2)? | Yes. |
 | PQ9 | Authority identifiers (Wikidata and others) in `sameAs` of entities, matched first by the receiver (Section 10.4)? | Yes, when the entity already has one; linking to an authority is later work. |
-| PQ12 | Relay as in Section 7: admin opt-in, announcements of shared knowledge bases only, no relay by default; a Claire server as a relay later? | Yes. |
 | PQ13 | A domain block level "limit" (offers always wait for approval; its knowledge bases do not join local themes)? | Yes, as a later step after the existing block. |
 
 ---
@@ -474,6 +453,5 @@ Precondition: units CT-0 to CT-9 of the shared knowledge base design, and the fe
 | KF3 | Knowledge base actors, curation across servers, revisions, removal at the origin | A revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue |
 | KF4 | Contributions across servers (`Offer`, `Accept` with `result`, `Reject`), remote collaborators (`Grant`, `Revoke`) | E2E test: an account of A contributes to a shared knowledge base of B; a reviewer of B approves; the submission page on A shows the decision; after a grant, the next contribution needs no approval; after `Revoke`, it needs approval again |
 | KF5 | Automatic contribution across servers | With `kb_auto_contribution` on both servers, a new shared knowledge base on B gets the matching documents of an account of A after a run |
-| KF6 | Relay (after PQ12) | Two servers subscribed to a test relay know each other's shared knowledge bases without any account interaction |
 
-Later work: federation of merge decisions; links between duplicate knowledge; a function that links entities to an authority; a Claire server as a relay; idea I1 (follows of persons of the open fediverse to a knowledge base actor).
+Later work: federation of merge decisions; links between duplicate knowledge; a function that links entities to an authority; idea I1 (follows of persons of the open fediverse to a knowledge base actor).

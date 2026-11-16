@@ -11,5 +11,6 @@ An old design document can describe a state that is not true now. These principl
   - Architecture that is implemented.
   - Term definitions.
   - The command manual for agents that use the CLI.
+- `docs/ideas/` keeps ideas that have no design. Do not implement from it; an idea enters `docs/design/` only after an owner decision.
 
 When you read, use each folder for its purpose. When you write, keep each folder true to its purpose.
