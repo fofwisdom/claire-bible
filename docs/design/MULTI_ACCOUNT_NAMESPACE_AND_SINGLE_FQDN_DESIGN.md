@@ -102,7 +102,7 @@ Syndication 프로토타입(`/syndication`)을 본 기능으로 합치려면 계
 | 통합 뷰 (`/explore/*`) | 404 | 제공 (§4.4) |
 | CLI 프로바이더 | 관리자 | 관리자만 (§10) |
 
-*싱글 모드의 `/`, 계정 홈, USERNAME 노출(S9)은 [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) CT33과 [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) §13으로 바뀐다 (2026-11-16).*
+*싱글 모드의 `/`, 계정 홈, USERNAME 노출(S9)은 [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) CT33과 [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §15로 바뀐다 (2026-11-16).*
 
 ### 4.2 저장과 전환
 
