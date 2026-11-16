@@ -1,4 +1,6 @@
-# Claire Bible — 공개 아키텍처 계획
+# Claire Bible — 공개 아키텍처 개요
+
+기준 커밋: d15ae8e0 (2026-11-16). §2 추출·온톨로지와 §3 중복·병합 정책만 이 커밋에서 코드와 대조했다. 나머지 절은 대조하지 않았다.
 
 관련 문서: [GOALS.md](../GOALS.md), [sample.md](../../sample.md), [외부 접속 설계](EXTERNAL_ACCESS.md)
 
@@ -28,24 +30,24 @@ SQLite 정본 + FTS + vector + detail HTML
 - `src/claire/cli.py`: 적재·검색·운영 명령
 - `src/claire/api/server.py`: 루프백 기본 로컬 API와 웹 UI
 - `src/claire/ingest/router.py`: URL·공유 텍스트·파일·메모 분류
-- `src/claire/ingest/fetchers/`: 웹, 리다이렉트, YouTube, X, 텍스트 fetcher
+- `src/claire/ingest/fetchers/`: 웹, 리다이렉트, YouTube, X, 텍스트, PDF, 영상 등 fetcher. 정본: [INGESTION.md](INGESTION.md)
 
 Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류와 콘텐츠 해시를 포함하는 정규화된 `Document`를 반환한다. 네트워크 입력은 허용 프로토콜과 목적지 정책을 통과해야 한다.
 
 ### 추출과 온톨로지
 
-- `src/claire/extract/`: mock/Gemini provider, 구조화 추출, 엔티티 해소
+- `src/claire/extract/`: mock·Gemini·Antigravity·Codex provider, 구조화 추출, 엔티티 해소, 관계 판정
 - `src/claire/ontology/`: 엔티티·관계 모델과 domain/range 레지스트리
 
-모델 출력은 닫힌 타입 집합을 우선 사용한다. 새 타입 제안은 별도 provisional 데이터로 보존하며, 관계는 저장 전에 허용 source/target 타입을 검증한다. 엔티티는 exact·alias·약어· 임베딩 후보와 선택적 모델 판정을 조합해 기존 노드로 해소한다.
+모델 출력은 닫힌 타입 집합을 우선 사용한다. 새 타입 제안은 별도 provisional 데이터로 보존하며, 관계는 저장 전에 허용 source/target 타입을 검증한다. 엔티티는 exact·alias·약어·임베딩 후보와 선택적 모델 판정을 조합해 기존 노드로 해소한다. [코드] 현재 동작의 정본: [EXTRACTION.md](EXTRACTION.md)
 
 ### 저장과 검색
 
 - SQLite가 문서·엔티티·관계·inbox·큐의 정본이다.
 - FTS5와 벡터 유사도를 RRF로 결합하고 그래프 이웃으로 검색 문맥을 확장한다.
 - HTTP 검색은 owner·readonly에서 hybrid를 사용하고, 익명에서는 provider와 vector store를 참조하지 않는 FTS 전용 모드로 강제한다. 익명 summary는 항상 끄고 결과는 최대 20개로 제한한다.
-- sqlite-vec를 사용할 수 없으면 저장된 임베딩의 brute-force cosine 검색으로 폴백한다.
-- 단일 SQLite DB(`data/claire.db`, Schema v14)에 모든 테마가 저장되며, `theme_id` 기반으로 데이터가 논리적으로 완전 격리된다.
+- [코드] 벡터 검색은 저장된 임베딩의 brute-force cosine 검색만 구현되어 있다. `make_vector_store`는 sqlite-vec를 탐지만 하고 항상 brute-force 저장소를 쓴다.
+- 단일 SQLite DB(`data/claire.db`, 스키마 v26)에 모든 테마가 저장되며, `theme_id` 기반으로 데이터가 논리적으로 완전 격리된다.
 - 과거 지원되던 Obsidian Vault 동기화 서브시스템은 영구 제거되었으며, SQLite DB의 `raw_text` 및 사전 컴파일된 `detail_html`이 단일 정본 역할을 수행한다.
 
 ### 백그라운드 작업
@@ -60,11 +62,11 @@ Fetcher는 URL, canonical URL, 제목, 작성자, 시각, 원문, 소스 종류�
 2. 동일 콘텐츠 해시는 중복 문서 생성을 막는다.
 3. 1홉 확장 결과가 부모와 같은 주제라고 판정되면 출처와 원문을 보존한 채 부모 문서에 합칠 수 있다.
 4. 병합 실패 시 원래 문서 스냅샷으로 복원한다.
-5. 모델 입력에는 길이 상한을 적용하지만 저장 원문은 임의로 절단하지 않는다.
+5. [코드] 수집기는 저장 원문을 `CLAIRE_RAW_CHAR_BUDGET`(PDF는 `CLAIRE_PDF_MAX_EXTRACT_CHARS`) 상한으로 자르고, 절단 사실(`raw_truncated`, `orig_chars`, `raw_chars`)을 문서 메타데이터에 기록한다. `--full-content` 요청은 자르지 않는다. 모델 입력에는 별도 상한을 적용한다. 1홉 병합은 합친 원문을 자르지 않는다.
 6. 데이터 수명주기는 `.env`(`CLAIRE_DATA_LIFECYCLE`, `CLAIRE_ALLOW_PURGE`)에서 purgeable(기본값)과 append-only를 선택할 수 있다. 폐기된 레거시/오염 문서는 툼스톤(`purged_tombstones`) 등록 및 DB·디스크·그래프 연쇄 소각(`claire purge`)으로 완전히 배제할 수 있다.
 7. 원문을 절단하여 적재 및 상세(detail) 작성 시, 절단되어 내용이 유실된 섹션은 상세를 작성하지 않는다(불완전한 섹션 배제 및 환각 방지).
 
-세부 설계는 [ONEHOP_MERGE_DESIGN.md](ONEHOP_MERGE_DESIGN.md), [EXPAND_FILTERING_DESIGN.md](../design/EXPAND_FILTERING_DESIGN.md), [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](../design/INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)를 참고한다.
+현재 동작은 [ONEHOP_MERGE.md](ONEHOP_MERGE.md)(1홉 확장과 병합)와 [INGESTION.md](INGESTION.md) §7(저장 원문 상한과 모델 입력 상한)에 있다. 설계 이유는 [EXPAND_FILTERING_DESIGN.md](../design/EXPAND_FILTERING_DESIGN.md), [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](../design/INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)에 있다.
 
 ## 4. 인증과 외부 접속
 

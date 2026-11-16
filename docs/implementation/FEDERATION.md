@@ -1,12 +1,12 @@
-# Federation Implementation Reference (Phase FP1)
+# Federation Implementation Reference
 
-Basis: units FP1-1 to FP1-6 (commits `56d40c9` to `75d79e18`) and the FP1-7 tests (2026-11-11). Readers: agents and operators who change or operate the Fedify sidecar federation. Design record: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md).
+Basis: commit `d15ae8e0` (2026-11-16) for Sections 1 to 14 (phases FP1 to FP3, examined again on 2026-11-16). Sections 15 to 27 have the basis of their units (FP4, 2026-11-13 to 2026-11-16). Readers: agents and operators who change or operate the Fedify sidecar federation.
 
-This document tells what the code does now. The design document is a historical record: it also contains phases that are not implemented. Section 13 lists the differences between the code and the design.
+Design principles: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (phases FP1 to FP3) and [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) (phase FP4 and the work that waits). This document tells what the code does now. Section 13 lists choices that the code made in phases FP1 to FP3.
 
 ## 1. Scope and State
 
-Phase FP1 implements discovery only. A remote server can resolve the handle `@username@{host}` to an actor document and can get the public keys of the actor. Phase FP2 (followers) is complete: a remote server can follow an actor and gets an `Accept`, an account owner can see and remove followers, and the admin can block domains.
+Phases FP1 to FP3 and all units of phase FP4 are implemented. A remote server can resolve the handle `@username@{host}` to an actor document, get the public keys of the actor, and follow the actor. An account owner can publish documents to followers, follow remote actors, read their posts, and reply, favourite, boost, and quote. The admin can block domains.
 
 | Function | State |
 | :--- | :--- |
@@ -77,7 +77,7 @@ An account is a federation actor only when all these conditions are true:
 4. `profile_public` is 1.
 5. The account has a USERNAME.
 
-All other states give the same 404 on the internal API (`{"error": "not_found"}`) and on the public paths of the sidecar (`Not Found`, `text/plain`). This includes an unknown account, a suspended account, a purged account, and a public ID that is not a positive decimal number of 19 digits or less without a leading zero. The code gives no 410 in FP1.
+All other states give the same 404 on the internal API (`{"error": "not_found"}`) and on the public paths of the sidecar (`Not Found`, `text/plain`). This includes an unknown account, a suspended account, a purged account that was never an actor, and a public ID that is not a positive decimal number of 19 digits or less without a leading zero. An account that was an actor at its purge gives 410 (Section 8.5).
 
 The actor ID contains `accounts.public_id`, not the USERNAME: `{origin}/ap/actors/{public_id}`. `{origin}` is the canonical origin that Claire supplies in `config` (`WebRuntimeConfig.public_origin`). The sidecar does not read the request `Host` header to make a URL.
 
@@ -95,8 +95,10 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 | `POST` | `/ap/actors/{public_id}/inbox` | Personal inbox (Section 4.3) |
 | `POST` | `/ap/inbox` | Shared inbox (Section 4.3) |
 | `GET` | `/ap/actors/{public_id}/followers` | `OrderedCollection` with `totalItems` and no follower |
+| `GET` | `/ap/actors/{public_id}/following` | `OrderedCollection` with `totalItems` only (Section 17) |
 | `GET` | `/ap/actors/{public_id}/outbox` | `OrderedCollection` of the public objects, in pages (Section 4.4) |
 | `GET` | `/ap/objects/{object_public_id}` | Published object of type `Article`, or 410 with a `Tombstone` (Section 4.4) |
+| `GET` | `/ap/quote-authorizations/{id}` | Quote authorization, or 410 after a revoke (Section 26) |
 
 Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 
@@ -122,8 +124,8 @@ Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 | `published` | `accounts.activated_at`. The sidecar sets no value when the account has no activation time. |
 | `manuallyApprovesFollowers` | `false` |
 
-- `followers` is `{actor ID}/followers`.
-- The document has no `outbox`, `following`, `summary`, or `icon` property.
+- `outbox` is `{actor ID}/outbox`, `followers` is `{actor ID}/followers`, and `following` is `{actor ID}/following` (`Sidecar.#person` in `sidecar/fedify/src/sidecar.ts`).
+- The document has no `summary` and no `icon` property.
 - The document has no email address, no external identity value, no server role, and no internal `accounts.id`.
 
 ### 4.2 Server Actor
@@ -172,9 +174,9 @@ Answer of an inbox path, in this sequence:
 | `update_actor` | `Update` with the actor document (`Person`) | `{actor ID}#updates/{updated_at in milliseconds}` |
 | `delete_actor` | `Delete` with the actor ID as the object | `{actor ID}#delete` |
 
-- The object ID is `{origin}/ap/objects/{object_public_id}`. The activity IDs have no random part and no task number. Thus a second handoff of the same task makes the same activity, and a remote server that has the activity makes no second object (design Section 9.3).
+- The object ID is `{origin}/ap/objects/{object_public_id}`. The activity IDs have no random part and no task number. Thus a second handoff of the same task makes the same activity, and a remote server that has the activity makes no second object.
 - For `create` and `update` the sidecar reads `/objects/{id}`. For `delete` it reads nothing.
-- `Article` fields: `id`, `attributedTo` (the actor ID), `name`, `content`, `url`, `published`, `updated`, `to` (the public collection), and `cc` (the followers collection of the actor). `content` has the summary of the document (the summary of the latest extraction, else the title; at most 500 characters, cut at a word end with "…") as one paragraph and a paragraph with the link to the share page. The body of the document is never in the object (RD21, [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 5.5). A document without a valid share has no link and no `url`. The activity has the same `actor`, `to`, and `cc`. There are no tags and no attachments (design Section 9.1).
+- `Article` fields: `id`, `attributedTo` (the actor ID), `name`, `content`, `url`, `published`, `updated`, `to` (the public collection), and `cc` (the followers collection of the actor). `content` has the summary of the document (the summary of the latest extraction, else the title; at most 500 characters, cut at a word end with "…") as one paragraph and a paragraph with the link to the share page. The body of the document is never in the object (RD21, [`FEDERATION_REMOTE_READING_DESIGN.md`](../design/FEDERATION_REMOTE_READING_DESIGN.md) Section 5.5). A document without a valid share has no link and no `url`. The activity has the same `actor`, `to`, and `cc`. There are no tags and no attachments.
 - Recipients: all followers of the actor (`Sidecar.deliveryRecipients`). A follower whose actor, inbox, or shared inbox is on a blocked domain gets no delivery. A shared inbox gets one delivery for all its followers.
 - The sidecar gives the activity to Fedify (`sendActivity`), signed with the key of the actor, and then sends the acknowledgement `handed_off`. With the queue of `data/fedify/fedify.db`, Fedify delivers from the queue and tries again after a failure. The ordering key of the queue is the object ID: the activities of one object go to a remote server in sequence.
 - An actor without followers that can get a delivery: the task is `handed_off` and nothing is sent.
@@ -267,7 +269,7 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 - Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`. The record has no field from `auth.db`.
 - `federated_actors` is 0 when federation is not active. If not, it is the number of accounts that agree with the actor rule.
 - `/config` answers in all states. It does not return 404 when federation is `off`.
-- The sidecar does not use `trusted_proxies` in FP1.
+- The sidecar does not use `trusted_proxies`.
 - `limits.inbox_body_bytes` is 1048576 (`INBOX_BODY_LIMIT_BYTES`). It is the largest body of a public inbox request that the sidecar must read (unit FP2-3).
 - `domain_blocks_etag` is the entity tag of the `/domain-blocks` response. The sidecar reads `config` at short intervals and can thus see a change of the list without a second request.
 - `/domain-blocks` answers in all states of the federation switch.
@@ -339,7 +341,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 **Tasks.**
 
 - A task is ready when its status is `pending` and it has no lease, or its lease ended (`lease_until` is not after the time of the request).
-- `GET /outbox-tasks` returns the oldest ready tasks and sets `lease_until` to the time of the request plus 300 seconds (`OUTBOX_LEASE_SECONDS`). A second request in that time does not get the same task. The request changes data, although the method is `GET` (design Section 6.2).
+- `GET /outbox-tasks` returns the oldest ready tasks and sets `lease_until` to the time of the request plus 300 seconds (`OUTBOX_LEASE_SECONDS`). A second request in that time does not get the same task. The request changes data, although the method is `GET`.
 - A task that the sidecar does not acknowledge stays `pending`, and Claire gives it again after its lease.
 - Claire gives only the tasks of accounts that are actors now. When federation is not active the list is empty. A task of a paused account waits, because the sidecar cannot get the key of that account.
 - `POST /outbox-tasks/{id}/ack` with `handed_off` sets the status and `handed_off_at`. `rejected` sets the status and `error_code`: the sidecar uses it for a task that it cannot convert, and Claire does not give the task again. A task that has a result does not change: a second acknowledgement returns the first result.
@@ -362,7 +364,7 @@ Claire writes one log line for each event with the type, the decision, and the r
 - `ensure_actor_keys` does not replace an existing key. There is no key rotation function.
 - The sidecar keeps imported keys in memory for 60 seconds at most (`KEY_CACHE_SECONDS`). After that time it requests the keys again.
 - `ActorKeyPair` hides the private JWK in its `repr`. The end-to-end test examines the sidecar log for private key fields.
-- Sidecar database: `data/fedify/fedify.db` (Fedify `SqliteKvStore` and `SqliteMessageQueue`, WAL mode). The sidecar makes the file with mode 0600 and sets the mode again at each start. A Fedify queue message for a delivery contains the private keys of the sender (design item FT3), thus the file is a secret store. The FP1 code sends no activity, so no delivery is queued now.
+- Sidecar database: `data/fedify/fedify.db` (Fedify `SqliteKvStore` and `SqliteMessageQueue`, WAL mode). The sidecar makes the file with mode 0600 and sets the mode again at each start. A Fedify queue message for a delivery contains the private keys of the sender (a Fedify behavior), thus the file is a secret store. A key in a queued message stays until the delivery completes or the retry policy of Fedify stops.
 
 ## 7. Server Switch and Readiness Checks
 
@@ -435,7 +437,7 @@ uv run claire server check --federation --json
 - The exit code is 0 only when all checks pass.
 - `--network` and `--federation` are mutually exclusive, and one of them is necessary.
 
-**Recovery after the loss of the sidecar database** (design Section 9.4, unit FP3-5):
+**Recovery after the loss of the sidecar database** (unit FP3-5):
 
 ```bash
 uv run claire federation requeue --max-age-hours 72
@@ -479,7 +481,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 - The delete key is `(account of the caller, actor_iri)`. The route cannot delete a follower of a different account.
 - The route needs no recent authentication and writes no audit row.
-- The route deletes the row only. Claire sends no `Reject(Follow)`: that needs the outbox of phase FP3. The remote server can send `Follow` again, and Claire stores the follower again.
+- The route deletes the row and commits. Then it makes a `reject_follow` task in `client.db` (a second transaction, because the files are different), and the sidecar sends `Reject(Follow)` (Section 17). The remote server can send `Follow` again, and Claire stores the follower again.
 
 **Domain blocks.** The routes are for the admin only (`_system("admin")`). Other principals get 404, as on all `/api/admin/*` routes.
 
@@ -535,7 +537,7 @@ A cookie request that is not from the same origin gets 403 (`AuthenticationMiddl
 The dialog that opens from a document of `/syndication` (`#modal-dispatch`, `src/claire/static/js/syndication_live.js`) has the themes of the account as targets. When the account is an actor, the dialog has one more target below them: the native actor.
 
 - The page reads `GET /api/federation/status` at its start. The native target is in the dialog only when `is_actor` is true. In single mode the status route gives 404, and the dialog does not change.
-- The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee (design Section 9.4).
+- The target shows the handle of the account, the form `Article`, and the notice that removal on remote servers is a request and not a guarantee.
 - The button sends `POST /api/federation/publish` with the theme number and the document ID (Section 7.6). The answer 202 closes the dialog. An error code stays in the dialog.
 - The button is disabled for a document of a private theme.
 - The dialog has no control for a retract. `POST /api/federation/retract` is an API call.
@@ -573,11 +575,11 @@ The page keeps its HTML format for all `Accept` values. The path has no content 
 
 ### 8.4 Pause
 
-A change of `profile_public` to 0, a suspension, and `federation` `off` make the actor paths return 404. Claire sends no activity for these events in FP1. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
+A change of `profile_public` to 0, a suspension, and `federation` `off` make the actor paths return 404. Claire sends no activity for these events: a pause is reversible, and a `Delete(Person)` is not. The keys stay in `actor_keys`, so the actor has the same keys when it is available again.
 
 ### 8.5 Lifecycle Tasks and Privacy Triggers (Unit FP3-4)
 
-**Privacy triggers** (design Section 9.4). Each trigger calls `retract_objects` (`src/claire/store/federation.py`): for each published object it writes the tombstone, deletes the object row, and makes a `delete` task. The sidecar sends `Delete` to the followers (Section 4.4), and the object ID gives 410.
+**Privacy triggers.** Each trigger calls `retract_objects` (`src/claire/store/federation.py`): for each published object it writes the tombstone, deletes the object row, and makes a `delete` task. The sidecar sends `Delete` to the followers (Section 4.4), and the object ID gives 410.
 
 | Event | Code | Transaction |
 | :--- | :--- | :--- |
@@ -684,7 +686,7 @@ These statements are true for the code now.
 - The service key gives access to the internal API only. It is not a `Principal` and cannot call a `ROUTE_POLICY` route.
 - `GET /actors/{public_id}/keys` returns private keys in plaintext on the internal socket. This is the only path that does so.
 - The sidecar container has no access to `claire.db`, `auth.db`, `master.key`, or the `.env` values.
-- The sidecar never sets the Fedify option `allowPrivateAddress`. A sidecar test reads the source directory and fails if the option is there.
+- The sidecar sets the Fedify option `allowPrivateAddress` in one place only, from the config field `allow_private_addresses` (contract 1.8, Section 5.4). Claire gives true only in the environment `development` with `CLAIRE_ALLOW_PRIVATE_NETWORKS` on. A sidecar test (`sidecar/fedify/tests/sidecar_test.ts`) reads the source directory and fails if the option has a constant value or is in a second place.
 - No external identity value (`iss`, `sub`, email, provider ID) is in an internal API response. `tests/test_federation_routes.py` puts values in `account_identities` and searches all responses.
 - In single mode no federation path shows a USERNAME: all paths return 404. `tests/test_fedify_sidecar.py` examines this with a real Claire process (S9).
 - All states that are not federated give the same 404, so a remote client cannot find which private accounts exist.
@@ -692,7 +694,7 @@ These statements are true for the code now.
 
 ## 12. Known Limits
 
-1. Follower removal by the owner sends no `Reject(Follow)` (Section 7.5). A new domain block does not delete followers that exist.
+1. A new domain block does not delete followers that exist.
 2. `GET /api/admin/federation` has no cache. Each request sends the GF7 request to the public origin from the `api` process (timeout 5 seconds). The check runs in a thread, not in the event loop.
 3. Unix socket path limit: Linux permits about 107 bytes for a socket path. On a host run with a long data directory path the bind fails, and the internal listener does not start (Section 5.1). The Compose path `/app/data/run/federation.sock` is short.
 4. A socket file can stay after the process stops on a signal. The next start replaces it.
@@ -700,43 +702,42 @@ These statements are true for the code now.
 6. An account that was purged before unit FP3-4 has no actor tombstone. Its actor ID returns 404.
 7. The keys of an account that was purged before unit FP3-4 are not deleted. The admin purge route deletes the keys; `AccountStore.purge` alone (for example from a script) does not.
 8. The sidecar does not use `trusted_proxies`. It removes all `X-Forwarded-*` headers.
-9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost (design Section 4.3). The admin can send them again with `claire federation requeue` (Section 7.4). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
+9. `./cb-manuscript backup` leaves out `data/run/`, `data/fedify/`, and `data/auth/fedify_service.key`. After a restore, `claire migrate` makes a new service key and the sidecar starts with an empty database: deliveries that were in the queue are lost. The admin can send them again with `claire federation requeue` (Section 7.4). The storage scan of the support bundle skips `data/fedify/` and `data/run/` ([`OPERATIONS.md`](OPERATIONS.md)).
 10. Followers of a remote actor that is gone can stay: most servers sign `Delete(Person)` with a key that is not available after the removal, so the signature check fails (401) and Claire gets no event.
-11. `Reject(Follow)` is sent in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply.
+11. An inbound `Follow` gets `Reject(Follow)` in one condition only (Section 4.3). A `Follow` of an account that is not an actor gets no reply. A follower removal by the owner sends `Reject(Follow)` (Section 17).
 12. The inbox counters of the sidecar are in memory only. Claire does not get them.
 13. A development server on a private address cannot follow without the development switch: Fedify refuses private and loopback addresses for the key fetch (FS1). With the environment `development` and `CLAIRE_ALLOW_PRIVATE_NETWORKS` on, the config gives `allow_private_addresses` and the sidecar permits them (contract 1.8).
 14. `claire.db` has no record of the event IDs. Idempotency comes from the follower key only.
 15. The follower page has 80 items at most. A delivery to many followers needs one request for each page, for each task.
-16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity (design Section 9.3). The outbox counters of the sidecar are in memory only.
-17. A `Delete` is a request. A remote server can ignore it and keep its copy (design Section 9.4).
+16. A delivery starts 5 seconds at most after the publish request, when the sidecar runs. Claire has no record of the result for each inbox: a task is `handed_off` when Fedify has the activity. The outbox counters of the sidecar are in memory only.
+17. A `Delete` is a request. A remote server can ignore it and keep its copy.
 18. A `delete_actor` task is given only while federation is active. If the admin sets the switch to `off` after a purge, the task, the followers, and the keys of the purged account stay until the switch is `on` again.
 19. A block of a domain after the handoff does not remove a delivery that is in the queue of the sidecar.
 20. The outbox collection has `Create` items only. It does not list `Update` and `Delete` activities.
 21. License items for the owner are in `sidecar/fedify/THIRD_PARTY_LICENSES.md`: `tslib` has the license 0BSD, which the design list does not name, and the JSR packages publish no license file.
 
-## 13. Differences from the Design
+## 13. Choices Made in the Code (Phases FP1 to FP3)
 
-| Design | Code |
-| :--- | :--- |
-| `actor_keys` is `auth.db` version 4 (§10.2) | Version 5. Version 4 was used by the per-account features before FP1. |
-| `GET`, `PUT /api/admin/federation` with the switch, the domain blocks, and the sidecar health (§9.2) | `GET`, `POST /api/admin/federation` for the switch and the health. The domain blocks are at `/api/admin/federation/domain-blocks` (`GET`, `POST`, `DELETE`). |
-| `GET /api/federation/status` has the follower count and the pending task count (§9.2) | The follower list is a second route, `GET /api/federation/followers`. |
-| After a follower removal the sidecar sends `Reject(Follow)` (§11 item 2) | Not sent before the outbox of FP3 |
-| End-to-end test: follow from a second development server (§14.2) | The remote server is in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. Claire cannot send a `Follow`, and Fedify refuses the loopback address of a second server (FS1). |
-| Keys are generated when the account first becomes an actor (§7 item 1, §8.1) | Keys are generated at the first keys request of the sidecar |
-| `/actors/{public_id}` returns 410 for a removed actor (§6.2) | 410 for an account that was an actor at its purge (Section 8.5). 404 for an account that was never an actor. |
-| If the sidecar is not available at purge, the purge waits in a visible state (§8.1) | The purge request gets 409 and the account keeps its status. There is no separate waiting status. |
-| The `visibility_epoch` increment and the `Delete` tasks of a purged document are in the same transaction (§9.4) | A document purge does not change `visibility_epoch`. The tasks are in the transaction that deletes the document rows. |
-| The sidecar reads `X-Forwarded-*` from trusted proxies (§5.1 rule 5) | The sidecar removes these headers and reads none |
-| The outbox is a paged `OrderedCollection` of public objects (§5.1) | The items are `Create` activities that refer to the objects by ID |
-| A deleted object returns 410 with a `Tombstone` (§5.3) | The same. The `Tombstone` is plain JSON from the sidecar, not a Fedify object. |
-| `rejected`: the sidecar sends `Reject` for a `Follow` (§6.3) | Only for the reason `recipient_mismatch` (Section 4.3) |
-| An `ignored` activity increments a telemetry counter (§6.3) | A counter in the memory of the sidecar and a log line |
-| `claire.db` version 17 has the tables of FP2 and FP3 (§10.1) | Version 17 has the three tables of FP2 and one more index (`idx_federation_followers_actor`). Version 18 has the two tables of FP3 and one more index (`idx_federation_objects_account`). |
-| The inbox event has `event_id`, `type`, `recipient_public_id`, `actor`, `object_iri`, `verified_by` (§6.3) | The event also has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision also has `reason`. |
-| `rejected` is for a blocked domain or a recipient that is not an actor (§6.3) | Also for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` |
-| `/config` has limits (§6.2) | One limit: `inbox_body_bytes`. `federated_actors` is also in the response. |
-| Deno flags limit the process to the network, the data directory, and the socket directory (§4.2) | `--allow-read=/data,/app`, and `--allow-net` without a host list |
+These facts are true for the code now. They are choices that the implementation made where the first design was different or did not decide. The other sections give the details.
+
+- `actor_keys` is in `auth.db` version 5 (Section 6). Version 4 was used by the per-account features before FP1.
+- `GET` and `POST /api/admin/federation` control the switch and show the health (Section 7.3). The domain blocks have their own routes, `/api/admin/federation/domain-blocks` (Section 7.5).
+- `GET /api/federation/status` has the follower count and the pending task count. The follower list is a second route, `GET /api/federation/followers` (Section 7.5).
+- The end-to-end follow test has the remote server in the test process (`sidecar/fedify/e2e/follow_e2e.ts`), with a real Claire process. The end-to-end test with a separate remote server is the DrFed test stack (Section 27).
+- Keys are generated at the first keys request of the sidecar, not at the `profile_public` change (Section 6).
+- `/actors/{public_id}` gives 410 for an account that was an actor at its purge, and 404 for an account that was never an actor (Section 8.5).
+- A purge that needs a `delete_actor` task while the sidecar is not available gets 409, and the account keeps its status. There is no separate waiting status (Section 8.5).
+- A document purge does not change `visibility_epoch`. Its `delete` tasks are in the transaction that deletes the document rows (Section 8.5).
+- The sidecar removes all `X-Forwarded-*` headers and reads none (Section 4).
+- The outbox collection items are `Create` activities that refer to the objects by ID (Section 4.4).
+- The `Tombstone` of a deleted object is plain JSON from the sidecar, not a Fedify object (Section 4.4).
+- The sidecar sends `Reject` for a rejected `Follow` only for the reason `recipient_mismatch` (Section 4.3).
+- An `ignored` activity increments a counter in the memory of the sidecar and writes a log line. It does not go to the telemetry store (Section 4.3).
+- `claire.db` version 17 has the three tables of FP2 and the index `idx_federation_followers_actor`. Version 18 has the two tables of FP3 and the index `idx_federation_objects_account` ([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)).
+- The inbox event has `object_type`, to identify `Undo(Follow)`. `recipient_public_id` and `object_iri` can be null. The decision has `reason` (Section 5.7).
+- `rejected` is also the decision for federation that is not active, an address that is not permitted, and a recipient that is not the object of the `Follow` (Section 5.7).
+- `/config` has one limit, `inbox_body_bytes`, and also `federated_actors` (Section 5.3).
+- The Deno flags are `--allow-read=/data,/app` and `--allow-net` without a host list (Section 9.3).
 
 ## 14. Tests
 

@@ -1,9 +1,8 @@
 # 텔레그램 MP4·PDF 복합 적재 설계
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+Status: planned, not implemented. No album collector, `/bundle` session, local MP4 reader, or bundle composer exists in the code. The single-message file plus link case is implemented separately: [TELEGRAM_ATTACHMENT_LINK_COMPOSITE_INGESTION_DESIGN.md](TELEGRAM_ATTACHMENT_LINK_COMPOSITE_INGESTION_DESIGN.md), current behavior in [`INGESTION.md`](../implementation/INGESTION.md) §11.
 
-작성일: 2026-09-15 · 상태: **설계 확정, 구현 전** · 기준: [GOALS.md](../GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
+작성일: 2026-09-15 · 상태 확인: 2026-11-16 · 기준: [GOALS.md](../GOALS.md) 품질 원칙 · 관련: [VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md), [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md), [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md)
 
 ---
 
@@ -37,6 +36,8 @@
 | 텔레그램에 문서로 보낸 MP4 | 미지원 | 다운로드는 가능하지만 `fetch_file()`이 MP4를 지원하지 않아 실패 |
 | 텔레그램 MP4+PDF 복합 작업 | 미지원 | `media_group_id` 수집기와 복수 파일 manifest가 없음 |
 | 복합 작업 재시도·복구 | 미지원 | `raw_inbox`와 recover 경로가 단일 `file_ref`만 재생 |
+
+> Note (2026-11-16): this table shows the state of 2026-09-15. Changes since then: the Telegram handler now takes native video and audio messages (`filters.VIDEO | filters.AUDIO` go to `on_document`), and a file with a link in its caption is ingested as one composite document. An uploaded MP4 still has no local media reader: the file reader refuses media suffixes, and a media path goes to the URL video fetcher. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §9.1, §11.
 
 현재 텔레그램 진입점은 `filters.Document.ALL`과 텍스트만 등록한다. `on_document()`는 각 Update를 즉시 독립 파일로 저장하고, 한 파일마다 별도의 `IngestService.ingest()`를 실행한다. 로컬 파일 fetcher는 PDF·ODT·텍스트 계열만 허용한다.[^current-telegram-path]
 
@@ -474,9 +475,9 @@ MP4를 '파일로 보내기'로 PDF와 함께 선택하거나,
 3. Claire Bible, [GOALS.md](../GOALS.md), 품질 원칙과 공통 적재 파이프라인, 2026-09-15 확인.[^project-principles]
 4. Claire Bible, 텔레그램·파일·비디오·Presentation 현재 구현 및 회귀 테스트, 2026-09-15 확인.[^current-telegram-path][^current-presentation-boundary][^verification-scope]
 
-[^current-telegram-path]: Claire Bible 구현 근거: [`src/claire/telegram_bot.py`](../../../src/claire/telegram_bot.py), [`src/claire/ingest/fetchers/textfile.py`](../../../src/claire/ingest/fetchers/textfile.py), [`src/claire/ingest/service.py`](../../../src/claire/ingest/service.py), [`src/claire/store/db.py`](../../../src/claire/store/db.py) (2026-09-15 확인).
-[^current-presentation-boundary]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/video.py`](../../../src/claire/ingest/fetchers/video.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../../src/claire/ingest/pipeline.py), [`src/claire/ontology/base.py`](../../../src/claire/ontology/base.py) (2026-09-15 확인).
-[^verification-scope]: Claire Bible 검증 근거: [`tests/test_bot.py`](../../../tests/test_bot.py), [`tests/test_video_presentation.py`](../../../tests/test_video_presentation.py), [`tests/test_video_fetcher.py`](../../../tests/test_video_fetcher.py), [`tests/test_gemini_stt.py`](../../../tests/test_gemini_stt.py); `uv run pytest -q tests/test_bot.py tests/test_video_presentation.py tests/test_video_fetcher.py tests/test_gemini_stt.py` 실행 결과 74 passed, 1 warning (2026-09-15). 실제 Telegram 및 외부 STT 호출은 수행하지 않음.
+[^current-telegram-path]: Claire Bible 구현 근거: [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`src/claire/ingest/fetchers/textfile.py`](../../src/claire/ingest/fetchers/textfile.py), [`src/claire/ingest/service.py`](../../src/claire/ingest/service.py), [`src/claire/store/db.py`](../../src/claire/store/db.py) (2026-09-15 확인).
+[^current-presentation-boundary]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/ontology/base.py`](../../src/claire/ontology/base.py) (2026-09-15 확인).
+[^verification-scope]: Claire Bible 검증 근거: [`tests/test_bot.py`](../../tests/test_bot.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py), [`tests/test_video_fetcher.py`](../../tests/test_video_fetcher.py), [`tests/test_gemini_stt.py`](../../tests/test_gemini_stt.py); `uv run pytest -q tests/test_bot.py tests/test_video_presentation.py tests/test_video_fetcher.py tests/test_gemini_stt.py` 실행 결과 74 passed, 1 warning (2026-09-15). 실제 Telegram 및 외부 STT 호출은 수행하지 않음.
 [^telegram-media-group]: Telegram, [Telegram Bot API — Message](https://core.telegram.org/bots/api#message) (`media_group_id`) 및 [sendMediaGroup](https://core.telegram.org/bots/api#sendmediagroup) (2026-09-15 확인). 문서·오디오 앨범은 같은 유형끼리만 구성할 수 있다.
 [^telegram-file-limits]: Telegram, [Telegram Bot API — getFile](https://core.telegram.org/bots/api#getfile) 및 [Using a Local Bot API Server](https://core.telegram.org/bots/api#using-a-local-bot-api-server) (2026-09-15 확인). 일반 Bot API의 bot 다운로드 상한은 20 MB이며 로컬 서버는 무제한 다운로드와 최대 2,000 MB 업로드를 제공한다.
 [^ptb-filter-safety]: python-telegram-bot, [filters Module — Document](https://docs.python-telegram-bot.org/en/stable/telegram.ext.filters.html#telegram.ext.filters.Document) 및 [filters.VIDEO](https://docs.python-telegram-bot.org/en/stable/telegram.ext.filters.html#telegram.ext.filters.VIDEO) (2026-09-15 확인). MIME·확장자 필터는 파일 내용의 유효성을 검증하지 않는다.

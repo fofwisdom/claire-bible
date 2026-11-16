@@ -1,6 +1,6 @@
 # 구현 상태: 알려진 제약 · 보류 결정 · 테스트 기준선
 
-기준일: 2026-11-15 · 대상 독자: 기능을 바꾸는 에이전트 · 근거 태그: [`PROVIDERS.md`](PROVIDERS.md)와 같다(`[코드]`, `[실측]`, `[결정]`, `[미검증]`)
+기준일: 2026-11-16 (§4는 기준 커밋 d15ae8e0) · 대상 독자: 기능을 바꾸는 에이전트 · 근거 태그: [`PROVIDERS.md`](PROVIDERS.md)와 같다(`[코드]`, `[실측]`, `[결정]`, `[미검증]`)
 
 이 문서는 **치명적이지 않은** 구현 상태만 적는다. 버그는 아니지만 알고 시작해야 하는 제약, 소유자가 보류한 결정, 이미 실패하는 테스트가 대상이다. 작업 전에 해당 절만 읽으면 따로 분석하지 않고 착수할 수 있게 쓴다.
 
@@ -27,7 +27,7 @@
 | 문서 목록 데이터 | `docMainPager` · `docFilterPager`, `loadDocPage()`, `refreshDocs()`, `ensureDocLoaded()`, `loadDocsById()` |
 | 엔티티 목록 | `renderEntityList()`, 표시 조건 `isNodeListed()` (그래프 `applyView()`와 같은 조건, [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md) §10) |
 | 노드 상세 패널 | `renderPanel()`, `srcRowHtml()`, `showNodeInList()`, 요청 순서 `nodeLoadSeq` |
-| 문서 문맥 3탭 및 출처·대조 단계 배지 (HW-3) | `renderDocPanel()`, `renderDocLinksTab()`, `renderDocEntitiesTab()`, `renderDocSourceTab()`, `setDocCtxTab()`, `onDocCtxTabKeydown()`, `docSourceBadgeHtml()`, `resolutionStageBadge()` (`src/claire/static/js/app.js`), `docMetaHtml()`, `renderReader()` (`src/claire/static/js/reader.js`), `.ctx-tabs`, `.src-badge`, `.stage-*` (`src/claire/static/css/workspace.css`) |
+| 문서 문맥 3탭 및 출처·대조 단계 배지 (HW-3) | `renderDocPanel()`, `renderDocLinksTab()`, `renderDocEntitiesTab()`, `renderDocSourceTab()`, `switchDocCtxTab()`, `#panel`의 `keydown` 리스너, 출처 배지는 `docMetaHtml()`, `resolutionStageBadge()` (`src/claire/static/js/app.js`), `docMetaHtml()`, `renderReader()` (`src/claire/static/js/reader.js`), `.ctx-tabs`, `.src-badge`, `.stage-*` (`src/claire/static/css/workspace.css`) |
 | 로컬 그래프 (문맥 패널 연결 탭, HW-4) | `renderLocalGraphHtml()`, `setEntityHoverHighlight()`, `clearEntityHoverHighlight()` (`src/claire/static/js/app.js`), `#ctx-local-graph-slot` (`renderDocLinksTab()`), `.ctx-local-graph` (`src/claire/static/css/workspace.css`), 링 1 최대 24개, 링 2 최대 12개, 초과 시 미표시 개수 안내 |
 | 리더 엔티티 마크 및 서버 별칭 (HW-5) | `document_detail()` (`src/claire/store/queries.py`의 `nodes[].aliases`), `applyEntityMarks()`, `clearEntityMarks()`, `setReaderEntityMarkHover()`, `clearReaderEntityMarkHover()` (`src/claire/static/js/reader.js`), `::highlight(claire-entity)` (`src/claire/static/css/reader.css`), `#rlegend` (`src/claire/templates/index.html`), 본문 400,000자 초과 또는 후보 300개 초과 시 마크 비활성화 |
 | 그래프 인사이트 목록 및 뷰 간 엔티티 상세 (HW-6) | `renderGraphInsights()`, `getGraphInsightLists()`, `deselectEntity()` (`src/claire/static/js/app.js`), `#ctx-insights`, `.ctx-insight-row`, `.backlink` |
@@ -64,7 +64,7 @@
 
 ### 1.5 Application bar of all pages [code]
 
-Design: [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](../design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md) Section 4.8 (2026-11-16).
+Current behavior: [`WEBUI.md`](WEBUI.md) §2. Design principles: [`HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md`](../design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
 
 | Item | Position |
 | :--- | :--- |
@@ -85,6 +85,9 @@ Limits:
 
 | 항목 | 결정 (2026-11-13) |
 | :--- | :--- |
+| Jev `filter`·`hybrid` 모드 (2026-11-15 추가) | 결정 대기. 두 모드는 판정을 바꾼다. shadow 평가 설계의 평가 게이트(FPR 0, Precision ≥ 98%, p95 < 500ms)를 먼저 통과해야 하는지 정하지 않았다. 콘솔은 `filter`를 권장으로 표시한다([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md) §5). |
+| 프레젠테이션 뷰어 조작부 | 결정 대기. 설정 메뉴(테마·전환·장 번호·자동 넘김), 휴대폰 하단 도크, 회전 안내는 구현된 HUD에 없다([`PRESENTATION.md`](PRESENTATION.md) §6). |
+| HD8 태블릿 폭(721–1100px) | 작업하지 않았다. 문맥 패널은 이 폭에서 서랍이다. |
 | `documents`의 `(theme_id, fetched_at DESC, id DESC)` 인덱스 | 넣지 않는다. 여러 사용자의 목록을 함께 보고 쓰는 프로젝트의 상세 설계에서 스키마 변경과 함께 정한다([`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md)). 지금은 요청마다 일치 행을 정렬한다. |
 
 ---
@@ -111,3 +114,65 @@ Limits:
 - 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
 - 실행: `cd e2e && npx playwright test`. Playwright가 `e2e/seed_db.py`로 시드 DB를 만들고 포트 8766에 서버를 띄운다(시작 제한 30초).
 - 전체 `pytest`는 모두 통과한다. 시간이 약 9분 걸리고, 임시 파일이 `/tmp/pytest-of-<user>`에 실행마다 1GB 가까이 쌓인다. `/tmp`가 작은 환경에서는 `TMPDIR`과 `--basetemp`를 다른 볼륨으로 준다(`--basetemp`는 `TMPDIR` 안에 두어야 asciidoctor 테스트가 통과한다).
+
+---
+
+## 4. 영역별 알려진 제약 [코드]
+
+문서 개편(2026-11-16)에서 코드와 대조해 찾은 제약이다. 각 영역의 현재 동작은 링크한 구현 문서에 있다.
+
+### 4.1 적재 ([`INGESTION.md`](INGESTION.md))
+
+1. `CLAIRE_PDF_DETECT_ENCODING_FLAWS`는 효과가 없다. `detect_pdf_encoding_flaws`는 항상 실행된다.
+2. fetcher 플러그인은 로드되지 않는다. `registry.load_plugins_from_dir`와 `load_entrypoints`를 부르는 실행 경로가 없어 `plugins/fetchers/`와 `claire.fetchers` 엔트리 포인트는 쓰이지 않는다.
+3. 올린 MP4·오디오 파일을 읽는 로컬 미디어 리더가 없다. 미디어 경로는 `fetch_video`(yt-dlp, 로컬 경로 [미검증])로 가고, 복합 메시지의 미디어 파일은 `fetch_file`에서 실패한다.
+4. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
+5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `telegram_bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
+6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
+7. 수집기는 기본적으로 저장 원문을 `raw_char_budget`에서 자른다. 자르지 않는 것은 `--full-content`를 줄 때뿐이다.
+
+### 4.2 추출과 1홉 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`ONEHOP_MERGE.md`](ONEHOP_MERGE.md))
+
+1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
+2. `evaluate_summary_verdict`는 `AntigravityProvider`에서만 돌고, 판정 결과에 따라 동작하는 코드가 없다.
+3. `multihop_candidates`는 엣지를 만들지 않는다(링킹 Phase 3은 계획).
+4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
+5. 1홉 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
+6. `CLAIRE_PREFERRED_LANGUAGES`는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
+
+### 4.3 판정 기록과 그래프 ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md), [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md))
+
+1. 홈의 '최근 판정' 카드는 테마의 `decision_stream_enabled`가 참일 때만 보이는데, 이 필드를 넣는 서버 코드가 없어 항상 숨는다.
+2. `POST /resolution/rollback`(owner)은 동작하지만 UI 단추는 '테스트되지 않음'으로 꺼져 있다. 롤백 페이로드에는 관계 재연결과 흡수 엔티티 스냅샷이 없고, `merge_documents`는 진 문서를 물리 삭제한다.
+3. 그래프 엔진 보류: 서버 측 좌표 캐시, 수천 노드에서 호버·라벨 후보의 공간 격자(GRAPH_ENGINE.md §13).
+
+### 4.4 문서 형식과 프레젠테이션 ([`DOCUMENT_FORMAT.md`](DOCUMENT_FORMAT.md), [`PRESENTATION.md`](PRESENTATION.md))
+
+1. 프레젠테이션 HUD와 미준비 페이지(`presentation/hud.py`, `presentation/views.py`)는 이모지 아이콘과 카탈로그 키 없는 한국어를 쓴다(G1, i18n 규칙 위반).
+2. 여러 본문을 함께 내보내는 기능(PDF, EPUB, 묶음)은 설계가 없다.
+
+### 4.5 인터페이스 언어 ([`I18N.md`](I18N.md))
+
+1. `heal_graph()`(`src/claire/store/db.py`)의 CLI 진행 줄은 한국어다(`doctor --heal`, `audit --heal`). ID6은 영어를 요구한다.
+2. `app.js`(재적재 대상 placeholder)와 `console_admin.js`(IdP 행 삭제 단추)에 고정 한국어가 있다. `templates/docs.html`은 `lang="ko"`로 고정이다.
+3. 카탈로그 키 `cli.preflight.header`와 `resolve_cli_locale()`은 쓰이지 않는다.
+
+### 4.6 계정, 공개 사이트, MCP ([`ACCOUNTS.md`](ACCOUNTS.md), [`PUBLIC_SITE.md`](PUBLIC_SITE.md), [`API_AND_MCP_GUIDE.md`](API_AND_MCP_GUIDE.md))
+
+1. `/admin/idp`의 로그인 정책 카드(승인·자동 가입, 허용 도메인, `email_verified`, Back-Channel Logout)는 프로토타입이다. 저장하는 API가 없고 서버가 적용하지 않는다. 가입은 초대로만 한다.
+2. `og:site_name`은 고정 문자열 "Claire Bible"이고 `CLAIRE_SITE_NAME`을 쓰지 않는다. `CLAIRE_SITE_DESCRIPTION`은 쓰이지 않는다.
+3. robots `Disallow` 목록에 `/admin`, `/settings`, `/api`, `/@{username}/` 경로가 없다.
+4. `robots_txt_route`·`sitemap_xml_route`의 테마 호스트 분기(`get_theme_by_fqdn`)는 실제로 맞지 않는다. `HostRouter`가 옛 테마 호스트를 먼저 보낸다.
+5. sitemap 캐시는 문서를 숨겨도 지워지지 않고 TTL(기본 900초)을 기다린다. 한 테마의 오류와 공유 토큰 생성 중 `sqlite3.OperationalError`는 무시되어 일부만 담긴 sitemap이 정상처럼 보인다(C2).
+6. `ThemeManager.get_theme(None)`은 관리자 기본 테마가 없으면 `is_default` 테마나 테마 0으로 대체한다.
+7. MCP: 텔레메트리에 `client_id`가 없고, OAuth 토큰 목록·폐기 경로와 자격증명별 호출 한도가 없다. `claire token create`의 클라이언트 예시는 `server-everything`이다(MCP_SUPPORT.md MP1–MP4).
+
+### 4.7 운영, 텔레메트리, 데이터 ([`TELEMETRY.md`](TELEMETRY.md), [`OPERATIONS.md`](OPERATIONS.md), [`FEDERATION.md`](FEDERATION.md))
+
+1. `telemetry.db`의 모든 연결(`connect_telemetry`)이 DDL·ALTER를 실행한다. Support Bundle 진단 조회도 읽기 전용이 아니다.
+2. 텔레메트리 자동 정리는 없다. `claire telemetry --prune`만 지운다. 보관 기한 30일은 설정할 수 없다.
+3. 프로바이더 텔레메트리는 Antigravity만 기록한다.
+4. `cb-manuscript update`는 업데이트 전 백업을 자동으로 만들지 않는다. backup v1 manifest는 `claire.db` 하나만 검증한다.
+5. 컨테이너 경량화와 관계 판정 전 온톨로지 게이트(Antigravity Phase 3)는 구현되지 않았다.
+6. 데이터 저장 배치 DS-3(계정별 관리자 적재 한도)은 구현되지 않았다.
+7. 연합 FP4 보류 항목: D1(계정별 차단·숨김·신고), D2(계정별 발신 속도 한도), D4/RD12(외부 연결 계정), 피드 자동 적재 규칙.

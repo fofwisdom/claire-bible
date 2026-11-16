@@ -32,6 +32,7 @@
    * [3.15 원문 아티팩트 압축 포맷 마이그레이션 (`artifact-migrate`)](#315-원문-아티팩트-압축-포맷-마이그레이션-artifact-migrate)
    * [3.16 지식그래프 엔티티 대표 레이블 관리 (`entity`)](#316-지식그래프-엔티티-대표-레이블-관리-entity)
    * [3.17 계정 퇴역 이름 초기화 (`release-username`)](#317-계정-퇴역-이름-초기화-release-username)
+   * [3.18 그래프 번들 (`export-graph`, `import-graph`)](#318-그래프-번들-export-graph-import-graph)
 4. [미구현(Unimplemented) / 부분 구현 옵션 및 상태 명세](#4-미구현unimplemented--부분-구현-옵션-및-상태-명세)
 5. [참고문헌](#5-참고문헌)
 
@@ -186,6 +187,8 @@ Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행
 
 `claire`는 Python 패키지 내부 엔트리포인트이며, 로컬에서는 `uv run claire <cmd>`, 배포 환경에서는 `./cb-manuscript app <cmd>`로 실행한다.
 
+**`target` 해석** (`store.db.resolve_document_targets`, [PRINCIPLES.md](../PRINCIPLES.md) D1): (1) 정확한 문서 ID, (2) URL 정규화 전에 꺼낸 `?s=` 공유 토큰 또는 16자 토큰, (3) URL(`https://`가 없으면 붙인다)과 정규화 URL, (4) 제목·URL·ID 부분 일치(최신순, 최대 50건). 문서 하나만 바꾸는 명령은 `resolve_single_document_target`을 써서 여러 건 일치를 오류로 거부한다. 단, ID나 토큰으로 일치한 것이 정확히 하나면 그것을 쓴다.
+
 ### 3.1 시스템 상태 및 지식그래프 진단/수복
 
 | 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
@@ -306,7 +309,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>] [--focus <focus>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
 | `format-migrate` | `./cb-manuscript app format-migrate [--format adoc] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
-| `format-status` | `./cb-manuscript app format-status` | `uv run claire format-status` | 문서 detail의 포맷별(md, adoc, 누락) 통계 출력 |
+| `format-status` | `./cb-manuscript app format-status [--format adoc] [--json]` | `uv run claire format-status [...]` | 문서 detail이 AsciiDoc인지, 아닌지, 누락인지 통계 출력. `--format`은 `adoc`만 받는다 |
 | `truncation-status` | `./cb-manuscript app truncation-status [<target>] [--json]` | `uv run claire truncation-status [...]` | 원문 절단(20k 슬라이싱) 및 메타데이터 누락 문서 진단 리포트 (단축: `truncation-scan`) |
 | `truncation-backfill` | `./cb-manuscript app truncation-backfill [<target>] [--apply] [--mark-refresh] [--force] [--yes] [--json]` | `uv run claire truncation-backfill [...]` | 메타데이터 누락 절단 문서에 `raw_truncated` 소급 기록 (기본: dry-run, 실행: `--apply`, 단축: `backfill-truncation`) |
 | `stt-scan` | `./cb-manuscript app stt-scan [<target>] [--doc-id <ID>] [--json]` | `uv run claire stt-scan [...]` | 오디오/비디오 문서 음성 전사(STT) 상태, 절단 여부 및 detail 작성 상태 정밀 진단 (단축: `scan-stt`) |
@@ -317,7 +320,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | `backfill-images` | `./cb-manuscript app backfill-images [--limit N]` | `uv run claire backfill-images [...]` | 문서 내 참조된 이미지 에셋 추출 및 다운로드 백필 |
 | `recompile-html` | `./cb-manuscript app recompile-html [<target>] [-t <theme>] [--all]` | `uv run claire recompile-html [...]` | 저장된 상세(detail)로부터 `detail_html` AOT 사전 컴파일 갱신 (멀티 테마 및 단건 대상 지원) |
 | `reextract` | `./cb-manuscript app --advanced reextract [--tables] [--no-rebuild] [--limit N]` | `uv run claire reextract [...]` | 저장된 `raw_text`로부터 지식그래프 전체(또는 표 포함 문서)를 재추출 (파괴적 명령으로 호스트에서 `--advanced` 필요) |
-| `re-embed` | `./cb-manuscript app re-embed [--limit N] [--apply] [--dry-run]` | `uv run claire re-embed [...]` | 기존 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 프레임으로 일괄 재계산·갱신 (기본: dry-run, 실행: `--apply`) |
+| `re-embed` | `./cb-manuscript app re-embed [--limit N] [--dry-run]` | `uv run claire re-embed [...]` | 테마의 모든 엔티티를 `format_entity_frame`과 현재 임베딩 모델(기본 `gemini-embedding-001`)로 다시 임베딩하고, 테마 고정 모델을 바꾸며 다른 모델의 벡터를 지운다 (기본: 실행, 시뮬레이션: `--dry-run`) |
 | `link-relations` | `./cb-manuscript app link-relations [--limit N] [--min-score F] [--dry-run]` | `uv run claire link-relations [...]` | 기존 지식 그래프 내의 엔티티 간 벡터 유사도를 기반으로 횡단 관계(Edge)를 자동 발굴·수립 (기본: apply, 시뮬레이션: `--dry-run`) |
 | `recover-run` | `./cb-manuscript app recover-run [--limit N] [--max-attempts N]` | `uv run claire recover-run [...]` | **[에러 인박스 자동복구]** 재시도 기한(next_retry_at)이 도래한 실패 항목 지수 백오프 1회 재처리 |
 | `replay-failed` | `./cb-manuscript app replay-failed [--limit N] [--include-failed]` | `uv run claire replay-failed [...]` | **[실패 인박스 강제 재적재]** `raw_inbox`의 에러/실패 항목을 즉시 수동 강제 재적재 |
@@ -448,20 +451,19 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--no-rebuild`: 그래프 초기화(reset_graph) 없이 기존 그래프에 누적 추출.
 
 #### `re-embed`
-기존에 저장된 지식그래프 엔티티 노드들의 벡터 임베딩을 최신 모델(`text-embedding-004`) 및 온톨로지 구조화 프레임(`format_entity_frame`)으로 일괄 재계산하여 벡터 저장소(`vector_store`)를 갱신한다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
+저장된 지식그래프 엔티티의 벡터 임베딩을 현재 임베딩 모델(기본 `gemini-embedding-001`)과 온톨로지 구조화 프레임(`format_entity_frame`)으로 다시 계산해 벡터 저장소를 갱신한다. 기본은 실행이다. ([EXTRACTION.md](EXTRACTION.md) §6 참조)
 * **사용법**:
   ```bash
-  ./cb-manuscript app re-embed                    # 재임베딩 대상 노드 수 진단 (기본: Dry-run)
-  ./cb-manuscript app re-embed --apply            # 실제 임베딩 API 호출 및 DB 갱신
-  ./cb-manuscript app re-embed --apply --limit 50 # 상위 50개 노드만 부분 갱신
+  ./cb-manuscript app re-embed --dry-run          # 대상 노드 수와 계획만 출력 (DB 변경 없음)
+  ./cb-manuscript app re-embed                    # 실제 임베딩 API 호출 및 DB 갱신
+  ./cb-manuscript app re-embed --limit 50         # 상위 50개 노드만 부분 갱신
   ```
 * **옵션**:
-  * `--apply`: 실제 임베딩 계산 및 벡터 스토어 저장을 수행 (미지정 시 기본 dry-run).
-  * `--dry-run`: 대상 노드 수와 계획만 출력하고 DB 변경 없음 (기본값).
+  * `--dry-run`: 대상 노드 수와 계획만 출력하고 DB 변경 없음.
   * `--limit <N>`: 재계산할 최대 엔티티 수 제한.
 
 #### `link-relations`
-기존에 축적된 지식베이스 전체 엔티티의 벡터 임베딩을 분석하여, 아직 연결되지 않은 엔티티 쌍 중 유사도 `[min_score, 0.93)` 대역에 위치한 후보군을 발굴하고 LLM 관계 판정기(`judge_relationship`)를 통해 전역 횡단 엣지(Edge)를 일괄 수립한다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조)
+기존에 축적된 지식베이스 전체 엔티티의 벡터 임베딩을 분석하여, 아직 연결되지 않은 엔티티 쌍 중 유사도 `[min_score, 0.93)` 대역에 위치한 후보군을 발굴하고 LLM 관계 판정기(`judge_relationship`)를 통해 전역 횡단 엣지(Edge)를 일괄 수립한다. ([EXTRACTION.md](EXTRACTION.md) §6 참조)
 * **사용법**:
   ```bash
   ./cb-manuscript app link-relations --dry-run             # 횡단 관계 판정 시뮬레이션 (DB 변경 없음)
@@ -577,17 +579,18 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.8 데이터 수명주기 및 오염 소각 (Lifecycle & Purge)
 
-* `claire purge <target> [--doc-id <ID>] [--token <token>] [--url <URL>] [--pattern <str>] [--reason <str>] [--no-tombstone] [--untombstone] [--apply] [--yes] [--json]`:
+* `claire purge <target> [-t <theme>] [--doc-id <ID>] [--token <token>] [--url <URL>] [--canonical-url <URL>] [--pattern <str>] [--reason <str>] [--no-tombstone] [--untombstone] [--apply] [--dry-run] [--yes] [--json]`:
   * **스마트 타깃 자동 판별**: `target` 하나로 문서 ID(SHA256/UUID), 공유 링크(`/p?s=token`), 일반 원본 URL, 정규화된 canonical URL, 프로토콜 누락 도메인(`domain.com/...`), 제목 키워드를 4단계 우선순위로 자동 판별.
-  * **수명주기 게이트**: 기본 상태(`CLAIRE_DATA_LIFECYCLE=purgeable`, `CLAIRE_ALLOW_PURGE=1`)에서 실행 허용 (`CLAIRE_DATA_LIFECYCLE=append-only` 및 `CLAIRE_ALLOW_PURGE=0` 시 안전 차단).
-  * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `raw/attachments`, `images`) Unlink ➔ `heal_graph` 수복(출처 소멸 고아 엔티티·관계 연쇄 소각) ➔ `VACUUM` 압축을 일괄 수행.[^video-presentation-implementation]
+  * **수명주기 게이트**: `CLAIRE_DATA_LIFECYCLE=purgeable`이거나 `CLAIRE_ALLOW_PURGE`가 참이면 허용한다. 둘 다 아닐 때만 차단한다(종료 코드 1, HTTP 403).
+  * **원자적 소각**: 툼스톤(`purged_tombstones`) 등록 ➔ DB 테이블 연쇄 Hard Delete ➔ 로컬 파일시스템 아티팩트(`raw/artifacts`, `raw/attachments`, `images`) Unlink ➔ `heal_graph` 수복(출처 소멸 고아 엔티티·관계 연쇄 소각) ➔ `VACUUM` 압축을 일괄 수행. 발행된 연합 객체도 같은 트랜잭션에서 회수(툼스톤과 Delete 작업)하고, 소각 전 문서의 그래프 기여를 되돌린다.[^video-presentation-implementation] 현재 동작: [DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) §2–§3.
   * **툼스톤 등록 제어 (`--no-tombstone`)**: 기본값은 소각 시 `purged_tombstones`에 지문을 등록하여 동일 URL/해시의 영구 재유입을 차단한다. 테스트 목적 또는 포맷/옵션을 변경하여 즉시 재수집(re-ingest)하려는 경우 `--no-tombstone` 옵션을 지정하면 툼스톤 등록을 건너뛰어 향후 재수집이 가능하다.
   * **툼스톤 해제 (`--untombstone`)**: 등록된 툼스톤 지문을 해제(삭제)하여 차단된 문서의 재수집 및 재적재를 복원 (`claire untombstone <target>`과 동일).
   * **공유 링크 소각 경고**: 공유 링크로 식별된 경우 단순 링크 무효화가 아닌 원본 문서 전체 파괴임을 Dry-Run에 명시적 경고.
   * 기본 실행은 Dry-Run으로 영향 범위를 사전 출력하며, `--apply` 지정 시 실제 소각 실행 (대화형 `[y/N]` 확인 또는 `--yes`/`-y`로 무인 실행).
 * `claire untombstone <target> [-t <theme>] [--doc-id <ID>] [--url <URL>] [--canonical-url <URL>] [--pattern <str>] [--json]`:
   * **툼스톤 해제 및 인박스 복원**: 소각 시 등록된 툼스톤 지문을 원자적으로 삭제하고, 차단되어 `raw_inbox`에서 `error` 상태로 멈춘 수집 큐 항목을 즉시 `pending` 상태로 복원하여 자동/수동 재적재(`replay-failed`)를 가능하게 복원.
-* `claire audit [<target>] [--pattern <str>] [--json]`:
+* `claire audit [<target>] [--pattern <str>] [--check] [--heal] [-t <theme>] [--json]`:
+  * 관계 sources, 이미지 파일, 툼스톤 위반(id·canonical URL·content hash가 일치하는 문서) 수도 보고한다.
   * 특정 키워드, URL, ID, 또는 툼스톤 대상이 DB(문서/인박스/추출/스냅샷), 로컬 디스크 파일, 엔티티 sources에 1건이라도 남아있는지 전수 검사하고 Freelist 미회수 용량을 보고.
 
 ---
@@ -615,14 +618,14 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **다운로드 내구성**: `telemetry.db`의 레코드와 원문 토큰을 포함하지 않는 권한 `0600` SHA-256 sidecar를 함께 기록한다. DB 레코드가 유실되거나 읽기 실패해도 사용자가 가진 토큰과 sidecar가 일치하면 유효기간 안의 파일을 제공한다. 생성 직후 같은 조회·경로 검증에 실패하면 URL을 반환하지 않는다.
   * **6시간 자동 파기**: 번들 생성 시 6시간 유효한 보안 다운로드 토큰(`GET /support/bundle?token=...`)을 발급하며, 생성 6시간 경과 시 디스크 및 DB에서 자동 파기 (`410 Gone`).
   * **옵션**:
-    * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(기본 30일)을 초과할 수 없음.
+    * `--days N`: 수집 대상 기간 (기본값: 1일). 텔레메트리 보관 기한(30일, 코드 상수)을 초과할 수 없음.
     * `--target <target>`: 추적 대상 공유 링크, 토큰, URL 또는 문서 ID 지정. 문서가 없어도 일치하는 실패 인박스나 `not_observed` 진단 상태를 포함한 번들을 생성한다.
     * `--list`: 현재 유효한(미만료) Support Bundle 목록 및 토큰 조회.
     * `--purge`: 6시간을 초과한 만료 번들 즉시 수동 파기.
     * `--json`: 번들 메타데이터를 JSON 포맷으로 출력.
 
 * `Telegram 봇: /support bundle [<일수>] [<대상>]`, `/support bundle list`, `/support bundle purge`:
-  * **원격 진단 번들 발급**: 텔레그램 채팅창에서 `/support bundle` 명령으로 즉시 최근 1일(또는 지정 일수, 대상 문서)의 zstd 진단 번들을 생성하고 6시간 다운로드 링크를 회신받음. 생성은 Compose 내부 owner 인증 API에 위임되어 다운로드 담당 API가 같은 저장소에서 생성·등록·검증한다.[^telemetry-implementation]
+  * **원격 진단 번들 발급**: 텔레그램 채팅창에서 `/support bundle` 명령으로 즉시 최근 1일(또는 지정 일수, 대상 문서)의 zstd 진단 번들을 생성하고 6시간 다운로드 링크를 회신받음. 관리자 봇은 `CLAIRE_SUPPORT_BUNDLE_API_URL`이 있으면 내부 admin API(`POST /support/bundle`)에 위임하고, 없으면 같은 프로세스에서 만든다. 멤버 봇은 계정 범위 번들을 만든다([TELEMETRY.md](TELEMETRY.md)).[^telemetry-implementation]
   * **인라인 원터치 액션 (`sb:{doc_id}`)**: 보관 문서의 공유 링크(`/p?s=token`) 또는 문서 ID를 봇에 전송하면 나타나는 스마트 액션 메뉴에 `[📦 Support Bundle 생성]` 버튼이 제공되어 원클릭으로 특정 문서 추적 번들 생성 가능.
   * **문서 첨부 전송**: 봇은 6시간 다운로드 URL 회신과 함께 생성된 `.tar.zst` 파일을 텔레그램 문서로 채팅방에 직접 첨부 전송(best-effort).
 
@@ -630,7 +633,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.10 지식 테마 관리 및 단일 DB 테마 파티셔닝 (Theme Management)
 
-`claire theme` 명령군은 단일 SQLite 데이터베이스(`data/claire.db`, Schema v14) 내의 `themes` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
+`claire theme` 명령군은 단일 SQLite 데이터베이스(`data/claire.db`) 내의 `themes` 테이블 및 `themes.json` 레지스트리를 통해 지식 테마를 생성, 변경, 조회, 리셋, 삭제/소각(`--purge`)하는 관리자 CLI 도구이다.[^theme-implementation]
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
@@ -694,19 +697,19 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 
 ### 3.11 프레젠테이션 관리 및 렌더링 (`presentation`)
 
-`claire presentation` 명령군은 Asciidoctor reveal.js 기반의 HTML 슬라이드 쇼 프레젠테이션을 LLM으로 자동 저작(compose)하고, 컴파일(compile)하며, 진단 및 상태를 관리하는 엔진이다.
+`claire presentation` 명령군은 Asciidoctor reveal.js 기반의 HTML 슬라이드 쇼 프레젠테이션을 LLM으로 자동 저작(compose)하고, 컴파일(compile)하며, 진단 및 상태를 관리하는 엔진이다. `doctor`를 뺀 모든 하위 명령은 `-t/--theme-id`를 받고, `recompile`과 `doctor`를 뺀 하위 명령은 `--doc-id`도 받는다. CLI는 테마별 프레젠테이션 스위치를 검사하지 않는다. 원고 수정 명령(`edit-adoc`)은 없다: `PUT /document/presentation/adoc`을 쓴다. 현재 동작: [PRESENTATION.md](PRESENTATION.md).
 
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
-| `presentation compose` | `claire presentation compose <target> [--focus <F>] [--slide-budget <N>] [--theme <T>] [--transition <TR>] [--no-compile] [--force] [--json]` | 문서 본문(detail)으로부터 AsciiDoc reveal.js 프레젠테이션 원고 저작 및 자동 컴파일 |
+| `presentation compose` | `claire presentation compose <target> [--focus <F>] [--slide-budget <N>] [--theme <T>] [--transition <TR>] [--no-compile] [--json]` | 문서 본문(detail)으로부터 AsciiDoc reveal.js 프레젠테이션 원고 저작 및 자동 컴파일 |
 | `presentation compile` | `claire presentation compile <target> [--theme <T>] [--transition <TR>] [--force] [--json]` | 이미 저작된 AsciiDoc 프레젠테이션 원고를 reveal.js HTML 슬라이드로 컴파일 |
 | `presentation show-adoc` | `claire presentation show-adoc <target> [--json]` | 특정 문서에 저작된 프레젠테이션 AsciiDoc 소스 코드 조회 (단축: `view-adoc`) |
 | `presentation generate` | `claire presentation generate <target> [--all] [--limit <N>] [--theme <T>] [--transition <TR>] [--force] [--focus <F>] [--slide-budget <N>] [--json]` | 단건 또는 전체 문서에 대해 저작과 컴파일을 일괄 수행 (단축: `render`) |
 | `presentation status` | `claire presentation status <target> [--json]` | 문서 프레젠테이션 생성 여부, 장표 수, 파일 크기, 컴파일 시간, 뷰어 URL 조회 |
-| `presentation recompile` | `claire presentation recompile [--theme <T>] [--transition <TR>] [--json]` | 기존에 저작된 모든 프레젠테이션을 새 스타일/테마로 강제 일괄 재컴파일 |
+| `presentation recompile` | `claire presentation recompile [--all] [--theme <T>] [--limit <N>] [--json]` | 기존에 저작된 모든 프레젠테이션을 새 스타일/테마로 강제 일괄 재컴파일 |
 | `presentation doctor` | `claire presentation doctor [--json]` | 호스트 환경의 Asciidoctor reveal.js 컴파일러 실행 파일 및 가용성 진단 |
 
-* **지원 테마 (`--theme`)**: `sky`, `beige`, `simple`, `serif`, `solarized`, `blood`, `moon`, `night` (기본값), `league`, `black`, `white`.
+* **테마 (`--theme`)**: 자유 문자열이다. 동봉된 reveal.js 테마 CSS는 `beige`, `black`, `blood`, `league`, `moon`, `night` (기본값), `serif`, `simple`, `sky`, `solarized`, `white`다.
 * **지원 슬라이드 전환 효과 (`--transition`)**: `none`, `fade`, `slide` (기본값), `convex`, `concave`, `zoom`.
 
 ---
@@ -865,6 +868,14 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * **보안 및 영향**:
     * 과거 외부에 공개된 `/@{name}` 링크나 멘션이 존재할 경우, 이름 초기화 후 신규 가입한 다른 사용자 계정으로 연결될 수 있으므로 신중한 적용이 요구된다.
     * 초기화 후 동일한 이름으로 새로 가입한 사용자는 완전히 새로운 `account_id`와 `public_id`를 발급받으며 과거 계정의 데이터나 권한에 접근할 수 없다.
+
+---
+
+### 3.18 그래프 번들 (`export-graph`, `import-graph`)
+
+* `claire export-graph [-t <theme>] [-o <path>] [--json]`: 엔티티·관계·정제된 문서 메타와 검토 증거(`review_*`)를 `.tar.zst` 번들로 만든다. 벡터와 비밀값은 넣지 않는다.
+* `claire import-graph <bundle> [-t <theme>] [--target-db <path>] [--json]`: 그래프 테이블만 가져온다. `review_*` 테이블은 적재하지 않는다.
+* 현재 동작: [GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §6.
 
 ---
 

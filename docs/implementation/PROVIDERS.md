@@ -1,6 +1,6 @@
 # LLM·STT·VLM 프로바이더 구현 정본
 
-기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3)
+기준 커밋: P4 프로바이더 정책과 BYOK 구현 (2026-11-04) · 대상 독자: 프로바이더를 고치거나 추가하는 에이전트와 운영자 · 원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) C2 · 설정값 목록: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §10, §11, §13.3 (Rev. 2.3) · 설계 원칙: [MULTI_PROVIDER_DESIGN.md](../design/MULTI_PROVIDER_DESIGN.md), [ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](../design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) · 텔레메트리: [TELEMETRY.md](TELEMETRY.md)
 
 이 문서는 **지금 코드가 어떤 프로바이더를 어떻게 분류·선택·격리하고 호출하는지**를 적는다. 줄 번호 대신 파일 경로와 함수·상수 이름을 기준점으로 삼는다.
 
@@ -134,12 +134,17 @@
 - **[코드] 동시성**: 인스턴스마다 `threading.Semaphore(CLAIRE_AGY_MAX_CONCURRENCY)`를 둔다.
 - **[코드] 격리**: `allow_tools=False`(기본)이면 "도구 금지" 지시문을 붙이고 `tempfile.gettempdir()/claire_agy_clean`을 작업 디렉터리로 쓴다. `research`만 `allow_tools=True`로 호출한다.
 - **[코드] 임베딩**: `GEMINI_API_KEY`가 있으면 Gemini 임베딩을 직접 호출한다. 키가 없으면 개발 환경은 결정론적 의사 벡터(`EMBED_DIM`)를 돌려주고 운영 환경은 `ProviderUnavailableError`를 던진다.
+- **[code] Effort by task** (basis: commit d15ae8e0, 2026-11-16): `judge_same_entity`, `judge_relationship`, `classify_watch`, `judge_research`, and `select_followups` call `_run_cli` with `effort="low"`. Extraction and detail rendering use the configured effort.
+- **[code] Telemetry identity**: each call gives `call_type` and, where known, `document_id` to `_run_cli`, which writes a provider telemetry row ([TELEMETRY.md](TELEMETRY.md) §2).
+- **[code] Parallel relation judgement**: in `src/claire/ingest/pipeline.py` the cross-link relation judgement runs the candidates in a `ThreadPoolExecutor` with `min(candidates, provider.max_concurrency)` workers. Graph writes happen after all judgements, in the calling thread. Same-entity judgement is not parallel.
 
 ### 4.3 Codex CLI (`CodexProvider`)
 
 - **[코드] 관리자 전용**: 호스트 바이너리(`CLAIRE_CODEX_BIN`)를 호스트 로그인 상태로 실행한다. 멤버 컨텍스트에서는 생성이 거부된다.
 - **[코드] 동시성**: `(바이너리, 한도)` 단위의 프로세스 공유 `BoundedSemaphore`(`_shared_semaphore`)로 제한한다.
 - **[코드] 격리**: 호출마다 임시 디렉터리(`claire-codex-`)를 작업 디렉터리로 쓰고 프롬프트는 stdin/임시 파일로 전달한다.
+- **[code] Command flags** (basis: commit d15ae8e0): `--ask-for-approval never`, then `exec --strict-config --ephemeral --ignore-user-config --ignore-rules --skip-git-repo-check --sandbox read-only`. It disables the shell, plugin, multi-agent, browser, and similar features with `--disable`, and gives the output contract with `--output-last-message` and, for structured calls, `--output-schema`. Only `research` adds `--search`.
+- **[code] Native host only**: `cb-manuscript` refuses the Codex provider for the Docker profile (`_reject_native_only_provider` in `config_preflight`, `ops/cb_manuscript.py`). Use `uv run claire ...` on the host.
 - **[코드] 임베딩**: Codex에는 임베딩 기능이 없다. `GEMINI_API_KEY`가 있으면 `GeminiProvider`에 위임하고 없으면 `RuntimeError`를 던진다.
 
 ### 4.4 테마별 임베딩 모델 고정 (Theme Embedding Pinning)
@@ -198,6 +203,16 @@
 - **BYOK 토큰 계측**: BYOK 계정이 소비한 토큰도 원장에 누적 기록되나, 월 토큰 예산 초과 차단은 서버 등급 컨텍스트(`source="tier"`)에만 적용된다.
 
 ---
+
+## 5A. Management surface
+
+Basis: commit d15ae8e0 (2026-11-16).
+
+- **[code] HTTP routes**: `GET`/`HEAD /providers`, `PATCH`/`POST /providers`, `POST /providers/test`, and `POST /providers/check` in `src/claire/api/server.py`. The route table in `src/claire/api/security.py` allows them only for `admin`.
+- **[code] Secret masking**: `ProviderManager.get_settings_dict` returns an API key as `••••••••` when a key is set. `ProviderManager.update_config` keeps the stored key when the request sends the mask or an empty value. It clears the key only for an empty value with `clear_api_key`.
+- **[code] Connection test**: `ProviderManager.test_connection` checks a key, a model, or a CLI binary before or after a save. For Gemini, a masked key in the request means the stored key.
+- **[code] Storage**: `data/providers.json`, written by `ProviderManager.save_config`. The env migration (`migrate_from_env_if_needed`) and its effect on `.env` are in §0 and §2.1.
+- **[code] CLI**: `claire providers` (`list`, `test [<provider>]`, `migrate`). See [`COMMANDS.md`](COMMANDS.md) §3.12.
 
 ## 6. 프로바이더를 추가할 때
 

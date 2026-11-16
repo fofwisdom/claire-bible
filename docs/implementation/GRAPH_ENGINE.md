@@ -1,6 +1,6 @@
 # 그래프 엔진 구현 정본 (Graph Engine Implementation Reference)
 
-기준 커밋: `99f98e3` (2026-10-31) · 대상 독자: 지식 그래프 화면을 고치거나 확장하는 에이전트 · 설계 배경(왜 이렇게 만들었는가): [GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md](../design/GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md)
+기준 커밋: `d15ae8e0` (2026-11-16; 처음 작성 `99f98e3`, 2026-10-31) · 대상 독자: 지식 그래프 화면을 고치거나 확장하는 에이전트 · 설계 원칙(왜 이렇게 만들었는가): [GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md](../design/GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md), 페이지 조립과 정적 자산: §15, [GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md](../design/GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md)
 
 이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 줄 번호는 금방 바뀌므로 파일 경로와 함수·상수 이름을 기준점으로 삼는다. 찾을 때는 `grep -n "<이름>" <파일>`을 쓴다. 각 항목에는 근거를 붙였다.
 
@@ -35,7 +35,7 @@
 | `src/claire/store/queries.py` | `/graph` 응답 생성 | `graph_json` |
 | `src/claire/graphview.py` | 정적 자산을 묶어 단일 HTML 생성 | `_GRAPH_ENGINE_FILES`, `_build_standalone_graph_html` |
 
-규모 [코드]: `core.js` 178줄, `simulation.js` 710줄, `renderers.js` 402줄, `network.js` 1,200줄, `app.js` 7,132줄.
+규모 [코드, `d15ae8e0`]: `core.js` 178줄, `simulation.js` 710줄, `renderers.js` 402줄, `network.js` 1,202줄, `app.js` 7,930줄.
 
 ---
 
@@ -312,7 +312,7 @@ e2e 시드 데이터는 작아서 별 무리, 카메라, 라벨 문제를 재현
    ```
 3. 그 DB로 개발 모드 서버를 띄운다(백그라운드).
    ```bash
-   CLAIRE_DB_PATH=<스크래치>/snapshot.db CLAIRE_INJECT_PORT=8767 CLAIRE_PUBLIC_URL=http://127.0.0.1:8767/ CLAIRE_ALLOW_INSECURE_HTTP=true CLAIRE_ENVIRONMENT=development CLAIRE_INJECT_TOKEN=<개발용 토큰> uv run python -m claire.cli serve-api
+   CLAIRE_DB_PATH=<스크래치>/snapshot.db CLAIRE_INJECT_PORT=8767 CLAIRE_PUBLIC_URL=http://127.0.0.1:8767/ CLAIRE_ENVIRONMENT=development CLAIRE_INJECT_TOKEN=<개발용 토큰> uv run python -m claire.cli serve-api
    ```
 4. 로컬 DB에는 운영에 없는 형식 안내 배너(`#format-warn-banner`)가 떠서 그래프 영역 높이가 줄어든다. 운영과 비교할 때는 이 배너를 숨기고 측정한다.
 
@@ -380,7 +380,7 @@ Shopify Editions Fall '26 참고 관찰 [실측, 2026-10-30]:
 ## 13. 알려진 한계와 미검증
 
 - **[미검증] WebGPU 렌더링 화질.** 검증 환경(헤드리스 swiftshader)에서는 장치 손실로 Canvas2D로 폴백했다. 실제 GPU 브라우저에서 WGSL 경로를 눈으로 비교하지 않았다.
-- **[코드] 서버 측 좌표 캐시가 없다.** 같은 데이터면 결정적 해시로 같은 지도가 나오지만, 새로고침 사이에 사용자가 끈 위치는 남지 않는다(설계 문서 8절).
+- **[코드] 서버 측 좌표 캐시가 없다.** 같은 데이터면 결정적 해시로 같은 지도가 나오지만, 새로고침 사이에 사용자가 끈 위치는 남지 않는다(P7 안정 좌표의 서버 측 절반, 보류).
 - **[코드] 필터를 바꾸면 별 무리가 다시 짜인다.** 별의 상대 위치가 바뀔 수 있다. 별 하나의 모양(숲)은 유지된다.
 - **[코드] 프레임당 O(n) 작업.** 호버 재판정(`_hitNode`)과 라벨 후보 정렬(O(n log n))이 매 프레임 전체 노드를 훑는다. 수천 개 규모에서 공간 격자로 바꿀 여지가 있다.
 - **[코드] `focus()`는 겹친 컨트롤 영역을 반영하지 않는다(§8).**
@@ -402,3 +402,43 @@ Shopify Editions Fall '26 참고 관찰 [실측, 2026-10-30]:
 | 새 이벤트 | `network.js`에서 `this.emit('<이름>', payload)`, app.js에서 `net.on` | 마커 테스트의 이벤트 목록(`test_graph_engine_interaction_model`) |
 | 노드 크기·글자 크기 규칙 | app.js `nodeRadius`, `nodeFontSize` | 크기 변경은 `_structureChanged`를 거쳐 재구축을 일으킨다 |
 | 새 엔진 파일 추가 | `graphview.py` `_GRAPH_ENGINE_FILES`(의존 순서) | 마커 테스트, 외부 의존성 없음 원칙 |
+
+---
+
+## 15. Page assembly and static assets (`graphview.py`)
+
+Basis: commit d15ae8e0 (2026-11-16). This section is in English.
+
+### 15.1 Layers [code]
+
+| Layer | Location | Content |
+| :--- | :--- | :--- |
+| Data queries | `src/claire/store/queries.py` | `graph_json`, `documents_list`, `documents_page`, `node_detail`, `document_detail`, `dedup_clusters`, `synthesis_context`, `synthesize`, `theme_summary`. The API server, the MCP tools (`src/claire/api/mcp_tools.py`), and the CLI import them from here. |
+| Templates | `src/claire/templates/` | `index.html` (workspace), `share.html` (shared document), `syndication.html`, `console_shell.html`, and other page shells |
+| Static assets | `src/claire/static/` | `css/` (`theme.css`, `appbar.css`, `workspace.css`, `reader.css`, `syndication.css`, `reveal-claire.css`), `js/` (`app.js`, `reader.js`, `command_palette.js`, `i18n.js`, `icons.js`, `graph/`, `renderers/adoc_parser.js`, console and syndication scripts), `fonts/`, `icons/`, `locales/`, `vendor/`, `docs/` |
+| Page assembly | `src/claire/graphview.py` | Builds the inline bundles and fills the slots for each request |
+
+`graphview.py` re-exports the query functions of `store/queries.py` for old imports [code].
+
+### 15.2 Inline bundles [code]
+
+- At import time, `graphview.py` builds three strings: `GRAPH_HTML` (`_build_standalone_graph_html`), `_SHARED_HTML` (`_build_standalone_shared_html`), and `SYNDICATION_HTML` (`_build_standalone_syndication_html`).
+- Each builder reads a template, removes its `<link … href=/static/css/…>` and `<script src=/static/js/…>` tags, and puts the CSS and JS file contents inline in the page.
+- `GRAPH_HTML` script order: config, `i18n.js`, `icons.js`, the four engine files (`_GRAPH_ENGINE_FILES`), `adoc_parser.js`, `reader.js`, `command_palette.js`, `app.js`.
+- The shared page and the workspace use the same AsciiDoc parser file `static/js/renderers/adoc_parser.js`. There is no copy of the parser in Python strings.
+- `localize_page` resolves the translation slots (`${html_lang}`, `${t:key}`, `${tj:key}`) once for each locale (`lru_cache` on `_graph_html_for`, `_syndication_html_for`, `_shared_html_for`).
+- `render_graph_html` and `shared_html` replace the request slots (for example `__SOURCE_BASE_URL__`, `__THEMES_JSON__`, `__CLAIRE_API_BASE__`, `<!-- __GA_TAG__ -->`, `<!-- __I18N_CATALOG__ -->`).
+- A change in a template, CSS, or JS file of these three pages shows only after a server restart, because the bundles are built at import time.
+
+### 15.3 Static file serving [code]
+
+- `src/claire/api/server.py` mounts `/static` with Starlette `StaticFiles` on `src/claire/static/`.
+- `src/claire/api/security.py` makes `GET` and `HEAD` on `/static/{path:path}` public.
+- The console pages (`src/claire/api/accounts_routes/console.py`) load their scripts from `/static/js/` with `defer`; they are not inline bundles.
+- The wheel includes the assets because `pyproject.toml` has `only-include = ["src/claire"]`.
+
+### 15.4 Tests [code]
+
+- `tests/test_graphview.py`: bundle markers (Section 0, item 3).
+- `tests/test_graphview_runtime.py`: checks the JavaScript syntax of the static files and of the bundled pages (`GRAPH_HTML`, `_SHARED_HTML`) with `node --check`, and checks the structural tags of templates and bundles. It needs a `node` executable. Browser behavior is tested by Playwright (`e2e/workspace.spec.js`).
+- No front-end build step exists: no npm bundler, no transpiler [decision].

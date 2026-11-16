@@ -1,7 +1,7 @@
 # Data Store Layout: Database Files, Subsystem Versions, and the Knowledge Database of Accounts
 
 - **Document Identifier**: `DESIGN-DATA-STORE-LAYOUT-20261113`
-- **Status**: Draft. Owner decisions RD27, RD28, and RD29 are locked (2026-11-13).
+- **Status**: Partly implemented. Owner decisions RD27, RD28, and RD29 are locked (2026-11-13). Implemented: RD27 with units DS-1 and DS-2 (`client.db` with its own version, the move of the feed tables in `claire.db` version 22, tests that compare with the version constants); current behavior in [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md) (section on `client.db`) and [`FEDERATION.md`](../implementation/FEDERATION.md) Section 15. RD28 option A is the current layout (one knowledge database). RD29 rule 1 is replaced by the shared knowledge base design (Section 5). Planned, not implemented: unit DS-3 (RD29 rule 2, one ingest limit for each account that the admin sets). Section 1 gives the facts at the base commit, not the current state.
 - **Date**: 2026-11-13
 - **Related Documents**:
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (FP4; Section 7 uses this layout)

@@ -1,10 +1,10 @@
 # Federation Client and Remote Reading Design (Phase FP4)
 
 - **Document Identifier**: `DESIGN-FEDERATION-REMOTE-READING-20261113`
-- **Status**: Draft. Owner decisions RD1 to RD11 and RD13 to RD29 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). No work unit starts before the technical items of its unit are confirmed (Section 12).
+- **Status**: Implemented: all work units of Section 14 (FP4-0 to FP4-10, FP4-F1 to FP4-F3, FP4-P1; 2026-11-13 to 2026-11-16). Current behavior: [`FEDERATION.md`](../implementation/FEDERATION.md) Sections 15 to 27. Planned, not implemented: the deferred work D1, D2, and D4 of Section 1.2.1, the auto-ingest rule of a feed (Section 1.3 rule 7, a later proposal), and the ideas I1 to I3 of Section 4.2 (no design). Owner decisions RD1 to RD11 and RD13 to RD29 are locked (2026-11-13). RD12 is deferred (Section 13). The visual prototype is [`prototypes/federation_client_prototype.html`](prototypes/federation_client_prototype.html). The facts of Sections 2 and 12 and the [code] tags are true at the base commit; the code is the current source.
 - **Date**: 2026-11-13 · Base Commit `dad0f28c`
-- **Revises**: [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.4 (non-goal "Reading remote content through the native actor"), §11 item 3 (no remote HTML, replies, likes, and announces not stored), and §14.1 row FP4.
-- **Carries over**: [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.5.1 principle 2 (collection is not ingestion) and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
+- **Revises**: the first scope of [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (the non-goal "Reading remote content through the native actor", the rule that no remote HTML, replies, likes, and announces are stored, and the phase FP4 row). That design is now condensed to its principles; its first version is in git history.
+- **Carries over**: from the retired syndication design `SYNDICATION_ENDPOINT_DESIGN.md` (its last version is at commit `d15ae8e0` in git history), the principle that collection is not ingestion and the role of the prototype tab "🌐 연합 클라이언트" (Section 1.3).
 - **Related Documents**:
   - [`PRINCIPLES.md`](../PRINCIPLES.md)
   - [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (K10, §15 S1, D1)
@@ -61,9 +61,9 @@ Rules:
 2. The knowledge base sends nothing to remote servers by itself. Each outbound activity starts from an action of the owner in the client: a reply, a favourite, a boost, a publish, or a retract.
 3. The client and the knowledge base are two views of `/syndication`, not two pages. A separate viewer page is not used.
 4. The client is per account (P1). A theme switch changes the knowledge base view and the publish targets. It does not change the timeline.
-5. The connected-account client model of [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) (Mastodon client API and AT Protocol through external accounts) has no backend at the base commit. RD12 decides whether the client also shows those accounts.
+5. The connected-account client model of the retired syndication design (Mastodon client API and AT Protocol through external accounts) has no backend at the base commit. RD12 decides whether the client also shows those accounts.
 6. **Navigation (RD14).** The page uses the stage pipeline N2: a bar with the three stages 1 collection (수집), 2 ingestion (적재), and 3 publication (게시), each with its counts. Stage 1 opens the client. Stages 2 and 3 open the knowledge base view; stage 3 is its filter of unpublished and published documents with their reactions. Reason: the bar shows a new user the model of the system at first sight. The page also has a command palette, a flow record, and links between a post and its document. The prototype keeps the rejected proposals N1 (workspace rail) and N3 (two views side by side with drag and drop) for reference.
-7. **Feeds (RD13, RD15).** RSS 2.0, Atom 1.0, and JSON Feed subscriptions are also first collection of the account, in the same client. **Baseline goal:** a Tiny Tiny RSS user moves the subscription list into Claire with OPML. Thus OPML import is required: each `outline` with `xmlUrl` becomes a feed, nested category outlines become folders (one level of folders in the first version; deeper levels join their names), and `title` or `text` is the feed title. Outlines that are not feeds (for example settings, filters, or labels that a reader application adds; **[unverified]** the exact names in a Tiny Tiny RSS export) are skipped and listed in the import report. A feed that already exists is not added again. The import report gives counts of added, skipped, and failed outlines. **Feeds work in single mode and in network mode** (RD15). They need no actor and no federation switch; in single mode the client shows the feeds and no actor tree. The auto-ingest rule of a feed is not part of the baseline; it is a later proposal. A feed has no interaction target: a "share" of a feed item is a new note with the link (the rule of [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) for quotes of RSS items). The subscribe dialog finds the feeds of a site (`<link rel="alternate">`) and an ActivityPub actor of the same site; when an actor exists, the client offers a follow instead. A feed of an actor that the account follows is merged by item URL with the timeline. Polls use conditional `GET` (`ETag`, `Last-Modified`), WebSub when the feed has a hub, backoff on `429` and `5xx`, and the private address check. `<category>` values stay raw tags until ingestion. A feed can have an auto-ingest rule to one theme: a standing rule that the owner sets, off by default.
+7. **Feeds (RD13, RD15).** RSS 2.0, Atom 1.0, and JSON Feed subscriptions are also first collection of the account, in the same client. **Baseline goal:** a Tiny Tiny RSS user moves the subscription list into Claire with OPML. Thus OPML import is required: each `outline` with `xmlUrl` becomes a feed, nested category outlines become folders (one level of folders in the first version; deeper levels join their names), and `title` or `text` is the feed title. Outlines that are not feeds (for example settings, filters, or labels that a reader application adds; **[unverified]** the exact names in a Tiny Tiny RSS export) are skipped and listed in the import report. A feed that already exists is not added again. The import report gives counts of added, skipped, and failed outlines. **Feeds work in single mode and in network mode** (RD15). They need no actor and no federation switch; in single mode the client shows the feeds and no actor tree. The auto-ingest rule of a feed is not part of the baseline; it is a later proposal. A feed has no interaction target: a "share" of a feed item is a new note with the link (the rule of the retired syndication design for quotes of RSS items). The subscribe dialog finds the feeds of a site (`<link rel="alternate">`) and an ActivityPub actor of the same site; when an actor exists, the client offers a follow instead. A feed of an actor that the account follows is merged by item URL with the timeline. Polls use conditional `GET` (`ETag`, `Last-Modified`), WebSub when the feed has a hub, backoff on `429` and `5xx`, and the private address check. `<category>` values stay raw tags until ingestion. A feed can have an auto-ingest rule to one theme: a standing rule that the owner sets, off by default.
 
 ---
 
@@ -128,7 +128,7 @@ This section is the answer when someone asks about these features. Each item is 
 | :--- | :--- | :--- |
 | I1 Theme as a group | A theme becomes a `Group` actor (FEP-1b12 subset): remote users follow the theme, and the theme sends its published documents as `Article` and `Announce`. | Not designed. It is not clear that a theme becomes a real group actor. Needs an owner decision and a design revision of this document. Possible triggers: the SWICG Groups report specifies `Join` and the policy names (Section 3), or the owner wants the stable FEP-1b12 subset. |
 | I2 Exchange between Claire Bible servers only | Claire Bible servers exchange content (for example themes or published documents) with ActivityPub among themselves, not with the open fediverse. | A concept only. No protocol profile, no trust model, no discovery rule. Needs a design of its own. *Design started in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (owner, 2026-11-16).* |
-| I3 Bodies published by other users of the same server | The prototype feature "다른 사용자 발행 본문" of [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) §3.9. | Proposal state in that document. Depends on per-user workspaces. Not part of FP4. |
+| I3 Bodies published by other users of the same server | The prototype feature "다른 사용자 발행 본문" of the retired syndication design (its Section 3.9, in git history): users of the same server see the bodies that other users published, through a server-wide index, and republish them from their own accounts under the reuse policy of the author. | A proposal only. Depends on per-user workspaces. Not part of FP4. |
 
 Rules for a question about these ideas: say that the item is an idea without a design; give the state from this table; do not describe tables, routes, or activities for it as if they exist.
 
@@ -149,7 +149,7 @@ Changes (done as `claire.db` version 20 on 2026-11-13; see [`SCHEMA_VERSIONING.m
 2. Rebuild `syndication_dispatches` without `item_id` and `account_id` (A3: copy all rows with the same IDs). The cross-theme dispatch keeps its behavior.
 3. Safety: an operator of the server does not manage the database directly (owner, 2026-11-13). Thus the migration never stops the start and never deletes rows. It drops an empty table. It keeps a table that has rows under the name `<table>_retired_v20` and logs a warning with the row count. Theme deletion and account purge delete the rows of these tables by `theme_id`.
 4. Account feeds (RD13) and connected external accounts (RD12, option B) get new account-scoped tables in their own units. They do not use the old tables.
-5. Documents: `SCHEMA_VERSIONING.md`, `API_HTTP_CONTRACT.md`, and [`SYNDICATION_ENDPOINT_DESIGN.md`](SYNDICATION_ENDPOINT_DESIGN.md) (its Section on the `syndication_*` schema gets a note that this design replaces it).
+5. Documents: `SCHEMA_VERSIONING.md`, `API_HTTP_CONTRACT.md`, and the syndication design (retired on 2026-11-16).
 
 ### 4.4 Ingest of One Item
 
@@ -219,7 +219,7 @@ The task has a new column `target_iri` for the remote actor or the remote object
 8. **Object path.** A note has the IRI `/ap/objects/{public_id}` in the same number space as the published documents (RT7). The note is in the outbox collection of the actor.
 9. **Own notes in the thread.** An own note is also an item of the own timeline (`in_timeline` = 1 for a reply in a thread that the account reads), so the thread view shows it.
 10. **Ingest of a note.** An own note is not ingested automatically. The owner can ingest it with Section 4.4 like any other item (Section 1.3 rule 1).
-11. Visibility is public only (parent design §1.4). A note is not sent when the account is not an actor; the route gives 409 `not_actor`.
+11. Visibility is public only (parent design: no direct messages and no followers-only visibility). A note is not sent when the account is not an actor; the route gives 409 `not_actor`.
 12. **Composition fields (RD11, 2026-11-13).** All are required for notes:
     - **Edit.** The owner can change the text, the content warning, the language, and the tags of an own note. Claire sends `Update(Note)` with `updated`. The client shows "edited".
     - **Content warning.** An optional `summary` with `sensitive` = true. The client shows the summary first, as for inbound items (Section 8 rule 4).
@@ -648,9 +648,9 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD20 | Prototype host | The prototype leaves the app path `/prototype/syndication`. It is served on its own host role `prototype`, as a static page with mock data only. The prototype is a tool for the maintainer: it has no setting. The host name is fixed in code: `prototype.` + the registrable domain of `CLAIRE_FQDN` (Public Suffix List), for example `prototype.netspheres.org` for `cb.netspheres.org`. The static prototype of this design replaces the old one. The difference between the prototype and the real server is synchronized later. | Locked 2026-11-13 |
 | RD21 | Content of a published document | The `Article` of a published document has the summary and the share link only, not the body (Section 5.5). | Locked 2026-11-13 |
 | RD22 | Markdown bodies | Ingestion stops making Markdown bodies; AsciiDoc is the only body format. Old Markdown documents stay readable without an operator action. Design: [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md). | Locked 2026-11-13 |
-| RD23 | Markdown setting | `CLAIRE_RENDER_FORMAT=md` and its code paths are sealed and closed, not maintained, and kept only as a reference for the Markdown export ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 3). | Locked 2026-11-13 |
-| RD24 | Markdown in Claire | Markdown is used only for the export of an ingested AsciiDoc document ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 4). | Locked 2026-11-13 |
-| RD25 | Markdown removal | No conversion: the update deletes the remaining Markdown bodies once and all Markdown code. Markdown export comes from the context menu of an item in `/syndication` ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) RD25, Section 5). | Locked 2026-11-13 |
+| RD23 | Markdown setting | `CLAIRE_RENDER_FORMAT=md` and its code paths are sealed and closed, not maintained, and kept only as a reference for the Markdown export ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md)). | Locked 2026-11-13 |
+| RD24 | Markdown in Claire | Markdown is used only for the export of an ingested AsciiDoc document ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md)). | Locked 2026-11-13 |
+| RD25 | Markdown removal | No conversion: the update deletes the remaining Markdown bodies once and all Markdown code. Markdown export comes from the context menu of an item in `/syndication` ([`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) RD25). | Locked 2026-11-13 |
 | RD26 | Media storage backends | Local storage is the default. S3-compatible object storage is supported with Garage as the reference implementation (Section 9.1.1). | Locked 2026-11-13 |
 | RD27 | Database files | Database files by the kind of data, each with its own version: `claire.db` (shared assets), `client.db` (communication data of accounts), `auth.db`, `fedify.db` ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md)). Section 7.1 uses it. | Locked 2026-11-13 |
 | RD28 | Knowledge data of accounts | One knowledge database now, with triggers for one file for each account ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) Section 4). | Locked 2026-11-13 |
@@ -660,7 +660,7 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 
 ## 14. Phases and Work Units
 
-The work unit rules of the parent design §14.4 apply.
+Work unit rules (from the parent design): the agent does one unit for each instruction of the owner and then stops; a unit starts only after the units of its "After" column; a unit ends with passing tests for its scope and one commit.
 
 | Unit | Scope | Completion criteria | After | Size |
 | :--- | :--- | :--- | :--- | :--- |
@@ -691,7 +691,7 @@ Publication unit (RD21). It changes FP3 behavior and needs no FP4 table:
 | :--- | :--- | :--- | :--- | :--- |
 | FP4-P1 | **Done 2026-11-13; rule 5 of Section 5.5 done 2026-11-15 (`claire.db` version 23).** Object content of a published document: summary and share link (Section 5.5), `update` task on a change of the summary or the share link, tests and fixtures of the federation contract (`object.json`), `FEDERATION.md` | The object of a published document has the summary paragraph and the share link, and no text of the body. A body with a script or Markdown marks does not change the object. The end-to-end publish test reads the summary at a test inbox. | — | S |
 
-The Markdown units MD-1 to MD-5 (RD22 to RD24) are in [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) Section 7.
+The Markdown units MD-1 to MD-5 (RD22 to RD25) are done. Current behavior: [`DOCUMENT_FORMAT.md`](../implementation/DOCUMENT_FORMAT.md).
 
 Order (owner, 2026-11-13): the feed units start first (version 21), parallel to FP4-0. FP4-2 follows as version 22.
 
@@ -709,4 +709,4 @@ Units that can be done in any order after their "After" units: FP4-1 and FP4-2; 
 
 ### 14.2 Tests
 
-The tests follow the repository test policy and the parent design §14.2. All servers are local (PRINCIPLES A2). The media proxy tests use a local HTTP server, and the object storage tests use a local S3-compatible server.
+The tests follow the repository test policy and the test rules of the parent design (shared contract fixtures, fixed keys and clocks, local servers only). All servers are local (PRINCIPLES A2). The media proxy tests use a local HTTP server, and the object storage tests use a local S3-compatible server.

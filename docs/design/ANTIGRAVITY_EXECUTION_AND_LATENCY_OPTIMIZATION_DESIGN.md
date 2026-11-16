@@ -1,19 +1,13 @@
 # Antigravity CLI 적재 지연 해소 및 실행 격리·최적화 아키텍처 설계
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
-
-> [!NOTE]
-> 전체 프로바이더 통합 스펙 및 설정 레퍼런스는 [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md)에 집약되어 있다. 본 문서는 Antigravity CLI의 실측 프로덕션 지연 분석 및 실행 격리 심층 연구 자료이다.
-
-작성일: 2026-09-27 · 상태: **Phase 1-2 Implemented / Phase 3-4 Roadmap** · 기준: [GOALS.md](../GOALS.md) 트랙1/2 추출 성능 및 신뢰성 · 관련 문서: [KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md), [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md), [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md), [ENVIRONMENT_VARIABLES.md](../implementation/ENVIRONMENT_VARIABLES.md)
-
----
+- **Status**: Partly implemented. Implemented (Phase 1 and 2): tools forbidden and an empty working directory for `agy` calls that need no tools, `effort=low` for judgement tasks, `call_type` and `document_id` in telemetry, and parallel relation judgement. Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §4.2. Planned, not implemented: the ontology plausibility gate (Phase 3, §3.3) and the production regression check (Phase 4).
+- **Date**: 2026-09-27 · condensed 2026-11-16
+- **Related**: [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md), [`TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md`](TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)
 
 ## 1. 배경 및 프로덕션 실사 데이터 분석
 
 ### 1.1 프로덕션 실사 배경
-2026년 9월 27일, 프로덕션 환경(`cb.netspheres.org`)에서 수집된 최신 Support Bundle(`support_bundle_61a676e4`) 실사 중 단일 웹 문서 적재에 **12분 46초(766초)**가 소요되는 심각한 지연 현상이 확인되었다. 직전 적재된 HWP 및 PDF 보고서에서도 각각 9분 26초, 12분 44초가 소요되어 파이프라인 전반에 공통적인 병목이 고착화되어 있음이 입증되었다.
+2026년 9월 27일, 프로덕션 서버에서 수집된 최신 Support Bundle(`support_bundle_61a676e4`) 실사 중 단일 웹 문서 적재에 **12분 46초(766초)**가 소요되는 심각한 지연 현상이 확인되었다. 직전 적재된 HWP 및 PDF 보고서에서도 각각 9분 26초, 12분 44초가 소요되어 파이프라인 전반에 공통적인 병목이 고착화되어 있음이 입증되었다.
 
 ### 1.2 최신 적재 문서 실측 타임라인 (`doc_ddd82c7b40d5`)
 * **대상 문서**: *What is JPEG XL: do we really need another image format? | DebugBear* (`https://www.debugbear.com/blog/jpeg-xl-image-format`)
@@ -64,184 +58,12 @@
 
 ## 3. 코드 레벨 개선 아키텍처
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Claire Bible Ingestion Core                           │
-└────────────────────────────────────────┬────────────────────────────────────────┘
-                                         │
-                 ┌───────────────────────┴───────────────────────┐
-                 ▼                                               ▼
-┌───────────────────────────────────┐           ┌───────────────────────────────────┐
-│     pipeline.py 동시성 및 최적화     │           │   antigravity_provider.py 격리    │
-├───────────────────────────────────┤           ├───────────────────────────────────┤
-│ • ThreadPoolExecutor 병렬 판정     │           │ • allow_tools=False (도구 차단)   │
-│ • 온톨로지 양립성 사전 게이트        │           │ • cwd="/tmp/claire_agy_clean"     │
-│ • 다중 후보 배치(Batch) 인터페이스   │           │ • 작업별 맞춤 effort (low 분기)   │
-│ • call_type / doc_id 전달         │           │ • 텔레메트리 식별자 완전 주입     │
-└───────────────────────────────────┘           └───────────────────────────────────┘
-```
+### 3.1 and 3.2 Decisions in force for the implemented part
 
-### 3.1 `AntigravityProvider`: 순수 추론 모드 및 격리 환경 구축
-
-#### (1) `allow_tools` 매개변수 및 시스템 지시문 주입
-`research()`를 제외한 모든 호출(`extract`, `render_detail`, `judge_*`, `classify_*`)은 도구 호출이 필요 없는 순수 생성/분류 작업이다.
-
-```python
-# src/claire/extract/antigravity_provider.py
-
-def _run_cli(
-    self,
-    prompt: str,
-    *,
-    json_schema: dict | None = None,
-    output_format: str = "json",
-    dangerously_skip_permissions: bool = True,
-    effort: str | None = None,
-    call_type: str = "cli",
-    document_id: str | None = None,
-    allow_tools: bool = False,  # 기본값: 도구 비활성화 (순수 추론 모드)
-) -> Any:
-    # 도구가 불필요한 작업에 강력한 단일 턴 생성 지침 주입
-    if not allow_tools:
-        suppression_header = (
-            "[SYSTEM DIRECTIVE: DIRECT INFERENCE ONLY]\n"
-            "Do NOT invoke any tools, search files, read repository paths, or run shell commands.\n"
-            "Generate the requested output immediately in a single response turn based solely on "
-            "the provided prompt context and internal knowledge.\n\n"
-        )
-        prompt = suppression_header + prompt
-```
-
-#### (2) 작업 디렉터리(`cwd`) 임시 격리
-컨테이너 내부 소스코드 탐색 및 파일 와처 오버헤드를 원천 차단하기 위해 독립된 빈 임시 디렉터리를 `cwd`로 지정한다.
-
-```python
-    clean_cwd = Path(tempfile.gettempdir()) / "claire_agy_clean"
-    clean_cwd.mkdir(parents=True, exist_ok=True)
-
-    proc = subprocess.run(
-        cmd,
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-        timeout=self.timeout,
-        cwd=clean_cwd if not allow_tools else None,
-        check=False,
-    )
-```
-
-#### (3) 작업 유형별 `effort` 동적 분기 및 텔레메트리 식별자 전달
-단순 분류/판정 작업은 `effort="low"`를 적용하여 Thinking 지연을 최소화한다.
-
-```python
-    def judge_same_entity(
-        self, mc: MergeCandidate, *, document_id: str | None = None
-    ) -> bool:
-        prompt = judge_same_entity_prompt(mc)
-        try:
-            res = self._run_cli(
-                prompt,
-                output_format="text",
-                effort="low",  # 동일체 판정은 low로 즉시 판정
-                call_type="judge_same_entity",
-                document_id=document_id,
-                allow_tools=False,
-            )
-            return str(res).strip().upper().startswith("SAME")
-        except Exception as e:
-            logger.warning("judge_same_entity call failed: %s", e)
-            return False
-
-    def judge_relationship(
-        self, rc: RelationCandidate, *, document_id: str | None = None
-    ) -> RelationJudgement:
-        prompt = judge_relationship_prompt(rc)
-        schema = RelationJudgement.model_json_schema()
-        try:
-            data = self._run_cli(
-                prompt,
-                json_schema=schema,
-                output_format="json",
-                effort="low",  # 관계 판정 100초 -> 10초 내외 단축
-                call_type="judge_relationship",
-                document_id=document_id,
-                allow_tools=False,
-            )
-            if isinstance(data, dict):
-                return RelationJudgement.model_validate(data)
-            return RelationJudgement.model_validate_json(str(data))
-        except Exception as e:
-            logger.warning("judge_relationship parsing failed: %s", e)
-            return RelationJudgement(has_relation=False, reason=f"판정 실패: {e}")
-```
-
----
-
-### 3.2 `pipeline.py`: 판정 루프 동시성 병렬화
-
-`pipeline.py`의 전역 관계 판정(Phase 2) 루프를 `ThreadPoolExecutor` 기반 동시성 실행으로 전환한다. 이미 `AntigravityProvider` 내부에 세마포어(`self._sem`)가 존재하므로, `max_workers = getattr(provider, "max_concurrency", 2)`로 안전하게 병렬 처리된다.
-
-```python
-# src/claire/ingest/pipeline.py Phase 2 관계 판정부
-
-if eval_candidates:
-    if on_progress:
-        on_progress("전역 지식 관계(Cross-link) 판정", f"후보 {len(eval_candidates)}쌍 평가")
-    emit_progress(f"전역 지식 관계(Cross-link) 판정 ({len(eval_candidates)}쌍)")
-
-    max_workers = min(len(eval_candidates), getattr(provider, "max_concurrency", 2))
-
-    def _eval_single_candidate(item: tuple[Entity, str, float]):
-        e_node, cand_id, score = item
-        cand = dbm.get_entity(conn, cand_id)
-        if cand is None:
-            return None
-
-        rc = RelationCandidate(
-            entity_a_name=e_node.name,
-            entity_a_type=e_node.type,
-            entity_a_observations=e_node.observations[:5],
-            entity_a_aliases=e_node.aliases[:5],
-            entity_b_name=cand.name,
-            entity_b_type=cand.type,
-            entity_b_observations=cand.observations[:5],
-            entity_b_aliases=cand.aliases[:5],
-            similarity_score=score,
-            context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
-        )
-        try:
-            try:
-                judgement = judge_rel_method(rc, document_id=doc.id)
-            except TypeError:
-                judgement = judge_rel_method(rc)
-        except Exception:
-            judgement = None
-        return (e_node, cand, judgement)
-
-    # 병렬 평가 실행
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        evaluated_results = list(executor.map(_eval_single_candidate, eval_candidates))
-
-    # GraphStore 커밋 (DB 쓰기는 메인 스레드 직렬화 보장)
-    for res_item in evaluated_results:
-        if not res_item:
-            continue
-        e_node, cand, judgement = res_item
-        if judgement and judgement.has_relation and judgement.relation_type:
-            rtype, _ = classify_relation_type(judgement.relation_type)
-            s_id, t_id = (cand.id, e_node.id) if judgement.direction == "backward" else (e_node.id, cand.id)
-            s_name, t_name = (cand.name, e_node.name) if judgement.direction == "backward" else (e_node.name, cand.name)
-
-            added_rel = gstore.add_edge(s_id, t_id, rtype, confidence=judgement.confidence, sources=[doc.id])
-            if added_rel is not None:
-                report.relations_added += 1
-                report.cross_relations_added += 1
-                report.cross_linked_relations.append(f"{s_name} -> {t_name} ({rtype})")
-                if cand not in touched_entities:
-                    touched_entities.append(cand)
-```
-
----
+- **Calls that need no tools forbid tools.** The prompt gets a direct-inference header, and the process starts in an empty working directory. Reason: §2.1 and §2.2. Only research may use tools.
+- **Simple judgements use low effort.** Reason: §2.3. The result of a one-word decision did not get better with more thinking time.
+- **Relation judgements run in parallel, graph writes stay serial.** The worker count follows the concurrency limit of the provider. Reason: §2.4. SQLite writes must stay in one thread.
+- **Each call carries its call type and document.** Reason: §2.5. Telemetry must show which document caused which calls.
 
 ### 3.3 온톨로지 양립성 사전 게이트 (Heuristic Filter)
 

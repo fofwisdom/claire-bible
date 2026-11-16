@@ -1,9 +1,9 @@
 # Container Slimming & Dependency Decoupling Design
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+- **Status**: Planned, not implemented. Owner decision in force: option A (keep `ffmpeg` and `yt-dlp` in the main image). The image at commit d15ae8e0 is still single-stage and still has system Chromium and the `stealth` extra (`scrapling[fetchers]`); only the removal of the `uv` and pip caches in the same layer exists (`Dockerfile`).
+- **Date**: 2026-09-08
 
-> **문서 번호:** SPEC-CONTAINER-20260908-01 (Phase 1) **문서 상태:** 설계 및 구현 규격 (Specification) **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](../CLAIRE_ARCHITECTURE_ROADMAP.md) (과제 1 / Phase 1) **관련 문서:** [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [OPERATIONS.md](../implementation/OPERATIONS.md)
+> **문서 번호:** SPEC-CONTAINER-20260908-01 (Phase 1) **상위 문서:** [CLAIRE_ARCHITECTURE_ROADMAP.md](CLAIRE_ARCHITECTURE_ROADMAP.md) (과제 1 / Phase 1) **관련 문서:** [PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](./PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md), [OPERATIONS.md](../implementation/OPERATIONS.md)
 
 ---
 
@@ -11,7 +11,7 @@
 
 본 문서는 클레어바이블(Claire-Bible) 메인 컨테이너의 비대화 문제를 해결하고, 자원 제약이 있는 소형 VPS 및 개인 연구 환경에서도 가볍고 신속하게 동작할 수 있도록 **컨테이너 경량화 및 의존성 분리(Container Slimming & Dependency Decoupling)** 아키텍처를 정의한다.
 
-프로덕션 서버(`root@clairebible.netspheres.org`) 실사 결과, 단일 이미지 크기가 **디스크 2.17GB, 압축 582MB**에 달하는 것으로 확인되었다. 본 설계는 기존의 추출 프롬프트 파이프라인과 산출물의 정합성을 온전히 유지하면서, 메인 이미지 크기를 **약 180~200MB (압축 시 ~70MB)** 수준으로 90% 이상 감축하는 것을 목표로 한다.
+프로덕션 서버 실사 결과, 단일 이미지 크기가 **디스크 2.17GB, 압축 582MB**에 달하는 것으로 확인되었다. 본 설계는 기존의 추출 프롬프트 파이프라인과 산출물의 정합성을 온전히 유지하면서, 메인 이미지 크기를 **약 180~200MB (압축 시 ~70MB)** 수준으로 90% 이상 감축하는 것을 목표로 한다.
 
 ```mermaid
 flowchart LR

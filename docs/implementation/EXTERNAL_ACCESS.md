@@ -280,7 +280,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
  }
  ```
  
- 자세한 REST API 엔드포인트 호출 및 MCP 툴셋/OAuth 2.1 연동 상세 가이드는 [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md)와 [MCP_SUPPORT.md](../design/MCP_SUPPORT.md)를 참고한다.
+ 자세한 REST API 엔드포인트 호출 및 MCP 툴셋/OAuth 2.1 연동 상세 가이드는 [API_AND_MCP_GUIDE.md](API_AND_MCP_GUIDE.md)를 참고한다. robots.txt, sitemap.xml, 공유 페이지 메타데이터, GA4 태그는 [PUBLIC_SITE.md](PUBLIC_SITE.md)에 있다.
  
 ## Support Bundle (RCA 및 진단 번들)
 
@@ -293,7 +293,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 - **다운로드 엔드포인트**: `GET /support/bundle?token=<token>`
   - **인증**: `public` (추측 불가능한 6시간 보안 토큰 쿼리 파라미터 기반)
   - **응답 헤더**: `Content-Type: application/zstd`, `Content-Disposition: attachment; filename="..."`
-  - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환한다. 자세한 내용은 [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md)를 참고한다.
+  - **수명주기**: 생성 후 6시간이 지나면 파일 및 레코드가 자동 파기되며 `410 Gone`을 반환한다. 자세한 내용은 [TELEMETRY.md](TELEMETRY.md) §3.5를 참고한다.
 
 ## 서브도메인 역할 호스트와 레거시 호스트 308 리다이렉트
 
@@ -356,7 +356,6 @@ P2부터 단일 FQDN 및 3대 역할 호스트(`app`, `usercontent`, `media`) �
   - 들어오는 요청의 피어 IP가 공인 대역(`is_global == True`)인 경우, Cloudflare 대역에 속하지 않으면 즉시 **`403 Forbidden`** ("Direct public IP access is not allowed")으로 차단.
   - **사설 대역 예외**: 사설망(10.x, 172.16-31.x, 192.168.x), 로컬 루프백(127.0.0.1, ::1), 도커 브릿지 네트워크 등 비공인 대역 IP는 필터링 대상이 아니므로 정상 통과.
 
-자세한 아키텍처 및 설정 가이드는 [THEME_FQDN_REVERSE_PROXY_DESIGN.md](../design/THEME_FQDN_REVERSE_PROXY_DESIGN.md)를 참고한다.
 
 ## 로그인 실패 제한의 클라이언트 IP (`CLAIRE_TRUSTED_PROXIES`)
 

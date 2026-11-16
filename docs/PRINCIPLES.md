@@ -99,7 +99,7 @@
 **F1. 현재 상태를 말하는 문장은 검증할 수 있는 문서에만 쓴다.** 현재 구현은 `implementation/` 문서에 쓰고 확인 기준 커밋을 적는다. 근거는 `[코드]`(소스 확인), `[실측]`(측정, 조건 포함), `[결정]`(소유자 방침), `[미검증]`으로 구분한다. 견본: [`GRAPH_ENGINE.md`](implementation/GRAPH_ENGINE.md)
 - 집행: `tests/test_docs_consistency.py`(링크, 코드 경로, 환경변수 집합과 기본값)
 
-**F2. `design/`은 과거 기록이다.** 설계 문서의 배경, 대안, 기각 사유는 남기지만 상태 필드를 현재에 맞춰 고치지 않는다. 구조를 바꾸는 커밋은 해당 구현 문서도 함께 고친다.
+**F2. `design/`은 의도와 이유, `implementation/`은 지금 있는 것을 말한다.** 기준은 [`AGENTS.md`](../AGENTS.md)다. 구현 상태가 바뀌면 설계 문서의 상태 줄도 함께 고치고, 구현된 아키텍처는 `implementation/`에 둔다. 구조를 바꾸는 커밋은 해당 구현 문서도 함께 고친다.
 
 ---
 
@@ -126,8 +126,7 @@
 이 문서는 다음에 흩어져 있던 원칙을 모은 것이다. 원문은 이력으로 남기고 이후에는 이 문서를 고친다.
 
 - [`GOALS.md`](GOALS.md) §3 품질 및 거버넌스 원칙, §5 공개 저장소 데이터 및 보안 정책
-- [`design/AGENT_FIRST_CLI_AND_ZERO_SPECULATION.md`](design/AGENT_FIRST_CLI_AND_ZERO_SPECULATION.md)
-- [`design/TARGET_IDENTIFIERS_AND_CLI_STANDARD.md`](design/TARGET_IDENTIFIERS_AND_CLI_STANDARD.md)
-- [`design/OPERATIONAL_MIGRATION.md`](design/OPERATIONAL_MIGRATION.md) §1
+- `design/AGENT_FIRST_CLI_AND_ZERO_SPECULATION.md`, `design/TARGET_IDENTIFIERS_AND_CLI_STANDARD.md` (지움, Git 이력에 있음)
+- `design/OPERATIONAL_MIGRATION.md` §1 (옮긴 뒤 지움, Git 이력에 있음)
 - `.gemini/rules/agentic-cli.md`
 - [`implementation/GRAPH_ENGINE.md`](implementation/GRAPH_ENGINE.md) §0의 `[결정]` 항목 중 운영 접근 금지

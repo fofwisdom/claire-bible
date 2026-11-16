@@ -69,7 +69,7 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 | `POST` | `/search` | `read` | 하이브리드 / FTS 키워드 지식 검색 |
 | `GET` | `/documents` | `read` | 아카이브된 문서 목록 조회. 정렬은 `fetched_at` 내림차순, 같으면 `id` 내림차순. 파라미터가 없으면 기존과 같이 최신 300건을 돌려주고, 응답에 `next_before`(다음 페이지 커서, 마지막 페이지면 `null`)와 `total`(커서를 뺀 필터 일치 건수)만 추가된다. 선택 파라미터: `limit`(1–300, 기본 300), `before=<fetched_at>:<id>`(이전 응답의 `next_before`), `pinned=0\|1`, `hidden=0\|1`, `q`(제목 또는 최신 추출 요약의 부분 일치, 200자 이하), `detail=missing\|mismatched`, `id`(반복 가능, 100개 이하). 잘못된 값은 `400`. `anonymous` 범위는 모든 페이지와 모든 필터에서 숨김 문서를 받지 않는다 |
 | `GET` | `/document` | `read` | 특정 문서 상세 및 본문 조회. `nodes[]`의 각 항목은 `id`, `label`, `group`, `observations`, `aliases` (엔티티 별칭 목록)를 포함한다. `extraction_provider`·`extraction_model`은 최근 추출의 프로바이더와 모델이고 추출 행이 없으면 `null`이다. 응답은 `detail`, `detail_html` 등 기존 필드는 엄격히 유지된다 |
-| `GET` | `/document/export` | `read` | 문서 하나를 파일로 내보낸다. `id`(필수), `format=markdown`(유일한 값, 기본값). AsciiDoc 본문을 Markdown으로 바꾸고 YAML 머리말(title, source, date, summary, claire_document_id)을 붙여 `text/markdown; charset=utf-8` 첨부 파일로 준다. 읽기 전용. 다른 `format`과 `id` 누락은 `400`, 없는 문서는 `404`. Claire가 Markdown을 쓰는 유일한 곳이다(RD24, [MARKDOWN_RETIREMENT_DESIGN.md](../design/MARKDOWN_RETIREMENT_DESIGN.md) §5) |
+| `GET` | `/document/export` | `read` | 문서 하나를 파일로 내보낸다. `id`(필수), `format=markdown`(기본값, `md`도 받는다). AsciiDoc 본문을 Markdown으로 바꾸고 YAML 머리말(title, source, date, summary, claire_document_id)을 붙여 `text/markdown; charset=utf-8` 첨부 파일로 준다. 읽기 전용. 다른 `format`과 `id` 누락은 `400`, 없는 문서는 `404`. Claire가 Markdown을 쓰는 유일한 곳이다(RD24, 현재 동작: [DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §5) |
 | `GET` | `/graph` | `read` | 전체 온톨로지 지식 그래프 데이터 (JSON). `nodes[]`의 각 항목은 `id`, `label`, `group`, `sources`, `obs`, `degree`, `created_at` (`entities.created_at`, 에포크 초)를 가진다. 요청 계정에 엔티티 언어(`accounts.entity_language`)가 있으면 `label`은 그 언어의 이름이다([ACCOUNTS.md](ACCOUNTS.md) "엔티티 언어") |
 | `GET` | `/node` | `read` | 특정 엔티티 노드 세부정보 및 연결선. 선택 파라미터 `docs=brief`: 각 출처 문서를 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file` 만으로 줄인다(`detail`, `detail_format`, `detail_html` 제외). 파라미터가 없으면 기본 응답은 변하지 않는다 |
 | `POST` | `/ingest` | `owner` | URL/텍스트 지식 적재 및 온톨로지 추출 |
@@ -115,15 +115,15 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 
 ### 6.2 통합 콘솔 경로 (`/admin/*`, `/settings/*`)
 
-확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 서버 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
+확인 기준: 콘솔 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). 섹션 목록과 §6.3은 기준 커밋 `d15ae8e0` (2026-11-16). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §5.9, §5.10이다. 모든 경로는 `GET`과 `HEAD`를 받고, 두 서버 모드에서 열리며, 루트에서만 받는다(`_system`, 접두 경로는 404). 200 HTML 응답과 302 응답은 `Cache-Control: no-store`, `Referrer-Policy: same-origin`이다.
 
 | Method | Path | 규칙 | 성공 | 그 밖의 응답 |
 |---|---|---|---|---|
 | `GET` | `/admin` | `admin` | 302 `/admin/server` | 404 비관리자(302보다 먼저), 404 잘못된 `?theme=` |
-| `GET` | `/admin/{server,accounts,idp,providers,limits,themes,tokens,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
+| `GET` | `/admin/{server,accounts,federation,idp,providers,limits,themes,tokens,backups,storage,mcp}` | `admin` | 200 HTML | 404 비관리자, 404 잘못된 `?theme=` |
 | `GET` | `/api/admin/mcp/telemetry` | `admin` | 200 `{"records": [...], "count": n}` | 400 `invalid_limit`(`limit`이 1–200 정수가 아님), 404 비관리자 |
 | `GET` | `/settings` | `owner` | 302 `/settings/account`, `?from=syndication`이면 302 `/settings/reader` (검증한 `?theme=` 유지) | 404 owner 아님, 404 잘못된 `?theme=` |
-| `GET` | `/settings/{account,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?theme=` |
+| `GET` | `/settings/{account,telegram,bundles,backups,federation,keys,themes,tokens}` | `owner` | 200 HTML. 관리자의 `/settings/themes`·`/settings/tokens`는 302 `/admin/themes`·`/admin/tokens` | 404 owner 아님, 404 잘못된 `?theme=` |
 | `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml,mcp,webmcp}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?theme=` |
 | `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?theme=`, 404 빈·모르는 `?tab=` |
 
@@ -131,6 +131,15 @@ $$\text{owner} \succ \text{readonly} \succ \text{anonymous} \succ \text{unauthen
 - **[코드]** `GET /settings/account?notice=`는 `password_not_saved`, `identity_linked`, `already_linked`만 안내문으로 그린다. 그 밖의 값은 무시한다.
 - **[코드]** 비관리자 응답 HTML에는 `/admin/*` 링크와 관리자 섹션 마크업이 없다. 싱글 모드에서는 이 경로들과 `GET /whoami`가 `@username`을 내지 않는다(S9).
 - **[코드]** `GET /api/admin/mcp/telemetry` 쿼리: `limit`(기본 50, 최대 200), `status`, `tool_name`, `since`(ISO 8601, 해석 실패 시 400 `invalid_since`). 레코드 필드: `id`, `timestamp`, `client_id`, `call_type`, `tool_name`, `duration_ms`, `status`, `error_code`, `error_message`, `response_bytes`. 최근 것부터.
+
+### 6.3 계정별 기능 경로 (텔레그램 봇, 번들, 백업)
+
+확인 기준: 커밋 `d15ae8e0` (2026-11-16). 동작의 정본은 [ACCOUNTS.md](ACCOUNTS.md) §14다.
+
+- **[코드]** `/api/me/telegram`, `/api/me/support-bundles`, `/api/me/support-bundles/download`, `/api/me/data-bundles`, `/api/me/data-bundles/download`, `/api/me/backups`, `/api/me/backups/download`, `/api/me/backups/policy` use the rule `_any("owner")`. They use the account of the credential. A bundle or backup of another account is handled as not found (404).
+- **[코드]** `/api/admin/account-backups` (GET, HEAD) and `/api/admin/account-backups/restore` (POST) use the rule `_system("admin")`. A restore conflict gives 409 `restore_conflict` and changes nothing.
+- **[코드]** Step-up authentication (§6.1) is necessary for bot register, replace, and delete, a change of allowed users, backup delete, and restore.
+- **[코드]** Responses never contain the bot token. They contain only metadata (`bot_username`, `fingerprint`, `status`).
 
 ## 7. 계정 피드 경로 (FP4-F1, FP4-F2)
 

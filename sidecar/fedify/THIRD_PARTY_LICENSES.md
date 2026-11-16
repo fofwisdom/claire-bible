@@ -1,6 +1,6 @@
 # Third-Party Licenses of the Fedify Sidecar
 
-This file lists each dependency in `deno.lock`. The rule is in Section 4.2 of the design [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../../docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md): a sidecar dependency must have the MIT, Apache-2.0, BSD, or ISC license. Other licenses need owner approval.
+This file lists each dependency in `deno.lock`. The rule is in "Decisions in Force", item 11, of the design [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](../../docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md): a sidecar dependency must have the MIT, Apache-2.0, BSD, or ISC license. Other licenses need owner approval.
 
 Update this file when `deno.lock` changes. The test `tests/test_federation_compose.py` fails when a package in `deno.lock` is not in the tables below.
 

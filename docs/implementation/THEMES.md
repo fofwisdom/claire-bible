@@ -1,6 +1,6 @@
 # 멀티 테마(단일 DB 파티셔닝) 구현 정본
 
-기준 커밋: `00e06cb` (2026-11-02) · 대상 독자: 테마 경계를 건드리는 에이전트와 운영자 · 스키마 계약: [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) · 명령: [`COMMANDS.md`](COMMANDS.md) §3.10
+기준 커밋: `00e06cb` (2026-11-02); §0-4, §3, §5, §7, §8은 `d15ae8e0` (2026-11-16)에서 다시 확인 · 대상 독자: 테마 경계를 건드리는 에이전트와 운영자 · 설계 원칙: [`MULTI_THEME_ARCHITECTURE_DESIGN.md`](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) · 스키마 계약: [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) · 명령: [`COMMANDS.md`](COMMANDS.md) §3.10 · 공개 사이트와 GA: [`PUBLIC_SITE.md`](PUBLIC_SITE.md)
 
 이 문서는 **지금 코드가 테마를 어떻게 저장하고, 요청을 어느 테마로 보내고, 경계를 어떻게 지키는지**를 적는다. 근거 태그는 [`PROVIDERS.md`](PROVIDERS.md)와 같다: `[코드]`, `[실측]`, `[결정]`, `[미검증]`.
 
@@ -15,7 +15,7 @@
    - 집행: `tests/test_theme_id_explicit.py`가 요청 경로 모듈(`api/`, `telegram_bot.py`, `ingest/`, `expand/`, `retrieval/`, `presentation/`, `graph_bundle.py`)에서 `store.db`·`store.queries`의 `theme_id` 함수를 이 인자 없이 부르는 곳을 찾아 실패시킨다. 모든 테마가 대상이면 `theme_id=None`처럼 명시해야 한다.
    - 이 검사 밖: 직접 쓴 SQL, `store.vectors`, `pipeline.ingest`
 3. **[코드] 없는 테마는 다른 테마로 바뀌지 않는다.** `ThemeManager.get_theme(ref)`는 찾지 못하거나 접근할 수 없는 테마에 `ThemeNotFound`(`KeyError` 하위 클래스)를 던진다(§3). 참조를 생략한 경우(`None`, 빈 문자열) 주체 계정의 기본 테마(`theme.is_default=True`, 관리자는 0)로 매칭한다. 레이블 부분 일치는 호출자가 `label_match="partial"`을 줄 때만 쓴다.
-4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 추가 테마 생성(`POST /themes`)만 잠그며, Theme 0 메타데이터와 번호는 항상 DB의 `themes` 테이블에서 읽어 일관된 코드 경로로 동작한다.
+4. **[코드] 단일 테마 모드(`CLAIRE_MULTI_THEME=0`)에서도 Theme 0은 DB에서 읽는다(K8, Rev. 2.3).** 테마 정의·수정·삭제(`define_theme`·`update_theme`·`delete_theme`는 `RuntimeError`, HTTP `POST`·`PATCH`·`DELETE /themes`는 403)를 잠근다. `reset_theme`은 잠그지 않는다. Theme 0 메타데이터와 번호는 항상 DB의 `themes` 테이블에서 읽어 일관된 코드 경로로 동작한다.
 5. **[코드] 테마 소유권과 계정 귀속 (`account_id`)**: 모든 테마는 `ThemeInfo.account_id`를 통해 특정 계정에 귀속된다(`claire.db` v15 `themes.account_id`). 관리자 테마는 `account_id = 1`이며, 멤버 계정이 생성한 테마는 해당 계정의 `account_id`를 갖는다.
 6. **[코드] 기본 테마 불변식의 `theme.is_default` 일원화 (Rev. 2.3)**: 멤버 계정(`account_id > 1`)의 기본 테마는 `id > 0, is_default = 1`이다. 따라서 `tid == 0` 하드코딩을 제거하고 모든 기본 테마 불변식을 `theme.is_default` 판정으로 일원화했다:
    - 기본 테마는 삭제할 수 없다 (`delete_theme`에서 `theme.is_default`이면 `ValueError`).
@@ -63,7 +63,7 @@
 ## 3. 테마 조회 (`ThemeManager.get_theme`)
 
 **[코드]** 매칭 순서는 다음과 같다.
-1. 비어 있으면(`None`, 빈 문자열) 테마 0. 참조를 생략한 경우의 기본값이다.
+1. 비어 있으면(`None`, 빈 문자열) 관리자 계정의 기본 테마(`default_theme_for(ADMIN_ACCOUNT_ID)`, 보통 테마 0). 참조를 생략한 경우의 기본값이다. 계정 안에서 해석하는 요청 입력은 `resolve_theme_ref`를 쓴다(§4.6).
 2. 숫자 ID 정확 일치
 3. 레이블 정확 일치(대소문자 무시)
 4. 레이블 부분 일치(처음 걸린 테마): `label_match="partial"`일 때만
@@ -149,7 +149,7 @@
 | 동작 | 코드 | 범위 |
 | :--- | :--- | :--- |
 | 정의 | `define_theme` | `account_id` 귀속, `themes` 행 추가, JSON 갱신. `(account_id, label)` 범위 레이블 중복 검사 |
-| 수정 | `update_theme` | 동일 계정 내 레이블 중복 검사, FQDN·GA ID는 `validate_fqdn`·`validate_ga_measurement_id`로 검증하고 중복 거부. `theme.is_default`이면 `is_collaborator_accessible=False`, `default_focus=""` 강제 |
+| 수정 | `update_theme` | 동일 계정 내 레이블 중복 검사. 비어 있지 않은 `fqdn`은 `ValueError`(테마 FQDN 폐지, HTTP는 400)이고, 기존 `themes.fqdn` 값은 `legacy_hosts`의 원본이라 지우지 않는다. GA ID는 `validate_ga_measurement_id`로 검증한다(빈 값은 해제). `theme.is_default`이면 `is_collaborator_accessible=False`, `default_focus=""` 강제. 공개 여부가 바뀌면 `visibility_epoch`를 올린다 |
 | 리셋 | `reset_theme` | `reset_graph(theme_id)`로 엔티티·관계·임베딩·FTS를 지우고, §2의 테이블에서 해당 `theme_id` 행을 삭제. 메타데이터와 ID는 보존 |
 | 삭제 | `delete_theme(purge=False)` | `theme.is_default`이면 삭제 거부(`ValueError`). `themes` 행만 삭제. 데이터 행은 남는다 |
 | 삭제 + 소각 | `delete_theme(purge=True)` | `theme.is_default`이면 삭제 거부(`ValueError`). 리셋과 같은 범위를 지운 뒤 `themes` 행을 삭제 |
@@ -165,3 +165,22 @@
 - **[코드] 삭제(`purge=False`) 뒤에 남은 데이터 행에는 접근할 수 없다.** 해당 `theme_id`의 행이 DB에 남지만 어느 테마에서도 보이지 않는다. 정리하는 명령은 확인하지 못했다.
 - **[미검증]** `import-graph --theme`은 테마의 `db_path`(현재는 단일 DB)를 대상으로 한다. 가져온 행에 `theme_id`가 붙는지는 확인하지 않았다.
 - **[미검증]** 텔레그램 `/theme`과 MCP 도구의 테마 지정에서 비공개 테마 접근이 어떻게 검사되는지는 이 문서 작성 시 확인하지 않았다.
+
+---
+
+## 7. Default focus of a theme
+
+- **[code]** An explicit focus in the request (API body, CLI `--focus`, Telegram message parsed by `parse_message_focus`) comes first.
+- **[code]** When the request has no focus, `IngestService.get_effective_default_focus` (`src/claire/ingest/service.py`) gives it:
+  1. The `default_focus` of the `Settings` copy of the theme. `ThemeManager._settings_for_theme_info` writes the theme value into this copy, and `IngestServicePool.get_service` gives the copy to the service.
+  2. Else the `default_focus` of the theme record, when the theme is not a default theme and its ID is above 0.
+  3. Else no focus.
+- **[code]** A default theme always has `default_focus = ""` (`ThemeInfo.from_dict`, `update_theme`). Thus it gives no focus through step 1 or step 2.
+- **[code]** When a service gets `Settings` that are not a theme copy, step 1 reads `CLAIRE_THEME_DEFAULT_FOCUS` (`Settings.default_focus`).
+- **[code]** A deleted theme gives `ThemeNotFound`. The service does not use theme 0 in its place.
+- **[code]** The Telegram bot applies the same rule before it calls the service (`telegram_bot.py`: no focus, theme not default, ID above 0).
+
+## 8. Public site and analytics of a theme
+
+- **[code]** A theme has a GA4 measurement ID (`ThemeInfo.ga_measurement_id`). A page with a theme context uses only this ID; there is no fallback to `CLAIRE_GA_MEASUREMENT_ID`. The tag also sends `theme_id` and `theme_label`. Details: [`PUBLIC_SITE.md`](PUBLIC_SITE.md) §6.
+- **[code]** In multi-theme mode, `/sitemap.xml` lists the documents of all public themes. Details: [`PUBLIC_SITE.md`](PUBLIC_SITE.md) §4.

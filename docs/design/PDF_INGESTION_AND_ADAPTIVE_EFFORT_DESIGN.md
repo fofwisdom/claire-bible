@@ -1,168 +1,35 @@
-# PDF Extraction Budget & Adaptive Reasoning Effort Design
+# PDF Text Budget and Adaptive Reasoning Effort
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
+- **Status**: Implemented. Design principles only. Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §5, §6, §7. Planned parser work (layout order, vision tier): [`PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md`](PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md).
+- **Date**: 2026-08-29 · condensed 2026-11-16
+- **Related**: [`INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md`](INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md), [`TABLE_INGESTION_DESIGN.md`](TABLE_INGESTION_DESIGN.md)
 
-> **문서 상태**: 구현 및 검증 완료 (Implemented) **관련 문서**: [MULTI_PROVIDER_DESIGN.md](MULTI_PROVIDER_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+## Goal / problem
 
----
+Papers and long reports carry dense concepts. Two problems existed:
 
-## 1. 배경 및 목적
+1. The general web budget cut PDF text before storage and before the prompt. Text that was cut at fetch time was lost also for a later re-extraction.
+2. One reasoning effort for all documents was wrong. High effort on a short note costs time and money. Medium effort on a long paper gives a poor graph and a poor detail text.
 
-학술 논문(NBER Working Paper, arXiv, IEEE/ACM 등)이나 심층 기술 보고서와 같은 PDF 문서는 방대한 텍스트와 고밀도의 개념적 관계를 포함하고 있다. 기존 시스템에서는 다음과 같은 병목 및 자원 배분 문제가 존재했다:
+## Decisions in force
 
-1. **PDF 본문 슬라이싱 병목**: PDF 파서(`extract_pdf_bytes`)가 50,000자(`CLAIRE_PDF_MAX_EXTRACT_CHARS`)를 추출하더라도, 상위 수집기 및 프롬프트 생성기에서 일반 웹 문서 기준 예산(`CLAIRE_RAW_CHAR_BUDGET: 20000`, `CLAIRE_EXTRACT_CHAR_BUDGET: 20000`)으로 절단되어 원문 유실 및 오프라인 재추출 시 손실이 발생함.
-2. **고비용 추론(Reasoning Effort)의 획일적 적용 한계**: 모든 문서에 높은 추론 레벨(`effort="high"`)을 적용하면 일반 짧은 메모나 단순 안내서에 불필요한 연산 비용과 지연이 발생하고, 반대로 일괄 `medium` 이하로 적용하면 15,000자 이상의 복잡한 학술 논문에서 지식그래프 엔티티 및 상세 렌더링 품질이 저하됨.
+1. **PDF text has its own, larger budget.** The same PDF budget applies at fetch time, in storage, and in the prompt. Reason: the stored text must hold what the prompt can use, so that a re-extraction does not lose text.
+2. **Cut the appendix and the references by default, but record the cut.** These sections use the budget and add little to the graph. The cut is visible in the document metadata and in the UI, so a user can ask for the full text.
+3. **One fast, reliable parser is the default. A runtime failure falls back once to a second parser.** Reason: ingestion must not stop because of one parser defect. The fallback and its reason are recorded.
+4. **Detect bad text layers and tell the user.** Missing character maps, private-use glyphs, replacement characters, control noise, mojibake, separated Hangul jamo, and scans with no text are found after extraction. The result goes to the document metadata, the ingest report, the Telegram reply, and the reader. Reason: a bad text layer gives bad entities without an error; the user must see it.
+5. **Do not trust PDF metadata for author and title.** Typesetting software writes operator account names and job file names into the metadata. Claire takes the author and title from the first page text and from the classifier answer, and records the raw values. Reason: a typesetter name as an author entity poisons the graph.
+6. **Effort follows the document.** A document that the classifier marks as a paper and that is long enough gets the high paper effort. Other PDF documents get the default PDF effort or the provider effort. An explicit effort from the user always wins. Reason: spend reasoning where the content needs it.
+7. **The paper classifier uses the configured provider at low effort.** It does not fall back to a different provider. Reason: no silent fallback that drives behavior; the owner selects the provider.
 
-이를 해결하기 위해 **PDF 50,000자 온전 보존**과 **최저 Effort 프로바이더 기반 1차 논문 판별 및 동적 Effort 적재** 메커니즘을 설계·구현하였다.
+## Rejected alternatives
 
----
+- **Pick the classifier provider by the lowest declared effort across all providers.** It was the first design. It is replaced by the configured provider for the classify feature, because an automatic cross-provider choice hides which provider and key run.
+- **`pypdf` as a selectable production parser.** It has no Korean CMap support and can damage the text. Preflight refuses it.
+- **Docling as a built-in parser.** The dependency was too large for the container. It is removed.
+- **Add the author as a prompt header outside the budget.** The first design had it. The prompt header now holds title, URL, and source type only; the reconciled author stays in the document fields.
 
-## 2. 핵심 아키텍처
+## Limits for later changes
 
-```mermaid
-flowchart TD
-    A[PDF Ingestion: Local File / Web Stream] --> B[PDF Text Extraction: up to CLAIRE_PDF_MAX_EXTRACT_CHARS 50,000 chars]
-    B --> C[Store raw_text & gzip artifact without truncation]
-    B --> D[1st-Stage Classifier: classify_paper]
-    
-    subgraph Provider Resolution
-        E[.env Provider Declarations] --> F[parse_effort_score]
-        F --> G[Select Lowest Effort Provider\nTie-breaker: Antigravity > Gemini]
-    end
-    
-    G --> D
-    D -->|effort=CLAIRE_PDF_CLASSIFIER_EFFORT 'low'| H{is_paper == True\nAND\nlen >= 15,000 chars?}
-    
-    H -->|Yes| I[High Reasoning Effort: effort='high'\nCLAIRE_PDF_PAPER_EFFORT]
-    H -->|No| J[Default Effort: CLAIRE_PDF_DEFAULT_EFFORT\nor Provider env effort]
-    
-    I --> K[Knowledge Graph extract & detail rendering]
-    J --> K
-```
-
----
-
-## 3. 세부 설계 및 동작 기제
-
-### 3.1 PDF 본문 예산 일치화 및 보존
-- **I/O 수집기 ([`fetchers/textfile.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/fetchers/textfile.py), [`fetchers/web.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/fetchers/web.py))**:
-  - `source_type == "pdf"`인 경우 일반 웹 예산(`CLAIRE_RAW_CHAR_BUDGET`) 대신 `CLAIRE_PDF_MAX_EXTRACT_CHARS`를 적용하여 원문을 온전히 수집.
-  - DB `documents.raw_text` 및 `data/raw/artifacts/doc_{id}.txt.gz`에 최대 50,000자까지 원본 텍스트를 보존하여 오프라인 재추출(`reextract_all`) 지원.
-- **프롬프트 생성기 ([`prompts.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/prompts.py))**:
-  - `doc.source_type == "pdf"` 시 `pdf_max_extract_chars` 한도로 전문을 프롬프트 컨텍스트에 투입.
-- **절단 진단기 ([`db.py`](file:///home/fow/Projects/claire-bible/src/claire/store/db.py))**:
-  - `scan_truncation_status` 및 `backfill_truncation_metadata`에서 PDF 문서는 `pdf_max_extract_chars`를 기준으로 절단 여부를 진단.
-
----
-
-### 3.2 표준 PDF 파서 아키텍처 (`default`) 및 런타임 실패 보고 체계
-PDF 문서는 2단(Two-Column) 레이아웃, 복잡한 데이터 표, 수식 등 다양한 형태를 가진다. 이를 위해 고속 안정성을 보장하는 표준 파서 구조를 제공한다:
-- **`default` (기본값, Chromium C++ PDFium 기반)**: `pypdfium2`를 기본 엔진으로 채택하여 기존 pure-python 대비 5~15배 빠른 파싱과 완전한 CMap/ToUnicode 매핑을 제공한다. 리소스 제약이 있는 서버 환경에서도 디스크/메모리 부하 없이 즉시 안정적으로 작동한다.
-- **비표준 파서 모드 차단 및 안전한 폴백**:
-  - 배포 환경변수에 `CLAIRE_PDF_PARSER=pypdf` 또는 `docling`이 설정되어 있을 경우, `cb-manuscript preflight` 검사 단계에서 실행이 즉시 차단되며 `default`로 변경하도록 안내한다.
-  - 런타임 중 `pypdfium2`에서 암호화 이외의 변환 에러가 발생하면 무중단 수집을 위해 `pypdf`로 안전하게 1회 폴백한다.
-- **Graceful Fallback & 전방위 경과 보고 체계**:
-  - `default`로 텍스트를 추출할 때 **인코딩 결함 감지 엔진**(`detect_pdf_encoding_flaws`)이 동작하여 CID 누락(`(cid:xxx)`), PUA 사설 영역 글꼴, 유니코드 대체문자(`\ufffd`), 제어문자 과다 밀도, 스캔본 저밀도 등을 실시간 진단한다.
-  - 이때 실패 및 폴백, 결함 원인을 정밀 분류하여 **전방위 보고 채널**로 경과를 통지한다:
-    1. **문서 메타데이터 (`doc.meta`)**: `pdf_parser_requested`, `pdf_parser_used`, `pdf_parser_fallback`, `pdf_parser_fallback_reason`, `pdf_encoding_flaw_detected`, `pdf_encoding_flaws`, `pdf_is_scanned` 명시 저장.
-    2. **GraphView 웹 UI**: 문서 상세 메타 영역에 대체 배지 `⚠️ 파서 폴백`, 결함 배지 `⚠️ PDF 인코딩 결함`, `📷 스캔본 PDF` 노출 및 툴팁으로 실제 사유 안내.
-    3. **CLI 적재 리포트 및 텔레그램 완료 알림**: `IngestReport.telegram_summary`에 파서 대체 및 인코딩 결함/스캔본 경고 명시.
-    4. **안정성 우선 정책**: 프로덕션 기본 파서는 `CLAIRE_PDF_PARSER=default`로 신속하고 신뢰성 높은 무중단 적재를 보장한다.
-
----
-
-### 3.3 부록(Appendix) 및 참고문헌(References) 제외 정책
-학술 논문은 본문 후반부에 대량의 참고문헌(References/Bibliography)과 부록(Appendix/Supplementary Material)을 포함하여 핵심 본문 예산을 잠식한다.
-- **제외 옵션**: `CLAIRE_PDF_EXCLUDE_APPENDIX=true`, `CLAIRE_PDF_EXCLUDE_REFERENCES=true`
-- **분리 기준**: 본문 뒤에서 가장 먼저 등장하는 헤더 위치(min split index)를 기준으로 본문만 추출하여 보존.
-- **메타데이터 추적**:
-  - `appendix_truncated`: 부록 섹션 제외 여부 (웹 UI 초록색 배지)
-  - `references_truncated`: 참고문헌 섹션 제외 여부 (웹 UI 보라색 배지)
-  - 둘 다 제외된 경우 UI에 `✂️ 부록·참고문헌 제외` 결합 태그 표시.
-
----
-
-### 3.4 서지 메타데이터 정제, DTP 조판 아티팩트 방어 및 지식 그래프 오염 차단
-- **DTP 조판 아티팩트(QuarkXPress/InDesign) 문제**:
-  - 금융연구원, 학회지, 정부 연구보고서 등 전문 간행물 PDF는 조판 소프트웨어(QuarkXPress, Adobe InDesign)로 생성되는 경우가 많다.
-  - 이들 PDF는 헤더 메타데이터 `/Author`에 실제 연구자가 아닌 **DTP 조판 편집자/디자이너의 PC 계정명(예: `park-sy`)**이, `/Title`에는 **판호 작업 파일명(예: `35 17 `)**이 무단 삽입되어 있다.
-  - 이를 그대로 신뢰하여 인입할 경우, LLM이 조판 디자이너를 기관의 저자 엔티티로 허위 추출(Hallucination)하여 지식 그래프를 심각하게 오염시키는 참사가 발생한다.
-- **DTP 아티팩트 자동 식별 및 메타데이터 조정 (`reconcile_pdf_metadata`)**:
-  - `is_dtp_typesetter_artifact(author, pdf_meta)`: PDF Producer/Creator의 조판 툴 시그니처 및 디자이너 계정 패턴을 정규식으로 감지.
-  - `is_dtp_title(title)`: 단순 판호 번호나 권호 조합(예: `35 17`, `vol_35`)과 같은 조판 파일명 패턴을 감지.
-  - `extract_author_heuristic(text)` & `extract_title_heuristic(text)`: 문서 1페이지 상단에서 연구자 직함(`선임연구위원`, `연구위원`, `연구원`, `교수`, `박사` 등)을 수반한 실제 저자명 및 실제 논단 제목을 헤더 텍스트로부터 신속 추출.
-  - **1차 논문 판정(`classify_paper`)과의 연계**: LLM 논문 분류기 응답 스키마에 `author`와 `title`을 함께 질의하여, 휴리스틱과 LLM의 교차 검증을 통해 본문 서두의 정본 저자/제목을 확보.
-  - **DB 저장 전 메타데이터 교정**: 적재 파이프라인(`ingest_item`) 단계에서 DB 저장 전에 `reconcile_pdf_metadata`를 실행하여, 조판 아티팩트 계정은 제거하고 확인된 실제 저자(`doc.author`)와 제목(`doc.title`)으로 교정·적재.
-- **예산 면제 (Budget Exemption)**:
-  - 추출·교정된 서지 정보는 `Document.author`, `Document.title`, `Document.published_at`에 정형 데이터로 저장된다.
-  - LLM 프롬프트 투입 시(`doc_to_prompt`), 본문 50,000자 슬라이싱 한도(`limit`)에 합산되지 않고 **상단 헤더(`AUTHOR: ...`)에 직접 주입**되어 본문 글자 수를 전혀 잠식하지 않고 100% 무손실로 LLM에 전달된다.
-
----
-
-### 3.5 최저 Effort 프로바이더 기반 1차 논문 판별 ([`classifier.py`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))
-
-`.env`에 여러 프로바이더가 동시에 선언되어 있는 경우(예: 로컬 `Antigravity CLI`와 원격 `Gemini API`), 비용 및 지연을 최소화하기 위해 **선언된 프로바이더 중 환경변수 effort 레벨이 가장 낮은 프로바이더**를 1차 분류기로 자동 선택한다.
-
-1. **Effort 정량 스코어링 (`parse_effort_score`)**:
-   - `none`/`off`/`0` = `0.0`
-   - `minimal` = `0.5`
-   - `low` = `1.0`
-   - `medium` = `2.0`
-   - `high` = `3.0`
-   - 토큰 버짓 숫자: $\le 2048 \rightarrow 1.0$, $\le 8192 \rightarrow 2.0$, 초과 $\rightarrow 3.0$
-2. **프로바이더 탐색 및 정렬 (`get_lowest_effort_provider`)**:
-   - 사용 가능한 프로바이더들의 score를 비교하여 최저점을 가진 프로바이더를 선택.
-   - 점수가 동점일 경우 무료/로컬 CLI 어댑터인 `AntigravityProvider`를 우선 채택.
-   - `CLAIRE_PROVIDER=mock`인 경우 `MockProvider` 즉시 반환.
-3. **경량 논문 판정 (`classify_paper`)**:
-   - 선택된 프로바이더를 통해 `CLAIRE_PDF_CLASSIFIER_EFFORT`(`"low"`) 수준으로 제목과 도입부(~3,000자)를 분석하여 `{ "is_paper": bool, "reason": str }` 반환.
-   - 판정 결과와 본문 길이는 `doc.meta["paper_classification"]`에 보존.
-
----
-
-### 3.6 동적 Effort 적용 규칙 ([`pipeline.py`](file:///home/fow/Projects/claire-bible/src/claire/ingest/pipeline.py))
-
-문서 적재(`extract_resolve_store`) 및 가독 본문 생성(`ensure_document_detail`) 시 다음과 같이 조건부 effort를 적용한다:
-
-| 문서 유형 | 본문 길이 (chars) | 적용 Effort | 설명 |
-| :--- | :--- | :--- | :--- |
-| **학술 논문 (`is_paper=True`)** | $\ge 15,000$ (`CLAIRE_PDF_PAPER_THRESHOLD_CHARS`) | **`high`** (`CLAIRE_PDF_PAPER_EFFORT`) | 깊은 사고/추론을 통해 방대한 개념 구조와 정밀한 요약/상세 렌더링 생성 |
-| **학술 논문 (`is_paper=True`)** | $< 15,000$ | `CLAIRE_PDF_DEFAULT_EFFORT` 또는 프로바이더 기본 env | 분량이 짧은 단문 논문/프리프린트의 과도한 자원 소모 방지 |
-### 3.7 멀티 칼럼 레이아웃 분석 요소 도입 제언 (Multi-Column Layout Analysis Roadmap)
-
-#### 1. 문제 상황 및 기술적 난제
-학술 논문(IEEE, ACM, Nature, arXiv 등)은 대다수가 2단(Two-Column) 레이아웃으로 조판된다. 기존의 스트림 기반 단순 텍스트 추출기(`pypdf` 등)는 문자 객체의 Y좌표 순서대로 텍스트를 읽기 때문에, **좌측 칼럼의 1번째 줄과 우측 칼럼의 1번째 줄이 번갈아 뒤섞이는 현상(Interleaving)**이 발생할 위험이 있다. 이는 LLM의 문맥 이해도와 엔티티 관계 추출 정확도를 급격히 떨어뜨린다.
-
-#### 2. 주요 오픈소스 파서 기술 비교
-| 파서 엔진 | 레이아웃 복원 원리 | 강점 | 한계 및 비용 | 적합한 사용 시나리오 |
-| :--- | :--- | :--- | :--- | :--- |
-| **`default (pypdfium2)`** | Chromium PDFium 기반 고속 텍스트/CMap 추출 | 초고속(0.05~0.2초), 완벽한 CMap 매핑, CPU 메모리 극소화 | 다단 칼럼 줄 뒤섞임 및 복잡한 표 구조 파괴 위험 | 단일 칼럼 문서, 일반 보고서, 표준 인덱싱 (기본 권장) |
-| **`docling`** (IBM) | LayoutLMv3 + TableFormer 딥러닝 분석 | 다단 레이아웃을 정확한 읽기 순서로 복원, 마크다운 표/수식 완벽 변환, 풍부한 메타데이터 | 의존성 용량(~1.5GB+ 모델 다운로드), CPU 추론 시 수 초 소요 | 정밀한 학술 논문, 다단 보고서, 데이터 표가 많은 문서 (선택 지원) |
-| **`Marker`** (VikParuchuri) | Nougat + Surya OCR/Layout 파이프라인 | 최고 수준의 마크다운 렌더링 품질, 수식 LaTeX 변환 탁월 | PyTorch/CUDA 의존성, 고사양 리소스 필요 | GPU 서버 환경에서의 대규모 학술 논문 변환 파이프라인 |
-| **`PyMuPDF (fitz)`** | 텍스트 Bounding Box 좌표 휴리스틱 클러스터링 | C 라이브러리 기반 초고속, 블록 좌표 기반 칼럼 분리 지원, 가벼운 의존성 | 비정형 다단이나 복잡한 표 셀 병합 복원에는 한계 | 딥러닝 없이 가볍게 80% 이상의 표준 2단 칼럼 순서를 교정할 때 |
-
-#### 3. 3단계 채택 로드맵
-1. **1단계 (현재 구현 완료)**:
-   - `CLAIRE_PDF_PARSER` 환경변수를 통해 `default`(`pypdfium2` 기반 초고속 파서) 구조 구축.
-   - 레거시 `pypdf`, `docling` 설정은 `cb-manuscript preflight`에서 차단.
-2. **2단계 (중기 개선안 - 경량 좌표 휴리스틱 도입)**:
-   - 무거운 딥러닝 모델 다운로드 없이도, Bounding Box 좌표(x0, y0, x1, y1)를 분석하여 페이지 중앙 여백(gutter)을 기준으로 좌/우 칼럼 블록을 먼저 정렬한 후 읽는 경량 Bounding-Box 휴리스틱 도입.
-3. **3단계 (장기 개선안 - VLM 기반 멀티모달 파이프라인)**:
-   - 복잡한 수식과 다이어그램이 핵심인 최첨단 논문의 경우, 온디바이스 VLM(ColPali, Nougat) 또는 Gemini Multimodal PDF 직접 인라인 분석 파이프라인과의 연계 지원.
-
----
-
-## 4. 환경 변수 레퍼런스
-
-| 환경변수명 | 기본값 | 설명 |
-| :--- | :--- | :--- |
-| `CLAIRE_PDF_PARSER` | `default` | PDF 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서) |
-| `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부 |
-| `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | PDF 논문 적재 시 부록(Appendix/Supplementary) 자동 제외 여부 |
-| `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | PDF 논문 적재 시 참고문헌(References/Bibliography) 자동 제외 여부 |
-| `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | PDF 스트림 텍스트 추출, DB/아티팩트 보존, LLM 프롬프트 투입 최대 글자 수 |
-| `CLAIRE_PDF_PAPER_THRESHOLD_CHARS` | `15000` | 논문 PDF에 대해 `high` effort를 적용할 최소 글자 수 임계값 |
-| `CLAIRE_PDF_PAPER_EFFORT` | `high` | 15,000자 이상 논문 PDF 적재 시 적용할 reasoning effort |
-| `CLAIRE_PDF_DEFAULT_EFFORT` | `""` (빈값) | 비논문 또는 15,000자 미만 PDF 적재 시 적용할 effort (빈값이면 프로바이더 기본값 사용) |
-| `CLAIRE_PDF_CLASSIFIER_EFFORT` | `low` | 1차 논문 분류 시 사용할 경량 reasoning effort |
+- Keep the fetch budget, the stored text, and the prompt budget for PDF in agreement.
+- Any new parser or fallback must record which parser ran and why.
+- Keep the effort rule deterministic from recorded facts (classification, length, explicit request).

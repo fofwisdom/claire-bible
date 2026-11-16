@@ -1,60 +1,39 @@
-# PDF Ingestion, Multi-Tier Parsers & Visual Pollution Control Design
+# PDF Layout Order and Guarded Vision Parsing
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
-
-> **문서 상태**: 설계 및 구현 규격 (Specification) — *감사 및 레드팀 감수 반영 완료* **관련 문서**: [PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](./PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md), [INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md](./INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
-
----
-
-## 1. 개요 및 설계 목적
-
-본 문서는 클레어바이블(Claire-Bible) 파이프라인에서 학술 논문(2컬럼 조판), 정부/기업 보고서, 기술 사양서 등 복잡한 PDF 문서를 처리할 때 발생하는 **구조적 결함(라인 인터리빙, 표 붕괴)** 및 **시각 오염(Visual Contamination: 워터마크, 헤더/푸터, 차트 눈금 난립에 따른 온톨로지 독화)**을 방지하기 위한 다계층(Tier 1~3) 파서 아키텍처와 가드레일 구현 규격을 정의한다.
-
-기존 인프라 컨테이너 로드맵에서 기능적 구현 상세를 본 전용 문서로 완전히 분리하여 독립적인 기능 라이프사이클을 가진다.
+- **Status**: Planned, not implemented (layout-order correction and the guarded vision tier). Tier 1, the fast text parser with a fallback parser and encoding flaw detection, is implemented: [`INGESTION.md`](../implementation/INGESTION.md) §5; its principles: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md). The former Tier 2 (Docling worker) is rejected: the Docling dependency is removed and preflight refuses `CLAIRE_PDF_PARSER=docling`.
+- **Date**: 2026-09-05 · status corrected 2026-11-16
+- **Related**: [`INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md`](INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md)
 
 ---
 
-## 2. 3단계 계층형 트라이아지(Triage) 파이프라인
+## 1. Problem
 
-문서의 시각적 복잡도, 데이터 민감도, 인프라 컴플라이언스(인터넷 API 허용 여부)에 따라 3단계로 자동 라우팅한다.
+Two-column papers, reports, and specifications give two kinds of damage when only the text layer is read:
+
+- **Structure damage**: lines of the left and right columns interleave, and tables collapse into loose text.
+- **Visual contamination**: watermarks, running headers and footers, page numbers, and chart tick labels enter the body text and become false entities ("ontology poisoning").
+
+The implemented Tier 1 parser reads the text layer fast and finds encoding flaws, but it does not correct reading order and does not remove visual noise.
+
+## 2. Planned tiers
 
 ```mermaid
 flowchart TD
-    Inbound[PDF 문서 인입] --> Tier1[Tier 1: default (pypdfium2) 초고속 서지/텍스트 스캔]
-    
-    Tier1 --> CheckComplexity{복잡도 판별\n2컬럼 / 대형 표 / 다이어그램}
-    
-    CheckComplexity -->|단순 단일 컬럼| Tier1Pass[Tier 1 완료: default 직접 스트림\n초고속 · CMap 매핑 · 0.05초]
-    
-    CheckComplexity -->|복잡 2컬럼 / 표 밀집| PolicyCheck{인프라 컴플라이언스 & 모드}
-    
-    PolicyCheck -->|인터넷 API 허용| Tier3[Tier 3: Guarded Gemini Vision\n마진 크롭 + 수직 합성 슬라이싱 + VLM]
-    PolicyCheck -->|폐쇄망 / 고정밀 지식 무결성 모드| Tier2[Tier 2: IBM Docling 사이드카 워커\n물리적 Bounding Box + TableFormer]
-    
-    Tier1Pass --> IngestGraph[온톨로지 지식 그래프 적재]
-    Tier3 --> IngestGraph
-    Tier2 --> IngestGraph
+    Inbound[PDF] --> Tier1[Tier 1: text layer parser - implemented]
+    Tier1 --> Check{Layout complexity:\ntwo columns, dense tables, diagrams}
+    Check -->|simple| Done[Use Tier 1 text]
+    Check -->|two columns| Order[Stage 2: bounding-box column order]
+    Check -->|complex and API allowed| Tier3[Tier 3: guarded vision parser]
+    Order --> Done
+    Tier3 --> Done
 ```
 
-### 2.1 Tier 1: Fast Engine (`default` - `pypdfium2`)
-* **역할**: 디지털 텍스트 레이어가 깨끗한 일반 단일 컬럼 문서, 도서, 안내문 처리.
-* **특징**:
-  * Chromium C++ PDFium 기반 고속 바인딩.
-  * 파싱 시간: 0.05~0.2초 (기존 pure-python 대비 5~15배 빠름).
-  * 향상된 ToUnicode/CMap 매핑 및 인코딩 결함 감지(`detect_pdf_encoding_flaws`) 연동.
-  * 자원 소모: RAM < 50MB, CPU 점유율 극소.
-* **한계**: 2컬럼 논문에서 좌우 컬럼의 동일 행 텍스트가 줄단위로 교차 결합되는 라인 인터리빙(Line Interleaving) 발생 시 Docling으로 에스컬레이션 필요.
+### 2.1 Stage 2: light column-order correction
 
-### 2.2 Tier 2: Structural Knowledge Firewall (`docling-worker`)
-* **역할**: 온프레미스 폐쇄망 환경 및 "시각 오염 제로"를 요구하는 전문 학술/특허 문서의 결정론적 구조화.
-* **특징**:
-  * 객체 분할(LayoutLMv3)을 통해 본문, 표, 그림, 수식의 Bounding Box를 물리적으로 분리.
-  * TableFormer 엔진으로 셀 병합/복합 헤더 표를 마크다운/HTML 테이블로 정밀 복원.
-  * 헤더/푸터/워터마크를 클래스 태그 단위로 원천 배제하여 **온톨로지 독화 차단**.
-* **배포 형태**: 메인 이미지에 포함하지 않고, 독립 사이드카 또는 K8s 전용 워커(`docling-serve`)로 분리 배포.
+Read the text boxes with their coordinates, find the central gutter of the page, and read the left column before the right column. No deep-learning model and no large dependency. Expected to fix most standard two-column papers.
 
-### 2.3 Tier 3: Guarded Multimodal (`gemini-vision`)
+### 2.2 Tier 3: guarded vision parser (`gemini-vision`)
+
 * **역할**: 인터넷 API가 허용된 환경에서 로컬 GPU/CPU 부하 없이 클라우드 멀티모달 VLM을 통해 고난도 시각 문서 해석.
 * **특징**: E2E VLM의 시각적 노이즈 유입 문제를 해결하기 위해 후술할 **3대 안전 가드레일**을 필수로 통과.
 
@@ -104,41 +83,25 @@ flowchart TD
 
 ---
 
-## 4. 코드베이스 인터페이스 규격 (`src/claire/ingest/fetchers/pdf.py`)
+## 4. Planned interface
 
 ```python
-from typing import Protocol, BinaryIO, Any
-from dataclasses import dataclass
-
-@dataclass
-class PdfExtractResult:
-    title: str | None
-    text: str
-    links: list[str]
-    anchors: dict[str, str]
-    error: str | None
-    images: list[Any]
-    biblio: dict[str, Any]
-    parser_used: str  # "default" | "docling" | "gemini_vision"
-    parser_fallback: bool = False
-
 class PdfParser(Protocol):
     def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
 
-class LocalPdfiumParser:
-    """Tier 1: 기본 고속 로컬 pypdfium2 파서."""
-    def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
-
-class RemoteDoclingParser:
-    """Tier 2: 독립 사이드카 docling-serve 연동 클라이언트."""
-    def __init__(self, endpoint_url: str):
-        self.endpoint = endpoint_url
-    def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
-
 class GuardedGeminiVisionParser:
-    """Tier 3: 3대 가드레일(Pillow 수직합성 슬라이싱, 안전 마진 크롭, 프롬프트 가드) 내장 멀티모달 파서."""
-    def __init__(self, client, model: str = "gemini-2.0-flash"):
-        self.client = client
-        self.model = model
+    """Tier 3: margin masking, Pillow gutter detection with vertical stitching, prompt guard."""
+    def __init__(self, client, model: str): ...
     def extract(self, stream: BinaryIO, url: str | None = None) -> PdfExtractResult: ...
 ```
+
+The result must record which parser ran (`parser_used`) and any fallback, as Tier 1 does now.
+
+## 5. Rejected alternatives
+
+| Alternative | Reason |
+|---|---|
+| Tier 2: Docling (LayoutLMv3 + TableFormer) sidecar worker | Model download of about 1.5 GB and slow CPU inference. The dependency is removed from the project. |
+| Marker (Nougat + Surya) | Needs PyTorch and a GPU. |
+| PyMuPDF or OpenCV for gutter detection | Large dependencies or license limits; Pillow and pure Python are enough for a projection histogram. |
+| Split two columns into two vision calls | Doubles calls and cost; vertical stitching gives one call per page. |

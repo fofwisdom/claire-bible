@@ -1,7 +1,6 @@
 # 클레어바이블(Claire-Bible) 듀얼 트랙 아키텍처 및 단계별 실행 계획
 
-> [!NOTE]
-> 계획 문서다. 단계별 완료 표시와 수치는 작성 시점 기준이며 현재 구현을 보증하지 않는다. 현재 동작은 [`implementation/`](implementation/)과 코드로 확인한다.
+- **상태**: 계획, 대부분 미구현 (기준 커밋 d15ae8e0). 구현된 부분은 Phase 4의 지식 링킹 Phase 1–2와 Antigravity 지연 최적화 Phase 1–2뿐이며, 현재 동작은 [`EXTRACTION.md`](../implementation/EXTRACTION.md)와 [`PROVIDERS.md`](../implementation/PROVIDERS.md) §4.2에 있다. Phase 1–3과 Phase 5(경량화, `tini`, 비루트 사용자, 저장소·파서 추상화, PgVector, 무료 티어 템플릿)는 코드에 없다. Docling 계층은 제거되었다([`INGESTION.md`](../implementation/INGESTION.md) §5).
 
 **문서 번호:** PLAN-ARCH-20260907-08 (Rev.8) **작성 주체:** 아키텍처 플래너 **기반 데이터:** 프로덕션 서버 실사, 프로바이더 ToS 분석 리포트, 감사 리포트
 
@@ -60,7 +59,7 @@ flowchart TD
 ```
 
 ### 2.1 [과제 1 / Phase 1] 컨테이너 경량화 및 의존성 분리
-* **상세 규격**: [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
+* **상세 규격**: [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)
 * **배경**: 현재 프로덕션 컨테이너의 코어 이미지가 약 582MB(압축) / 2.17GB(비압축)에 달해, 소형 VPS 환경 배포와 자원 효율성에 부담이 됨.
 * **실행 사양**:
   1. Multi-stage 빌드를 적용하여 불필요한 빌드 도구와 캐시 레이어를 제거.
@@ -95,12 +94,12 @@ flowchart TD
   3. **온프레미스 K8s 연구 트랙 패키징**:
      * CLI 도구 대신 엔터프라이즈 엔드포인트를 사용하는 K8s Helm 패키징 및 독립 `docling-serve` 워커 분리 배포.
   4. **지식 그래프 링킹 캘리브레이션 및 미싱링크 발굴 (Phase 1~2 완료 / Phase 3 로드맵)**:
-     * Phase 1 완료: 4-Tier 유사도 브래킷, `text-embedding-004` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering), RRF 결합 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
+     * Phase 1 완료: 4-Tier 유사도 브래킷, `gemini-embedding-001` 온톨로지 프레임 임베딩, 적응형 중심화(Adaptive Centering), RRF 결합 및 `claire re-embed` CLI 구축 완료 ([design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조).
      * Phase 2 완료: `GraphStore` 영속 엣지 추상화, 다목적 릴레이션 판정기(`judge_relationship`), 인제스트 파이프라인 전역 횡단 엣지 수립 및 `claire link-relations` CLI 구축 완료.
      * Phase 3 잔여: 2-Hop 삼각 폐쇄(Triadic Closure), 잠재 브릿지 노드 역생성, 전이성 규칙 엔진 및 50쌍 골든 벤치마크 실증.
   5. **Antigravity CLI 적재 지연 해소 및 실행 격리·동시성 최적화 (Phase 1~2 구현 완료)**:
      * 에이전트 도구 오동작 방지(`allow_tools=False`) 및 작업 디렉터리(`/app`) 임시 격리로 file_watcher 및 불필요한 코드베이스 탐색 지연을 원천 차단.
-     * 판정류 작업 `effort=low` 동적 할당 및 Phase 2 관계 판정 루프 `ThreadPoolExecutor` 병렬화(2~3워커)를 적용하여 대형 기술 문서 적재 지연을 12분대에서 2분대로 단축 ([design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) 참조).
+     * 판정류 작업 `effort=low` 동적 할당 및 Phase 2 관계 판정 루프 `ThreadPoolExecutor` 병렬화(2~3워커)를 적용하여 대형 기술 문서 적재 지연을 12분대에서 2분대로 단축 ([design/ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md](ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md) 참조).
 
 ### 2.5 [과제 5 / Phase 5] 온프레미스 백본 거버넌스 및 온보딩 템플릿
 * **배경**: 다중 Pod 환경에서의 지식베이스 거버넌스 연구 및 신규 유입 개발자를 위한 온보딩 지원.
@@ -124,8 +123,8 @@ flowchart LR
 | :--- | :--- | :--- | :---: |
 | **Phase 1** | **컨테이너 경량화 및 의존성 분리** | - `scrapling/playwright` 분리로 메인 이미지 **디스크 ~180MB, 압축 ~70MB** 달성<br/>- 기존 추출 프롬프트 파이프라인을 온전히 유지하여 산출물 정합성 확보 | **즉시 추진 (저위험/고효율)** |
 | **Phase 2** | **OS 상호운영성 및 프로세스 안정화** | - **[tini 탑재]** Docker PID 1 init 프로세스로 고아/좀비 프로세스 방지<br/>- **[ACT-1]** 사설 CA 자동 합성 및 컨테이너 내부 Mozilla 번들 정립<br/>- **[ACT-2 & 3]** 비루트(`claire:10001`) 전환, 마이그레이션 훅, Rootless Podman 호환<br/>- **[ACT-5]** SELinux `:z` 옵션 적용, `/etc/localtime` 마운트 대신 `TZ` 일원화 | **기반 인프라** |
-| **Phase 3** | **무비용 인증 검사 및 인터페이스 추상화** | - 토큰 캐시 `exp` 로컬 JSON 파싱(비용 0) 및 리액티브 서킷 브레이커<br/>- `StorageBackend` Protocol (SQLite vs DSM PostgreSQL)<br/>- `PdfParser` Protocol (`design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md` 준수) | **안정화** |
-| **Phase 4** | **추출 최적화 신중 검증 및 확장** | - **[프롬프트 퓨전 신중 검증]** 기존 산출물과의 A/B 비교 벤치마크 및 정합성 확인 후 점진적 적용<br/>- **[지식 링킹 캘리브레이션]** 4-Tier 유사도 브래킷, text-embedding-004 온톨로지 프레임 임베딩, 적응형 중심화 및 re-embed CLI (Phase 1 완료)<br/>- **[로컬 SLM (Docker 우선)]** 경량 로컬 모델(Ollama/vLLM) 하이브리드 오프로딩<br/>- **[K8s 연구 트랙]** CLI 배제 및 엔터프라이즈 엔드포인트 연동, 독립 `docling-serve` 분리 | **기능 검증 및 확장** |
+| **Phase 3** | **무비용 인증 검사 및 인터페이스 추상화** | - 토큰 캐시 `exp` 로컬 JSON 파싱(비용 0) 및 리액티브 서킷 브레이커<br/>- `StorageBackend` Protocol (SQLite vs DSM PostgreSQL)<br/>- `PdfParser` Protocol (`PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md` 준수) | **안정화** |
+| **Phase 4** | **추출 최적화 신중 검증 및 확장** | - **[프롬프트 퓨전 신중 검증]** 기존 산출물과의 A/B 비교 벤치마크 및 정합성 확인 후 점진적 적용<br/>- **[지식 링킹 캘리브레이션]** 4-Tier 유사도 브래킷, gemini-embedding-001 온톨로지 프레임 임베딩, 적응형 중심화 및 re-embed CLI (Phase 1 완료)<br/>- **[로컬 SLM (Docker 우선)]** 경량 로컬 모델(Ollama/vLLM) 하이브리드 오프로딩<br/>- **[K8s 연구 트랙]** CLI 배제 및 엔터프라이즈 엔드포인트 연동, 독립 `docling-serve` 분리 | **기능 검증 및 확장** |
 | **Phase 5** | **온프레미스 백본 및 온보딩 템플릿** | - VMware DSM PgVector 연동을 통한 조직 관점의 지식베이스 거버넌스 연구<br/>- Google AI Studio 무료 티어(일일 1,500회) 지원 온보딩 템플릿 제공 | **엔터프라이즈 연구 및 지원** |
 
 ---
@@ -133,7 +132,7 @@ flowchart LR
 ## 4. 결론
 
 1. **기능 구현과 인프라 설계의 분리**:
-   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서, 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 설계는 [design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)에서 독립적으로 관리된다.
+   - 컨테이너 경량화 및 의존성 분리는 [design/CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md](CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md)에서, PDF 파서 및 시각 오염 가드레일은 [design/PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md](PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md)에서, 품질 검증 가드레일 런타임 컴포넌트화 및 요약 무결성 설계는 [design/QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md](QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md)에서, 지식 그래프 링킹 캘리브레이션 및 잠재 연결(미싱링크) 발굴 설계는 [design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md)에서 독립적으로 관리된다.
 2. **산출물 안정성을 고려한 점진적 최적화**:
    - 컨테이너 경량화(Phase 1) 단계에서는 기존 프롬프트 구조를 유지하여 결과물 일관성을 지키고, 프롬프트 퓨전은 Phase 4에서 충분한 비교 벤치마크를 거쳐 신중하게 도입한다.
 3. **OS 상호운영성 및 연구 환경 지원**:

@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Draft, Rev. 6. Owner decisions CT1 to CT36 are locked (2026-11-16). Section 9.10 is a proposal. Section 15 has the open questions.
+- **Status**: Planned, not implemented (draft, Rev. 6). Owner decisions CT1 to CT36 are locked (2026-11-16). Section 9.10 is a proposal. Section 15 has the open questions.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:

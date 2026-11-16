@@ -12,42 +12,82 @@ docs/
 ├── PRINCIPLES.md               # 프로젝트 원칙 정본 (구현이 바뀌어도 유지되는 규칙)
 ├── GOALS.md                    # 최상위 비전, 범위 및 로드맵 정본
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 명세
-├── CLAIRE_ARCHITECTURE_ROADMAP.md # 듀얼 트랙(Docker/K8s) 아키텍처 로드맵
-├── design/                     # [이력] 당시의 설계 배경·대안·결정 기록 (현재 상태를 말하지 않음)
-│   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md
-│   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md
-│   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md
-│   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md
-│   ├── DUAL_FORMAT_ADOC_DESIGN.md
+├── design/                     # [설계] 의도와 이유: 구현을 마치지 않은 아키텍처, 구현을 마친 작업의 설계 원칙 (현재 상태는 말하지 않음)
+│   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
+│   ├── CLAIRE_ARCHITECTURE_ROADMAP.md  # 듀얼 트랙(Docker/K8s) 로드맵, 대부분 미구현
+│   ├── ANTIGRAVITY_EXECUTION_AND_LATENCY_OPTIMIZATION_DESIGN.md  # Phase 3–4 미구현
+│   ├── CONTAINER_SLIMMING_AND_DEPENDENCY_DECOUPLING_DESIGN.md
+│   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
+│   ├── DECISION_STREAM_AND_HEATMAP_MATRIX_DESIGN.md  # 완전 가역 병합·UI 롤백 미구현
 │   ├── EXPAND_FILTERING_DESIGN.md
-│   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md
-│   ├── MCP_SUPPORT.md
-│   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md
-│   ├── SYNDICATION_ENDPOINT_DESIGN.md
-│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # 승인된 설계 (2026-11-10, FP1–FP3 구현 내용은 implementation/FEDERATION.md)
-│   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 연합 클라이언트·원격 읽기·피드 설계 초안 (2026-11-13, RD12 보류), 시각 프로토타입은 design/prototypes/
-│   ├── DATA_STORE_LAYOUT_DESIGN.md  # DB 파일 분리(claire.db·client.db·auth.db·fedify.db)와 하위 시스템별 버전, 계정별 지식 DB 방안 (RD27–RD29, 2026-11-13 초안)
-│   ├── MARKDOWN_RETIREMENT_DESIGN.md  # Markdown 폐쇄: 설정 봉인, AsciiDoc 내보내기에서만 Markdown 사용 (RD22–RD24, 2026-11-13 초안)
-│   ├── HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md  # 이용자 홈 개편: 개요 홈·문맥 패널·문서별 그래프·엔티티 마크·명령 팔레트 (HD1–HD13, 2026-11-14 승인, HW-1–HW-8 구현 완료, 시각 프로토타입은 design/prototypes/)
-│   └── ... (기능별 상세 아키텍처 설계 명세)
-├── implementation/             # [구현/운영 내역] 현재 구현과 정확히 일치하는 정본 명세
-│   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔 구현 정본
+│   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
+│   ├── FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md  # 플러그인 발견 계층 미구현
+│   ├── INGESTION_INTEGRITY_AND_POLLUTION_CONTROL_RESEARCH.md
+│   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합 초안
+│   ├── KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md  # Phase 3 미구현
+│   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획: 추가 통합 뷰, 계정 간 발행 본문
+│   ├── OPERATIONAL_MIGRATION.md           # DB 목록·backup v2·롤백 계획
+│   ├── PDF_PARSER_AND_VISION_GUARDRAILS_DESIGN.md  # 레이아웃 순서·비전 계층 미구현
+│   ├── PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md
+│   ├── QUALITY_GUARDRAILS_AND_SUMMARY_INTEGRITY_DESIGN.md
+│   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정)
+│   ├── TELEGRAM_VIDEO_PDF_BUNDLE_INGESTION_DESIGN.md
+│   ├── TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md  # 텔레메트리 schema v1·읽기 전용 진단·format v4 미구현
+│   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)
+│   ├── ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md  # FP1–FP3 → implementation/FEDERATION.md
+│   ├── ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md  # → ACCOUNTS.md
+│   ├── ASCIIDOC_ENHANCEMENT_DESIGN.md     # → DOCUMENT_FORMAT.md
+│   ├── CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md  # → EXTRACTION.md
+│   ├── DATA_LIFECYCLE_AND_PURGE_DESIGN.md  # → DATA_LIFECYCLE.md
+│   ├── FOCUS_STANDARDIZATION_AND_PURGE_DESIGN.md  # → DATA_LIFECYCLE.md
+│   ├── GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md  # → GRAPH_BUNDLE_REVIEW.md
+│   ├── GRAPH_ENGINE_SHOPIFY_EDITIONS_ADOPTION_DESIGN.md  # → GRAPH_ENGINE.md
+│   ├── GRAPHVIEW_MODULARIZATION_AND_STATIC_ASSET_DESIGN.md  # → GRAPH_ENGINE.md
+│   ├── HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md  # HD1–HD14 → WEBUI.md
+│   ├── I18N_DESIGN.md                     # ID1–ID6 → I18N.md
+│   ├── INITIAL_FULL_INGESTION_AND_EFFORT_DESIGN.md  # → INGESTION.md
+│   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # → GRAPH_BUNDLE_REVIEW.md
+│   ├── LLM_PRESENTATION_AUTHORING_AND_COMPOSITION_DESIGN.md  # → PRESENTATION.md
+│   ├── MARKDOWN_RETIREMENT_DESIGN.md      # RD22–RD25 → DOCUMENT_FORMAT.md
+│   ├── MCP_SUPPORT.md                     # → API_AND_MCP_GUIDE.md, 미구현 제안 MP1–MP4
+│   ├── MULTI_PROVIDER_DESIGN.md           # → PROVIDERS.md
+│   ├── MULTI_THEME_ARCHITECTURE_DESIGN.md  # → THEMES.md
+│   ├── PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md  # → INGESTION.md
+│   ├── PER_ACCOUNT_FEATURES_DESIGN.md     # PA1–PA4 → ACCOUNTS.md
+│   ├── PREFERRED_LANGUAGES_DESIGN.md      # → EXTRACTION.md
+│   ├── TABLE_INGESTION_DESIGN.md          # → INGESTION.md
+│   ├── TELEGRAM_ATTACHMENT_LINK_COMPOSITE_INGESTION_DESIGN.md  # → INGESTION.md
+│   ├── VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md  # → INGESTION.md
+│   ├── VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md  # → INGESTION.md
+│   └── ZSTD_COMPRESSION_MIGRATION_DESIGN.md  # → DATA_LIFECYCLE.md
+├── implementation/             # [구현] 지금 있는 것: 구현을 마친 아키텍처, 용어 정의, 에이전트용 CLI 명령어 설명서
+│   ├── ACCOUNTS.md             # 계정·로그인·자격증명·초대·외부 IdP·통합 콘솔·계정별 기능(봇·번들·백업) 구현 정본
 │   ├── API_AND_MCP_GUIDE.md    # REST API 및 MCP 연결·인증·도구 활용 종합 가이드
 │   ├── API_HTTP_CONTRACT.md    # HTTP REST/ASGI 와이어 프로토콜 및 인증 보안 계약
-│   ├── COMMANDS.md             # 전체 CLI 명령어 및 레퍼런스
+│   ├── COMMANDS.md             # 에이전트용 CLI 명령어 설명서 (전체 명령어 레퍼런스)
+│   ├── DATA_LIFECYCLE.md       # 원문 zstd 아티팩트, 소각·툼스톤·감사, 초점(focus) 저장
+│   ├── DOCUMENT_FORMAT.md      # 문서 본문 형식(AsciiDoc)·AOT 렌더링·Markdown 내보내기
 │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정 및 Pydantic 검증 매뉴얼
 │   ├── EXTERNAL_ACCESS.md      # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세
-│   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1–FP3: 내부 연합 API, 탐색, 팔로워, 발행, 액터 키, 준비 검사, 배포)
-│   ├── GLOSSARY.md             # 지식 코어 데이터 모델 및 시스템 공통 표준 용어집
-│   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라) 구현 정본과 검증 절차
+│   ├── EXTRACTION.md           # 추출·엔티티 해소·온톨로지·임베딩·문서 간 링크
+│   ├── FEDERATION.md           # Fedify 사이드카 연합 구현 정본 (FP1–FP4: 내부 연합 API, 탐색, 팔로워, 발행, 연합 클라이언트, 원격 읽기, 피드)
+│   ├── GLOSSARY.md             # 용어 정의: 지식 코어 데이터 모델 및 시스템 공통 표준 용어집
+│   ├── GRAPH_BUNDLE_REVIEW.md  # 그래프 번들, 해소 판정 기록·히트맵·판단 기록 스트림, 검토 증거, Jev 평가
+│   ├── GRAPH_ENGINE.md         # 지식 그래프 엔진(배치·렌더·상호작용·카메라)과 페이지 조립·정적 자산
+│   ├── I18N.md                 # 인터페이스 언어: 카탈로그, 언어 결정 순서, 번역 범위, 검색 토크나이저
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
-│   ├── ONEHOP_MERGE_DESIGN.md  # 1홉 확장 중복 완화 및 동일 주제 병합 구현 명세
+│   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
+│   ├── ONEHOP_MERGE.md         # 1홉 확장과 동일 주제 병합
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
+│   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름
+│   ├── PRESENTATION.md         # 프레젠테이션 저작·컴파일·뷰어·테마별 스위치
 │   ├── PROVIDERS.md            # LLM·STT·VLM 프로바이더 선택, 설정 우선순위, 운영 환경 실패 동작 구현 정본
-│   ├── PLAN.md                 # 공개 아키텍처 및 파이프라인 처리 계획 정본
-│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v19, auth.db v5)
+│   ├── PUBLIC_SITE.md          # 공개 사이트: robots.txt·sitemap.xml·공유 페이지 메타데이터·GA4 태그
+│   ├── SCHEMA_VERSIONING.md    # SQLite 스키마 버전 계약 (claire.db v26, auth.db v5)
+│   ├── TELEMETRY.md            # 텔레메트리 DB, Support Bundle 생성·보관·파기
 │   ├── THEMES.md               # 멀티 테마(단일 DB 파티셔닝) 저장·조회·라우팅·접근 경계 구현 정본
 │   ├── TOKEN_EXCHANGE.md       # RFC 8693 OAuth 2.0 Token Exchange 토큰 교환 계약
+│   ├── WEBUI.md                # 웹 작업 공간: 앱 바, 홈 개요, 문맥 패널, 리더, 검색, 명령 팔레트, 적재 콕핏
 │   └── openapi.yaml            # 기계 판독용 OpenAPI 3.1.0 공통 API 사양서 정본
 └── screenshots/                # README 및 UI 설명용 스크린샷 이미지 자산 (7종)
 ```
@@ -68,9 +108,8 @@ docs/
    - 새로 설계하고 구현한 내용은 코드와 같은 커밋에서 이 디렉터리의 해당 문서에 기록합니다. 작업 전에 알아야 할 치명적이지 않은 제약, 보류 결정, 이미 실패하는 테스트는 [`IMPLEMENTATION_STATUS.md`](implementation/IMPLEMENTATION_STATUS.md)에 둡니다. 보안 문제는 문서에 적지 않습니다.
 
 2. **[`docs/design/`](design/)**
-   - 작성 당시의 배경, 대안 평가, 결정 기록입니다. 상태 필드(Implemented, Planned 등)와 경로는 작성 시점 기준이며 현재 코드와 다를 수 있습니다.
-   - 현재 동작은 `implementation/` 문서나 코드로 확인합니다. 구현을 마친 내용은 이 디렉터리에 따로 쓰지 않습니다.
-   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)는 소유자가 승인한 설계입니다(2026-11-10). 지금 구현된 범위는 FP1(내부 연합 API와 탐색), FP2(팔로워), FP3(발행)이며, 현재 동작은 [`FEDERATION.md`](implementation/FEDERATION.md)에 있습니다. FP4(연합 클라이언트, 원격 글 읽기, 피드)는 [`FEDERATION_REMOTE_READING_DESIGN.md`](design/FEDERATION_REMOTE_READING_DESIGN.md)에서 설계 중입니다. 이 설계는 [`SYNDICATION_ENDPOINT_DESIGN.md`](design/SYNDICATION_ENDPOINT_DESIGN.md) §1.2와 [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §14-10의 "ActivityPub 액터 직접 구현 철회"를 계정 액터에 한해 바꿉니다.
+   - 의도와 이유를 담습니다. 구현을 마치지 않은 아키텍처와 구현을 마친 작업의 설계 원칙만 둡니다([`AGENTS.md`](../AGENTS.md)).
+   - 문서 머리의 상태 줄이 종류를 알려 줍니다. 구현된 부분은 상태 줄이 가리키는 `implementation/` 문서가 현재 동작의 정본입니다.
 
 ## 문서 정합성 검사
 

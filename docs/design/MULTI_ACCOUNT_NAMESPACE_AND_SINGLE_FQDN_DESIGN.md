@@ -1,6 +1,6 @@
 # 멀티 계정 네임스페이스와 단일 FQDN URI 통제 설계
 
-- **상태**: 제안 (미구현) · Rev. 2
+- **상태**: 대부분 구현됨 (P0–P7, Rev. 2.3). 현재 동작의 정본은 구현 문서다: [ACCOUNTS.md](../implementation/ACCOUNTS.md)(계정, `/setup`, 로그인, 초대, 퇴역 USERNAME, BYOK 키, 외부 IdP, 통합 콘솔, 공개 계정 디렉터리 §5.11), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md)(역할 호스트, 레거시 호스트 308, media 호스트), [THEMES.md](../implementation/THEMES.md)(테마 번호, 경로, 컬렉션), [PROVIDERS.md](../implementation/PROVIDERS.md)(프로바이더 정책, 서버 등급), [SCHEMA_VERSIONING.md](../implementation/SCHEMA_VERSIONING.md)(v15, v16). 이 문서의 파일 경로·설정값·표는 작성 시점 기준이므로 현재 사실로 인용하지 않는다. 구현되지 않은 계획: §4.4의 추가 통합 뷰(구현된 것은 공개 계정 목록뿐), §14의 7(스트림의 컬렉션 계약)과 8(계정 간 발행 본문). 소유자 결정(§16)은 유효하다. 코드 주석이 이 문서의 절 번호를 가리키므로 절 번호를 바꾸지 않는다
 - **작성일**: 2026-11-02 · 기준 커밋 `f420b8f`
 - **개정 이력**
   - Rev. 1 (2026-11-02): 초안
@@ -8,7 +8,7 @@
   - Rev. 2.1 (2026-11-02): 소유자 결정 N1–N5 반영. 초대는 관리자만 만들고, 상한은 사용 5회·만기 30일이다. 운영 환경의 네트워크 모드는 usercontent 호스트가 필수다
   - Rev. 2.2 (2026-11-02, P1): P1 구현 중 나온 결정과 정정을 반영했다. §8.1-1 저장 형태 정정, §8.1-4 예시 보완, §8.3 `authenticated_at` 필드, §8.5 비밀번호 허용 문자, §16.3 P1 결정. 현재 구현은 [ACCOUNTS.md](../implementation/ACCOUNTS.md)를 본다
   - Rev. 2.3 (2026-11-03): P2 착수 전 코드 대조 검토와 소유자 결정(§16.4)을 반영했다. 2단계 네임스페이스 미들웨어(§6.7), `__Host-` 쿠키 토싱 방어와 `static` 렌더링·1시간 열람 capability 토큰(§5.2), 레거시 호스트 이관 활성화 기산과 연장 설정(§5.3), `CLAIRE_MULTI_THEME=0`에서의 Theme 0 DB 단일 원천(§4.2, §7.4), 기존 테마 번호 하한(§7.2), 내부 테마 ID 폐기 기준(§7.3), 네트워크 모드 `/` 상단 작업 공간 바로가기와 빈 상태 화면(§4.4), 번들·백업의 비공개 본문·마스터 키 차단(§9.1, §11.3), 기본 테마 `is_default` 일원화·OAuth/MCP 다중 계정 격리·프로바이더 락/임베딩/일별 원장·OIDC 연결/초대 원자성·디스크 가비지 컬렉션·개발 포트 배선을 보완했다
-- **관련 문서**: [EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) (워크스페이스별 DB 분리안을 이 문서가 대체), [THEME_FQDN_REVERSE_PROXY_DESIGN.md](THEME_FQDN_REVERSE_PROXY_DESIGN.md) (테마 전용 FQDN을 이 문서가 대체), [SYNDICATION_ENDPOINT_DESIGN.md](SYNDICATION_ENDPOINT_DESIGN.md), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md), [THEMES.md](../implementation/THEMES.md), [PROVIDERS.md](../implementation/PROVIDERS.md), [PRINCIPLES.md](../PRINCIPLES.md)
+- **관련 문서**: `EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md` (워크스페이스별 DB 분리안. 이 문서가 대체했고 2026-11-16에 지웠다. git 이력에 있다), [PER_ACCOUNT_FEATURES_DESIGN.md](PER_ACCOUNT_FEATURES_DESIGN.md) (§10.1의 관리자 전용 봇 규칙을 PA1이 대체), `THEME_FQDN_REVERSE_PROXY_DESIGN.md` (테마 전용 FQDN을 이 문서가 대체. 지움, git 이력의 커밋 `d15ae8e0`), `SYNDICATION_ENDPOINT_DESIGN.md` (지움. 마지막 판은 git 이력의 커밋 `d15ae8e0`), [FEDERATION_REMOTE_READING_DESIGN.md](FEDERATION_REMOTE_READING_DESIGN.md), [EXTERNAL_ACCESS.md](../implementation/EXTERNAL_ACCESS.md), [THEMES.md](../implementation/THEMES.md), [PROVIDERS.md](../implementation/PROVIDERS.md), [PRINCIPLES.md](../PRINCIPLES.md)
 - **참고 자료**: 소유자 제공 「Mastodon 컬렉션 아키텍처 및 원리 분석」(Gemini 공유 문서, `https://share.gemini.google/ku3QGLNBH0UC`, 2026-11-02). 채택 범위와 보정은 §7.1에 있다.
 
 ---
@@ -759,7 +759,7 @@ class RouteRule:
 
 ## 12. 외부 IdP 연동
 
-[EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md](EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md) §3의 다음 규칙을 그대로 쓴다.
+이전 제안(`EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md` §3, 지움)의 다음 규칙을 그대로 쓴다. 구현은 [ACCOUNTS.md](../implementation/ACCOUNTS.md) §10이다.
 - PKCE S256, state·nonce·code_verifier의 서버 측 저장(10분)
 - `(iss, sub)` 식별, 이메일 기반 자동 병합 금지
 - client secret은 환경변수나 비밀 파일로만 받는다
@@ -953,7 +953,7 @@ CREATE TABLE admin_audit (
 5. **본문 렌더링**: 연합 게시물과 다른 계정의 발행 본문은 usercontent origin에서 그린다(K10).
 6. **미디어**: 첨부와 미리보기 이미지는 `media_url`(§5.4)로 만든다.
 7. **스트림**: `items` 스트림은 컬렉션 계약(§7.4)을 적용할 첫 후속 후보다. 항목 ID를 시간 정렬 번호로 바꿀지는 Syndication 2단계에서 정한다.
-8. **사용자 간 발행 본문**: 단일 DB가 되었으므로, 기존 설계의 별도 `data/shared/publications.db` 대신 `claire.db`의 `publications` 테이블(`account_id` 포함)로 둘 수 있다. 그 목록은 `/explore` 통합 뷰(§4.4)의 후보다. 결정은 Syndication 2단계에서 한다.
+8. **사용자 간 발행 본문**: 단일 DB가 되었으므로, 기존 설계의 별도 `data/shared/publications.db` 대신 `claire.db`의 `publications` 테이블(`account_id` 포함)로 둘 수 있다. 그 목록은 `/explore` 통합 뷰(§4.4)의 후보다. 결정은 Syndication 2단계에서 한다. 목록 규칙, 재사용 방식, 가져오기, 철회의 이전 계획은 지운 두 문서 `EXTERNAL_IDP_AND_PER_USER_WORKSPACE_DESIGN.md` §4.7과 `SYNDICATION_ENDPOINT_DESIGN.md` §3.9에 있었다(git 이력의 커밋 `d15ae8e0`). 구현은 없다.
 9. **프로토타입 패널 교체**: `/syndication/preferences?tab=idp`와 `?tab=userdb`의 제안 패널은 실제 `/admin/accounts`, `/me`로 연결한다.
 10. **명명 규칙**: `/@username`은 Mastodon 프로필 URL 관례와 같다. `acct:username@FQDN` 형식은 예약만 해 두고 WebFinger는 구현하지 않는다(철회 결정 유지). (2026-11-10 보완: 소유자 결정 FD1로 Fedify 사이드카를 통한 계정 액터와 WebFinger를 승인했다. [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §1.3 참고)
 

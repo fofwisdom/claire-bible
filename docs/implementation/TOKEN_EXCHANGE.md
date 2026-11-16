@@ -2,7 +2,7 @@
 
 이 문서는 테제 계보(`blackan/claire_bible`)와 증강 계보(`fofwisdom/claire-bible`)가 토큰 교환, 인가 위임과 세션 전환을 상호 호환 가능하게 처리하기 위한 RFC 8693 (OAuth 2.0 Token Exchange) 최소 공통 계약을 정의한다. 인증 채널이 다른 클라이언트(웹 UI, Telegram 봇, MCP 에이전트, CI 파이프라인)가 동일한 프로토콜로 Bearer 접근 토큰을 발급받거나 다운스케이프하기 위한 유일한 와이어 규약이다.
 
-> [!NOTE] `POST /oauth/token` 엔드포인트는 본 RFC 8693 외에도, Google Gemini 등 MCP 클라이언트의 표준 OAuth 2.1 인가를 위한 `grant_type=authorization_code` (PKCE S256) 및 `grant_type=refresh_token`을 단일 엔드포인트에서 통합 처리한다. 상세 사양은 [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md)를 참고한다.
+> [!NOTE] `POST /oauth/token` 엔드포인트는 본 RFC 8693 외에도, Google Gemini 등 MCP 클라이언트의 표준 OAuth 2.1 인가를 위한 `grant_type=authorization_code` (PKCE S256) 및 `grant_type=refresh_token`을 단일 엔드포인트에서 통합 처리한다. 상세 사양은 [`API_AND_MCP_GUIDE.md`](API_AND_MCP_GUIDE.md) §3.1을, 설계 원칙은 [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md)를 참고한다.
 
 - **[결정] 테제 계보는 더 이상 없다** (소유자, 2026-11-02). 이 문서는 이 저장소의 토큰 교환 계약 정본이다. §1–§6은 와이어 계약이고, 현재 구현이 실제로 받는 범위는 §7이다. 둘이 다르면 §7을 따른다.
 
@@ -95,4 +95,4 @@
 - **[코드] 발급 토큰**: 그 계정에 귀속된 `readonly` OAuth 접근 토큰과 갱신 토큰이다. `expires_in`은 `OAUTH_ACCESS_TOKEN_TTL`(30일, `2592000`)이다. 클라이언트 식별자는 `token_exchange_client`다.
 - **[코드] 읽지 않는 매개변수**: `subject_token_type`, `scope`, `resource`, `audience`, `requested_token_type`, `actor_token`, `actor_token_type`의 값은 판정에 쓰지 않는다. 요청한 `scope`와 무관하게 `readonly`만 발급한다. §3.2의 `telegram-bootstrap` 교환은 이 엔드포인트에 구현되어 있지 않다.
 - **[코드] 폴백 없음**: 계정을 정하지 못한 요청을 관리자 계정(`accounts.id = 1`)으로 발급하는 분기는 없다(PRINCIPLES C1). 집행: `tests/test_oauth_token_exchange.py`.
-- **[결정] Fedify 사이드카는 토큰 교환을 쓰지 않는다.** 사이드카에는 계정이 없으므로 계정 귀속 토큰을 받을 수 없다. 사이드카는 내부 연합 API 전용 서비스 자격증명(`data/auth/fedify_service.key`로 서명한 요청)을 쓴다([설계](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §6.1, §8.3, 구현: [FEDERATION.md](FEDERATION.md) §5.2).
+- **[결정] Fedify 사이드카는 토큰 교환을 쓰지 않는다.** 사이드카에는 계정이 없으므로 계정 귀속 토큰을 받을 수 없다. 사이드카는 내부 연합 API 전용 서비스 자격증명(`data/auth/fedify_service.key`로 서명한 요청)을 쓴다([설계 원칙](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) "Decisions in Force" 4, 구현: [FEDERATION.md](FEDERATION.md) §5.2).

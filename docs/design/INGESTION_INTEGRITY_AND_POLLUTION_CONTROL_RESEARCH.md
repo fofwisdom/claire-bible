@@ -1,9 +1,8 @@
 # 원문 보존·서비스 보호·오염 통제의 상충과 지식 무결성 거버넌스 연구
 
-> [!WARNING]
-> **이력 문서 (2026-11-02 동결).** 작성 당시의 설계 배경·대안·결정 기록이다. 상태 표시, 파일 경로, 설정값은 작성 시점 기준이며 현재 코드와 다를 수 있다. 현재 동작은 [`implementation/`](../implementation/)과 코드로, 원칙은 [`PRINCIPLES.md`](../PRINCIPLES.md)로 확인한다.
-
-작성일: 2026-08-28 · 상태: **연구 및 아키텍처 제언** · 기준: [GOALS.md](../GOALS.md) 트랙1(안정성) / 트랙2(추출·연결 품질) / 관련: [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
+- **Status**: Research. Partly implemented. Implemented (stage 2 of §4): table-preserving cuts, the record of a cut in the document metadata (`raw_truncated`, `orig_chars`, `raw_chars`), the cut mark in the web UI, the rule that the detail text skips a cut section (principle 4), and the rejection of DTP author artifacts in PDF metadata (principle 5). Current behavior: [`INGESTION.md`](../implementation/INGESTION.md) §6 to §8 (cuts, budgets, tables, PDF metadata) and [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.2 (detail rule). Not implemented: principle 1 as a default (fetchers still cut the stored text at the raw character budget unless the request asks for the full content) and the research tasks of §5.
+- **Date**: 2026-08-28 · status corrected 2026-11-16
+- **Related**: [GOALS.md](../GOALS.md) track 1 and track 2, [DATA_LIFECYCLE_AND_PURGE_DESIGN.md](DATA_LIFECYCLE_AND_PURGE_DESIGN.md), [TABLE_INGESTION_DESIGN.md](TABLE_INGESTION_DESIGN.md)
 
 ---
 
@@ -11,7 +10,7 @@
 
 Claire Bible 시스템은 웹, 파일, API, 메신저 등 다양한 채널을 통해 지식을 수집하고, LLM을 통해 지식 그래프(온톨로지)와 가독 렌더링 문서를 생성한다.
 
-그러나 실제 운영 및 대화 사례([대화 2095e8f6-e695-42e3-b365-800a1cad2d33](conversation://2095e8f6-e695-42e3-b365-800a1cad2d33))에서 국가법령정보센터(`law.go.kr`)의 「인공지능 발전과 신뢰 기반 조성 등에 관한 기본법」(총 35,603자, 43개 조문 및 부칙)과 같은 장문 구조화 문서를 수집하는 과정에서 다음과 같은 **본질적인 트릴레마(Trilemma)**가 확인되었다:
+그러나 실제 운영 및 대화 사례에서 국가법령정보센터(`law.go.kr`)의 「인공지능 발전과 신뢰 기반 조성 등에 관한 기본법」(총 35,603자, 43개 조문 및 부칙)과 같은 장문 구조화 문서를 수집하는 과정에서 다음과 같은 **본질적인 트릴레마(Trilemma)**가 확인되었다:
 
 ```text
                [1. 서비스 & 리소스 보호]
@@ -83,12 +82,11 @@ Claire Bible 시스템은 웹, 파일, API, 메신저 등 다양한 채널을 �
 [1단계: 단순 슬라이싱 (레거시)]
   text[:20000] 기계적 절단 ──> 표 절단, 본문 압살, 사후 추적 불가
 
-[2단계: 구조 예외 및 관측성 확보 (현재 완료)]
-  ├── table_budget.py: 표(Markdown/AsciiDoc/HTML) 100% 무손실 보존
-  ├── doc.meta: raw_truncated, orig_chars, raw_chars, focus 명시 기록
-  └── Web UI: docmeta 우측에 '✂️ 원문 일부 절단', '🎯 초점' 뱃지 노출
+[2단계: 구조 예외 및 관측성 확보 (구현됨)]
+  표 보존 절단, 절단 메타데이터 기록, UI 절단 표시
+  → current behavior: implementation/INGESTION.md §7, §8
 
-[3단계: 차세대 지식 무결성 거버넌스 (연구 과제)]
+[3단계: 차세대 지식 무결성 거버넌스 (연구 과제, 미구현)]
   ├── 도메인 인지형 스토리지 계층 디커플링 (Raw Storage vs Processing View)
   ├── 구문 인지형 계층적 동적 청킹 (Syntax-Aware Chunking)
   └── 메타인지적 품질 점수 및 능동적 적재 승인 체계
@@ -132,4 +130,4 @@ Claire Bible 시스템은 웹, 파일, API, 메신저 등 다양한 채널을 �
 2. **투명한 제약 관측성 (Observable Constraints)**: 처리 과정에서 리소스 제한으로 인해 절단이나 압축이 발생한 경우, 그 손실 내역(원문 길이, 적재 길이, 절단 여부)을 투명하게 메타데이터로 기록하고 UI에 노출한다.
 3. **정적 단일 정책 배제 (Adaptive Governance over Static Rules)**: 도메인, 스키마, 사용자 초점(`focus`)의 맥락을 고려하는 적응형 파이프라인을 구축한다.
 4. **절단 섹션 상세 작성 배제 (Exclusion of Truncated Sections in Detail Rendering)**: 원문을 절단하여 적재 및 상세 작성 시, 절단되어 내용이 유실된 섹션(미완성 문단, 잘린 소제목·조항 등)은 상세를 작성하지 않는다. 불완전한 텍스트 파편에 기반한 환각(Hallucination)과 불완전한 지식 생성(Partial Corruption)을 원천 차단하고 온전히 보존된 섹션까지만 상세 본문으로 구성한다.
-5. **메타데이터 원천 검증 및 조판 아티팩트 오염 차단 (Metadata Source Verification & DTP Artifact Rejection)**: 인입된 바이너리 문서(PDF 등)의 헤더 메타데이터(`/Author`, `/Title`)에 전자출판 조판 소프트웨어(QuarkXPress, Adobe InDesign 등)가 자동 주입한 디자이너 OS 계정(예: `park-sy`)이나 판호 파일명(예: `35 17 `)과 같은 DTP 아티팩트를 식별·배제한다. 문서 1페이지 서두의 직함(`선임연구위원` 등) 기반 실제 저자명 및 실제 논단명을 추출·교정([`reconcile_pdf_metadata`](file:///home/fow/Projects/claire-bible/src/claire/extract/classifier.py))하여 DB 및 지식 그래프에 허위 인물/작품 엔티티가 영구 고착되는 온톨로지 독화를 원천 차단한다.
+5. **메타데이터 원천 검증 및 조판 아티팩트 오염 차단 (Metadata Source Verification & DTP Artifact Rejection)**: 인입된 바이너리 문서(PDF 등)의 헤더 메타데이터(`/Author`, `/Title`)에 전자출판 조판 소프트웨어(QuarkXPress, Adobe InDesign 등)가 자동 주입한 디자이너 OS 계정(예: `park-sy`)이나 판호 파일명(예: `35 17 `)과 같은 DTP 아티팩트를 식별·배제한다. 문서 1페이지 서두의 직함(`선임연구위원` 등) 기반 실제 저자명 및 실제 논단명을 추출·교정하여 DB 및 지식 그래프에 허위 인물/작품 엔티티가 영구 고착되는 온톨로지 독화를 원천 차단한다.

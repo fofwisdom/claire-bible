@@ -30,7 +30,17 @@
 | 26 | 현재 version (아래 "v26" 절) | 계정 엔티티 언어(`accounts.entity_language`) |
 | 27 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
-v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙을 위반했던 version이므로 영구 폐기한다. v12 DB는 증강 계보의 보존 복구 절차로 진단 행을 내구성 있게 내보낸 뒤 v11로 복원해야 한다. 공통 마이그레이션은 이 복구를 추측하거나 대신하지 않는다. 복구되지 않은 v12를 발견하면 DB를 변경하지 않고 실패한다.
+v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
+
+### Retired v12 recovery
+
+Basis: commit d15ae8e0 (2026-11-16).
+
+- **[code]** `init_db` in `src/claire/store/db.py` recovers a v12 database itself, before the normal migration (`_restore_local_support_v12_to_v11`). There is no separate procedure.
+- **[code]** In one `BEGIN IMMEDIATE` transaction it checks the version again and the exact column signature of `ingest_attempts` and `fetch_attempts` (`_LOCAL_SUPPORT_V12_COLUMNS`). If the signature is different, it rolls back and fails. It does not guess.
+- **[code]** It writes all rows of the two tables as JSONL plus `manifest.json` (row counts, bytes, SHA-256) to `data/raw/migrations/support-diagnostics-v12-to-v11-<UTC time>-<path hash>-<random>/` (`_export_local_support_v12`). The directory has mode `0700`, the files `0600`. It syncs the files and the directories to disk. If an export step fails, it removes the incomplete directory.
+- **[code]** Only after the export, it drops the two tables and their indexes and sets `meta.schema_version` to 11. Then the same `init_db` call migrates the database to the current version and writes `schema_lineage`.
+- **[decision]** v12 stays reserved. The recovery target is always v11.
 
 ## v14 수렴 기준 (단일 데이터베이스 및 테마 파티셔닝)
 
@@ -90,26 +100,26 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 ## v17 (연합 팔로워, 툼스톤, 도메인 차단, Fedify 사이드카 FP2-1)
 
-확인 기준: FP2-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §10.1.
+확인 기준: FP2-1 구현 (2026-11-11). 현재 동작: [FEDERATION.md](FEDERATION.md) §5.6.
 
 - **[코드] 버전 상수**: v17 도입 당시 `SCHEMA_VERSION`은 17이었다(현재 값은 아래 "v18" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v17_federation`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더하고 기존 행은 바꾸지 않는다, A3):
   - 테이블 `federation_followers`: `(public_id INTEGER UNIQUE NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, actor_iri TEXT NOT NULL, inbox_iri TEXT NOT NULL, shared_inbox_iri TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY (account_id, actor_iri))`. `public_id`는 시간 정렬 번호(`claire.ids`)이고 컬렉션 커서다.
-  - 인덱스 `idx_federation_followers_actor`(`actor_iri`): 원격 액터의 `Delete`·`Update`가 계정과 무관하게 행을 찾는다. 설계 §10.1에는 없는 인덱스다.
+  - 인덱스 `idx_federation_followers_actor`(`actor_iri`): 원격 액터의 `Delete`·`Update`가 계정과 무관하게 행을 찾는다. 옛 설계 초안에는 없던 인덱스다.
   - 테이블 `federation_tombstones`: `(public_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('actor', 'object')), gone_at REAL NOT NULL)`. USERNAME이 없고(K4) `accounts` 외래 키도 없다. 퍼지 뒤에도 행이 남아야 하기 때문이다.
   - 테이블 `federation_domain_blocks`: `(domain TEXT PRIMARY KEY, created_at REAL NOT NULL, created_by INTEGER NOT NULL REFERENCES accounts(id), note TEXT NOT NULL DEFAULT '')`. `domain`은 소문자 ASCII(punycode)다.
 - **[코드] 저장소 함수**: `src/claire/store/federation.py`. 팔로워 저장(`upsert_follower`, 키는 `(account_id, actor_iri)`), 삭제, 원격 액터 단위 삭제·인박스 갱신, 개수, 커서 페이지(`max_id`·`min_id`·`since_id`), 툼스톤 기록·조회, 도메인 정규화·차단·해제·목록·판정(`blocking_domain`, 차단은 하위 도메인에도 적용), 차단 목록 ETag. 이 모듈의 함수는 커밋하지 않는다.
-- **[코드] 설계와 다른 점**: 설계 §10.1은 `federation_objects`와 `federation_outbox`도 version 17에 적었다. 이 두 테이블은 FP3-1에서 그 코드와 함께 v18로 더했다(쓰이지 않는 스키마를 먼저 만들지 않는다).
+- **[코드] 설계와 다른 점**: 옛 설계 초안은 `federation_objects`와 `federation_outbox`도 version 17에 적었다. 이 두 테이블은 FP3-1에서 그 코드와 함께 v18로 더했다(쓰이지 않는 스키마를 먼저 만들지 않는다).
 - **[테스트]** `tests/test_schema_v17.py`.
 
 ## v18 (연합 발행 객체와 아웃박스, Fedify 사이드카 FP3-1)
 
-확인 기준: FP3-1 구현 (2026-11-11). 설계: [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §9.3, §10.1.
+확인 기준: FP3-1 구현 (2026-11-11). 현재 동작: [FEDERATION.md](FEDERATION.md) §7.6.
 
 - **[코드] 버전 상수**: v18 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 18이었다(현재 값은 아래 "v19" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v18_federation_publishing`, 모두 `IF NOT EXISTS`로 멱등. 테이블만 더한다, A3):
   - 테이블 `federation_objects`: `(public_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE, document_id TEXT NOT NULL, published_by_account_id INTEGER NOT NULL REFERENCES accounts(id), published_at REAL NOT NULL, updated_at REAL NOT NULL, UNIQUE (theme_id, document_id))`. `public_id`는 시간 정렬 번호이고 객체 ID이자 아웃박스 컬렉션 커서다.
-  - 인덱스 `idx_federation_objects_account`(`account_id, public_id`). 설계 §10.1에는 없는 인덱스다.
+  - 인덱스 `idx_federation_objects_account`(`account_id, public_id`). 옛 설계 초안에는 없던 인덱스다.
   - 테이블 `federation_outbox`: `(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'update_actor', 'delete_actor')), object_public_id INTEGER, status TEXT NOT NULL CHECK (status IN ('pending', 'handed_off', 'rejected')), lease_until REAL, error_code TEXT, created_at REAL NOT NULL, handed_off_at REAL)`. `account_id`에는 기본값도 외래 키도 없다(설계 §8.3 항목 5, 퍼지 뒤에도 `delete_actor` 작업이 남아야 한다).
   - 인덱스 `idx_federation_outbox_ready`(`status, id`).
 - **[코드] 저장소 함수**: `src/claire/store/federation.py`의 `publish_document`, `retract_object`, `add_outbox_task`, `lease_outbox_tasks`, `ack_outbox_task`, `count_pending_tasks`, `list_objects`, `count_objects`. 커밋은 호출자가 한다. 객체 행과 작업 행은 한 트랜잭션에 쓴다.
@@ -117,7 +127,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 ## v19 (계정 인터페이스 언어, i18n IP1-2)
 
-확인 기준: IP1-2 구현 (2026-11-12). 설계: [I18N_DESIGN.md](../design/I18N_DESIGN.md) §5.1.
+확인 기준: IP1-2 구현 (2026-11-12). 현재 동작: [I18N.md](I18N.md).
 
 - **[코드] 버전 상수**: v19 도입 당시 `src/claire/store/db.py`의 `SCHEMA_VERSION`은 19였다(현재 값은 아래 "v20" 절). lineage는 `claire-bible/common` 그대로다.
 - **[코드] 추가 객체**(`_migrate_v19_account_locale`, `_ensure_column`으로 멱등. NULL 허용 열 하나만 더한다, A3):
@@ -208,6 +218,8 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 
 스키마 전환은 서비스 기동 전에 명시적인 migration 경로에서 수행한다. health, liveness와 진단 조회는 읽기 전용 연결을 사용하며 DB, registry 또는 schema 객체를 생성·수정하지 않는다. 이전 version은 migration 전까지 비정상 또는 비호환 상태로 보고한다.
 
+- **[code]** Exception: `connect_telemetry` runs `CREATE ... IF NOT EXISTS` and an `ALTER TABLE` on each connection, also when the Support Bundle only reads telemetry. See [`TELEMETRY.md`](TELEMETRY.md) §2.
+
 마이그레이션은 다음 계약을 따른다.
 
 1. source version, lineage와 필수 객체 서명을 쓰기 전에 확인한다.
@@ -225,7 +237,7 @@ v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원
 4. 새 기능 schema는 해당 기능의 정책 검토와 분리한다. 공통 계약 PR에 구현별 UI, 운영 도구 또는 무관한 기능 snapshot을 포함하지 않는다.
 5. machine-readable common manifest는 이미 배포된 v13을 기술할 수 있지만, 그 digest나 migration ledger를 기존 v13 DB의 필수 meta로 소급 강제하지 않는다.
 
-구현별 schema 확장, retired version 복구와 보조 저장소 version 계획은 각 구현 저장소의 전용 문서에서 관리하며 이 공동 계약의 필수 객체로 간주하지 않는다.
+The retired v12 recovery is described above. Other stores have their own version contracts and do not share this version number: the telemetry database (no version marker now, see [`TELEMETRY.md`](TELEMETRY.md) §2), the Support Bundle archive (format 3) and sidecar registry (format 1), and the `cb-manuscript` backup archive (`BACKUP_FORMAT_VERSION` 1 in `ops/cb_manuscript.py`).
 
 ## v25 (서버 설정 테이블 이름, 용어 "서버")
 

@@ -1,6 +1,6 @@
 # Claire Bible — 오리진 목표와 로드맵 (증강 계보)
 
-**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/CLAIRE_ARCHITECTURE_ROADMAP.md`](CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
+**계보:** 증강 계보 ([`fofwisdom/claire-bible`](https://github.com/fofwisdom/claire-bible)) **기준 문서:** 본 문서는 증강 계보의 최상위 비전, 범위, 로드맵을 정의하는 단일 정본이다. **관련 문서:** 프로젝트 원칙 [`docs/PRINCIPLES.md`](PRINCIPLES.md) · 아키텍처 로드맵 [`docs/design/CLAIRE_ARCHITECTURE_ROADMAP.md`](design/CLAIRE_ARCHITECTURE_ROADMAP.md) · 공개 아키텍처 [`docs/implementation/PLAN.md`](implementation/PLAN.md) · 구현 및 API 가이드 [`docs/implementation/API_AND_MCP_GUIDE.md`](implementation/API_AND_MCP_GUIDE.md)
 
 > **[결정]** 테제 계보는 더 이상 없다(소유자, 2026-11-02). 이 저장소가 유일한 정본이다. 아래의 "증강 계보", "업스트림" 표현은 출발점을 설명하는 이력이다.
 
@@ -100,14 +100,14 @@
 - [x] Support Bundle 팩트 엔지니어링 및 진단 관측성 파이프라인
 - [ ] 멀티 테마 소유자(Owner) / 협업자(Collaborator) 세부 RBAC UI 완료
 - [ ] 테마 간 문서 마이그레이션 CLI
-- [x] 로컬 계정 코어, 단일 FQDN URI 네임스페이스, 네트워크 모드, 초대, 계정 API 키(BYOK), 외부 IdP 로그인, Syndication 병합 기반 ([설계](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) P1–P6)
+- [x] 로컬 계정 코어, 단일 FQDN URI 네임스페이스, 네트워크 모드, 초대, 계정 API 키(BYOK), 외부 IdP 로그인, Syndication 병합 기반 ([설계](design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) P1–P7)
 - [x] `/admin/*`·`/settings/*` 통합 콘솔 경로 분리
 - [x] 계정·IdP·Fedify 연동 준비 봉인 (`profile_public` 계약, 연합·인증 예약 이름, 토큰 교환 계정 귀속, Syndication 프로토타입 봉인)
 - [x] Fedify 사이드카 연합 FP0: 기술 검증 FT1–FT7 (검증 프로그램은 커밋 `116d530`의 `sidecar/fedify/spike/`에 있으며, FP1-5에서 사이드카 소스로 대체됨)
 - [x] Fedify 사이드카 연합 FP1: 내부 계약과 탐색 — WebFinger, NodeInfo, 액터 문서, 준비 검사 ([구현](implementation/FEDERATION.md))
 - [x] Fedify 사이드카 연합 FP2: 팔로워 — 인박스, `Accept(Follow)`, 팔로워 컬렉션, 도메인 차단, 콘솔 `/settings/federation`·`/admin/federation` ([구현](implementation/FEDERATION.md))
 - [x] Fedify 사이드카 연합 FP3: 발행 — `Article` 발행·갱신·철회, 아웃박스 컬렉션, 수명 주기 작업, 비공개 전환 트리거, `/syndication` 대화상자의 네이티브 액터 대상 ([구현](implementation/FEDERATION.md))
-- [ ] Fedify 사이드카 연합 FP4: 원격 읽기 — 설계 개정 필요 ([설계](design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) §14.1)
+- [x] Fedify 사이드카 연합 FP4: 연합 클라이언트·원격 읽기·피드 ([설계](design/FEDERATION_REMOTE_READING_DESIGN.md), [구현](implementation/FEDERATION.md))
 
 ---
 

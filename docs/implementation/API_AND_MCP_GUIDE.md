@@ -1,7 +1,8 @@
 # Claire Bible REST API 및 MCP 연결 가이드 (통합 구현본)
 
 - **상태**: **구현 완료 (REST API + M1 MCP 툴셋 + OAuth 2.1 표준 인가 서버)**
-- **최종 갱신일**: 2026-10-16
+- **기준 커밋**: `d15ae8e0` (2026-11-16). Sections 1.1, 1.7, and 3 were examined again against the code of this commit. The other sections have the basis 2026-10-16.
+- **Design principles**: [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md) (decisions of MCP and OAuth, and the open proposals MP1 to MP4)
 - **기준 프로토콜 및 사양**:
   - OpenAPI 3.1.0 ([`openapi.yaml`](openapi.yaml))
   - Model Context Protocol (MCP) Streamable HTTP Transport (JSON-RPC 2.0)
@@ -23,9 +24,9 @@ Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이�
 ### 1.1 접속 주소 (Base URL) 및 Host Authority
 - **개발 환경 (`development`)**: `http://<CB_API_BIND>:<CB_API_PORT>` (예: `http://127.0.0.1:8765` 또는 `http://192.168.10.25:8766`)
 - **프로덕션 환경 (`production`)**: `https://<CLAIRE_FQDN>` (예: `https://claire.example.com` 또는 `https://cb.netspheres.org`)
-- **Host Authority 불변식**:
-  - `HostAuthorityMiddleware`는 모든 요청의 `Host` 헤더가 환경변수에 설정된 `CLAIRE_FQDN`(또는 등록된 테마 전용 FQDN)과 일치하는지 엄격히 검사한다.
-  - 임의의 호스트명이나 IP로 우회 접근 시 HTTP `421 Misdirected Request`로 거부된다.
+- **Host roles** [code] (`HostRouter` in `src/claire/api/host_router.py`):
+  - The `Host` header (with the port) selects the role: `app` (the API and `/mcp`), `usercontent`, `media`, `prototype`, and `legacy` (old theme FQDNs: before the sunset `GET` and `HEAD` get 308 to the canonical path, other methods get 421; after the sunset 410).
+  - A host name or IP address that has no role gets HTTP `421 Misdirected Request`.
   - 역방향 프록시(Nginx, Cloudflare 등) 구성 시 클라이언트가 요청한 `Host` 헤더를 백엔드로 변조 없이 전달해야 한다. (상세 네트워크 구성은 [`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md) 참조)
 
 ### 1.2 인증 스코프 (RBAC) 4계층
@@ -74,7 +75,7 @@ $$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anony
 멀티 테마(`CLAIRE_MULTI_THEME=1`) 환경에서는 요청 헤더 또는 쿼리 파라미터로 조회/작업 대상 테마를 명시할 수 있다:
 - **HTTP 헤더 (REST/MCP 권장)**: `X-Claire-Theme: <theme_id_or_label>` (예: `X-Claire-Theme: 1` 또는 `X-Claire-Theme: 인공지능`)
 - **URL 쿼리 파라미터 (브라우저/링크 권장)**: `?theme=<theme_id_or_label>`
-- **폴백 규칙**: 테마 지정이 모두 생략되면 기본 지식베이스인 Theme `0`으로 자동 라우팅된다.
+- **No theme in the request** [code] (`ThemeManager.resolve_theme_ref`): with multiple themes, the default theme (`is_default=1`) of the account of the credential is used. A number is an internal ID or a theme number. Another value must be an exact label of a theme of the same account. A theme of a different account, or no theme, gives "not found". With one theme (`CLAIRE_MULTI_THEME` off) only Theme `0` exists, and only the admin account can use it.
 
 ---
 
@@ -367,7 +368,7 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 
 Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있도록 **Model Context Protocol (MCP)** 공식 사양을 지원한다.
 
-- **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC 2.0)
+- **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC 2.0, JSON responses). `ROUTE_POLICY` gives `GET`, `HEAD`, and `POST /mcp` the access level `read`. A call without a credential gets `401` with `WWW-Authenticate: Bearer ... resource_metadata="{public_origin}/.well-known/oauth-protected-resource"` [code] (`src/claire/api/security.py`).
 - **임베딩 아키텍처**: 별도 컨테이너 없이 `claire_api` Starlette 프로세스 내부에서 직접 마운트 서빙.
 - **LLM 쿼터 격리 (Zero Gemini Overhead)**:
   - 모든 MCP 도구는 **순수 SQLite 쿼리 및 FTS5 검색 엔진만 사용**한다.
@@ -417,9 +418,12 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
 ```
 
 - **영구 독립 세션 (`oauth_tokens` 테이블)**:
+  - The tables `oauth_clients`, `oauth_codes`, `oauth_tokens`, and `oauth_auth_requests` are in `claire.db` [code] (`src/claire/store/db.py`).
   - 텔레그램 웹 세션의 단일 활성 정책과 완전히 격리된다. 텔레그램에서 `/web`을 재발급받아도 Gemini에 연결된 토큰은 절대 끊어지지 않는다.
 - **Refresh Token 자동 회전**:
-  - `access_token` 만료(30일) 시 백그라운드에서 자동 갱신된다.
+  - An access token is valid for 30 days (`OAUTH_ACCESS_TOKEN_TTL`) and a refresh token for 1 year (`OAUTH_REFRESH_TOKEN_TTL`) [code]. The client gets a new token with `grant_type=refresh_token`.
+  - `scopes_supported` in the metadata has one value, `["readonly"]` [code] (`src/claire/api/oauth.py`).
+- **Known limits** [code]: the MCP telemetry (`record_mcp_telemetry`) records no `client_id`. There is no route to list or revoke OAuth tokens. There is no call limit for each credential. The `claude_desktop_config` example in the output of `claire token create` uses `@modelcontextprotocol/server-everything`, which is not a connection to a remote HTTP server (use the forms of §3.4). Proposals: [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md) MP1 to MP4.
 - **다중 계정 귀속 (Account Binding, Rev. 2.3)**:
   - 하드코딩된 관리자 계정 ID(`ADMIN_ACCOUNT_ID`)를 제거하고, `validate_session_binding`으로 검증된 세션의 실제 `account_id`(`active` 상태 계정 필수)에 인가 코드(`oauth_codes`), 액세스 토큰, 리프레시 토큰(`oauth_tokens`)이 귀속된다.
   - 계정이 정지(`suspended`), 삭제 중(`deleting`), 소각(`purged`) 상태로 변경되면 리프레시 토큰 갱신 요청(`POST /oauth/token` `grant_type=refresh_token`) 시 즉시 `invalid_grant`로 거부된다.
@@ -495,23 +499,10 @@ Google Gemini 맞춤형 연결 앱(Spark)이나 최신 OAuth 2.1 호환 클라�
 }
 ```
 
-#### 3) Claude Code (`~/.claude/settings.json`)
-```json
-{
-  "mcpServers": {
-    "claire": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-fetch",
-        "https://claire.example.com/mcp"
-      ],
-      "headers": {
-        "Authorization": "Bearer <PERSISTENT_TOKEN>"
-      }
-    }
-  }
-}
+#### 3) Claude Code
+Add Claire as a remote HTTP MCP server:
+```bash
+claude mcp add --transport http claire https://claire.example.com/mcp --header "Authorization: Bearer <PERSISTENT_TOKEN>"
 ```
 
 #### 4) Cursor (`.cursor/mcp.json`)

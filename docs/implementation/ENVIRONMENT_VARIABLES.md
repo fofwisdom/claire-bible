@@ -47,7 +47,7 @@ graph TD
 2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어쓴다.
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
 4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
-5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
 6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Antigravity CLI, Codex CLI, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
 7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다.
 
@@ -180,7 +180,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md](../design/VIDEO_AUDIO_TRANSCRIPTION_AND_INGESTION_DESIGN.md) 참조) |
+| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([INGESTION.md](INGESTION.md) §9 참조) |
 | `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. Antigravity CLI는 STT 미지원. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더(`antigravity` 등)이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
 | `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
@@ -204,14 +204,14 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
 | `CLAIRE_VAULT_PATH` | `""` | 상대/절대 디렉터리 경로 (레거시 잔여) | Obsidian Vault 동기화 기능이 영구 제거되어 기본값은 빈 문자열(`""`)이다. 과거 환경 호환성을 위해 필드만 유지된다. |
 | `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
-| `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([MARKDOWN_RETIREMENT_DESIGN.md](../design/MARKDOWN_RETIREMENT_DESIGN.md) 참조) |
+| `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §1 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
-| `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE_AND_PURGE_DESIGN.md](../design/DATA_LIFECYCLE_AND_PURGE_DESIGN.md) 참조) |
-| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마(다중 DB 격리) 활성화 플래그**. 기본값 `0`(싱글 테마 모드)에서는 `themes.json` 스캔과 UI 테마 선택기가 비활성화되며, `1`로 설정 시 일련번호 기반 다중 테마 정의·스위칭·적재 및 권한 제어가 활성화된다. ([MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md) 참조) |
+| `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) §2 참조) |
+| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `theme_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
 | `CLAIRE_PRESENTATION_ENABLED` | `0` (`false`) | `0`, `1`, `true`, `false` | 기본 테마(#0)의 프레젠테이션 기능 활성값. 다른 테마는 테마 레지스트리의 테마별 값을 쓴다. |
 | `CLAIRE_THEME_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 테마 번호. 테마 라우팅이 테마별 `Settings` 사본에 채우며(`ThemeManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
 | `CLAIRE_THEME_DEFAULT_FOCUS` | `""` | 문자열 | **[내부]** 테마 기본 초점(Focus). 테마 레지스트리의 `default_focus`가 테마별 `Settings` 사본에 채워진다. 사용자가 `.env`에 설정하지 않는다. |
-| *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md) 참조) |
+| *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY.md](TELEMETRY.md) §2 참조) |
 
 ---
 
@@ -220,7 +220,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_EXPAND_MAX` | `5` | 정수 | 1개 문서 적재 시 1홉 확장으로 탐색/적재할 최대 링크 수. |
-| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화된다. ([EXPAND_FILTERING_DESIGN.md](../design/EXPAND_FILTERING_DESIGN.md) 참조) |
+| `CLAIRE_AUTO_EXPAND` | `1` (`true`) | `0`, `1`, `true`, `false` | 1홉 자동 확장 기능 활성화 여부. `0`으로 설정하면 백그라운드 확장 루프 및 텔레그램 confirm 버튼 경로가 비활성화된다. ([ONEHOP_MERGE.md](ONEHOP_MERGE.md) 참조) |
 | `CLAIRE_WATCH_INTERVAL_DAYS` | `1.0` | 부동소수점 (일 단위) | watch(주기 갱신) 등록 문서의 기본 재확인 주기. 개별 문서에 `watch_interval`이 지정된 경우 개별 설정이 우선한다. |
 
 ---
@@ -229,7 +229,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)된다.** ([FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md](../design/FETCHER_CONTRIBUTION_AND_ONPREMISE_NETWORK_DESIGN.md) 참조) |
+| `CLAIRE_ALLOW_PRIVATE_NETWORKS` | `0` (`false`) | `0`, `1`, `true`, `false` | **온프레미스 사설망 스크래핑 허용 플래그**. `1`(`true`)로 설정하면 수집기(`SafeHttpClient`)가 사내 인트라넷 RFC 1918 사설망(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 및 Loopback 주소에 접근할 수 있다. **클라우드 메타데이터(IMDS `169.254.169.254`, `169.254.0.0/16`) 및 링크로컬/멀티캐스트는 어떤 환경에서도 절대 차단(Strictly Denied)된다.** ([INGESTION.md](INGESTION.md) §4 참조) |
 | `CLAIRE_PRIVATE_NETWORK_ALLOWLIST` | `""` | 쉼표 구분 CIDR / 도메인 | **사설망 접근 세부 화이트리스트**. 사설망 전체를 허용하지 않고 특정 대역이나 도메인만 선별적으로 수집하도록 허용한다 (예: `10.0.0.0/8,192.168.1.0/24,*.corp.internal,wiki.local`). |
 
 ---
@@ -238,11 +238,11 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 (`0.0~1.0`) | **Tier 1 자동 병합 임계값**. 이 점수 이상의 코사인 유사도를 가진 기존 엔티티는 LLM 질의 없이 즉시 동일체로 병합된다. ([KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md](../design/KNOWLEDGE_GRAPH_LINKING_AND_CALIBRATION_DESIGN.md) 참조) |
+| `CLAIRE_SIM_TIER_AUTO_MERGE` | `0.93` | 부동소수점 (`0.0~1.0`) | **Tier 1 자동 병합 임계값**. 이 점수 이상의 코사인 유사도를 가진 기존 엔티티는 LLM 질의 없이 즉시 동일체로 병합된다. ([EXTRACTION.md](EXTRACTION.md) §4.5 참조) |
 | `CLAIRE_SIM_TIER_BORDERLINE` | `0.72` | 부동소수점 (`0.0~1.0`) | **Tier 2 동일체 경계선 판정 하한**. `CLAIRE_SIM_TIER_AUTO_MERGE` 미만부터 이 점수까지의 후보는 LLM 동일체 판정기(`judge_same_entity`)를 통해 병합 여부를 결정한다. |
 | `CLAIRE_SIM_TIER_RELATIONAL` | `0.70` | 부동소수점 (`0.0~1.0`) | **Tier 3 직접 관계 형성 후보 하한**. 동일체가 아닌 독립 엔티티로 생성하되 문서 간 직접 엣지 링킹(`relational_candidates`) 후보군으로 보존한다. |
 | `CLAIRE_SIM_TIER_MULTIHOP` | `0.55` | 부동소수점 (`0.0~1.0`) | **Tier 4 다단계/미싱링크 후보 하한**. 잠재적 매개 개념(Bridge Node) 및 삼각 폐쇄 발굴을 위한 간접 관계 후보군(`multihop_candidates`)으로 보존한다. |
-| `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화한다. |
+| `CLAIRE_VECTOR_ADAPTIVE_CENTERING` | `1` (`true`) | `0`, `1`, `true`, `false` | **적응형 중심화(Adaptive Centering) 활성화 여부**. 전체 벡터의 중심점(Centroid)을 감산하여 공통 도메인 어휘로 인한 허브니스(Hubness) 편향을 억제하고 코사인 분별력을 극대화한다. 엔티티 해소와 `link-relations`에만 적용되고 하이브리드 검색에는 적용되지 않는다. |
 | `CLAIRE_ENABLE_RELATION_LINKING` | `1` (`true`) | `0`, `1`, `true`, `false` | **Phase 2 전역 횡단 관계 자동 수립 활성화 여부**. 인제스트 파이프라인에서 추출된 엔티티의 `relational_candidates`를 기반으로 문서 경계를 넘는 횡단형 관계(Edge)를 자동 형성한다. |
 | `CLAIRE_MAX_RELATION_JUDGES_PER_ENTITY` | `3` | 정수 | **엔티티당 최대 관계 판정 질의 상한**. 과도한 LLM 비용/지연을 억제하기 위해 단일 엔티티에서 평가할 최대 후보 쌍 수를 제한한다. |
 | `CLAIRE_MAX_RELATION_JUDGES_PER_DOC` | `10` | 정수 | **문서당 최대 관계 판정 질의 상한**. 단일 문서 인제스트 시 평가할 전체 횡단 후보 쌍의 총합 상한이다. |
@@ -251,7 +251,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 ### 2.10.3 TypeSafe AI Jev 엔티티 해소 shadow 평가 (도입 검토용 System 1 Engine)
 
-TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래그와 API 키가 모두 있으면 resolver가 후보 루프에 진입할 때 같은 후보를 Jev에 동시 질의한다. 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 병합 여부와 히트맵(`fallback_vector`)은 이 설정과 무관하다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
+TypeSafe AI Jev는 관리자 컨텍스트에서 플래그와 API 키가 모두 있을 때만 호출된다. 기본 모드 `shadow`에서는 판정 권한이 없고 결과 확률은 판정 기록(`documents.meta.resolution_log`)에만 남는다. 관리자가 콘솔에서 `jev.mode`를 `filter` 또는 `hybrid`로 바꾸면 Jev가 판정에 관여한다([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5). 히트맵은 모드와 무관하게 `fallback_vector`다. 켜면 엔티티 이름·타입·별칭·관측문 요약이 `api.typesafe.ai`(미국)로 전송된다. ([JEV_SHADOW_EVALUATION_DESIGN.md](../design/JEV_SHADOW_EVALUATION_DESIGN.md) 참조)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
@@ -270,9 +270,9 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | 환경변수명 (레거시/마이그레이션 대상) | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_RAW_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 원문 텍스트 수집 기본 보관 상한 (웹, 텍스트 파일, X, 유튜브 등). |
-| `CLAIRE_PDF_PARSER` | `default` | `default` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서. `pypdf`, `docling` 설정 시 `cb-manuscript preflight`에서 차단됨). ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
-| `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | `true`, `false`, `1`, `0` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부. |
-| `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | 정수 (글자 수) | PDF 파싱 시 스트림에서 추출할 최대 텍스트 분량. ([PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md](../design/PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md) 참조) |
+| `CLAIRE_PDF_PARSER` | `default` | `default` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서. `pypdf`, `docling` 설정 시 `cb-manuscript preflight`에서 차단됨). ([INGESTION.md](INGESTION.md) §5.1 참조) |
+| `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | `true`, `false`, `1`, `0` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부. 현재 `pdf.py`는 이 값을 읽지 않으며 감지는 항상 실행된다([INGESTION.md](INGESTION.md) §5.2). |
+| `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | 정수 (글자 수) | PDF 파싱 시 스트림에서 추출할 최대 텍스트 분량. ([INGESTION.md](INGESTION.md) §7.1 참조) |
 | `CLAIRE_PDF_PAPER_THRESHOLD_CHARS` | `15000` | 정수 (글자 수) | 학술 논문 PDF 판정 및 고성능 추론(high effort) 적용 기준 글자 수. |
 | `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 부록(Appendix/Supplementary) 자동 제외 여부. |
 | `CLAIRE_PDF_EXCLUDE_REFERENCES` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 참고문헌(References/Bibliography) 자동 제외 여부. |
@@ -281,10 +281,10 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_PDF_CLASSIFIER_EFFORT` | `low` | `low`, `medium`, `high` | 무료/저비용 어댑터 기반 1차 논문 분류 시 사용할 추론 레벨. |
 | `CLAIRE_EXTRACT_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 단일 문서 KG 추출 LLM 프롬프트에 투입할 본문 최대 글자 수. |
 | `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산된다. |
-| `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([TABLE_INGESTION_DESIGN.md](../design/TABLE_INGESTION_DESIGN.md) 참조) |
+| `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([INGESTION.md](INGESTION.md) §8.2 참조) |
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
-| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. |
-| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. |
+| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 1홉 자동확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다(맥락 2000자, 자식 미리보기 4000자 고정). |
+| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. |
 | `CLAIRE_VIDEO_MAX_EXTRACT_CHARS` | `200000` | 정수 (글자 수) | 비디오 전사 텍스트 추출 상한. |
 | `CLAIRE_VLM_MAX_IMAGES` | `20` | 정수 | 문서 하나에서 VLM으로 전사할 최대 이미지 수. |
 
@@ -294,8 +294,8 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 다국어 문서 수집, VLM 이미지 전사(OCR/인포그래픽 번역 전사), 오디오 자막/STT, 번역, 요약 시 단일 진실 공급원(Single Source of Truth)으로 사용된다. 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. (기존 개별 환경변수 `CLAIRE_VLM_LANGUAGE`는 공식 파기되었으며 광역 선호 언어 제1순위 언어로 일원화됨. [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 및 [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md) 참조) |
-| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **서버 기본 인터페이스 언어**(WebUI, 텔레그램 봇, CLI 사람용 출력). 계정 설정, 쿠키, `Accept-Language`(CLI는 `--lang`)로 언어가 정해지지 않을 때 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 문서 수집 언어(`CLAIRE_PREFERRED_LANGUAGES`)와 무관하다. ([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §9) |
+| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 수집기 자막·트랙 선택과 VLM 전사 언어에 쓴다. 추출 요약·상세 출력 언어는 이 값과 무관하게 한국어다([EXTRACTION.md](EXTRACTION.md) §2.3). 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. (기존 개별 환경변수 `CLAIRE_VLM_LANGUAGE`는 공식 파기되었으며 광역 선호 언어 제1순위 언어로 일원화됨. [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 및 [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md) 참조) |
+| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **서버 기본 인터페이스 언어**(WebUI, 텔레그램 봇). CLI는 번역하지 않는다(ID6). 계정 설정, 쿠키, `Accept-Language`로 언어가 정해지지 않을 때 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 문서 수집 언어(`CLAIRE_PREFERRED_LANGUAGES`)와 무관하다. ([I18N.md](I18N.md) 참조) |
 
 ---
 
@@ -322,7 +322,7 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
 | `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
 | `CLAIRE_TRUSTED_PROXIES` | `""` | 쉼표 구분 CIDR 목록 (예: `192.168.10.1/32,10.0.0.0/8`) | 로그인 실패 제한에 쓸 클라이언트 IP 판정에서 `X-Forwarded-For`를 믿을 바로 앞 프록시 대역. 바로 앞 피어가 이 목록(과 `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역)에 있을 때만 헤더를 오른쪽부터 읽어 신뢰하지 않는 첫 주소를 쓴다. 비면 헤더를 읽지 않고 피어 주소를 쓴다. 잘못된 CIDR이면 기동이 실패한다. 접근 로그의 IP 표기와 Host·scheme 판정에는 쓰지 않는다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |
-| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID (싱글 테마 모드용 측정 ID). 멀티테마 모드에서는 각 테마의 개별 설정값을 사용하며 전역 환경변수로 폴백되지 않는다. 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
+| `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 테마 문맥이 없는 메인 화면과 모든 모드의 공유 문서 페이지(`/p`)가 쓴다. 테마 문맥이 있는 화면은 그 테마의 ID만 쓰고, 이 값으로 폴백하지 않는다([PUBLIC_SITE.md](PUBLIC_SITE.md) §6). 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
 | `CLAIRE_OIDC_<PROVIDER>_CLIENT_SECRET` | `""` | 문자열 시크릿 | **[선택] 외부 IdP Client Secret (OIDC / GitHub)**. 공급자 식별자(대문자, 하이픈은 밑줄로 변환, 예: `CLAIRE_OIDC_GOOGLE_CLIENT_SECRET`, `CLAIRE_OIDC_GITHUB_CLIENT_SECRET`)에 대응하는 클라이언트 비밀값. `data/auth/idp_providers.json` 파일에는 비밀을 저장하지 않으며 오직 이 환경변수 또는 Docker Secret 파일(`/run/secrets/claire_oidc_<provider>_client_secret`)로만 안전하게 주입받는다. |
 
 ---
@@ -331,12 +331,12 @@ TypeSafe AI Jev는 도입 검토 단계라 **판정 권한이 없다**. 플래�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ROBOTS_POLICY` | `public` | `public`, `disallow_all` | `/robots.txt` 정책. `disallow_all`이거나 `CLAIRE_ANONYMOUS_READONLY=0`이거나 비공개 테마 FQDN이면 전체 차단(`Disallow: /`)을 응답한다. |
+| `CLAIRE_ROBOTS_POLICY` | `public` | `public`, `disallow_all` | `/robots.txt` 정책. `disallow_all`이거나 `CLAIRE_ANONYMOUS_READONLY=0`이면 전체 차단(`Disallow: /`)을 응답한다. 옛 테마 호스트는 앱에 오기 전에 308으로 리디렉트된다. |
 | `CLAIRE_BLOCK_AI_CRAWLERS` | `1` (`true`) | `0`, `1`, `true`, `false` | `public` 정책일 때 AI 학습·스크래핑 봇(GPTBot, ClaudeBot 등)을 `robots.txt`에서 차단할지 여부. |
 | `CLAIRE_SITEMAP_ENABLED` | `1` (`true`) | `0`, `1`, `true`, `false` | `/sitemap.xml` 동적 생성 여부. `CLAIRE_ANONYMOUS_READONLY=0`이면 이 값과 관계없이 비활성이다. |
 | `CLAIRE_SITEMAP_CACHE_TTL` | `900` | 정수 (초) | 사이트맵 인메모리 캐시 TTL. |
 | `CLAIRE_SITE_NAME` | `Claire Bible` | 문자열 | 구조화 데이터 등에 쓰는 사이트 이름. |
-| `CLAIRE_SITE_DESCRIPTION` | `Personal Knowledge Base and Ontology Knowledge Graph Engine` | 문자열 | 사이트 메타 설명. |
+| `CLAIRE_SITE_DESCRIPTION` | `Personal Knowledge Base and Ontology Knowledge Graph Engine` | 문자열 | 사이트 메타 설명. 지금 이 값을 읽는 코드는 없다. |
 
 ---
 
@@ -467,7 +467,7 @@ CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 - [OPERATIONS.md](OPERATIONS.md): 호스트 운영 및 서비스 수명주기 관리 가이드
 - [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md): 웹 접속, Reverse Proxy, 포트 및 인증/CORS 경계 명세
 - [FEDERATION.md](FEDERATION.md): Fedify 사이드카 연합(FP1) 구현 정본
-- [OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md): 환경변수 및 DB 스키마 자동 마이그레이션 설계 명세
+- [OPERATIONS.md](OPERATIONS.md): 환경변수 백필과 스키마 마이그레이션 운영
 
 ---
 

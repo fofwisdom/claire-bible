@@ -1,8 +1,8 @@
 # 계정 구현 정본 (Accounts Implementation Reference)
 
-확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.9는 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), §5.5의 연합 조건·§8의 버전·§13은 Fedify 사이드카 연합 FP1-1~FP1-6 커밋(`56d40c9`~`75d79e18`, 2026-11-11) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5)
+확인 기준: 통합 콘솔(`/admin/*`·`/settings/*`) 경로 분리 P4 커밋 `cdc0f2a` (2026-11-05). §3·§5.9는 계정·IdP·Fedify 준비 봉인 커밋 `7bc536f` (2026-11-09), §5.5의 연합 조건·§8의 버전·§13은 Fedify 사이드카 연합 FP1-1~FP1-6 커밋(`56d40c9`~`75d79e18`, 2026-11-11), §5.9의 경로 표와 §14는 기준 커밋 `d15ae8e0` (2026-11-16) · 대상 독자: 계정·로그인·자격증명·초대 코드·API 키·관리/설정 화면을 고치거나 확장하는 에이전트 · 설계 배경: [MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md](../design/MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) §8, §11, §13 (Rev. 2.3), [ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md](../design/ADMIN_AND_SETTINGS_PATH_SEPARATION_DESIGN.md) (D1–D5), [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md) (PA1–PA4)
 
-이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
+이 문서는 **지금 코드가 무엇을 어디서 어떻게 하는지**를 적는다. 범위는 설계의 P1(싱글 모드 계정 코어), P3(초대 파이프라인, 계정 수명주기, 퇴역 USERNAME 정보 초기화 및 디스크 정리) 및 P4(본인 API 키 관리 `/api/me/keys`)와, 관리자·본인 화면을 `/admin/*`·`/settings/*`로 나눈 통합 콘솔(§5.9), 계정별 기능(텔레그램 봇, 번들, 백업, §14)이다. 근거 표기는 [PRINCIPLES.md](../PRINCIPLES.md) F1을 따른다.
 
 - **[코드]** 기준 작업 트리의 소스에서 직접 확인한 사실
 - **[결정]** 저장소 소유자가 정한 방침. 바꾸기 전에 소유자에게 묻는다
@@ -156,7 +156,7 @@
   - **선택 규칙**(`src/claire/ontology/label_language.py`의 `display_label`·`display_names`): 대표 레이블이 그 언어면 대표 레이블, 아니면 저장 순서로 처음 나오는 그 언어의 별칭, 그런 별칭이 없으면 대표 레이블이다. 언어는 이름의 문자로만 판정한다: `ko`는 한글이 있는 이름, `ja`는 가나가 있거나 한글 없이 한자가 있는 이름, `zh`는 가나·한글 없이 한자가 있는 이름, `en`은 글자가 모두 라틴 문자인 이름. NULL이면 항상 대표 레이블이다(다른 설정으로 대신하지 않는다).
   - **적용되는 응답**: `GET /graph`의 `nodes[].label`, `GET /node`의 `name`·`aliases`·`neighbors[].name`, `GET /document`의 `nodes[].label`·`aliases`, `POST /search`의 `hits[].name`, `POST /entity/primary-label`의 응답. 이름이 별칭으로 바뀐 항목의 `aliases`는 저장된 대표 레이블을 첫 항목으로 싣는다. 값은 `Principal.entity_language`로 전달되며, 계정의 API 토큰(환경변수 토큰 포함)에도 같은 값이 적용된다. 익명 방문자, 공유 링크 페이지(`/p`), MCP 도구, 텔레그램 봇, CLI는 저장된 대표 레이블을 쓴다.
   - **대표 레이블 전환과의 관계**: `POST /entity/primary-label`은 지금처럼 저장된 대표 레이블을 바꾼다. 그 언어의 별칭이 여럿일 때 자동 선택이 맞지 않으면 원하는 별칭을 대표 레이블로 전환하면 된다. 집행: `tests/test_entity_language.py`.
-- **[코드] 인터페이스 언어**([I18N_DESIGN.md](../design/I18N_DESIGN.md) §3, §5, §6.1. 구현 단위 IP1, IP2-1. 번역된 화면은 지금 `/login`, `/setup`, `/settings/account`의 언어 선택 카드뿐이다. 나머지 콘솔·워크스페이스 문자열은 IP2-2 이후다):
+- **[코드] 인터페이스 언어**([I18N.md](I18N.md). 모든 웹 화면이 번역된다. 번역 범위와 남은 고정 문자열은 I18N.md §5–§6):
   - **해소 순서**: `I18nMiddleware`(`src/claire/api/i18n_middleware.py`, `AuthenticationMiddleware` 바로 안쪽)가 요청마다 `Principal.locale`(= `accounts.locale`) → 쿠키 `claire_locale` → `Accept-Language`(RFC 9110 q값) → `CLAIRE_LANG` → `en` 순서로 정한다. 공개 라우트(`/login` 등)에서는 주체가 익명이므로 쿠키부터 적용된다. 환경변수 토큰 자격증명은 계정을 읽지 않으므로 `Principal.locale`이 없다. 미들웨어는 HTML 응답에만 `Content-Language`를 붙인다(설계 §6.1은 모든 응답이다. JSON·프로토콜 응답은 언어에 따라 바뀌지 않으므로 붙이지 않는다).
   - **`PATCH /api/me`의 `locale`**: `"en"`, `"ko"`, `null`, `""`(뒤의 둘은 NULL로 되돌림)만 받고 그 밖의 값(다른 문자열, 숫자, 불리언)은 모든 쓰기보다 먼저 400 `invalid_locale`이다. 단계 인증을 요구하지 않는다. 값을 정하면 응답이 쿠키 `claire_locale`을 쓰고(`Path=/; Max-Age=31536000; SameSite=Lax`, 운영 환경은 `Secure`, `HttpOnly` 아님), 되돌리면 쿠키를 지운다. 응답의 `effective_locale`은 바꾼 뒤의 값이다.
   - **`POST /api/locale`**: 규칙 `_system("public")`, 핸들러가 동일 origin만 받는다(아니면 403). 본문은 `{"locale": "en" | "ko" | null | ""}`뿐이다(다른 키는 400 `invalid_request`, 다른 값은 400 `invalid_locale`). 쿠키를 쓰거나 지우고 200 `{"locale", "effective_locale"}`를 낸다. 공개 라우트는 미들웨어가 자격증명을 검증하지 않으므로 핸들러가 세션 쿠키를 직접 검증하고(`update_locale_for_session`), 자격증명을 받는 계정의 owner 세션일 때만 `accounts.locale`도 함께 쓴다.
@@ -289,6 +289,8 @@
 | `/admin/tokens` | 관리자 계정의 상시 API·MCP 토큰(`/tokens`)과 OAuth 클라이언트 목록 |
 | `/admin/mcp` | `mcp_telemetry` 감사 표(`GET /api/admin/mcp/telemetry`), RBAC·MCP 권한 비교표, WebMCP 헤더 정책, `POST /support/bundle` |
 | `/admin/backups` | 계정 백업 복원(운영자 전용). `GET /api/admin/account-backups`, `POST /api/admin/account-backups/restore` |
+| `/admin/federation` | 서버 연합 스위치, 준비 검사, 도메인 차단, 서버 읽기 설정([FEDERATION.md](FEDERATION.md) §7) |
+| `/admin/storage` | 새 미디어의 저장소(로컬 또는 S3 호환), 연결 시험, 마지막 이관 결과([FEDERATION.md](FEDERATION.md) §20, [OPERATIONS.md](OPERATIONS.md)) |
 
 - **`GET`·`HEAD /api/admin/mcp/telemetry`**: 규칙 `_system("admin")`, 비관리자 404. 쿼리 `limit`(기본 50, 1–200 정수. 밖이거나 정수가 아니면 400 `invalid_limit`), `status`, `tool_name`, `since`(ISO 8601 시각. 비었거나 해석하지 못하면 400 `invalid_since`, C1). `store.telemetry.query_mcp_telemetry`로 `data/telemetry.db`를 최근 것부터 읽고 `{"records": [{id, timestamp, client_id, call_type, tool_name, duration_ms, status, error_code, error_message, response_bytes}], "count": n}`을 돌려준다. DB 파일이 없으면 빈 목록이다.
 - **프로토타입 표식**: `/admin/*` 안에서 실제 서버 설정에 닿지 않는 요소는 서버가 표식 `<span class="proto-badge" data-prototype="…" data-prototype-kind="…">`(`common.prototype_badge`)과 무엇을 하지 않는지 적은 안내문 `.proto-note`(`common.prototype_note`)를 그린다. 종류는 `prototype`(프로토타입), `simulation`(시뮬레이션), `client_only`(브라우저에만 저장), `static`(정적 안내)이다. `/settings/*` 응답에는 표식이 없다.
@@ -304,7 +306,8 @@
 | `/settings/account` | 1 내 계정 · 워크스페이스 | 표시 이름, 프로필 공개 스위치(`#pref-profile-public`, 네트워크 모드에서만 그린다. 바꾸면 `PATCH /api/me`에 `{profile_public: 0|1}`을 보낸다. 네트워크 모드이고 `federation`이 `on`이면 스위치에 `data-step-up` 속성과 안내 문단 `data-federation-hint`가 붙고, 속성 값이 `password`이면 `console_account.js`가 공개로 바꾸기 전에 본인 확인 대화상자를 연다. [FEDERATION.md](FEDERATION.md) §8.1), 비밀번호·단계 인증, 외부 신원 연결, 사용량, 테마 번들 내보내기. `/api/me`, `/api/me/password`, `/api/auth/reauth`, `/api/me/identities*`, `POST /graph/bundle`을 쓴다 |
 | `/settings/telegram` | 1 내 계정 · 워크스페이스 | 내 텔레그램 봇 등록(토큰은 쓰기 전용)·허용 사용자·켜기/끄기·상태. `/api/me/telegram`을 쓴다 |
 | `/settings/bundles` | 1 내 계정 · 워크스페이스 | 계정 범위 서포트 번들과 테마 데이터 번들 만들기·내려받기·삭제. `/api/me/support-bundles*`, `/api/me/data-bundles*`를 쓴다. 만들기 응답의 `download_url`은 토큰 주소(`/support/bundle?token=…`, `/graph/bundle?token=…`)이며 로그인 없이 열린다. 화면은 만든 직후에만 이 주소를 "주소 복사"·"받기"와 함께 보인다. 목록 응답에는 토큰이 없고, 목록의 `download?bundle_id=…` 주소는 소유자 세션에서만 동작한다. `GET /graph/bundle`은 표면이 `any`라서 루트 주소가 네트워크 모드에서도 동작한다 |
-| `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다 |
+| `/settings/backups` | 1 내 계정 · 워크스페이스 | 계정 백업 만들기·내려받기·삭제, 자동 백업 주기·보존 개수. `/api/me/backups*`를 쓴다(§14) |
+| `/settings/federation` | 1 | 내 핸들, 액터 ID와 상태, 팔로워 목록과 제거, 계정의 읽기 보존 설정([FEDERATION.md](FEDERATION.md)) |
 | `/settings/keys` | 1 | §5.8 WebUI |
 | `/settings/themes` | 1 | 본인 테마 관리(`/themes`)와 슬롯 수(`내 테마 수 / 서버 등급 max_themes`) |
 | `/settings/tokens` | 1 | 본인 상시 토큰(`/tokens`)과 `oauth_tokens.account_id = 호출자`인 OAuth 클라이언트 |
@@ -336,6 +339,15 @@
 | `idp` | `/admin/idp` | `/settings/account` |
 | `userdb` | `/admin/accounts` | `/settings/account` |
 | 그 밖 | 404 | 404 |
+
+### 5.11 공개 계정 디렉터리 (`/explore/accounts`)
+
+기준 커밋: `d15ae8e0` (2026-11-16).
+
+- **[코드]** `GET`·`HEAD /explore/accounts` has the rule `_system("public", modes=NETWORK_ONLY)`. In single mode it is 404.
+- **[코드]** `explore_accounts_route` (`src/claire/api/server.py`) reads only the public index (`SqlitePublicIndexStore`, `src/claire/store/public_index.py`). It lists the accounts with `profile_public = 1` and `status = 'active'`, with their public themes (`is_public = 1`) and the count of documents that are not hidden. The query uses the collection parameters of `src/claire/api/collections.py` (`max_id`, `min_id`, `since_id`, `limit`).
+- **[코드]** `collections.wants_html` selects the format: HTML (`templates/explore_accounts.html`) when `Sec-Fetch-Dest` is `document`, or when that header is absent and the first `Accept` item is `text/html`. Otherwise JSON.
+- **[코드]** In network mode, `GET /` (`graph_ui`, without a prefix) shows this directory as HTML, with these exceptions. With `pwa=1`, it is 302 to `/@{username}/` of the signed-in active account; without such an account, 302 to `/@{admin}/` when anonymous read is on, else 302 to `/login`. With `doc`, `node`, or `theme`, it is 308 to `/@{admin}/` with the same query.
 
 
 ## 6. 비밀번호
@@ -414,11 +426,88 @@
 
 연합 구현의 정본은 [FEDERATION.md](FEDERATION.md)다. 여기에는 계정 쪽에서 바뀐 것만 적는다.
 
-- **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 연결 계정(클라이언트) 방식(§11)은 그대로 둔다.
+- **[결정]** 소유자가 2026-11-10에 [ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md](../design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md)의 결정 FD1–FD12를 확정했다. 연결 계정(클라이언트) 방식은 RD12로 보류되었다([FEDERATION_REMOTE_READING_DESIGN.md](../design/FEDERATION_REMOTE_READING_DESIGN.md)).
 - **[코드] 구현 범위**: FP1(탐색)까지다. 받은편지함·팔로워·발행은 없다. Claire의 공개 리스너는 `/.well-known/webfinger`, `/.well-known/nodeinfo`, `/ap/*`를 등록하지 않으므로 이 경로가 Claire에 닿으면 404다. 이 경로는 reverse proxy가 사이드카로 보낸다([EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md)).
-- **[코드] `server_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 준비 검사 GF1–GF7이 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. `/admin/federation` 화면은 없다([FEDERATION.md](FEDERATION.md) §7).
+- **[코드] `server_settings.federation`**: 값은 `off`·`on`이고 행이 없으면 `off`다(`AccountStore.federation_state`, `set_federation_state`). 알 수 없는 값이면 `RuntimeError`다. claire.db 스키마 버전은 바뀌지 않았다. 관리자만 `GET`·`POST /api/admin/federation`(`src/claire/api/accounts_routes/federation.py`)으로 읽고 바꾼다. `on`으로 바꾸려면 준비 검사 GF1–GF7이 모두 통과해야 하고, 바꾸면 `admin_audit`에 `federation.update`가 남는다. 콘솔 섹션은 `/admin/federation`이다(§5.9, [FEDERATION.md](FEDERATION.md) §7).
 - **[코드] 액터 조건**: `federation`이 `on`, 모드가 `network`, 계정 `status`가 `active`, `profile_public`이 1인 계정만 연합 액터다. 액터인 계정의 프로필 페이지 `/@{username}/`에는 `rel="alternate"` 링크와 `Link` 헤더가 붙는다([FEDERATION.md](FEDERATION.md) §3, §8.2).
 - **[코드] `profile_public` 단계 인증**: §5.5.
 - **[코드] 액터 키**: `auth.db`의 `actor_keys`(§8). 계정 퇴역(purge) 때 이 행을 지우는 코드는 아직 없다.
 - **[코드] 모드 전환 거부**: `federation`이 `on`이면 `POST /api/admin/server/mode`의 `network` → `single` 전환이 400 `federation_enabled`로 거부된다(`server.py`).
 - **[코드] 근거 테스트**: `tests/test_federation_step_up.py`, `tests/test_federation_readiness.py`, `tests/test_actor_keys.py`.
+
+## 14. Per-account features: Telegram bot, bundles, backup
+
+기준 커밋: `d15ae8e0` (2026-11-16). Each account owner configures these features in the console (`/settings/telegram`, `/settings/bundles`, `/settings/backups`, §5.9). The operator restores account backups in `/admin/backups`. Reasons and owner decisions PA1 to PA4: [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md).
+
+### 14.1 Files
+
+| File | Role |
+| :--- | :--- |
+| `src/claire/api/accounts_routes/features.py` | JSON routes, console section bodies, `purge_account_features` |
+| `src/claire/store/telegram_bots.py` | Store of account bots in auth.db |
+| `src/claire/telegram_supervisor.py` | `BotSupervisor`: one process (`claire bot`) runs all bots |
+| `src/claire/telegram_bot.py` | `build_app(settings, profile=...)` builds one bot |
+| `src/claire/account_support_bundle.py` | `create_account_support_bundle` |
+| `src/claire/account_backup.py` | Account backup, schedule (`run_due_backups`), restore |
+
+### 14.2 Storage
+
+- **[코드]** auth.db v4 has two tables (`src/claire/store/auth_db.py`, §8):
+  - `account_telegram_bots`: one row for each account (`account_id` primary key). `bot_id` is `UNIQUE`, thus two accounts cannot register the same bot. The token is encrypted with AES-256-GCM. The AAD is `telegram|account_id|key_id`, thus a ciphertext moved to another row does not decrypt. `status` is `pending`, `running`, `error`, or `disabled`, and `last_error` holds the last runner error.
+  - `account_backup_policies`: `schedule` (`off`, `daily`, `weekly`, default `off`), `keep` (1 to 10, default 3), and the result of the last scheduled run (`last_run_at`, `last_status`, `last_error`).
+- **[코드]** `data/telemetry.db` `support_bundles` has the column `account_id` (`_migrate_support_bundles_account_id` in `src/claire/store/telemetry.py`). NULL is a server bundle of the administrator.
+- **[코드]** The graph bundle registry records `account_id`, the owner of the theme (`src/claire/graph_bundle.py`).
+- **[코드]** Account backups are files in `data/account_backups/<account_id>/` (`<backup_id>.tar.zst` and a JSON record). The server backup (`./cb-manuscript backup`) includes this directory in the `data` component ([OPERATIONS.md](OPERATIONS.md)).
+
+### 14.3 Telegram bot
+
+- **[코드]** `BotSupervisor` reads the wanted bots every 15 seconds (`POLL_INTERVAL_SECONDS`): the server bot when `TELEGRAM_BOT_TOKEN` is set (it runs as the administrator account), and each enabled account bot of an `active` account. It starts new bots, stops removed or disabled bots, and restarts a bot when its settings change. A bot that fails to start is not started again for 120 seconds (`RETRY_BACKOFF_SECONDS`) while its settings stay the same. It writes `running` or `error` to auth.db. Thus the console can show a state that is up to 15 seconds old.
+- **[코드]** An account bot uses only the themes of its account (`AccountThemeScope`).
+- **[코드]** The allowed user list (Telegram user IDs) of an account bot must not be empty (at most 20, `MAX_ALLOWED_USERS`). Only the server bot accepts an empty list (old behavior).
+- **[코드]** A bot whose account is not the administrator account refuses the commands in `ADMIN_ONLY_COMMANDS` (`/web`, `/webco`, `/webro`, `/token`, `/status`) and the callbacks in `ADMIN_ONLY_CALLBACK_PREFIXES` (`auth:`, `oauth_appr:`, `oauth_deny:`). Its `/support` makes an account-scope bundle (§14.4). Its command menu does not show the refused commands.
+- **[코드]** The token is a write-only secret. API responses contain only metadata: `bot_id`, `bot_username`, `fingerprint`, allowed users, `enabled`, `status`, `last_error`. Only the runner reads the plain token (`load_enabled_bots`). Registration is refused when the same bot is already registered for another account or as the server bot (`TelegramBotConflict`).
+- **[코드]** The Compose service `bot` always runs (`docker-compose.yml`). When no bot is configured, it waits.
+
+### 14.4 Account support bundle
+
+- **[코드]** `create_account_support_bundle` puts in: an account summary without secrets, the owned themes and counts, the ingest queue summary and failed items of owned themes, provider telemetry of owned documents, an optional tracked document (only inside an owned theme), and the build identity.
+- **[코드]** It does not put in: host, mount, or storage diagnostics, configuration values, log files, OAuth or MCP records, data of other accounts, document bodies, or secrets.
+- **[코드]** An account can have 5 active bundles (`MAX_ACTIVE_ACCOUNT_BUNDLES`). A bundle expires after 6 hours (`SUPPORT_BUNDLE_TTL_SECONDS` in `src/claire/support_bundle.py`). The administrator server bundle (`POST /support/bundle`) stays as it is.
+
+### 14.5 Account backup and restore
+
+- **[코드]** A backup contains `manifest.json` (format version, account public ID, schema version and lineage of the knowledge DB, theme list and row counts, SHA-256 of each member file) and one SQLite snapshot for each owned theme (`themes/<theme_id>.db`). A snapshot has the theme row, the rows of that theme in each table with a `theme_id` column, and the `entities_fts` rows of the theme entities. One read transaction reads all themes, thus the snapshots agree with each other.
+- **[코드]** A backup does not contain auth.db, `master.key`, rows of other accounts, or files in `data/raw` and `data/images`. Document text is in the DB.
+- **[코드]** A manual backup is refused less than 60 seconds after the last backup (`MANUAL_BACKUP_COOLDOWN_SECONDS`). After each backup, the backups above `keep` are deleted, oldest first (`prune_account_backups`).
+- **[코드]** The API process runs `run_due_backups` every 10 minutes (`ACCOUNT_BACKUP_SCHEDULER_INTERVAL` in `src/claire/api/server.py`). The first run is one minute after start.
+- **[코드]** Restore (`restore_account_backup`, operator only, step-up required):
+  1. Extracts the archive safely and checks the manifest. A backup from another schema lineage, or with a schema version newer than the server, is refused.
+  2. Makes a checkpoint of the knowledge DB in `data/checkpoints/`.
+  3. Replaces the rows of each theme in the backup in one transaction. It refuses and changes nothing (409 `restore_conflict`) when a theme now belongs to another account, a primary key collides with a row outside the theme, or a foreign key check fails.
+  4. Themes made after the backup stay as they are. An audit record is written.
+
+### 14.6 Routes
+
+All paths are in `ROUTE_POLICY`. `_any("owner")` uses the account of the credential and ignores the prefix. A bundle or backup of another account is handled as not found (404).
+
+| Path | Methods | Rule |
+| :--- | :--- | :--- |
+| `/api/me/telegram` | GET, HEAD, PUT, PATCH, DELETE | `_any("owner")` |
+| `/api/me/support-bundles` | GET, HEAD, POST, DELETE | `_any("owner")` |
+| `/api/me/support-bundles/download` | GET, HEAD | `_any("owner")` |
+| `/api/me/data-bundles` | GET, HEAD, POST, DELETE | `_any("owner")` |
+| `/api/me/data-bundles/download` | GET, HEAD | `_any("owner")` |
+| `/api/me/backups` | GET, HEAD, POST, DELETE | `_any("owner")` |
+| `/api/me/backups/download` | GET, HEAD | `_any("owner")` |
+| `/api/me/backups/policy` | PUT | `_any("owner")` |
+| `/api/admin/account-backups` | GET, HEAD | `_system("admin")` |
+| `/api/admin/account-backups/restore` | POST | `_system("admin")` |
+| `/settings/telegram`, `/settings/bundles`, `/settings/backups` | GET, HEAD | `_system("owner")` |
+| `/admin/backups` | GET, HEAD | `_system("admin")` |
+
+- **[코드]** Step-up authentication (§5.3) is necessary for: bot register and replace (`PUT`), a change of allowed users (`PATCH` with `allowed_user_ids`), bot delete, backup delete, and restore.
+- **[코드]** An account purge (§5.7) also deletes the bot row, the backup policy, the backup files, and the account support bundles of the account (`purge_account_features`, called from `admin.py`).
+
+### 14.7 Tests
+
+`tests/test_account_features.py` (bot store, encryption and AAD, API isolation and step-up, support bundle scope, data bundle lifecycle, backup policy and schedule, restore and conflict, purge, runner), `tests/test_bot.py::test_member_account_bot_is_scoped_to_its_account`, `tests/test_e2e_account_features.py` (E2E: a member configures each feature in the WebUI and the operator restores a backup).

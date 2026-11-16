@@ -129,7 +129,7 @@
 
 ### 3.7. 테마 (Theme / `theme_id`)
 - **정의**: 상이한 도메인의 지식이 단일 지식 베이스에 혼합되어 RAG 검색 정밀도가 저하되거나 그래프가 오염되는 것을 방지하기 위한 논리적 완전 격리 단위.
-- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 전용 FQDN, 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
+- **구성**: 고유 시퀀스 번호(`seq`), 테마 식별자(`id`/`theme_id`), 표시 라벨, 설명, 아이콘, 공개·협업자 공개 여부, 기본 초점, GA4 측정 ID, 계정(`account_id`), 외부 번호(`number`), 테마 파티셔닝(단일 `data/claire.db` 내 `theme_id` 컬럼 분리).
 
 ### 3.8. 볼트 (Vault / `vault/`, 영구 제거됨)
 - **정의**: 과거 SQLite DB 정본을 Obsidian 등 외부 마크다운 에디터에서 열람할 수 있도록 단방향(export-only)으로 투영했던 파일시스템 저장소. 현재는 볼트 서브시스템 및 마크다운 파일 동기화가 영구 제거되어 비활성화/폐기되었다.
@@ -160,14 +160,14 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 |---|---|---|---|---|
 | 상위 계보 | **테제 계보** | Thesis Lineage | Upstream / blackan | `SCHEMA_LINEAGE = "claire-bible/common"` |
 | 증강 계보 | **증강 계보** | Augmentation Lineage | Origin / fofwisdom | `SCHEMA_LINEAGE = "claire-bible/common"` |
-| 상호 합의 | **계약** | Contract | `docs/implementation/*.md` | `SCHEMA_VERSION = 14` |
+| 상호 합의 | **계약** | Contract | `docs/implementation/*.md` | `SCHEMA_VERSION` (현재 26, [SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md)) |
 | 세부 규칙 | **규약** | Protocol / Rule | `GateMiddleware`, wire rules | 와이어 프로토콜 / 스텔스 규약 |
 | 미가공 원문 | **원문** | Raw Content | `Document.raw_text`, `raw_text` | `documents.raw_text`, `*.txt.zst` |
 | 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |
 | 지식 단위 | **문서** | Document | `Document`, `doc_id` | `documents` 테이블 |
 | 적재 이력 | **적재 메타데이터** | Document Metadata (`docmeta`) | `Document.meta`, `doc.meta` | `documents.meta` (JSON) |
 | 핵심 압축 | **요약** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
-| 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (md/adoc) |
+| 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (AsciiDoc, [DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md)) |
 | 컴파일 본문 | **사전 컴파일 상세** | Compiled HTML | `detail_html` | `documents.detail_html` |
 | 상세 패널 | **상세 뷰** | Detail View | `document_detail_route` | `GET /document?id=...` |
 | 기본 개요 | **홈 화면** | Home View | `renderHome()`, `enterHome()` | `body[data-center-view="home"]`, `#homewrap` |
@@ -185,3 +185,6 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 국소 그래프 | **로컬 그래프** | Local Graph | `renderLocalGraphHtml()`, `ctx-local-graph` | 문서 문맥 패널 연결 탭의 인라인 SVG 그래프 (링 1 문서 엔티티 최대 24, 링 2 타 문서 연결 엔티티 최대 12) |
 | 본문 마크 | **엔티티 마크** | Entity Mark | `applyEntityMarks()`, `claire-entity` | CSS Custom Highlight API 기반 리더 본문 엔티티 하이라이트 (DOM 트리 변경 없음) |
 | 통합 검색·실행 창 | **명령 팔레트** | Command Palette | `ClaireCommandPalette` (`src/claire/static/js/command_palette.js`) | `<dialog id="cmdpalette">` 기반 명령·문서·엔티티 통합 검색 및 이동 모달 (`/` 키) |
+| 같은 주제 자식 문서 | **동일 주제 병합** | Same-Subject Merge | `same_subject` | 1홉 자식 문서를 새 문서로 만들지 않고 부모 문서의 추가 출처로 붙인다 ([ONEHOP_MERGE.md](ONEHOP_MERGE.md)) |
+| 해소 판정 감사 | **판단 기록 스트림** | Decision Stream | `ResolutionDecision` | `documents.meta.resolution_log` ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md)) |
+| 판정 권한 없는 평가 | **Jev shadow 평가** | Jev Shadow Evaluation | `jev_mode = "shadow"` | 같은 후보를 Jev에 동시 질의하고 결과만 판정 기록에 남긴다 ([GRAPH_BUNDLE_REVIEW.md](GRAPH_BUNDLE_REVIEW.md) §5) |

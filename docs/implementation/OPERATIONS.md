@@ -49,7 +49,7 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 
 ### 기존 env 파일 마이그레이션 및 자동 백필
 
-이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필된다 (자세한 설계 규약은 [../design/OPERATIONAL_MIGRATION.md](../design/OPERATIONAL_MIGRATION.md) 참조).
+이 구조를 적용하기 전부터 `.env` 또는 `.env.dev`가 있더라도, `./cb-manuscript update` 또는 `./cb-manuscript install`, `./cb-manuscript init` 실행 시 누락된 신규 환경변수(예: `TZ` 등)가 `.env.example` / `.env.dev.example`로부터 자동으로 안전하게 백필된다 (원칙: [`PRINCIPLES.md`](../PRINCIPLES.md) E1–E3).
 
 이 과정은 기존 secret과 사용자가 설정한 값을 절대 덮어쓰지 않으며, 누락된 selector를 `.env=production`, `.env.dev=development`로 보충하고, `TZ`는 호스트 `timedatectl` 타임존으로 자동 채우며, `CLAIRE_ANONYMOUS_READONLY=1`도 각각 보충한다. production에서 `1`인데 development 파일에 값이 없으면 공개 설정의 암묵적 상속을 막기 위해 기동 전 실패한다. production `.env`의 빈 `CLAIRE_PUBLIC_URL`은 추측해서 채우지 않으므로 실제 외부 hostname의 `https://.../` 값으로 직접 설정해야 한다. CORS가 필요 없으면 `CLAIRE_CORS_ALLOWED_ORIGINS`는 생략하거나 빈 값으로 둔다.
 
@@ -59,6 +59,14 @@ CLAIRE_ENVIRONMENT=production ./cb-manuscript up
 - production은 root 경로의 `https://<DNS-hostname>/`이어야 한다. TLS는 Claire Bible이 아닌 외부 reverse proxy가 종료한다.
 - `CLAIRE_CORS_ALLOWED_ORIGINS`는 path와 wildcard가 없는 origin의 쉼표 목록이다. production에서는 `https` origin만 허용하며 빈 값은 same-origin 전용이다.
 - exact `CLAIRE_ANONYMOUS_READONLY=1`(기본값)은 canonical same-origin 또는 Origin 헤더가 없는 무자격증명 요청의 읽기 전용 접근을 허용한다. owner 쓰기는 계속 유효하며, 숨김 문서(`hidden=1`) 및 그와 연관된 엔티티는 익명 읽기 계층에서 철저히 제외되어 안전하게 공개된다. `0`은 인증 전용 동작이다.
+
+Backfill details (basis: commit d15ae8e0, 2026-11-16):
+
+- **[code]** `sync_environment_files` in `ops/cb_manuscript.py` runs for `.env` with `.env.example`, and for `.env.dev` with `.env.dev.example` (or `.env.example` when the dev template is missing). `init`, `install`, and `update` call it.
+- **[code]** `_sync_missing_env_keys` adds only keys that are not in the target file. It copies the comment block above each key from the template, appends at the end of the file, and writes atomically with mode `0600`. It does not add `CLAIRE_PUBLIC_URL` or `CLAIRE_FQDN` when the target already has one of them.
+- **[code]** After the backfill, these helpers run in this sequence: `_ensure_environment_selector`, `_ensure_timezone`, `_ensure_fqdn`, `_ensure_anonymous_readonly`, `_ensure_inject_token`.
+- **[code]** `_ensure_fqdn` changes a legacy `CLAIRE_PUBLIC_URL=<url>` line into `CLAIRE_FQDN=<host>` when the file has no `CLAIRE_FQDN` value.
+- **[code]** `_ensure_inject_token` writes a new `CLAIRE_INJECT_TOKEN` (`secrets.token_urlsafe(32)`) when the key is missing or empty. If the existing value is not a URL-safe token of 32 to 128 characters, the command stops with an error. It does not replace the value.
 
 `./cb-manuscript preflight`는 선택 profile의 anonymous readonly 상태를 출력한다. enabled 표시는 의도적인 공개 결정인지 확인해야 할 운영 경보다.
 
@@ -290,7 +298,7 @@ restore는 archive traversal, link·특수 파일, manifest 밖의 파일, hash�
 
 계정 소유자는 WebUI에서 자기 계정의 텔레그램 봇(`/settings/telegram`), 서포트·데이터 번들(`/settings/bundles`), 계정 백업과 자동 백업 주기(`/settings/backups`)를 관리한다. 계정 백업은 `data/account_backups/<account_id>/`에 저장되며 서버 `backup`의 `data` component에 포함된다. 계정 백업 복원은 운영자만 `/admin/backups`에서 한다. 복원 전에 지식 DB checkpoint를 `data/checkpoints/`에 만든다. 서버 전체 백업·복원은 계속 `backup`, `restore`를 쓴다.
 
-`bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(서버 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 자세한 내용은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)를 본다.
+`bot` 서비스는 이제 항상 실행된다. `TELEGRAM_BOT_TOKEN`(서버 봇, 관리자 계정)과 계정이 등록한 봇을 함께 돌리고, 등록된 봇이 없으면 대기한다. 현재 동작은 [ACCOUNTS.md](ACCOUNTS.md) §14, 설계 원칙은 [PER_ACCOUNT_FEATURES_DESIGN.md](../design/PER_ACCOUNT_FEATURES_DESIGN.md)에 있다.
 
 ## 참고문헌
 
