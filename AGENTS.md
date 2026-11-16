@@ -2,12 +2,14 @@
 
 ## Documentation folders
 
-Purpose: an agent must not take an old design document as the current state. With these rules, an agent finds the current state quickly and makes fewer errors.
+An old design document can describe a state that is not true now. These principles help an agent find the current state quickly and understand it correctly. They give the intent, not a procedure: use your judgment for each case.
 
-- `docs/design/` (design)
-  - Documents about architecture that is not fully implemented.
-  - Documents about the design principles of implemented work.
-- `docs/implementation/` (implementation)
-  - Documents about the implemented architecture.
+- `docs/design/` tells what is intended, and why.
+  - Architecture that is not fully implemented.
+  - Design principles of work that is implemented.
+- `docs/implementation/` tells what exists now.
+  - Architecture that is implemented.
   - Term definitions.
   - The command manual for agents that use the CLI.
+
+When you read, use each folder for its purpose. When you write, keep each folder true to its purpose.
