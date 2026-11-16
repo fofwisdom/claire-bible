@@ -1,7 +1,7 @@
 # Federation of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-KNOWLEDGE-FEDERATION-20261116` (Rev. 1 to Rev. 3: `DESIGN-SERVER-PARTNERSHIP-20261116`, file `SERVER_PARTNERSHIP_DESIGN.md`)
-- **Status**: Planned, not implemented (draft, Rev. 6). The owner direction of Section 2 and the decisions KD1 to KD8 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. Section 16 has the open question PQ2.
+- **Status**: Planned, not implemented (draft, Rev. 7). The owner direction of Section 2 and the decisions KD1 to KD9 of Section 2.1 are locked (2026-11-16). All other content is a **proposal**. No question is open (Section 16).
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -11,6 +11,7 @@
   - Rev. 4 (2026-11-16): the terms follow Mastodon (Section 3): **federation** is the open exchange without an agreement, and **relay** is the server-level subscription. The term "partnership" is retired, with its bilateral agreement and its scopes. Themes share ingested documents between servers through federation (owner). The file is renamed.
   - Rev. 5 (2026-11-16): the relay and the history of the server-level partnership of Rev. 1 to Rev. 3 moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only. The mutual collaboration between accounts is not a part of that partnership and stays in the shared knowledge base design §9.10.
   - Rev. 6 (2026-11-16): answers to PQ3 to PQ9 and PQ13 (KD1 to KD8, Section 2.1). Review of the owner proposal for PQ2 (the domain `claire.bible`) with the policy of the `.bible` registry (Section 16).
+  - Rev. 7 (2026-11-16): answer to PQ2: the identifiers are on `w3id.org` (KD9). The registration is a pull request of the owner when the target is live (Section 9.1).
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -59,6 +60,7 @@ Production state (owner, 2026-11-16): the production server is in network mode, 
 | KD6 | PQ8: remote collaborators | `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 12.2). |
 | KD7 | PQ9: authority identifiers | Entities carry authority identifiers in `sameAs` when they have them; the receiver matches them first; linking to an authority is later work (Section 10.4). |
 | KD8 | PQ13: domain block level "limit" | Yes, as a later step after the existing block (Section 6.3). |
+| KD9 | PQ2: the IRI of the JSON-LD context | Option B: the identifiers are under `https://w3id.org/claire-bible/` and redirect (302) to `https://claire.bible/`. The context is `https://w3id.org/claire-bible/ns/v1`; the vocabulary terms are `https://w3id.org/claire-bible/ns#…` (Sections 9.1, 16). |
 
 ---
 
@@ -302,9 +304,11 @@ Single mode shows no root page (Section 15).
 
 ### 9.1 Vocabulary
 
-1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers **[open, PQ2]**. Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
+1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers: `https://w3id.org/claire-bible/ns/v1`; the vocabulary terms are `https://w3id.org/claire-bible/ns#…` (KD9). Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
 2. **[proposal]** Claire never fetches the context over the network: the context document is part of the code. The document of `v1` never changes; new terms go to a new version.
-3. The vocabulary document is written for Claire only, in our own words (Section 4.2).
+3. **The target of the redirect.** `w3id.org` sends everything under `/claire-bible/` with 302 to the same path on `https://claire.bible/`. Thus the server on `claire.bible` serves the context document at `/ns/v1` (media type `application/ld+json`, header `Access-Control-Allow-Origin: *`) and a page of the vocabulary terms at `/ns`. Other Claire servers serve the same documents at the same local paths.
+4. **Registration (owner).** The owner adds the directory `ids/claire-bible/` to the repository `perma-id/w3id.org` with a pull request. Its guide asks that the target is live over HTTPS before the pull request. When `claire.bible` cannot be used (Section 16, review of PQ2), a new pull request changes the target; the identifiers stay.
+5. The vocabulary document is written for Claire only, in our own words (Section 4.2).
 
 | Type | Base type | Content |
 | :--- | :--- | :--- |
@@ -442,9 +446,9 @@ The switch `partnerships` of Rev. 1 to Rev. 3 is removed.
 
 Resolved in Rev. 4: PQ1 (two levels of agreement) and PQ10 (need of a partnership) by the owner direction of Section 2: federation without an agreement, relay for the server-level subscription. PQ11 (the term "directory") is applied with the unification of terms: the text uses "the `/kb` collection of another server"; the owner can reverse it. PQ12 (relay) moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) in Rev. 5.
 
-Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8).
+Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), PQ8 (KD6), PQ9 (KD7), PQ13 (KD8), PQ2 (KD9). No question is open.
 
-### PQ2: The IRI of the Claire JSON-LD Context (Section 9.1)
+### PQ2: The IRI of the Claire JSON-LD Context (Section 9.1), Answered (KD9)
 
 **Owner proposal (2026-11-16):** the domain `claire.bible`. It is the first server, and the maintainer of the project manages it. When this server stops and the domain is not renewed, the maintenance of the project has ended.
 
@@ -463,7 +467,9 @@ Answered on 2026-11-16: PQ3 (KD1), PQ4 (KD2), PQ5 (KD3), PQ6 (KD4), PQ7 (KD5), P
 | A (owner proposal) | `https://claire.bible/ns/v1` | The identifier stays valid for Claire servers; other software can get a wrong document. |
 | B (proposal) | `https://w3id.org/claire-bible/ns/v1`, redirect to `https://claire.bible/ns/v1` | While the project is alive, a pull request moves the redirect to another host. When the maintenance ends, the redirect can point to an archive. |
 
-**Proposal:** B. The rule of the owner stays true for the project home and the first server; the identifier does not depend on the policy of one registry. The registration on `w3id.org` is a step of the owner (a pull request). A or B: the owner decides.
+**Proposal:** B. The rule of the owner stays true for the project home and the first server; the identifier does not depend on the policy of one registry. The registration on `w3id.org` is a step of the owner (a pull request).
+
+**Answer (owner, 2026-11-16):** B (KD9).
 
 ---
 
@@ -473,7 +479,7 @@ Precondition: units CT-0 to CT-9 of the shared knowledge base design, and the fe
 
 | Phase | Scope | Completion criteria |
 | :--- | :--- | :--- |
-| KF0 | Vocabulary and JSON-LD context in our own words; contract fixtures for each object and activity | Fixtures validate on both sides of a test with two Claire servers |
+| KF0 | Vocabulary and JSON-LD context in our own words; contract fixtures for each object and activity | `claire.bible` serves `/ns/v1` and `/ns` (Section 9.1, rule 3), and then the owner opens the `w3id.org` pull request. Fixtures validate on both sides of a test with two Claire servers |
 | KF1 | Known servers, admin controls, inbox journal, single mode root and USERNAME (Section 15) | Two test servers know each other after a contribution or an admin entry; a blocked third server gets 404 on shared-knowledge collections; a failed activity can be processed again; single mode `/` gives 302 to `/@{username}/` |
 | KF2 | Reading `/kb` collections, store of remote knowledge bases, themes across servers, root page | A shared knowledge base on server B appears in a theme of server A and on the root page of A, without any agreement |
 | KF3 | Knowledge base actors, curation across servers, revisions, removal at the origin | A revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue |
