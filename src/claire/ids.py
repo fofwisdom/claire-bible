@@ -79,6 +79,7 @@ def insert_with_timestamp_id(
     salt: bytes,
     insert: Callable[[int], None],
     now_ms: Callable[[], int] | None = None,
+    is_taken: Callable[[int], bool] | None = None,
 ) -> int:
     """번호를 만들어 ``insert(number)``를 호출하고, 그 번호를 반환한다.
 
@@ -90,6 +91,8 @@ def insert_with_timestamp_id(
     collision = f"UNIQUE constraint failed: {table}.{column}"
     for seq in range(MAX_INSERT_ATTEMPTS):
         number = timestamp_id(table, salt=salt, unix_ms=unix_ms, seq=seq)
+        if is_taken is not None and is_taken(number):
+            continue
         try:
             insert(number)
         except sqlite3.IntegrityError as exc:

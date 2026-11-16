@@ -795,10 +795,10 @@ The next versions of the credential stores make the changes of Section 6.6: the 
 
 | Object | Version | Reason |
 | :--- | :--- | :--- |
-| Old table `themes` (as registry) | 26 | Renamed to `knowledge_bases` (CT16) |
-| Tables `theme_members`, `users` | 27 | No reader; `theme_members` refers to `users` |
-| Column `is_collaborator_accessible` | 27 | CT17 |
-| `data/themes.json` | 26 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
+| Old table `themes` (as registry) | 27 | Renamed to `knowledge_bases` (CT16) |
+| Tables `theme_members`, `users` | 28 | No reader; `theme_members` refers to `users` |
+| Column `is_collaborator_accessible` | 28 | CT17 |
+| `data/themes.json` | 27 | The DB is the canonical registry. The JSON copy gives the admin as owner to entries without one, which is wrong for shared knowledge bases. The file is renamed to `themes.json.retired`; nothing reads or writes it. |
 
 A table to drop that has rows is renamed `<name>_retired_v28`; the migration writes a warning and continues (operator rule). Account and server purge include renamed tables.
 

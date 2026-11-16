@@ -20,6 +20,7 @@ from typing import Any, Literal
 from .. import ids
 from ..config import ROOT, Settings, get_settings
 from . import db as dbm
+from . import themes as _themes_store
 
 log = logging.getLogger("claire.theme")
 
@@ -784,6 +785,8 @@ class KnowledgeBaseManager:
                 salt=salt,
                 insert=_insert,
                 now_ms=self._number_clock,
+                # Section 5.4: a knowledge base number is never a theme number.
+                is_taken=lambda n: _themes_store.number_is_theme_number(conn, n),
             )
             conn.commit()
         except Exception:

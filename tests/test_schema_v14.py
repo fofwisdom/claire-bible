@@ -47,12 +47,12 @@ def test_schema_v14_contains_required_tables_and_columns() -> None:
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     required_tables = {
-        "users",
         "knowledge_bases",
-        "theme_members",
         "syndication_dispatches",
     }
     assert required_tables <= table_names
+    # Version 28 retired the v14 tables users and theme_members (no reader).
+    assert not {"users", "theme_members"} & table_names
     # Version 20 removed these v14 tables (FEDERATION_REMOTE_READING_DESIGN.md Section 4.3).
     assert not {"syndication_accounts", "syndication_targets", "syndication_items"} & table_names
 

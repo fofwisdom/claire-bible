@@ -264,7 +264,7 @@ The retired v12 recovery is described above. Other stores have their own version
 
 확인 기준: 공유 지식 베이스 설계 단위 CT-0 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.1, §12.1. 이름만 바꾸고 동작은 바꾸지 않는다.
 
-- **[코드] 버전 상수**: `SCHEMA_VERSION = 27`.
+- **[코드] 버전 상수**: v27 도입 당시 `SCHEMA_VERSION`은 27이었다(현재 값은 아래 "v28" 절).
 - **[코드] 이관**(`_migrate_v27_kb_names`, 멱등, 한 트랜잭션): 테이블 `themes` → `knowledge_bases`, 열 `is_default` → `is_personal`, 모든 테이블의 열 `theme_id` → `kb_id`, `syndication_dispatches.target_theme_id` → `target_kb_id`. `ALTER TABLE ... RENAME`이라 행과 다른 테이블의 외래키가 그대로 따라간다. 이름에 `theme`이 있는 인덱스는 지우고, `SCHEMA`와 뒤 단계가 새 이름(`idx_knowledge_bases_*`, `idx_<table>_kb_*`, `idx_knowledge_bases_account_personal`)으로 다시 만든다.
 - **[코드] 순서**: `init_db`는 저장된 버전이 27보다 작을 때만 이 단계를 `SCHEMA`보다 먼저 실행한다. 순서가 바뀌면 `SCHEMA`가 옛 `themes` 옆에 빈 `knowledge_bases`를 만든다. 버전 28은 컬렉션용 새 `themes` 테이블을 가지므로, 27 이상에서는 이 단계를 실행하지 않는다.
 - **[코드] 파일 재작성**: 같은 단계가 `claire.db` 옆의 작업 상태 파일(`active_ingest.json`, `active_jobs/*.json`)의 키 `theme_id`를 한 번 `kb_id`로 바꾼다. 읽을 수 없는 파일은 그대로 두고 경고 로그를 쓴다.
@@ -272,3 +272,15 @@ The retired v12 recovery is described above. Other stores have their own version
 - **[코드] 다른 형식**: 계정 백업 형식 2(스냅샷도 새 이름. 형식 1은 복원 때 꺼낸 사본에 같은 이름 바꾸기를 한다, `_upgrade_v1_snapshots`), 그래프 번들 형식 3(manifest 키 `kb_id`. 1과 2는 `theme_id`로 읽는다), 번들 sidecar 형식 2(형식 1의 `theme_id`도 읽는다). `client.db` v7은 위 절.
 - **[코드] 코드 이름**: `store/knowledge_base.py`, `KnowledgeBaseManager`, `KnowledgeBaseInfo`, `KnowledgeBaseNotFound`, `get_kb_manager`, 메서드 `get_kb`·`list_kbs`·`define_kb`·`update_kb`·`delete_kb`·`reset_kb`·`personal_kb_for` 등. 응답 JSON의 키도 `kb_id`·`is_personal`이다. 내부 설정 `CLAIRE_THEME_ID`는 `CLAIRE_KB_ID`다.
 - **[테스트]** `tests/test_schema_v27.py`.
+
+## v28 (공유 지식 베이스와 테마의 스키마, CT-1 (a))
+
+확인 기준: 공유 지식 베이스 설계 단위 CT-1의 스키마 부분 (2026-11-17). 설계: [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) §5.4, §11.2, §11.4.
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 28`.
+- **[코드] 스키마 단계**(`_migrate_v28_shared_kb_schema`, 멱등, 기동마다 실행): `knowledge_bases`에 `created_by_account_id`, `join_policy`(기본 `approval`), `state`(기본 `active`), `archived_at`, `knowledge_type`(CHECK `real`·`fictional`, 개인 지식 베이스는 NULL), `seed_entities`(기본 `[]`), `forked_from_kb_id`, `forked_at`을 더한다. 협업 테이블(`kb_memberships`, `kb_contributions`, `kb_contribution_revisions`, `kb_submissions`, `kb_submission_items`, `kb_auto_rules`, `kb_auto_rule_themes`, `kb_contribution_blocks`, `kb_mutual_collaborations`, `kb_moderation_log`, `account_reputation`)과 테마 테이블(`themes`(컬렉션), `theme_knowledge_bases`, `kb_signatures`, `kb_document_matches`)을 만든다.
+- **[코드] 퇴역 테이블**: 읽는 코드가 없는 v14 테이블 `theme_members`와 `users`는 행이 없으면 지우고, 행이 있으면 `<name>_retired_v28`로 이름만 바꾸고 경고 로그를 쓴다. 기동은 멈추지 않는다.
+- **[코드] 저장소 경계**: `store/kb_collab.py`만 협업 테이블을, `store/themes.py`만 테마 테이블을 읽고 쓴다. `kb_collab.kind_violations`는 개인·공유 두 종류에 맞지 않는 `knowledge_bases` 행을 찾는다.
+- **[코드] 번호(§5.4)**: `ids.insert_with_timestamp_id`의 `is_taken`으로, 테마 번호는 지식 베이스 번호를, 지식 베이스 번호는 테마 번호를 피해 다음 `seq`로 넘어간다.
+- **[미구현]** 지식 베이스 변환(§12.2: 개인이 아닌 지식 베이스를 공유 지식 베이스로, 모더레이터 멤버십, 문서마다 `migration` 기여), `is_collaborator_accessible` 열 제거, 종류에 맞지 않는 행의 404 처리는 CT-1 (b)에서 한다.
+- **[테스트]** `tests/test_schema_v28.py`.

@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -54,20 +54,6 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT
 );
 
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seq INTEGER UNIQUE,
-    email TEXT UNIQUE,
-    display_name TEXT,
-    role TEXT DEFAULT 'user',
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    approved_at REAL,
-    delete_after REAL,
-    quota_json TEXT
-);
-
 CREATE TABLE IF NOT EXISTS knowledge_bases (
     id INTEGER PRIMARY KEY,
     seq INTEGER UNIQUE,
@@ -85,15 +71,6 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     presentation_enabled INTEGER DEFAULT 0,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS theme_members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'member',
-    created_at REAL NOT NULL,
-    UNIQUE(kb_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -637,24 +614,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             (_pres_purge_key, "1"),
         )
-    # v14: users, themes, and theme_members
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seq INTEGER UNIQUE,
-            email TEXT UNIQUE,
-            display_name TEXT,
-            role TEXT DEFAULT 'user',
-            status TEXT NOT NULL DEFAULT 'active',
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            approved_at REAL,
-            delete_after REAL,
-            quota_json TEXT
-        )
-        """
-    )
+    # v14: knowledge_bases (users and theme_members are retired by v28)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS knowledge_bases (
@@ -674,18 +634,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
             presentation_enabled INTEGER DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS theme_members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            role TEXT NOT NULL DEFAULT 'member',
-            created_at REAL NOT NULL,
-            UNIQUE(kb_id, user_id)
         )
         """
     )
@@ -806,6 +754,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v23_object_content_digest(conn)
     _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
+    _migrate_v28_shared_kb_schema(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1269,6 +1218,219 @@ def _main_file(conn: sqlite3.Connection) -> Path | None:
         if row[1] == "main" and row[2]:
             return Path(row[2])
     return None
+
+
+# v28 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 11.2, unit CT-1): shared knowledge bases, collaboration, and themes as collections.
+_V28_KB_COLUMNS = (
+    ("created_by_account_id", "INTEGER"),
+    ("join_policy", "TEXT NOT NULL DEFAULT 'approval'"),
+    ("state", "TEXT NOT NULL DEFAULT 'active'"),
+    ("archived_at", "REAL"),
+    ("knowledge_type", "TEXT CHECK (knowledge_type IN ('real', 'fictional'))"),
+    ("seed_entities", "TEXT NOT NULL DEFAULT '[]'"),
+    ("forked_from_kb_id", "INTEGER"),
+    ("forked_at", "REAL"),
+)
+_V28_RETIRED_TABLES = ("theme_members", "users")  # theme_members refers to users: drop it first
+_V28_TABLES = """
+CREATE TABLE IF NOT EXISTS kb_memberships (
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    public_id INTEGER UNIQUE NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('member', 'collaborator', 'moderator')),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'banned')),
+    requested_at REAL NOT NULL,
+    decided_at REAL,
+    decided_by_account_id INTEGER,
+    PRIMARY KEY (kb_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_memberships_account ON kb_memberships(account_id, state);
+
+CREATE TABLE IF NOT EXISTS kb_contributions (
+    public_id INTEGER PRIMARY KEY,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    document_id TEXT,
+    origin TEXT NOT NULL CHECK (origin IN ('direct', 'bulk', 'auto', 'curation', 'fork', 'migration')),
+    contributor_account_id INTEGER,
+    curator_account_id INTEGER,
+    source_kb_id INTEGER,
+    source_document_id TEXT,
+    root_kb_id INTEGER,
+    root_document_id TEXT,
+    submission_item_id INTEGER,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'merging', 'visible', 'hidden', 'failed', 'rejected', 'removed')),
+    decision_reason TEXT NOT NULL DEFAULT '',
+    approved_at REAL,
+    approved_by_account_id INTEGER,
+    updates_frozen INTEGER NOT NULL DEFAULT 0,
+    revised_at REAL,
+    decided_at REAL,
+    contributed_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (kb_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_kb ON kb_contributions(kb_id, state, public_id);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_contributor ON kb_contributions(contributor_account_id, decided_at);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_root ON kb_contributions(root_document_id, kb_id);
+CREATE INDEX IF NOT EXISTS idx_kb_contributions_item ON kb_contributions(submission_item_id);
+
+CREATE TABLE IF NOT EXISTS kb_contribution_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contribution_public_id INTEGER NOT NULL REFERENCES kb_contributions(public_id) ON DELETE CASCADE,
+    previous_document_id TEXT,
+    document_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('merging', 'done', 'failed')),
+    created_at REAL NOT NULL,
+    completed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS kb_submissions (
+    public_id INTEGER PRIMARY KEY,
+    account_id INTEGER,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_submission_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    submission_public_id INTEGER NOT NULL REFERENCES kb_submissions(public_id) ON DELETE CASCADE,
+    source_document_id TEXT NOT NULL,
+    theme_id INTEGER,
+    routed_by TEXT NOT NULL CHECK (routed_by IN ('server', 'account')),
+    match_score REAL,
+    target_kb_ids TEXT NOT NULL DEFAULT '[]',
+    skipped TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_kb_submission_items_submission ON kb_submission_items(submission_public_id);
+
+CREATE TABLE IF NOT EXISTS kb_auto_rules (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('active', 'paused')),
+    to_memberships INTEGER NOT NULL DEFAULT 0,
+    to_mutual INTEGER NOT NULL DEFAULT 0,
+    include_uploads INTEGER NOT NULL DEFAULT 0,
+    activated_at REAL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_auto_rule_themes (
+    account_id INTEGER NOT NULL REFERENCES kb_auto_rules(account_id) ON DELETE CASCADE,
+    theme_id INTEGER NOT NULL,
+    PRIMARY KEY (account_id, theme_id)
+);
+
+CREATE TABLE IF NOT EXISTS kb_contribution_blocks (
+    document_id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_mutual_collaborations (
+    account_low INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_high INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    requested_by_account_id INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'active')),
+    created_at REAL NOT NULL,
+    decided_at REAL,
+    PRIMARY KEY (account_low, account_high),
+    CHECK (account_low < account_high)
+);
+
+CREATE TABLE IF NOT EXISTS kb_moderation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    actor_account_id INTEGER,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_moderation_log_kb ON kb_moderation_log(kb_id, id);
+
+CREATE TABLE IF NOT EXISTS account_reputation (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    level TEXT NOT NULL CHECK (level IN ('good', 'limited', 'low')),
+    fiction_share REAL NOT NULL,
+    fiction_like_documents INTEGER NOT NULL,
+    approval_rate REAL,
+    decisions INTEGER NOT NULL,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS themes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number INTEGER UNIQUE NOT NULL,
+    label TEXT NOT NULL,
+    label_locked INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
+    knowledge_type TEXT NOT NULL CHECK (knowledge_type IN ('real', 'fictional')),
+    state TEXT NOT NULL CHECK (state IN ('active', 'empty', 'merged')),
+    merged_into_theme_id INTEGER REFERENCES themes(id),
+    top_entities TEXT NOT NULL DEFAULT '[]',
+    signature TEXT NOT NULL DEFAULT '[]',
+    last_activity_at REAL,
+    computed_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS theme_knowledge_bases (
+    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    source TEXT NOT NULL CHECK (source IN ('computed', 'admin', 'created', 'fork')),
+    score REAL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    excluded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (theme_id, kb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_theme_knowledge_bases_kb ON theme_knowledge_bases(kb_id);
+
+CREATE TABLE IF NOT EXISTS kb_signatures (
+    kb_id INTEGER PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    knowledge_type TEXT NOT NULL,
+    embed_model TEXT NOT NULL DEFAULT '',
+    entities TEXT NOT NULL,
+    centroid BLOB,
+    visible_documents INTEGER NOT NULL,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_document_matches (
+    document_id TEXT PRIMARY KEY,
+    kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    theme_id INTEGER,
+    knowledge_type TEXT,
+    score REAL,
+    computed_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kb_document_matches_kb ON kb_document_matches(kb_id, knowledge_type);
+"""
+
+
+def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
+    """v28 schema (Section 11.2, 11.4): new columns of ``knowledge_bases``, the collaboration and theme tables, and the retired tables. Idempotent (A3); it runs at each start.
+
+    A retired table without rows is dropped. A retired table with rows becomes ``<name>_retired_v28`` and the log gets a warning: no row is lost and the start continues (operator rule). The conversion of the knowledge bases is a separate step.
+    """
+    if _table_exists(conn, "knowledge_bases"):
+        for column, decl in _V28_KB_COLUMNS:
+            _ensure_column(conn, "knowledge_bases", column, decl)
+    for statement in _V28_TABLES.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+    for table in _V28_RETIRED_TABLES:
+        if not _table_exists(conn, table):
+            continue
+        rows = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+        if not rows:
+            conn.execute(f'DROP TABLE "{table}"')
+            continue
+        retired = f"{table}_retired_v28"
+        if _table_exists(conn, retired):
+            logger.warning("schema v28: table %s has %d row(s) and %s exists; the table stays", table, rows, retired)
+            continue
+        conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
+        logger.warning("schema v28: table %s had %d row(s); it is kept as %s", table, rows, retired)
 
 
 # v27 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 5.1, 12.1): names only, no change of behavior.

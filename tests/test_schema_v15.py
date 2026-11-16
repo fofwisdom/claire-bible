@@ -77,8 +77,8 @@ def test_fresh_database_declares_v15_objects() -> None:
         "idx_accounts_single_admin",
         "accounts_username_immutable",
         "idx_knowledge_bases_account_personal",
-        "users",  # v14 테이블은 남긴다
     } <= names
+    assert "users" not in names  # v28 retires the v14 table users (no reader)
     assert "account_id" in dbm._column_names(conn, "knowledge_bases")
     assert {"account_id", "authenticated_at"} <= dbm._column_names(conn, "auth_sessions")
     for tbl in ("oauth_codes", "oauth_tokens", "oauth_auth_requests"):
@@ -142,8 +142,8 @@ def test_v14_database_upgrades_and_binds_rows_to_admin(tmp_path: Path, monkeypat
         assert session["authenticated_at"] is None
         for tbl in ("oauth_codes", "oauth_tokens", "oauth_auth_requests"):
             assert {r["account_id"] for r in conn.execute(f"SELECT account_id FROM {tbl}")} == {1}
-        # v14 users 테이블은 그대로 남는다.
-        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone() is not None
+        # v28 retires the v14 table users: without rows it is dropped.
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone() is None
         # 기존 세션은 그대로 유효하다(E1).
         assert dbm.validate_session(conn, "legacy-session-token-aaaaaaaaaaaaaaaaaaaaaa")
         first = _dump(conn)
