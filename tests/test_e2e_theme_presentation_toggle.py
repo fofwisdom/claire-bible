@@ -161,7 +161,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         # Re-enable Theme 1 via CLI
         monkeypatch.setattr("claire.cli.get_settings", lambda: s)
         monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda _s=None: mgr)
-        rc = cli.main(["theme", "update", str(t1.id), "--presentation"])
+        rc = cli.main(["kb", "update", str(t1.id), "--presentation"])
         assert rc == 0
 
         # Verify access restored via client

@@ -945,13 +945,13 @@ def cmd_theme(args) -> int:
                     print(f"  • Documents to purge     : {counts['documents']}")
                     print(f"  • Entities to purge      : {counts['entities']}")
                     print(f"  • Relations to purge     : {counts['relations']}")
-                print(f"To do it, add --apply: claire theme {action} {kb_id} --apply")
+                print(f"To do it, add --apply: claire kb {action} {kb_id} --apply")
             return 0
 
         if removes_data and not getattr(args, "yes", False):
             if not sys.stdin.isatty():
                 print(
-                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire theme {action} {kb_id} --apply --yes",
+                    f"\n[error] In a non-interactive environment, add the option --yes (-y):\n  claire kb {action} {kb_id} --apply --yes",
                     file=sys.stderr,
                 )
                 return 2
@@ -4906,7 +4906,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  claire health                      # Check system health status (JSON)\n"
             "  claire reprocess <target> --apply  # Reprocess summary, detail, graph, and format\n"
             "  claire queue status                # Inspect asynchronous processing queues\n"
-            "  claire theme list                  # Manage multi-theme databases and sequences\n"
+            "  claire kb list                     # Manage the knowledge bases\n"
             "  claire presentation generate <doc> # Generate Asciidoctor reveal.js presentation\n"
             "\n"
             "Detailed Documentation: docs/implementation/COMMANDS.md"
@@ -5033,11 +5033,11 @@ def build_parser() -> argparse.ArgumentParser:
     pprov_test.set_defaults(func=cmd_providers)
     pprov.set_defaults(func=cmd_providers)
 
-    # Theme management subcommand
+    # Knowledge base management (design Section 5.3: "claire kb"; "claire theme" is for the theme collections)
     ptheme = sub.add_parser(
-        "theme",
-        help="manage themes (multi-database isolation by sequence)",
-        description="Manage knowledge themes with isolated database storage by sequence directory.",
+        "kb",
+        help="manage knowledge bases",
+        description="Manage the knowledge bases (partitions of claire.db): list, define, update, reset, delete.",
     )
     ptheme_sub = ptheme.add_subparsers(dest="theme_action")
 

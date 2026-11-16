@@ -290,19 +290,19 @@ def test_cli_theme_collaborator_flags(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
 
     # 1. Define theme with --no-collaborator
-    ret = cli.main(["theme", "define", "--label", "비공개테마", "--no-collaborator", "--private"])
+    ret = cli.main(["kb", "define", "--label", "비공개테마", "--no-collaborator", "--private"])
     assert ret == 0
     captured = capsys.readouterr()
     assert "Collaborator Blocked" in captured.out
 
     # 2. List themes
-    ret = cli.main(["theme", "list"])
+    ret = cli.main(["kb", "list"])
     assert ret == 0
     captured_list = capsys.readouterr()
     assert "blocked" in captured_list.out
 
     # 3. Update theme with --collaborator
-    ret = cli.main(["theme", "update", "1", "--collaborator"])
+    ret = cli.main(["kb", "update", "1", "--collaborator"])
     assert ret == 0
     captured_up = capsys.readouterr()
     assert "Collaborator Allowed" in captured_up.out
