@@ -1,8 +1,8 @@
-# Ideas From the Retired Partnership: Relay and Mutual Collaboration
+# Ideas From the Retired Server Partnership: Relay
 
 - **Status**: Ideas only. They have no design for implementation. Do not implement from this document. A design starts only after an owner decision.
 - **Date**: 2026-11-16
-- **Source**: Taken out of [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md) (Rev. 5) and [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (Rev. 7) on 2026-11-16, because the plan grew too wide (owner). Earlier full texts are in git history: the bilateral partnership with scopes in `docs/design/SERVER_PARTNERSHIP_DESIGN.md` at commit `645676a0`, and the relay and the mutual collaboration in both design documents at commit `2e3a9191`.
+- **Source**: Taken out of [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md) (Rev. 5) and [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](../design/SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (Rev. 7) on 2026-11-16, because the plan grew too wide (owner). Earlier full texts are in git history: the bilateral partnership with scopes in `docs/design/SERVER_PARTNERSHIP_DESIGN.md` at commit `645676a0`, and the relay in the federation design at commit `2e3a9191`.
 
 ---
 
@@ -10,7 +10,7 @@
 
 1. Rev. 1 to Rev. 3 of the design of the exchange between servers used "partnership" for a bilateral agreement of two admins: negotiated scopes (`directory`, `curation`, `contribution`, `auto`), a one-way subscription level, a handshake of the server actors, and a switch `partnerships`.
 2. The owner then said that themes share ingested documents between servers without an agreement (CT35), and mapped the terms to Mastodon: the open exchange is **federation**, and the earlier meaning of "partnership" is **relay** (CT36). Mastodon has no bilateral agreement between servers.
-3. The shared knowledge base design also had a "partnership" between two accounts, from a contributor proposal: "When friends agree, a new space gets their documents automatically after a short wait." Rev. 6 of that design renamed it **mutual collaboration**.
+3. **Not part of this document.** The shared knowledge base design also used the word "partnership" for an agreement between two accounts, from a contributor proposal: "When friends agree, a new space gets their documents automatically after a short wait." That is an exchange inside a server, a different thing from the server-level partnership. It is renamed **mutual collaboration** and stays in the shared knowledge base design §9.10. The same word for two things caused confusion in the plan.
 
 ---
 
@@ -23,7 +23,7 @@
 | Trust for one remote account | A grant of the role `collaborator` by a moderator (federation design §12.2) |
 | Automatic contributions across servers | Federation design §12.3, with the switch `kb_auto_contribution` on both servers |
 | One-way subscription by the admin to receive announcements | **Idea: relay (Section 3)** |
-| "Partnership" between two accounts | **Idea: mutual collaboration (Section 4)** |
+| Agreement between two accounts (also called "partnership" at first) | Not a part of the server-level partnership: the mutual collaboration of the shared knowledge base design §9.10 |
 | Acceptance of the approvals of the reviewers of another server as local approvals; higher limits for a partner | Dropped; nobody asked for them |
 
 ---
@@ -61,49 +61,7 @@ Relay as above: admin opt-in, announcements of shared knowledge bases only, no r
 
 ---
 
-## 4. Idea: Mutual Collaboration
-
-### 4.1 Rules
-
-1. Account A requests a mutual collaboration with account B; B accepts. Both actions need a recent sign-in. Either account ends it at any time.
-2. Effect: when A founds a shared knowledge base, B becomes a collaborator in it at once (`decided_by_account_id` = A, log action `grant_collaborator`), and the reverse. When the automatic rule of B has the target `mutual`, the documents of B that fit go to the new knowledge base without approval.
-3. The end of a mutual collaboration does not change roles that it gave; moderators change them. New knowledge bases are not affected after the end.
-4. A mutual collaboration never gives `people`, `settings`, `remove`, or `moderator`.
-5. A suspended or purged account loses its mutual collaborations (suspension: paused; purge: deleted).
-6. Between accounts of different servers, it uses the grants of the federation design §12.2.
-
-### 4.2 Parts in Other Areas
-
-| Area | Content |
-| :--- | :--- |
-| Automatic rule | A target `mutual` (the shared knowledge bases that a mutual collaborator founded); a run when a mutual collaboration starts; column `kb_auto_rules.to_mutual` |
-| Lifecycle | At `POST /kb`, the mutual collaborators of the founder become collaborators |
-| Reputation | A contribution under a mutual collaboration needs no approval, except with the reputation `low` |
-| Roles and security | Only the scope `owner` with a recent sign-in requests or accepts it; no IdP claim gives it; a back-channel logout keeps it; a suspension pauses it. Risk: a mutual collaborator misuses the collaborator role. Control: either account ends it at once; moderators remove the role; it never gives `people`, `settings`, or `remove`. |
-| Console | `/settings/kb` lists the mutual collaborations of the account |
-| Purge | Deleted at an account purge |
-| Test | A and B make a mutual collaboration; B turns on its rule with `mutual` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval. |
-
-```sql
-CREATE TABLE IF NOT EXISTS kb_mutual_collaborations (
-    account_low INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    account_high INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    requested_by_account_id INTEGER NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pending', 'active')),
-    created_at REAL NOT NULL,
-    decided_at REAL,
-    PRIMARY KEY (account_low, account_high),
-    CHECK (account_low < account_high)
-);
-```
-
-### 4.3 Question for the Owner
-
-Keep the mutual collaboration between two accounts? Proposal: yes; it works on one server and, with grants, between servers. (OQ29 of the shared knowledge base design Rev. 6.)
-
----
-
-## 5. To Bring an Idea Back
+## 4. To Bring an Idea Back
 
 1. The owner decides it.
 2. A design revision adds it to the design document of its area, with the section numbers of that time. Then this document removes the idea.

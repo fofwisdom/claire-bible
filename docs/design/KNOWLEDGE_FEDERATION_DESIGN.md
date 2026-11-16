@@ -9,7 +9,7 @@
   - Rev. 2 (2026-11-16): review of NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, ForgeFed and Forgejo, and Lemmy; subscription and partnership as two levels with scopes.
   - Rev. 3 (2026-11-16): interoperation review for each kind of software; Fedify baseline; review of the need for a partnership.
   - Rev. 4 (2026-11-16): the terms follow Mastodon (Section 3): **federation** is the open exchange without an agreement, and **relay** is the server-level subscription. The term "partnership" is retired, with its bilateral agreement and its scopes. Themes share ingested documents between servers through federation (owner). The file is renamed.
-  - Rev. 5 (2026-11-16): the relay, the mutual collaboration, and the history of the old partnership moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only.
+  - Rev. 5 (2026-11-16): the relay and the history of the server-level partnership of Rev. 1 to Rev. 3 moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), because the plan grew too wide (owner). This design keeps federation only. The mutual collaboration between accounts is not a part of that partnership and stays in the shared knowledge base design §9.10.
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
   - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
@@ -35,7 +35,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | :--- | :--- |
 | Aim | Shared knowledge bases and themes share ingested documents between servers. Themes do this without a partnership (owner, Rev. 4). |
 | Terms | The open exchange is **federation**; the earlier meaning of "partnership" is **relay**, as in Mastodon. One set of terms in all documents (owner, Rev. 4; Section 3). |
-| Scope | The ideas from the old partnership (relay, mutual collaboration) are out of this design and kept in [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) (owner, Rev. 5). |
+| Scope | The server-level partnership of Rev. 1 to Rev. 3 and the relay are out of this design and kept in [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) (owner, Rev. 5). The mutual collaboration between accounts is an exchange inside a server and stays in the shared knowledge base design §9.10. |
 | Root page | In network mode, the root page shows this information. |
 | Reference | BookWyrm and the projects of the owner's research list (NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, Gancio, Forgejo with ForgeFed, Lemmy). A reference needs a clean-room implementation because of the licenses. Software of other domains (events, video, audio, code) needs no communication design. |
 | Default | When the ActivityPub functions are complete, the federation of shared knowledge is on by default, also in single mode. |
@@ -372,6 +372,7 @@ The holder hides the copy at once and puts it in its review queue with the reaso
 3. `Revoke` ends the grant at once. The moderator can renew a grant before its end time.
 4. A remote collaborator has only the capabilities `contribute_direct` and `contribute_theme` across servers. Review, curation, and maintenance stay with local accounts in v1, because they need a session on B.
 5. No remote moderators in v1. The admin of B is responsible for its moderators.
+6. Mutual collaboration between accounts of different servers (shared knowledge base design §9.10) uses the same grants.
 
 ### 12.3 Automatic Contribution Across Servers
 
