@@ -1,4 +1,4 @@
-"""1홉 병합(same_subject) — ONEHOP_MERGE_DESIGN.md. 네트워크 없이 mock provider 로 검증.
+"""1홉 병합(same_subject) — docs/implementation/ONEHOP_MERGE.md. 네트워크 없이 mock provider 로 검증.
 
 mock provider 훅(judge_research, extract/provider.py):
   - report/context 에 '무관' → 저품질(게이트 거절, 기존 훅)

@@ -2878,7 +2878,7 @@ def create_app(
         return JSONResponse(report)
 
     async def document_export_route(request: Request) -> Response:
-        """Export of one document as a file (RD24, MD-3). ``format=markdown`` is the only format: the AsciiDoc body becomes Markdown with a YAML front matter header. Read-only. The access rule is the rule of ``GET /document``. The federation client offers it in the context menu of an item (MARKDOWN_RETIREMENT_DESIGN.md Section 5)."""
+        """Export of one document as a file (RD24, MD-3). ``format=markdown`` (or ``md``) is the only format: the AsciiDoc body becomes Markdown with a YAML front matter header. Read-only. The access rule is the rule of ``GET /document``. The federation client offers it in the context menu of an item."""
         from urllib.parse import quote as _quote
 
         from ..render.markdown_export import document_markdown
@@ -5167,7 +5167,7 @@ def run_api() -> int:
 
     from .federation_internal import federation_socket_path, open_federation_socket
 
-    # The internal federation listener (Fedify sidecar design, Section 6.1). A failure here does not stop the public service: the sidecar cannot connect, and the federation readiness check shows that state.
+    # The internal federation listener (docs/implementation/FEDERATION.md). A failure here does not stop the public service: the sidecar cannot connect, and the federation readiness check shows that state.
     internal_path = federation_socket_path(s.data_dir)
     internal_sock: socket.socket | None = None
     if hasattr(socket, "AF_UNIX"):

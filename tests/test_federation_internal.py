@@ -1,4 +1,4 @@
-"""Internal federation API: service key file, signed requests, and listener binding (Fedify sidecar design Section 6.1, unit FP1-1).
+"""Internal federation API: service key file, signed requests, and listener binding (unit FP1-1).
 
 All tests use ``tmp_path`` only and remove the ``CLAIRE_*`` and ``CB_*`` environment variables.
 """

@@ -29,11 +29,11 @@ class ResolutionDecision:
     source_entity_id: str | None = None  # 흡수된 신규/패자 엔티티 ID
     rollback_payload: dict[str, Any] | None = None  # 복원에 필요한 원자적 상태 스냅샷
     timestamp: float = field(default_factory=time.time)
-    # 검토 증거 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1): 후보 루프에 진입한 판정에만 기록
+    # 검토 증거 (docs/implementation/GRAPH_BUNDLE_REVIEW.md §2): 후보 루프에 진입한 판정에만 기록
     candidates: list[dict[str, Any]] | None = None  # 후보별 점수·출처·Gate 결과(outcome)·judge 지연
     input_snapshot: dict[str, Any] | None = None  # 판정 시점 신규 엔티티 입력
     gate_params: dict[str, Any] | None = None  # 판정 시점 임계값 및 질의 임베딩 유효성
-    shadow: dict[str, Any] | None = None  # Jev shadow 평가 메타 (JEV_SHADOW_EVALUATION_DESIGN.md §3); 판정에 관여하지 않음
+    shadow: dict[str, Any] | None = None  # Jev shadow 평가 메타 (docs/implementation/GRAPH_BUNDLE_REVIEW.md §5); 판정에 관여하지 않음
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -73,7 +73,7 @@ class HeatmapMatrixData:
     threshold_auto_merge: float = 0.93
     threshold_borderline: float = 0.72
     threshold_relational: float = 0.70
-    # 'fallback_vector'. 과거 'jev' 값은 네트워크 호출 없는 로컬 스텁 산출물이다 (JEV_SHADOW_EVALUATION_DESIGN.md §1.2)
+    # 'fallback_vector'. 과거 'jev' 값은 네트워크 호출 없는 로컬 스텁 산출물이다
     generated_by: str = "fallback_vector"
     created_at: float = field(default_factory=time.time)
 

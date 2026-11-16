@@ -293,7 +293,7 @@ def test_auto_select_fallback_and_missing_dom():
 
 
 def _assert_workspace_syndication_rule(html: str) -> None:
-    """Rule of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8: the workspace links to /syndication only from the application bar (one link, hidden until the script shows it to the owner) and from the stage strip of the home view. The workspace has no syndication view."""
+    """Rule of docs/implementation/WEBUI.md §2: the workspace links to /syndication only from the application bar (one link, hidden until the script shows it to the owner) and from the stage strip of the home view. The workspace has no syndication view."""
     links = re.findall(r'<a\b[^>]*href="/syndication[^"]*"[^>]*>', html)
     bar_links = [tag for tag in links if 'id="syndlink"' in tag]
     assert len(bar_links) == 1

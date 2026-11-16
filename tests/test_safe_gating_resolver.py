@@ -553,7 +553,7 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
 
 
 
-# --- 검토 증거: 후보 추적 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1) ---
+# --- 검토 증거: 후보 추적 (docs/implementation/GRAPH_BUNDLE_REVIEW.md §2) ---
 
 
 def _fixed_thresholds(monkeypatch):

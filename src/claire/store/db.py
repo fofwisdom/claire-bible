@@ -4620,7 +4620,7 @@ def set_document_images(conn: sqlite3.Connection, doc_id: str, images: list[dict
     conn.commit()
 
 
-# --- 1홉 병합 출처(extra_sources) — ONEHOP_MERGE_DESIGN.md. 신규 컬럼 없이 documents.meta
+# --- 1홉 병합 출처(extra_sources) — docs/implementation/ONEHOP_MERGE.md. 신규 컬럼 없이 documents.meta
 # JSON 재사용(set_document_images 와 동일 패턴) — 같은 주제의 부가 출처(예: GeekNews 글이
 # 발견한 그 프로젝트의 github)를 새 Document 로 안 만들고 부모 문서에 흡수할 때, 원문 링크
 # 계보를 보존하기 위한 목록.

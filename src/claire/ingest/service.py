@@ -529,7 +529,7 @@ class IngestService:
     def expand_document(self, document_id: str, *, limit: int | None = None) -> dict:
         """[1홉 자동확장] 부모 문서의 링크를 LLM 이 선별→fetch→판정→통과 시 적재.
 
-        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정. 게이트 통과 후 same_subject(judge_research 확장 필드, ONEHOP_MERGE_DESIGN.md §3.1)로 한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3), False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존). 깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨. 병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음. 반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
+        파고들지(select_followups)·쌓을지(judge_research 게이트) 모두 LLM 결정. 게이트 통과 후 same_subject(judge_research 확장 필드, docs/implementation/ONEHOP_MERGE.md §3.1)로 한 번 더 갈린다: True 면 새 문서를 안 만들고 부모에 흡수(병합, §3.2~3.3), False 면 기존처럼 독립 문서로 적재(부모 글이 언급한 별개 소재인 경우 — 정보 보존). 깊이는 1 고정: 독립 적재 자식은 source='onehop:*' + expand_max=0 → 재확장 안 됨. 병합은 애초에 새 Document/expand_queue 항목을 안 만들어 재귀 위험이 이중으로 없음. 반환: {document_id, candidates, selected, stored, merged, skipped, followed[...]}
         """
         from ..expand.follow import build_candidates, build_parent_context, passes_gate
 

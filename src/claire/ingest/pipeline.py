@@ -1347,7 +1347,7 @@ def merge_source_into_document(
     theme_id: int | None = None,
     settings: Any = None,
 ) -> dict:
-    """[1홉 병합, ONEHOP_MERGE_DESIGN.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
+    """[1홉 병합, docs/implementation/ONEHOP_MERGE.md] 같은 주제의 부가 출처(child)를 parent 문서에 흡수 — 새 Document/expand_queue 항목을 만드는 대신 parent.raw_text 뒤에 별도 출처 섹션으로 append 하고 **같은 doc.id** 로 재추출한다(엔티티는 resolve_or_create 가 병합된 본문 기준으로 기존 노드에 관찰을 누적, render_detail 도 합쳐진 상세로 재생성돼 실제로 더 풍부한 글이 된다).
 
     저장은 원문 보존 협약대로 자르지 않는다 — LLM 프롬프트 투입량 상한(2배)은 `_doc_to_prompt`(gemini_provider.py) 쪽에서 doc.meta.extra_sources 유무로 자동 분기.
 

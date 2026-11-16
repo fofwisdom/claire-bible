@@ -24,7 +24,7 @@ PRESENTATION_PROMPT_VERSION = "pres-v2"
 # 단일 출처 문서의 LLM 투입 예산 (수집 상한인 20,000자에 맞춤). 병합 문서는 2배 (40,000자).
 _SINGLE_DOC_CHAR_BUDGET = 20000
 _MERGED_DOC_CHAR_BUDGET = _SINGLE_DOC_CHAR_BUDGET * 2
-# render_detail 재시도 하한선(ONEHOP_MERGE_DESIGN.md §3.3b) — 이보다 짧으면 두 출처를
+# render_detail 재시도 하한선(docs/implementation/ONEHOP_MERGE.md §3.3b) — 이보다 짧으면 두 출처를
 # 담기엔 명백히 부족하다고 보고 목표 분량을 올려 재시도.
 _MERGED_DETAIL_MIN_CHARS = 1000
 

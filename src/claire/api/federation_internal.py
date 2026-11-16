@@ -1,6 +1,6 @@
 """Internal federation API: listener, sub-application, service key, and signed requests.
 
-Design: ``docs/design/ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`` Section 6.1 (unit FP1-1).
+Current behavior: ``docs/implementation/FEDERATION.md`` (unit FP1-1).
 
 - The ``api`` process opens a second listener on a Unix domain socket (``data/run/federation.sock``, mode 0660).
 - ``ListenerRouter`` selects the internal sub-application from the listener that accepted the connection (ASGI ``scope["server"]``). It does not read the ``Host`` header.

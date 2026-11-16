@@ -22,7 +22,7 @@
 </head>
 <body data-auth-scope="__AUTH_SCOPE__" data-app-tab="kb" data-stage="ingest" data-layout="three-panel" data-list-style="list">
 
-  <!-- Application bar: the same structure and rules as the header of the workspace (static/css/appbar.css; HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8). -->
+  <!-- Application bar: the same structure and rules as the header of the workspace (static/css/appbar.css; docs/implementation/WEBUI.md §2). -->
   <header class="appbar" id="synd-bar">
     <div class="bar-brand-group">
       <a class="brand" href="/" data-i18n-title="nav.brand_home">
@@ -63,7 +63,7 @@
     <button type="button" class="synd-stage" data-stage-btn="publish" style="--stage:var(--stage-publish)"><b data-i18n="home.flow.publish">3 · Publication</b> <small data-i18n="synd.stage.publish_sub">Sent by the federation client</small><span class="synd-stage-counts" id="stage-publish-counts"></span></button>
   </nav>
 
-  <!-- View toolbar: the controls of the list of this page. The application bar has no input field (Section 4.1 item 3). -->
+  <!-- View toolbar: the controls of the list of this page. The application bar has no input field. -->
   <div class="synd-toolbar" role="toolbar" data-i18n-aria-label="synd.toolbar.label">
     <span id="selected-count-label" class="tt-sel-count kb-only" aria-live="polite"></span>
     <input id="stream-search" type="search" class="tt-search kb-only" data-i18n-placeholder="synd.kb.search.placeholder" data-i18n-aria-label="synd.kb.search.label"/>

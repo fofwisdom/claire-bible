@@ -1,4 +1,4 @@
-/* --- Claire Bible: application bar (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, Section 4.1 and Section 4.8) ---
+/* --- Claire Bible: application bar (docs/implementation/WEBUI.md §2) ---
  * One set of rules for the header of the workspace (index.html), of /syndication (syndication.html), and of the console (console_shell.html).
  * Structure: <header class="appbar"> with .bar-brand-group (brand link, theme picker, list toggle), .appbar-center (view navigation or page title, palette button), and .appbar-end (actions, page links, light and dark switch).
  * Rules for one page only stay in the stylesheet of that page.

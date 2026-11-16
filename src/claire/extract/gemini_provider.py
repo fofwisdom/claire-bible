@@ -470,7 +470,7 @@ class GeminiProvider:
 
         짧은 summary 와 별개 — 원문을 직접 안 읽어도 핵심·맥락·세부를 파악할 수 있게 여러 단락(대략 A4 1~2장)으로 푼다. 구조화 추출과 독립된 별도 호출이라 그래프에 영향 없음.
 
-        [1홉 병합 전용, ONEHOP_MERGE_DESIGN.md §3.3b] doc.meta.extra_sources 가 있으면 (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이 통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩 최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막 결과를 그대로 채택)."""
+        [1홉 병합 전용, docs/implementation/ONEHOP_MERGE.md §3.3b] doc.meta.extra_sources 가 있으면 (여러 출처가 합쳐진 문서) 목표 분량을 "A4 2~4장"으로 올리고 각 출처를 빠짐없이 통합 서술하라고 지시한다. 결과가 너무 짧으면(두 출처를 담기엔 부족) 목표를 2배씩 최대 2회 재시도(1x→2x→4x) — 정합성 문제가 아니라 품질 보정이라 fail-open(마지막 결과를 그대로 채택)."""
         body = _doc_to_prompt(doc)
         images = (doc.meta or {}).get("images") or []
         merged = bool((doc.meta or {}).get("extra_sources"))

@@ -339,7 +339,7 @@ def document_detail(
         "detail_format": dbm.get_document_detail_format(conn, document_id, theme_id=theme_id),
         "detail_html": dbm.get_document_detail_html(conn, document_id, theme_id=theme_id) or "",
         "hidden": bool(row["hidden"]),
-        # [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
+        # [1홉 병합, docs/implementation/ONEHOP_MERGE.md] 이 문서에 흡수된 부가 출처(예: GeekNews 글에
         # 병합된 그 프로젝트의 github). 원문 링크 계보를 UI 에서 추적 가능하게.
         "extra_sources": dbm.get_document_extra_sources(conn, document_id, theme_id=theme_id),
         # 원시 epoch(초) — MCP 등 API 소비자용(웹 UI는 이 필드 안 씀).

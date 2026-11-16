@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-// Application bar (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md Section 4.8): the workspace, /syndication, and the console have one bar with the same structure and rules.
+// Application bar (docs/implementation/WEBUI.md §2): the workspace, /syndication, and the console have one bar with the same structure and rules.
 // A login token of the seed database is for one login. Each test has its own token (e2e/seed_db.py).
 const login = (n) => `/?t=e2e-appbar${n}-token-0123456789abcde`;
 const PAGES = [

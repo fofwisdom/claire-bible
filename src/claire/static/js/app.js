@@ -6653,7 +6653,7 @@ function loadHomeStats(){
   });
 })();
 
-// --- Manage menu (design Section 4.1): a popover with role=menu. The browser gives the light dismiss and the Escape key; this code gives the position and the arrow keys. ---
+// --- Manage menu: a popover with role=menu. The browser gives the light dismiss and the Escape key; this code gives the position and the arrow keys. ---
 function syncManageButton(){
   const btn = document.getElementById('managebtn'); if(!btn) return;
   // The menu always has an item: the command palette is for each user.

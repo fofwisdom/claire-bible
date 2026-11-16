@@ -379,7 +379,7 @@ def resolve_or_create(
     # 점수 높은 순. tier_auto 이상은 즉시 머지.
     ordered = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
     judged = 0
-    # 검토 증거: 후보별 Gate 결과를 판정 레코드에 남긴다 (GRAPH_BUNDLE_REVIEW_EVIDENCE_DESIGN.md §3.1)
+    # 검토 증거: 후보별 Gate 결과를 판정 레코드에 남긴다 (docs/implementation/GRAPH_BUNDLE_REVIEW.md §2)
     trace: list[dict[str, Any]] = []
     # 병합이 후보를 변경하기 전 상태로 미리 읽는다: Jev shadow 입력이 병합 결과를 보지 않게 하기 위함
     loaded = {owner_id: dbm.get_entity(conn, owner_id, theme_id=theme_id) for owner_id, _ in ordered}

@@ -4197,7 +4197,7 @@ def cmd_migrate(_args) -> int:
         return 1
     print(f"client_db schema_version={client_db.CLIENT_SCHEMA_VERSION}")
 
-    # Service key of the internal federation API (Fedify sidecar design, Section 6.1). An existing key is not changed.
+    # Service key of the internal federation API (docs/implementation/FEDERATION.md). An existing key is not changed.
     from .api.federation_internal import ServiceKeyError, ensure_service_key, service_key_path
 
     try:

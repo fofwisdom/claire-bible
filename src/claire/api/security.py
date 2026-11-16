@@ -2353,7 +2353,7 @@ def wrap_web_app(
     )
     # NamespaceResolver는 Authentication 바로 안쪽, ErrorBoundary 안쪽이다. DB 예외가 정제된 500이 된다.
     secured: ASGIApp = _PublicDirectoryNamespaceResolver(app, directory)
-    # I18nMiddleware is immediately inside Authentication: it reads Principal.locale (I18N design Section 6.1).
+    # I18nMiddleware is immediately inside Authentication: it reads Principal.locale.
     from .i18n_middleware import I18nMiddleware
 
     secured = I18nMiddleware(secured, default_lang=str(getattr(settings, "ui_lang", "") or ""))
@@ -2394,7 +2394,7 @@ def wrap_web_app(
     if config.cloudflare_ips_only:
         secured = CloudflareIPFilterMiddleware(secured)
     secured = SafeAccessLogMiddleware(secured, config, theme_manager=theme_manager)
-    # The internal federation API (Fedify sidecar design, Section 6.1) is selected by the listener, not by the Host header. It is outside all public middleware.
+    # The internal federation API (docs/implementation/FEDERATION.md) is selected by the listener, not by the Host header. It is outside all public middleware.
     data_dir = getattr(settings, "data_dir", None)
     if data_dir is None:
         return secured

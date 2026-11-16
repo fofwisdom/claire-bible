@@ -1240,7 +1240,7 @@ if(typeof window !== 'undefined' && typeof window.addEventListener === 'function
     }
   });
 }
-// [1홉 병합, ONEHOP_MERGE_DESIGN.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
+// [1홉 병합, docs/implementation/ONEHOP_MERGE.md] 이 문서에 흡수된 부가 출처 목록(원문 링크 계보).
 function extraSourcesHtml(dc){
   const es=dc.extra_sources||[];
   if(!es.length) return '';

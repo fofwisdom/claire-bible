@@ -1,4 +1,4 @@
-"""End-to-end test of the Markdown export of a document (RD24, MD-3, docs/design/MARKDOWN_RETIREMENT_DESIGN.md Section 5).
+"""End-to-end test of the Markdown export of a document (RD24, MD-3, docs/implementation/DOCUMENT_FORMAT.md §5).
 
 A real app answers GET /document/export: the AsciiDoc body of an ingested document leaves Claire as a Markdown file with a YAML front matter header. The test also covers the one-time deletion of Markdown bodies at the first start (RD25).
 """

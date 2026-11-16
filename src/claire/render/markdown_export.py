@@ -1,4 +1,4 @@
-"""Markdown export of an ingested AsciiDoc document (RD24, MD-3, docs/design/MARKDOWN_RETIREMENT_DESIGN.md Section 5).
+"""Markdown export of an ingested AsciiDoc document (RD24, MD-3, docs/implementation/DOCUMENT_FORMAT.md §5).
 
 This is the only place where Claire writes Markdown. The converter has no dependency. It covers the AsciiDoc subset that the body prompt of ingestion asks for (``extract/prompts.py``): section titles, strong, emphasis and highlight marks, links, images, lists, tables, source, literal, quote, admonition and sidebar blocks, thematic breaks, anchors and cross references. A construct that it does not know goes out as text. The export is read-only: it writes nothing in the database.
 """
