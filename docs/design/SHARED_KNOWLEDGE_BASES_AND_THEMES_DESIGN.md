@@ -58,7 +58,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | `require_recent_auth` protects password, BYOK keys, account lifecycle, server changes, IdP settings, and federation settings. A bearer credential has no `authenticated_at` and cannot pass it. | **[code]** ACCOUNTS.md §5; IdP design §8.4 |
 | Ingest, re-ingest, regenerate, Telegram (separator `|`, empty line, caption), the CLI, and syndication dispatch take a focus. When a request has none, `themes.default_focus` applies. `documents.meta.focus` and `syndication_dispatches.applied_focus` keep it. | **[code]** `api/server.py` `do_ingest`, `store/db.py`, `telegram_bot.py`, `cli.py` |
 | Re-ingest fetches the stored source again (`target` is a document ID or a URL); it takes no new content from the request. | **[code]** `api/server.py` |
-| The production server has one account, the admin. The development database has one account and four themes (one default). No external server uses the HTTP API. | owner, 2026-11-16; read of `data/claire.db` |
+| The production server has one account, the admin. It runs in network mode, and the admin has a USERNAME. The development database has one account (state `setup_required`, no USERNAME) and four themes (one default). No external server uses the HTTP API. | owner, 2026-11-16; read of `data/claire.db` |
 
 ---
 
@@ -98,7 +98,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT30 | **Scope `write` (OQ25).** API tokens get the scope `write` now. OAuth tokens stay `readonly` in this design; a `write` OAuth scope is a separate change. |
 | CT31 | **Automatic contribution (OQ26).** Section 9.9 applies. The admin turns the function on or off for the server with the switch `kb_auto_contribution` in the ActivityPub federation menu (`/admin/federation`). |
 | CT32 | **Partnerships between servers (OQ27).** Shared knowledge bases aim at partnerships between servers. In network mode, the root page shows the partnership information. BookWyrm is the reference for the interaction; a reference needs a clean-room implementation because of its license. [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) has the design. |
-| CT33 | **Single mode and partnership default.** When the ActivityPub functions are complete, partnership communication is on by default, also in single mode. Thus the admin sets the USERNAME (the handle) at the first setup in each mode. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin (partnership design §11). |
+| CT33 | **Single mode and partnership default.** When the ActivityPub functions are complete, partnership communication is on by default, also in single mode. Thus the admin sets the USERNAME (the handle) at the first setup in each mode. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin (partnership design §13). |
 | CT34 | **Old `collaborator` tokens (OQ28).** API tokens with the scope `collaborator` become `readonly`. The console lists them once. |
 
 CT4, CT5, and CT13 replace RD29 rule 1 (collaborator ingest after an invitation) of `DATA_STORE_LAYOUT_DESIGN.md` §5.
@@ -154,7 +154,7 @@ A query that still uses the old `themes` columns (for example `is_default`) fail
 1. **Namespaced routes.** Only the path selects the knowledge base: `/@{u}/` selects the personal knowledge base of the account of the namespace; `/kb/{number}/` selects that knowledge base. In single mode the other root paths of the personal knowledge base get 308 to `/@{username}/…` of the admin (CT33). No query field, body field, or header selects a knowledge base on these routes.
 2. **Routes without a namespace that act on one knowledge base** (console panels under `/settings/*`, MCP tools that read): the parameter `kb` (number) is required. A request without it gets 400 with the code `kb_required`. There is no default.
 3. **Write to the personal knowledge base** (ingest, MCP ingest tools): the target is always the personal knowledge base of the account of the credential (CT4). These routes take no knowledge base reference.
-4. **Single mode.** The root paths redirect to the namespace of the admin account (CT33). This is the definition of single mode, not a fallback. While the admin has no USERNAME (`setup_required`), there is no target, and requests get the page "setup not complete" (partnership design §11). In network mode, a namespaced route without a prefix gives 404 (namespace design, N rules) **[unverified]**; unit CT-0 checks it.
+4. **Single mode.** The root paths redirect to the namespace of the admin account (CT33). This is the definition of single mode, not a fallback. While the admin has no USERNAME (`setup_required`), there is no target, and requests get the page "setup not complete" (partnership design §13). In network mode, a namespaced route without a prefix gives 404 (namespace design, N rules) **[unverified]**; unit CT-0 checks it.
 5. **Old names.** No code reads `theme`, `X-Claire-Theme`, or an internal ID as a reference. They are unknown fields like all other unknown fields. Because only rules 1 to 3 select a knowledge base, an ignored field cannot change the target of a request.
 
 ### 5.3 Code and API
@@ -350,7 +350,7 @@ Later runs keep each adjustment.
 
 ### 8.4 Root Page and Theme Page
 
-- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of local and remote shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`. The page also shows the partner servers and the recent activity across servers (partnership design §6.3).
+- **Network mode `/`**: the public directory shows themes first, ordered by recent activity (the last approved contribution in a member). Each entry shows the label, the knowledge type, the number of local and remote shared knowledge bases, the number of visible contributions, the top entities, and a link to `/themes/{number}`. A link opens the collection `/themes`. The page also shows the partner servers and the recent activity across servers (partnership design §7.3).
 - **Single mode** (CT33): no root page. `/` sends the request to `/@{username}/` of the admin. The home overview of the personal knowledge base has a theme card with a link to `/themes`.
 - **Theme page `/themes/{number}`**: the knowledge bases of the theme (shared first, then attached personal knowledge bases), the top entities, and the actions "Contribute to this theme" (Section 9.2), "Make a shared knowledge base in this theme", and "Fork" for each shared knowledge base.
 - Each item of a collection has `number`, `label`, `description`, `knowledge_type`, `state`, counts, and `url`.
@@ -489,7 +489,7 @@ Each action writes a row in `kb_moderation_log`.
 
 Review of a contributor proposal (2026-11-16): "When a space about a subject appears, the documents that I collected and that fit go there automatically." This extends CT21 from one decision for each document to one decision for each rule.
 
-**Server switch.** The function works only while the switch `kb_auto_contribution` in `server_settings` is `on`. The admin sets it in `/admin/federation`. The default is `off` **[proposal, partnership design PQ6]**. When the admin turns it off, all rules pause and keep their settings; no run starts. Automatic contributions to partner servers also need the scope `auto` of the partnership (partnership design §8.2).
+**Server switch.** The function works only while the switch `kb_auto_contribution` in `server_settings` is `on`. The admin sets it in `/admin/federation`. The default is `off` **[proposal, partnership design PQ6]**. When the admin turns it off, all rules pause and keep their settings; no run starts. Automatic contributions to partner servers also need the scope `auto` of the partnership (partnership design §10.3).
 
 1. **Rule.** An account has at most one automatic rule (`kb_auto_rules`). The rule selects the targets:
    - `memberships`: the shared knowledge bases where the account is an active member, collaborator, or moderator;
@@ -547,7 +547,7 @@ A shared knowledge base without an active moderator has the admin as its only mo
 | `/settings/kb` | Account | Its memberships and roles, the shared knowledge bases it founded, its submissions with the theme and the state of each target, its automatic rule with the dry run and the list of automatic contributions, its partnerships, its reputation with the signals and the fiction-like documents (Section 8.6), the button to make a shared knowledge base |
 | `/settings/kb/{number}` | Reviewer | Collaborator: the review queue with the help of Section 9.3, curation, maintenance. Moderator: also members and roles, join requests, remove, the moderation log, settings. |
 | `/admin/kb` | Admin | All shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs |
-| `/admin/federation` | Admin | The switch `kb_auto_contribution` (CT31), and the partnerships between servers (partnership design §5.4) |
+| `/admin/federation` | Admin | The switch `kb_auto_contribution` (CT31), and the partnerships between servers (partnership design §5.5) |
 | `/admin/themes` | Admin | Themes, the last judgement run, `theme_match_threshold`, `document_match_threshold`, `seed_match_threshold`, `auto_match_threshold`, the reputation numbers and limits, the adjustments of Section 8.3, the agreement of decisions (Section 9.3) |
 
 New UI text uses keys of the English and Korean catalogs from the start.
@@ -905,7 +905,7 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 
 Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34).
 
-The open questions of the partnerships between servers (PQ1 to PQ6) are in [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) §12.
+The open questions of the partnerships between servers (PQ1 to PQ9) are in [`SERVER_PARTNERSHIP_DESIGN.md`](SERVER_PARTNERSHIP_DESIGN.md) §14.
 
 | ID | Question | Proposal |
 | :--- | :--- | :--- |

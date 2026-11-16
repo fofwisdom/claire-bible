@@ -1,14 +1,17 @@
 # Server Partnerships: Exchange of Shared Knowledge Between Claire Bible Servers (Idea I2)
 
 - **Document Identifier**: `DESIGN-SERVER-PARTNERSHIP-20261116`
-- **Status**: Draft, Rev. 1. The owner direction of Section 2 is locked (CT31 to CT33 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 12 has the open questions.
+- **Status**: Draft, Rev. 2. The owner direction of Section 2 is locked (CT31 to CT33 of the shared knowledge base design, 2026-11-16). All other content is a **proposal**. Section 14 has the open questions.
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
+- **Revisions**:
+  - Rev. 1 (2026-11-16): first proposal with BookWyrm as the reference.
+  - Rev. 2 (2026-11-16): review of seven more projects from the owner's research (NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, ForgeFed and Forgejo, Lemmy). New: subscription and partnership as two levels, knowledge bases as actors, the `Offer` pattern of ForgeFed, remote collaborators with grants, authority identifiers of entities, the inbox journal, rules for copies. The owner confirmed the single mode rules (Section 13).
 - **Related Documents**:
   - [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (shared knowledge bases, themes, contributions; this design extends them across servers)
-  - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 idea I2: this document starts its design; idea I1 stays separate)
+  - [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (§4.2 ideas I1 and I2)
   - [`ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md`](ACCOUNT_IDP_AND_FEDIFY_SIDECAR_INTEGRATION_DESIGN.md) (sidecar, keys, internal API)
-  - [`FEDERATION.md`](../implementation/FEDERATION.md) (server actor §4.2, switch and readiness checks §7)
+  - [`FEDERATION.md`](../implementation/FEDERATION.md) (server actor §4.2, inbox event contract §5.7, switch and readiness checks §7)
   - [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (server modes §4, first admin setup §8.4, S9)
 
 Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[decision]**, **[proposal]**, **[external]**, **[unverified]**.
@@ -18,7 +21,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 ## 1. Goal
 
 1. Shared knowledge bases grow across servers through partnerships between servers, not only inside one server.
-2. Partner servers show the themes and the shared knowledge bases of each other. The root page in network mode is the place for this information.
+2. Servers show the themes and the shared knowledge bases of their partners. The root page in network mode is the place for this information.
 3. Reviewers curate from partner servers. Accounts contribute to shared knowledge bases of partner servers. When both servers allow it, automatic contributions also go across servers.
 4. Each server keeps its own decisions: merge of entities, subject judgement, review, reputation. No server is an authority over another server.
 
@@ -30,11 +33,13 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | :--- | :--- |
 | Aim | Shared knowledge bases aim at partnerships between servers. |
 | Root page | In network mode, the root page shows the partnership information. |
-| Reference | BookWyrm is a good reference for partnership interaction in ActivityPub: it shares book and author data between servers. A reference needs a clean-room implementation because of the license. |
+| Reference | BookWyrm is a good reference for partnership interaction in ActivityPub: it shares book and author data between servers. The owner added a research list of similar projects (NeoDB, Inventaire, PeerTube, Funkwhale, Mobilizon, Gancio, Forgejo with ForgeFed, Lemmy). A reference needs a clean-room implementation because of the licenses. |
 | Default | When the ActivityPub functions are complete, partnership communication is on by default, also in single mode. |
-| Single mode | The admin sets the USERNAME (the handle) at the first setup. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin. |
+| Single mode | The admin sets the USERNAME (the handle) at the first setup. Single mode shows no root page of network mode: `/` sends the request to `/@{username}/` of the admin. This is an architecture change, and the rules change with it (owner, confirmed in Rev. 2). |
 | Automatic contribution | The admin turns it on or off for the server in the ActivityPub federation menu. |
 | Later work | Merge decisions differ between servers; federation of merge decisions waits for a later design. Links between duplicate knowledge wait until there is a real need. |
+
+Production state (owner, 2026-11-16): the production server is in network mode, and its admin has a USERNAME. Thus Section 13 needs no setup step there.
 
 ---
 
@@ -42,225 +47,354 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 
 ### 3.1 License Facts
 
-| Project | License | Effect |
-| :--- | :--- | :--- |
-| Claire Bible | MIT **[code]** `LICENSE.md` | Any user may use the code. |
-| BookWyrm | Anti-Capitalist Software License v1.4 **[external]** (`LICENSE.md` of the BookWyrm repository, read 2026-11-16) | Use is limited to some kinds of users (for example individuals, non-profit organizations, and worker-owned organizations) and is not permitted for law enforcement or the military. Code or text under this license cannot enter an MIT project without these limits. |
+Read on 2026-11-16 from license files, READMEs, and documentation footers only.
+
+| Project | Code license | Specification or data | Effect for Claire (MIT) |
+| :--- | :--- | :--- | :--- |
+| Claire Bible | MIT **[code]** `LICENSE.md` | — | — |
+| BookWyrm | Anti-Capitalist Software License v1.4 (limits on kinds of users) | — | No code or text |
+| NeoDB | AGPL-3.0 | — | No code or text |
+| Inventaire | AGPL-3.0 | Data: CC0 (Wikidata-derived parts keep the Wikidata terms) | No code or text; data identifiers can be used |
+| PeerTube | AGPL-3.0 | — | No code or text |
+| Funkwhale | Not confirmed **[unverified]** | — | Treated as copyleft: no code or text |
+| Mobilizon | AGPL-3.0 or later | Documentation: CC BY-SA 4.0 | No code or text |
+| Forgejo | GPL-3.0 or later (v9 and later; MIT up to v8) | ForgeFed specification: CC0, and OWFA 1.0 from 2025-06-18 | No Forgejo code. The ForgeFed specification can be followed directly. |
+| Lemmy | AGPL-3.0 | — | No code or text |
+| FEPs (Fediverse Enhancement Proposals) | — | CC0 (repository-wide statement) | Can be followed directly |
 
 ### 3.2 Rules
 
-1. No BookWyrm source code, template, schema, migration, test, or documentation text enters Claire Bible.
-2. This design takes only ideas and protocol facts from the public BookWyrm documentation. Section 4 lists each idea, its source page, and the Claire design in our own words.
-3. Persons who write Claire code for this design do not read the BookWyrm source code. They work only from this design and from the ActivityPub and ActivityStreams specifications.
-4. Interoperation with BookWyrm servers is not a goal. The exchange is between Claire Bible servers (idea I2).
-5. When a later revision takes a new idea from BookWyrm, it adds a row to Section 4 with the page and the date.
+1. No source code, template, schema, migration, test, or documentation text of these projects enters Claire Bible. The copyleft licenses (AGPL, GPL) and the BookWyrm license do not fit the MIT license of Claire.
+2. This design takes only ideas and protocol facts from public documentation. Section 4 lists each idea, its project, and the Claire design in our own words.
+3. Specifications with a public-domain or patent-promise license (ForgeFed: CC0 and OWFA 1.0; FEPs: CC0) can be followed directly. Claire still writes its own text and claims no conformance (ForgeFed says that it is "still under construction").
+4. Persons who write Claire code for this design do not read the source code of these projects. They work only from this design and from the specifications.
+5. Interoperation with these projects is not a goal. The exchange is between Claire Bible servers (idea I2). Standard base types (Section 8.1) let other software show Claire objects.
+6. When a later revision takes a new idea from a project, it adds a row to Section 4 with the page and the date.
 
-Pages read on 2026-11-16 (documentation and license only): `FEDERATION.md` and `LICENSE.md` of the BookWyrm repository; `docs.joinbookwyrm.com` pages "federation", "activitypub", "admin-settings", and "system".
+### 3.3 Pages Read (2026-11-16, documentation and license only)
+
+| Project | Pages |
+| :--- | :--- |
+| BookWyrm | `FEDERATION.md`, `LICENSE.md`; `docs.joinbookwyrm.com`: federation, activitypub, admin-settings, system |
+| NeoDB | `FEDERATION.md` (pointer), `neodb.net/internals/activitypub`, `neodb.net/servers/`, repository README |
+| Inventaire | `data.inventaire.io`, `api.inventaire.io`, `wiki.inventaire.io` (Entities data, Technic), repository READMEs |
+| PeerTube | `docs.joinpeertube.org/api/activitypub`, `docs.joinpeertube.org/admin/following-instances`, `LICENSE` |
+| Funkwhale | `docs.funkwhale.audio/developer/federation/index.html`, documentation index |
+| Mobilizon | `docs.mobilizon.org` (ActivityPub, instance federation), repository README |
+| ForgeFed, Forgejo | `forgefed.org/spec` (parts of Sections 6 to 8 not reached), `forgefed.org`, Forgejo FAQ, Forgejo federation post of 2023-01-10 |
+| Lemmy, Fedify | `join-lemmy.org/docs/contributors/05-federation.html`, `fedify.dev/tutorial/threadiverse`, repository README; FEP repository README. FEP-1b12 itself could not be read **[unverified]**. |
 
 ---
 
-## 4. Reference Review: Ideas from the BookWyrm Documentation
+## 4. Reference Review
 
-| No. | Idea in the BookWyrm documentation (own words) | Claire design | Difference |
+### 4.1 Check of the Research List
+
+| Claim of the research list | Result |
+| :--- | :--- |
+| NeoDB uses a dedicated relay for catalog sharing between instances. | Partly confirmed. A default relay of the NeoDB developers sends public activities and catalog information between compatible NeoDB servers. It is optional; an operator can turn it off. It is not only for catalog data. |
+| Inventaire has an ActivityPub shared inbox at `/activitypub/shared-inbox`. | Not confirmed. The Inventaire wiki says that its fediverse part is an experiment and that users and groups do not federate yet. Inventaire keeps book data on one "entities host" so that the data is not copied. |
+| Funkwhale stores received payloads before it processes them. | Confirmed. |
+| Lemmy wraps received activities of a community in `Announce` for its followers. | Confirmed (Lemmy documentation). |
+| The other rows (PeerTube, Mobilizon, Gancio, ForgeFed) | Confirmed in their main points, except Gancio, which this review did not read. |
+
+### 4.2 Ideas and Their Use
+
+| No. | Project | Idea (own words) | Claire design |
 | :--- | :--- | :--- | :--- |
-| B1 | Servers share book metadata to make a networked database. | Partners share the directory of themes and shared knowledge bases (Section 6). | Claire shares knowledge bases, documents, and graphs, not only metadata. |
-| B2 | Books and authors are objects with custom types; each object `id` is a URL on its origin server. A receiving server keeps a local copy and matches an incoming object to an existing local object when it can. | Shared knowledge bases, documents, and extractions have IRIs on their origin server. A copy keeps the origin IRI. The merge job of the receiving server matches entities by its own rules (Section 7.3). | The receiving server never takes the entity merge of the origin as a fact. |
-| B3 | Connectors are data sources for book search, with an order of priority that the admin sets; another server can use the search endpoint, and to block it gives more duplicate works. | Partner servers are sources with an order of priority for the search of themes and shared knowledge bases. The page "Make a shared knowledge base" shows similar knowledge bases on partners first (Section 6.3). | Claire searches only partners, not open sources. |
-| B4 | A book page shows reviews of the same book from connected servers. | A theme page shows the knowledge bases of the same subject from partner servers (Section 6.2). | Each server judges subjects on its own. |
-| B5 | A server actor signs requests; a server can require signed GET requests. | The existing server actor `claire@{handle host}` signs all partnership requests. Partnership collections need a signed GET from a partner (Section 9). | — |
-| B6 | The admin sees a list of federated servers with domain and software and can block a server. | `/admin/federation` lists partners with state, scopes, counts, and the last synchronization (Section 5.4). | A partnership needs an explicit agreement; BookWyrm federation is open by default. |
-| B7 | Custom status types reach other software as `Article` or `Note`. | Each Claire object has a standard ActivityStreams base type, so that other software can show it. | — |
-| B8 | The receiving server decides what it shows from what its inbox receives. | Each server decides what it shows and keeps (Sections 7 and 8). | — |
-| B9 | The documentation notes that the custom types have no published JSON-LD context. | Claire publishes its context from the first version (Section 7.1). | Learned from a gap. |
+| B1 | BookWyrm | Servers share book metadata to make a networked database. | Partners share a directory of themes and shared knowledge bases (Section 7). |
+| B2 | BookWyrm | Objects have custom types and origin URLs; a receiver keeps a local copy and matches it to existing objects when it can. | Origin IRIs on all objects; the receiver matches entities by its own rules (Section 9.4). |
+| B3 | BookWyrm | Data sources with an admin-set priority for search; to block incoming search gives more duplicates. | Partners are search sources; the page "Make a shared knowledge base" shows similar knowledge bases of partners first (Section 7.3). |
+| B4 | BookWyrm | A book page shows reviews of the same book from connected servers. | A theme page shows knowledge bases of the same subject from partners (Section 7.2). |
+| B5 | BookWyrm | A server actor signs GET requests; a server can require signed GET. | The server actor signs all partnership requests; partnership collections need a signed GET (Section 12). |
+| B6 | BookWyrm | Admin list of federated servers with block. | Partner list with level, scopes, and state (Section 5.5). |
+| B7 | BookWyrm | Custom types reach other software as `Article` or `Note`. | Standard base types (Section 8.1). |
+| B8 | BookWyrm | The receiving server decides what it shows. | Each server decides what it shows and keeps (Sections 9 and 10). |
+| B9 | BookWyrm | Custom types without a published JSON-LD context. | Claire publishes its context from the first version (Section 8.1). |
+| P1 | PeerTube | The platform actor (`Application`) follows other platforms; the followed admin can require manual approval or refuse all followers. | The handshake between server actors (Section 5.3). |
+| P2 | PeerTube | An admin can follow the platforms of an index list automatically. | An index list gives suggestions only; no partnership starts without an admin decision (Section 5.4). |
+| P3 | PeerTube | A following platform receives metadata with links to the files, not the files. | The directory carries metadata and signatures, not documents (Section 7.1). |
+| P4 | PeerTube | A mirror server tells the origin with a `CacheFile` object that it holds a copy; the origin controls who may mirror (`nobody`, `followings`, `anybody`). | A holder tells the origin that it holds a copy; scopes control who may copy (Sections 8.2, 9.2). |
+| P5 | PeerTube | A channel is a `Group` actor that several accounts manage. | A shared knowledge base as an actor (Section 8.2). |
+| M1 | Mobilizon | Instances subscribe to each other through an internal relay actor; the other admin approves; the subscription is one way; only public content created after the subscription is sent. | Subscription (one way) and partnership (both ways) as two levels; a full fetch at the start (Sections 5.1, 7.1). |
+| M2 | Mobilizon | Group members have roles from "invited" to "administrator". | Same idea as the roles of a shared knowledge base (shared knowledge base design §6.2). |
+| L1 | Lemmy | A community is a `Group`; it wraps each received activity in `Announce` and sends it to its followers. | A knowledge base actor sends revisions and decisions to its followers (Section 8.2). |
+| L2 | Lemmy | Moderators of other servers can be added to a community; an admin removal of content in a remote community has effect only on the local server. | Remote collaborators with grants; no remote moderators in v1; a local removal never changes the origin (Sections 10.2, 9.3). |
+| L3 | Lemmy, Fedify | Lemmy rejects the public address in compact form; a strict receiver needs exact forms. | Claire writes full IRIs in addressing (Section 8.1). |
+| F1 | ForgeFed | To open an issue on a remote repository, the author sends `Offer` to the tracker actor; the tracker answers `Accept` with the new IRI in `result`, or `Reject`; the answer can wait for human review. | The contribution across servers (Section 10.1). |
+| F2 | ForgeFed | When the target accepts, it hosts its own copy and controls it; the sender is only the author. Forks are new actors with copies whose `origin` points to the original. | Rules for copies (Section 9.1). |
+| F3 | ForgeFed | Roles (`visit`, `report`, `triage`, `write`, `maintain`, `admin`) are given with `Grant` (context = resource, target = person, object = role, end time) and taken back with `Revoke`; the grant IRI is the capability that later activities carry. | Remote collaborators (Section 10.2). |
+| W1 | Funkwhale | Each pod stores received payloads in the database before it processes or delivers them, to debug, send again, or process again. | The inbox journal (Section 11). |
+| W2 | Funkwhale | A library is an actor and a collection; a follow of a private library needs the approval of its owner; the service actor of a pod is the authority for the objects of its domain. | Knowledge base actors; the origin is the authority (Sections 8.2, 9.1). |
+| N1 | NeoDB | A remote review lands on an existing item that shares an external ID (ISBN, Open Library, Goodreads). | Authority identifiers of entities (Section 9.4). |
+| N2 | NeoDB | Follow the origin: lists keep possibly stale mirrors and do not serve them again as ActivityPub. | A holder never serves a remote object as its own (Section 9.1). |
+| N3 | NeoDB | An optional relay sends public activities between servers. | Later work for many partners (Section 15). |
+| I1 | Inventaire | Entities have `wd:` (Wikidata) and `inv:` (local) identifiers; data is CC0. | Authority identifiers of entities (Section 9.4). |
 
-Why Claire needs an explicit agreement (difference from B6): a contribution moves content and changes the graph of another server. Thus an exchange of shared knowledge starts only after both admins agree.
+### 4.3 Common Patterns
+
+The projects agree on these points. The design follows them.
+
+1. **Server actors follow each other with approval** (PeerTube, Mobilizon): Section 5.
+2. **A container is an actor with followers** (Lemmy communities, PeerTube channels, Mobilizon groups, Funkwhale libraries, ForgeFed trackers): Section 8.2.
+3. **A submission to a remote container is an offer that the container accepts or rejects** (ForgeFed): Section 10.1.
+4. **The origin is the authority; a receiver keeps its own copy and marks the origin** (ForgeFed, Funkwhale, NeoDB, PeerTube): Section 9.1.
+5. **Shared external identifiers make matching across servers possible** (Inventaire, NeoDB): Section 9.4.
+6. **Received payloads are kept before processing** (Funkwhale): Section 11.
 
 ---
 
-## 5. Partnership
+## 5. Subscription and Partnership
 
-### 5.1 Scopes
+### 5.1 Two Levels
+
+| Level | Direction | Content | Agreement |
+| :--- | :--- | :--- | :--- |
+| Subscription | One way (A reads B) | The directory of B (Section 7) | The admin of B approves the follow of A (M1, P1) |
+| Partnership | Both ways | The scopes of Section 5.2 | Both admins agree; each decides once (Section 5.3) |
+
+A subscription lets a server show the themes of another server on its root page without an exchange of content. A partnership is necessary for each exchange of content.
+
+### 5.2 Scopes of a Partnership
 
 | Scope | Content | Needs |
 | :--- | :--- | :--- |
-| `directory` | Themes, metadata and signatures of shared knowledge bases | — |
+| `directory` | Themes, metadata and signatures of shared knowledge bases, in both directions | — |
 | `curation` | Reviewers copy visible documents of shared knowledge bases of the partner | `directory` |
 | `contribution` | Accounts send documents to shared knowledge bases of the partner; the reviewers of the partner decide | `directory` |
 | `auto` | Automatic contributions to shared knowledge bases of the partner | `contribution`, and the switch `kb_auto_contribution` is `on` on both servers |
 
-Each admin sets the scopes that its server offers to each partner. The effective scopes of a partnership are the scopes that both servers offer. This is the negotiation: no server gets more than the other server gives.
+Each admin sets the scopes that its server offers to each partner. The effective scopes are the scopes that both servers offer. This is the negotiation: no server gets more than the other server gives.
 
-### 5.2 Handshake
+### 5.3 Handshake
 
 1. The actors are the server actors (`Application`, `claire@{handle host}`, `manuallyApprovesFollowers` true; **[code]** FEDERATION.md §4.2).
-2. The admin of server A enters the domain of server B in `/admin/federation`. A sends `Follow` to the server actor of B, with the offered scopes in a `claire:Partnership` object.
-3. The admin of B sees the request and accepts or rejects it. On accept, B sends `Accept` and its own `Follow` with its offered scopes. A accepts this `Follow` automatically because A made the request. The partnership is active when both follows are accepted. Thus each admin decides once.
+2. **Subscription.** The server actor of A sends `Follow` to the server actor of B. The admin of B accepts or rejects it.
+3. **Partnership.** The `Follow` of A has a `claire:Partnership` object with the offered scopes. When the admin of B accepts, B sends `Accept` and its own `Follow` with its offered scopes, and A accepts it automatically because A made the request. Thus each admin decides once.
 4. A change of offered scopes: `Update` of the `claire:Partnership` object. Both servers compute the effective scopes again.
-5. End: either server sends `Undo(Follow)`. Both servers stop the exchange at once.
-6. A domain block (existing function) ends a partnership and refuses new requests.
-7. Request, accept, scope change, and end need a recent sign-in of the admin and write `admin_audit`.
+5. End: `Undo(Follow)` from either server. A partnership becomes a subscription or ends, as the `Undo` says.
+6. A domain block (existing function) ends a subscription and a partnership and refuses new requests.
+7. Each request, accept, scope change, and end needs a recent sign-in of the admin and writes `admin_audit`.
 
-### 5.3 Discovery
+### 5.4 Discovery
 
 1. An admin enters a domain. The server reads its NodeInfo and the server actor and shows the software, the version, and the scopes that the other server can offer.
-2. The directory of a partner lists its partners. The console shows them as suggestions only; nothing starts a partnership without an admin decision.
+2. The directory of a partner lists its partners. An admin can also add the URL of an index list of Claire servers (P2). Both give suggestions only; nothing starts a subscription or a partnership without an admin decision.
 
-### 5.4 Admin Console `/admin/federation`
+### 5.5 Admin Console `/admin/federation`
 
 | Area | Content |
 | :--- | :--- |
-| Switches | `federation`, `partnerships`, `kb_auto_contribution` (Section 10) |
-| Partners | Domain, software, version, state (`requested`, `pending`, `active`, `ended`, `blocked`), effective scopes, counts of themes and shared knowledge bases, last synchronization, errors |
-| Requests | Incoming requests with the scopes that the other server offers |
+| Switches | `federation`, `partnerships`, `kb_auto_contribution` (Section 12) |
+| Servers | Domain, software, version, level (subscription or partnership, each direction), effective scopes, counts of themes and shared knowledge bases, last synchronization, errors |
+| Requests | Incoming requests with the level and the scopes that the other server offers |
+| Suggestions | Partners of partners, index lists |
 | Offered scopes | For each partner |
+| Journal | The inbox journal of Section 11, with replay of a failed activity |
 
 ---
 
-## 6. Directory and Cross-Server Themes
+## 6. Authority
 
-### 6.1 Synchronization of the Directory
+1. The origin server is the authority for its objects: its knowledge bases, its documents, and the decisions of its reviewers (W2, F2).
+2. A server never changes an object of another server. It sends offers and notices; the origin decides.
+3. A local action on a copy (hide, remove, stop updates) has effect only on the local copy (L2).
 
-1. With the scope `directory`, the origin sends `Create`, `Update`, and `Delete` of each `claire:KnowledgeBase` (shared knowledge bases only) to its partners: label, description, knowledge type, counts, the signature of Section 8.2 of the shared knowledge base design, and the IRI.
-2. A partner keeps these records in a separate store of remote knowledge bases. A remote knowledge base is not a partition of the local `claire.db`; it has no documents until a curation or a contribution.
-3. Public personal knowledge bases are not in the directory **[proposal, PQ5]**.
+---
 
-### 6.2 Cross-Server Themes
+## 7. Directory and Cross-Server Themes
+
+### 7.1 Synchronization
+
+1. The origin sends `Create`, `Update`, and `Delete` of each `claire:KnowledgeBase` (shared knowledge bases only) to its subscribers and partners: label, description, knowledge type, counts, the signature of §8.2 of the shared knowledge base design, and the IRI. No documents (P3).
+2. At the start of a subscription, the subscriber fetches the collection of shared knowledge bases of the origin once with a signed GET, so that it does not wait for new activity (M1 sends only new content; Claire needs the full directory).
+3. The subscriber keeps these records in a store of remote knowledge bases. A remote knowledge base is not a partition of the local `claire.db` and has no documents until a curation or a contribution.
+4. Public personal knowledge bases are not in the directory **[proposal, PQ5]**.
+
+### 7.2 Cross-Server Themes
 
 1. The subject judgement of each server includes the signatures of remote shared knowledge bases. A remote knowledge base can be a member of a local theme.
-2. Each server computes its own themes. The same subject can have different theme numbers on different servers. A theme number is local; it never leaves the server as an identifier.
+2. Each server computes its own themes. The same subject can have different theme numbers on different servers. A theme number never leaves its server as an identifier.
 3. The theme page shows local and remote knowledge bases. A remote knowledge base links to its origin.
 
-### 6.3 Root Page (Network Mode)
+### 7.3 Root Page (Network Mode)
 
 1. Themes first, with the counts of local and remote shared knowledge bases.
-2. A section "Partner servers": name, domain, effective scopes, number of shared knowledge bases and themes.
+2. A section "Partner servers": name, domain, level, effective scopes, number of shared knowledge bases and themes.
 3. Recent activity across servers: new shared knowledge bases of partners, contributions that partners approved from accounts of this server, curations.
-4. The page "Make a shared knowledge base" shows similar local and remote shared knowledge bases before the account makes a new one (B3). This keeps the number of duplicate knowledge bases small.
+4. The page "Make a shared knowledge base" shows similar local and remote shared knowledge bases before the account makes a new one (B3).
 
-Single mode shows no root page (Section 11).
+Single mode shows no root page (Section 13).
 
 ---
 
-## 7. Objects and Activities
+## 8. Objects and Actors
 
-### 7.1 Vocabulary
+### 8.1 Vocabulary
 
 1. Claire publishes one JSON-LD context for its types from the first version (B9). The context IRI is the same for all Claire servers **[proposal, PQ2]**. Each server also serves a copy at a local path. Claire servers read the compact names; they do not need a JSON-LD processor.
-2. The vocabulary document is written for Claire only, in our own words (Section 3.2).
+2. Addressing uses full IRIs, for example `https://www.w3.org/ns/activitystreams#Public`, not compact forms (L3).
+3. The vocabulary document is written for Claire only, in our own words (Section 3.2).
 
 | Type | Base type | Content |
 | :--- | :--- | :--- |
-| `claire:KnowledgeBase` | `Collection` | A shared knowledge base: label, description, knowledge type, counts, signature, IRI of its documents collection |
+| `claire:KnowledgeBase` | `Group` with a collection of documents **[proposal, PQ7]** | A shared knowledge base: label, description, knowledge type, counts, signature, documents collection, `followers` |
 | `claire:Partnership` | `Object` | Offered scopes of one server |
-| Document | `Article` | Title, content, canonical URL, content hash, `attributedTo` (the actor with the credit), `claire:root` (the IRI of the root document) |
-| `claire:Extraction` | `Object` | Entities (keys `type` and `norm_name`, aliases, `sameAs` IRIs) and relations of one document, so that the receiver builds its graph without an LLM call |
+| Document | `Article` | Title, content, canonical URL, content hash, `attributedTo` (the actor with the credit), `origin` (the object it was copied from), `claire:root` (the root document) |
+| `claire:Extraction` | `Object` | Entities (keys `type` and `norm_name`, aliases, `sameAs` with authority identifiers) and relations of one document, so that the receiver builds its graph without an LLM call |
 | `claire:Contribution` | `Object` | A document with its extraction, offered to one shared knowledge base |
 
-### 7.2 Activities
+### 8.2 Knowledge Bases as Actors **[proposal, PQ7]**
+
+All reviewed projects model a container as an actor with followers (Section 4.3). Thus each shared knowledge base gets an actor:
+
+1. Each shared knowledge base has a `Group` actor with an inbox, an outbox, and `followers`. Its keys are in the sidecar like the other keys.
+2. A server that holds copies of the documents of a knowledge base follows that actor with its server actor. The followers are the holders. This replaces the `Add` notice of Rev. 1 (P4 had the same purpose).
+3. The knowledge base actor sends `Update` of a document (revision) and `Delete` (removal at the origin) to its followers.
+4. A contribution `Offer` goes to the inbox of the knowledge base actor (F1).
+5. Followers are only partner server actors in this design. A follow of a person of the open fediverse is idea I1 and stays outside this design; the same actor can serve it later.
+6. Alternative if PQ7 is rejected: no knowledge base actors; the holder sends `Add` (document IRI, target = its knowledge base) to the server actor of the origin, and the origin keeps the list of holders (as `CacheFile` in P4).
+
+### 8.3 Activities
 
 | Activity | From → to | Object | Effect |
 | :--- | :--- | :--- | :--- |
-| `Follow`, `Accept`, `Reject`, `Undo` | Server actor ↔ server actor | `claire:Partnership` | Handshake (Section 5.2) |
+| `Follow`, `Accept`, `Reject`, `Undo` | Server actor ↔ server actor | — or `claire:Partnership` | Subscription and partnership (Section 5.3) |
 | `Update` | Server ↔ server | `claire:Partnership` | New offered scopes |
-| `Create`, `Update`, `Delete` | Origin → partners | `claire:KnowledgeBase` | Directory (Section 6.1) |
-| `Add` | Holder → origin | Document IRI, target = the knowledge base of the holder | The origin records that a partner holds a copy (Section 7.3) |
-| `Update` | Origin → holders | `Article` with `claire:Extraction` | Revision (Section 7.3) |
-| `Delete` | Origin → holders | `Article` | Removal at the origin (Section 7.3, PQ3) |
-| `Offer` | Account actor → server actor of the target server | `claire:Contribution`, target = the shared knowledge base | Pending contribution at the target (Section 8.1) |
-| `Accept`, `Reject` | Server actor of the target → account actor | the `Offer` | Decision of the reviewers, with the reason code on reject |
+| `Create`, `Update`, `Delete` | Origin → subscribers and partners | `claire:KnowledgeBase` | Directory (Section 7.1) |
+| `Follow`, `Accept`, `Undo` | Holder server actor → knowledge base actor | — | Register and end a holder (Section 8.2) |
+| `Update` | Knowledge base actor → holders | `Article` with `claire:Extraction` | Revision (Section 9.2) |
+| `Delete` | Knowledge base actor → holders | `Article` | Removal at the origin (Section 9.3) |
+| `Offer` | Account actor → knowledge base actor | `claire:Contribution` | Pending contribution (Section 10.1) |
+| `Accept` with `result`, `Reject` | Knowledge base actor → account actor | The `Offer` | Decision of the reviewers; `result` is the IRI of the contribution on the target |
+| `Grant`, `Revoke` | Knowledge base actor → account actor | Role `collaborator` | Remote collaborator (Section 10.2) |
 
 Curation reads documents and extractions with a signed GET of the collections of the partner.
 
-### 7.3 Copies, Revisions, and Entities
+---
 
-1. **Origin.** A copy from a partner keeps the IRI of the document, of its knowledge base, and of its server, the IRI of the actor with the credit, and the IRI of its root document.
-2. **Holders.** When a server makes a copy (curation or accepted contribution), it sends `Add` to the origin. The origin keeps the list of holders and sends `Update` for each revision to them. Revisions apply automatically, as in CT20 and CT26 of the shared knowledge base design.
-3. **End of a partnership.** Copies stay (CT7, CT19). Revisions stop because the channel stops.
-4. **Removal at the origin.** **[proposal, PQ3]** The holder hides the copy at once and puts it in its review queue with the reason code of the origin. Its reviewers decide to remove it or to show it again. A copy is not removed automatically, because a removal at the origin can have a local reason; the hide at once protects the holder when the reason is legal or spam.
-5. **Entities.** Each server resolves entities in its own merge job (CT24). The received extraction gives keys and `sameAs` IRIs; the merge job of the receiver maps them to local entities by its own rules. No server changes the graph of another server. Different results on different servers are normal. Federation of merge decisions is later work (owner direction).
-6. **Duplicates.** v1 copies documents. Links between duplicate knowledge on different servers are later work (owner direction).
+## 9. Copies, Revisions, and Entities
+
+### 9.1 Copies
+
+1. A copy (curation or accepted contribution) is a new object on the holder with a new IRI. It keeps `origin` (the object it was copied from), the IRI of the actor with the credit, and `claire:root` (F2).
+2. The holder hosts and controls its copy (F2). It never sends the content of a remote object as its own object: its directory and its collections show the copy with `origin` (N2).
+3. When a partnership ends, copies stay (CT7, CT19). Revisions stop because the channel stops.
+
+### 9.2 Revisions
+
+The knowledge base actor of the origin sends `Update` for each revision of a document to its followers. The holders apply it automatically, as in CT20 and CT26 of the shared knowledge base design.
+
+### 9.3 Removal at the Origin **[proposal, PQ3]**
+
+The holder hides the copy at once and puts it in its review queue with the reason code of the origin. Its reviewers decide to remove it or to show it again. A copy is not removed automatically, because a removal at the origin can have a local reason; the hide at once protects the holder when the reason is legal or spam. A removal on the holder never changes the origin (L2).
+
+### 9.4 Entities Across Servers
+
+1. Each server resolves entities in its own merge job (CT24). No server changes the graph of another server. Different results on different servers are normal.
+2. **Authority identifiers** **[proposal, PQ9]**. An entity can carry identifiers of an authority in `sameAs`: Wikidata (`wd:Q…`), ISBN, ORCID, and similar (I1, N1). The merge job of the receiver matches an entity with the same authority identifier first, then by keys. This makes matches across servers agree more often, without a federation of merge decisions. v1 sends an identifier only when the entity already has one; a function that links entities to an authority is later work.
+3. Federation of merge decisions and links between duplicates are later work (owner direction).
 
 ---
 
-## 8. Contributions Across Servers
+## 10. Contributions and Roles Across Servers
 
-### 8.1 Contribution to a Partner
+### 10.1 Contribution to a Partner (F1)
 
-1. An account of server A selects a shared knowledge base or a theme that has knowledge bases of partner B. The flow of the shared knowledge base design (Sections 9.1 and 9.2) applies, with these changes.
-2. The account actor of A sends `Offer` with the document and its extraction to B. The account needs a handle; thus single mode needs the USERNAME of the admin (CT33).
-3. B makes a pending contribution with the remote actor as contributor. The reviewers of B decide. B sends `Accept` or `Reject` with the reason code. The submission page on A shows the decision.
+1. An account of server A selects a shared knowledge base or a theme that has knowledge bases of partner B. The flow of §9.1 and §9.2 of the shared knowledge base design applies, with these changes.
+2. The account actor of A sends `Offer` with the document and its extraction to the knowledge base actor of B. The account needs a handle (CT33).
+3. B makes a pending contribution with the remote actor as contributor. The answer can wait for its reviewers. B sends `Accept` with `result` (the IRI of the contribution on B) or `Reject` with the reason code. The submission page on A shows the decision.
 4. The credit on B is the remote actor. When B receives `Delete(Person)` for that actor, the credit becomes "deleted account" (CT7).
-5. B computes the reputation of the remote account only from the decisions of B. B does not use a reputation from A.
+5. B computes the reputation of the remote account only from the decisions of B.
 
-### 8.2 Automatic Contribution to a Partner
+### 10.2 Remote Collaborators (F3, L2) **[proposal, PQ8]**
 
-1. Needs the effective scope `auto` (Section 5.1), which needs the switch `kb_auto_contribution` `on` on both servers.
+1. A moderator of a shared knowledge base on B can give the role `collaborator` to an account of a partner server. B sends `Grant` (context = the knowledge base, target = the remote actor, object = `collaborator`, end time 6 months) from the knowledge base actor.
+2. Each `Offer` of that account carries the grant IRI as its capability. B checks the grant (its own actor, its context, its target, the time, not revoked) and then applies the rules of a collaborator: no approval (shared knowledge base design §6.2), unless the local reputation of the account is `low`.
+3. `Revoke` ends the grant at once. The moderator can renew a grant before its end time.
+4. A remote collaborator has only the capabilities `contribute_direct` and `contribute_theme` across servers. Review, curation, and maintenance stay with local accounts in v1, because they need a session on B.
+5. No remote moderators in v1. The admin of B is responsible for its moderators.
+6. Account partnerships across servers (shared knowledge base design §9.10) use the same grants.
+
+### 10.3 Automatic Contribution to a Partner
+
+1. Needs the effective scope `auto` (Section 5.2), which needs the switch `kb_auto_contribution` `on` on both servers.
 2. The rule of the account (shared knowledge base design §9.9) can include partner targets. The candidates use the signature of the remote knowledge base from the directory.
 3. All limits and safety rules of §9.9 apply on the sender. The receiver applies its own pending limits for each remote account.
 
 ---
 
-## 9. Security
+## 11. Inbox Journal (W1)
+
+1. The sidecar stores each received partnership activity, with the result of its signature check, before Claire processes it.
+2. Processing is idempotent: the activity IRI is the key; the same activity processed twice changes nothing.
+3. A failed activity stays in the journal with its error. The admin can process it again from `/admin/federation`.
+4. Retention: 30 days for processed activities, 90 days for failed activities **[proposal]**. The journal is in `fedify.db` or a new table of `client.db` **[unverified]**: unit PS1 decides after a check of the inbox event contract (FEDERATION.md §5.7).
+
+---
+
+## 12. Security
 
 | ID | Risk | Control |
 | :--- | :--- | :--- |
-| PS1 | A server that is not a partner reads or writes shared knowledge | Partnership endpoints and collections need a signed request of a partner server actor. Other requests get 404. |
+| PS1 | A server that is not a partner reads or writes shared knowledge | Partnership endpoints and collections need a signed request of an approved server actor. Other requests get 404. |
 | PS2 | A partner sends large or bad objects | Size limits for each object and each day; schema validation; HTML sanitization; the merge job makes no LLM call, so received text is not a prompt in the merge. |
 | PS3 | A partner floods the review queue | Pending limits for each remote account and each partner; the admin changes the scopes or ends the partnership at once. |
-| PS4 | A partner tells a false reputation or merge decision | Neither is received; each server computes its own (Sections 7.3 and 8.1). |
+| PS4 | A partner tells a false reputation or merge decision | Neither is received; each server computes its own (Sections 9.4, 10.1). |
 | PS5 | Private data leaves the server | Only shared knowledge bases (always public) and their visible documents go to partners. Personal knowledge bases are not in the directory (PQ5). No IdP data goes into federation (existing rule). |
-| PS6 | A blocked domain stays a partner | A domain block ends the partnership. |
-| PS7 | The partnership is accepted by mistake or by a stolen token | Recent sign-in for each partnership action; `admin_audit` (Section 5.2). |
+| PS6 | A blocked domain stays a partner | A domain block ends the subscription and the partnership. |
+| PS7 | A partnership is accepted by mistake or with a stolen token | Recent sign-in for each partnership action; `admin_audit` (Section 5.3). |
+| PS8 | A grant is used after it should end | End time of 6 months; `Revoke`; each use checks the grant (Section 10.2). |
+| PS9 | An activity is processed twice or lost | Inbox journal with idempotent processing (Section 11). |
 
----
+Switches (`server_settings`, all in `/admin/federation`):
 
-## 10. Server Switches
-
-| Switch (`server_settings`) | Values | Default |
+| Switch | Values | Default |
 | :--- | :--- | :--- |
 | `federation` (exists) | `off`, `on` | `off` today; `on` when the ActivityPub functions are complete (owner direction) |
-| `partnerships` | `off`, `on` | `on` with `federation` (owner direction). It opens the handshake; each partnership still needs an admin decision. |
-| `kb_auto_contribution` | `off`, `on` | `off` until the admin turns it on (CT31; **[proposal, PQ6]** for the default) |
-
-All three are in `/admin/federation`.
+| `partnerships` | `off`, `on` | `on` with `federation` (owner direction). It opens the handshake; each subscription and partnership still needs an admin decision. |
+| `kb_auto_contribution` | `off`, `on` | `off` until the admin turns it on **[proposal, PQ6]** |
 
 ---
 
-## 11. Single Mode (CT33)
+## 13. Single Mode (CT33, confirmed)
 
-1. **USERNAME.** The first setup sets the USERNAME of the admin (namespace design §8.4 already requires it).
+1. **USERNAME.** The first setup sets the USERNAME of the admin (namespace design §8.4 already requires it). The production server already has one.
 2. **Root.** `/` sends a temporary redirect (302) to `/@{username}/`. It is temporary because the meaning of `/` depends on the server mode, which the admin can change. Other root paths of the personal knowledge base of single mode get 308 to `/@{username}/…`; these targets stay valid in network mode.
 3. **Setup not complete.** While the admin account has the state `setup_required`, `/` with the admin credential goes to `/setup` (as today); other requests get a page "setup not complete". There is no other target.
-4. **USERNAME exposure.** Rule S9 of the namespace design (no USERNAME in single mode) is withdrawn. The setup confirmation says that the USERNAME is public in both modes.
-5. **Federation in single mode.** The server actor and partnerships work in single mode. The readiness check GF1 (network mode) changes for the partnership channel. The account actor of the admin in single mode: **[proposal, PQ4]**.
+4. **USERNAME exposure.** Rule S9 of the namespace design (no USERNAME in single mode) is withdrawn. The test `tests/test_single_mode_no_username_leak.py` is replaced by a test of the redirects. The setup confirmation says that the USERNAME is public in both modes.
+5. **Federation in single mode.** The server actor, subscriptions, and partnerships work in single mode. The readiness check GF1 (network mode) changes for them. The account actor of the admin in single mode: **[proposal, PQ4]**.
 6. **Mode change.** The refusal of `network` → `single` while `federation` is `on` (FEDERATION.md §8.3) changes, because federation can be on in single mode. A change to single mode still needs no members.
 
 ---
 
-## 12. Open Questions
+## 14. Open Questions
 
 | ID | Question | Proposal |
 | :--- | :--- | :--- |
-| PQ1 | Partnership as mutual `Follow` of the server actors, with the effective scopes as the scopes that both servers offer (Sections 5.1, 5.2)? | Yes. |
-| PQ2 | The IRI of the Claire JSON-LD context (Section 7.1) | One IRI under a domain of the project that the owner selects; each server also serves a copy. |
-| PQ3 | Removal at the origin (Section 7.3, rule 4) | The holder hides the copy at once and its reviewers decide. |
-| PQ4 | Does the account actor of the admin federate in single mode? It is necessary for contributions to partners (Section 8.1). | Yes, with the same rules as network mode (`profile_public`, step-up). |
+| PQ1 | Two levels: a one-way subscription (directory only, one approval) and a partnership (both ways, scopes as the intersection, each admin decides once)? | Yes (Section 5). |
+| PQ2 | The IRI of the Claire JSON-LD context | One IRI under a domain of the project that the owner selects; each server also serves a copy. |
+| PQ3 | Removal at the origin | The holder hides the copy at once and its reviewers decide (Section 9.3). |
+| PQ4 | Does the account actor of the admin federate in single mode? It is necessary for contributions to partners. | Yes, with the same rules as network mode (`profile_public`, step-up). |
 | PQ5 | Public personal knowledge bases in the directory? | No in v1. Only shared knowledge bases. |
 | PQ6 | Default of `kb_auto_contribution` | `off`. |
+| PQ7 | Each shared knowledge base as a `Group` actor, with holders as its followers (Section 8.2)? This is the pattern of all reviewed projects, and it prepares idea I1. | Yes. |
+| PQ8 | Remote collaborators with `Grant` and `Revoke` of the ForgeFed pattern, only for contributions, no remote moderators (Section 10.2)? | Yes. |
+| PQ9 | Authority identifiers (Wikidata and others) in `sameAs` of entities, matched first by the receiver (Section 9.4)? | Yes, when the entity already has one; linking to an authority is later work. |
 
 ---
 
-## 13. Phases
+## 15. Phases
 
 Precondition: units CT-0 to CT-9 of the shared knowledge base design, and the federation phases of the sidecar.
 
 | Phase | Scope | Completion criteria |
 | :--- | :--- | :--- |
 | PS0 | Vocabulary and JSON-LD context in our own words; contract fixtures for each object and activity | Fixtures validate on both sides of a test with two Claire servers |
-| PS1 | Switches, handshake, partner list, discovery, single mode root and USERNAME (Section 11) | Two test servers make, change, and end a partnership; a third server gets 404 on partnership collections; single mode `/` gives 302 to `/@{username}/` |
-| PS2 | Directory synchronization, remote knowledge base store, cross-server themes, root page | A shared knowledge base on server B appears in a theme of server A and on the root page of A |
-| PS3 | Curation across servers, holders, revisions, removal at the origin | A revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue |
-| PS4 | Contributions across servers (`Offer`, `Accept`, `Reject`) | E2E test: an account of A contributes to a shared knowledge base of B; a reviewer of B approves; the submission page on A shows the decision |
+| PS1 | Switches, subscription, partnership handshake, server list, discovery, inbox journal, single mode root and USERNAME (Section 13) | Two test servers make a subscription, then a partnership, change it, and end it; a third server gets 404 on partnership collections; a failed activity can be processed again; single mode `/` gives 302 to `/@{username}/` |
+| PS2 | Directory synchronization with the first full fetch, remote knowledge base store, cross-server themes, root page | A shared knowledge base on server B appears in a theme of server A and on the root page of A |
+| PS3 | Knowledge base actors, holders, curation across servers, revisions, removal at the origin | A revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue |
+| PS4 | Contributions across servers (`Offer`, `Accept` with `result`, `Reject`), remote collaborators (`Grant`, `Revoke`) | E2E test: an account of A contributes to a shared knowledge base of B; a reviewer of B approves; the submission page on A shows the decision; after a grant, the next contribution needs no approval; after `Revoke`, it needs approval again |
 | PS5 | Automatic contribution across servers | With `auto` on both servers, a new shared knowledge base on B gets the matching documents of an account of A after a run |
 
-Later work: federation of merge decisions; links between duplicate knowledge; idea I1 (a shared knowledge base or a theme as a `Group` actor for the open fediverse).
+Later work: federation of merge decisions; links between duplicate knowledge; a function that links entities to an authority; a relay for many partners (N3); idea I1 (follows of persons of the open fediverse to a knowledge base actor).
