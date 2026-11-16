@@ -1,7 +1,7 @@
 # Shared Knowledge Bases and Themes: One Personal Knowledge Base for Each Account, Collaborative Knowledge Bases, and Themes as Collections
 
 - **Document Identifier**: `DESIGN-SHARED-KB-AND-THEMES-20261116`
-- **Status**: Planned, not implemented (draft, Rev. 7). Owner decisions CT1 to CT36 are locked (2026-11-16). Section 9.10 is a proposal. Section 15 has the open questions.
+- **Status**: Planned, not implemented (draft, Rev. 7). Owner decisions CT1 to CT37 are locked (2026-11-16). No question of this design is open (Section 15).
 - **Date**: 2026-11-16
 - **Base commit**: `e679bf90`
 - **Revisions**:
@@ -11,7 +11,7 @@
   - Rev. 4 (2026-11-16): `collaborator` is again a role in a shared knowledge base, given by moderators (CT17); the role model with capabilities, credential scopes, external IdP rules, and step-up authentication (Section 6). Old API names are closed with no fallback; only the path or a required parameter selects a knowledge base (CT23). Answers to OQ21 to OQ23 (CT18, CT26, CT27). The ingest focus is sealed (CT28). Review of a contributor proposal: automatic contribution and partnerships (Sections 9.9 and 9.10), links between duplicates later (Section 13.6).
   - Rev. 5 (2026-11-16): answers to OQ24 to OQ28 (CT29 to CT34). Automatic contribution is a server switch in the federation menu (CT31). Shared knowledge bases aim at partnerships between servers; the new design [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) starts idea I2 (CT32). Single mode sends `/` to `/@{username}/` of the admin (CT33, replaces CT22).
   - Rev. 6 (2026-11-16): terms as in Mastodon (CT36): **federation** is the open exchange between servers, and **relay** is the server-level subscription; the term "partnership" is retired. Themes share ingested documents between servers without an agreement (CT35). The agreement between two accounts is renamed mutual collaboration (Section 9.10). The exchange between servers is designed in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md).
-  - Rev. 7 (2026-11-16): the relay is an idea outside this design; it moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) with the server-level partnership of the federation design Rev. 1 to Rev. 3 (owner: the plan grew too wide). The mutual collaboration (Section 9.10) is an exchange inside the server from the contributor proposal, not a part of that partnership; it stays here.
+  - Rev. 7 (2026-11-16): the relay is an idea outside this design; it moved to [`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md) with the server-level partnership of the federation design Rev. 1 to Rev. 3 (owner: the plan grew too wide). The mutual collaboration (Section 9.10) is an exchange inside the server from the contributor proposal, not a part of that partnership; it stays here. The owner answered OQ29: CT37.
 - **Related Documents**:
   - [`THEMES.md`](../implementation/THEMES.md) (current implementation of the partition)
   - [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (principal, credentials, OIDC, step-up authentication)
@@ -104,6 +104,7 @@ Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[deci
 | CT34 | **Old `collaborator` tokens (OQ28).** API tokens with the scope `collaborator` become `readonly`. The console lists them once. |
 | CT35 | **Themes across servers without an agreement.** Themes share ingested documents between servers through federation, with no agreement between admins. Shared knowledge bases of other servers join local themes. The reviewers of each shared knowledge base decide each contribution and curation across servers. The controls of the admin are one-sided: switches and domain blocks (federation design §6, §8). |
 | CT36 | **Terms.** As in Mastodon: **federation** is the open exchange between servers, and a **relay** is a server-level subscription for announcements. The term "partnership" is retired: the bilateral agreement between servers is removed, and the agreement between two accounts (Section 9.10) is renamed **mutual collaboration** (federation design §3). The relay is an idea outside this design ([`RETIRED_PARTNERSHIP_IDEAS.md`](../ideas/RETIRED_PARTNERSHIP_IDEAS.md), Rev. 7). |
+| CT37 | **Mutual collaboration (OQ29).** The mutual collaboration between two accounts (Section 9.10) stays. It is an exchange inside a server, from the contributor proposal. It also works between accounts of different servers with grants (federation design §12.2). |
 
 CT4, CT5, and CT13 replace RD29 rule 1 (collaborator ingest after an invitation) of `DATA_STORE_LAYOUT_DESIGN.md` §5.
 
@@ -510,7 +511,7 @@ Review of a contributor proposal (2026-11-16): "When a space about a subject app
 7. **AI of the account.** An account can also use its own AI agent for the selection: the MCP tool `kb_candidates` (read: candidates for a knowledge base or a theme, with scores) and the tool `kb_submit` (scope `write`, Section 6.6). The server itself makes no LLM call for the selection.
 8. A rejection of an automatic contribution counts in the approval rate as each other rejection. A rule that sends documents that do not fit lowers the reputation of its account.
 
-### 9.10 Mutual Collaboration **[proposal, OQ29]**
+### 9.10 Mutual Collaboration (CT37)
 
 Review of the same proposal: "When friends agree, a new space gets their documents automatically after a short wait." This section is an agreement between two accounts (Rev. 5 called it a partnership; CT36). It works between accounts of one server, and between accounts of different servers through federation with grants (federation design §12.2).
 
@@ -910,13 +911,11 @@ Each knowledge base keeps its fixed embedding model (namespace design §10.4). T
 
 ## 15. Open Questions
 
-Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34).
+Answered on 2026-11-16: OQ1 (CT7), OQ2 (CT8), OQ3 (CT9), OQ4 and OQ10 (CT5), OQ5 and OQ7 (CT10), OQ6 (Section 3), OQ8 (CT17), OQ9 and OQ11 (CT16, CT3), OQ12 (CT12), OQ13 and OQ21 (CT18), OQ14 (CT19), OQ15 (CT20), OQ16 (CT21), OQ17 (CT22, then CT33), OQ18 (CT23), OQ19 (CT24), OQ20 (CT25), OQ22 (CT26), OQ23 (CT27), OQ24 (CT29), OQ25 (CT30), OQ26 (CT31), OQ27 (CT32), OQ28 (CT34), OQ29 (CT37).
 
 The open questions of the federation between servers (PQ2 to PQ9, PQ13) are in [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) §16.
 
-| ID | Question | Proposal |
-| :--- | :--- | :--- |
-| OQ29 | Keep the mutual collaboration between two accounts (Section 9.10)? | Yes. It works on one server and, with grants, between servers (federation design §12.2). |
+No question of this design is open.
 
 ---
 
@@ -937,4 +936,4 @@ The open questions of the federation between servers (PQ2 to PQ9, PQ13) are in [
 | CT-10 | Implementation documents: `THEMES.md` (becomes the knowledge base document), `SCHEMA_VERSIONING.md`, `ACCOUNTS.md`, `API_HTTP_CONTRACT.md`, `openapi.yaml`, `COMMANDS.md`, `GLOSSARY.md`, `ENVIRONMENT_VARIABLES.md` | The documents describe the code. This design document is removed after the implementation. |
 | CT-11 | Reputation (Section 8.6) and campaign message (Section 8.7) | Fiction-like documents raise the fiction share; the level changes the theme attachment, the pending limit, the queue order, the direct contribution, and the automatic contribution; an approved contribution to a `fictional` shared knowledge base removes the document from the count; the standing message and the notice show on each surface |
 | CT-12 | Seal of the ingest focus (Section 13.7). Independent of the other units; it can come first. | No entry point gives a focus to the pipeline; stored focus values stay and are not read; the Telegram URL with a separator is ingested without the focus; the UI has no focus control |
-| CT-13 | Automatic contribution with its server switch (Section 9.9), and mutual collaboration (Section 9.10) after OQ29 | E2E test: the admin turns on `kb_auto_contribution`; A and B make a mutual collaboration; B turns on its rule with `mutual` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |
+| CT-13 | Automatic contribution with its server switch (Section 9.9), and mutual collaboration (Section 9.10) | E2E test: the admin turns on `kb_auto_contribution`; A and B make a mutual collaboration; B turns on its rule with `mutual` after the dry run; A makes a shared knowledge base with seed entities; after the run, the matching documents of B are visible in it without approval; a document with "never contribute" and a pasted text do not go; a document that a reviewer rejected does not go again. |
