@@ -967,19 +967,21 @@
 
     var autoToggle = document.getElementById("admin-fed-auto-contrib-toggle");
     if (autoToggle && window.ClaireUi) {
+      // GET and PUT /api/admin/auto-contribution: {"state": "on" | "off"} is the server switch of the automatic contribution (design Section 9.9).
       window.ClaireUi.request("/api/admin/auto-contribution").then(function (r) {
-        if (r.ok && r.data) autoToggle.checked = !!(r.data.enabled !== undefined ? r.data.enabled : r.data.kb_auto_contribution);
-        else if (r.unavailable) autoToggle.disabled = true;
+        if (r.ok && r.data) autoToggle.checked = r.data.state === "on";
+        else autoToggle.disabled = true;
       });
       autoToggle.addEventListener("change", function () {
         var next = autoToggle.checked;
-        window.ClaireUi.request("/api/admin/auto-contribution", { method: "PUT", body: { enabled: next, kb_auto_contribution: next } }).then(function (r) {
+        window.ClaireUi.request("/api/admin/auto-contribution", { method: "PUT", body: { state: next ? "on" : "off" } }).then(function (r) {
           if (!r.ok) {
             autoToggle.checked = !next;
-            window.ClaireUi.toast(r.error || "Failed", "danger");
+            window.ClaireUi.toast(window.ClaireUi.errorText(r), "danger");
             return;
           }
-          window.ClaireUi.toast(tr("common.action.save", "Saved"), "ok");
+          autoToggle.checked = r.data.state === "on";
+          window.ClaireUi.toast(tr("console.js.admin.themes.saved"), "ok");
         });
       });
     }
@@ -996,7 +998,7 @@
           var addHtml = '<form id="admin-known-add-form" class="claire-card" style="flex-direction:row;align-items:flex-end;flex-wrap:wrap">' +
             '<div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="admin-known-domain">' + ui.esc(tr("console.admin.federation.known_add", "Add federated server domain")) + '</label><input id="admin-known-domain" class="claire-input" placeholder="other.example.org" required/></div>' +
             '<button type="submit" class="claire-btn pri">' + ui.esc(tr("console.admin.federation.known_add", "Add")) + "</button></form>";
-          if (r.unavailable) {
+          if (!r.ok) {
             knownHost.innerHTML = addHtml + '<div class="claire-note warn"><span>' + ui.esc(ui.t("kb.dlg.backend_pending")) + "</span></div>";
           } else {
             var left = '<div class="claire-list-col">' + (servers.length ? servers.map(function (s) {
@@ -1112,31 +1114,28 @@
     }
   }
 
+  // The embedding model of each shared knowledge base, with the mark "re-embed required" (GET /kb as the admin gives "embed_provider", "embed_model", and "reembed_required").
   function initProvidersEmbedCard() {
     var host = document.getElementById("admin-providers-embed-host");
     var ui = window.ClaireUi;
     if (!host || !ui) return;
-    ui.request("/kb?page=true&limit=50").then(function (r) {
-      var kbs = (r.ok && r.data && (r.data.orderedItems || r.data.items)) || [];
+    ui.request("/kb").then(function (r) {
+      var kbs = (r.ok && r.data && r.data.knowledge_bases) || [];
       var counts = {};
-      var failures = {};
+      var reembed = {};
       kbs.forEach(function (k) {
-        var m = k.embedding_model || "server-default";
+        var m = k.embed_model ? (k.embed_provider ? k.embed_provider + " / " : "") + k.embed_model : tr("console.js.admin.providers.embed_none");
         counts[m] = (counts[m] || 0) + 1;
-        if (k.reembed_required || (k.merge_failures && k.merge_failures > 0)) {
-          failures[m] = (failures[m] || 0) + (k.merge_failures || 1);
-        }
+        if (k.reembed_required) reembed[m] = (reembed[m] || 0) + 1;
       });
-      var rows = Object.keys(counts).map(function (m) {
-        return { model: m, kbs: counts[m], failures: failures[m] || 0 };
-      });
-      host.innerHTML = '<h2><span data-icon="database"></span> ' + ui.esc(tr("console.js.admin.providers.embed_card", "Embedding models & KB merge status")) + "</h2>" +
+      var rows = Object.keys(counts).map(function (m) { return { model: m, kbs: counts[m], reembed: reembed[m] || 0 }; });
+      host.innerHTML = '<h2><span data-icon="database"></span> ' + ui.esc(tr("console.js.admin.providers.embed_card")) + "</h2>" +
         ui.renderTable({
-          caption: "Embedding models",
+          caption: tr("console.js.admin.providers.embed_card"),
           columns: [
-            { label: ui.t("kb.dlg.field_embed_model"), render: function (x) { return '<code class="pref-mono">' + ui.esc(x.model) + "</code>"; } },
-            { label: "KBs", key: "kbs" },
-            { label: "Merge / Re-embed flags", render: function (x) { return x.failures ? '<span class="claire-tag danger">' + ui.esc(x.failures) + "</span>" : '<span class="claire-tag ok">0</span>'; } }
+            { label: tr("console.js.admin.providers.embed_model"), render: function (x) { return '<code class="pref-mono">' + ui.esc(x.model) + "</code>"; } },
+            { label: ui.t("kb.pub.nav_kbs"), key: "kbs" },
+            { label: ui.t("kb.pub.reembed_badge"), render: function (x) { return x.reembed ? '<span class="claire-tag danger">' + ui.esc(x.reembed) + "</span>" : '<span class="claire-tag ok">0</span>'; } }
           ],
           rows: rows
         });
@@ -1144,64 +1143,78 @@
     });
   }
 
+  // /admin/kb (design Section 10.3): all shared knowledge bases, those without an active moderator, moderator assignment, failed merge jobs. There is no admin list route: the list is GET /kb as the admin, which has "active_moderators" and "reembed_required".
   function initAdminKbSection() {
     var host = document.getElementById("admin-kb-host");
     var ui = window.ClaireUi;
     var dlgs = window.ClaireKbDialogs;
-    if (!host || !ui) return;
+    if (!host || !ui || !dlgs) return;
     var filterVal = "all";
+    var items = [];
+    var failed = {};
+    var loadError = null;
 
     function load() {
-      ui.request("/api/admin/kb").then(function (r) {
-        var items = (r.ok && r.data && (r.data.knowledge_bases || r.data.orderedItems || r.data.items)) || [];
-        var draw = function () {
-          var filtered = items.filter(function (k) {
-            if (filterVal === "nomod") return !k.active_moderators && (!k.moderators || !k.moderators.length);
-            if (filterVal === "fail") return !!k.reembed_required || Number(k.merge_failures || 0) > 0;
-            return true;
+      ui.request("/kb").then(function (r) {
+        items = (r.ok && r.data && r.data.knowledge_bases) || [];
+        loadError = r.ok ? null : r;
+        // The failed merge jobs: the contributions with the state "failed" of each shared knowledge base.
+        return Promise.all(items.map(function (k) {
+          return ui.request("/kb/" + encodeURIComponent(k.number) + "/contributions?state=failed").then(function (cr) {
+            failed[String(k.number)] = (cr.ok && cr.data && cr.data.contributions) || [];
           });
-          host.innerHTML = '<div class="claire-panel-inner">' +
-            ui.renderChips({
-              name: "admin-kb-filter",
-              label: "Filter shared KBs",
-              value: filterVal,
-              options: [
-                { value: "all", label: tr("console.js.admin.kb.filter_all", "All") },
-                { value: "nomod", label: tr("console.js.admin.kb.filter_nomod", "No moderator") },
-                { value: "fail", label: tr("console.js.admin.kb.filter_fail", "Merge failure") }
-              ]
-            }) +
-            (r.unavailable ? '<div class="claire-note warn"><span>' + ui.esc(ui.t("kb.dlg.backend_pending")) + "</span></div>" : "") +
-            ui.renderTable({
-              caption: "Shared KBs overview",
-              columns: [
-                { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/"><strong>' + ui.esc(k.label) + '</strong></a> <code class="pref-mono">#' + ui.esc(k.number) + "</code>"; } },
-                { label: ui.t("kb.pub.col_type"), render: function (k) { return '<span class="claire-tag ' + (k.knowledge_type === "fictional" ? "fic" : "acc") + '">' + ui.esc(k.knowledge_type || "real") + "</span>"; } },
-                { label: ui.t("kb.pub.col_mods"), render: function (k) {
-                  var cnt = k.active_moderators != null ? k.active_moderators : ((k.moderators && k.moderators.length) || 0);
-                  return cnt > 0 ? ui.esc(cnt) : '<span class="claire-tag warn">' + ui.esc(ui.t("kb.pub.no_mod_warn")) + "</span>";
-                } },
-                { label: "Status", render: function (k) {
-                  var mf = Number(k.merge_failures || 0);
-                  return (k.reembed_required || mf > 0) ? '<span class="claire-tag danger">embedding_model_unavailable (' + ui.esc(mf || 1) + ")</span>" : '<span class="claire-tag ok">' + ui.esc(k.state || "active") + "</span>";
-                } },
-                { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
-                  return ui.renderRowMenu([
-                    { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod", "Assign moderator"), icon: "user" },
-                    { action: "retry_merge", value: k.number, label: tr("console.js.admin.kb.retry_merge", "Retry failed merge"), icon: "restore" },
-                    { sep: true },
-                    { action: "delete_kb", value: k.number, label: tr("console.js.admin.kb.delete_kb", "Delete KB..."), icon: "trash", danger: true }
-                  ], k.label || k.number);
-                } }
-              ],
-              rows: filtered
-            }) + "</div>";
-          ui.enhance(host);
-          host.querySelectorAll('input[name="admin-kb-filter"]').forEach(function (inp) {
-            inp.addEventListener("change", function () { filterVal = inp.value; draw(); });
-          });
-        };
-        draw();
+        }));
+      }).then(draw);
+    }
+
+    function failures(k) { return failed[String(k.number)] || []; }
+
+    function draw() {
+      var filtered = items.filter(function (k) {
+        if (filterVal === "warn") return !k.active_moderators || !!k.reembed_required || failures(k).length > 0;
+        return true;
+      });
+      host.innerHTML = '<div class="claire-panel-inner">' +
+        ui.renderChips({
+          name: "admin-kb-filter",
+          label: tr("console.js.admin.kb.filter_label"),
+          value: filterVal,
+          options: [
+            { value: "all", label: tr("console.js.admin.kb.filter_all") },
+            { value: "warn", label: tr("console.js.admin.kb.filter_warn") }
+          ]
+        }) +
+        (loadError ? '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(loadError)) + "</span></div>" : "") +
+        ui.renderTable({
+          caption: tr("console.js.admin.kb.title"),
+          columns: [
+            { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/"><strong>' + ui.esc(k.label) + '</strong></a> <code class="pref-mono">' + ui.esc(k.number) + "</code>"; } },
+            { label: ui.t("kb.pub.col_type"), render: function (k) { return dlgs.typeTag(k.knowledge_type); } },
+            { label: ui.t("kb.pub.col_mods"), render: function (k) {
+              return k.active_moderators > 0 ? ui.esc(k.active_moderators) : '<span class="claire-tag warn">' + ui.esc(ui.t("kb.pub.no_mod_warn")) + "</span>";
+            } },
+            { label: ui.t("kb.dlg.col_state"), render: function (k) {
+              var h = '<span class="claire-tag ' + (k.state === "archived" ? "warn" : "ok") + '">' + ui.esc(dlgs.stateLabel(k.state)) + "</span>";
+              if (k.reembed_required) h += ' <span class="claire-tag danger">' + ui.esc(ui.t("kb.pub.reembed_badge")) + "</span>";
+              if (failures(k).length) h += ' <span class="claire-tag danger">' + ui.esc(tr("console.js.admin.kb.failed_count", { count: failures(k).length })) + "</span>";
+              return h;
+            } },
+            { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
+              var menu = [
+                { href: "/settings/kb/" + encodeURIComponent(k.number), label: ui.t("kb.pub.kb_review_manage"), icon: "inbox" },
+                { action: "assign_mod", value: k.number, label: tr("console.js.admin.kb.assign_mod"), icon: "user" }
+              ];
+              if (failures(k).length) menu.push({ action: "retry_merge", value: k.number, label: tr("console.js.admin.kb.retry_merge"), icon: "restore" });
+              menu.push({ sep: true });
+              menu.push({ action: "delete_kb", value: k.number, label: tr("console.js.admin.kb.delete_kb"), icon: "trash", danger: true });
+              return ui.renderRowMenu(menu, k.label || k.number);
+            } }
+          ],
+          rows: filtered
+        }) + "</div>";
+      ui.enhance(host);
+      host.querySelectorAll('input[name="admin-kb-filter"]').forEach(function (inp) {
+        inp.addEventListener("change", function () { filterVal = inp.value; draw(); });
       });
     }
 
@@ -1210,119 +1223,155 @@
       if (!mi) return;
       var act = mi.getAttribute("data-menu-action");
       var kbNum = mi.getAttribute("data-menu-value");
+      var kb = items.find(function (k) { return String(k.number) === String(kbNum); }) || {};
       if (act === "assign_mod") {
         ui.openDialog({
-          title: tr("console.js.admin.kb.assign_mod", "Assign moderator"),
+          title: tr("console.js.admin.kb.assign_mod"),
           icon: "user",
-          bodyHtml: '<div class="claire-field"><label class="claire-field-label" for="admin-assign-acc">' + ui.esc(tr("console.js.admin.kb.assign_prompt_label", "Account # or @username")) + '</label><input id="admin-assign-acc" class="claire-input" required/></div>',
+          bodyHtml: '<div class="claire-field"><label class="claire-field-label" for="admin-assign-acc">' + ui.esc(tr("console.js.admin.kb.assign_prompt_label")) + '</label><input id="admin-assign-acc" class="claire-input" inputmode="numeric" pattern="[0-9]+" required/></div>',
           onSubmit: function (_d, body) {
             var acc = body.querySelector("#admin-assign-acc").value.trim();
             if (!acc) return false;
-            return ui.request("/api/admin/kb/" + encodeURIComponent(kbNum) + "/moderators/" + encodeURIComponent(acc), { method: "PUT", body: {} }).then(function (res) {
-              if (!res.ok) { ui.toast(res.error || "Failed", "danger"); return false; }
+            // PUT /api/admin/kb/{number}/moderators/{account}: the account is its public number. The route needs a recent sign-in; the request helper opens the re-authentication dialog.
+            return ui.request("/api/admin/kb/" + encodeURIComponent(kbNum) + "/moderators/" + encodeURIComponent(acc), { method: "PUT" }).then(function (res) {
+              if (!res.ok) { ui.toast(ui.errorText(res), "danger"); return false; }
               load();
               return true;
             });
           }
         });
       } else if (act === "retry_merge") {
-        ui.request("/api/admin/kb/" + encodeURIComponent(kbNum) + "/retry-merge", { method: "POST", body: {} }).then(function (res) {
-          if (!res.ok) { ui.toast(res.error || "Failed", "danger"); return; }
+        // POST /kb/{number}/contributions/{contribution}/retry for each failed contribution.
+        Promise.all(failures(kb).map(function (c) {
+          return ui.request("/kb/" + encodeURIComponent(kbNum) + "/contributions/" + encodeURIComponent(c.number) + "/retry", { method: "POST", body: {} });
+        })).then(function (results) {
+          var bad = results.filter(function (res) { return !res.ok || (res.data && res.data.contribution && res.data.contribution.state === "failed"); });
+          if (bad.length) ui.toast(ui.errorText(bad[0].ok ? { error: bad[0].data.contribution.reason } : bad[0]), "danger");
           load();
         });
-      } else if (act === "delete_kb" && dlgs) {
-        dlgs.openDeleteKbDialog({ kbNumber: kbNum, onDeleted: function () { load(); } });
+      } else if (act === "delete_kb") {
+        dlgs.openDeleteKbDialog({ kbNumber: kbNum, kbLabel: kb.label, onDeleted: function () { load(); } });
       }
     });
     load();
   }
 
+  // /admin/themes (design Section 10.3): the themes, the last judgement run, the thresholds, the reputation numbers, the adjustments of Section 8.3, and the agreement of decisions.
   function initAdminThemesV2(host) {
     var ui = window.ClaireUi;
     var dlgs = window.ClaireKbDialogs;
-    if (!host || !ui) return;
+    if (!host || !ui || !dlgs) return;
     var activeTab = "judge";
     var selectedThemeNum = "";
+    var lastReport = null;
+
+    function numberField(id, label, value, step) {
+      return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + ui.esc(label) + '</label><input id="' + id + '" type="number" class="claire-input" min="0" step="' + step + '" value="' + ui.esc(value == null ? "" : value) + '"/></div>';
+    }
+    function percent(value) { return value == null ? "—" : Math.round(Number(value) * 100) + "%"; }
+    function fail(res) { ui.toast(ui.errorText(res), "danger"); }
 
     function load() {
       Promise.all([
         ui.request("/api/admin/themes"),
-        ui.request("/api/admin/themes/settings"),
         ui.request("/api/admin/reputations"),
-        ui.request("/api/admin/themes/agreement")
+        ui.request("/api/admin/auto-contribution")
       ]).then(function (all) {
-        var thRes = all[0], setRes = all[1], repRes = all[2], agRes = all[3];
-        var themes = (thRes.ok && thRes.data && (thRes.data.themes || thRes.data.orderedItems || thRes.data.items)) || [];
-        var cfg = (thRes.ok && thRes.data && thRes.data.settings) || (setRes.ok && setRes.data && (setRes.data.settings || setRes.data)) || {};
-        var repSummary = (repRes.ok && repRes.data && (repRes.data.summary || repRes.data.counts)) || {};
-        var agRows = (agRes.ok && agRes.data && (agRes.data.items || agRes.data.agreements)) || [];
-        if (!selectedThemeNum && themes.length) selectedThemeNum = String(themes[0].number);
-        var curTh = themes.find(function (x) { return String(x.number) === selectedThemeNum; }) || themes[0] || null;
+        var thRes = all[0], repRes = all[1], autoRes = all[2];
+        var data = (thRes.ok && thRes.data) || {};
+        var themes = data.themes || [];
+        var cfg = data.settings || {};
+        var agreement = data.decision_agreement || [];
+        var repSettings = (repRes.ok && repRes.data && repRes.data.settings) || {};
+        var accounts = (repRes.ok && repRes.data && repRes.data.accounts) || [];
+        var autoSettings = (autoRes.ok && autoRes.data && autoRes.data.settings) || {};
+        var levels = { good: 0, limited: 0, low: 0 };
+        accounts.forEach(function (a) { if (levels[a.level] != null) levels[a.level] += 1; });
+        if (!themes.some(function (x) { return String(x.number) === selectedThemeNum; })) selectedThemeNum = themes.length ? String(themes[0].number) : "";
+        var curTh = themes.find(function (x) { return String(x.number) === selectedThemeNum; }) || null;
+        var lastRun = data.last_run_at ? new Date(Number(data.last_run_at) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—";
 
         var judgeHtml = '<div class="claire-panel-inner">' +
-          (thRes.unavailable ? '<div class="claire-note warn"><span>' + ui.esc(ui.t("kb.dlg.backend_pending")) + "</span></div>" : "") +
+          (thRes.ok ? "" : '<div class="claire-note warn"><span>' + ui.esc(ui.errorText(thRes)) + "</span></div>") +
           '<div class="claire-kpis">' +
-          '<div class="claire-kpi"><strong>' + ui.esc(themes.length) + "</strong><span>Themes</span></div>" +
-          '<div class="claire-kpi"><strong>' + ui.esc(repSummary.good || 0) + " / " + ui.esc(repSummary.limited || 0) + " / " + ui.esc(repSummary.low || 0) + "</strong><span>Good / Limited / Low</span></div>" +
-          '<div class="claire-kpi"><strong>' + ui.esc(cfg.last_judged_at || "—") + "</strong><span>Last judgement run</span></div>" +
+          '<div class="claire-kpi"><strong>' + ui.esc(themes.filter(function (x) { return x.state === "active"; }).length) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_themes")) + "</span></div>" +
+          '<div class="claire-kpi"><strong>' + ui.esc(levels.good) + " / " + ui.esc(levels.limited) + " / " + ui.esc(levels.low) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_levels")) + "</span></div>" +
+          '<div class="claire-kpi"><strong>' + ui.esc(lastRun) + "</strong><span>" + ui.esc(tr("console.js.admin.themes.kpi_last_run")) + "</span></div>" +
           "</div>" +
-          '<div class="claire-actions"><button type="button" class="claire-btn pri" id="adm-th-run-now">' + ui.esc(tr("console.js.admin.themes.run_now", "Run theme judgement now")) + "</button></div>" +
+          '<div class="claire-actions"><button type="button" class="claire-btn pri" id="adm-th-run-now">' + ui.esc(tr("console.js.admin.themes.run_now")) + "</button></div>" +
+          (lastReport ? '<div class="claire-note ok"><span>' + ui.esc(tr("console.js.admin.themes.run_done")) + " " + ui.esc(Object.keys(lastReport).map(function (k) { return k + ": " + (typeof lastReport[k] === "object" ? JSON.stringify(lastReport[k]) : lastReport[k]); }).join(" · ")) + "</span></div>" : "") +
           '<form id="adm-th-thresh-form" class="claire-grid-2">' +
-          '<div class="claire-field"><label class="claire-field-label" for="th-tm">' + ui.esc(tr("console.js.admin.themes.th_theme_match", "Theme match threshold")) + '</label><input id="th-tm" type="number" class="claire-input" min="0" max="1" step="0.05" value="' + ui.esc(cfg.theme_match_threshold != null ? cfg.theme_match_threshold : 0.65) + '"/></div>' +
-          '<div class="claire-field"><label class="claire-field-label" for="th-dm">' + ui.esc(tr("console.js.admin.themes.th_doc_match", "Document match threshold")) + '</label><input id="th-dm" type="number" class="claire-input" min="0" max="1" step="0.05" value="' + ui.esc(cfg.document_match_threshold != null ? cfg.document_match_threshold : 0.6) + '"/></div>' +
-          '<div class="claire-field"><label class="claire-field-label" for="th-sm">' + ui.esc(tr("console.js.admin.themes.th_seed_match", "Seed match threshold")) + '</label><input id="th-sm" type="number" class="claire-input" min="0" max="1" step="0.05" value="' + ui.esc(cfg.seed_match_threshold != null ? cfg.seed_match_threshold : 0.7) + '"/></div>' +
-          '<div class="claire-field"><label class="claire-field-label" for="th-am">' + ui.esc(tr("console.js.admin.themes.th_auto_min", "Auto-contribution floor")) + '</label><input id="th-am" type="number" class="claire-input" min="0" max="1" step="0.05" value="' + ui.esc(cfg.auto_contribution_min_score != null ? cfg.auto_contribution_min_score : 0.75) + '"/></div>' +
-          '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds", "Save thresholds")) + "</button></div></form></div>";
+          numberField("th-tm", tr("console.js.admin.themes.th_theme_match"), cfg.theme_match_threshold, "0.01") +
+          numberField("th-dm", tr("console.js.admin.themes.th_doc_match"), cfg.document_match_threshold, "0.01") +
+          numberField("th-sm", tr("console.js.admin.themes.th_seed_match"), cfg.seed_match_threshold, "0.01") +
+          numberField("th-am", tr("console.js.admin.themes.th_auto_min"), autoSettings.auto_match_threshold, "0.01") +
+          '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></div>";
 
         var adjLeft = '<div class="claire-list-col">' +
-          '<button type="button" class="claire-btn claire-btn-sm" id="adm-th-create">' + ui.esc(tr("console.js.admin.themes.create_theme", "Create computed theme")) + "</button>" +
+          '<button type="button" class="claire-btn claire-btn-sm" id="adm-th-create">' + ui.esc(tr("console.js.admin.themes.create_theme")) + "</button>" +
           (themes.length ? themes.map(function (th) {
             return '<button type="button" class="claire-list-item' + (curTh && String(curTh.number) === String(th.number) ? " active" : "") + '" data-pick-th="' + ui.esc(th.number) + '">' +
-              '<div class="claire-list-item-row"><strong>' + ui.esc(th.label) + '</strong><span class="claire-tag ' + (th.knowledge_type === "fictional" ? "fic" : "acc") + '">' + ui.esc(th.knowledge_type || "real") + "</span></div>" +
-              '<div class="claire-list-item-sub"><span>#' + ui.esc(th.number) + (th.label_locked ? " · locked" : "") + "</span></div></button>";
+              '<div class="claire-list-item-row"><strong>' + ui.esc(th.label) + "</strong>" + dlgs.typeTag(th.knowledge_type) + "</div>" +
+              '<div class="claire-list-item-sub"><span>' + ui.esc(th.number) + " · " + ui.esc(tr("console.js.admin.themes.state_" + th.state)) + (th.label_locked ? " · " + ui.esc(tr("console.js.admin.themes.label_locked")) : "") + "</span></div></button>";
           }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p></div>") + "</div>";
 
         var adjRight = '<div class="claire-detail-col"><div class="claire-card">' + (curTh ? (
-          '<div class="claire-card-head"><h3>' + ui.esc(curTh.label) + '</h3><div class="claire-actions">' +
-          '<button type="button" class="claire-btn sec claire-btn-sm" id="adm-th-toggle-lock">' + ui.esc(curTh.label_locked ? tr("console.js.admin.themes.unlock_label", "Unlock label") : tr("console.js.admin.themes.lock_label", "Lock label")) + "</button>" +
-          '<button type="button" class="claire-btn danger claire-btn-sm" id="adm-th-merge">' + ui.esc(tr("console.js.admin.themes.merge_btn", "Merge into...")) + "</button>" +
+          '<div class="claire-card-head"><h3><a href="/themes/' + ui.esc(curTh.number) + '/">' + ui.esc(curTh.label) + '</a></h3><div class="claire-actions">' +
+          (curTh.label_locked ? '<button type="button" class="claire-btn sec claire-btn-sm" id="adm-th-unlock">' + ui.esc(tr("console.js.admin.themes.unlock_label")) + "</button>" : "") +
+          (curTh.state !== "merged" ? '<button type="button" class="claire-btn danger claire-btn-sm" id="adm-th-merge">' + ui.esc(tr("console.js.admin.themes.merge_btn")) + "</button>" : "") +
           "</div></div>" +
+          '<form id="adm-th-rename-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="adm-th-label">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '</label><input id="adm-th-label" class="claire-input" value="' + ui.esc(curTh.label) + '" required/></div><button type="submit" class="claire-btn sec">' + ui.esc(tr("console.js.admin.themes.rename_btn")) + "</button></form>" +
           ui.renderTable({
             caption: curTh.label,
             columns: [
-              { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/">' + ui.esc(k.label) + "</a>"; } },
-              { label: "Membership", render: function (k) { return '<span class="claire-tag">' + ui.esc(k.membership || "computed") + "</span>"; } },
+              { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/">' + ui.esc(k.label) + '</a> <span class="claire-hint">' + ui.esc(ui.t(k.is_personal ? "themes.kb_personal" : "themes.kb_shared")) + "</span>"; } },
+              { label: tr("console.js.admin.themes.col_membership"), render: function (k) { return '<span class="claire-tag' + (k.excluded ? " danger" : (k.pinned ? " ok" : "")) + '">' + ui.esc(tr(k.excluded ? "console.js.admin.themes.member_excluded" : (k.pinned ? "console.js.admin.themes.member_pinned" : "console.js.admin.themes.member_computed"))) + "</span>" + (k.score != null ? ' <span class="claire-hint">' + ui.esc(Number(k.score).toFixed(2)) + "</span>" : ""); } },
               { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
-                return ui.renderRowMenu([
-                  { action: "th_pin", value: k.number, label: tr("console.js.admin.themes.pin_kb", "Pin KB"), icon: "plus" },
-                  { action: "th_exclude", value: k.number, label: tr("console.js.admin.themes.exclude_kb", "Exclude KB"), icon: "block", danger: true },
-                  { action: "th_computed", value: k.number, label: tr("console.js.admin.themes.reset_kb", "Reset to computed"), icon: "restore" }
-                ], k.label);
+                var menu = [];
+                if (!k.pinned) menu.push({ action: "th_pin", value: k.number, label: tr("console.js.admin.themes.pin_kb"), icon: "plus" });
+                if (!k.excluded) menu.push({ action: "th_exclude", value: k.number, label: tr("console.js.admin.themes.exclude_kb"), icon: "block", danger: true });
+                if (k.pinned || k.excluded) menu.push({ action: "th_computed", value: k.number, label: tr("console.js.admin.themes.reset_kb"), icon: "restore" });
+                return ui.renderRowMenu(menu, k.label);
               } }
             ],
             rows: curTh.knowledge_bases || []
-          })
+          }) +
+          (curTh.state !== "merged" ? '<form id="adm-th-pin-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="claire-field" style="flex:1;min-width:220px"><label class="claire-field-label" for="adm-th-pin-kb">' + ui.esc(tr("console.js.admin.themes.pin_number_label")) + '</label><input id="adm-th-pin-kb" class="claire-input" inputmode="numeric" pattern="[0-9]+" required/></div><button type="submit" class="claire-btn sec">' + ui.esc(tr("console.js.admin.themes.pin_kb")) + "</button></form>" : "")
         ) : '<p class="claire-hint">' + ui.esc(ui.t("kb.ui.empty_list")) + "</p>") + "</div></div>";
 
-        var adjHtml = '<div class="claire-split">' + adjLeft + adjRight + "</div>";
-        var agreeHtml = ui.renderTable({
-          caption: tr("console.js.admin.themes.tab_agree", "Decision Agreement"),
+        var agreeHtml = '<p class="claire-hint">' + ui.esc(tr("console.js.admin.themes.agree_hint")) + "</p>" + ui.renderTable({
+          caption: tr("console.js.admin.themes.tab_agree"),
           columns: [
-            { label: "Document", render: function (a) { return ui.esc(a.title || a.document); } },
-            { label: "KBs", render: function (a) { return ui.esc((a.decisions || []).map(function (d) { return (d.label || d.knowledge_base) + ":" + d.decision; }).join(", ")); } },
-            { label: "Agreement", render: function (a) { return ui.esc(a.agreement != null ? Math.round(Number(a.agreement) * 100) + "%" : "—"); } }
+            { label: ui.t("kb.dlg.col_kb"), render: function (a) { return a.knowledge_base ? '<a href="/kb/' + ui.esc(a.knowledge_base) + '/">' + ui.esc(a.label || a.knowledge_base) + "</a>" : "—"; } },
+            { label: tr("console.js.admin.themes.col_decisions"), render: function (a) { return ui.esc(a.decisions); } },
+            { label: tr("console.js.admin.themes.col_agreement"), render: function (a) { return ui.esc(percent(a.agreement)); } }
           ],
-          rows: agRows
+          rows: agreement
         });
+
+        var repHtml = '<form id="adm-rep-form" class="claire-grid-2">' + Object.keys(repSettings).map(function (key) {
+          return '<div class="claire-field"><label class="claire-field-label" for="rep-' + ui.esc(key) + '"><code class="pref-mono">' + ui.esc(key) + '</code></label><input id="rep-' + ui.esc(key) + '" data-rep-key="' + ui.esc(key) + '" type="number" class="claire-input" min="0" step="any" value="' + ui.esc(repSettings[key]) + '"/></div>';
+        }).join("") + '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.rep_save")) + "</button></div></form>" +
+          ui.renderTable({
+            caption: tr("console.js.admin.themes.tab_rep"),
+            columns: [
+              { label: ui.t("kb.dlg.col_account"), render: function (a) { return ui.esc(a.display_name || a.account) + ' <span class="claire-hint">' + ui.esc(a.account) + "</span>"; } },
+              { label: tr("console.js.admin.themes.col_level"), render: function (a) { return '<span class="claire-tag ' + (a.level === "good" ? "ok" : (a.level === "limited" ? "warn" : "danger")) + '">' + ui.esc(ui.t("kb.level." + a.level)) + "</span>"; } },
+              { label: ui.t("console.js.kb.rep_fiction_share"), render: function (a) { return ui.esc(percent(a.fiction_share)) + ' <span class="claire-hint">' + ui.esc(a.fiction_like_documents || 0) + " / " + ui.esc(a.visible_documents || 0) + "</span>"; } },
+              { label: ui.t("console.js.kb.rep_approval_180"), render: function (a) { return ui.esc(percent(a.approval_rate)) + ' <span class="claire-hint">' + ui.esc(a.decisions || 0) + "</span>"; } }
+            ],
+            rows: accounts
+          });
 
         host.innerHTML = ui.renderTabs({
           id: "admin-themes-tabs",
-          ariaLabel: tr("console.section.admin.themes.title", "Theme Judgement"),
+          ariaLabel: tr("console.js.admin.themes.title"),
           active: activeTab,
           tabs: [
-            { id: "judge", label: tr("console.js.admin.themes.tab_judge", "Judgement & Thresholds"), icon: "bolt", html: judgeHtml },
-            { id: "adj", label: tr("console.js.admin.themes.tab_adj", "Adjudicate Themes"), icon: "folder", html: adjHtml },
-            { id: "agree", label: tr("console.js.admin.themes.tab_agree", "Decision Agreement"), icon: "chart", html: agreeHtml }
+            { id: "judge", label: tr("console.js.admin.themes.tab_judge"), icon: "bolt", html: judgeHtml },
+            { id: "adj", label: tr("console.js.admin.themes.tab_adj"), icon: "folder", html: '<div class="claire-split">' + adjLeft + adjRight + "</div>" },
+            { id: "agree", label: tr("console.js.admin.themes.tab_agree"), icon: "chart", html: agreeHtml },
+            { id: "rep", label: tr("console.js.admin.themes.tab_rep"), icon: "users", html: repHtml }
           ]
         });
         ui.enhance(host);
@@ -1331,25 +1380,40 @@
         if (tRoot) tRoot.addEventListener("claire:tabchange", function (ev) { activeTab = ev.detail.tab; });
         var runBtn = host.querySelector("#adm-th-run-now");
         if (runBtn) runBtn.addEventListener("click", function () {
+          runBtn.disabled = true;
           ui.request("/api/admin/themes/judge", { method: "POST", body: {} }).then(function (rr) {
-            if (!rr.ok) { ui.toast(rr.error || "Failed", "danger"); return; }
+            if (!rr.ok) { runBtn.disabled = false; fail(rr); return; }
+            lastReport = (rr.data && rr.data.report) || {};
             load();
           });
         });
         var tForm = host.querySelector("#adm-th-thresh-form");
         if (tForm) tForm.addEventListener("submit", function (ev) {
           ev.preventDefault();
-          ui.request("/api/admin/themes/settings", {
-            method: "PUT",
-            body: {
-              theme_match_threshold: Number(host.querySelector("#th-tm").value),
-              document_match_threshold: Number(host.querySelector("#th-dm").value),
-              seed_match_threshold: Number(host.querySelector("#th-sm").value),
-              auto_contribution_min_score: Number(host.querySelector("#th-am").value)
-            }
-          }).then(function (rr) {
-            if (!rr.ok) { ui.toast(rr.error || "Failed", "danger"); return; }
-            ui.toast(tr("common.action.save", "Saved"), "ok");
+          // The three thresholds of the judgement are keys of PUT /api/admin/themes/settings; "auto_match_threshold" is a key of PUT /api/admin/auto-contribution.
+          Promise.all([
+            ui.request("/api/admin/themes/settings", { method: "PUT", body: { theme_match_threshold: Number(host.querySelector("#th-tm").value), document_match_threshold: Number(host.querySelector("#th-dm").value), seed_match_threshold: Number(host.querySelector("#th-sm").value) } }),
+            ui.request("/api/admin/auto-contribution", { method: "PUT", body: { auto_match_threshold: Number(host.querySelector("#th-am").value) } })
+          ]).then(function (results) {
+            var bad = results.find(function (rr) { return !rr.ok; });
+            if (bad) { fail(bad); return; }
+            ui.toast(tr("console.js.admin.themes.saved"), "ok");
+            load();
+          });
+        });
+        var repForm = host.querySelector("#adm-rep-form");
+        if (repForm) repForm.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var body = {};
+          repForm.querySelectorAll("[data-rep-key]").forEach(function (input) {
+            var key = input.getAttribute("data-rep-key");
+            if (input.value !== "" && Number(input.value) !== Number(repSettings[key])) body[key] = Number(input.value);
+          });
+          if (!Object.keys(body).length) return;
+          ui.request("/api/admin/reputations/settings", { method: "PUT", body: body }).then(function (rr) {
+            if (!rr.ok) { fail(rr); return; }
+            ui.toast(tr("console.js.admin.themes.saved"), "ok");
+            load();
           });
         });
         host.querySelectorAll("[data-pick-th]").forEach(function (b) {
@@ -1358,37 +1422,58 @@
         var cBtn = host.querySelector("#adm-th-create");
         if (cBtn) cBtn.addEventListener("click", function () {
           ui.openDialog({
-            title: tr("console.js.admin.themes.create_theme", "Create computed theme"),
+            title: tr("console.js.admin.themes.create_theme"),
             icon: "plus",
-            bodyHtml: '<div class="claire-field"><label class="claire-field-label" for="new-ct-lbl">Label</label><input id="new-ct-lbl" class="claire-input" required/></div>' +
-              '<div class="claire-field"><label class="claire-field-label" for="new-ct-type">Type</label><select id="new-ct-type" class="claire-select"><option value="real">real</option><option value="fictional">fictional</option></select></div>',
+            bodyHtml: '<p class="claire-hint">' + ui.esc(tr("console.js.admin.themes.create_hint")) + "</p>" +
+              '<div class="claire-field"><label class="claire-field-label" for="new-ct-lbl">' + ui.esc(tr("console.js.admin.themes.rename_label")) + '</label><input id="new-ct-lbl" class="claire-input" required/></div>' +
+              '<div class="claire-field"><label class="claire-field-label" for="new-ct-type">' + ui.esc(ui.t("kb.pub.col_type")) + '</label><select id="new-ct-type" class="claire-select"><option value="real">' + ui.esc(ui.t("kb.dlg.type_real")) + '</option><option value="fictional">' + ui.esc(ui.t("kb.dlg.type_fictional")) + "</option></select></div>",
             onSubmit: function (_d, body) {
               var lbl = body.querySelector("#new-ct-lbl").value.trim();
               if (!lbl) return false;
               return ui.request("/api/admin/themes", { method: "POST", body: { label: lbl, knowledge_type: body.querySelector("#new-ct-type").value } }).then(function (rr) {
-                if (!rr.ok) { ui.toast(rr.error || "Failed", "danger"); return false; }
+                if (!rr.ok) { fail(rr); return false; }
+                if (rr.data && rr.data.theme) selectedThemeNum = String(rr.data.theme.number);
                 load();
                 return true;
               });
             }
           });
         });
-        var lockBtn = host.querySelector("#adm-th-toggle-lock");
-        if (lockBtn && curTh) lockBtn.addEventListener("click", function () {
-          var body = curTh.label_locked ? { label_locked: false } : { label: curTh.label };
-          ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number), { method: "PATCH", body: body }).then(function () { load(); });
+        function patchTheme(body) {
+          ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number), { method: "PATCH", body: body }).then(function (rr) {
+            if (!rr.ok) { fail(rr); return; }
+            load();
+          });
+        }
+        function setMembership(kb, membership) {
+          ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number) + "/knowledge-bases/" + encodeURIComponent(kb), { method: "PUT", body: { membership: membership } }).then(function (rr) {
+            if (!rr.ok) { fail(rr); return; }
+            load();
+          });
+        }
+        var unlockBtn = host.querySelector("#adm-th-unlock");
+        if (unlockBtn && curTh) unlockBtn.addEventListener("click", function () { patchTheme({ label_locked: false }); });
+        var renameForm = host.querySelector("#adm-th-rename-form");
+        if (renameForm && curTh) renameForm.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var label = host.querySelector("#adm-th-label").value.trim();
+          if (label) patchTheme({ label: label });
+        });
+        var pinForm = host.querySelector("#adm-th-pin-form");
+        if (pinForm && curTh) pinForm.addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var kb = host.querySelector("#adm-th-pin-kb").value.trim();
+          if (kb) setMembership(kb, "pinned");
         });
         var mergeBtn = host.querySelector("#adm-th-merge");
-        if (mergeBtn && curTh && dlgs) mergeBtn.addEventListener("click", function () {
-          dlgs.openMergeThemeDialog({ sourceTheme: curTh, themes: themes, onMerged: function () { selectedThemeNum = ""; load(); } });
+        if (mergeBtn && curTh) mergeBtn.addEventListener("click", function () {
+          dlgs.openMergeThemeDialog({ sourceTheme: curTh, themes: themes, onMerged: function (merged) { selectedThemeNum = merged && merged.theme ? String(merged.theme.number) : ""; load(); } });
         });
         host.querySelectorAll("[data-menu-action]").forEach(function (mi) {
           mi.addEventListener("click", function () {
             if (!curTh) return;
             var act = mi.getAttribute("data-menu-action");
-            var kb = mi.getAttribute("data-menu-value");
-            var membership = act === "th_pin" ? "pinned" : (act === "th_exclude" ? "excluded" : "computed");
-            ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number) + "/knowledge-bases/" + encodeURIComponent(kb), { method: "PUT", body: { membership: membership } }).then(function () { load(); });
+            setMembership(mi.getAttribute("data-menu-value"), act === "th_pin" ? "pinned" : (act === "th_exclude" ? "excluded" : "computed"));
           });
         });
       });

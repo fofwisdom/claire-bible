@@ -122,7 +122,7 @@ test.describe('feed view (FP4-F3)', () => {
     await page.locator('#client-reader [data-feed-ingest]').click();
     await expect(page.locator('#modal-item-ingest')).toHaveAttribute('open', '');
     await expect(page.locator('#modal-item-ingest-title')).toHaveText('이 피드 항목을 지식베이스에 적재');
-    await expect(page.locator('#item-ingest-theme option')).not.toHaveCount(0);
+    await expect(page.locator('#item-ingest-theme')).toHaveCount(0);  // an ingest writes only to the personal knowledge base: no selector
     await page.locator('#btn-item-ingest').click();
     await expect.poll(() => calls.some(call => call.path === '/api/feeds/items/5/ingest' && call.method === 'POST' && call.body.theme !== undefined)).toBe(true);
     await expect(page.locator('#modal-item-ingest')).not.toHaveAttribute('open', '');

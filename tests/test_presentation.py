@@ -675,10 +675,12 @@ def test_presentation_hud_and_layout():
     assert "@media print" in injected
     assert "size: landscape" in injected
 
-    # 3. Test index.html header tabs and panes layout
-    index_path = Path("src/claire/templates/index.html")
-    assert index_path.exists()
-    index_html = index_path.read_text(encoding="utf-8")
+    # 3. Test the header tabs and the panes layout of the workspace page. The header tabs are in the application bar that ui_chrome.py builds, thus the test reads the markup of the built page, not the template file.
+    import re
+
+    from claire.graphview import GRAPH_HTML
+
+    index_html = re.sub(r"<script\b.*?</script>", "", GRAPH_HTML, flags=re.S)
 
     # Header tabs order: reader -> graph -> presentation -> stream
     idx_reader = index_html.index('id="centertab-reader"')

@@ -800,6 +800,8 @@ def create_app(
         personal_account = role_account
         if ns.account_id is None:
             collection_url = f"{origin}/kb"
+            if collections.wants_html(request):
+                return await asyncio.to_thread(_public_page, request, view="kb_list", title=_t("kb.pub.kbs_title"))
         else:
             collection_url = f"{origin}{ns.prefix}/kb"
             if collections.wants_html(request):
@@ -857,6 +859,8 @@ def create_app(
             return Response(status_code=308, headers={"Location": location})
         knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
         origin = _public_origin(request)
+        if collections.wants_html(request):
+            return await asyncio.to_thread(_public_page, request, view="themes_list", title=_t("kb.pub.themes_title"))
 
         def _build() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
@@ -1986,7 +1990,7 @@ def create_app(
             conn.close()
 
     async def theme_page_route(request: Request, number: int) -> Response:
-        """``/themes/{number}/``: the page of one theme, as HTML or as JSON (content negotiation of the namespace design Section 6.5)."""
+        """``/themes/{number}/``: one theme, as JSON or as the HTML page that shows this JSON (content negotiation of the namespace design Section 6.5)."""
         origin = _public_origin(request)
 
         def _load() -> dict[str, Any] | None:
@@ -2002,17 +2006,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="theme not found")
         if not collections.wants_html(request):
             return JSONResponse(view)
-        template_text = (Path(__file__).resolve().parent.parent / "templates" / "explore_accounts.html").read_text(encoding="utf-8")
-        rendered = string.Template(template_text).substitute(
-            title=html.escape(view["label"]),
-            html_lang=get_locale(),
-            nav_label=html.escape(_t("themes.nav_label")),
-            subtitle=html.escape(_t("themes.page_subtitle", type=_t("themes.type_" + view["knowledge_type"]))),
-            nav_auth=f'<a href="/themes">{html.escape(_t("themes.all"))}</a>',
-            content=_theme_cards_html([view]),
-            pagination="",
-        )
-        return HTMLResponse(inject_favicon_head_tags(rendered))
+        return await asyncio.to_thread(_public_page, request, view="theme_detail", title=view["label"], ref=view["number"])
 
     def _admin_themes_payload(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:
         last = conn.execute("SELECT value FROM server_settings WHERE key=?", (theme_judgement.LAST_RUN_KEY,)).fetchone()
@@ -3209,6 +3203,41 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_graph))
 
+    def _public_page(request: Request, *, view: str, title: str, ref: str | None = None) -> Response:
+        """The HTML form of a path that also has a JSON form. ``Vary`` keeps the two forms apart in a cache."""
+        response = public_kb_routes.render_public_kb_page(request, view=view, title=title, ref=ref, ctx=account_routes.context)
+        response.headers["Vary"] = "Cookie, Authorization, Sec-Fetch-Dest, Accept"
+        return response
+
+    _WORKSPACE_LINK_PARAMS = ("doc", "node")
+
+    async def _shared_kb_root(request: Request) -> Response | None:
+        """``GET /kb/{number}/``: the root of a shared knowledge base (design Section 7).
+
+        1. A request that wants HTML, or one that does not ask for JSON: the page of the knowledge base (members, contributions, actions).
+        2. A request with ``Accept: application/json`` that does not want HTML: ``{"knowledge_base": {...}}``, the same item as in the collection ``GET /kb``.
+        3. A link into the content (``?doc=`` or ``?node=``): ``None``; the caller gives the workspace, which shows the document or the node.
+        """
+        kb, _, _ = _get_theme_ctx(request)
+        wants_html = collections.wants_html(request)
+        if not wants_html and "application/json" in request.headers.get("accept", "").lower():
+            principal = request_principal(request)
+
+            def _item() -> dict[str, Any]:
+                role = None
+                if principal.account_id is not None:
+                    conn = dbm.connect_existing(s.db_file, readonly=True)
+                    try:
+                        role = kb_collab.account_memberships(conn, principal.account_id, state="active").get(kb.id)
+                    finally:
+                        conn.close()
+                return _kb_collection_item(request, kb, role=role, origin=_public_origin(request))
+
+            return JSONResponse({"knowledge_base": await asyncio.to_thread(_item)}, headers={"Vary": "Cookie, Authorization, Sec-Fetch-Dest, Accept"})
+        if any(name in request.query_params for name in _WORKSPACE_LINK_PARAMS):
+            return None
+        return await asyncio.to_thread(_public_page, request, view="kb_detail", title=kb.label, ref=ids.format_public_id(kb.number))
+
     async def graph_ui(request: Request) -> Response:
         from ..graphview import render_graph_html
 
@@ -3223,6 +3252,11 @@ def create_app(
         if ns is not None and ns.account_id is None and ns.pinned_kb_id is None and ns.prefix.startswith("/themes/"):
             # ``/themes/{number}/``: the page of a theme. The namespace middleware checked that the number is an active theme.
             return await theme_page_route(request, int(ns.prefix[len("/themes/"):]))
+
+        if ns is not None and ns.account_id is None and ns.pinned_kb_id is not None:
+            kb_root = await _shared_kb_root(request)
+            if kb_root is not None:
+                return kb_root
 
         if ns is not None and ns.mode == "network" and not ns.via_prefix:
             params = request.query_params
@@ -3648,6 +3682,18 @@ def create_app(
                 "count": len(dispatches),
             }
         )
+
+    async def ns_context_route(request: Request) -> Response:
+        """``GET /ns/v1``: the JSON-LD context of the knowledge federation vocabulary (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.1, KD9). Public, in each mode, also while federation is off: other servers read it."""
+        from ..knowledge_federation import vocabulary
+
+        return Response(vocabulary.context_json(), media_type=vocabulary.CONTEXT_MEDIA_TYPE, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
+
+    async def ns_vocabulary_route(request: Request) -> Response:
+        """``GET /ns``: the page of the vocabulary, with one anchor for each term."""
+        from ..knowledge_federation import vocabulary
+
+        return HTMLResponse(vocabulary.vocabulary_page(), headers={"Cache-Control": "public, max-age=86400"})
 
     async def robots_txt_route(request: Request) -> Response:
         host_header = request.headers.get("host") or ""
@@ -5936,6 +5982,8 @@ def create_app(
     routes = [
         Route("/health", health, methods=["GET"]),
         Route("/robots.txt", robots_txt_route, methods=["GET"]),
+        Route("/ns", ns_vocabulary_route, methods=["GET"]),
+        Route("/ns/v1", ns_context_route, methods=["GET"]),
         Route("/sitemap.xml", sitemap_xml_route, methods=["GET"]),
         Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
         Route("/favicon.svg", favicon_svg_route, methods=["GET"]),
@@ -6067,7 +6115,6 @@ def create_app(
         Route("/oauth/token", handle_token, methods=["POST"]),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
-        *public_kb_routes.routes(account_routes.context),
         Mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static"),
     ]
 

@@ -7,14 +7,10 @@
     <p class="claire-dialog-intro" data-i18n="ws.ingest.intro">${t:ws.ingest.intro}</p>
     <div id="ingest-fiction-notice" class="claire-note fic" role="note">
       <div>
-        <span data-i18n="ws.kb.fiction_ingest_notice">${t:ws.kb.fiction_ingest_notice}</span>
-        <a href="/themes?type=fictional" data-i18n="ws.kb.fiction_themes_link">${t:ws.kb.fiction_themes_link}</a>
+        <span data-i18n="campaign.standing">${t:campaign.standing}</span>
+        <a href="/themes?type=fictional" data-i18n="campaign.fictional_themes_link">${t:campaign.fictional_themes_link}</a>
       </div>
-      <button type="button" id="btn-ingest-create-kb" class="claire-btn claire-btn-sm sec" data-i18n="kb.dlg.create_btn">${t:kb.dlg.create_btn}</button>
-    </div>
-    <div id="ingest-theme-wrap" class="ingest-field" hidden>
-      <label class="ingest-label" for="ingtheme"><span data-i18n="ws.ingest.target_theme">${t:ws.ingest.target_theme}</span> <span id="ingtheme-help" class="ingest-help"></span></label>
-      <select id="ingtheme" class="ingest-theme-select"></select>
+      <button type="button" id="btn-ingest-create-kb" class="claire-btn claire-btn-sm sec" data-i18n="campaign.make_kb_link">${t:campaign.make_kb_link}</button>
     </div>
     <div class="ingest-field">
       <label class="ingest-label" for="ingin"><span data-i18n="ws.ingest.material">${t:ws.ingest.material}</span> <span class="ingest-help" data-i18n="ws.ingest.url_or_text">${t:ws.ingest.url_or_text}</span></label>
@@ -34,6 +30,7 @@
       </div>
     </fieldset>
     <p id="ingest-modal-msg" class="claire-dialog-msg" role="status" aria-live="polite"></p>
+    <div id="ingest-notices" class="claire-dialog-result"></div>
     <div class="claire-dialog-foot">
       <button type="button" data-close-dialog="modal-ingest" class="sec" data-i18n="common.action.cancel">${t:common.action.cancel}</button>
       <button type="submit" id="btn-submit-ingest" class="pri"><span data-icon="plus"></span> <span data-i18n="ws.ingest.start">${t:ws.ingest.start}</span></button>
@@ -48,10 +45,6 @@
       <button type="button" data-close-dialog="modal-reingest" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
     </div>
     <p class="claire-dialog-intro" data-i18n="ws.reingest.intro">${t:ws.reingest.intro}</p>
-    <div id="reingest-theme-wrap" class="ingest-field" hidden>
-      <label class="ingest-label" for="reingtheme"><span data-i18n="ws.reingest.target_theme">${t:ws.reingest.target_theme}</span> <span id="reingtheme-help" class="ingest-help"></span></label>
-      <select id="reingtheme" class="ingest-theme-select"></select>
-    </div>
     <div class="ingest-field">
       <label class="ingest-label" for="reingtarget"><span data-i18n="ws.reingest.target">${t:ws.reingest.target}</span> <span class="ingest-help" data-i18n="ws.reingest.target_hint">${t:ws.reingest.target_hint}</span></label>
       <textarea id="reingtarget" rows="3" required autofocus placeholder="https://example.com/article"></textarea>
@@ -88,10 +81,6 @@
       <button type="button" data-close-dialog="modal-regen" class="claire-dialog-close" data-i18n-aria-label="common.action.close" aria-label="${t:common.action.close}"><span data-icon="close"></span></button>
     </div>
     <p class="claire-dialog-intro" data-i18n="ws.regen.intro">${t:ws.regen.intro}</p>
-    <div id="regen-theme-wrap" class="ingest-field" hidden>
-      <label class="ingest-label" for="regentheme"><span data-i18n="ws.regen.target_theme">${t:ws.regen.target_theme}</span> <span id="regentheme-help" class="ingest-help"></span></label>
-      <select id="regentheme" class="ingest-theme-select"></select>
-    </div>
     <div class="ingest-field">
       <label class="ingest-label" for="regentarget"><span data-i18n="ws.regen.target">${t:ws.regen.target}</span> <span class="ingest-help" data-i18n="ws.regen.target_hint">${t:ws.regen.target_hint}</span></label>
       <input type="text" id="regentarget" class="ingest-input" required autofocus data-i18n-placeholder="ws.regen.target_placeholder" placeholder="${t:ws.regen.target_placeholder}"/>

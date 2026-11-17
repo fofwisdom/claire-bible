@@ -7,7 +7,7 @@ from claire.api import server
 from claire.config import Settings
 from claire.graphview import render_graph_html
 
-# 테마 관리 UI는 루트 상세 메뉴에서 빠지고 콘솔(/settings/themes, /admin/themes)이 쓰는 공유 모듈에만 있다.
+# 테마 관리 UI는 루트 상세 메뉴에서 빠지고 콘솔이 쓰는 공유 모듈에만 있다.
 MANAGE_PANELS_JS = (Path(__file__).resolve().parents[1] / "src" / "claire" / "static" / "js" / "manage_panels.js").read_text(encoding="utf-8")
 
 
@@ -129,26 +129,20 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     assert '<span data-icon="trash"></span> ${esc(trKey("console.js.panels.themes.delete_full"))}' in html
 
 
-def test_theme_web_default_focus(tmp_path: Path):
-    """웹 UI에서 테마 기본 초점(default_focus) 관련 UI 요소 검증."""
+def test_theme_web_has_no_focus_controls(tmp_path: Path):
+    """The focus is sealed (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.7, CT28): the UI has no control for the default focus of a knowledge base or for the focus of one document."""
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
         vault_path=str(tmp_path / "vault"),
         CLAIRE_MULTI_THEME=True,
     )
     graph_html = render_graph_html(s)
-    html = MANAGE_PANELS_JS
 
-    # 1. 새 테마 생성 폼에 기본 초점 입력 필드 확인
-    assert 'id="newthemep-focus"' in html
+    # 1. The knowledge base manager of the console has no field and no label for the default focus.
+    for marker in ('id="newthemep-focus"', "editthemep-focus-", "console.js.panels.themes.focus_prefix", "default_focus"):
+        assert marker not in MANAGE_PANELS_JS, marker
 
-    # 2. 테마 수정 폼에 기본 초점 입력 필드 확인
-    assert 'editthemep-focus-' in html
-
-    # 3. 테마 카드에 기본 초점 표시 템플릿 확인
-    assert '<span data-icon="target"></span> ${esc(trKey("console.js.panels.themes.focus_prefix"))}' in html
-
-    # 4. Ingest modal seals per-document focus inputs (CT28) and renders standing fictional notice
+    # 2. The ingest dialogs have no focus input. They show the notice for fictional material.
     assert 'id="ingfocus"' not in graph_html
     assert 'id="reingfocus"' not in graph_html
     assert 'id="regenfocus"' not in graph_html

@@ -266,7 +266,7 @@ def test_build_syndication_section_interface(env, tmp_path: Path):
     # C1: 소유 테마가 없으면 다른 테마로 대체하지 않고 안내만 그린다. 스크립트도 싣지 않는다.
     empty = panels.build_syndication_section(ctx, slug="reader", path="/settings/reader", mode="single", account=member, selected_theme=None, owned_themes=[], theme_query=None)
     assert 'id="settings-syndication-no-theme"' in empty.body_html
-    assert 'href="/settings/themes"' in empty.body_html
+    assert 'href="/settings/kb"' in empty.body_html
     assert empty.extra_scripts_html == ""
     assert empty.extra_bootstrap == {"syndication": {"section": "reader", "theme_ref": None}}
 

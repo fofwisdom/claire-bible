@@ -495,9 +495,6 @@
     const dialog = $("modal-item-ingest");
     if (!item || !dialog) return;
     C.ingestItemId = id;
-    const select = $("item-ingest-theme");
-    const current = String(bridge.state.themeId);
-    select.innerHTML = Object.values(bridge.themes).map((t) => `<option value="${esc(t.id)}" ${String(t.id) === current ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
     $("item-ingest-msg").textContent = "";
     $("item-ingest-source").textContent = `${authorName(item.author)} — ${item.url || item.object_iri}`;
     $("btn-item-ingest").disabled = false;
@@ -506,7 +503,6 @@
 
   async function submitIngest() {
     const id = C.ingestItemId;
-    const themeKey = $("item-ingest-theme").value;
     const msg = $("item-ingest-msg");
     const button = $("btn-item-ingest");
     button.disabled = true;
@@ -524,8 +520,8 @@
     if (C.counts) C.counts.ingested = (C.counts.ingested || 0) + 1;
     renderClient();
     renderStageBar();
-    // The new document is in the knowledge base of that theme. Read it again so that stage 2 shows it.
-    if (String(themeKey) === String(bridge.state.themeId)) bridge.reload();
+    // The new document is in the personal knowledge base of the account (design Section 5.2 rule 3). Read the list again when stage 2 shows that knowledge base.
+    if (String(result.data.linked.kb_id) === String(bridge.state.themeId)) bridge.reload();
   }
 
   // The knowledge base view with the document of an item (the link between a post and its document).

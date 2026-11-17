@@ -49,7 +49,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.2)
        "/submissions", "/submissions/{number}"}
 SYSTEM = {
-    "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
+    "/health", "/robots.txt", "/ns", "/ns/v1", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
     "/sw.js",
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",
@@ -63,11 +63,6 @@ SYSTEM = {
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
     "/explore/accounts",
-    "/explore/themes",
-    "/explore/themes/{theme_number:int}",
-    "/kb",
-    "/kb/{kb_number:int}",
-    "/kb/{kb_number:int}/",
     "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",

@@ -376,6 +376,11 @@ def _append_theme_query(path: str, theme_query: str | None) -> str:
     return f"{path}?{urlencode({'kb': theme_query})}"
 
 
+def _kb_manager(ctx: AccountsContext) -> KnowledgeBaseManager:
+    data_dir = ctx.data_dir if ctx.data_dir is not None else ctx.db_file.parent
+    return KnowledgeBaseManager(SimpleNamespace(db_file=ctx.db_file, db_path=str(ctx.db_file), data_dir=data_dir, multi_theme=True))
+
+
 def _resolve_caller_theme_and_list(
     ctx: AccountsContext,
     *,
@@ -386,14 +391,7 @@ def _resolve_caller_theme_and_list(
 
     유효하지 않거나 다른 계정의 테마면 ``None``을 돌려줘 호출자가 404를 내게 한다.
     """
-    data_dir = ctx.data_dir if ctx.data_dir is not None else ctx.db_file.parent
-    tm_settings = SimpleNamespace(
-        db_file=ctx.db_file,
-        db_path=str(ctx.db_file),
-        data_dir=data_dir,
-        multi_theme=True,
-    )
-    tm = KnowledgeBaseManager(tm_settings)
+    tm = _kb_manager(ctx)
     owned = tm.list_account_kbs(account_id)
     if raw_theme is not None:
         cleaned = raw_theme.strip()
@@ -412,6 +410,13 @@ def _resolve_caller_theme_and_list(
             default_theme = t
             break
     return default_theme, owned, None
+
+
+def _is_shared_kb_number(ctx: AccountsContext, number: int) -> bool:
+    try:
+        return _kb_manager(ctx).get_kb_by_number(number).is_shared
+    except KnowledgeBaseNotFound:
+        return False
 
 
 def _account_context_info(ctx: AccountsContext, account_id: int) -> tuple[accounts_store.ServerMode, accounts_store.Account]:
@@ -756,16 +761,12 @@ def _build_settings_account_section(
         body, extra = settings_federation_body(ctx, mode=mode, account=account)
     elif spec.slug == "keys":
         body, extra = _settings_keys_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
-    elif spec.slug == "themes":
-        if admin_viewer:
-            # D3: 라우터가 관리자를 /admin/themes로 보낸다. 여기에 오면 결함이다.
-            raise RuntimeError("/settings/themes must redirect the admin to /admin/themes")
-        body, extra = _settings_themes_body(ctx, account=account, owned_themes=owned_themes)
     elif spec.slug == "kb":
-        default_num = next((ids.format_public_id(t.number) for t in owned_themes if t.is_default and t.number is not None), "")
+        # An account has one personal knowledge base (design Section 3). The page shows its number.
+        personal_num = next((ids.format_public_id(kb.number) for kb in owned_themes if kb.is_personal and kb.number is not None), "")
         return SettingsSectionRender(
             body_html='<div id="settings-kb-host"></div>',
-            extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}, "default_theme_number": default_num},
+            extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}, "personal_kb_number": personal_num},
             extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
         )
     elif spec.slug == "kb_manage":
@@ -1201,23 +1202,6 @@ def _settings_keys_body(
     return body, {"keys_mode": "byok", "has_password": has_password}
 
 
-def _settings_themes_body(
-    ctx: AccountsContext,
-    *,
-    account: accounts_store.Account,
-    owned_themes: list[KnowledgeBaseInfo],
-) -> tuple[str, dict[str, Any]]:
-    """The knowledge base manager of the account. There is no slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1)."""
-    body = (
-        f'<section class="console-subcard" id="settings-themes-manager-card" aria-label="{escape(t("console.settings.themes.manager_label"))}">'
-        '<div id="settings-themes-host" data-settings-panel-host="themes">'
-        f'<p class="hint">{escape(t("console.settings.themes.loading"))}</p>'
-        "</div>"
-        "</section>"
-    )
-    return body, {}
-
-
 def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
     """호출자 계정에 발급된 OAuth 토큰이 있는 클라이언트만 고른다(``oauth_tokens.account_id``). 토큰 값은 읽지 않는다."""
     conn = open_db(ctx)
@@ -1454,12 +1438,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
             raw_theme=raw_theme,
         )
 
-    async def settings_legacy_themes_page(request: Request) -> Response:
+    async def settings_old_themes_page(request: Request) -> Response:
+        """``/settings/themes`` (old web link): ``/settings/kb`` has its function (design Section 10.3). The admin goes to ``/admin/themes``."""
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
         assert principal.account_id is not None
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
         validated_theme: str | None = None
         if raw_theme is not None:
             resolved = _resolve_caller_theme_and_list(ctx, account_id=principal.account_id, raw_theme=raw_theme)
@@ -1471,20 +1456,20 @@ def routes(ctx: AccountsContext) -> list[Route]:
         return _redirect("/settings/kb")
 
     async def settings_kb_manage_page(request: Request) -> Response:
+        """``/settings/kb/{number}``: the page of a reviewer for one shared knowledge base (design Section 10.3). The number of a personal knowledge base, or an unknown number, gets 404."""
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
         spec = SETTINGS_BY_PATH["/settings/kb/manage"]
-        raw_theme = request.query_params.get("theme") if "theme" in request.query_params else None
-        kb_num = request.path_params.get("kb_number")
-        return await asyncio.to_thread(
-            _render_console_section,
-            ctx,
-            spec=spec,
-            principal=principal,
-            raw_theme=raw_theme,
-            extra_bootstrap={"kb_number": str(kb_num)} if kb_num is not None else None,
-        )
+        raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
+        kb_number = int(request.path_params["kb_number"])
+
+        def _render() -> Response:
+            if not _is_shared_kb_number(ctx, kb_number):
+                return not_found()
+            return _render_console_section(ctx, spec=spec, principal=principal, raw_theme=raw_theme, extra_bootstrap={"kb_number": ids.format_public_id(kb_number)})
+
+        return await asyncio.to_thread(_render)
 
     async def settings_section_page(request: Request) -> Response:
         principal = request_principal(request)
@@ -1549,7 +1534,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         Route(SETTINGS_INDEX_PATH, settings_index, methods=["GET", "HEAD"]),
         Route(ADMIN_MCP_TELEMETRY_API_PATH, admin_mcp_telemetry_api, methods=["GET", "HEAD"]),
         Route(ADMIN_KB_SPEC.path, admin_section_page, methods=["GET", "HEAD"]),
-        Route("/settings/themes", settings_legacy_themes_page, methods=["GET", "HEAD"]),
+        Route("/settings/themes", settings_old_themes_page, methods=["GET", "HEAD"]),
         Route("/settings/kb/{kb_number:int}", settings_kb_manage_page, methods=["GET", "HEAD"]),
     ]
     for spec in ADMIN_CONSOLE_GROUP_5_SPECS:

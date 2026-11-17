@@ -118,7 +118,7 @@ test.describe('federation client view (FP4-5)', () => {
     // The ingest dialog of one item has the themes of the owner.
     await page.locator('#client-reader [data-item-ingest]').click();
     await expect(page.locator('#modal-item-ingest')).toHaveAttribute('open', '');
-    await expect(page.locator('#item-ingest-theme option')).not.toHaveCount(0);
+    await expect(page.locator('#item-ingest-theme')).toHaveCount(0);  // an ingest writes only to the personal knowledge base: no selector
     await page.keyboard.press('Escape');
 
     // Stage 2: the knowledge base view of the same page.

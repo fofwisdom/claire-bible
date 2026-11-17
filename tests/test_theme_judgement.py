@@ -314,7 +314,9 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
             assert sorted(kb["label"] for kb in page["knowledge_bases"]) == ["Korea A", "Korea B"] and "pinned" not in page["knowledge_bases"][0]
             assert page["knowledge_bases"][0]["url"].endswith(f"/kb/{ids_number(korea_a)}/")
             html_page = client.get(f"/themes/{korea['number']}/", headers={"Accept": "text/html"})
-            assert html_page.status_code == 200 and "Seoul · Busan" in html_page.text and "Korea A" in html_page.text
+            # The HTML form is the page of the public views; its script shows the JSON form of the same path.
+            assert html_page.status_code == 200 and "<title>Seoul · Busan" in html_page.text and 'data-public-view="theme_detail"' in html_page.text and f'"ref": "{korea["number"]}"' in html_page.text
+            assert client.get("/themes/999999/", headers={"Accept": "text/html"}).status_code == 404
             # The root page of network mode shows the themes first.
             root = client.get("/", headers={"Accept": "text/html"})
             assert root.status_code == 200 and f'/themes/{korea["number"]}/' in root.text and "Mars · Jupiter" in root.text

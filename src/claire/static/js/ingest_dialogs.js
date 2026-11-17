@@ -100,40 +100,13 @@
     else el.setAttribute("data-state", isError ? "error" : "ok");
   }
 
-  function configureThemeSelect(wrapId, selectId, helpId, config) {
-    var wrap = byId(wrapId);
-    var sel = byId(selectId);
-    var help = byId(helpId);
-    if (!wrap || !sel) return;
-    if (!config || !config.visible || !Array.isArray(config.themes) || config.themes.length === 0) {
-      wrap.hidden = true;
-      sel.innerHTML = "";
-      return;
-    }
-    wrap.hidden = false;
-    if (help) help.textContent = config.helpText || "";
-    sel.innerHTML = config.optionsHtml || config.themes.map(function (t) {
-      var val = String(t.value);
-      var selected = val === String(config.selectedValue) ? " selected" : "";
-      var prefix = t.icon ? t.icon + " " : "";
-      return '<option value="' + val.replace(/"/g, "&quot;") + '"' + selected + ">" + String(prefix + (t.label || val)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</option>";
-    }).join("");
-  }
-
   function openIngestDialog(opts) {
     var dlg = byId("modal-ingest");
     if (!dlg) return;
     opts = opts || {};
     showMsg("ingest-modal-msg", "", false);
-    if (opts.themeConfig) {
-      configureThemeSelect("ingest-theme-wrap", "ingtheme", "ingtheme-help", opts.themeConfig);
-    }
-    var themeEl = byId("ingtheme");
-    if (themeEl) {
-      themeEl.onchange = function () {
-        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
-      };
-    }
+    var noticesEl = byId("ingest-notices");
+    if (noticesEl) noticesEl.innerHTML = "";
     renderEffortGrid(byId("ingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     if (!dlg.open) dlg.showModal();
     var ta = byId("ingin");
@@ -145,15 +118,6 @@
     if (!dlg) return;
     opts = opts || {};
     showMsg("reingest-modal-msg", "", false);
-    if (opts.themeConfig) {
-      configureThemeSelect("reingest-theme-wrap", "reingtheme", "reingtheme-help", opts.themeConfig);
-    }
-    var themeEl = byId("reingtheme");
-    if (themeEl) {
-      themeEl.onchange = function () {
-        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
-      };
-    }
     renderEffortGrid(byId("reingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     var targetEl = byId("reingtarget");
     if (targetEl && typeof opts.target === "string") targetEl.value = opts.target;
@@ -178,15 +142,6 @@
     showMsg("regen-modal-msg", "", false);
     var resEl = byId("regenresult");
     if (resEl) resEl.innerHTML = "";
-    if (opts.themeConfig) {
-      configureThemeSelect("regen-theme-wrap", "regentheme", "regentheme-help", opts.themeConfig);
-    }
-    var themeEl = byId("regentheme");
-    if (themeEl) {
-      themeEl.onchange = function () {
-        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
-      };
-    }
     renderEffortGrid(byId("regen-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     var targetEl = byId("regentarget");
     if (targetEl && typeof opts.target === "string") targetEl.value = opts.target;
@@ -260,6 +215,7 @@
       });
     }
 
+    // Design Section 8.7: the standing message of the ingest form has the link "make a shared knowledge base". A page without the dialogs of the shared knowledge bases opens the console page that has the same action.
     var createKbBtn = byId("btn-ingest-create-kb");
     if (createKbBtn && createKbBtn.dataset.bound !== "1") {
       createKbBtn.dataset.bound = "1";
@@ -267,9 +223,64 @@
         closeDialog("modal-ingest");
         if (window.ClaireKbDialogs && typeof window.ClaireKbDialogs.openCreateKbDialog === "function") {
           window.ClaireKbDialogs.openCreateKbDialog({ defaultType: "fictional" });
+        } else {
+          window.location.assign("/settings/kb");
         }
       });
     }
+
+    document.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest("[data-campaign-contribute]") : null;
+      if (btn) contributeToTheme(btn);
+    });
+  }
+
+  function escHtml(v) {
+    return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // The notices of an ingest result (design Section 8.7 rule 2): a document that looks like fiction shows with the action "Contribute to this theme". The form shows the standing message each time, thus the notice "fiction_standing_message" has no use here.
+  function ingestNoticesHtml(result) {
+    var notices = (result && Array.isArray(result.notices)) ? result.notices : [];
+    var h = "";
+    for (var i = 0; i < notices.length; i++) {
+      var n = notices[i] || {};
+      if (n.code !== "fiction_like_document" || !n.document || !n.theme) continue;
+      h += '<div class="claire-note fic campaign-notice" role="note"><span>' + escHtml(translate("campaign.fiction_like", { theme: n.theme_label || n.theme }, n.message || "")) + "</span>" +
+        '<button type="button" class="claire-btn claire-btn-sm pri" data-campaign-contribute="' + escHtml(n.document) + '" data-campaign-theme="' + escHtml(n.theme) + '">' + escHtml(translate("campaign.contribute_action", null, "Contribute to this theme")) + "</button>" +
+        '<span class="campaign-notice-msg" role="status" aria-live="polite"></span></div>';
+    }
+    return h;
+  }
+
+  // POST /submissions with the document and the theme of the notice (design Section 9.2).
+  function contributeToTheme(btn) {
+    var doc = btn.getAttribute("data-campaign-contribute");
+    var theme = btn.getAttribute("data-campaign-theme");
+    var msg = btn.parentNode ? btn.parentNode.querySelector(".campaign-notice-msg") : null;
+    btn.disabled = true;
+    fetch("/submissions", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ documents: [doc], theme: theme })
+    }).then(function (resp) {
+      return resp.json().catch(function () { return null; }).then(function (data) {
+        if (!resp.ok) {
+          btn.disabled = false;
+          if (msg) msg.textContent = translate("campaign.contribute_failed", { error: (data && (data.error || data.detail)) || ("HTTP " + resp.status) }, "");
+          return;
+        }
+        var items = (data && data.submission && data.submission.items) || [];
+        var targets = (items[0] && items[0].targets) || [];
+        var sent = targets.filter(function (t) { return t.state !== "skipped"; }).length;
+        btn.hidden = true;
+        if (msg) msg.textContent = sent ? translate("campaign.contribute_done", { count: sent }, "") : translate("campaign.contribute_none", null, "");
+      });
+    }).catch(function () {
+      btn.disabled = false;
+      if (msg) msg.textContent = translate("campaign.contribute_failed", { error: "network_error" }, "");
+    });
   }
 
   var bound = false;
@@ -295,6 +306,7 @@
     openReingestDialog: openReingestDialog,
     openRegenDialog: openRegenDialog,
     closeDialog: closeDialog,
-    showMsg: showMsg
+    showMsg: showMsg,
+    ingestNoticesHtml: ingestNoticesHtml
   };
 })();

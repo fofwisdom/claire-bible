@@ -1,238 +1,333 @@
-/* Shared modal workflows for shared knowledge bases and themes (Prototype Item 5). */
+/* Dialogs for shared knowledge bases and themes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8 to 10). Each request goes to a route of docs/implementation/API_HTTP_CONTRACT.md. */
 (function (root) {
   "use strict";
 
   function ui() { return root.ClaireUi; }
-  function t(key, params, fallback) { return ui().t(key, params, fallback); }
+  function t(key, params) { return ui().t(key, params); }
   function esc(v) { return ui().esc(v); }
+  function errText(res) { return ui().errorText(res); }
 
+  // Reason codes of a rejection and of a removal (contributions.py REASON_CODES).
+  var REASON_CODES = ["off_subject", "wrong_knowledge_type", "duplicate", "low_quality", "spam", "other"];
+
+  function typeTag(knowledgeType) {
+    return '<span class="claire-tag ' + (knowledgeType === "fictional" ? "fic" : "acc") + '">' + esc(t(knowledgeType === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")) + "</span>";
+  }
+
+  function stateLabel(state) {
+    var key = "kb.state." + state;
+    var text = t(key);
+    return text === key ? String(state || "") : text;
+  }
+
+  function seedList(text) {
+    return String(text || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  // The documents of the personal knowledge base of the requester, as a list with check boxes. ``homeHref`` is the path of that knowledge base ("/" or "/@user/").
+  function loadDocumentChoices(box, homeHref) {
+    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p>";
+    return ui().request((homeHref || "/") + "documents").then(function (res) {
+      var docs = (res.ok && res.data && res.data.documents) || [];
+      if (!res.ok) {
+        box.innerHTML = '<div class="claire-note warn">' + esc(errText(res)) + "</div>";
+        return;
+      }
+      if (!docs.length) {
+        box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.no_documents")) + "</p>";
+        return;
+      }
+      box.innerHTML = '<fieldset class="claire-field" style="border:0;padding:0;margin:0;max-height:260px;overflow:auto"><legend class="claire-field-label">' + esc(t("kb.dlg.pick_documents")) + "</legend>" +
+        docs.map(function (d) {
+          return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(d.id) + '"/><span class="claire-srow-info"><strong>' + esc(d.title || d.id) + "</strong></span></label>";
+        }).join("") + "</fieldset>";
+    });
+  }
+
+  function selectedDocuments(opts, box) {
+    if (opts && opts.documentId) return [String(opts.documentId)];
+    return Array.prototype.slice.call(box.querySelectorAll('input[name="doc"]:checked')).map(function (x) { return x.value; });
+  }
+
+  // The result of POST /submissions: each item with its theme and the state of each target (design Section 9.2 rule 8).
+  function submissionResultHtml(submission) {
+    var rows = [];
+    ((submission && submission.items) || []).forEach(function (item) {
+      if (item.code === "no_theme") {
+        rows.push({ document: item.document, theme: t("kb.dlg.result_no_theme"), kb: "", state: "" });
+        return;
+      }
+      if (!(item.targets || []).length) rows.push({ document: item.document, theme: item.theme_label || item.theme, kb: t("kb.dlg.result_no_target"), state: "" });
+      (item.targets || []).forEach(function (target) {
+        rows.push({ document: item.document, theme: item.theme_label || item.theme, kb: target.label || target.knowledge_base, state: stateLabel(target.state) + (target.reason ? " (" + errText({ error: target.reason }) + ")" : "") });
+      });
+    });
+    return ui().renderTable({
+      caption: t("kb.dlg.result_title"),
+      columns: [
+        { label: t("kb.dlg.col_document"), key: "document" },
+        { label: t("kb.dlg.col_theme"), key: "theme" },
+        { label: t("kb.dlg.col_kb"), key: "kb" },
+        { label: t("kb.dlg.col_state"), key: "state" }
+      ],
+      rows: rows
+    });
+  }
+
+  // Dry run of the automatic rule (design Section 9.9 rule 6): POST /api/auto-rule/dry-run with the body of the rule. ``opts.onActivate`` turns the rule on after the person saw the plan.
   function openAutoRuleDryRunDialog(opts) {
     var payload = (opts && opts.payload) || {};
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
-    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.dry_run_loading", null, "Computing eligible documents and shared KB targets...")) + "</p>";
+    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.dry_run_loading")) + "</p>";
+    var canActivate = !!(opts && typeof opts.onActivate === "function");
 
     return ui().openDialog({
-      title: t("kb.dlg.dry_run_title", null, "Auto-contribution dry run"),
+      title: t("kb.dlg.dry_run_title"),
       icon: "bolt",
       bodyEl: box,
-      submitLabel: null,
-      cancelLabel: t("common.action.close", null, "Close"),
-      onOpen: function () {
+      submitLabel: canActivate ? t("kb.dlg.dry_run_activate") : null,
+      cancelLabel: t("common.action.close"),
+      onOpen: function (_dlg, _b, submitBtn) {
+        if (submitBtn) submitBtn.disabled = true;
         ui().request("/api/auto-rule/dry-run", { method: "POST", body: payload }).then(function (res) {
           if (!res.ok || !res.data) {
-            box.innerHTML = '<div class="claire-note warn">' + esc(res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : (res.error || "Failed")) + "</div>";
+            box.innerHTML = '<div class="claire-note warn">' + esc(errText(res)) + "</div>";
             return;
           }
+          if (submitBtn) submitBtn.disabled = false;
           var targets = res.data.targets || [];
-          var h = '<div class="claire-note ok"><span>' + esc(t("kb.dlg.dry_run_summary", { count: targets.length }, targets.length + " target shared KB(s) matched.")) + "</span></div>";
+          var count = targets.reduce(function (sum, target) { return sum + (target.documents || []).length; }, 0);
+          var h = "";
+          if (!res.data.server_switch) h += '<div class="claire-note warn"><span>' + esc(t("kb.dlg.dry_run_server_off")) + "</span></div>";
+          h += '<div class="claire-note ok"><span>' + esc(t("kb.dlg.dry_run_summary", { count: count, targets: targets.length })) + "</span></div>";
           h += ui().renderTable({
-            caption: t("kb.dlg.dry_run_title", null, "Auto-contribution dry run"),
+            caption: t("kb.dlg.dry_run_title"),
             columns: [
-              { label: t("kb.dlg.col_kb", null, "Shared KB"), render: function (r) { return '<a href="/kb/' + esc(r.knowledge_base) + '/">' + esc(r.label || ("#" + r.knowledge_base)) + "</a>"; } },
-              { label: t("kb.dlg.col_mode", null, "Match mode"), render: function (r) { return '<span class="claire-tag acc">' + esc(r.mode || "theme") + "</span>"; } },
-              { label: t("kb.dlg.col_docs", null, "Documents"), render: function (r) { return esc(Array.isArray(r.documents) ? r.documents.length : (r.documents || 0)); } }
+              { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="/kb/' + esc(r.knowledge_base) + '/">' + esc(r.label || r.knowledge_base) + "</a>"; } },
+              { label: t("kb.dlg.col_mode"), render: function (r) { return '<span class="claire-tag acc">' + esc(t("kb.dlg.mode_" + r.mode)) + "</span>"; } },
+              { label: t("kb.dlg.col_docs"), render: function (r) { return (r.documents || []).map(function (d) { return esc(d.title || d.document) + (d.score != null ? ' <span class="claire-hint">(' + esc(Number(d.score).toFixed(2)) + ")</span>" : ""); }).join("<br>"); } }
             ],
             rows: targets
           });
           box.innerHTML = h;
           ui().enhance(box);
         });
+      },
+      onSubmit: function () {
+        if (canActivate) opts.onActivate();
+        return true;
       }
     });
   }
 
+  // Direct contribution (design Section 9.1): POST /kb/{number}/contributions with one document of the personal knowledge base. An account contributes directly only where it is an active member, thus the list is GET /kb?joined=true. ``opts.kbNumber`` selects the target without the list.
   function openNoThemePicker(opts) {
+    opts = opts || {};
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
-    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.no_theme_desc", null, "This document does not strongly match a server theme yet. Pick a target shared KB directly or start a new one.")) + "</p>" +
-      '<div id="claire-no-theme-list"><p class="claire-hint">' + esc(t("kb.ui.loading", null, "Loading...")) + "</p></div>";
+    box.innerHTML = '<p class="claire-hint">' + esc(t(opts.kbNumber ? "kb.dlg.direct_desc" : "kb.dlg.no_theme_desc")) + "</p>" +
+      '<div id="claire-direct-docs"></div><div id="claire-no-theme-list"></div><div id="claire-direct-msg" class="claire-note warn" hidden></div>';
+    var docBox = box.querySelector("#claire-direct-docs");
+    var listBox = box.querySelector("#claire-no-theme-list");
+    var msgBox = box.querySelector("#claire-direct-msg");
 
     var createBtn = document.createElement("button");
     createBtn.type = "button";
     createBtn.className = "claire-btn sec";
-    createBtn.textContent = t("kb.dlg.create_btn", null, "Create Shared KB");
+    createBtn.textContent = t("campaign.make_kb_link");
+
+    function contribute(kbNumber, button, dlg) {
+      var documents = selectedDocuments(opts, docBox);
+      if (!documents.length) {
+        msgBox.textContent = t("kb.dlg.need_document");
+        msgBox.hidden = false;
+        return;
+      }
+      button.disabled = true;
+      msgBox.hidden = true;
+      var failures = [];
+      var chain = Promise.resolve();
+      documents.forEach(function (documentId) {
+        chain = chain.then(function () {
+          return ui().request("/kb/" + encodeURIComponent(kbNumber) + "/contributions", { method: "POST", body: { document: documentId } }).then(function (res) {
+            if (!res.ok) failures.push(documentId + ": " + errText(res));
+            else if (res.data && res.data.contribution && res.data.contribution.state === "failed") failures.push(documentId + ": " + errText({ error: res.data.contribution.reason }));
+          });
+        });
+      });
+      chain.then(function () {
+        button.disabled = false;
+        if (failures.length) {
+          msgBox.textContent = failures.join(" · ");
+          msgBox.hidden = false;
+        }
+        if (failures.length < documents.length) {
+          ui().toast(t("kb.dlg.contrib_done"), "ok");
+          if (opts.onSubmitted) opts.onSubmitted();
+          if (!failures.length) dlg.close("submitted");
+        }
+      });
+    }
 
     return ui().openDialog({
-      title: t("kb.dlg.no_theme_title", null, "Pick a target Shared KB"),
+      title: t(opts.kbNumber ? "kb.dlg.direct_title" : "kb.dlg.no_theme_title"),
       icon: "folder",
       bodyEl: box,
-      extraFooterButtons: [createBtn],
-      submitLabel: null,
+      extraFooterButtons: opts.kbNumber ? [] : [createBtn],
+      submitLabel: opts.kbNumber ? t("kb.dlg.submit_here") : null,
       onOpen: function (dlg) {
         createBtn.addEventListener("click", function () {
           dlg.close("create");
-          openCreateKbDialog({ onCreated: function () { if (opts && opts.onSubmitted) opts.onSubmitted(); } });
+          openCreateKbDialog({ onCreated: function () { if (opts.onSubmitted) opts.onSubmitted(); } });
         });
-        ui().request("/kb?page=true&limit=30").then(function (res) {
-          var host = box.querySelector("#claire-no-theme-list");
-          var items = (res.ok && res.data && (res.data.orderedItems || res.data.items)) || [];
-          if (!items.length) {
-            host.innerHTML = '<div class="claire-note warn">' + esc(res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : t("kb.dlg.no_kbs_yet", null, "No shared knowledge bases available yet.")) + "</div>";
+        if (opts.documentId) docBox.innerHTML = '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(opts.documentTitle || opts.documentId) + "</strong></div></div>";
+        else loadDocumentChoices(docBox, opts.homeHref);
+        if (opts.kbNumber) return;
+        ui().request("/kb?joined=true").then(function (res) {
+          var items = (res.ok && res.data && res.data.knowledge_bases) || [];
+          if (!res.ok || !items.length) {
+            listBox.innerHTML = '<div class="claire-note warn">' + esc(res.ok ? t("kb.dlg.no_kbs_yet") : errText(res)) + "</div>";
             return;
           }
-          host.innerHTML = ui().renderTable({
-            caption: t("kb.dlg.no_theme_title", null, "Pick a target Shared KB"),
+          listBox.innerHTML = ui().renderTable({
+            caption: t("kb.dlg.no_theme_title"),
             columns: [
-              { label: t("kb.dlg.col_kb", null, "Shared KB"), render: function (r) { return "<strong>" + esc(r.label) + "</strong> <span class=\"claire-tag " + (r.knowledge_type === "fictional" ? "fic" : "acc") + "\">" + esc(r.knowledge_type || "real") + "</span>"; } },
-              { label: t("kb.dlg.col_policy", null, "Policy"), render: function (r) { return esc(r.join_policy || "open"); } },
-              { label: "", actions: true, render: function (r) { return '<button type="button" class="claire-btn pri claire-btn-sm" data-pick-kb="' + esc(r.number) + '">' + esc(t("kb.dlg.submit_here", null, "Submit")) + "</button>"; } }
+              { label: t("kb.dlg.col_kb"), render: function (r) { return "<strong>" + esc(r.label) + "</strong> " + typeTag(r.knowledge_type); } },
+              { label: t("kb.pub.col_role"), render: function (r) { return esc(t("kb.role." + r.role)); } },
+              { label: "", actions: true, render: function (r) { return r.state === "archived" ? esc(stateLabel("archived")) : '<button type="button" class="claire-btn pri claire-btn-sm" data-pick-kb="' + esc(r.number) + '">' + esc(t("kb.dlg.submit_here")) + "</button>"; } }
             ],
             rows: items
           });
-          host.addEventListener("click", function (ev) {
+          listBox.addEventListener("click", function (ev) {
             var btn = ev.target && ev.target.closest ? ev.target.closest("[data-pick-kb]") : null;
-            if (!btn) return;
-            var kbNum = btn.getAttribute("data-pick-kb");
-            btn.disabled = true;
-            ui().request("/kb/" + encodeURIComponent(kbNum) + "/contributions", {
-              method: "POST",
-              body: { document: opts.documentId }
-            }).then(function (sub) {
-              if (sub.ok) {
-                ui().toast(t("kb.dlg.contrib_done", null, "Contribution submitted."), "ok");
-                dlg.close("submitted");
-                if (opts && opts.onSubmitted) opts.onSubmitted(sub.data);
-              } else {
-                btn.disabled = false;
-                ui().toast(sub.error || "Failed", "danger");
-              }
-            });
+            if (btn) contribute(btn.getAttribute("data-pick-kb"), btn, dlg);
           });
         });
+      },
+      onSubmit: function (dlg, _b, submitBtn) {
+        contribute(opts.kbNumber, submitBtn, dlg);
+        return false;
       }
     });
   }
 
+  // Contribution to a theme (design Section 9.2): POST /submissions with {"documents": [...], "theme"?: "<number>"}. Without ``theme`` the server routes each document by its theme match.
   function openContribPreview(opts) {
-    var docId = opts && opts.documentId;
-    if (!docId) return Promise.resolve("");
+    opts = opts || {};
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
-    box.innerHTML =
-      '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc((opts && opts.documentTitle) || docId) + '</strong><span>' + esc(t("kb.dlg.contrib_preview_desc", null, "Submit this extracted document to matching shared knowledge bases.")) + "</span></div></div>" +
-      '<div id="claire-contrib-targets"></div>';
+    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.contrib_preview_desc")) + "</p>" +
+      '<div id="claire-contrib-docs"></div><div id="claire-contrib-targets"></div>';
+    var docBox = box.querySelector("#claire-contrib-docs");
+    var resultBox = box.querySelector("#claire-contrib-targets");
+    var done = false;
 
     var pickDirectBtn = document.createElement("button");
     pickDirectBtn.type = "button";
     pickDirectBtn.className = "claire-btn sec";
-    pickDirectBtn.textContent = t("kb.dlg.pick_kb_direct", null, "Choose Shared KB directly");
+    pickDirectBtn.textContent = t("kb.dlg.pick_kb_direct");
 
     return ui().openDialog({
-      title: t("kb.dlg.contrib_title", null, "Contribute document"),
+      title: t("kb.dlg.contrib_title"),
       icon: "merge",
       bodyEl: box,
       extraFooterButtons: [pickDirectBtn],
-      submitLabel: t("kb.dlg.contrib_submit_theme", null, "Submit by theme"),
+      submitLabel: t(opts.theme ? "campaign.contribute_action" : "kb.dlg.contrib_submit_theme"),
       onOpen: function (dlg) {
         pickDirectBtn.addEventListener("click", function () {
           dlg.close("direct");
           openNoThemePicker(opts);
         });
-        if (opts && opts.themeLabel) {
-          box.querySelector("#claire-contrib-targets").innerHTML = '<div class="claire-note ok"><span>' + esc(t("kb.dlg.target_theme_label", { label: opts.themeLabel }, "Target theme: " + opts.themeLabel)) + "</span></div>";
-        }
+        if (opts.documentId) docBox.innerHTML = '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(opts.documentTitle || opts.documentId) + "</strong></div></div>";
+        else loadDocumentChoices(docBox, opts.homeHref);
+        if (opts.theme) resultBox.innerHTML = '<div class="claire-note ok"><span>' + esc(t("kb.dlg.target_theme_label", { label: opts.themeLabel || opts.theme })) + "</span></div>";
       },
-      onSubmit: function (dlg, _b, submitBtn) {
+      onSubmit: function (_dlg, _b, submitBtn) {
+        if (done) return true;
+        var documents = selectedDocuments(opts, docBox);
+        if (!documents.length) {
+          resultBox.innerHTML = '<div class="claire-note warn">' + esc(t("kb.dlg.need_document")) + "</div>";
+          return false;
+        }
         if (submitBtn) submitBtn.disabled = true;
-        var payload = { documents: [docId] };
-        if (opts && opts.themeId) payload.theme = String(opts.themeId);
+        var payload = { documents: documents };
+        if (opts.theme) payload.theme = String(opts.theme);
         return ui().request("/submissions", { method: "POST", body: payload }).then(function (res) {
+          if (submitBtn) submitBtn.disabled = false;
           if (!res.ok) {
-            if (submitBtn) submitBtn.disabled = false;
-            var msg = res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : (res.error || "Failed");
-            box.querySelector("#claire-contrib-targets").innerHTML = '<div class="claire-note warn">' + esc(msg) + "</div>";
+            resultBox.innerHTML = '<div class="claire-note warn">' + esc(errText(res)) + (res.data && res.data.limit ? " (" + esc(res.data.limit) + ")" : "") + "</div>";
             return false;
           }
-          var items = (res.data && res.data.submission && res.data.submission.items) || [];
-          var first = items[0] || {};
-          if (first.code === "no_theme") {
-            dlg.close("no_theme");
-            openNoThemePicker(opts);
-            return false;
-          }
-          ui().toast(t("kb.dlg.contrib_done", null, "Contribution submitted."), "ok");
-          if (opts && opts.onSubmitted) opts.onSubmitted(res.data);
-          return true;
+          // The dialog stays open with the state of each target. An item without a theme has the code "no_theme": the person contributes it directly or makes a shared knowledge base (Section 9.2 rule 3).
+          done = true;
+          resultBox.innerHTML = submissionResultHtml(res.data.submission);
+          ui().enhance(resultBox);
+          if (submitBtn) submitBtn.textContent = t("common.action.close");
+          ui().toast(t("kb.dlg.contrib_done"), "ok");
+          if (opts.onSubmitted) opts.onSubmitted(res.data);
+          return false;
         });
       }
     });
   }
 
+  // POST /kb: label, knowledge_type (required), description, seed_entities (at most 20). The embedding model is the fixed model of the server: the request has no model field.
   function openCreateKbDialog(opts) {
     var box = document.createElement("form");
     box.className = "claire-panel-inner";
     box.noValidate = true;
     var defaultType = (opts && opts.defaultType) === "fictional" ? "fictional" : "real";
     box.innerHTML =
-      '<div id="claire-similar-kbs" class="claire-panel-inner"><p class="claire-hint">' + esc(t("kb.dlg.loading_similar", null, "Checking existing local and federated shared KBs...")) + "</p></div>" +
+      '<div id="claire-similar-kbs" class="claire-panel-inner"><p class="claire-hint">' + esc(t("kb.dlg.loading_similar")) + "</p></div>" +
       '<div class="claire-field">' +
-      '  <label class="claire-field-label" for="newkb-label">' + esc(t("kb.dlg.field_name", null, "Shared KB name")) + "</label>" +
+      '  <label class="claire-field-label" for="newkb-label">' + esc(t("kb.dlg.field_name")) + "</label>" +
       '  <input id="newkb-label" name="label" class="claire-input" required maxlength="80" data-validate data-error-id="newkb-label-err" aria-invalid="false"/>' +
       '  <span id="newkb-label-err" class="claire-error" hidden></span>' +
       "</div>" +
-      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.dlg.field_type", null, "Knowledge type (required)")) + "</legend>" +
+      '<fieldset class="claire-field" style="border:0;padding:0;margin:0"><legend class="claire-field-label">' + esc(t("kb.dlg.field_type")) + "</legend>" +
       '  <div class="claire-chips">' +
-      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="real"' + (defaultType === "real" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_real", null, "Real-world")) + "</span></label>" +
-      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="fictional"' + (defaultType === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_fictional", null, "Fictional")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="real"' + (defaultType === "real" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_real")) + "</span></label>" +
+      '    <label class="claire-chip"><input type="radio" name="knowledge_type" value="fictional"' + (defaultType === "fictional" ? " checked" : "") + "/><span>" + esc(t("kb.dlg.type_fictional")) + "</span></label>" +
       "  </div>" +
       "</fieldset>" +
       '<div class="claire-field">' +
-      '  <label class="claire-field-label" for="newkb-desc">' + esc(t("kb.dlg.field_desc", null, "Description")) + "</label>" +
+      '  <label class="claire-field-label" for="newkb-desc">' + esc(t("kb.dlg.field_desc")) + "</label>" +
       '  <textarea id="newkb-desc" name="description" class="claire-textarea" maxlength="400"></textarea>' +
       "</div>" +
       '<div class="claire-field">' +
-      '  <label class="claire-field-label" for="newkb-seeds">' + esc(t("kb.dlg.field_seeds", null, "Seed entities (comma-separated, max 20)")) + "</label>" +
+      '  <label class="claire-field-label" for="newkb-seeds">' + esc(t("kb.dlg.field_seeds")) + "</label>" +
       '  <input id="newkb-seeds" name="seed_entities" class="claire-input" data-validate data-error-id="newkb-seeds-err" aria-invalid="false"/>' +
       '  <span id="newkb-seeds-err" class="claire-error" hidden></span>' +
-      "</div>" +
-      '<div class="claire-field">' +
-      '  <label class="claire-field-label" for="newkb-model">' + esc(t("kb.dlg.field_embed_model", null, "Embedding model")) + "</label>" +
-      '  <select id="newkb-model" name="embedding_model" class="claire-select"><option value="">' + esc(t("kb.dlg.embed_default", null, "Server configured default")) + "</option></select>" +
       "</div>" +
       '<div id="newkb-form-err" class="claire-note warn" hidden></div>';
 
     return ui().openDialog({
-      title: t("kb.dlg.create_title", null, "Create Shared Knowledge Base"),
+      title: t("kb.dlg.create_title"),
       icon: "plus",
       bodyEl: box,
-      submitLabel: t("kb.dlg.create_btn", null, "Create Shared KB"),
+      submitLabel: t("campaign.make_kb_link"),
       onOpen: function (_dlg, _b, submitBtn) {
-        ui().request("/kb?page=true&limit=12").then(function (res) {
-          var host = box.querySelector("#claire-similar-kbs");
-          var items = (res.ok && res.data && (res.data.orderedItems || res.data.items)) || [];
-          if (!items.length) {
-            host.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.similar_none", null, "No similar existing shared KBs found.")) + "</p>";
-            return;
-          }
-          host.innerHTML = '<div class="claire-note"><span>' + esc(t("kb.dlg.similar_exists", null, "Existing shared KBs — consider joining or contributing before creating a duplicate:")) + "</span></div>" +
-            '<div class="claire-tags">' + items.slice(0, 6).map(function (it) {
-              return '<a class="claire-tag ' + (it.knowledge_type === "fictional" ? "fic" : "acc") + '" href="/kb/' + esc(it.number) + '/">' + esc(it.label) + "</a>";
-            }).join("") + "</div>";
-        });
-        ui().request("/providers").then(function (res) {
-          if (!res.ok || !res.data) return;
-          var sel = box.querySelector("#newkb-model");
-          var providers = res.data.providers || res.data.configured || [];
-          if (Array.isArray(providers)) {
-            providers.forEach(function (p) {
-              var name = typeof p === "string" ? p : (p.embedding_model || p.model || p.id || "");
-              if (!name) return;
-              var opt = document.createElement("option");
-              opt.value = name;
-              opt.textContent = name;
-              sel.appendChild(opt);
-            });
-          }
-        });
+        function loadExisting() {
+          var knowledgeType = (box.querySelector('input[name="knowledge_type"]:checked') || {}).value || defaultType;
+          ui().request("/kb?type=" + encodeURIComponent(knowledgeType)).then(function (res) {
+            var host = box.querySelector("#claire-similar-kbs");
+            var items = (res.ok && res.data && res.data.knowledge_bases) || [];
+            if (!items.length) {
+              host.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.similar_none")) + "</p>";
+              return;
+            }
+            host.innerHTML = '<div class="claire-note"><span>' + esc(t("kb.dlg.similar_exists")) + "</span></div>" +
+              '<div class="claire-tags">' + items.slice(0, 12).map(function (it) {
+                return '<a class="claire-tag ' + (it.knowledge_type === "fictional" ? "fic" : "acc") + '" href="/kb/' + esc(it.number) + '/">' + esc(it.label) + "</a>";
+              }).join("") + "</div>";
+          });
+        }
+        loadExisting();
+        box.querySelectorAll('input[name="knowledge_type"]').forEach(function (input) { input.addEventListener("change", loadExisting); });
         var seedsEl = box.querySelector("#newkb-seeds");
         seedsEl.addEventListener("input", function () {
-          var seeds = seedsEl.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-          if (seeds.length > 20) {
-            seedsEl.setCustomValidity(t("kb.dlg.err_seeds_max", null, "Up to 20 seed entities are allowed."));
-          } else {
-            seedsEl.setCustomValidity("");
-          }
+          seedsEl.setCustomValidity(seedList(seedsEl.value).length > 20 ? t("kb.dlg.err_seeds_max") : "");
         });
         box.addEventListener("submit", function (ev) {
           ev.preventDefault();
@@ -242,28 +337,25 @@
       onSubmit: function (_dlg, _b, submitBtn) {
         var labelEl = box.querySelector("#newkb-label");
         var seedsEl = box.querySelector("#newkb-seeds");
-        var seeds = seedsEl.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-        seedsEl.setCustomValidity(seeds.length > 20 ? t("kb.dlg.err_seeds_max", null, "Up to 20 seed entities are allowed.") : "");
+        var seeds = seedList(seedsEl.value);
+        seedsEl.setCustomValidity(seeds.length > 20 ? t("kb.dlg.err_seeds_max") : "");
         if (!box.reportValidity()) return false;
         if (submitBtn) submitBtn.disabled = true;
-        var ktype = (box.querySelector('input[name="knowledge_type"]:checked') || {}).value || "real";
         var payload = {
           label: labelEl.value.trim(),
-          knowledge_type: ktype,
-          description: box.querySelector("#newkb-desc").value.trim(),
-          seed_entities: seeds
+          knowledge_type: (box.querySelector('input[name="knowledge_type"]:checked') || {}).value,
+          description: box.querySelector("#newkb-desc").value.trim()
         };
-        var modelVal = box.querySelector("#newkb-model").value;
-        if (modelVal) payload.embedding_model = modelVal;
+        if (seeds.length) payload.seed_entities = seeds;
         return ui().request("/kb", { method: "POST", body: payload }).then(function (res) {
           var errBox = box.querySelector("#newkb-form-err");
           if (!res.ok || !res.data || !res.data.knowledge_base) {
             if (submitBtn) submitBtn.disabled = false;
-            errBox.textContent = res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : (res.error || "Failed");
+            errBox.textContent = errText(res);
             errBox.hidden = false;
             return false;
           }
-          ui().toast(t("kb.dlg.create_done", null, "Shared knowledge base created."), "ok");
+          ui().toast(t("kb.dlg.create_done"), "ok");
           if (opts && opts.onCreated) opts.onCreated(res.data.knowledge_base);
           return true;
         });
@@ -271,25 +363,26 @@
     });
   }
 
+  // POST /kb/{number}/forks (design Section 9.8).
   function openForkKbDialog(opts) {
     var kb = (opts && opts.kb) || {};
     return ui().openDialog({
-      title: t("kb.dlg.fork_title", null, "Fork shared knowledge base"),
+      title: t("kb.dlg.fork_title"),
       icon: "fork",
-      bodyHtml: '<p>' + esc(t("kb.dlg.fork_desc", { label: kb.label || ("#" + kb.number) }, 'Create your own copy forked from "' + (kb.label || kb.number) + '" preserving origin attribution.')) + "</p>" +
+      bodyHtml: "<p>" + esc(t("kb.dlg.fork_desc", { label: kb.label || kb.number })) + "</p>" +
         '<div id="claire-fork-err" class="claire-note warn" hidden></div>',
-      submitLabel: t("kb.dlg.fork_confirm", null, "Fork KB"),
+      submitLabel: t("kb.dlg.fork_confirm"),
       onSubmit: function (_dlg, body, submitBtn) {
         if (submitBtn) submitBtn.disabled = true;
         return ui().request("/kb/" + encodeURIComponent(kb.number) + "/forks", { method: "POST", body: {} }).then(function (res) {
           if (!res.ok || !res.data || !res.data.knowledge_base) {
             if (submitBtn) submitBtn.disabled = false;
             var errEl = body.querySelector("#claire-fork-err");
-            errEl.textContent = res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : (res.error || "Failed");
+            errEl.textContent = errText(res);
             errEl.hidden = false;
             return false;
           }
-          ui().toast(t("kb.dlg.fork_done", null, "Forked shared KB."), "ok");
+          ui().toast(t("kb.dlg.fork_done", { documents: res.data.documents || 0 }), "ok");
           if (opts && opts.onForked) opts.onForked(res.data.knowledge_base);
           return true;
         });
@@ -297,42 +390,39 @@
     });
   }
 
+  function reasonSelectHtml(id) {
+    return '<div class="claire-field"><label class="claire-field-label" for="' + id + '">' + esc(t("kb.dlg.remove_reason")) + "</label>" +
+      '<select id="' + id + '" name="reason" class="claire-select" required>' +
+      REASON_CODES.map(function (code) { return '<option value="' + code + '">' + esc(t("kb.reason." + code)) + "</option>"; }).join("") +
+      "</select></div>";
+  }
+
+  // POST /kb/{number}/contributions/{contribution}/remove with a reason code (design Section 9.6): the copy is purged and a tombstone stays.
   function openRemoveContributionDialog(opts) {
     var box = document.createElement("form");
     box.className = "claire-panel-inner";
-    box.innerHTML =
-      '<div class="claire-note danger"><span>' + esc(t("kb.dlg.remove_warn", null, "Removing an approved contribution purges the document and records a tombstone preventing duplicate re-submission.")) + "</span></div>" +
-      '<div class="claire-field"><label class="claire-field-label" for="rm-reason">' + esc(t("kb.dlg.remove_reason", null, "Reason code")) + "</label>" +
-      '<select id="rm-reason" name="reason" class="claire-select" required>' +
-      '<option value="off_topic">' + esc(t("kb.dlg.reason_off_topic", null, "Off topic")) + "</option>" +
-      '<option value="duplicate">' + esc(t("kb.dlg.reason_duplicate", null, "Duplicate")) + "</option>" +
-      '<option value="spam">' + esc(t("kb.dlg.reason_spam", null, "Spam / abuse")) + "</option>" +
-      '<option value="policy">' + esc(t("kb.dlg.reason_policy", null, "Server or KB policy")) + "</option>" +
-      '<option value="owner_request">' + esc(t("kb.dlg.reason_owner", null, "Contributor request")) + "</option>" +
-      "</select></div>" +
-      '<div id="rm-err" class="claire-note warn" hidden></div>';
+    box.innerHTML = '<div class="claire-note danger"><span>' + esc(t("kb.dlg.remove_warn")) + "</span></div>" + reasonSelectHtml("rm-reason") + '<div id="rm-err" class="claire-note warn" hidden></div>';
 
     return ui().openDialog({
-      title: t("kb.dlg.remove_title", null, "Remove contribution"),
+      title: t("kb.dlg.remove_title"),
       icon: "trash",
       danger: true,
       bodyEl: box,
-      submitLabel: t("kb.dlg.remove_submit", null, "Remove and purge"),
+      submitLabel: t("kb.dlg.remove_submit"),
       onSubmit: function (_dlg, _b, submitBtn) {
         if (submitBtn) submitBtn.disabled = true;
-        var reason = box.querySelector("#rm-reason").value;
         return ui().request("/kb/" + encodeURIComponent(opts.kbNumber) + "/contributions/" + encodeURIComponent(opts.contribNumber) + "/remove", {
           method: "POST",
-          body: { reason: reason }
+          body: { reason: box.querySelector("#rm-reason").value }
         }).then(function (res) {
           if (!res.ok) {
             if (submitBtn) submitBtn.disabled = false;
             var errEl = box.querySelector("#rm-err");
-            errEl.textContent = res.error || "Failed";
+            errEl.textContent = errText(res);
             errEl.hidden = false;
             return false;
           }
-          ui().toast(t("kb.dlg.remove_done", null, "Contribution removed."), "ok");
+          ui().toast(t("kb.dlg.remove_done"), "ok");
           if (opts && opts.onRemoved) opts.onRemoved(res.data);
           return true;
         });
@@ -340,46 +430,78 @@
     });
   }
 
+  // PATCH /kb/{number}/contributions/{contribution} with {"action": "reject", "reason": "<code>"}: a reject needs a reason code (design Section 9.4).
+  function openRejectContributionDialog(opts) {
+    var box = document.createElement("form");
+    box.className = "claire-panel-inner";
+    box.innerHTML = reasonSelectHtml("rj-reason") + '<div id="rj-err" class="claire-note warn" hidden></div>';
+
+    return ui().openDialog({
+      title: t("kb.dlg.reject_title"),
+      icon: "block",
+      danger: true,
+      bodyEl: box,
+      submitLabel: t("kb.dlg.reject_submit"),
+      onSubmit: function (_dlg, _b, submitBtn) {
+        if (submitBtn) submitBtn.disabled = true;
+        return ui().request("/kb/" + encodeURIComponent(opts.kbNumber) + "/contributions/" + encodeURIComponent(opts.contribNumber), {
+          method: "PATCH",
+          body: { action: "reject", reason: box.querySelector("#rj-reason").value }
+        }).then(function (res) {
+          if (!res.ok) {
+            if (submitBtn) submitBtn.disabled = false;
+            var errEl = box.querySelector("#rj-err");
+            errEl.textContent = errText(res);
+            errEl.hidden = false;
+            return false;
+          }
+          if (opts && opts.onRejected) opts.onRejected(res.data);
+          return true;
+        });
+      }
+    });
+  }
+
+  // POST /api/admin/themes/{number}/merge with {"into": "<number>"} (design Section 8.3). The two themes have one knowledge type.
   function openMergeThemeDialog(opts) {
     var src = (opts && opts.sourceTheme) || {};
     var sameType = ((opts && opts.themes) || []).filter(function (th) {
-      return String(th.number) !== String(src.number) && th.knowledge_type === src.knowledge_type;
+      return String(th.number) !== String(src.number) && th.knowledge_type === src.knowledge_type && th.state !== "merged";
     });
     var box = document.createElement("form");
     box.className = "claire-panel-inner";
     if (!sameType.length) {
-      box.innerHTML = '<div class="claire-note warn">' + esc(t("kb.dlg.merge_none", null, "No other themes of the same knowledge type are available to merge into.")) + "</div>";
+      box.innerHTML = '<div class="claire-note warn">' + esc(t("kb.dlg.merge_none")) + "</div>";
     } else {
       box.innerHTML =
-        '<div class="claire-note warn">' + esc(t("kb.dlg.merge_warn", { label: src.label || src.number }, 'Merge "' + (src.label || src.number) + '" into another theme of the same type (' + (src.knowledge_type || "real") + ").")) + "</div>" +
-        '<div class="claire-field"><label class="claire-field-label" for="merge-into">' + esc(t("kb.dlg.merge_target", null, "Target theme")) + "</label>" +
+        '<div class="claire-note warn">' + esc(t("kb.dlg.merge_warn", { label: src.label || src.number })) + "</div>" +
+        '<div class="claire-field"><label class="claire-field-label" for="merge-into">' + esc(t("kb.dlg.merge_target")) + "</label>" +
         '<select id="merge-into" class="claire-select" required>' +
-        sameType.map(function (th) { return '<option value="' + esc(th.number) + '">' + esc(th.label) + " (#" + esc(th.number) + ")</option>"; }).join("") +
+        sameType.map(function (th) { return '<option value="' + esc(th.number) + '">' + esc(th.label) + " (" + esc(th.number) + ")</option>"; }).join("") +
         "</select></div>" +
         '<div id="merge-err" class="claire-note warn" hidden></div>';
     }
     return ui().openDialog({
-      title: t("kb.dlg.merge_title", null, "Merge theme"),
+      title: t("kb.dlg.merge_title"),
       icon: "merge",
       danger: true,
       bodyEl: box,
-      submitLabel: sameType.length ? t("kb.dlg.merge_submit", null, "Merge themes") : null,
+      submitLabel: sameType.length ? t("kb.dlg.merge_submit") : null,
       onSubmit: function (_dlg, _b, submitBtn) {
         if (!sameType.length) return true;
         if (submitBtn) submitBtn.disabled = true;
-        var into = box.querySelector("#merge-into").value;
         return ui().request("/api/admin/themes/" + encodeURIComponent(src.number) + "/merge", {
           method: "POST",
-          body: { into: into }
+          body: { into: box.querySelector("#merge-into").value }
         }).then(function (res) {
           if (!res.ok) {
             if (submitBtn) submitBtn.disabled = false;
             var errEl = box.querySelector("#merge-err");
-            errEl.textContent = res.error || "Failed";
+            errEl.textContent = errText(res);
             errEl.hidden = false;
             return false;
           }
-          ui().toast(t("kb.dlg.merge_done", null, "Themes merged."), "ok");
+          ui().toast(t("kb.dlg.merge_done"), "ok");
           if (opts && opts.onMerged) opts.onMerged(res.data);
           return true;
         });
@@ -387,92 +509,71 @@
     });
   }
 
+  // DELETE /kb/{number}/ (the admin, with a recent sign-in): the first request gives the plan only; "?apply=true" deletes (design Section 10.1). The request helper opens the re-authentication dialog for 401 "reauth_required" and sends the request again.
   function openDeleteKbDialog(opts) {
     var kbNumber = opts && opts.kbNumber;
     var box = document.createElement("div");
     box.className = "claire-panel-inner";
-    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.delete_dry_loading", null, "Calculating purge impact...")) + "</p>";
+    box.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.delete_dry_loading")) + "</p>";
     var canApply = false;
 
     return ui().openDialog({
-      title: t("kb.dlg.delete_title", { label: (opts && opts.kbLabel) || ("#" + kbNumber) }, "Delete shared KB"),
+      title: t("kb.dlg.delete_title", { label: (opts && opts.kbLabel) || kbNumber }),
       icon: "trash",
       danger: true,
       bodyEl: box,
-      submitLabel: t("kb.dlg.delete_apply", null, "Confirm permanent deletion"),
+      submitLabel: t("kb.dlg.delete_apply"),
       onOpen: function (_dlg, _b, submitBtn) {
         if (submitBtn) submitBtn.disabled = true;
         ui().request("/kb/" + encodeURIComponent(kbNumber) + "/", { method: "DELETE" }).then(function (res) {
           if (!res.ok || !res.data || !res.data.would_delete) {
-            box.innerHTML = '<div class="claire-note warn">' + esc(res.unavailable ? t("kb.dlg.backend_pending", null, "Shared KB backend endpoint is not active on this server yet.") : (res.error || "Failed")) + "</div>";
+            box.innerHTML = '<div class="claire-note warn">' + esc(errText(res)) + "</div>";
             return;
           }
           canApply = true;
           if (submitBtn) submitBtn.disabled = false;
           var wd = res.data.would_delete;
           box.innerHTML =
-            '<div class="claire-note danger"><span>' + esc(t("kb.dlg.delete_impact", null, "Dry-run preview — this action permanently deletes all records below:")) + "</span></div>" +
+            '<div class="claire-note danger"><span>' + esc(t("kb.dlg.delete_impact")) + "</span></div>" +
             '<div class="claire-kpis">' +
-            '<div class="claire-kpi"><strong>' + esc(wd.documents || 0) + "</strong><span>" + esc(t("kb.dlg.col_docs", null, "Documents")) + "</span></div>" +
-            '<div class="claire-kpi"><strong>' + esc(wd.entities || 0) + "</strong><span>" + esc(t("kb.dlg.col_entities", null, "Entities")) + "</span></div>" +
-            '<div class="claire-kpi"><strong>' + esc(wd.relations || 0) + "</strong><span>" + esc(t("kb.dlg.col_relations", null, "Relations")) + "</span></div>" +
-            '<div class="claire-kpi"><strong>' + esc(wd.members || 0) + "</strong><span>" + esc(t("kb.dlg.col_members", null, "Members")) + "</span></div>" +
-            '<div class="claire-kpi"><strong>' + esc(wd.contributions || 0) + "</strong><span>" + esc(t("kb.dlg.col_contributions", null, "Contributions")) + "</span></div>" +
+            '<div class="claire-kpi"><strong>' + esc(wd.documents || 0) + "</strong><span>" + esc(t("kb.dlg.col_docs")) + "</span></div>" +
+            '<div class="claire-kpi"><strong>' + esc(wd.entities || 0) + "</strong><span>" + esc(t("kb.dlg.col_entities")) + "</span></div>" +
+            '<div class="claire-kpi"><strong>' + esc(wd.relations || 0) + "</strong><span>" + esc(t("kb.dlg.col_relations")) + "</span></div>" +
+            '<div class="claire-kpi"><strong>' + esc(wd.members || 0) + "</strong><span>" + esc(t("kb.dlg.col_members")) + "</span></div>" +
+            '<div class="claire-kpi"><strong>' + esc(wd.contributions || 0) + "</strong><span>" + esc(t("kb.dlg.col_contributions")) + "</span></div>" +
             "</div>";
         });
       },
       onSubmit: function (_dlg, _b, submitBtn) {
         if (!canApply) return false;
         if (submitBtn) submitBtn.disabled = true;
-        return ui().stepUp().then(function (verified) {
-          if (!verified) {
+        return ui().request("/kb/" + encodeURIComponent(kbNumber) + "/?apply=true", { method: "DELETE" }).then(function (res) {
+          if (!res.ok) {
             if (submitBtn) submitBtn.disabled = false;
+            ui().toast(errText(res), "danger");
             return false;
           }
-          return ui().request("/kb/" + encodeURIComponent(kbNumber) + "/?apply=true", { method: "DELETE" }).then(function (res) {
-            if (!res.ok) {
-              if (submitBtn) submitBtn.disabled = false;
-              ui().toast(res.error || "Failed", "danger");
-              return false;
-            }
-            ui().toast(t("kb.dlg.delete_done", null, "Shared KB deleted."), "ok");
-            if (opts && opts.onDeleted) opts.onDeleted(res.data);
-            return true;
-          });
+          ui().toast(t("kb.dlg.delete_done"), "ok");
+          if (opts && opts.onDeleted) opts.onDeleted(res.data);
+          return true;
         });
-      }
-    });
-  }
-
-  function openFictionNotice(opts) {
-    return ui().openDialog({
-      title: t("ws.kb.fiction_notice_title", null, "Fictional content notice"),
-      icon: "warning",
-      bodyHtml: '<div class="claire-note fic"><span>' + esc(t("ws.kb.fiction_notice_body", { title: (opts && opts.documentTitle) || "" }, "This document was extracted locally but appears fictional. Contributing it to a fictional shared theme keeps personal reality KBs clean.")) + "</span></div>",
-      cancelLabel: t("ws.kb.fiction_later", null, "Later"),
-      submitLabel: t("ws.kb.contribute_to_theme", null, "Contribute to this theme"),
-      onSubmit: function (dlg) {
-        dlg.close("contrib");
-        openContribPreview({
-          documentId: opts && opts.documentId,
-          documentTitle: opts && opts.documentTitle,
-          themeId: opts && opts.themeNumber,
-          themeLabel: opts && opts.themeLabel
-        });
-        return false;
       }
     });
   }
 
   root.ClaireKbDialogs = {
+    REASON_CODES: REASON_CODES,
+    typeTag: typeTag,
+    stateLabel: stateLabel,
+    seedList: seedList,
     openAutoRuleDryRunDialog: openAutoRuleDryRunDialog,
     openNoThemePicker: openNoThemePicker,
     openContribPreview: openContribPreview,
     openCreateKbDialog: openCreateKbDialog,
     openForkKbDialog: openForkKbDialog,
     openRemoveContributionDialog: openRemoveContributionDialog,
+    openRejectContributionDialog: openRejectContributionDialog,
     openMergeThemeDialog: openMergeThemeDialog,
-    openDeleteKbDialog: openDeleteKbDialog,
-    openFictionNotice: openFictionNotice
+    openDeleteKbDialog: openDeleteKbDialog
   };
 })(window);

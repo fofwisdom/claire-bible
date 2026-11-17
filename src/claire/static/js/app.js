@@ -2297,42 +2297,6 @@ function renderIngestStatus(){
   panel.innerHTML = h;
 }
 
-function buildDialogThemeConfig(selectedThemeId, helpOwnerKey, collabDeniedKey){
-  const isMulti = isMultiThemeEnabled();
-  if(!isMulti || !Array.isArray(availableThemes) || availableThemes.length === 0){
-    return { visible: false, themes: [] };
-  }
-  const curVal = String(selectedThemeId || activeThemeId || '0');
-  if(AUTH_SCOPE === 'collaborator'){
-    const eligibleThemes = availableThemes.filter(t => getThemeKey(t) !== '0' && t.is_collaborator_accessible !== false);
-    if(eligibleThemes.length === 0){
-      return {
-        visible: false,
-        themes: [],
-        deniedMsg: tr(collabDeniedKey || 'ws.ingest.no_collab_theme')
-      };
-    }
-    const selKey = eligibleThemes.some(t => getThemeKey(t) === curVal) ? curVal : getThemeKey(eligibleThemes[0]);
-    const optionsHtml = eligibleThemes.map(t => {
-      const tKey = getThemeKey(t);
-      const icon = esc(t.icon || '📚');
-      const label = esc(t.label);
-      return `<option value="${esc(tKey)}" ${tKey === selKey ? 'selected' : ''}>${icon} ${label}</option>`;
-    }).join('');
-    return { visible: true, themes: eligibleThemes, optionsHtml, selectedValue: selKey, helpText: tr('ws.ingest.collab_themes') };
-  }
-  if(availableThemes.length <= 1){
-    return { visible: false, themes: [] };
-  }
-  return {
-    visible: true,
-    themes: availableThemes,
-    optionsHtml: renderThemeOptions(curVal),
-    selectedValue: curVal,
-    helpText: tr(helpOwnerKey || 'ws.ingest.owner_themes')
-  };
-}
-
 let latestIngestEffortSpec = null;
 
 function applyEffortSpecFromStats(stats){
@@ -2343,17 +2307,11 @@ function applyEffortSpecFromStats(stats){
   }
 }
 
-async function refreshIngestEffortSpec(themeOverride){
+// The effort options come from the knowledge base of the page path (design Section 5.2): no parameter selects another one.
+async function refreshIngestEffortSpec(){
   if(!canIngest()) return;
   try{
-    const base = apiUrl('stats');
-    let url = base;
-    if(themeOverride !== undefined && themeOverride !== null && String(themeOverride) !== ''){
-      const u = new URL(base, window.location.href);
-      u.searchParams.set('theme', String(themeOverride));
-      url = u.pathname + u.search;
-    }
-    const r = await fetch(url, { cache: 'no-store' });
+    const r = await fetch(apiUrl('stats'), { cache: 'no-store' });
     if(!r.ok) return;
     const d = await r.json();
     applyEffortSpecFromStats(d);
@@ -2366,17 +2324,10 @@ function openIngest(){
     renderIngestStatus();
     return;
   }
-  const themeConfig = buildDialogThemeConfig(activeThemeId, 'ws.ingest.owner_themes', 'ws.ingest.no_collab_theme');
+  // Ingest writes only to the personal knowledge base of the account (design Section 5.2 rule 3): the form has no knowledge base selector.
   if(window.ClaireIngestDialogs){
-    window.ClaireIngestDialogs.openIngestDialog({
-      themeConfig,
-      effortSpec: latestIngestEffortSpec,
-      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); }
-    });
-    if(themeConfig.deniedMsg){
-      window.ClaireIngestDialogs.showMsg('ingest-modal-msg', themeConfig.deniedMsg, true);
-    }
-    refreshIngestEffortSpec(themeConfig.selectedValue || activeThemeId);
+    window.ClaireIngestDialogs.openIngestDialog({ effortSpec: latestIngestEffortSpec });
+    refreshIngestEffortSpec();
   }
 }
 async function runIngest(){
@@ -2386,30 +2337,16 @@ async function runIngest(){
     renderIngestStatus();
     return;
   }
-  const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('ingin');
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
-  const ingthemeEl = document.getElementById('ingtheme');
-  const targetThemeId = (isMulti && ingthemeEl && ingthemeEl.value) ? String(ingthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.ingest.collab_default_denied"));
-      return;
-    }
-  }
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-ingest');
-  const focus='';
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
   const fullContent=!!amountChoice && amountChoice.value==='full';
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = tr("ws.common.starting");
   const optionLabels=[];
-  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
-  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
-  }
   if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(optionLabels.length){
@@ -2438,7 +2375,7 @@ async function runIngest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(payload, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(payload, '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2537,29 +2474,22 @@ function renderIngestResult(d){
   let h='<h2>'+(d.duplicate?'<span data-icon="merge"></span> ' + tr("ws.ingest.duplicate"):(d.updated?'<span data-icon="restore"></span> ' + tr("ws.ingest.updated"):'<span data-icon="check-circle"></span> ' + tr("ws.ingest.done")))+'</h2>';
   h+='<p class=al><b>'+esc(d.title||d.document_id||tr("home.recent.untitled"))+'</b>'+(d.partial?' <small><span data-icon="warning"></span> ' + tr("ws.ingest.partial") + '</small>':'')+'</p>';
   const appliedOptions=[];
-  if(d.kb_id !== undefined){
-    appliedOptions.push(esc(tr('ws.ingest.opt_theme', { theme: d.theme_label || ('#' + d.kb_id) })));
-  }
   if(d.full_content) appliedOptions.push(tr("ws.ingest.opt_full"));
   if(d.effort) appliedOptions.push(esc(tr('ws.ingest.opt_effort', { effort: d.effort })));
   if(appliedOptions.length) h+='<p class=al><b>' + tr("ws.ingest.applied") + '</b> '+appliedOptions.join(' · ')+'</p>';
   if(!d.duplicate) h+='<p class=al>'+tr('ws.ingest.counts', { created: d.entities_created||0, linked: d.entities_linked||0, relations: d.relations_added||0 })+'</p>';
   if(d.summary) h+='<div class=synth>'+esc(d.summary)+'</div>';
-  if(d.kb_id !== undefined && String(d.kb_id) !== String(activeThemeId)){
-    h+='<p style="margin-top:12px"><button type="button" class="sec" onclick="switchKnowledgeTheme('+jsArg(String(d.kb_id))+')">'+esc(tr('ws.ingest.switch_theme', { theme: d.theme_label||('#'+d.kb_id) }))+'</button></p>';
+  if(KB_PIN_RE.test(API_BASE)){
+    // An ingest writes to the personal knowledge base of the account (design Section 5.2 rule 3). This page shows a shared knowledge base, thus the link goes to the personal one.
+    h+='<p style="margin-top:12px"><a class="sec" href="'+esc(kbHomePath('0'))+'">'+esc(tr('ws.ingest.open_personal'))+'</a></p>';
   } else {
     if(d.document_id) h+='<p><a href="#" onclick="selectDoc('+jsArg(d.document_id)+');setCenterView(\'reader\');return false">' + tr("ws.ingest.open_doc") + '</a></p>';
-    refreshGraph();   // 현재 활성 테마에 적재된 경우 즉시 그래프/문서 반영
+    refreshGraph();
   }
+  // Design Section 8.7: a document that looks like fiction shows with the action "Contribute to this theme".
+  if(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.ingestNoticesHtml === 'function') h+=window.ClaireIngestDialogs.ingestNoticesHtml(d);
   panel.innerHTML=h;
-  if((d.fiction_like_document || d.fiction_like) && window.ClaireKbDialogs){
-    window.ClaireKbDialogs.openFictionNotice({
-      documentId: d.document_id,
-      documentTitle: d.title,
-      themeNumber: d.matched_theme_number,
-      themeLabel: d.matched_theme_label
-    });
-  }
+  if(Array.isArray(d.notices) && d.notices.length) loadKbDocFlags(true);
 }
 
 // --- 자료 재적재 (Reingest) 및 소각 (Purge) ---
@@ -2572,20 +2502,14 @@ function openReingest(){
   const curDoc = (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
   const defTarget = (curDoc && (curDoc.url || curDoc.canonical_url || curDoc.id || '')) || '';
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
-  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? String(curDoc.theme_id) : String(activeThemeId || '0');
-  const themeConfig = buildDialogThemeConfig(curDocThemeId, 'nav.theme_select', 'ws.reingest.no_collab_theme');
+  // Re-ingest acts on the knowledge base of the page path: the form has no knowledge base selector.
   if(window.ClaireIngestDialogs){
     window.ClaireIngestDialogs.openReingestDialog({
-      themeConfig,
       effortSpec: latestIngestEffortSpec,
-      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
       target: defTarget,
       selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
     });
-    if(themeConfig.deniedMsg){
-      window.ClaireIngestDialogs.showMsg('reingest-modal-msg', themeConfig.deniedMsg, true);
-    }
-    refreshIngestEffortSpec(themeConfig.selectedValue || curDocThemeId);
+    refreshIngestEffortSpec();
   }
 }
 
@@ -2596,20 +2520,10 @@ async function runReingest(){
     renderIngestStatus();
     return;
   }
-  const isMulti = isMultiThemeEnabled();
   const ta=document.getElementById('reingtarget');
   const target=((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.reingest.need_target")); return; }
-  const reingthemeEl = document.getElementById('reingtheme');
-  const targetThemeId = (isMulti && reingthemeEl && reingthemeEl.value) ? String(reingthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.reingest.collab_default_denied"));
-      return;
-    }
-  }
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-reingest');
-  const focus='';
   const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
   const untombstoneChk=document.getElementById('reinguntombstone');
@@ -2618,10 +2532,6 @@ async function runReingest(){
   const effort=effortChoice ? effortChoice.value : '';
   let labelText = tr("ws.reingest.starting");
   const optionLabels=[];
-  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
-  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
-  }
   if(fullContent) optionLabels.push(tr("ws.reingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(untombstone) optionLabels.push(tr("ws.reingest.opt_untombstone"));
@@ -2651,7 +2561,7 @@ async function runReingest(){
   suspendGraphForIngest();
   if(typeof initIngestMatrixView === 'function'){
     try {
-      initIngestMatrixView(target, targetThemeObj ? targetThemeObj.label : '');
+      initIngestMatrixView(target, '');
     } catch(e) {
       console.warn('initIngestMatrixView error:', e);
     }
@@ -2751,21 +2661,15 @@ function openRegen(docIdOverride, compOverride){
                  (allDocs && allDocs.find(d => d.id === activeDoc)) || curReaderDocData;
   const defTarget = (docIdOverride || (curDoc && (curDoc.id || curDoc.url || '')) || '');
   const defTitle = (curDoc && curDoc.title) ? esc(curDoc.title) : '';
-  const curDocThemeId = (curDoc && curDoc.theme_id !== undefined && curDoc.theme_id !== null) ? curDoc.theme_id : activeThemeId;
-  const themeConfig = buildDialogThemeConfig(curDocThemeId, 'nav.theme_select', 'ws.regen.no_collab_theme');
+  // Regenerate acts on the knowledge base of the page path: the form has no knowledge base selector.
   if(window.ClaireIngestDialogs){
     window.ClaireIngestDialogs.openRegenDialog({
-      themeConfig,
       effortSpec: latestIngestEffortSpec,
-      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
       target: defTarget,
       component: compOverride || 'all',
       selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
     });
-    if(themeConfig.deniedMsg){
-      window.ClaireIngestDialogs.showMsg('regen-modal-msg', themeConfig.deniedMsg, true);
-    }
-    refreshIngestEffortSpec(themeConfig.selectedValue || curDocThemeId);
+    refreshIngestEffortSpec();
   }
 }
 
@@ -2776,23 +2680,13 @@ async function runRegen(isDryRun){
     renderIngestStatus();
     return;
   }
-  const isMulti = isMultiThemeEnabled();
   const ta = document.getElementById('regentarget');
   const target = ((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.regen.need_target")); return; }
-  const regenthemeEl = document.getElementById('regentheme');
-  const targetThemeId = (isMulti && regenthemeEl && regenthemeEl.value) ? String(regenthemeEl.value) : (isMulti ? String(activeThemeId || '0') : '0');
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.regen.collab_default_denied"));
-      return;
-    }
-  }
   const compChoice = document.querySelector('input[name="regen-comp"]:checked');
   const component = compChoice ? compChoice.value : 'all';
   const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
   const effort = effortChoice ? effortChoice.value : '';
-  const focus = '';
   const refetchChk = document.getElementById('regenrefetch');
   const refetch = !!(refetchChk && refetchChk.checked);
 
@@ -2853,10 +2747,6 @@ async function runRegen(isDryRun){
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-regen');
   let labelText = tr("ws.regen.starting");
   const optionLabels = [];
-  const targetThemeObj = isMulti ? findTheme(targetThemeId) : null;
-  if(targetThemeObj && getThemeKey(targetThemeObj) !== '0'){
-    optionLabels.push(tr('ws.ingest.opt_theme', { theme: (targetThemeObj.icon ? targetThemeObj.icon + ' ' : '') + targetThemeObj.label }));
-  }
   optionLabels.push(tr('ws.regen.opt_component', { component: component }));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
   if(refetch) optionLabels.push(tr("ws.regen.opt_refetch"));
@@ -3801,21 +3691,20 @@ function docItemHtml(dc){
       '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
       '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
+  // Design Sections 8.6 and 9.9: the account sees its fiction-like documents and the flag "never contribute" on the documents of its personal knowledge base.
   const tags = [];
-  if(dc.matched_theme_label){
-    const scoreTip = dc.matched_theme_score != null ? tr('ws.kb.matched_theme_tip', { score: Number(dc.matched_theme_score).toFixed(2) }) : dc.matched_theme_label;
-    tags.push('<span class="claire-tag acc" title="' + esc(scoreTip) + '">' + esc(dc.matched_theme_label) + '</span>');
+  const fictionMatch = kbDocFlags.fiction.get(String(dc.id));
+  const neverContribute = kbDocFlags.blocks.has(String(dc.id));
+  if(kbDocFlagsActive() && fictionMatch){
+    tags.push('<span class="claire-tag fic" title="' + esc(fictionMatch.theme_label || '') + '">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
   }
-  if(canWrite() && (dc.fiction_like || dc.fiction_like_document)){
-    tags.push('<span class="claire-tag fic">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
-  }
-  if(dc.never_contribute){
+  if(kbDocFlagsActive() && neverContribute){
     tags.push('<span class="claire-tag warn">' + esc(tr('ws.kb.never_badge')) + '</span>');
   }
-  const menuHtml = (canWrite() && window.ClaireUi && typeof window.ClaireUi.renderRowMenu === 'function')
+  const menuHtml = (kbDocFlagsActive() && window.ClaireUi && typeof window.ClaireUi.renderRowMenu === 'function')
     ? '<span class="docitem-actions" onclick="event.stopPropagation()">' + window.ClaireUi.renderRowMenu([
-        { action: 'doc_kb_contrib', value: dc.id, label: dc.matched_theme_label ? tr('ws.kb.contribute_to_theme') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
-        { action: dc.never_contribute ? 'doc_kb_allow' : 'doc_kb_never', value: dc.id, label: tr(dc.never_contribute ? 'ws.kb.allow_contribute' : 'ws.kb.never_contribute'), icon: 'block' }
+        { action: 'doc_kb_contrib', value: dc.id, label: (fictionMatch && fictionMatch.theme) ? tr('campaign.contribute_action') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
+        { action: neverContribute ? 'doc_kb_allow' : 'doc_kb_never', value: dc.id, label: tr(neverContribute ? 'ws.kb.allow_contribute' : 'ws.kb.never_contribute'), icon: 'block' }
       ], dc.title || dc.id) + '</span>'
     : '';
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
@@ -3838,22 +3727,51 @@ if(typeof document !== 'undefined' && !window.__claireDocKbBound){
     const act = mi.getAttribute('data-menu-action');
     const docId = mi.getAttribute('data-menu-value');
     const dc = (allDocs || []).find(d => String(d.id) === String(docId)) || { id: docId };
+    const fictionMatch = kbDocFlags.fiction.get(String(docId));
     if(act === 'doc_kb_contrib' && window.ClaireKbDialogs){
       window.ClaireKbDialogs.openContribPreview({
         documentId: docId,
         documentTitle: dc.title || docId,
-        themeId: dc.matched_theme_number,
-        themeLabel: dc.matched_theme_label
+        theme: fictionMatch ? fictionMatch.theme : '',
+        themeLabel: fictionMatch ? fictionMatch.theme_label : '',
+        onSubmitted: function(){ loadKbDocFlags(true); }
       });
     } else if((act === 'doc_kb_never' || act === 'doc_kb_allow') && window.ClaireUi){
       const nextBlock = act === 'doc_kb_never';
       window.ClaireUi.request('/api/contribution-blocks/' + encodeURIComponent(docId), { method: nextBlock ? 'PUT' : 'DELETE' }).then(res => {
-        if(!res.ok){ window.ClaireUi.toast(res.error || 'Failed', 'danger'); return; }
-        dc.never_contribute = nextBlock;
-        renderDocs();
+        if(!res.ok){ window.ClaireUi.toast(tr('kb.err.failed', { error: res.error || '' }), 'danger'); return; }
+        if(nextBlock) kbDocFlags.blocks.add(String(docId)); else kbDocFlags.blocks.delete(String(docId));
+        renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
       });
     }
   });
+}
+// The flags of the documents of the personal knowledge base of the requester: GET /api/contribution-blocks gives the documents with the flag "never contribute"; GET /api/reputation gives the fiction-like documents with their matched theme. The two routes answer only for the account itself.
+const kbDocFlags = { loaded: false, loading: false, blocks: new Set(), fiction: new Map() };
+function kbDocFlagsActive(){
+  // Only the owner in its own personal knowledge base contributes documents: a page that pins a shared knowledge base shows copies.
+  return canWrite() && !KB_PIN_RE.test(API_BASE) && isMultiThemeEnabled();
+}
+async function loadKbDocFlags(force){
+  if(!kbDocFlagsActive() || kbDocFlags.loading || (kbDocFlags.loaded && !force)) return;
+  kbDocFlags.loading = true;
+  try{
+    const opts = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
+    const [blocksRes, repRes] = await Promise.all([fetch('/api/contribution-blocks', opts), fetch('/api/reputation', opts)]);
+    if(blocksRes.ok){
+      const data = await blocksRes.json();
+      kbDocFlags.blocks = new Set((data.documents || []).map(String));
+    }
+    if(repRes.ok){
+      const data = await repRes.json();
+      kbDocFlags.fiction = new Map((data.documents || []).map(d => [String(d.document), d]));
+    }
+    kbDocFlags.loaded = true;
+    if(typeof renderDocs === 'function' && Array.isArray(allDocs)) renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
+  }catch(_){
+  }finally{
+    kbDocFlags.loading = false;
+  }
 }
 let showHidden = false;
 function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
@@ -5735,9 +5653,10 @@ function setAccessScope(scope, reason){
       label: IS_ADMIN ? tr("ws.bar.admin_console") : tr("ws.bar.my_settings"),
       icon: IS_ADMIN ? 'wrench' : 'settings'
     });
-    window.ClaireAppBar.setLogoutVisible(AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'collaborator');
+    window.ClaireAppBar.setLogoutVisible(AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'write' || AUTH_SCOPE === 'readonly');
     window.ClaireAppBar.setSyndicationVisible(canWrite());
   }
+  loadKbDocFlags(false);
   ['synthbtn', 'dedupbtn', 'purgebtn'].forEach(function(id){
     const el = document.getElementById(id);
     if(el) el.hidden = !canWrite();
@@ -6396,14 +6315,15 @@ function renderHomeThemes(){
     card.hidden = !items.length;
     if(!items.length){ list.innerHTML = '<p class="hint">' + esc(tr('ws.kb.home_themes_empty')) + '</p>'; return; }
     list.innerHTML = '<div class="claire-tags">' + items.slice(0, 8).map(th => {
-      const num = th.number != null ? th.number : th.id;
+      const num = th.number;
       const cls = th.knowledge_type === 'fictional' ? 'fic' : 'acc';
-      return '<a class="claire-tag ' + cls + '" href="/explore/themes/' + encodeURIComponent(num) + '">' + esc(th.label || ('#' + num)) + '</a>';
+      return '<a class="claire-tag ' + cls + '" href="/themes/' + encodeURIComponent(num) + '/">' + esc(th.label || ('#' + num)) + '</a>';
     }).join('') + '</div>';
   };
   if(homeThemesCache){ paint(homeThemesCache); return; }
-  fetch('/themes?page=true', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(r => r.ok ? r.json() : null).then(d => {
-    homeThemesCache = (d && (d.orderedItems || d.themes || d.items)) || [];
+  // GET /themes: the root of the collection has each theme in ``themes`` (design Section 7). The home card shows the active ones.
+  fetch('/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(r => r.ok ? r.json() : null).then(d => {
+    homeThemesCache = ((d && d.themes) || []).filter(th => th.state === 'active');
     paint(homeThemesCache);
   }).catch(() => {});
 }

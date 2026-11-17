@@ -998,26 +998,16 @@
         else if (cmd === "toggle-star") togglePinDocument(doc);
         else if (cmd === "dispatch") openDispatchModal(doc.id);
         // MD-3: the Markdown export of a knowledge base document. The response is a file (Content-Disposition: attachment).
-        else if (cmd === "export-md") window.location.assign(`/document/export?id=${encodeURIComponent(doc.id)}&format=markdown&theme=${encodeURIComponent(themeRefOf(state.themeId))}`);
+        else if (cmd === "export-md") window.location.assign(`${kbPath(state.themeId, "/document/export")}?id=${encodeURIComponent(doc.id)}&format=markdown`);
       });
     });
 
-    function getSyndDialogThemeConfig() {
-      const list = Object.values(THEMES || {});
-      return {
-        visible: list.length > 1,
-        themes: list.map((t) => ({ value: String(t.id), label: t.label || String(t.id), icon: t.icon || "" })),
-        selectedValue: String(state.themeId)
-      };
-    }
-
     let latestSyndEffortSpec = null;
 
-    async function refreshSyndEffortSpec(themeKey) {
+    // The path selects the knowledge base (design Section 5.2). ``personal`` true: the effort options of the personal knowledge base, where an ingest writes.
+    async function refreshSyndEffortSpec(personal) {
       try {
-        const ref = themeRefOf(themeKey || state.themeId);
-        const q = ref ? `?theme=${encodeURIComponent(ref)}` : "";
-        const r = await fetch(`/stats${q}`, { cache: "no-store" });
+        const r = await fetch(personal ? "/stats" : kbPath(state.themeId, "/stats"), { cache: "no-store" });
         if (!r.ok) return;
         const d = await r.json();
         if (d && d.ingest_effort) {
@@ -1032,34 +1022,22 @@
     function openIngestModal() {
       closeOpenPopovers();
       if (!window.ClaireIngestDialogs) return;
-      window.ClaireIngestDialogs.openIngestDialog({
-        themeConfig: getSyndDialogThemeConfig(),
-        effortSpec: latestSyndEffortSpec,
-        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
-        getFocusPlaceholder: (tid) => {
-          const th = THEMES[String(tid || state.themeId)];
-          return (th && th.defaultFocus) ? th.defaultFocus : tr("synd.kb.ingest.focus_placeholder");
-        }
-      });
-      refreshSyndEffortSpec(state.themeId);
+      // Ingest writes only to the personal knowledge base of the account: the form has no knowledge base selector.
+      window.ClaireIngestDialogs.openIngestDialog({ effortSpec: latestSyndEffortSpec });
+      refreshSyndEffortSpec(true);
     }
 
     async function submitIngestModal() {
       const payloadEl = document.getElementById("ingin");
-      const focusEl = document.getElementById("ingfocus");
-      const themeEl = document.getElementById("ingtheme");
       const submitBtn = document.getElementById("btn-submit-ingest");
       const payload = payloadEl ? payloadEl.value.trim() : "";
-      const focus = focusEl ? focusEl.value.trim() : "";
-      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
       const amountChoice = document.querySelector('input[name="ingest-amount"]:checked');
       const effortChoice = document.querySelector('input[name="ingest-effort"]:checked');
       if (!payload) return;
       if (submitBtn) submitBtn.disabled = true;
       ticker(tr("synd.kb.ingest.sending"));
       try {
-        const bodyObj = { payload, full_content: !!(amountChoice && amountChoice.value === "full"), theme: themeRefOf(targetThemeKey) };
-        if (focus) bodyObj.focus = focus;
+        const bodyObj = { payload, full_content: !!(amountChoice && amountChoice.value === "full") };
         if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
         const resp = await fetch("/ingest", {
           method: "POST",
@@ -1072,9 +1050,16 @@
           if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.showMsg("ingest-modal-msg", errText, true);
           ticker(errText);
         } else {
-          if (window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog("modal-ingest");
+          // Design Section 8.7: a document that looks like fiction shows with the action "Contribute to this theme". The dialog stays open for that action.
+          const noticesHtml = window.ClaireIngestDialogs ? window.ClaireIngestDialogs.ingestNoticesHtml(data) : "";
+          const noticesEl = document.getElementById("ingest-notices");
+          if (noticesHtml && noticesEl) {
+            noticesEl.innerHTML = noticesHtml;
+            window.ClaireIngestDialogs.showMsg("ingest-modal-msg", tr("synd.kb.ingest.completed", { id: data.document_id || "" }), false);
+          } else if (window.ClaireIngestDialogs) {
+            window.ClaireIngestDialogs.closeDialog("modal-ingest");
+          }
           if (payloadEl) payloadEl.value = "";
-          if (focusEl) focusEl.value = "";
           if (data.document_id) state.selectedDocId = data.document_id;
           ticker(tr("synd.kb.ingest.completed", { id: data.document_id || "" }));
           await syncLiveThemeDb();
@@ -1093,34 +1078,27 @@
       if (!window.ClaireIngestDialogs) return;
       const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
       window.ClaireIngestDialogs.openReingestDialog({
-        themeConfig: getSyndDialogThemeConfig(),
         effortSpec: latestSyndEffortSpec,
-        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
         target: curDoc ? (curDoc.url || curDoc.id || "") : "",
         selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
       });
-      refreshSyndEffortSpec(state.themeId);
+      refreshSyndEffortSpec(false);
     }
 
     async function submitReingestModal() {
       const targetEl = document.getElementById("reingtarget");
-      const focusEl = document.getElementById("reingfocus");
-      const themeEl = document.getElementById("reingtheme");
       const untombEl = document.getElementById("reinguntombstone");
       const submitBtn = document.getElementById("btn-submit-reingest");
       const target = targetEl ? targetEl.value.trim() : "";
-      const focus = focusEl ? focusEl.value.trim() : "";
-      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
       const amountChoice = document.querySelector('input[name="reingest-amount"]:checked');
       const effortChoice = document.querySelector('input[name="reingest-effort"]:checked');
       if (!target) return;
       if (submitBtn) submitBtn.disabled = true;
       ticker(tr("ws.reingest.starting"));
       try {
-        const bodyObj = { target, full_content: !!(amountChoice && amountChoice.value === "full"), untombstone: !!(untombEl && untombEl.checked), theme: themeRefOf(targetThemeKey) };
-        if (focus) bodyObj.focus = focus;
+        const bodyObj = { target, full_content: !!(amountChoice && amountChoice.value === "full"), untombstone: !!(untombEl && untombEl.checked) };
         if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
-        const resp = await fetch("/reingest", {
+        const resp = await fetch(kbPath(state.themeId, "/reingest"), {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(bodyObj)
@@ -1150,36 +1128,29 @@
       if (!window.ClaireIngestDialogs) return;
       const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
       window.ClaireIngestDialogs.openRegenDialog({
-        themeConfig: getSyndDialogThemeConfig(),
         effortSpec: latestSyndEffortSpec,
-        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
         target: curDoc ? (curDoc.id || curDoc.url || "") : "",
         selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
       });
-      refreshSyndEffortSpec(state.themeId);
+      refreshSyndEffortSpec(false);
     }
 
     async function submitRegenModal(isDryRun) {
       const targetEl = document.getElementById("regentarget");
-      const focusEl = document.getElementById("regenfocus");
-      const themeEl = document.getElementById("regentheme");
       const refetchEl = document.getElementById("regenrefetch");
       const resDiv = document.getElementById("regenresult");
       const submitBtn = document.getElementById("btn-submit-regen");
       const compChoice = document.querySelector('input[name="regen-comp"]:checked');
       const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
       const target = targetEl ? targetEl.value.trim() : "";
-      const focus = focusEl ? focusEl.value.trim() : "";
-      const targetThemeKey = (themeEl && themeEl.value) ? String(themeEl.value) : String(state.themeId);
       const component = compChoice ? compChoice.value : "all";
       if (!target) return;
       if (isDryRun && resDiv) resDiv.innerHTML = `<p class="synd-note">${esc(tr("ws.regen.analyzing"))}</p>`;
       if (!isDryRun && submitBtn) submitBtn.disabled = true;
       try {
-        const bodyObj = { target, component, dry_run: !!isDryRun, refetch: !!(refetchEl && refetchEl.checked), theme: themeRefOf(targetThemeKey) };
-        if (focus) bodyObj.focus = focus;
+        const bodyObj = { target, component, dry_run: !!isDryRun, refetch: !!(refetchEl && refetchEl.checked) };
         if (effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
-        const resp = await fetch("/regenerate", {
+        const resp = await fetch(kbPath(state.themeId, "/regenerate"), {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(bodyObj)
@@ -1223,7 +1194,7 @@
         openRegen: openRegenModal,
         submitRegen: submitRegenModal
       });
-      refreshSyndEffortSpec(state.themeId);
+      refreshSyndEffortSpec(true);
     }
     bridge.openIngestModal = openIngestModal;
 

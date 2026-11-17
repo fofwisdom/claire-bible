@@ -212,7 +212,7 @@
       '<p class="claire-hint">' + esc(t("kb.ui.step_up_hint", null, "Confirm your current session or enter your account password to authorize this sensitive action.")) + "</p>" +
       '<div class="claire-field">' +
       '<label class="claire-field-label" for="claire-stepup-pw">' + esc(t("kb.ui.step_up_password", null, "Account password (leave empty if passwordless session)")) + "</label>" +
-      '<input id="claire-stepup-pw" name="password" type="password" class="claire-input" autocomplete="current-password" aria-invalid="false"/>' +
+      '<input id="claire-stepup-pw" name="password" type="password" class="claire-input" autocomplete="current-password" aria-invalid="false" required/>' +
       '<span class="claire-error" id="claire-stepup-err" hidden></span>' +
       "</div>";
     pwInput = body.querySelector("#claire-stepup-pw");
@@ -234,7 +234,8 @@
         if (submitBtn) submitBtn.disabled = true;
         errEl.hidden = true;
         pwInput.setAttribute("aria-invalid", "false");
-        var payload = pwInput.value ? { password: pwInput.value } : {};
+        // POST /api/auth/reauth takes the password of the account as a string.
+        var payload = { password: pwInput.value };
         return fetch("/api/auth/reauth", {
           method: "POST",
           credentials: "same-origin",
@@ -287,7 +288,8 @@
     }
     return fetch(url, init).then(function (resp) {
       return resp.json().catch(function () { return null; }).then(function (data) {
-        if (resp.status === 401 && data && (data.error === "reauth_required" || data.error === "step_up_required") && !options._retried) {
+        // A route that needs a recent sign-in answers 401 "reauth_required" for an old session (design Section 6.8): the re-authentication dialog opens, then the request goes one more time.
+        if (resp.status === 401 && data && data.error === "reauth_required" && !options._retried) {
           return stepUp().then(function (ok) {
             if (!ok) return { ok: false, status: 401, data: data, error: "reauth_cancelled" };
             return request(url, Object.assign({}, options, { _retried: true }));
@@ -297,13 +299,25 @@
           ok: resp.ok,
           status: resp.status,
           data: data,
-          error: !resp.ok ? ((data && (data.error || data.detail)) || ("HTTP " + resp.status)) : null,
-          unavailable: resp.status === 404 || resp.status === 405 || resp.status === 501
+          error: !resp.ok ? ((data && (data.error || data.detail)) || ("HTTP " + resp.status)) : null
         };
       });
     }).catch(function () {
-      return { ok: false, status: 0, data: null, error: "network_error", unavailable: true };
+      return { ok: false, status: 0, data: null, error: "network_error" };
     });
+  }
+
+  // The text of a failed request or of a reason code: the catalog text of the code ("kb.err.<code>", or "kb.reason.<code>" for a reason code of a decision) when there is one, else the general text with the code.
+  function errorText(res) {
+    var code = String((res && res.error) || "");
+    if (/^[a-z0-9_]+$/.test(code)) {
+      var keys = ["kb.err." + code, "kb.reason." + code];
+      for (var i = 0; i < keys.length; i++) {
+        var text = t(keys[i]);
+        if (text !== keys[i]) return text;
+      }
+    }
+    return t("kb.err.failed", { error: code });
   }
 
   function enhanceTabs(rootNode) {
@@ -614,6 +628,7 @@
     openDialog: openDialog,
     stepUp: stepUp,
     request: request,
+    errorText: errorText,
     enhance: enhance,
     renderChips: renderChips,
     renderTabs: renderTabs,

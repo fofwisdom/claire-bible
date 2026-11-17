@@ -2,441 +2,171 @@ const { test, expect } = require('@playwright/test');
 
 test.use({ serviceWorkers: 'block' });
 
+// The pages of the shared knowledge bases against answers in the shapes of docs/implementation/API_HTTP_CONTRACT.md (units CT-1 to CT-13). The answers are fixed data: the E2E database has no shared knowledge base. A page navigation always goes to the server; only the JSON requests of the page scripts get the fixed data.
+
 async function authenticateOwner(page, n) {
   await page.goto('/?t=e2e-sharedkb' + n + '-token-0123456789abc', { waitUntil: 'domcontentloaded' });
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
 }
 
-async function installSharedKbMocks(page) {
-  let personalPublic = false;
-  let autoRuleState = 'paused';
-  const kbs = [
-    {
-      number: '10',
-      label: 'Personal Research',
-      is_personal: true,
-      is_public: personalPublic,
-      knowledge_type: 'real',
-      stats: { documents: 12, entities: 44, relations: 30 }
-    },
-    {
-      number: '101',
-      label: 'Modern History Shared KB',
-      description: 'Collaborative world history notes',
-      knowledge_type: 'real',
-      join_policy: 'approval',
-      role: 'moderator',
-      active_moderators: 1,
-      stats: { documents: 18, entities: 75, relations: 52 },
-      seed_entities: ['Industrial Revolution', 'Treaty of Versailles'],
-      theme_number: '201',
-      theme_label: 'Modern History'
-    },
-    {
-      number: '102',
-      label: 'Fantasy Lore Archive',
-      description: 'Fictional universe compendium',
-      knowledge_type: 'fictional',
-      join_policy: 'open',
-      role: 'member',
-      active_moderators: 0,
-      reembed_required: true,
-      merge_failures: 2,
-      embedding_model: 'text-embedding-3-large',
-      stats: { documents: 9, entities: 30, relations: 18 }
-    },
-    {
-      number: '202',
-      label: 'Remote Astrophysics Collective',
-      origin: 'https://astro.example.org/kb/202',
-      origin_url: 'https://astro.example.org/kb/202',
-      actor_iri: 'https://astro.example.org/actors/kb-202',
-      knowledge_type: 'real',
-      theme_number: '201',
-      theme_label: 'Modern History',
-      follow_state: 'following',
-      stats: { documents: 64, entities: 210 }
-    }
-  ];
-
-  await page.route((u) => u.pathname === '/kb' || u.pathname.startsWith('/kb/'), async (route) => {
-    const req = route.request();
-    const url = new URL(req.url());
-    const accept = (req.headers()['accept'] || '').toLowerCase();
-    const isJson = req.method() !== 'GET' || accept.includes('application/json');
-    if (!isJson) {
-      await route.continue();
-      return;
-    }
-    if (url.pathname === '/kb' && req.method() === 'GET') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ orderedItems: kbs, personal_kb: kbs[0] })
-      });
-      return;
-    }
-    if (url.pathname === '/kb' && req.method() === 'POST') {
-      const body = JSON.parse(req.postData() || '{}');
-      const created = {
-        number: '103',
-        label: body.label || 'New Shared KB',
-        knowledge_type: body.knowledge_type || 'real',
-        join_policy: 'open',
-        role: 'moderator',
-        stats: { documents: 0, entities: 0 }
-      };
-      kbs.push(created);
-      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ok: true, knowledge_base: created }) });
-      return;
-    }
-    if (/^\/kb\/\d+\/?$/.test(url.pathname)) {
-      const num = url.pathname.replace(/\D+/g, '');
-      const kb = kbs.find((x) => x.number === num) || kbs[1];
-      if (req.method() === 'PATCH') {
-        const patch = JSON.parse(req.postData() || '{}');
-        if (patch.is_public !== undefined) {
-          personalPublic = !!patch.is_public;
-          kb.is_public = personalPublic;
-        }
-        Object.assign(kb, patch);
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, knowledge_base: kb }) });
-        return;
-      }
-      if (req.method() === 'DELETE') {
-        if (url.searchParams.get('apply') === 'true') {
-          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, applied: true }) });
-        } else {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ ok: true, applied: false, would_delete: { documents: 9, entities: 30, relations: 18, members: 4, contributions: 9 } })
-          });
-        }
-        return;
-      }
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, knowledge_base: kb }) });
-      return;
-    }
-    if (url.pathname.endsWith('/contributions')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          contributions: [
-            {
-              number: '501',
-              document: 'doc-1',
-              title: 'Railway Timetable 1851',
-              origin: 'local',
-              state: 'pending',
-              contributor: { account: 'alice', display_name: 'Alice' },
-              contributor_reputation: { level: 'good', approval_rate: 0.95 },
-              review_help: { routed_by: 'theme', theme_score: 0.84, other_decisions: [{ knowledge_base: '102', label: 'Other KB', decision: 'approved', reason: '' }] }
-            },
-            {
-              number: '502',
-              document: 'doc-2',
-              title: 'Steam Engine Patent Notes',
-              origin: 'remote',
-              state: 'approved',
-              contributor: { account: 'bob', display_name: 'Bob' }
-            }
-          ]
-        })
-      });
-      return;
-    }
-    if (url.pathname.endsWith('/members')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          members: [
-            { number: '1', account: 'op', display_name: 'Operator', role: 'moderator', state: 'active' },
-            { number: '2', account: '@carol@remote.org', display_name: 'Carol Remote', role: 'collaborator', state: 'active', grant_expires_at: '2027-05-01' }
-          ]
-        })
-      });
-      return;
-    }
-    if (url.pathname.endsWith('/moderation-log')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ logs: [{ actor_display_name: 'Operator', action: 'approve', target: 'doc-2', reason: 'on_topic', created_at: '2026-11-17' }] }) });
-      return;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
-  });
-
-  await page.route((u) => u.pathname === '/submissions' || u.pathname.startsWith('/submissions/'), async (route) => {
-    const req = route.request();
-    if (req.method() === 'POST') {
-      await route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, submission: { number: '900', items: [{ document: 'doc-1', theme_label: 'Modern History', targets: [{ knowledge_base: '101', label: 'Modern History Shared KB', state: 'pending', contribution: '501' }] }] } })
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        orderedItems: [
-          {
-            number: '900',
-            items: [
-              { document: 'doc-1', title: 'Railway Timetable 1851', theme: '201', theme_label: 'Modern History', targets: [{ knowledge_base: '101', label: 'Modern History Shared KB', state: 'pending', approved: false, contribution: '501' }] }
-            ]
-          }
-        ]
-      })
-    });
-  });
-
-  await page.route((u) => u.pathname === '/api/auto-rule' || u.pathname.startsWith('/api/auto-rule/'), async (route) => {
-    const req = route.request();
-    const url = new URL(req.url());
-    if (url.pathname === '/api/auto-rule/dry-run') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ server_switch: true, targets: [{ knowledge_base: '101', label: 'Modern History Shared KB', mode: 'theme', documents: ['doc-1', 'doc-2'] }] })
-      });
-      return;
-    }
-    if (req.method() === 'PUT') {
-      const body = JSON.parse(req.postData() || '{}');
-      autoRuleState = body.state || autoRuleState;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ server_switch: true, rule: { state: autoRuleState, memberships: true, mutual: false, include_uploads: false, themes: [{ number: '201', label: 'Modern History' }] } })
-    });
-  });
-
-  await page.route('**/api/reputation', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        level: 'good',
-        fiction_share: 0.12,
-        approval_rate: 0.94,
-        pending_limit: 20,
-        documents: [{ document: 'doc-fic-1', title: 'Space Opera Draft', theme: '202', theme_label: 'Space Fiction' }]
-      })
-    });
-  });
-
-  await page.route('**/api/mutual-collaborations**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ mutual_collaborations: [{ account: 'bob', display_name: 'Bob', state: 'pending', requested_by_me: false }] })
-    });
-  });
-
-  await page.route((u) => u.pathname === '/themes' || u.pathname.startsWith('/themes/'), async (route) => {
-    const req = route.request();
-    const accept = (req.headers()['accept'] || '').toLowerCase();
-    if (!accept.includes('application/json')) {
-      await route.continue();
-      return;
-    }
-    const url = new URL(req.url());
-    if (/^\/themes\/\d+\/?$/.test(url.pathname)) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          number: '201',
-          label: 'Modern History',
-          description: '19th-20th century infrastructure and diplomacy',
-          knowledge_type: 'real',
-          top_entities: ['Railways', 'Treaty of Versailles', 'Steam Power'],
-          knowledge_bases: [
-            { number: '101', label: 'Modern History Shared KB', is_personal: false, knowledge_type: 'real' },
-            { number: '10', label: 'Personal Research', is_personal: true, knowledge_type: 'real', limited: true }
-          ]
-        })
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        orderedItems: [
-          { number: '201', label: 'Modern History', description: 'History cluster', knowledge_type: 'real', shared_knowledge_bases: 1, visible_contributions: 18, top_entities: ['Railways', 'Steam'] },
-          { number: '202', label: 'Space Fiction', description: 'Sci-fi worldbuilding', knowledge_type: 'fictional', shared_knowledge_bases: 1, visible_contributions: 9, top_entities: ['Starship'] }
-        ]
-      })
-    });
-  });
-
-  await page.route((u) => u.pathname === '/api/admin/kb' || u.pathname.startsWith('/api/admin/kb/'), async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ knowledge_bases: kbs.filter((k) => !k.is_personal) })
-    });
-  });
-
-  await page.route((u) => u.pathname === '/api/admin/themes' || u.pathname.startsWith('/api/admin/themes/'), async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === '/api/admin/themes/agreement') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [{ document: 'doc-1', title: 'Railway Timetable 1851', agreement: 1, decisions: [{ knowledge_base: '101', label: 'Modern History Shared KB', decision: 'approve' }] }] })
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        themes: [
-          { number: '201', label: 'Modern History', knowledge_type: 'real', label_locked: false, knowledge_bases: [{ number: '101', label: 'Modern History Shared KB', membership: 'computed' }] },
-          { number: '202', label: 'Space Fiction', knowledge_type: 'fictional', label_locked: true, knowledge_bases: [{ number: '102', label: 'Fantasy Lore Archive', membership: 'pinned' }] }
-        ],
-        settings: { theme_match_threshold: 0.65, document_match_threshold: 0.6, seed_match_threshold: 0.7, auto_contribution_min_score: 0.75, last_judged_at: '2026-11-17T03:00Z' }
-      })
-    });
-  });
-
-  await page.route('**/api/admin/reputations**', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: { good: 5, limited: 1, low: 0 } }) });
-  });
-
-  await page.route('**/api/admin/federation/known-servers**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ servers: [{ domain: 'astro.example.org', status: 'active', kb_count: 1, kbs: [{ number: '202', label: 'Remote Astrophysics Collective', knowledge_type: 'real', documents: 64 }] }] })
-    });
-  });
-
-  await page.route('**/api/admin/federation/journal**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ entries: [{ id: 'j1', activity_type: 'Create', actor: '@alice@astro.example.org', status: 'failed', received_at: '2026-11-17T02:00Z' }] })
-    });
-  });
+function json(route, body, status) {
+  return route.fulfill({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
 }
 
-test('workspace CT28 focus seal, standing fiction notice, and Create KB dialog validation', async ({ page }) => {
-  await authenticateOwner(page, 1);
-  await installSharedKbMocks(page);
+async function installApi(page) {
+  const calls = [];
+  const shared = [
+    { number: '101', label: 'Modern History', description: 'History of the 19th century', knowledge_type: 'real', join_policy: 'approval', state: 'active', seed_entities: ['Railway'], is_personal: false, is_public: true, role: 'moderator', url: 'http://127.0.0.1:8766/kb/101/', stats: { documents: 30, entities: 120, relations: 80 }, active_moderators: 1, reembed_required: false, embed_provider: 'gemini', embed_model: 'gemini-embedding-001' },
+    { number: '102', label: 'Fantasy Lore', description: '', knowledge_type: 'fictional', join_policy: 'open', state: 'active', seed_entities: [], is_personal: false, is_public: true, url: 'http://127.0.0.1:8766/kb/102/', stats: { documents: 4, entities: 9, relations: 3 }, active_moderators: 0, reembed_required: false, embed_provider: '', embed_model: '' }
+  ];
+  const personal = { number: '10', label: 'Personal Research', is_personal: true, is_public: false, knowledge_type: null, stats: { documents: 12, entities: 44, relations: 30 } };
+  const themes = [
+    { number: '201', url: 'http://127.0.0.1:8766/themes/201', label: 'Railway · Steam', description: 'Railway, Steam, Bridge', knowledge_type: 'real', state: 'active', knowledge_bases: 1 },
+    { number: '202', url: 'http://127.0.0.1:8766/themes/202', label: 'Dragons · Elves', description: 'Dragons, Elves', knowledge_type: 'fictional', state: 'active', knowledge_bases: 1 }
+  ];
+  let rule = null;
 
-  await page.evaluate(() => {
-    if (typeof setCenterView === 'function') setCenterView('graph');
-    if (document.body.classList.contains('ctx-closed') && typeof toggleContextPanel === 'function') toggleContextPanel();
+  await page.route((u) => ['/kb', '/themes', '/submissions', '/documents'].includes(u.pathname) || /^\/kb\/\d+\//.test(u.pathname) || u.pathname.startsWith('/api/auto-') || ['/api/reputation', '/api/mutual-collaborations', '/api/contribution-blocks', '/api/admin/themes', '/api/admin/reputations', '/api/admin/auto-contribution'].includes(u.pathname), async (route) => {
+    const req = route.request();
+    if (req.resourceType() === 'document') return route.fallback();
+    // The workspace reads its own document list from the server; only the console pages get the fixed list.
+    if (new URL(req.url()).pathname === '/documents' && !new URL(page.url()).pathname.startsWith('/settings')) return route.fallback();
+    const url = new URL(req.url());
+    const path = url.pathname;
+    const method = req.method();
+    calls.push({ method, path: path + url.search, body: req.postData() ? JSON.parse(req.postData()) : null });
+    if (path === '/kb' && method === 'GET') {
+      const joined = url.searchParams.get('joined') === 'true';
+      const type = url.searchParams.get('type');
+      const items = shared.filter((k) => (!joined || k.role) && (!type || k.knowledge_type === type));
+      return json(route, { type: 'OrderedCollection', totalItems: items.length, knowledge_bases: items, personal_kb: personal, multi_theme: true });
+    }
+    if (path === '/kb' && method === 'POST') return json(route, { ok: true, knowledge_base: { number: '103', label: 'New' } }, 201);
+    if (/^\/kb\/\d+\/$/.test(path) && method === 'DELETE') {
+      if (url.searchParams.get('apply') === 'true') return json(route, { ok: true, applied: true });
+      return json(route, { ok: true, applied: false, would_delete: { documents: 30, entities: 120, relations: 80, members: 5, contributions: 31 } });
+    }
+    if (/\/contributions$/.test(path)) return json(route, { contributions: url.searchParams.get('state') === 'failed' && path.startsWith('/kb/101/') ? [{ number: '9001', document: 'doc-f', origin: 'direct', state: 'failed', reason: 'embedding_model_unavailable', contributor: null }] : [] });
+    if (path === '/themes') return json(route, { type: 'OrderedCollection', totalItems: themes.length, themes });
+    if (path === '/submissions') return json(route, { submissions: [{ number: '7001', created_at: 1, items: [{ document: 'doc-1', theme: '201', theme_label: 'Railway · Steam', routed_by: 'server', score: 0.71, targets: [{ knowledge_base: '101', label: 'Modern History', state: 'pending', contribution: '9002', approved: false }] }] }] });
+    if (path === '/documents') return json(route, { documents: [{ id: 'doc-1', title: 'Railway Timetable 1851' }, { id: 'doc-2', title: 'Space Opera Draft' }] });
+    if (path === '/api/auto-rule' && method === 'GET') return json(route, { server_switch: true, rule });
+    if (path === '/api/auto-rule' && method === 'PUT') {
+      const body = JSON.parse(req.postData());
+      rule = { state: body.state, memberships: body.memberships, mutual: body.mutual, include_uploads: body.include_uploads, themes: themes.filter((t) => body.themes.includes(t.number)).map((t) => ({ number: t.number, label: t.label })), activated_at: 1 };
+      return json(route, { ok: true, server_switch: true, rule, contributions: 1 });
+    }
+    if (path === '/api/auto-rule/dry-run') return json(route, { server_switch: true, targets: [{ knowledge_base: '101', label: 'Modern History', mode: 'approved', documents: [{ document: 'doc-1', title: 'Railway Timetable 1851', score: 0.71 }] }] });
+    if (path === '/api/auto-contributions') return json(route, { contributions: [] });
+    if (path === '/api/contribution-blocks') return json(route, { documents: [] });
+    if (path === '/api/reputation') return json(route, { level: 'limited', fiction_share: 0.25, fiction_like_documents: 1, visible_documents: 4, approval_rate: null, decisions: 0, documents: [{ document: 'doc-2', title: 'Space Opera Draft', theme: '202', theme_label: 'Dragons · Elves' }] });
+    if (path === '/api/mutual-collaborations') return json(route, { mutual_collaborations: [{ account: '5550001', display_name: 'Bob', state: 'pending', requested_by_me: false, created_at: 1, decided_at: null }] });
+    if (path === '/api/admin/themes') return json(route, {
+      settings: { theme_match_threshold: 0.25, document_match_threshold: 0.5, seed_match_threshold: 0.5 },
+      last_run_at: 1700000000,
+      themes: themes.concat([{ number: '203', label: 'Canals', knowledge_type: 'real', state: 'active' }]).map((t) => ({ ...t, label_locked: false, knowledge_bases: t.number === '201' ? [{ number: '101', label: 'Modern History', is_personal: false, knowledge_type: 'real', pinned: false, excluded: false, source: 'computed', score: 0.6 }] : [] })),
+      decision_agreement: [{ knowledge_base: '101', label: 'Modern History', decisions: 12, agreement: 0.75 }]
+    });
+    if (path === '/api/admin/reputations') return json(route, { settings: { reputation_window_days: 180 }, accounts: [{ account: '5550001', display_name: 'Bob', level: 'good', fiction_share: 0, fiction_like_documents: 0, visible_documents: 3, approval_rate: null, decisions: 0 }] });
+    if (path === '/api/admin/auto-contribution') return json(route, { state: 'on', settings: { auto_match_threshold: 0.5, auto_run_documents: 50 } });
+    return json(route, { ok: true });
   });
-  await expect(page.locator('#ctx-personal-kb-card a[href="/settings/kb"]')).toBeVisible();
+  return calls;
+}
+
+test('ingest dialog: no focus input, no knowledge base selector, the standing fiction message, and the dialog to make a shared knowledge base', async ({ page }) => {
+  await authenticateOwner(page, 1);
+  await installApi(page);
 
   await page.locator('#addbtn').click();
   await page.locator('#pop-ingest-menu [data-ingest-cmd="ingest"]').click();
   const ingestModal = page.locator('#modal-ingest');
   await expect(ingestModal).toBeVisible();
+  // Design Section 8.7: the form shows the standing message each time, with the link to the fictional themes.
   await expect(ingestModal.locator('#ingest-fiction-notice')).toBeVisible();
-  await expect(ingestModal.locator('#ingfocus')).toHaveCount(0);
+  await expect(ingestModal.locator('#ingest-fiction-notice a[href="/themes?type=fictional"]')).toBeVisible();
+  // Design Section 13.7 and Section 5.2 rule 3: no focus input and no knowledge base selector.
+  await expect(page.locator('#ingfocus, #reingfocus, #regenfocus, #ingtheme, #reingtheme, #regentheme')).toHaveCount(0);
 
-  // Clicking "Create Shared KB" from ingest notice opens native Create KB dialog
   await ingestModal.locator('#btn-ingest-create-kb').click();
   const dlg = page.locator('dialog.claire-dlg[open]');
   await expect(dlg).toBeVisible();
-  await expect(dlg.locator('#claire-similar-kbs')).toContainText('Modern History Shared KB');
+  // The dialog opens for the type "fictional" and shows the shared knowledge bases of that type.
+  await expect(dlg.locator('input[name="knowledge_type"][value="fictional"]')).toBeChecked();
+  await expect(dlg.locator('#claire-similar-kbs')).toContainText('Fantasy Lore');
+  await expect(dlg.locator('#newkb-model')).toHaveCount(0);
 
-  // Seed entity > 20 triggers accessible :user-invalid validation state
-  await dlg.locator('#newkb-label').fill('Validation Test KB');
-  const twentyOne = Array.from({ length: 21 }, (_, i) => 'seed' + i).join(', ');
-  await dlg.locator('#newkb-seeds').fill(twentyOne);
-  await dlg.getByRole('button', { name: /Create Shared KB|공유 지식베이스 만들기/ }).click();
+  // More than 20 seed entities: the field is not valid and no request goes out.
+  await dlg.locator('#newkb-label').fill('Validation Test');
+  await dlg.locator('#newkb-seeds').fill(Array.from({ length: 21 }, (_, i) => 'seed' + i).join(', '));
+  await dlg.locator('.claire-dlg-foot .claire-btn.pri').click();
   await expect(dlg.locator('#newkb-seeds')).toHaveAttribute('aria-invalid', 'true');
-  await expect(dlg.locator('#newkb-seeds-err')).toBeVisible();
-  await dlg.getByRole('button', { name: /Cancel|취소/ }).click();
-  await expect(dlg).toHaveCount(0);
+  await expect(dlg).toBeVisible();
 });
 
-test('settings/kb 5-tab workflow, /settings/kb/{number} moderation console, and /admin/kb + /admin/themes', async ({ page }) => {
+test('/settings/kb: five tabs, the dry run before the rule turns on, reputation, mutual collaboration; /admin/kb and /admin/themes', async ({ page }) => {
   await authenticateOwner(page, 2);
-  await installSharedKbMocks(page);
+  const calls = await installApi(page);
 
   await page.goto('/settings/kb', { waitUntil: 'domcontentloaded' });
   const tabs = page.locator('#settings-kb-tabs [role="tab"]');
   await expect(tabs).toHaveCount(5);
+  await expect(page.locator('#settings-kb-host')).toContainText('Personal Research');
+  await expect(page.locator('#settings-kb-host a[href="/settings/kb/101"]')).toBeVisible();
 
-  // Dry-run dialog under auto-contribution tab
+  // Submissions: the theme and the state of each target.
+  await tabs.nth(1).click();
+  await expect(page.locator('#settings-kb-host')).toContainText('Railway Timetable 1851');
+  await expect(page.locator('#settings-kb-host [data-withdraw-c="9002"]')).toBeVisible();
+
+  // Automatic rule (design Section 9.9 rule 6): the dry run shows first; the rule turns on after the confirmation, with each field of the body.
   await tabs.nth(2).click();
-  await page.locator('#kb-rule-dry').click();
+  await page.locator('#rule-memberships').check();
+  await page.locator('input[name="rule-theme"][value="201"]').check();
+  await page.locator('#kb-rule-activate').click();
   const dryDlg = page.locator('dialog.claire-dlg[open]');
-  await expect(dryDlg).toContainText('Modern History Shared KB');
-  await dryDlg.locator('.claire-dlg-foot button').last().click();
+  await expect(dryDlg).toContainText('Modern History');
+  await expect(dryDlg).toContainText('Railway Timetable 1851');
+  expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/auto-rule')).toBe(false);
+  await dryDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
+  await expect.poll(() => calls.find((c) => c.method === 'PUT' && c.path === '/api/auto-rule')?.body).toEqual({ state: 'active', memberships: true, mutual: false, include_uploads: false, themes: ['201'] });
+  await expect(page.locator('#kb-rule-pause')).toBeVisible();
 
-  // Reputation & mutual tabs
-  await tabs.nth(3).click();
-  await expect(page.locator('#settings-kb-host')).toContainText('Space Opera Draft');
-  await tabs.nth(4).click();
-  await expect(page.locator('#settings-kb-host')).toContainText('Bob');
+  // Reputation: the fiction-like documents with the action "Contribute to this theme" (POST /submissions with the document and the theme).
+  await page.locator('#settings-kb-tabs [role="tab"]').nth(3).click();
+  await page.locator('[data-fic-contrib="doc-2"]').click();
+  const contribDlg = page.locator('dialog.claire-dlg[open]');
+  await contribDlg.locator('.claire-dlg-foot .claire-btn.pri').click();
+  await expect.poll(() => calls.find((c) => c.method === 'POST' && c.path === '/submissions')?.body).toEqual({ documents: ['doc-2'], theme: '202' });
+  await page.keyboard.press('Escape');
 
-  // Review & moderation console (/settings/kb/101)
-  await page.goto('/settings/kb/101', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#rkb')).toBeVisible();
-  await expect(page.locator('#settings-kb-manage-host')).toContainText('Railway Timetable 1851');
-  await expect(page.locator('#settings-kb-manage-host')).toContainText('Other KB');
+  // Mutual collaboration: a request of another account has the action "accept".
+  await page.locator('#settings-kb-tabs [role="tab"]').nth(4).click();
+  await expect(page.locator('#settings-kb-host [data-mut-accept="5550001"]')).toBeVisible();
 
-  // Admin KB filter chips + row popover menu + Delete dry-run dialog (autofocus Cancel)
+  // /admin/kb: the filter "failures and warnings" keeps the knowledge base without an active moderator and the one with a failed merge.
   await page.goto('/admin/kb', { waitUntil: 'domcontentloaded' });
-  await page.locator('#admin-kb-host input[name="admin-kb-filter"][value="nomod"]').locator('..').click();
-  await expect(page.locator('#admin-kb-host')).toContainText('Fantasy Lore Archive');
-  await expect(page.locator('#admin-kb-host')).not.toContainText('Modern History Shared KB');
-
-  const rowMenuBtn = page.locator('#admin-kb-host .claire-menu-trigger').first();
-  await rowMenuBtn.click();
-  await expect(rowMenuBtn).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#admin-kb-host')).toContainText('Fantasy Lore');
+  await page.locator('#admin-kb-host input[name="admin-kb-filter"][value="warn"]').locator('..').click();
+  await expect(page.locator('#admin-kb-host tbody tr')).toHaveCount(2);
+  await page.locator('#admin-kb-host .claire-menu-trigger').first().click();
   await page.locator('[data-menu-action="delete_kb"]').first().click();
   const delDlg = page.locator('dialog.claire-dlg[open]');
-  await expect(delDlg).toContainText('30');
-  const cancelBtn = delDlg.getByRole('button', { name: /Cancel|취소/ });
-  await expect(cancelBtn).toBeFocused();
-  await cancelBtn.click();
-
-  // Admin themes 3 tabs + same-type merge dialog
-  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
-  await page.locator('#admin-themes-tabs [role="tab"]').nth(1).click();
-  await page.locator('#adm-th-merge').click();
-  await expect(page.locator('dialog.claire-dlg[open]')).toBeVisible();
+  await expect(delDlg).toContainText('120');
+  // The plan request has no "apply": nothing is deleted before the confirmation.
+  expect(calls.some((c) => c.method === 'DELETE' && c.path.includes('apply=true'))).toBe(false);
   await page.keyboard.press('Escape');
-});
 
-test('public /kb, /kb/{number}/, /explore/themes/{number}, mobile viewport overflow, and unmocked 404 fallback', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
-
-  // Live server without shared-kb backend mocks: degrades gracefully with notice & 0 page errors
-  await authenticateOwner(page, 3);
-  await page.goto('/settings/kb', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#settings-kb-host [role="tabpanel"]:not([hidden]) .claire-note.warn')).toBeVisible();
-
-  await installSharedKbMocks(page);
-  await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#public-kb-root')).toContainText('kb_ingest_by_contribution');
-  await page.locator('#public-kb-root details summary').click();
-  await expect(page.locator('#public-kb-root')).toContainText('403');
-  const overflowKb = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflowKb).toBeLessThanOrEqual(2);
-
-  await page.goto('/kb/202/', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#public-kb-root')).toContainText('https://astro.example.org/kb/202');
-
-  await page.goto('/explore/themes/201', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#public-kb-root')).toContainText('Modern History');
-  const overflowTheme = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflowTheme).toBeLessThanOrEqual(2);
-
-  expect(errors).toEqual([]);
+  // /admin/themes: thresholds, adjustments, agreement of decisions, reputations.
+  await page.goto('/admin/themes', { waitUntil: 'domcontentloaded' });
+  const adminTabs = page.locator('#admin-themes-tabs [role="tab"]');
+  await expect(adminTabs).toHaveCount(4);
+  await expect(page.locator('#th-tm')).toHaveValue('0.25');
+  await adminTabs.nth(1).click();
+  await page.locator('#adm-th-merge').click();
+  // A theme merges only into a theme of the same knowledge type.
+  await expect(page.locator('dialog.claire-dlg[open] #merge-into option')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await adminTabs.nth(2).click();
+  await expect(page.locator('#admin-themes-host')).toContainText('75%');
 });

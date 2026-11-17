@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
@@ -15,6 +16,8 @@ from claire.api.accounts_routes import admin as admin_routes
 from claire.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
+from claire.store import themes as themes_store
+from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.secrets import reset_secret_service
 from claire.store.token_store import get_token_store, reset_token_stores
 
@@ -50,11 +53,6 @@ def ui_env(tmp_path: Path):
         "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (2, ?, 'alice', 'member', 'active', 'Alice', 1, ?, ?, ?)",
         (alice_pub, now, now, now),
     )
-    alice_theme_pub = ids.timestamp_id("themes", salt=salt, unix_ms=int(now * 1000) + 3)
-    conn.execute(
-        "INSERT INTO themes (id, seq, number, label, description, icon, is_default, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (10, 10, ?, 'Alice Personal', '', '', 1, 0, 0, 2, ?, '', ?, ?)",
-        (alice_theme_pub, str(db_file), now, now),
-    )
     accounts_store.AccountStore(conn).set_setting("mode", "network", updated_by=1)
     conn.commit()
     conn.close()
@@ -67,22 +65,31 @@ def ui_env(tmp_path: Path):
         environment="development",
         CLAIRE_MULTI_THEME=True,
     )
+    manager = KnowledgeBaseManager(settings)
+    manager.define_kb("Alice Personal", is_personal=True, is_public=False, account_id=2)
+    shared = manager.define_kb("Team Korea", account_id=2, knowledge_type="real")
+    conn = dbm.connect(db_file)
+    theme = themes_store.create_theme(conn, label="Korean geography", knowledge_type="real")
+    themes_store.update_theme(conn, int(theme["id"]), state="active")
+    conn.commit()
+    conn.close()
     app = server.create_app(settings)
     store = get_token_store(data_dir=data_dir)
     admin_tok = store.create_token("admin-owner", "owner", account_id=1)["token"]
     alice_tok = store.create_token("alice-owner", "owner", account_id=2)["token"]
     client = TestClient(app, base_url=settings.public_url, follow_redirects=False)
-    return client, {"Authorization": f"Bearer {admin_tok}"}, {"Authorization": f"Bearer {alice_tok}"}
+    numbers = SimpleNamespace(kb=ids.format_public_id(shared.number), personal=ids.format_public_id(manager.personal_kb_for(2).number), theme=ids.format_public_id(int(theme["number"])))
+    return client, {"Authorization": f"Bearer {admin_tok}"}, {"Authorization": f"Bearer {alice_tok}"}, numbers
 
 
 def test_shared_kb_console_routes_and_admin_isolation(ui_env):
-    client, admin_hdr, alice_hdr = ui_env
+    client, admin_hdr, alice_hdr, numbers = ui_env
 
     # Settings KB routes work for active owners and isolate admin bundles/links.
     for path, marker in (
         ("/settings/kb", 'id="settings-kb-host"'),
         ("/settings/kb/manage", 'id="settings-kb-manage-host"'),
-        ("/settings/kb/42", 'id="settings-kb-manage-host"'),
+        (f"/settings/kb/{numbers.kb}", 'id="settings-kb-manage-host"'),
     ):
         resp = client.get(path, headers=alice_hdr)
         assert resp.status_code == 200, path
@@ -91,6 +98,10 @@ def test_shared_kb_console_routes_and_admin_isolation(ui_env):
         assert "console_admin.js" not in resp.text
         assert "/admin/" not in resp.text
         assert client.get(path).status_code == 404
+
+    # The page of a reviewer is for a shared knowledge base only: an unknown number and the number of a personal knowledge base get 404.
+    assert client.get("/settings/kb/42", headers=alice_hdr).status_code == 404
+    assert client.get(f"/settings/kb/{numbers.personal}", headers=alice_hdr).status_code == 404
 
     # Prefixed bypasses must stay 404.
     assert client.get("/@alice/settings/kb", headers=alice_hdr).status_code == 404
@@ -105,17 +116,20 @@ def test_shared_kb_console_routes_and_admin_isolation(ui_env):
     assert "console_admin.js" in adm.text
 
 
-def test_public_kb_and_themes_routes_render_unified_appbar_and_shell(ui_env):
-    client, _admin_hdr, alice_hdr = ui_env
+def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_client(ui_env):
+    """One path has two forms (namespace design Section 6.5): the HTML page of the public views for a navigation, the JSON of the backend for an API client."""
+    client, _admin_hdr, alice_hdr, numbers = ui_env
+    html_hdr, json_hdr = {"Accept": "text/html"}, {"Accept": "application/json"}
 
     for path, view in (
         ("/kb", 'data-public-view="kb_list"'),
-        ("/kb/123/", 'data-public-view="kb_detail"'),
-        ("/explore/themes", 'data-public-view="themes_list"'),
-        ("/explore/themes/456", 'data-public-view="theme_detail"'),
+        (f"/kb/{numbers.kb}/", 'data-public-view="kb_detail"'),
+        ("/themes", 'data-public-view="themes_list"'),
+        (f"/themes/{numbers.theme}/", 'data-public-view="theme_detail"'),
     ):
-        resp = client.get(path, headers={"Accept": "text/html"})
+        resp = client.get(path, headers=html_hdr)
         assert resp.status_code == 200, path
+        assert resp.headers["content-type"].startswith("text/html") and "Accept" in resp.headers["vary"]
         assert view in resp.text
         assert 'id="public-bar"' in resp.text
         assert 'id="palettetrigger"' in resp.text
@@ -123,12 +137,30 @@ def test_public_kb_and_themes_routes_render_unified_appbar_and_shell(ui_env):
         assert "shared_ui.js" in resp.text and "public_kb.js" in resp.text
         assert "console_admin.js" not in resp.text
 
-    # Trailing slash canonical redirect on /kb/{number}
-    redir = client.get("/kb/123", headers={"Accept": "text/html"})
-    assert redir.status_code == 308 and redir.headers["location"] == "/kb/123/"
+    # The JSON form of the same paths.
+    kb_list = client.get("/kb", headers=json_hdr).json()
+    assert [kb["number"] for kb in kb_list["knowledge_bases"]] == [numbers.kb]
+    kb_item = client.get(f"/kb/{numbers.kb}/", headers={**alice_hdr, **json_hdr}).json()["knowledge_base"]
+    assert (kb_item["number"], kb_item["label"], kb_item["role"]) == (numbers.kb, "Team Korea", "moderator")
+    assert kb_item == next(kb for kb in client.get("/kb", headers={**alice_hdr, **json_hdr}).json()["knowledge_bases"] if kb["number"] == numbers.kb)
+    assert [t["number"] for t in client.get("/themes", headers=json_hdr).json()["themes"]] == [numbers.theme]
+    assert client.get(f"/themes/{numbers.theme}/", headers=json_hdr).json()["label"] == "Korean geography"
 
-    # Signed-in HTML request to /themes renders the new public themes view
-    themes_html = client.get("/themes", headers={**alice_hdr, "Accept": "text/html"})
+    # The page shows the number and the label of the knowledge base; the script gets the rest from the JSON form.
+    detail = client.get(f"/kb/{numbers.kb}/", headers=html_hdr).text
+    assert "<title>Team Korea" in detail and f'"ref": "{numbers.kb}"' in detail
+    # A link into the content of the shared knowledge base opens the workspace, not the page of the public views.
+    workspace = client.get(f"/kb/{numbers.kb}/?doc=doc_1", headers=html_hdr)
+    assert workspace.status_code == 200 and "data-public-view" not in workspace.text
+
+    # The path without the last slash, an unknown number, and the paths that are not mounted any more.
+    redir = client.get(f"/kb/{numbers.kb}", headers=html_hdr)
+    assert redir.status_code == 308 and redir.headers["location"] == f"/kb/{numbers.kb}/"
+    for path in ("/kb/123/", "/themes/456/", "/explore/themes", f"/explore/themes/{numbers.theme}"):
+        assert client.get(path, headers=html_hdr).status_code == 404, path
+
+    # A signed-in navigation gets the same page.
+    themes_html = client.get("/themes", headers={**alice_hdr, **html_hdr})
     assert themes_html.status_code == 200
     assert 'data-public-view="themes_list"' in themes_html.text
 

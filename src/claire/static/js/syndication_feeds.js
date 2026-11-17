@@ -424,9 +424,6 @@
     const dialog = $("modal-item-ingest");
     if (!item || !dialog) return;
     F.ingestItemId = id;
-    const select = $("item-ingest-theme");
-    const current = String(bridge.state.themeId);
-    select.innerHTML = Object.values(bridge.themes).map((t) => `<option value="${esc(t.id)}" ${String(t.id) === current ? "selected" : ""}>${esc(t.icon)} ${esc(t.label)}</option>`).join("");
     $("item-ingest-msg").textContent = "";
     $("modal-item-ingest-title").textContent = tr("synd.feeds.ingest_title");
     $("item-ingest-note").textContent = tr("synd.feeds.ingest_note");
@@ -437,7 +434,6 @@
 
   async function submitIngest() {
     const id = F.ingestItemId;
-    const themeKey = $("item-ingest-theme").value;
     const msg = $("item-ingest-msg");
     const button = $("btn-item-ingest");
     button.disabled = true;
@@ -452,8 +448,8 @@
     bridge.ticker(tr("synd.ingest.done", { id: result.data.linked.document_id }));
     applyItem(id, { linked: result.data.linked });
     render();
-    // The new document is in the knowledge base of that theme. Read it again so that stage 2 shows it.
-    if (String(themeKey) === String(bridge.state.themeId)) bridge.reload();
+    // The new document is in the personal knowledge base of the account (design Section 5.2 rule 3). Read the list again when stage 2 shows that knowledge base.
+    if (String(result.data.linked.kb_id) === String(bridge.state.themeId)) bridge.reload();
   }
 
   function openDocument(id, thenPublish) {

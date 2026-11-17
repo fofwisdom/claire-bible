@@ -16,9 +16,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ... import reputation
 from ...i18n import t
 from ...store import accounts as accounts_store
 from ...store import auth_db
+from ...store import kb_collab
 from ...store import provider_keys
 from ..principal import Principal, request_principal
 from .common import (
@@ -66,47 +68,22 @@ def _theme_counts(conn: sqlite3.Connection) -> dict[int, int]:
     return {int(r[0]): int(r[1]) for r in rows}
 
 
-def _account_kb_stats(conn: sqlite3.Connection) -> tuple[dict[int, str], dict[int, int], set[int]]:
-    """Return optional reputation levels, moderated shared KB counts, and sole-moderator flags when KB tables exist."""
-    tables = {str(r[0]) for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-    rep_map: dict[int, str] = {}
-    mod_counts: dict[int, int] = {}
-    sole_mod_ids: set[int] = set()
-    if "contributor_reputations" in tables:
-        try:
-            for r in conn.execute("SELECT account_id, level FROM contributor_reputations").fetchall():
-                rep_map[int(r[0])] = str(r[1] or "good")
-        except Exception:
-            pass
-    if "knowledge_bases" in tables and "kb_members" in tables:
-        try:
-            rows = conn.execute(
-                "SELECT m.account_id, m.kb_id FROM kb_members m "
-                "JOIN knowledge_bases k ON k.id = m.kb_id "
-                "WHERE m.role = 'moderator' AND m.state = 'active' AND COALESCE(k.is_personal, 0) = 0"
-            ).fetchall()
-            kb_mods: dict[int, set[int]] = {}
-            for acc_id, kb_id in rows:
-                a_i, k_i = int(acc_id), int(kb_id)
-                mod_counts[a_i] = mod_counts.get(a_i, 0) + 1
-                kb_mods.setdefault(k_i, set()).add(a_i)
-            for mod_set in kb_mods.values():
-                if len(mod_set) == 1:
-                    sole_mod_ids.update(mod_set)
-        except Exception:
-            pass
-    return rep_map, mod_counts, sole_mod_ids
+def _account_kb_fields(conn: sqlite3.Connection, account: accounts_store.Account) -> dict[str, Any]:
+    """The reputation level and the moderator data of one account (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.6 and 10.2).
+
+    - ``reputation``: the level from the data now; ``None`` for an account that is not active (an account that is not active has no reputation).
+    - ``moderated_kb_count``: the shared knowledge bases where the account has an active membership with the role ``moderator``.
+    - ``sole_moderator``: true when one of these knowledge bases has no other active moderator. When such an account is suspended, the knowledge base has only the admin as its moderator.
+    """
+    moderated = [int(r[0]) for r in conn.execute("SELECT kb_id FROM kb_memberships WHERE account_id=? AND role='moderator' AND state='active'", (account.id,))]
+    return {
+        "reputation": reputation.level(conn, account.id) if account.status == "active" else None,
+        "moderated_kb_count": len(moderated),
+        "sole_moderator": any(not [a for a in kb_collab.active_moderators(conn, kb_id) if a != account.id] for kb_id in moderated),
+    }
 
 
-def account_summary(
-    account: accounts_store.Account,
-    theme_count: int,
-    *,
-    has_provider_key: bool | None = None,
-    reputation: str = "good",
-    moderated_kb_count: int = 0,
-    sole_moderator: bool = False,
-) -> dict[str, Any]:
+def account_summary(conn: sqlite3.Connection, account: accounts_store.Account, *, has_provider_key: bool | None = None) -> dict[str, Any]:
     """§8.6 목록 항목 중 P1에서 있는 값. 번호는 JS 정밀도 손실을 막기 위해 문자열이다(S13).
 
     ``has_provider_key``는 멤버 항목에만 싣는 등록 여부다(§11.2). 키의 fingerprint·상태는 싣지 않는다.
@@ -118,10 +95,8 @@ def account_summary(
         "role": account.role,
         "created_at": account.created_at,
         "activated_at": account.activated_at,
-        "theme_count": theme_count,
-        "reputation": reputation,
-        "moderated_kb_count": moderated_kb_count,
-        "sole_moderator": sole_moderator,
+        "theme_count": _theme_counts(conn).get(account.id, 0),
+        **_account_kb_fields(conn, account),
     }
     if account.delete_after is not None:
         res["delete_after"] = account.delete_after
@@ -134,18 +109,9 @@ def list_account_summaries(ctx: AccountsContext) -> list[dict[str, Any]]:
     conn = open_db(ctx)
     auth = open_auth_db(ctx)
     try:
-        counts = _theme_counts(conn)
-        rep_map, mod_counts, sole_mod_ids = _account_kb_stats(conn)
         return [
-            account_summary(
-                a,
-                counts.get(a.id, 0),
-                # 관리자는 providers.json을 쓰므로 멤버 항목에만 키 등록 여부를 싣는다(§11.2).
-                has_provider_key=provider_keys.has_key(auth, account_id=a.id) if a.role == "member" else None,
-                reputation=rep_map.get(a.id, "good"),
-                moderated_kb_count=mod_counts.get(a.id, 0),
-                sole_moderator=a.id in sole_mod_ids,
-            )
+            # 관리자는 providers.json을 쓰므로 멤버 항목에만 키 등록 여부를 싣는다(§11.2).
+            account_summary(conn, a, has_provider_key=provider_keys.has_key(auth, account_id=a.id) if a.role == "member" else None)
             for a in accounts_store.AccountStore(conn).list_accounts()
         ]
     finally:
@@ -184,13 +150,10 @@ def _render_admin_accounts_html(
         uname = m.get("username") or t("console.admin.accounts.username_unset")
         st = m.get("status", "")
         st_label = account_status_text(st)
-        rep = str(m.get("reputation") or "good")
-        mod_kbs = int(m.get("moderated_kb_count", 0))
-        sole_warn = (
-            f' <span class="claire-tag warn">{escape(t("console.admin.accounts.sole_mod_warn"))}</span>'
-            if st == "suspended" and (m.get("sole_moderator") or mod_kbs > 0)
-            else ""
-        )
+        rep = m["reputation"]
+        rep_html = f'<span class="claire-tag {"ok" if rep == "good" else "warn"}">{escape(rep)}</span>' if rep is not None else escape(t("console.common.none"))
+        mod_kbs = int(m["moderated_kb_count"])
+        sole_warn = f' <span class="claire-tag warn">{escape(t("console.admin.accounts.sole_mod_warn"))}</span>' if st == "suspended" and m["sole_moderator"] else ""
         key_tag = t("console.admin.accounts.key_registered") if m.get("has_provider_key") else t("console.common.none")
         member_trs.append(
             f'<tr data-account-public-id="{escape(pub_id)}" data-account-status="{escape(st)}">'
@@ -198,7 +161,7 @@ def _render_admin_accounts_html(
             f"<td><strong>{escape(uname)}</strong></td>"
             f'<td><span class="badge">{escape(st_label)}</span>{sole_warn}</td>'
             f'<td>{int(m.get("theme_count", 0))}</td>'
-            f'<td><span class="claire-tag {"ok" if rep == "good" else "warn"}">{escape(rep)}</span></td>'
+            f"<td>{rep_html}</td>"
             f'<td>{mod_kbs}</td>'
             f"<td>{escape(key_tag)}</td>"
             f'<td data-member-actions="{escape(pub_id)}">'
@@ -452,8 +415,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="account.suspend",
                     target_account_id=target.id,
                 )
-                counts = _theme_counts(conn)
-                return JSONResponse({"ok": True, "account": account_summary(updated, counts.get(updated.id, 0))})
+                return JSONResponse({"ok": True, "account": account_summary(conn, updated)})
 
             if action == "resume" or (status == "active" and target.status == "suspended"):
                 try:
@@ -466,8 +428,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="account.resume",
                     target_account_id=target.id,
                 )
-                counts = _theme_counts(conn)
-                return JSONResponse({"ok": True, "account": account_summary(updated, counts.get(updated.id, 0))})
+                return JSONResponse({"ok": True, "account": account_summary(conn, updated)})
 
             if action in ("delete", "schedule_delete", "cancel_delete", "purge") or status in ("deleting", "purged"):
                 if action == "cancel_delete" or cancel or mode == "cancel" or (action == "delete" and status == "active"):
@@ -481,8 +442,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         action="account.cancel_delete",
                         target_account_id=target.id,
                     )
-                    counts = _theme_counts(conn)
-                    return JSONResponse({"ok": True, "account": account_summary(updated, counts.get(updated.id, 0))})
+                    return JSONResponse({"ok": True, "account": account_summary(conn, updated)})
 
                 if action == "purge" or mode in ("immediate", "purge") or immediate or status == "purged":
                     data_dir = getattr(ctx.config, "data_dir", None)
@@ -519,7 +479,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                         action="account.purge",
                         target_account_id=target.id,
                     )
-                    return JSONResponse({"ok": True, "account": account_summary(updated, 0)})
+                    return JSONResponse({"ok": True, "account": account_summary(conn, updated)})
 
                 delete_after = body.get("delete_after")
                 try:
@@ -532,8 +492,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     action="account.schedule_delete",
                     target_account_id=target.id,
                 )
-                counts = _theme_counts(conn)
-                return JSONResponse({"ok": True, "account": account_summary(updated, counts.get(updated.id, 0))})
+                return JSONResponse({"ok": True, "account": account_summary(conn, updated)})
 
             if action in ("reset_password", "reset_password_link"):
                 reset_token = secrets.token_urlsafe(32)

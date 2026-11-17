@@ -295,17 +295,20 @@ def test_tokens_page_lists_only_callers_own_oauth_clients(env):
     assert clients[0]["token_count"] == 1
 
 
-def test_themes_page_member_hosts_theme_manager_without_admin_markup(env):
+def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
+    """``/settings/kb`` has the function of the old ``/settings/themes`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3)."""
     _set_mode(env.db_file, "network")
-    html = _get(env, "/settings/themes", env.alice).text
-    assert 'id="settings-themes-host"' in html
-    assert 'data-settings-panel-host="themes"' in html
+    old = env.client.get("/settings/themes", headers=env.alice, follow_redirects=False)
+    assert (old.status_code, old.headers["location"]) == (302, "/settings/kb")
+    html = _get(env, "/settings/kb", env.alice).text
+    assert 'id="settings-kb-host"' in html
     # No slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1).
     assert "My themes:" not in html and "settings-themes-quota" not in html
     assert "/admin/" not in html
     assert "admin-themes-summary" not in html
     assert "Bob Secret Lab" not in html
-    assert "theme_slots" not in _bootstrap(html)["settings_account"]
+    bootstrap = _bootstrap(html)
+    assert "theme_slots" not in bootstrap and bootstrap["personal_kb_number"].isdigit()
 
 
 def test_admin_theme_and_token_settings_still_redirect(env):

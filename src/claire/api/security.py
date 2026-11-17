@@ -340,6 +340,11 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/health"): _system("public", "none"),
     ("GET", "/robots.txt"): _system("public", "none"),
     ("HEAD", "/robots.txt"): _system("public", "none"),
+    # The vocabulary of the knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.1): public.
+    ("GET", "/ns"): _system("public", "none"),
+    ("HEAD", "/ns"): _system("public", "none"),
+    ("GET", "/ns/v1"): _system("public", "none"),
+    ("HEAD", "/ns/v1"): _system("public", "none"),
     ("GET", "/sitemap.xml"): _system("public", "none"),
     ("HEAD", "/sitemap.xml"): _system("public", "none"),
     ("GET", "/favicon.ico"): _system("public", "none"),
@@ -680,10 +685,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/api/me"): _any("owner", "none"),
     ("PATCH", "/api/me"): _any("owner", "none"),
     ("POST", "/api/me/password"): _any("owner", "none"),
-    ("GET", "/explore/themes"): _system("public", "none"),
-    ("HEAD", "/explore/themes"): _system("public", "none"),
-    ("GET", "/explore/themes/{theme_number:int}"): _system("public", "none"),
-    ("HEAD", "/explore/themes/{theme_number:int}"): _system("public", "none"),
     # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
     ("GET", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
     ("HEAD", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),

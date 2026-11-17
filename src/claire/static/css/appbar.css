@@ -131,6 +131,11 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
 .claire-dialog-msg[data-state="ok"]{color:#1a7f37}
 .claire-dialog-result{max-height:260px;overflow-y:auto;font-size:12.5px}
 .claire-dialog-result:empty{display:none}
+/* Campaign message at ingest (shared knowledge base design Section 8.7). The rules are here because the syndication page does not load shared_ui.css. */
+#ingest-fiction-notice,.campaign-notice{border:1px solid var(--border);border-left:3px solid var(--fic,var(--accent));border-radius:6px;padding:9px 12px;font-size:12.5px;line-height:1.5;background:var(--fic-bg,var(--panel-bg));color:var(--fg);display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;justify-content:space-between}
+#ingest-fiction-notice a{margin-left:4px}
+.campaign-notice{margin:10px 0}
+.campaign-notice-msg:empty{display:none}
 .claire-dialog-foot{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border)}
 .claire-dialog-foot button{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--sec-bg);color:var(--sec-fg)}
 .claire-dialog-foot button.pri{background:var(--btn-bg,var(--accent));color:var(--btn-fg,#fff);border-color:transparent}

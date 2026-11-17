@@ -154,7 +154,8 @@ def test_admin_accounts_api_and_single_mode_card(client, settings):
     assert admin["status"] == "active"
     assert admin["theme_count"] >= 1
     assert admin["activated_at"] is not None
-    assert set(admin) == {"public_id", "username", "status", "role", "created_at", "activated_at", "theme_count"}
+    assert set(admin) == {"public_id", "username", "status", "role", "created_at", "activated_at", "theme_count", "reputation", "moderated_kb_count", "sole_moderator"}
+    assert (admin["reputation"], admin["moderated_kb_count"], admin["sole_moderator"]) == ("good", 0, False)
 
     page = client.request("GET", "/admin/accounts", session=token)
     assert page.status_code == 200

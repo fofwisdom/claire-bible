@@ -1,5 +1,5 @@
 /* Claire user console controller for /settings Group 1 (account, federation, keys, themes, tokens). Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /graph/bundle, /api/me/keys*, /api/federation/status, /api/federation/followers, /themes, /tokens.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, POST /kb/{number}/graph/bundle, /api/me/keys*, /api/federation/status, /api/federation/followers, /tokens.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -727,36 +727,7 @@
       });
     });
 
-    var delActToggle = document.getElementById("pref-delete-activity");
-    var delActResult = document.getElementById("pref-delete-activity-result");
-    if (delActToggle) {
-      delActToggle.addEventListener("change", function () {
-        var next = delActToggle.checked;
-        request("PATCH", "/api/me", { delete_activity_records: next }).then(function (r) {
-          if (r.ok) {
-            if (delActResult) { delActResult.textContent = tr("console.js.account.delete_activity_saved"); delActResult.setAttribute("data-state", "ok"); }
-            return;
-          }
-          if (delActResult) { delActResult.textContent = errorText(r.status, r.body); delActResult.setAttribute("data-state", "error"); }
-        });
-      });
-    }
-    var delPreviewBtn = document.getElementById("pref-delete-preview-btn");
-    if (delPreviewBtn) {
-      delPreviewBtn.addEventListener("click", function () {
-        var incAct = !!(delActToggle && delActToggle.checked);
-        request("POST", "/api/me/delete-preview", { include_activity: incAct }).then(function (r) {
-          if (!delActResult) return;
-          if (r.ok && r.body) {
-            delActResult.textContent = JSON.stringify(r.body);
-            delActResult.setAttribute("data-state", "ok");
-          } else {
-            delActResult.textContent = r.status === 404 ? tr("kb.dlg.backend_pending") : errorText(r.status, r.body);
-            delActResult.setAttribute("data-state", r.status === 404 ? "ok" : "error");
-          }
-        });
-      });
-    }
+    // The option "Delete my activity records" (shared knowledge base design Section 13.2) is a field of the purge action of the admin (POST /api/admin/accounts/{id}, "delete_activity_records"). The account API has no route for it, thus this page sends no request for it.
   }
 
   // I18N design Section 6.2: the interface language selector. The server renders the page text, thus a successful change loads the page again.
@@ -811,13 +782,8 @@
 
   function initManagers(section) {
     var panels = window.ClaireManagePanels || {};
-    // The console page has no app.js apiUrl/rootUrl. Unprefixed /themes and /tokens resolve to the caller's own account (N3).
-    if (section === "themes") {
-      var themeHost = document.getElementById("settings-themes-host");
-      if (themeHost && typeof panels.renderThemeManager === "function") {
-        panels.renderThemeManager(themeHost, { showClose: false, isOwner: true, isAdmin: false, apiUrl: "/", rootUrl: "/" });
-      }
-    } else if (section === "tokens") {
+    // The console page has no app.js apiUrl/rootUrl. Unprefixed /tokens resolves to the caller's own account (N3). The page /settings/kb (console_kb.js) has the function of the old /settings/themes.
+    if (section === "tokens") {
       var tokHost = document.getElementById("settings-tokens-host");
       if (tokHost && typeof panels.renderTokenManager === "function") {
         panels.renderTokenManager(tokHost, { showClose: false, canWrite: true, isAdmin: false, rootUrl: "/" });
