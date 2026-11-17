@@ -1330,8 +1330,25 @@ def extract_resolve_store(
     if getattr(doc, "id", None):
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         _start_contribution_revisions(conn, settings, kb_id=tid, document_id=doc.id)
+        _match_document_theme(conn, kb_id=tid, document_id=doc.id)
 
     return True, None
+
+
+def _match_document_theme(conn: sqlite3.Connection, *, kb_id: int, document_id: str) -> None:
+    """The theme match of a document of a personal knowledge base, after its extraction (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.5 rule 7). It makes no LLM call. A failure here never fails the ingest."""
+    try:
+        row = conn.execute("SELECT is_personal FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
+        if row is None or not row[0] or conn.execute("SELECT 1 FROM themes WHERE state='active' LIMIT 1").fetchone() is None:
+            return
+        from .. import theme_judgement
+
+        theme_judgement.match_document(conn, kb_id=kb_id, document_id=document_id)
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("claire.theme_judgement").warning("theme match of document %s failed: %s", document_id, type(exc).__name__)
 
 
 def _start_contribution_revisions(conn: sqlite3.Connection, settings: Any, *, kb_id: int, document_id: str) -> None:

@@ -526,10 +526,25 @@ class NamespaceResolverMiddleware:
         """Old links ``/themes/{number}/…`` and ``/@{u}/themes/{number}/…``: shared → 308 ``/kb/{number}/…``; personal → 308 to its path when readable, else 404."""
         kb = self.directory.theme_by_number(int(parsed.theme_number or 0))
         if kb is None:
-            return _not_found()
+            return self._theme_page(mode, parsed, query_string)
         if kb.is_personal:
             return self._personal_path(mode, kb, principal, parsed.inner_path, query_string)
         return _redirect(_location(f"{_KB_SEGMENT}{parsed.theme_number}{parsed.inner_path}", query_string))
+
+    def _theme_page(self, mode: ServerMode, parsed: ParsedPrefix, query_string: bytes) -> _Outcome | Response:
+        """``/themes/{number}/`` with the number of a theme (design Section 7): the page of the theme, without a namespace account. A merged theme gets 308 to the theme it was merged into; an empty or unknown number gets 404. A theme is not a partition: it has no inner paths, and no ``/@{u}/`` form."""
+        lookup = getattr(self.directory, "theme_route", None)
+        if lookup is None or parsed.username is not None or parsed.inner_path != "/":
+            return _not_found()
+        route = lookup(int(parsed.theme_number or 0))
+        if route is None:
+            return _not_found()
+        state, merged_into = route
+        if state == "merged" and merged_into is not None:
+            return _redirect(_location(f"{_THEMES_SEGMENT}{merged_into}/", query_string))
+        if state != "active":
+            return _not_found()
+        return _Outcome(ResolvedNamespace(mode, None, None, None, parsed.prefix, True))
 
     def _single_mode_account_prefix(self, parsed: ParsedPrefix, query_string: bytes) -> Response:
         """싱글 모드의 ``/@…``은 404(N1). 네트워크에서 돌아온 뒤 관리자 이름만 ``/…``로 308(O15)."""
@@ -679,6 +694,28 @@ class SqliteNamespaceDirectory:
 
     def theme_by_number(self, number: int) -> Any | None:
         return (self._current().themes_by_number or {}).get(number)
+
+    def theme_route(self, number: int) -> tuple[str, int | None] | None:
+        """The state of the theme with this number and, for a merged theme, the number of the theme at the end of its merge chain. None: no theme has the number."""
+        if self.db_file is None or not self.db_file.is_file():
+            return None
+        conn = sqlite3.connect(f"file:{self.db_file}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT id, state, merged_into_theme_id, number FROM themes WHERE number=?", (int(number),)).fetchone()
+            if row is None:
+                return None
+            state, target, seen = str(row[1]), None, {row[0]}
+            while row is not None and row[1] == "merged" and row[2] is not None:
+                row = conn.execute("SELECT id, state, merged_into_theme_id, number FROM themes WHERE id=?", (row[2],)).fetchone()
+                if row is None or row[0] in seen:
+                    break
+                seen.add(row[0])
+                target = int(row[3])
+            return state, target
+        except sqlite3.OperationalError:
+            return None  # the table is not there yet (a database before version 28)
+        finally:
+            conn.close()
 
     def can_view_theme(self, principal: Principal, theme: Any) -> bool:
         if bool(getattr(theme, "is_public", False)):

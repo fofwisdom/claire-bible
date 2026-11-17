@@ -2929,5 +2929,15 @@
   "explore.title": "공개 디렉터리",
   "explore.nav_label": "메인 탐색",
   "explore.subtitle": "네트워크에 참여 중인 지식 관리자 및 공개 지식 테마입니다.",
+  "themes.section_title": "테마",
+  "themes.all": "모든 테마",
+  "themes.accounts_title": "계정",
+  "themes.nav_label": "테마",
+  "themes.page_subtitle": "같은 주제의 지식 베이스를 모은 테마 ({type})",
+  "themes.type_real": "현실 세계",
+  "themes.type_fictional": "허구",
+  "themes.counts": "공유 지식 베이스 {knowledge_bases}개, 기여 {contributions}건",
+  "themes.kb_shared": "공유",
+  "themes.kb_personal": "개인",
   "ws.ent.chip_degree": "연결 ≥ {count}"
 }

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import dataclasses
 import hashlib
 import html
 import json
@@ -51,6 +52,7 @@ from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import contributions
+from .. import theme_judgement
 from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -947,6 +949,16 @@ def create_app(
                     )
                     cards.append(card)
                 content_html = "".join(cards)
+            if force_html and not query.page:
+                # Design Section 8.4: the root page of network mode shows the themes first, the one with the most recent activity first, with a link to the collection.
+                theme_views = await asyncio.to_thread(lambda: _active_theme_views(origin=base_origin))
+                if theme_views:
+                    content_html = (
+                        f'<h2>{html.escape(_t("themes.section_title"))} <a href="/themes" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
+                        + _theme_cards_html(theme_views)
+                        + f'<h2>{html.escape(_t("themes.accounts_title"))}</h2>'
+                        + content_html
+                    )
 
             pagination_parts = []
             if query.page:
@@ -970,7 +982,7 @@ def create_app(
             rendered = inject_favicon_head_tags(rendered)
 
             # The page text follows the interface language, thus the locale is a part of the entity tag.
-            etag_parts = [get_locale()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
+            etag_parts = [get_locale(), hashlib.sha256(content_html.encode("utf-8")).hexdigest()] + [f"{a.public_id}:{a.public_themes}:{a.public_documents}" for a in accounts]
             etag = collections.collection_etag(etag_parts if etag_parts else ["empty"])
             headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
             headers["Vary"] += ", Accept-Language"
@@ -1617,6 +1629,278 @@ def create_app(
                 conn.close()
 
         return await asyncio.to_thread(_retry)
+
+    # --- Themes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2 to 8.4) ---
+
+    def _theme_view(conn: sqlite3.Connection, theme: dict[str, Any], *, origin: str, admin: bool = False) -> dict[str, Any]:
+        """One theme with its knowledge bases: the shared ones first, then the attached personal ones (design Section 8.4). ``admin``: also the excluded rows and the flags of the adjustments."""
+        number = ids.format_public_id(int(theme["number"]))
+        rows = themes_store.all_members(conn)
+        knowledge_bases = []
+        contributions_visible = 0
+        for member in rows:
+            if int(member["theme_id"]) != int(theme["id"]) or (member["excluded"] and not admin):
+                continue
+            try:
+                kb = theme_mgr.get_kb(int(member["kb_id"]))
+            except KnowledgeBaseNotFound:
+                continue
+            if kb.is_personal and not kb.is_public:
+                continue
+            entry: dict[str, Any] = {"number": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label, "is_personal": kb.is_personal, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None}
+            if kb.is_shared and not member["excluded"]:
+                contributions_visible += len(kb_collab.list_contributions(conn, kb.id, state="visible"))
+            if admin:
+                entry.update({"pinned": bool(member["pinned"]), "excluded": bool(member["excluded"]), "source": member["source"], "score": member["score"]})
+            knowledge_bases.append(entry)
+        knowledge_bases.sort(key=lambda e: (e["is_personal"], e["label"]))
+        try:
+            top_entities = json.loads(theme["top_entities"] or "[]")
+        except ValueError:
+            top_entities = []
+        view = {
+            "number": number,
+            "url": f"{origin}/themes/{number}/",
+            "label": theme["label"],
+            "description": theme["description"],
+            "knowledge_type": theme["knowledge_type"],
+            "state": theme["state"],
+            "top_entities": top_entities,
+            "shared_knowledge_bases": sum(1 for e in knowledge_bases if not e["is_personal"] and not e.get("excluded")),
+            "visible_contributions": contributions_visible,
+            "last_activity_at": theme["last_activity_at"],
+            "knowledge_bases": knowledge_bases,
+        }
+        if admin:
+            view["label_locked"] = bool(theme["label_locked"])
+            view["computed_at"] = theme["computed_at"]
+        return view
+
+    def _theme_cards_html(views: list[dict[str, Any]]) -> str:
+        """The themes of a public page as cards: the label, the knowledge type, the counts, and the top entities."""
+        cards = []
+        for view in views:
+            entities = ", ".join(html.escape(str(name)) for name in view["top_entities"][:5])
+            items = "".join(
+                f'<li>{f"""<a href="{html.escape(kb["url"])}">{html.escape(kb["label"])}</a>""" if kb["url"] else html.escape(kb["label"])}'
+                f'<span class="themes-count">({html.escape(_t("themes.kb_personal") if kb["is_personal"] else _t("themes.kb_shared"))})</span></li>'
+                for kb in view["knowledge_bases"]
+            )
+            cards.append(
+                '<article class="account-card">'
+                '<div class="account-header">'
+                f'<a class="account-name" href="/themes/{html.escape(view["number"])}/">{html.escape(view["label"])}</a>'
+                f'<span class="badge">{html.escape(_t("themes.type_" + view["knowledge_type"]))} · {html.escape(_t("themes.counts", knowledge_bases=view["shared_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
+                "</div>"
+                + (f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{entities}</p>' if entities else "")
+                + (f'<ul class="themes-list">{items}</ul>' if items else "")
+                + "</article>"
+            )
+        return "".join(cards)
+
+    def _active_theme_views(*, origin: str, knowledge_type: str | None = None) -> list[dict[str, Any]]:
+        """The active themes, the one with the most recent activity first (design Section 8.4)."""
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            themes = [t for t in themes_store.list_themes(conn, knowledge_type=knowledge_type) if t["state"] == "active"]
+            themes.sort(key=lambda t: (-(t["last_activity_at"] or 0.0), -int(t["number"])))
+            return [_theme_view(conn, t, origin=origin) for t in themes]
+        finally:
+            conn.close()
+
+    async def theme_page_route(request: Request, number: int) -> Response:
+        """``/themes/{number}/``: the page of one theme, as HTML or as JSON (content negotiation of the namespace design Section 6.5)."""
+        origin = _public_origin(request)
+
+        def _load() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                theme = themes_store.get_theme_by_number(conn, number)
+                return None if theme is None or theme["state"] != "active" else _theme_view(conn, theme, origin=origin)
+            finally:
+                conn.close()
+
+        view = await asyncio.to_thread(_load)
+        if view is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        if not collections.wants_html(request):
+            return JSONResponse(view)
+        template_text = (Path(__file__).resolve().parent.parent / "templates" / "explore_accounts.html").read_text(encoding="utf-8")
+        rendered = string.Template(template_text).substitute(
+            title=html.escape(view["label"]),
+            html_lang=get_locale(),
+            nav_label=html.escape(_t("themes.nav_label")),
+            subtitle=html.escape(_t("themes.page_subtitle", type=_t("themes.type_" + view["knowledge_type"]))),
+            nav_auth=f'<a href="/themes">{html.escape(_t("themes.all"))}</a>',
+            content=_theme_cards_html([view]),
+            pagination="",
+        )
+        return HTMLResponse(inject_favicon_head_tags(rendered))
+
+    def _admin_themes_payload(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:
+        last = conn.execute("SELECT value FROM server_settings WHERE key=?", (theme_judgement.LAST_RUN_KEY,)).fetchone()
+        return {
+            "settings": theme_judgement.read_settings(conn),
+            "last_run_at": float(last[0]) if last is not None else None,
+            "themes": [_theme_view(conn, t, origin=origin, admin=True) for t in themes_store.list_themes(conn, include_merged=True)],
+        }
+
+    def _admin_theme_of_path(conn: sqlite3.Connection, request: Request, name: str = "number") -> dict[str, Any]:
+        try:
+            theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(request.path_params.get(name) or "")))
+        except ValueError:
+            theme = None
+        if theme is None:
+            raise HTTPException(status_code=404, detail="theme not found")
+        return theme
+
+    async def admin_themes_route(request: Request) -> JSONResponse:
+        """``GET /api/admin/themes``: each theme with its members and adjustments, the thresholds, and the time of the last run. ``POST``: the admin makes a theme (the split of design Section 8.3: then it pins knowledge bases to it)."""
+        origin = _public_origin(request)
+        body = await _json_object(request) if request.method == "POST" else {}
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                if request.method == "POST":
+                    label, knowledge_type = body.get("label"), body.get("knowledge_type")
+                    if not isinstance(label, str) or not label.strip():
+                        return JSONResponse({"error": "label_required"}, status_code=400)
+                    if knowledge_type not in themes_store.KNOWLEDGE_TYPES:
+                        return JSONResponse({"error": "knowledge_type_required"}, status_code=400)
+                    theme = themes_store.create_theme(conn, label=label.strip(), knowledge_type=knowledge_type)
+                    themes_store.update_theme(conn, int(theme["id"]), label_locked=1)
+                    conn.commit()
+                    return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)}, status_code=201)
+                return JSONResponse(_admin_themes_payload(conn, origin=origin))
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_themes_settings_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/themes/settings``: the thresholds of the judgement (CT25): ``theme_match_threshold``, ``document_match_threshold``, ``seed_match_threshold``, each from 0 to 1."""
+        body = await _json_object(request)
+        principal = request_principal(request)
+        unknown = set(body) - set(theme_judgement.SETTINGS)
+        if unknown or not body:
+            raise HTTPException(status_code=400, detail="settings_invalid")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    for key, value in body.items():
+                        theme_judgement.write_setting(conn, key, value, updated_by=principal.account_id)
+                except ValueError:
+                    conn.rollback()
+                    return JSONResponse({"error": "settings_invalid"}, status_code=400)
+                conn.commit()
+                return JSONResponse({"ok": True, "settings": theme_judgement.read_settings(conn)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_themes_judge_route(request: Request) -> JSONResponse:
+        """``POST /api/admin/themes/judge``: the admin starts a run of the judgement (design Section 8.2 rule 10)."""
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                report = theme_judgement.run_judgement(conn)
+                conn.commit()
+                return JSONResponse({"ok": True, "report": dataclasses.asdict(report)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_route(request: Request) -> JSONResponse:
+        """``PATCH /api/admin/themes/{number}``: ``{"label": "..."}`` renames the theme and locks the label; ``{"label_locked": false}`` gives the label back to the judgement (design Section 8.3)."""
+        body = await _json_object(request)
+        origin = _public_origin(request)
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme = _admin_theme_of_path(conn, request)
+                changes: dict[str, Any] = {}
+                if "label" in body:
+                    if not isinstance(body["label"], str) or not body["label"].strip():
+                        return JSONResponse({"error": "label_invalid"}, status_code=400)
+                    changes.update({"label": body["label"].strip(), "label_locked": 1})
+                if "label_locked" in body:
+                    if not isinstance(body["label_locked"], bool):
+                        return JSONResponse({"error": "label_locked_invalid"}, status_code=400)
+                    changes["label_locked"] = 1 if body["label_locked"] else 0
+                if not changes:
+                    return JSONResponse({"error": "label_required"}, status_code=400)
+                themes_store.update_theme(conn, int(theme["id"]), **changes)
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_member_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/themes/{number}/knowledge-bases/{kb}`` with ``{"membership": "pinned" | "excluded" | "computed"}`` (design Section 8.3): pin a knowledge base to the theme, exclude it from the theme, or give the decision back to the judgement."""
+        body = await _json_object(request)
+        membership = body.get("membership")
+        if membership not in ("pinned", "excluded", "computed"):
+            raise HTTPException(status_code=400, detail="membership_invalid")
+        origin = _public_origin(request)
+        try:
+            kb = theme_mgr.get_kb_by_reference(request.path_params.get("kb"))
+        except KnowledgeBaseNotFound:
+            raise HTTPException(status_code=404, detail="theme not found") from None
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme = _admin_theme_of_path(conn, request)
+                if theme["state"] == "merged":
+                    return JSONResponse({"error": "theme_merged"}, status_code=409)
+                if membership == "pinned" and themes_store.kb_type_for_themes(conn, kb.id) != theme["knowledge_type"]:
+                    # A theme has one knowledge type (CT18).
+                    return JSONResponse({"error": "knowledge_type_mismatch"}, status_code=409)
+                themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=membership == "pinned", excluded=membership == "excluded")
+                if membership == "pinned":
+                    themes_store.update_theme(conn, int(theme["id"]), state="active")
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_merge_route(request: Request) -> JSONResponse:
+        """``POST /api/admin/themes/{number}/merge`` with ``{"into": "<number>"}`` (design Section 8.3): the theme gets the state ``merged``, its members are pinned to the other theme, and its page gives 308 to the other theme."""
+        body = await _json_object(request)
+        origin = _public_origin(request)
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                source = _admin_theme_of_path(conn, request)
+                try:
+                    target = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(body.get("into") or "")))
+                except ValueError:
+                    target = None
+                if target is None:
+                    return JSONResponse({"error": "into_invalid"}, status_code=400)
+                try:
+                    themes_store.merge_themes(conn, source_id=int(source["id"]), target_id=int(target["id"]))
+                except ValueError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": str(exc)}, status_code=409)
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(target["id"])) or target, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
 
     def _load_server_tier_payload() -> dict[str, Any]:
         """Read current ServerTier configuration for /providers responses."""
@@ -2304,6 +2588,10 @@ def create_app(
             ns = request_namespace(request)
         except Exception:
             ns = None
+
+        if ns is not None and ns.account_id is None and ns.pinned_kb_id is None and ns.prefix.startswith("/themes/"):
+            # ``/themes/{number}/``: the page of a theme. The namespace middleware checked that the number is an active theme.
+            return await theme_page_route(request, int(ns.prefix[len("/themes/"):]))
 
         if ns is not None and ns.mode == "network" and not ns.via_prefix:
             params = request.query_params
@@ -5042,6 +5330,12 @@ def create_app(
         Route("/membership", kb_leave_route, methods=["DELETE"]),
         Route("/members", kb_members_route, methods=["GET", "HEAD"]),
         Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/api/admin/themes", admin_themes_route, methods=["GET", "HEAD", "POST"]),
+        Route("/api/admin/themes/settings", admin_themes_settings_route, methods=["PUT"]),
+        Route("/api/admin/themes/judge", admin_themes_judge_route, methods=["POST"]),
+        Route("/api/admin/themes/{number}", admin_theme_route, methods=["PATCH"]),
+        Route("/api/admin/themes/{number}/knowledge-bases/{kb}", admin_theme_member_route, methods=["PUT"]),
+        Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
         Route("/contributions", kb_contribute_route, methods=["POST"]),
         Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),
         Route("/contributions/{number}", kb_contribution_withdraw_route, methods=["DELETE"]),

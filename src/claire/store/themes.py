@@ -248,3 +248,27 @@ def delete_document_matches_of_kb(conn: sqlite3.Connection, kb_id: int) -> None:
 def fiction_like_documents(conn: sqlite3.Connection, kb_id: int) -> set[str]:
     """The documents of a knowledge base whose theme match is a ``fictional`` theme (design Section 8.5, CT18)."""
     return {str(r[0]) for r in conn.execute("SELECT document_id FROM kb_document_matches WHERE kb_id=? AND knowledge_type='fictional' AND theme_id IS NOT NULL", (int(kb_id),))}
+
+
+def kb_type_for_themes(conn: sqlite3.Connection, kb_id: int) -> str | None:
+    """The knowledge type of a knowledge base for the themes: a personal knowledge base counts as ``real`` (CT18). None: no such knowledge base."""
+    row = conn.execute("SELECT is_personal, knowledge_type FROM knowledge_bases WHERE id=?", (int(kb_id),)).fetchone()
+    if row is None:
+        return None
+    return "real" if int(row[0] or 0) == 1 else row[1]
+
+
+def merge_themes(conn: sqlite3.Connection, *, source_id: int, target_id: int, now: float | None = None) -> None:
+    """Merge theme A into theme B (design Section 8.3): A gets the state ``merged`` and points to B, and the members of A are pinned to B. The two themes must have one knowledge type. No commit."""
+    source, target = get_theme(conn, source_id), get_theme(conn, target_id)
+    if source is None or target is None:
+        raise KeyError("theme not found")
+    if source_id == target_id or target["state"] == "merged" or source["state"] == "merged":
+        raise ValueError("theme_merge_invalid")
+    if source["knowledge_type"] != target["knowledge_type"]:
+        raise ValueError("knowledge_type_mismatch")
+    for member in theme_members(conn, source_id):
+        set_admin_member(conn, theme_id=target_id, kb_id=int(member["kb_id"]), pinned=True, excluded=False)
+    conn.execute("DELETE FROM theme_knowledge_bases WHERE theme_id=?", (int(source_id),))
+    update_theme(conn, source_id, now=now, state="merged", merged_into_theme_id=int(target_id))
+    update_theme(conn, target_id, now=now, state="active")

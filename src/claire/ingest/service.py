@@ -130,6 +130,7 @@ def _service_job(*, slot: bool = True):
             with self.job_scope(slot=slot):
                 result = fn(self, *args, **kwargs)
             run_waiting_merge_jobs(getattr(self, "base_settings", None))
+            run_theme_judgement_if_due(getattr(self, "base_settings", None))
             return result
 
         return wrapper
@@ -138,6 +139,29 @@ def _service_job(*, slot: bool = True):
 
 
 log = logging.getLogger("claire.ingest.service")
+
+
+def run_theme_judgement_if_due(settings: Any) -> bool:
+    """Run the subject judgement when it is due (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.2 rule 10: once a day, or when a knowledge base has 20 new visible documents). Each service job calls this when it ends, so the API and the worker loops run it. A server without a shared knowledge base has no themes: nothing runs. A failure is in the log and never fails the caller."""
+    if settings is None or not getattr(settings, "multi_theme", False):
+        return False
+    try:
+        from .. import theme_judgement
+
+        conn = dbm.connect_existing(settings.db_file)
+        try:
+            if conn.execute("SELECT 1 FROM knowledge_bases WHERE COALESCE(is_personal, 0)=0 AND account_id IS NULL LIMIT 1").fetchone() is None:
+                return False
+            if not theme_judgement.run_is_due(conn):
+                return False
+            theme_judgement.run_judgement(conn)
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("subject judgement did not run: %s", type(exc).__name__)
+        return False
 
 
 def run_waiting_merge_jobs(settings: Any) -> int:

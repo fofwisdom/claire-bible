@@ -481,6 +481,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/me/personal-cli/test"),
         ("POST", "/support/bundle"),
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
+        *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(
             (method, path)
             for path in (

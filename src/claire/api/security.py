@@ -446,6 +446,15 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/members"): _namespaced("read", "read"),
     ("HEAD", "/members"): _namespaced("read", "read"),
     ("PATCH", "/members/{account}"): _namespaced("owner", "people"),
+    # Themes (design Sections 8.2 and 8.3): the admin sees each theme, sets the thresholds, starts a run, and makes the adjustments.
+    ("GET", "/api/admin/themes"): _system("admin", "none"),
+    ("HEAD", "/api/admin/themes"): _system("admin", "none"),
+    ("POST", "/api/admin/themes"): _system("admin", "none"),
+    ("PUT", "/api/admin/themes/settings"): _system("admin", "none"),
+    ("POST", "/api/admin/themes/judge"): _system("admin", "none"),
+    ("PATCH", "/api/admin/themes/{number}"): _system("admin", "none"),
+    ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"): _system("admin", "none"),
+    ("POST", "/api/admin/themes/{number}/merge"): _system("admin", "none"),
     # Contributions (design Sections 9.1, 9.4 to 9.6). The withdrawal and the retry are for the contributor (the handler checks the credit); the scope ``write`` has them (Section 6.6).
     ("POST", "/contributions"): _namespaced("write", "contribute_direct"),
     ("GET", "/contributions"): _namespaced("read", "read"),

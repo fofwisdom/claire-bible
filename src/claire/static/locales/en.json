@@ -2929,5 +2929,15 @@
   "explore.title": "Public directory",
   "explore.nav_label": "Main navigation",
   "explore.subtitle": "Knowledge managers and public knowledge themes on the network.",
+  "themes.section_title": "Themes",
+  "themes.all": "All themes",
+  "themes.accounts_title": "Accounts",
+  "themes.nav_label": "Themes",
+  "themes.page_subtitle": "A theme of knowledge bases with one subject ({type})",
+  "themes.type_real": "Real world",
+  "themes.type_fictional": "Fiction",
+  "themes.counts": "{knowledge_bases} shared knowledge bases, {contributions} contributions",
+  "themes.kb_shared": "shared",
+  "themes.kb_personal": "personal",
   "ws.ent.chip_degree": "connections ≥ {count}"
 }

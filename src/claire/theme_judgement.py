@@ -269,7 +269,9 @@ def run_judgement(conn: sqlite3.Connection, *, now: float | None = None) -> RunR
     signatures: dict[int, Signature] = {}
     for kb in knowledge_bases:
         if not kb["is_public"]:
+            # A private personal knowledge base does not take part: no signature and no computed membership.
             themes_store.delete_signature(conn, kb["id"])
+            themes_store.delete_free_members_of_kb(conn, kb["id"])
             continue
         exclude = set() if kb["is_shared"] else themes_store.fiction_like_documents(conn, kb["id"])
         signature = compute_signature(conn, kb_id=kb["id"], knowledge_type=kb["knowledge_type"], is_shared=kb["is_shared"], exclude_documents=exclude)
@@ -295,7 +297,8 @@ def run_judgement(conn: sqlite3.Connection, *, now: float | None = None) -> RunR
         current: dict[int, set[int]] = {}
         for m in members:
             theme = themes.get(int(m["theme_id"]))
-            if theme is not None and theme["knowledge_type"] == knowledge_type and theme["state"] != "merged" and not m["excluded"] and by_id.get(int(m["kb_id"]), {}).get("is_shared"):
+            # The identity of a theme follows its computed members: a membership that the admin pinned or excluded does not count.
+            if theme is not None and theme["knowledge_type"] == knowledge_type and theme["state"] != "merged" and not m["excluded"] and not m["pinned"] and by_id.get(int(m["kb_id"]), {}).get("is_shared"):
                 current.setdefault(int(m["theme_id"]), set()).add(int(m["kb_id"]))
         candidates = []
         for index, kb_ids in enumerate(clusters):
