@@ -566,6 +566,197 @@ paths:
         '409':
           description: '`not_pending` or `not_active_member`.'
 
+  /kb/{number}/contributions:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Contribute a document to a shared knowledge base
+      description: >-
+        A direct contribution of a document of the personal knowledge base of the requester (an active
+        member of the knowledge base). The server copies the document and builds the graph of the
+        shared knowledge base from the stored extraction, without an LLM call. The merge job runs in
+        the request: the state in the answer is `visible`, or `failed` with a code in `reason`.
+      operationId: contributeDocument
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document]
+              properties:
+                document:
+                  type: string
+                  description: The ID of a document of the personal knowledge base of the requester.
+      responses:
+        '201':
+          description: '`{"ok": true, "contribution": {...}}`'
+        '403':
+          description: '`kb_capability_required`, `kb_archived`, or `scope_insufficient`.'
+        '404':
+          description: '`document_not_found`.'
+        '409':
+          description: '`document_not_extracted`, `contribution_duplicate` (with `url`), or `contribution_tombstoned`.'
+    get:
+      summary: Contributions of a shared knowledge base
+      description: >-
+        A collection with `contributions`. Each reader gets the visible ones; a reviewer gets each
+        state; the requester gets its own contributions in each state.
+      operationId: listContributions
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, merging, visible, hidden, failed, rejected, removed]
+      responses:
+        '200':
+          description: OrderedCollection or OrderedCollectionPage of contributions.
+
+  /kb/{number}/contributions/{contribution}:
+    parameters:
+      - name: number
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: contribution
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The public number of the contribution.
+    delete:
+      summary: Withdraw a contribution
+      description: The contributor withdraws its contribution while it is not approved. The copy and the row are deleted.
+      operationId: withdrawContribution
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"ok": true}`'
+        '404':
+          description: '`contribution_not_found` (also a contribution of another account).'
+        '409':
+          description: '`contribution_approved` or `contribution_closed`.'
+    patch:
+      summary: Review a contribution
+      description: >-
+        Capability `review`. `approve` is final and starts the merge job of a pending contribution.
+        `reject` is for a pending contribution and needs a reason code. `hide` and `unhide` are
+        reversible. `stop_updates` and `restart_updates` control the automatic revisions.
+      operationId: reviewContribution
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject, hide, unhide, stop_updates, restart_updates]
+                reason:
+                  type: string
+                  enum: [off_subject, wrong_knowledge_type, duplicate, low_quality, spam, other]
+      responses:
+        '200':
+          description: '`{"ok": true, "contribution": {...}}`'
+        '400':
+          description: '`action_invalid` or `reason_invalid`.'
+        '409':
+          description: '`contribution_approved`, `contribution_not_pending`, `contribution_not_visible`, `contribution_not_hidden`, or `contribution_closed`.'
+
+  /kb/{number}/contributions/{contribution}/remove:
+    post:
+      summary: Remove a contribution
+      description: Capability `remove`. The copy is purged in the knowledge base and a tombstone keeps the same source out.
+      operationId: removeContribution
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contribution
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [off_subject, wrong_knowledge_type, duplicate, low_quality, spam, other]
+      responses:
+        '200':
+          description: '`{"ok": true}`'
+        '409':
+          description: '`contribution_closed`.'
+
+  /kb/{number}/contributions/{contribution}/retry:
+    post:
+      summary: Start the merge job of a failed contribution again
+      description: For the contributor or a reviewer.
+      operationId: retryContribution
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contribution
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: '`{"ok": true, "contribution": {...}}`'
+        '409':
+          description: '`contribution_not_failed`.'
+
   /api/admin/kb/{number}/moderators/{account}:
     parameters:
       - name: number

@@ -247,6 +247,68 @@ def get_contribution_for_document(conn: sqlite3.Connection, kb_id: int, document
     return None if row is None else dict(zip(_CONTRIBUTION_KEYS, tuple(row)))
 
 
+def get_contribution(conn: sqlite3.Connection, public_id: int) -> dict[str, Any] | None:
+    row = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE public_id=?", (int(public_id),)).fetchone()
+    return None if row is None else dict(zip(_CONTRIBUTION_KEYS, tuple(row)))
+
+
+# The columns that ``update_contribution`` changes. The identity of a contribution (its knowledge base, origin, credit, and root) does not change.
+_CONTRIBUTION_UPDATES = frozenset({"document_id", "state", "decision_reason", "approved_at", "approved_by_account_id", "updates_frozen", "revised_at", "decided_at"})
+
+
+def update_contribution(conn: sqlite3.Connection, public_id: int, *, now: float | None = None, **fields: Any) -> None:
+    """Change columns of one contribution. ``KeyError`` when there is no such contribution; ``ValueError`` for a column that does not change or a state that is not valid."""
+    unknown = set(fields) - _CONTRIBUTION_UPDATES
+    if unknown:
+        raise ValueError(f"columns of a contribution that do not change: {sorted(unknown)}")
+    if "state" in fields and fields["state"] not in CONTRIBUTION_STATES:
+        raise ValueError(f"invalid contribution state: {fields['state']!r}")
+    ts = time.time() if now is None else now
+    names = sorted(fields)
+    assignments = ", ".join(f"{name}=?" for name in names)
+    cur = conn.execute(
+        f"UPDATE kb_contributions SET {assignments}{', ' if names else ''}updated_at=? WHERE public_id=?",
+        (*(fields[name] for name in names), ts, int(public_id)),
+    )
+    if cur.rowcount == 0:
+        raise KeyError(f"no contribution {public_id}")
+
+
+def delete_contribution(conn: sqlite3.Connection, public_id: int) -> bool:
+    """Delete one contribution row (a withdrawal, design Section 9.4). Its revisions go with it."""
+    return conn.execute("DELETE FROM kb_contributions WHERE public_id=?", (int(public_id),)).rowcount > 0
+
+
+def contributions_of_root(conn: sqlite3.Connection, root_document_id: str) -> list[dict[str, Any]]:
+    """The contributions whose root is the document, in each origin and each knowledge base (design Section 9.5 rule 2)."""
+    rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE root_document_id=? ORDER BY public_id", (root_document_id,)).fetchall()
+    return [dict(zip(_CONTRIBUTION_KEYS, tuple(r))) for r in rows]
+
+
+_REVISION_KEYS = ("id", "contribution_public_id", "previous_document_id", "document_id", "content_hash", "state", "created_at", "completed_at")
+
+
+def add_revision(conn: sqlite3.Connection, *, contribution_public_id: int, previous_document_id: str | None, document_id: str, content_hash: str, now: float | None = None) -> int:
+    """Record one revision of a contribution in the state ``merging`` (design Section 9.5 rule 3)."""
+    ts = time.time() if now is None else now
+    cur = conn.execute(
+        "INSERT INTO kb_contribution_revisions (contribution_public_id, previous_document_id, document_id, content_hash, state, created_at) VALUES (?, ?, ?, ?, 'merging', ?)",
+        (int(contribution_public_id), previous_document_id, document_id, content_hash, ts),
+    )
+    return int(cur.lastrowid)
+
+
+def complete_revision(conn: sqlite3.Connection, revision_id: int, *, state: str, now: float | None = None) -> None:
+    if state not in ("done", "failed"):
+        raise ValueError(f"invalid revision state: {state!r}")
+    conn.execute("UPDATE kb_contribution_revisions SET state=?, completed_at=? WHERE id=?", (state, time.time() if now is None else now, int(revision_id)))
+
+
+def list_revisions(conn: sqlite3.Connection, contribution_public_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(f"SELECT {', '.join(_REVISION_KEYS)} FROM kb_contribution_revisions WHERE contribution_public_id=? ORDER BY id", (int(contribution_public_id),)).fetchall()
+    return [dict(zip(_REVISION_KEYS, tuple(r))) for r in rows]
+
+
 # --- moderation log ------------------------------------------------------------------------------
 
 

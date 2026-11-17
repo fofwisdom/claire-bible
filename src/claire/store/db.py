@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     kb_id INTEGER NOT NULL DEFAULT 0 REFERENCES knowledge_bases(id) ON DELETE CASCADE,
     payload TEXT,
     source_type TEXT,
-    status TEXT DEFAULT 'pending',   -- pending | done | error
+    status TEXT DEFAULT 'pending',   -- pending | running | done | error
     error TEXT,
     created_at REAL,
     updated_at REAL
@@ -6093,6 +6093,12 @@ def purge_document_cascade(
         stats["deleted_documents"] = conn.execute(
             f"DELETE FROM documents WHERE id IN ({ph_matched}){where_th}", matched_ids
         ).rowcount
+        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.6: a purged copy in a shared knowledge base is a removed contribution. ``contributions`` sets the state itself (and clears ``document_id``) before it purges, so this step only takes a purge from another entry point.
+        if _table_exists(conn, "kb_contributions"):
+            stats["removed_contributions"] = conn.execute(
+                f"UPDATE kb_contributions SET state='removed', document_id=NULL, decision_reason='other', decided_at=?, updated_at=? WHERE document_id IN ({ph_matched}){where_th}",
+                (now, now, *matched_ids),
+            ).rowcount
 
         # Fedify sidecar design Section 9.4: a purged document that was published gets a tombstone and a Delete task, in this transaction.
         from . import federation as federation_store

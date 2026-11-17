@@ -50,6 +50,7 @@ from ..ingest.pipeline import IngestReport
 from ..ingest.report_json import report_to_dict
 from ..ingest.service import IngestService, IngestServicePool
 from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
+from .. import contributions
 from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -1396,6 +1397,226 @@ def create_app(
 
         await asyncio.to_thread(_audit)
         return JSONResponse({"ok": True, "member": member})
+
+    # --- Contributions (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.1, 9.4 to 9.6) ---
+
+    _REVIEW_ACTIONS = ("approve", "reject", "hide", "unhide", "stop_updates", "restart_updates")
+
+    def _contribution_error(exc: contributions.ContributionError, *, kb: KnowledgeBaseInfo, origin: str) -> JSONResponse:
+        body: dict[str, Any] = {"error": exc.code}
+        if "document" in exc.extra:
+            # Design Section 9.1: a duplicate gets 409 with the URL of the document that K has.
+            body["url"] = f"{origin}{kb_base_path(kb.number)}?doc={exc.extra['document']}"
+        return JSONResponse(body, status_code=exc.status)
+
+    def _contribution_number(request: Request) -> int:
+        try:
+            return ids.parse_public_id(str(request.path_params.get("number") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="contribution_not_found") from None
+
+    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool) -> dict[str, Any]:
+        """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document."""
+        contributor = None
+        if row["contributor_account_id"] is not None:
+            try:
+                account = accounts_store.AccountStore(conn).get(int(row["contributor_account_id"]))
+                contributor = {"account": ids.format_public_id(account.public_id), "display_name": account.display_name}
+            except accounts_store.AccountNotFound:
+                contributor = None
+        view: dict[str, Any] = {
+            "number": ids.format_public_id(int(row["public_id"])),
+            "document": row["document_id"],
+            "origin": row["origin"],
+            "state": row["state"],
+            "contributor": contributor,
+            "approved": row["approved_at"] is not None,
+            "approved_at": row["approved_at"],
+            "updates_stopped": bool(row["updates_frozen"]),
+            "contributed_at": row["contributed_at"],
+            "revised_at": row["revised_at"],
+        }
+        if full:
+            view["reason"] = row["decision_reason"]
+            view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
+        return view
+
+    def _run_merge_jobs_of(kb: KnowledgeBaseInfo) -> None:
+        """Run the merge jobs of K that wait, with the provider of the server (CT24): the pool gives the server context for a shared knowledge base without an acting account."""
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s), kb_id=kb.id)
+        finally:
+            conn.close()
+
+    async def kb_contribute_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions`` with ``{"document": "<document ID>"}``: a direct contribution of a document of the personal knowledge base of the requester (design Section 9.1). The merge job runs in this request; the answer has the state after it."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        body = await _json_object(request)
+        document_id = body.get("document")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise HTTPException(status_code=400, detail="document_required")
+        approved = _kb_decide(request, kb, "review") == "allow"
+        origin = _public_origin(request)
+
+        def _contribute() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(int(principal.account_id))
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    row = contributions.contribute_direct(conn, kb_id=kb.id, source_kb_id=personal.id, source_document_id=document_id.strip(), contributor_account_id=int(principal.account_id), approved=approved)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return _contribution_error(exc, kb=kb, origin=origin)
+                conn.commit()
+                public_id = int(row["public_id"])
+            finally:
+                conn.close()
+            _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return JSONResponse({"ok": True, "contribution": _contribution_view(conn, kb_collab.get_contribution(conn, public_id) or row, full=True)}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_contribute)
+
+    async def kb_contributions_route(request: Request) -> Response:
+        """``GET /kb/{number}/contributions``: the visible contributions for each reader; each state for a reviewer; the own contributions of the requester in each state."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
+        state = _collection_filter(request, "state", kb_collab.CONTRIBUTION_STATES)
+
+        def _list() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                items = []
+                for row in reversed(kb_collab.list_contributions(conn, kb.id, state=state)):
+                    own = principal.account_id is not None and row["contributor_account_id"] == principal.account_id
+                    if row["state"] == "visible" or is_reviewer or own:
+                        items.append(_contribution_view(conn, row, full=is_reviewer or own))
+                return items
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_list)
+        return _collection_response(request, collection_url=f"{_public_origin(request)}{kb_base_path(kb.number)}contributions", items=items, extra={"contributions": items})
+
+    async def kb_contribution_withdraw_route(request: Request) -> JSONResponse:
+        """``DELETE /kb/{number}/contributions/{contribution}``: the contributor withdraws while the contribution is not approved (CT7). After the approval: 409 ``contribution_approved``."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="contribution_not_found")
+
+        def _withdraw() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                contributions.withdraw(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id))
+            except contributions.ContributionError as exc:
+                return JSONResponse({"error": exc.code}, status_code=exc.status)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True})
+
+        return await asyncio.to_thread(_withdraw)
+
+    async def kb_contribution_review_route(request: Request) -> JSONResponse:
+        """``PATCH /kb/{number}/contributions/{contribution}`` (capability ``review``): ``{"action": "approve" | "reject" | "hide" | "unhide" | "stop_updates" | "restart_updates", "reason"?}``. A reject needs a reason code."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        body = await _json_object(request)
+        action = body.get("action")
+        if action not in _REVIEW_ACTIONS:
+            raise HTTPException(status_code=400, detail="action_invalid")
+        reason = body.get("reason", "")
+        actor = int(principal.account_id)
+
+        def _review() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                try:
+                    if action == "approve":
+                        contributions.approve(conn, kb_id=kb.id, contribution=number, account_id=actor)
+                    elif action == "reject":
+                        contributions.reject(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=actor, reason=reason)
+                    elif action in ("hide", "unhide"):
+                        contributions.set_hidden(conn, kb_id=kb.id, contribution=number, account_id=actor, hidden=action == "hide")
+                    else:
+                        contributions.set_updates_frozen(conn, kb_id=kb.id, contribution=number, account_id=actor, frozen=action == "stop_updates")
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                conn.commit()
+            finally:
+                conn.close()
+            if action == "approve":
+                _run_merge_jobs_of(kb)  # the approval of a pending contribution starts its merge job
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                return JSONResponse({"ok": True, "contribution": None if row is None else _contribution_view(conn, row, full=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_review)
+
+    async def kb_contribution_remove_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions/{contribution}/remove`` (capability ``remove``) with ``{"reason": "<code>"}``: purge the copy in K and leave a tombstone."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        body = await _json_object(request)
+
+        def _remove() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                contributions.remove(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id), reason=body.get("reason", ""))
+            except contributions.ContributionError as exc:
+                return JSONResponse({"error": exc.code}, status_code=exc.status)
+            finally:
+                conn.close()
+            return JSONResponse({"ok": True})
+
+        return await asyncio.to_thread(_remove)
+
+    async def kb_contribution_retry_route(request: Request) -> JSONResponse:
+        """``POST /kb/{number}/contributions/{contribution}/retry``: the contributor or a reviewer starts the merge job of a failed contribution again (design Section 9.1 step 3)."""
+        kb = _shared_kb_of_path(request)
+        principal = request_principal(request)
+        number = _contribution_number(request)
+        is_reviewer = _kb_decide(request, kb, "review") == "allow"
+
+        def _retry() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                if row is None or int(row["kb_id"]) != kb.id or not (is_reviewer or (principal.account_id is not None and row["contributor_account_id"] == principal.account_id)):
+                    return JSONResponse({"error": "contribution_not_found"}, status_code=404)
+                try:
+                    contributions.retry_merge(conn, contribution=number)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code}, status_code=exc.status)
+                conn.commit()
+            finally:
+                conn.close()
+            _run_merge_jobs_of(kb)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = kb_collab.get_contribution(conn, number)
+                return JSONResponse({"ok": True, "contribution": None if row is None else _contribution_view(conn, row, full=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_retry)
 
     def _load_server_tier_payload() -> dict[str, Any]:
         """Read current ServerTier configuration for /providers responses."""
@@ -3174,9 +3395,21 @@ def create_app(
             raise HTTPException(status_code=400, detail="id required")
         hidden = bool(body.get("hidden", True))
 
+        actor_id = request_principal(request).account_id
+
         def _hide() -> bool:
             conn = dbm.connect_existing(theme_settings.db_file)
             try:
+                if theme.is_shared:
+                    # The copy of a contribution: hide and unhide change the state of the contribution too (design Section 9.6). A copy that waits for its merge or its approval stays hidden.
+                    row = kb_collab.get_contribution_for_document(conn, theme.id, document_id)
+                    if row is not None:
+                        try:
+                            contributions.set_hidden(conn, kb_id=theme.id, contribution=int(row["public_id"]), account_id=actor_id, hidden=hidden)
+                        except contributions.ContributionError as exc:
+                            raise HTTPException(status_code=exc.status, detail=exc.code) from exc
+                        conn.commit()
+                        return True
                 return dbm.set_document_hidden(conn, document_id, hidden, kb_id=theme.id)
             finally:
                 conn.close()
@@ -4809,6 +5042,12 @@ def create_app(
         Route("/membership", kb_leave_route, methods=["DELETE"]),
         Route("/members", kb_members_route, methods=["GET", "HEAD"]),
         Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/contributions", kb_contribute_route, methods=["POST"]),
+        Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),
+        Route("/contributions/{number}", kb_contribution_withdraw_route, methods=["DELETE"]),
+        Route("/contributions/{number}", kb_contribution_review_route, methods=["PATCH"]),
+        Route("/contributions/{number}/remove", kb_contribution_remove_route, methods=["POST"]),
+        Route("/contributions/{number}/retry", kb_contribution_retry_route, methods=["POST"]),
         Route("/api/admin/kb/{number}/moderators/{account}", admin_kb_moderator_route, methods=["PUT", "DELETE"]),
         Route("/themes", themes_collection_route, methods=["GET", "HEAD"]),
         Route("/providers", providers_get_route, methods=["GET", "HEAD"]),

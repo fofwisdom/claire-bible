@@ -1329,8 +1329,23 @@ def extract_resolve_store(
     report.model_lineage = model_lineage
     if getattr(doc, "id", None):
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
+        _start_contribution_revisions(conn, settings, kb_id=tid, document_id=doc.id)
 
     return True, None
+
+
+def _start_contribution_revisions(conn: sqlite3.Connection, settings: Any, *, kb_id: int, document_id: str) -> None:
+    """The document has a new extraction. When it is the root of contributions and its content changed, their revisions start (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.5). The merge jobs run after the service job (``IngestService``). A failure here never fails the ingest."""
+    try:
+        if conn.execute("SELECT 1 FROM kb_contributions WHERE root_document_id=? LIMIT 1", (document_id,)).fetchone() is None:
+            return
+        from .. import contributions
+
+        contributions.start_revisions(conn, Path(settings.data_dir), root_kb_id=kb_id, root_document_id=document_id)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("claire.contributions").warning("revisions of document %s did not start: %s", document_id, type(exc).__name__)
 
 
 def merge_source_into_document(

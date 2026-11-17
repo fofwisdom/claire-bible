@@ -318,6 +318,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/mcp",
         "/kb",
         "/members",
+        "/contributions",
         "/themes",
         "/api/syndication/dispatches",
         "/syndication/dispatches",
@@ -327,6 +328,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
     write_post = {
         "/ingest",
+        "/contributions",
+        "/contributions/{number}/retry",
         "/ingest-stream",
         "/reingest",
         "/reingest-stream",
@@ -339,6 +342,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/federation/retract",
     }
     write_methods = {
+        ("DELETE", "/contributions/{number}"),
         ("GET", "/document/raw"),
         ("HEAD", "/document/raw"),
     }
@@ -359,6 +363,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/entity/primary-label",
         "/graph/bundle",
         "/kb",
+        "/contributions/{number}/remove",
         "/membership",
         "/resolution/rollback",
         "/document/matrix/purge",
@@ -374,6 +379,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("DELETE", "/"),
         ("DELETE", "/membership"),
         ("PATCH", "/members/{account}"),
+        ("PATCH", "/contributions/{number}"),
         ("GET", "/tokens"),
         ("HEAD", "/tokens"),
         ("DELETE", "/tokens"),

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import threading
 from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
@@ -127,11 +128,49 @@ def _service_job(*, slot: bool = True):
         @functools.wraps(fn)
         def wrapper(self, *args, **kwargs):
             with self.job_scope(slot=slot):
-                return fn(self, *args, **kwargs)
+                result = fn(self, *args, **kwargs)
+            run_waiting_merge_jobs(getattr(self, "base_settings", None))
+            return result
 
         return wrapper
 
     return deco
+
+
+log = logging.getLogger("claire.ingest.service")
+
+
+def run_waiting_merge_jobs(settings: Any) -> int:
+    """Run the contribution merge jobs that wait (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.1 and 9.5), with the provider of the server and the settings of each knowledge base. Return the count of jobs that ran.
+
+    ``settings`` are the settings of the server, not the copy for the provider context of an account: the server pays the embeddings of a merge job (CT24). A failure is in the log and never fails the caller.
+    """
+    if settings is None:
+        return 0
+    try:
+        from .. import contributions
+
+        conn = dbm.connect_existing(settings.db_file)
+        try:
+            if not contributions.has_pending_merge_jobs(conn):
+                return 0
+            manager = get_kb_manager(settings)
+            providers: dict[int, Any] = {}
+
+            def _settings(kb_id: int) -> Any:
+                return manager.get_settings_for_kb(kb_id, settings)
+
+            def _provider(kb_id: int) -> Any:
+                if kb_id not in providers:
+                    providers[kb_id] = get_provider(_settings(kb_id))
+                return providers[kb_id]
+
+            return len(contributions.run_pending_merge_jobs(conn, _provider, _settings))
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("contribution merge jobs did not run: %s", type(exc).__name__)
+        return 0
 
 
 @contextmanager
