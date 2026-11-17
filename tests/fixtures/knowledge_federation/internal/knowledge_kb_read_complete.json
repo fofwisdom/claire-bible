@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-kb-reads",
+    "body": {
+      "domain": "b.example",
+      "items": [],
+      "complete": true,
+      "error": null
+    }
+  },
+  "status": 200,
+  "response": {
+    "domain": "b.example",
+    "stored": 0,
+    "refused": 0,
+    "refused_code": null,
+    "removed": 0
+  }
+}

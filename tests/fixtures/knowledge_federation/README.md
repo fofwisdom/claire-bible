@@ -4,6 +4,7 @@ These files are the wire contract of unit KF0 (`docs/implementation/KNOWLEDGE_FE
 
 - `objects/`: one file for each object kind. Each file is a document that goes alone, with `@context`.
 - `activities/`: one file for each activity kind.
+- `internal/`: the calls of the internal routes between the sidecar and Claire (units KF1 and KF2), with the keys `request`, `status`, and `response`. `tests/test_knowledge_federation_internal_contract.py` makes the calls on a real internal app and writes the files; `sidecar/fedify/tests/knowledge_test.ts` reads them.
 - `invalid/`: the important refusals. The keys are `validator` (`object` or `activity`), `error` (the error code), `path` (the field), and `value`.
 
 Server A is `a.example` (the account actor and the server actor). Server B is `b.example` (the shared knowledge base). The addresses and the numbers are test values.

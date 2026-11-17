@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.8";
+export const CONTRACT_VERSION = "1.9";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -333,6 +333,61 @@ export interface ActorOutboxPage {
 // The result of an actor read: the record, the time of removal of a purged actor (410), or null (404).
 export type ActorResult = { state: "found"; record: ActorRecord } | { state: "gone"; gone_at: number } | null;
 
+// One verified inbound activity of the knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Section 13, unit KF1). activity is the JSON as it came. signer is the actor whose signature is valid. recipient is the actor of the inbox that got the activity, or null for the shared inbox.
+export interface KnowledgeActivity {
+  activity: Record<string, unknown>;
+  signer: string;
+  verified_by: "http-signature" | "ld-signature" | "object-integrity-proof";
+  recipient: string | null;
+}
+
+// rejected: Claire stored no journal row. duplicate: the row exists, and reason is its state. In each other case the decision is the state of the row, and reason is the error code.
+export interface KnowledgeActivityResult {
+  decision: "processed" | "failed" | "refused" | "duplicate" | "rejected";
+  reason: string | null;
+  journal_id: number | null;
+}
+
+// A collection of shared knowledge for another server (unit KF2). document is the ActivityStreams document that the sidecar gives without a change.
+export interface KnowledgeCollection {
+  collection: "kb" | "themes";
+  server: string;
+  document: Record<string, unknown>;
+}
+
+// The result of one read of NodeInfo and of the server actor of a known server (unit KF1). ok true: server_actor, software_name, and software_version are texts, and error is null. ok false: error is a code, and the other fields are null.
+export interface ServerReadResult {
+  domain: string;
+  ok: boolean;
+  server_actor: string | null;
+  software_name: string | null;
+  software_version: string | null;
+  shared_kb_count: number | null;
+  error: string | null;
+}
+
+// One read of a /kb collection that is due (unit KF2). url is the address of the collection.
+export interface KbRead {
+  domain: string;
+  url: string;
+}
+
+// One step of the read of a /kb collection: a batch of items, the end of the read (complete), or its error (then items is empty and complete is false).
+export interface KbReadBatch {
+  domain: string;
+  items: Record<string, unknown>[];
+  complete: boolean;
+  error: string | null;
+}
+
+export interface KbReadBatchResult {
+  domain: string;
+  stored: number;
+  refused: number;
+  refused_code: string | null;
+  removed: number | null;
+}
+
 export class InternalApiError extends Error {
   // The parsed body of the error answer, when it is JSON.
   detail: unknown = undefined;
@@ -394,6 +449,10 @@ const list = (check: Check): Check => (v, p) => {
 const stringMap: Check = (v, p) => {
   if (typeof v !== "object" || v === null || Array.isArray(v)) fail(p, "an object");
   for (const [key, value] of Object.entries(v as object)) str(value, `${p}.${key}`);
+};
+// A JSON object with keys that this contract does not list: an ActivityStreams document.
+const jsonObject: Check = (v, p) => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) fail(p, "an object");
 };
 const sealed = (fields: Record<string, Check>): Check => (v, p) => {
   if (typeof v !== "object" || v === null || Array.isArray(v)) fail(p, "an object");
@@ -488,6 +547,12 @@ const timelineDecisionShape = sealed({
 const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
 const contextTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, object_iri: str, max_items: int, max_depth: int, created_at: num, lease_until: num })) });
 const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("federation_off", "not_an_actor", "context_fetch_off")), stored: int, refused: int });
+const knowledgeActivityShape = sealed({ decision: oneOf("processed", "failed", "refused", "duplicate", "rejected"), reason: nullable(str), journal_id: nullable(int) });
+const knowledgeCollectionShape = sealed({ collection: oneOf("kb", "themes"), server: str, document: jsonObject });
+const serverReadsShape = sealed({ servers: list(sealed({ domain: str })) });
+const serverReadRecordedShape = sealed({ domain: str, recorded: bool });
+const kbReadsShape = sealed({ reads: list(sealed({ domain: str, url: str })) });
+const kbReadBatchShape = sealed({ domain: str, stored: int, refused: int, refused_code: nullable(str), removed: nullable(int) });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -750,6 +815,56 @@ export class InternalApi {
     if (value === null) return null;
     quoteAuthorizationShape(value, "quote_authorization");
     return { state: "found", record: value as QuoteAuthorizationRecord };
+  }
+
+  // Sends one verified inbound activity of the knowledge federation (unit KF1). Claire writes it to its inbox journal and processes it. An error means no answer: the caller must fail, and the Fedify inbox queue tries again. A second delivery of the same activity gets the answer `duplicate`.
+  async knowledgeActivity(activity: KnowledgeActivity): Promise<KnowledgeActivityResult> {
+    const value = await this.#call("POST", "/knowledge-activities", activity);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    knowledgeActivityShape(value, "knowledge_activity");
+    return value as KnowledgeActivityResult;
+  }
+
+  // One read of a collection of shared knowledge by another server (units KF1 and KF2). signer is the actor whose signature is valid, or null for a request without a valid signature. null: Claire refused the read, and the caller answers 404.
+  async knowledgeCollection(name: "kb" | "themes", query: { signer: string | null; page?: string; maxId?: string }): Promise<KnowledgeCollection | null> {
+    const params = new URLSearchParams();
+    if (query.signer !== null) params.set("signer", query.signer);
+    if (query.page !== undefined) params.set("page", query.page);
+    if (query.maxId !== undefined) params.set("max_id", query.maxId);
+    const value = await this.#call("GET", `/knowledge-collections/${name}${params.size > 0 ? `?${params}` : ""}`);
+    if (value !== null) knowledgeCollectionShape(value, "knowledge_collection");
+    return value as KnowledgeCollection | null;
+  }
+
+  // Takes the domains of the known servers that are due for a read of NodeInfo and of the server actor. Each one has a lease.
+  async knowledgeServerReads(limit?: number): Promise<string[]> {
+    const value = await this.#call("GET", `/knowledge-server-reads${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    serverReadsShape(value, "knowledge_server_reads");
+    return (value as { servers: { domain: string }[] }).servers.map((server) => server.domain);
+  }
+
+  // Gives the result of one read of a known server. Returns false when the domain is not a known server.
+  async recordServerRead(result: ServerReadResult): Promise<boolean> {
+    const value = await this.#call("POST", "/knowledge-server-reads", result);
+    if (value === null) return false;
+    serverReadRecordedShape(value, "knowledge_server_read");
+    return true;
+  }
+
+  // Takes the reads of /kb collections that are due (unit KF2). Each one has a lease.
+  async knowledgeKbReads(limit?: number): Promise<KbRead[]> {
+    const value = await this.#call("GET", `/knowledge-kb-reads${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    kbReadsShape(value, "knowledge_kb_reads");
+    return (value as { reads: KbRead[] }).reads;
+  }
+
+  // Gives one batch of a read of a /kb collection, its end, or its error. null: Claire has no read for the domain.
+  async recordKbRead(batch: KbReadBatch): Promise<KbReadBatchResult | null> {
+    const value = await this.#call("POST", "/knowledge-kb-reads", batch);
+    if (value !== null) kbReadBatchShape(value, "knowledge_kb_read");
+    return value as KbReadBatchResult | null;
   }
 
   // One cursor page of the published objects of an actor, or null when the account is not an actor.

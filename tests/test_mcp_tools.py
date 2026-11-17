@@ -179,11 +179,11 @@ def test_path_same_node():
 def test_context_compact_default_true_trims_observations_and_drops_summary():
     conn = _db()
     _seed_graph(conn)
-    r_compact = context_impl(conn, ["e_mcp"])  # 기본 compact=True
+    r_compact = context_impl(conn, ["e_mcp"], include_hidden=True)  # 기본 compact=True
     assert r_compact["context"].count("관찰:") == 1
     # 관찰 4개 중 앞 3개만(compact) -> "d"(4번째)는 텍스트에 없어야 함
     assert " d" not in r_compact["context"].split("관찰:")[1].split("\n")[0]
-    r_full = context_impl(conn, ["e_mcp"], compact=False)
+    r_full = context_impl(conn, ["e_mcp"], compact=False, include_hidden=True)
     assert " d" in r_full["context"].split("관찰:")[1].split("\n")[0]
 
 
@@ -191,7 +191,7 @@ def test_context_caps_entity_count():
     conn = _db()
     _seed_graph(conn)
     many_ids = ["e_mcp", "e_cc", "e_an", "e_far"] * 5  # 20개, 상한 10
-    r = context_impl(conn, many_ids)
+    r = context_impl(conn, many_ids, include_hidden=True)
     assert r["truncated"] is True
     assert r["omitted"] == 10
 
@@ -215,7 +215,7 @@ def test_document_impl_does_not_mark_seen():
     row_before = dbm.get_document_row(conn, "d1")
     assert row_before["seen"] == 0
 
-    rep = document_impl(conn, "d1")
+    rep = document_impl(conn, "d1", include_hidden=True)
     assert rep["id"] == "d1"
 
     row_after = dbm.get_document_row(conn, "d1")
@@ -225,7 +225,7 @@ def test_document_impl_does_not_mark_seen():
 def test_document_impl_not_found():
     conn = _db()
     _seed_graph(conn)
-    assert document_impl(conn, "no-such-doc") == {"error": "not found"}
+    assert document_impl(conn, "no-such-doc", include_hidden=True) == {"error": "not found"}
 
 
 def test_iso_utc_includes_explicit_offset():
@@ -247,7 +247,7 @@ def test_document_impl_fetched_at_is_iso_with_offset():
     dbm.insert_document(conn, Document(
         id="d1", url="https://example.com/x", title="X", raw_text="MCP",
         source_type="web", content_hash="h1", fetched_at=1786751445.79))
-    rep = document_impl(conn, "d1")
+    rep = document_impl(conn, "d1", include_hidden=True)
     assert rep["fetched_at"] == _iso_utc(1786751445.79)
 
 
@@ -257,13 +257,13 @@ def test_node_impl_document_fetched_at_is_iso_with_offset():
         id="d1", url="https://example.com/x", title="X", raw_text="MCP",
         source_type="web", content_hash="h1", fetched_at=1786751445.79))
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
-    rep = node_impl(conn, "e1")
+    rep = node_impl(conn, "e1", include_hidden=True)
     assert rep["documents"][0]["fetched_at"] == _iso_utc(1786751445.79)
 
 
 def test_node_impl_not_found():
     conn = _db()
-    assert node_impl(conn, "no-such-entity") == {"error": "not found"}
+    assert node_impl(conn, "no-such-entity", include_hidden=True) == {"error": "not found"}
 
 
 def test_node_impl_default_drops_full_detail_keeps_summary():
@@ -273,7 +273,7 @@ def test_node_impl_default_drops_full_detail_keeps_summary():
         source_type="web", content_hash="h1"))
     dbm.set_document_detail(conn, "d1", "매우 긴 상세" * 100)
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
-    rep = node_impl(conn, "e1")
+    rep = node_impl(conn, "e1", include_hidden=True)
     assert "detail" not in rep["documents"][0]
     assert "summary" in rep["documents"][0]
 
@@ -285,7 +285,7 @@ def test_node_impl_full_true_includes_detail():
         source_type="web", content_hash="h1"))
     dbm.set_document_detail(conn, "d1", "상세")
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="MCP", sources=["d1"]))
-    rep = node_impl(conn, "e1", full=True)
+    rep = node_impl(conn, "e1", full=True, include_hidden=True)
     assert rep["documents"][0]["detail"] == "상세"
 
 
@@ -300,7 +300,7 @@ def test_node_impl_documents_capped_and_flagged():
             id=did, url=f"https://example.com/{i}", title=f"Doc {i}",
             raw_text="x", source_type="web", content_hash=f"h{i}"))
     dbm.upsert_entity(conn, Entity(id="e1", type="Concept", name="Hub", sources=ids))
-    rep = node_impl(conn, "e1")
+    rep = node_impl(conn, "e1", include_hidden=True)
     assert len(rep["documents"]) == MAX_NODE_DOCUMENTS
     assert rep["documents_truncated"] is True
     assert rep["documents_omitted"] == 5

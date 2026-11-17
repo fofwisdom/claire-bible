@@ -21,6 +21,20 @@ export function fixtureNames(): string[] {
   return [...Deno.readDirSync(new URL("federation_contract/", FIXTURE_DIR))].filter((e) => e.name.endsWith(".json")).map((e) => e.name.slice(0, -5)).sort();
 }
 
+// The contract fixtures of the internal routes of the knowledge federation (units KF1 and KF2). The Python test tests/test_knowledge_federation_internal_contract.py makes the same calls on a real internal app.
+export function knowledgeFixture(name: string): Fixture {
+  return JSON.parse(Deno.readTextFileSync(new URL(`knowledge_federation/internal/${name}.json`, FIXTURE_DIR)));
+}
+
+export function knowledgeFixtureNames(): string[] {
+  return [...Deno.readDirSync(new URL("knowledge_federation/internal/", FIXTURE_DIR))].filter((e) => e.name.endsWith(".json")).map((e) => e.name.slice(0, -5)).sort();
+}
+
+// One file of the wire contract of unit KF0: `kind` is "activities" or "objects".
+export function wireFixture(kind: "activities" | "objects", name: string): Record<string, unknown> {
+  return JSON.parse(Deno.readTextFileSync(new URL(`knowledge_federation/${kind}/${name}.json`, FIXTURE_DIR)));
+}
+
 export interface FakeClaire {
   transport: Transport;
   // Each call: "METHOD path".
@@ -51,6 +65,8 @@ export interface FakeClaire {
   quoteEvents: Record<string, unknown>[];
   // When set, each quote event gets this decision. If not, an event gets the decision of the fixture with the same body.
   quoteDecision: Record<string, unknown> | null;
+  // The bodies of the requests of the knowledge federation (units KF1 and KF2), in sequence, with the path below the prefix of the internal API.
+  knowledgePosts: { path: string; body: Record<string, unknown> }[];
   // The remote actors that an account follows, in addition to the actor of the timeline_interest fixture. Other actors are not followed.
   followed: Set<string>;
   // The limits of the parent chain in the answer for an actor of `followed`.
@@ -59,7 +75,7 @@ export interface FakeClaire {
 
 // A transport that answers from the fixtures. It refuses a request with a bad signature, the same as Claire.
 export function fakeClaire(): FakeClaire {
-  const fixtures = fixtureNames().map(fixture);
+  const fixtures = [...fixtureNames().map(fixture), ...knowledgeFixtureNames().map(knowledgeFixture)];
   const fake: FakeClaire = {
     calls: [],
     config: {},
@@ -75,6 +91,7 @@ export function fakeClaire(): FakeClaire {
     timelineDecision: null,
     quoteEvents: [],
     quoteDecision: null,
+    knowledgePosts: [],
     followed: new Set(),
     context: { context_fetch: "on", context_depth: 5 },
     transport: async (request) => {
@@ -99,6 +116,8 @@ export function fakeClaire(): FakeClaire {
         fake.quoteEvents.push(JSON.parse(text));
         if (fake.quoteDecision !== null) return Response.json(fake.quoteDecision);
       }
+      const knowledge = /\/(knowledge-[a-z-]+)$/.exec(url.pathname);
+      if (request.method === "POST" && knowledge !== null) fake.knowledgePosts.push({ path: `/${knowledge[1]}`, body: JSON.parse(text) });
       const ack = /\/outbox-tasks\/([0-9]+)\/ack$/.exec(target);
       if (request.method === "POST" && ack !== null) {
         const sent = JSON.parse(text) as { result: string; error_code: string | null };

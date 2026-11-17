@@ -21,12 +21,15 @@
 // - A thread fetch task (contract 1.5, unit FP4-6) has no activity: the sidecar fetches the objects of a thread and gives them to Claire (context.ts).
 // - An own note (contract 1.6, unit FP4-9) has the object path of the published documents: one dispatcher for the two (RT7). A deleted note gets 410 with a Tombstone whose formerType is Note. The outbox collection has the notes too. An interaction task becomes Create, Update, or Delete of a Note, or Like, Announce, and their Undo (notes.ts).
 // - Quotes (contract 1.7, unit FP4-9Q, quotes.ts): an Article and a Note have canQuote from the quote policy that Claire gives. A QuoteRequest for an object of this server, and an Accept or a Reject of the quote request of an own note, go to Claire as quote events. An approved request is a QuoteAuthorization at /ap/quote-authorizations/{id}; a revoked one gets 410 with a Tombstone.
+// - Federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md, units KF1 and KF2, knowledge.ts): an inbound activity whose @context has the Claire context goes to Claire as a knowledge activity, with its JSON as it came; it is not an inbox event and not a timeline event. Such an activity does not go through the inbox listener of Fedify: Fedify reads an activity into its own vocabulary, which has no Grant and no Revoke, and it does not keep the JSON of each type as it came. The sidecar verifies the HTTP signature of the request and gives Claire the body and the actor of the key; Claire keeps the activity in its inbox journal and makes each other check. The collections /ap/kb and /ap/themes answer a signed GET: the sidecar verifies the signature, and Claire decides and gives the document. A job reads the known servers and their /kb collections with the key of the server actor.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
-import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue } from "@fedify/fedify";
+import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue, verifyRequest } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
-import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
+import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
+// Federation of shared knowledge (units KF1 and KF2).
+import { KNOWLEDGE_COLLECTION_PATHS, knowledgeDocumentOf, KNOWLEDGE_READ_BATCH, type KnowledgeReadCounters, processKnowledgeReads } from "./knowledge.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 // Outbound interactions (contract 1.6, unit FP4-9).
 import { Object as ASObject } from "@fedify/fedify/vocab";
@@ -42,7 +45,8 @@ export const CONFIG_CACHE_SECONDS = 5;
 export const SIDECAR_HEADER = "x-claire-fedify-server";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
-const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox)$/;
+// The inbox of a knowledge base actor (/ap/kb/{number}/inbox) gets only activities of the knowledge federation; the actor document itself is unit KF3.
+const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox|kb\/[1-9][0-9]{0,18}\/inbox)$/;
 // The paths that can give 410 with a Tombstone: a deleted object, a purged actor, and a revoked quote authorization.
 const TOMBSTONE_PATH = /^\/ap\/(objects|actors|quote-authorizations)\/([1-9][0-9]{0,18})$/;
 const PUBLIC_ID = /^[1-9][0-9]{0,18}$/;
@@ -54,6 +58,8 @@ export const OUTBOX_PAGE_SIZE = 20;
 // The number of outbox tasks that one poll takes.
 export const OUTBOX_TASK_BATCH = 10;
 const AS2_CONTEXT = "https://www.w3.org/ns/activitystreams";
+// The part of the body of a knowledge activity request to Claire that is not the activity: the keys, the signer, and the recipient.
+const KNOWLEDGE_ENVELOPE_BYTES = 8192;
 const REMOVED_REQUEST_HEADERS = ["cookie", "authorization", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port"];
 
 export interface SidecarOptions {
@@ -138,6 +144,9 @@ export class Sidecar {
   #blocks: { etag: string; domains: Set<string> } | null = null;
   readonly counters: InboxCounters = { accepted: 0, rejected: 0, ignored: 0, blocked: 0, dropped: 0 };
   readonly outboxCounters: OutboxCounters = { handed_off: 0, rejected: 0, failed: 0 };
+  // Numbers of inbound activities of the knowledge federation since the start of this process, by the decision of Claire.
+  readonly knowledgeCounters: Record<KnowledgeActivityResult["decision"], number> = { processed: 0, failed: 0, refused: 0, duplicate: 0, rejected: 0 };
+  readonly knowledgeReadCounters: KnowledgeReadCounters = { servers_ok: 0, servers_failed: 0, collections_ok: 0, collections_failed: 0 };
   // Deleted objects and purged actors that a dispatcher found, with the time of removal. The key is the path. The answer code reads the entry and removes it.
   readonly #gone = new Map<string, number>();
   // The paths in #gone that are deleted notes (unit FP4-9): the Tombstone has the former type Note.
@@ -205,6 +214,12 @@ export class Sidecar {
       }
     }
     const clean = new Request(request.url, { method: request.method, headers, body: inbox ? body : request.body, redirect: "manual" });
+    const collection = KNOWLEDGE_COLLECTION_PATHS.get(path);
+    if (collection !== undefined) return await this.#knowledgeCollection(clean, config, collection);
+    if (inbox && body !== null) {
+      const activity = knowledgeDocumentOf(body);
+      if (activity !== null) return await this.#knowledgeInbox(clean, config, path, activity, blocked, body.byteLength);
+    }
     let response: Response;
     try {
       response = await this.#federationFor(config).fetch(clean, {
@@ -233,6 +248,74 @@ export class Sidecar {
       }
     }
     return response;
+  }
+
+  // The actor whose key made the valid HTTP signature of a request, or null when the request has no valid signature.
+  // The key document must be on the server of its owner: the actor of a key on another server is not a signer. A request with a body must have its digest in the signature (Fedify requires this for the draft form; this function requires it for RFC 9421).
+  async #requestSigner(request: Request, config: ServerConfig): Promise<string | null> {
+    const signatureInput = request.headers.get("signature-input");
+    if (request.method !== "GET" && request.method !== "HEAD" && signatureInput !== null && signatureInput.split("=(").length !== signatureInput.split('"content-digest"').length) return null;
+    try {
+      const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+      const key = await verifyRequest(request, { documentLoader: ctx.documentLoader, contextLoader: ctx.contextLoader, currentTime: instant(this.#now()) });
+      return key !== null && key.id !== null && key.ownerId !== null && key.id.origin === key.ownerId.origin ? key.ownerId.href : null;
+    } catch (error) {
+      // The key could not be read. The request has no valid signature.
+      console.warn(`signature check failed: ${(error as Error).name}`);
+      return null;
+    }
+  }
+
+  // One inbound activity of the knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Section 13, unit KF1): the body as it came goes to Claire with the actor of the key. Claire writes it to its inbox journal before it processes it, and gives the same answer for a second delivery.
+  // Answers: 401 without a valid signature, 403 for a blocked domain (after the signature check, as for the other inbox activities), 503 when Claire gave no answer (the sender tries again), else 202. The decision of Claire does not change the answer: a refusal is final, so the sender must not try again.
+  async #knowledgeInbox(request: Request, config: ServerConfig, path: string, activity: Record<string, unknown>, blocked: boolean, size: number): Promise<Response> {
+    const signer = await this.#requestSigner(request, config);
+    if (signer === null) return text(401, "Failed to verify the request signature.");
+    // The request to Claire has the activity and the two actor addresses. Its body limit is the limit of an inbox body, so an activity near that limit cannot go to Claire, and a second delivery cannot change that.
+    if (size > config.limits.inbox_body_bytes - KNOWLEDGE_ENVELOPE_BYTES) return text(413, "Content Too Large");
+    try {
+      if (blocked || await this.isBlocked(new URL(signer).hostname)) {
+        this.counters.blocked += 1;
+        return text(403, "Forbidden");
+      }
+      // The owner of the inbox: an actor path without `/inbox`, or null for the shared inbox.
+      const recipient = path === "/ap/inbox" ? null : `${config.canonical_origin}${path.slice(0, -"/inbox".length)}`;
+      const result = await this.#api.knowledgeActivity({ activity, signer, verified_by: "http-signature", recipient });
+      this.knowledgeCounters[result.decision] += 1;
+      if (result.decision !== "processed" && result.decision !== "duplicate") console.warn(`knowledge activity ${result.decision}: ${result.reason}`);
+      return new Response(null, { status: 202 });
+    } catch (error) {
+      console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return text(503, "Service Unavailable", { "retry-after": "5" });
+    }
+  }
+
+  // A collection of shared knowledge for another server (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.3 and 8.1, KS1). The sidecar verifies the HTTP signature of the request; Claire decides with the actor of the key and gives the ActivityStreams document.
+  // A request without a valid signature goes to Claire without a signer and gets the same 404 as each other refusal: a blocked server learns nothing.
+  async #knowledgeCollection(request: Request, config: ServerConfig, name: "kb" | "themes"): Promise<Response> {
+    const params = new URL(request.url).searchParams;
+    // The query of a page: `page=true` and `max_id`. A request with another key has no answer.
+    for (const key of params.keys()) if (key !== "page" && key !== "max_id") return notFound();
+    const signer = await this.#requestSigner(request, config);
+    try {
+      const result = await this.#api.knowledgeCollection(name, { signer, page: params.get("page") ?? undefined, maxId: params.get("max_id") ?? undefined });
+      if (result === null) return notFound();
+      return new Response(request.method === "HEAD" ? null : JSON.stringify(result.document), { status: 200, headers: { "content-type": "application/activity+json", "cache-control": "private, no-store", vary: "Accept, Signature" } });
+    } catch (error) {
+      // A query that Claire does not accept is a request that has no answer.
+      if (error instanceof InternalApiError && error.status === 400) return notFound();
+      console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return text(503, "Service Unavailable", { "retry-after": "5" });
+    }
+  }
+
+  // Takes the reads of known servers and of their /kb collections that are due from Claire, and does them with requests that the server actor signs (knowledge.ts). Returns the number of reads that Claire gave.
+  async processKnowledgeReads(limit = KNOWLEDGE_READ_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    const deps = { api: this.#api, documentLoader: await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID }), origin: config.canonical_origin, isBlocked: (host: string) => this.isBlocked(host), now: () => this.#now() * 1000 };
+    return await processKnowledgeReads(deps, this.knowledgeReadCounters, limit);
   }
 
   // True when a blocked domain applies to the host. A block applies to the domain and to its subdomains. An IP address has an exact comparison only.

@@ -179,9 +179,10 @@ def test_submission_checks_and_limits(world, theme) -> None:  # noqa: F811
 def test_decision_agreement_needs_three_decisions() -> None:
     conn = dbm.connect(":memory:")
     try:
-        conn.execute("CREATE TABLE kb_contributions (submission_item_id INTEGER, kb_id INTEGER, state TEXT, approved_at REAL)")
+        conn.execute("CREATE TABLE kb_contributions (submission_item_id INTEGER, kb_id INTEGER, state TEXT, approved_at REAL, decided_at REAL, approved_by_account_id INTEGER, contributor_account_id INTEGER)")
         rows = [(1, 10, "visible", 1.0), (1, 11, "visible", 1.0), (1, 12, "rejected", None), (2, 10, "visible", 1.0), (2, 11, "rejected", None), (3, 10, "pending", None)]
-        conn.executemany("INSERT INTO kb_contributions VALUES (?, ?, ?, ?)", rows)
+        # Each approval is a decision of another account (account 2 approves a contribution of account 3): ``decided_at`` is set.
+        conn.executemany("INSERT INTO kb_contributions VALUES (?, ?, ?, ?, ?, ?, 3)", [(item, kb_id, state, approved_at, 1.0, 2 if approved_at else None) for item, kb_id, state, approved_at in rows])
         # Item 1 has three decisions: 10 and 11 agree with the majority of the others only when the others have a majority (one approve, one reject is no majority); 12 does not agree with the two approvals.
         assert contributions.decision_agreement(conn) == [{"kb_id": 12, "decisions": 1, "agreement": 0.0}]
     finally:

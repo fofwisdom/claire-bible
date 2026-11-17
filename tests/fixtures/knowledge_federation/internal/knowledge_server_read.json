@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-server-reads",
+    "body": {
+      "domain": "b.example",
+      "ok": true,
+      "server_actor": "https://b.example/ap/actors/server",
+      "software_name": "claire-bible",
+      "software_version": "1.0.0",
+      "shared_kb_count": null,
+      "error": null
+    }
+  },
+  "status": 200,
+  "response": {
+    "domain": "b.example",
+    "recorded": true
+  }
+}

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from claire.knowledge_federation import journal
+from claire.knowledge_federation import journal, vocabulary
 from claire.store import auth_db
 from claire.store import federation as federation_store
 from claire.store.secrets import reset_secret_service
@@ -94,14 +94,26 @@ def test_internal_collection_route_answers_a_server_actor_and_gives_404_to_each_
     assert kb.status_code == 200
     body = kb.json()
     assert (body["collection"], body["server"]) == ("kb", "a.example")
-    assert [(i["number"], i["label"], i["knowledge_type"], i["state"], i["url"]) for i in body["items"]] == [
-        (str(B_KB_NUMBER + 1), "Middle-earth", "fictional", "active", f"https://b.example/kb/{B_KB_NUMBER + 1}/"),
-        (str(B_KB_NUMBER), "Analytical Engine", "real", "active", f"https://b.example/kb/{B_KB_NUMBER}/"),
+    # The root of the collection, then its first page (unit KF2: the ActivityStreams form).
+    assert body["document"] == {"@context": list(vocabulary.WIRE_CONTEXT), "id": "https://b.example/ap/kb", "type": "OrderedCollection", "totalItems": 2, "first": "https://b.example/ap/kb?page=true"}
+    page = b.internal("GET", f"/knowledge-collections/kb?signer={A_SERVER}&page=true").json()["document"]
+    assert (page["type"], page["partOf"], "next" in page) == ("OrderedCollectionPage", "https://b.example/ap/kb", False)
+    assert [(i["id"], i["name"], i["claire:knowledgeType"], i["url"]) for i in page["orderedItems"]] == [
+        (f"https://b.example/ap/kb/{B_KB_NUMBER + 1}", "Middle-earth", "fictional", f"https://b.example/kb/{B_KB_NUMBER + 1}/"),
+        (f"https://b.example/ap/kb/{B_KB_NUMBER}", "Analytical Engine", "real", f"https://b.example/kb/{B_KB_NUMBER}/"),
     ]
-    # The personal knowledge base of the admin is never in the collection (KD3).
-    assert all(i["label"] != "기본 지식베이스" for i in body["items"])
+    # Each item is a valid ``claire:KnowledgeBase``. The personal knowledge base of the admin is never in the collection (KD3).
+    assert {vocabulary.validate_object(i, top_level=False) for i in page["orderedItems"]} == {"knowledge_base"}
+    assert all(i["name"] != "기본 지식베이스" for i in page["orderedItems"])
+    # ``max_id`` gives the knowledge bases with a lower number.
+    older = b.internal("GET", f"/knowledge-collections/kb?signer={A_SERVER}&page=true&max_id={B_KB_NUMBER + 1}").json()["document"]
+    assert [i["id"] for i in older["orderedItems"]] == [f"https://b.example/ap/kb/{B_KB_NUMBER}"]
+    for bad in ("&page=1", "&max_id=5", "&page=true&max_id=x", "&other=1"):
+        assert b.internal("GET", f"/knowledge-collections/kb?signer={A_SERVER}{bad}").status_code == 400, bad
     themes = b.internal("GET", f"/knowledge-collections/themes?signer={A_SERVER}")
     assert themes.status_code == 200 and themes.json()["collection"] == "themes"
+    assert (themes.json()["document"]["id"], themes.json()["document"]["orderedItems"]) == ("https://b.example/ap/themes", [])
+    assert b.internal("GET", f"/knowledge-collections/themes?signer={A_SERVER}&page=true").status_code == 400
 
     not_found = {"error": "not_found"}
     for query in ("", "?signer=https://c.example/ap/actors/server", "?signer=https://kb.c.example/ap/actors/server", f"?signer={ALICE}", "?signer=https://b.example/ap/actors/server"):

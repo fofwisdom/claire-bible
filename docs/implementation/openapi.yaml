@@ -281,7 +281,8 @@ paths:
       description: >-
         At the root: the collection of themes (groups of knowledge bases on one subject), as a JSON
         OrderedCollection with `themes` (the items: `number`, `url`, `label`, `description`,
-        `knowledge_type`, `state`, `knowledge_bases`), or an OrderedCollectionPage with `page=true`.
+        `knowledge_type`, `state`, `knowledge_bases`, and `remote_knowledge_bases`, the count of shared
+        knowledge bases of other servers in the theme), or an OrderedCollectionPage with `page=true`.
         The parameter `type` (`real` or `fictional`) selects one knowledge type. The old link
         `/@{username}/themes` gets 308 to `/@{username}/kb`. The collection of knowledge bases is `/kb`.
         A browser navigation to `/themes` gets the HTML page of the list; an API client gets the JSON.
@@ -1032,15 +1033,140 @@ paths:
         '200':
           description: The result.
 
+  /explore/federation:
+    get:
+      summary: Data of the root page of network mode about other servers
+      description: >-
+        The themes across servers, the federated servers, and the recent activity across servers
+        (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 1 to 3). The data is public. `themes`: the
+        active themes, the one with the most recent activity first, each with `number`, `url`, `label`,
+        `knowledge_type`, `local_knowledge_bases`, and `remote_knowledge_bases` (the counts of the shared
+        knowledge bases of this server and of other servers). `servers`: the known servers that have
+        shared knowledge bases in the store of remote knowledge bases, each with `domain`,
+        `software_name`, `software_version`, and `knowledge_bases` (the count); a blocked server is not
+        in the list. `recent`: the 20 newest records of the store, each with `kind`
+        (`remote_knowledge_base`), `at`, `server`, `label`, `url` (the page on its own server), and
+        `knowledge_type`. Network mode only: single mode has no root page (404).
+      operationId: getFederationOverview
+      x-claire-access: public
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      responses:
+        '200':
+          description: '`{"themes": [...], "servers": [...], "recent": [...]}` with `Cache-Control: public, max-age=60`.'
+        '404':
+          description: The server is in single mode.
+
+  /api/kb/similar:
+    get:
+      summary: Shared knowledge bases near a subject, on this server and on other servers
+      description: >-
+        For the dialog that makes a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3
+        rule 4). With no `label` and no `seed`, the answer has the shared knowledge bases of the type,
+        the ones of this server first, and `matched` is false. With text, it has the knowledge bases
+        with a score above 0, the highest score first. At most 12 items. An item has `remote`,
+        `server` (the domain, or null), `number` (null for a remote one), `label`, `description`,
+        `knowledge_type`, `url` (for a remote one: the page on its own server), and `score` (0 to 1,
+        or null without text).
+      operationId: listSimilarKnowledgeBases
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [real, fictional]
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: The label that the account typed.
+        - name: seed
+          in: query
+          required: false
+          schema:
+            type: array
+            maxItems: 20
+            items:
+              type: string
+              maxLength: 200
+          description: A seed entity. The parameter can occur 20 times at most.
+      responses:
+        '200':
+          description: '`{"matched": <bool>, "knowledge_bases": [{"remote", "server", "number", "label", "description", "knowledge_type", "url", "score"}]}`'
+        '400':
+          description: '`type_required`, `invalid_type`, or `invalid_request` (a value above a limit).'
+
+  /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}:
+    put:
+      summary: Pin, exclude, or free a shared knowledge base of another server in a theme
+      description: >-
+        The admin adjustment of `PUT /api/admin/themes/{number}/knowledge-bases/{kb}` for a remote
+        knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2). `remote_id` is `remote_id` of a
+        member of the theme view, or `id` of an item of `kbs` of a known server. The adjustment
+        changes only this server and stays after a judgement run.
+      operationId: setThemeRemoteMember
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The number of the theme.
+        - name: remote_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The number of the record in the store of remote knowledge bases.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membership]
+              properties:
+                membership: {type: string, enum: [pinned, excluded, computed]}
+      responses:
+        '200':
+          description: '`{"ok": true, "theme": {...}}`: the admin view of the theme.'
+        '400':
+          description: '`membership_invalid`.'
+        '404':
+          description: Not the admin, no such theme, or no such record (also a record of a blocked server).
+        '409':
+          description: '`knowledge_type_mismatch` or `theme_merged`.'
+
   /api/admin/federation/known-servers:
     get:
       summary: Known servers of the federation of shared knowledge, and the switches
       description: >-
         Each known server with its state (`active`, or `blocked` when a domain block applies,
         with `blocked_by`), how it became known (`source`), the last contact, and the result of
-        the last read. `switches` has `federation`, `kb_auto_contribution`, and `signed_get`
-        (always `required`). In the order of the domain (KNOWLEDGE_FEDERATION_DESIGN.md Sections
-        6.2 and 6.5).
+        the last read. `kbs` has the records of the shared knowledge bases of the server (`id`,
+        `iri`, `server`, `url`, `label`, `description`, `knowledge_type`, `documents`, `entities`,
+        `relations`, `first_seen_at`), and `kb_read` the state of the reads of its `/kb`
+        collection (`last_read_at`, `stored`, `refused`, `refused_code`, `error_count`,
+        `last_error`, `last_error_at`), or null before the first read. `switches` has
+        `federation`, `kb_auto_contribution`, and `signed_get` (always `required`). In the order
+        of the domain (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2, 6.5, and 8.1).
       operationId: listKnownServers
       x-claire-access: admin
       security:
@@ -1049,7 +1175,7 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: '`{"servers": [{"domain", "status", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at"}], "switches": {"federation", "kb_auto_contribution", "signed_get"}}`'
+          description: '`{"servers": [{"domain", "status", "blocked_by", "source", "created_at", "last_contact_at", "server_actor", "software_name", "software_version", "kb_count", "last_read_at", "error_count", "last_error", "last_error_at", "kbs", "kb_read"}], "switches": {"federation", "kb_auto_contribution", "signed_get"}}`'
         '404':
           description: Not the admin.
     post:

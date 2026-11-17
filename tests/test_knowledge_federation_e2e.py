@@ -72,7 +72,7 @@ def test_kf1_completion_criteria_with_two_servers(tmp_path: Path, monkeypatch: p
         assert blocked.status_code == 404 and blocked.json() == {"error": "not_found"}
         allowed = b.internal("GET", f"/knowledge-collections/{name}?signer={server_actor('https://a.example')}")
         assert allowed.status_code == 200 and allowed.json()["server"] == "a.example"
-    assert [item["number"] for item in b.internal("GET", f"/knowledge-collections/kb?signer={server_actor('https://a.example')}").json()["items"]] == [str(B_KB_NUMBER)]
+    assert [item["id"] for item in b.internal("GET", f"/knowledge-collections/kb?signer={server_actor('https://a.example')}&page=true").json()["document"]["orderedItems"]] == [f"https://b.example/ap/kb/{B_KB_NUMBER}"]
     # An activity of C gets no row.
     c_offer = {**offer, "id": "https://c.example/ap/actors/1#offers/1", "actor": "https://c.example/ap/actors/1"}
     assert b.deliver(c_offer, signer="https://c.example/ap/actors/1", recipient=None).json()["decision"] == "rejected"

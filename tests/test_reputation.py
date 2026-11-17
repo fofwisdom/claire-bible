@@ -172,6 +172,8 @@ def test_approval_rate_from_decisions(world) -> None:  # noqa: F811
             number = kb_collab.add_contribution(conn, kb_id=world.kb["id"], document_id=None, origin="direct", state=state, contributor_account_id=BEN, approved_at=ts if approved_by else None, approved_by_account_id=approved_by, now=ts, now_ms=next(clock))
             if state in ("rejected", "removed"):
                 kb_collab.update_contribution(conn, number, now=ts, decision_reason=reason, decided_at=ts)
+            elif approved_by is not None and approved_by != BEN:
+                kb_collab.update_contribution(conn, number, now=ts, decided_at=ts)  # the approval of a reviewer (``contributions.approve``) sets the decision time
 
         for _ in range(2):
             _row("visible", approved_by=ANN)

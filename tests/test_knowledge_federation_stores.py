@@ -82,12 +82,13 @@ def test_migration_makes_the_tables_and_keeps_a_table_of_another_form(tmp_path: 
         try:
             dbm.init_db(conn)
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'kf_%'")}
-            assert tables == {"kf_known_servers", "kf_inbox_journal", "kf_known_servers_retired_v29", "kf_inbox_journal_retired_v29"}
+            # The tables of the remote knowledge bases are from the step v30 (unit KF2).
+            assert tables == {"kf_known_servers", "kf_inbox_journal", "kf_known_servers_retired_v29", "kf_inbox_journal_retired_v29", "kf_remote_knowledge_bases", "kf_remote_kb_reads"}
             assert [tuple(row) for row in conn.execute("SELECT domain, note FROM kf_known_servers_retired_v29")] == [("old.example", "kept")]
             assert set(known_servers.COLUMNS) <= dbm._column_names(conn, "kf_known_servers")
             index = conn.execute("SELECT tbl_name FROM sqlite_master WHERE type='index' AND name='idx_kf_inbox_journal_status'").fetchone()
             assert index[0] == "kf_inbox_journal"
-            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 29
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION >= 29
         finally:
             conn.close()
 

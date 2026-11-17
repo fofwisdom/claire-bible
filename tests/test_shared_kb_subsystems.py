@@ -107,7 +107,8 @@ def test_e2e_account_purge_keeps_contributions_without_the_credit(world, delete_
         # The moderation action stays without an actor. The option clears the reason text and deletes the submissions.
         log = [(r["action"], r["actor_account_id"], r["reason"]) for r in kb_collab.list_moderation_log(conn, notes["id"])]
         assert log == [("reject_contribution", None, "" if delete_activity_records else "a text that ben wrote")]
-        assert len(kb_collab.list_submissions(conn, BEN)) == (0 if delete_activity_records else 1)
+        # Without the option the submission stays as a record without an account (design Section 11.2).
+        assert [r[0] for r in conn.execute("SELECT account_id FROM kb_submissions")] == ([] if delete_activity_records else [None])
         assert conn.execute("SELECT COUNT(*) FROM kb_submission_items").fetchone()[0] == (0 if delete_activity_records else 1)
     finally:
         conn.close()

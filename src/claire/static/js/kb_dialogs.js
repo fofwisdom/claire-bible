@@ -308,23 +308,38 @@
       bodyEl: box,
       submitLabel: t("campaign.make_kb_link"),
       onOpen: function (_dlg, _b, submitBtn) {
+        // KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4: the shared knowledge bases of this server and of other servers near the subject, before the account makes a new one. GET /api/kb/similar gives "knowledge_bases" (remote, server, number, label, knowledge_type, url, score) and "matched" (false: the account typed no text, and the list has the knowledge bases of the type).
+        var similarSeq = 0;
+        var similarTimer = null;
         function loadExisting() {
           var knowledgeType = (box.querySelector('input[name="knowledge_type"]:checked') || {}).value || defaultType;
-          ui().request("/kb?type=" + encodeURIComponent(knowledgeType)).then(function (res) {
+          var query = "type=" + encodeURIComponent(knowledgeType) + "&label=" + encodeURIComponent(box.querySelector("#newkb-label").value.trim().slice(0, 200));
+          seedList(box.querySelector("#newkb-seeds").value).slice(0, 20).forEach(function (seed) { query += "&seed=" + encodeURIComponent(seed.slice(0, 200)); });
+          var seq = ++similarSeq;
+          ui().request("/api/kb/similar?" + query).then(function (res) {
+            if (seq !== similarSeq) return;
             var host = box.querySelector("#claire-similar-kbs");
             var items = (res.ok && res.data && res.data.knowledge_bases) || [];
             if (!items.length) {
-              host.innerHTML = '<p class="claire-hint">' + esc(t("kb.dlg.similar_none")) + "</p>";
+              host.innerHTML = '<p class="claire-hint">' + esc(t(res.ok && res.data && res.data.matched ? "kb.dlg.similar_no_match" : "kb.dlg.similar_none")) + "</p>";
               return;
             }
-            host.innerHTML = '<div class="claire-note"><span>' + esc(t("kb.dlg.similar_exists")) + "</span></div>" +
-              '<div class="claire-tags">' + items.slice(0, 12).map(function (it) {
-                return '<a class="claire-tag ' + (it.knowledge_type === "fictional" ? "fic" : "acc") + '" href="/kb/' + esc(it.number) + '/">' + esc(it.label) + "</a>";
+            host.innerHTML = '<div class="claire-note"><span>' + esc(t(res.data.matched ? "kb.dlg.similar_matched" : "kb.dlg.similar_exists")) + "</span></div>" +
+              '<div class="claire-tags">' + items.map(function (it) {
+                var cls = "claire-tag " + (it.knowledge_type === "fictional" ? "fic" : "acc");
+                if (it.remote) return '<a class="' + cls + '" data-similar-remote="' + esc(it.server) + '" href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer">' + esc(it.label) + " · " + esc(it.server) + "</a>";
+                return '<a class="' + cls + '" href="/kb/' + esc(it.number) + '/">' + esc(it.label) + "</a>";
               }).join("") + "</div>";
           });
         }
+        function loadExistingSoon() {
+          if (similarTimer) clearTimeout(similarTimer);
+          similarTimer = setTimeout(loadExisting, 300);
+        }
         loadExisting();
         box.querySelectorAll('input[name="knowledge_type"]').forEach(function (input) { input.addEventListener("change", loadExisting); });
+        box.querySelector("#newkb-label").addEventListener("input", loadExistingSoon);
+        box.querySelector("#newkb-seeds").addEventListener("input", loadExistingSoon);
         var seedsEl = box.querySelector("#newkb-seeds");
         seedsEl.addEventListener("input", function () {
           seedsEl.setCustomValidity(seedList(seedsEl.value).length > 20 ? t("kb.dlg.err_seeds_max") : "");

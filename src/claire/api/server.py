@@ -60,6 +60,9 @@ from ..store import accounts as accounts_store
 from ..store import auth_db
 from ..store import kb_collab
 from ..store import themes as themes_store
+from ..store import federation as federation_store
+from ..knowledge_federation import known_servers as kf_known_servers
+from ..knowledge_federation import remote_kbs
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
@@ -718,6 +721,16 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"invalid_{name}")
         return raw
 
+    # Fields of ``KnowledgeBaseInfo.to_dict`` that are internal: the file path of the database, internal account IDs, and settings of the operator. Only a requester with the capability ``settings`` gets them.
+    _KB_INTERNAL_FIELDS = ("db_path", "seq", "account_id", "created_by_account_id", "visibility_epoch", "fqdn", "ga_measurement_id", "default_focus")
+
+    def _kb_public_dict(kb: KnowledgeBaseInfo, *, settings_view: bool) -> dict[str, Any]:
+        item = kb.to_dict()
+        if not settings_view:
+            for name in _KB_INTERNAL_FIELDS:
+                item.pop(name, None)
+        return item
+
     def _kb_collection_item(request: Request, kb: KnowledgeBaseInfo, *, role: str | None, origin: str, membership_state: str | None) -> dict[str, Any]:
         """One knowledge base of a collection. The settings view (legacy hosts, re-embed state) only goes to a requester with the capability ``settings``.
 
@@ -733,7 +746,7 @@ def create_app(
                 t_stats = theme_summary(conn, include_hidden=include_hidden, kb_id=kb.id)
             finally:
                 conn.close()
-        item = kb.to_dict()
+        item = _kb_public_dict(kb, settings_view=is_settings_view)
         eff_sorcerer = (kb.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
         item["sorcerer"] = (kb.sorcerer or "").strip()
         item["effective_sorcerer"] = eff_sorcerer
@@ -883,6 +896,7 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 rows = themes_store.list_themes(conn, knowledge_type=knowledge_type)
+                remote_ids = {kb.id for kb in remote_kbs.list_all(conn)}
                 out = []
                 for row in rows:
                     number = ids.format_public_id(int(row["number"]))
@@ -894,6 +908,8 @@ def create_app(
                         "knowledge_type": row["knowledge_type"],
                         "state": row["state"],
                         "knowledge_bases": len(themes_store.theme_members(conn, int(row["id"]))),
+                        # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2: the shared knowledge bases of other servers in this theme.
+                        "remote_knowledge_bases": sum(1 for m in themes_store.remote_members(conn, theme_id=int(row["id"])) if int(m["remote_kb_id"]) in remote_ids),
                     })
                 return out
             finally:
@@ -901,6 +917,78 @@ def create_app(
 
         items = await asyncio.to_thread(_build)
         return _collection_response(request, collection_url=f"{origin}/themes", items=items, extra={"themes": items})
+
+    FEDERATION_RECENT_MAX = 20
+    SIMILAR_MAX = 12
+    SIMILAR_SEEDS_MAX = 20
+
+    async def explore_federation_route(request: Request) -> Response:
+        """``GET /explore/federation``: the data of the root page of network mode about other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 1 to 3). The data is public.
+
+        - ``themes``: the active themes, the one with the most recent activity first, with the counts of the shared knowledge bases of this server and of other servers.
+        - ``servers``: the known servers that have shared knowledge bases in the store of remote knowledge bases, with the domain, the software, and the count. A blocked server is not in the list.
+        - ``recent``: the newest records of the store, the newest first. ``kind`` is ``remote_knowledge_base``: a new shared knowledge base of another server.
+        """
+        origin = _public_origin(request).rstrip("/")
+
+        def _build() -> dict[str, Any]:
+            views = _active_theme_views(origin=origin)
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                remote = remote_kbs.list_all(conn)
+                counts: dict[str, int] = {}
+                for kb in remote:
+                    counts[kb.domain] = counts.get(kb.domain, 0) + 1
+                servers = [
+                    {"domain": server.domain, "software_name": server.software_name, "software_version": server.software_version, "knowledge_bases": counts[server.domain]}
+                    for server in kf_known_servers.list_servers(conn)
+                    if server.domain in counts
+                ]
+            finally:
+                conn.close()
+            return {
+                "themes": [{"number": v["number"], "url": v["url"], "label": v["label"], "knowledge_type": v["knowledge_type"], "local_knowledge_bases": v["shared_knowledge_bases"], "remote_knowledge_bases": v["remote_knowledge_bases"]} for v in views],
+                "servers": servers,
+                "recent": [{"kind": "remote_knowledge_base", "at": kb.first_seen_at, "server": kb.domain, "label": kb.label, "url": kb.url, "knowledge_type": kb.knowledge_type} for kb in remote[:FEDERATION_RECENT_MAX]],
+            }
+
+        return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "public, max-age=60"})
+
+    async def kb_similar_route(request: Request) -> Response:
+        """``GET /api/kb/similar?type=&label=&seed=``: the shared knowledge bases of this server and of other servers that are near a subject, for the dialog that makes a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4).
+
+        ``type`` is necessary. ``label`` and each ``seed`` (a seed entity, at most 20) are the text that the account typed. With no text, the answer has the knowledge bases of the type, the ones of this server first, and ``matched`` is false. With text, it has the knowledge bases with a score above 0, the highest score first (``theme_judgement.subject_score``).
+        """
+        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        if knowledge_type is None:
+            raise HTTPException(status_code=400, detail="type_required")
+        label = request.query_params.get("label", "")
+        seeds = request.query_params.getlist("seed")
+        if len(label) > 200 or len(seeds) > SIMILAR_SEEDS_MAX or any(len(seed) > 200 for seed in seeds):
+            raise HTTPException(status_code=400, detail="invalid_request")
+        origin = _public_origin(request).rstrip("/")
+
+        def _build() -> dict[str, Any]:
+            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(s, "multi_theme", False) else []
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                local_keys = {int(row["kb_id"]): theme_judgement.signature_keys(row) for row in themes_store.load_signatures(conn)}
+                candidates: list[tuple[dict[str, Any], set[tuple[str, str]]]] = [
+                    ({"remote": False, "server": None, "number": ids.format_public_id(kb.number), "label": kb.label, "description": kb.description, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}"}, local_keys.get(kb.id, set()))
+                    for kb in shared
+                    if kb.number is not None
+                ]
+                for remote in remote_kbs.list_all(conn, knowledge_type=knowledge_type):
+                    candidates.append(({"remote": True, "server": remote.domain, "number": None, "label": remote.label, "description": remote.description, "knowledge_type": remote.knowledge_type, "url": remote.url}, {(etype, norm) for etype, norm, _weight in remote_kbs.signature_rows(remote)}))
+            finally:
+                conn.close()
+            scored = [(theme_judgement.subject_score(label=label, seed_names=seeds, candidate_label=item["label"], candidate_keys=keys), item) for item, keys in candidates]
+            matched = bool(theme_judgement.subject_terms(label=label, seed_names=seeds))
+            if matched:
+                scored = sorted((entry for entry in scored if entry[0]), key=lambda entry: -float(entry[0] or 0.0))
+            return {"matched": matched, "knowledge_bases": [{**item, "score": score} for score, item in scored[:SIMILAR_MAX]]}
+
+        return JSONResponse(await asyncio.to_thread(_build), headers={"Cache-Control": "no-store"})
 
     async def explore_accounts_route(request: Request, *, force_html: bool = False) -> Response:
         query = collections.parse_collection_query(request.query_params)
@@ -1000,13 +1088,18 @@ def create_app(
             if force_html and not query.page:
                 # Design Section 8.4: the root page of network mode shows the themes first, the one with the most recent activity first, with a link to the collection.
                 theme_views = await asyncio.to_thread(lambda: _active_theme_views(origin=base_origin))
+                # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3: the federated servers and the recent activity across servers come after the themes. The page script fills this element from ``GET /explore/federation``.
+                federation_host = '<div id="public-home-federation"></div>'
                 if theme_views:
                     content_html = (
                         f'<h2>{html.escape(_t("themes.section_title"))} <a href="/themes" style="font-size:.85rem;font-weight:400;">{html.escape(_t("themes.all"))}</a></h2>'
                         + _theme_cards_html(theme_views)
+                        + federation_host
                         + f'<h2>{html.escape(_t("themes.accounts_title"))}</h2>'
                         + content_html
                     )
+                else:
+                    content_html = federation_host + content_html
 
             pagination_parts = []
             if query.page:
@@ -1177,6 +1270,11 @@ def create_app(
         values = _kb_settings_from_body(await _json_object(request))
         kb = _select_kb(request)
         principal = request_principal(request)
+        if kb.is_shared and principal.server_role != "admin":
+            # The capability ``settings`` of a shared knowledge base has label, description, icon, seed entities, join policy, knowledge type, and archive (design Section 6.2). The analytics ID, the manager name, and the presentation switch stay with the admin.
+            refused = sorted(set(values) & {"ga_measurement_id", "sorcerer", "presentation_enabled"})
+            if refused:
+                raise HTTPException(status_code=403, detail=f"{refused[0]}_admin_only")
         try:
             updated = await asyncio.to_thread(theme_mgr.update_kb, kb.id, **values)
         except KeyError as k_err:
@@ -1419,8 +1517,8 @@ def create_app(
                 if target.id == actor_id:
                     raise HTTPException(status_code=400, detail="self_not_allowed")
                 current = kb_collab.get_membership(conn, kb.id, target.id)
-                if current is not None and current["role"] == "moderator" and current["state"] == "active" and (role is not None or principal.server_role != "admin"):
-                    # Only the admin changes a moderator, and the role itself only by the admin route.
+                if current is not None and current["role"] == "moderator" and current["state"] == "active":
+                    # Only the admin changes a moderator, and only by the admin route (``/api/admin/kb/{number}/moderators/{account}``: recent sign-in and admin audit, design Sections 6.8 and 10.2). This route never ends a moderator role, also not by ``ban`` or ``remove``.
                     raise HTTPException(status_code=403, detail="moderator_protected")
                 log_action = action if action is not None else f"role_{role}"
                 if action == "approve":
@@ -1505,8 +1603,8 @@ def create_app(
 
     def _contribution_error(exc: contributions.ContributionError, *, kb: KnowledgeBaseInfo, origin: str) -> JSONResponse:
         body: dict[str, Any] = {"error": exc.code}
-        if "document" in exc.extra:
-            # Design Section 9.1: a duplicate gets 409 with the URL of the document that K has.
+        if "document" in exc.extra and exc.extra.get("visible"):
+            # Design Section 9.1: a duplicate gets 409 with the URL of the document that K has. A duplicate that is hidden (a pending or hidden contribution, Section 9.4) gives only the code.
             body["url"] = f"{origin}{kb_base_path(kb.number)}?doc={exc.extra['document']}"
         return JSONResponse(body, status_code=exc.status)
 
@@ -1523,11 +1621,13 @@ def create_app(
         found = conn.execute("SELECT title FROM documents WHERE id=?", (str(document_id),)).fetchone()
         return None if found is None else found[0]
 
-    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool, review_help: bool = False) -> dict[str, Any]:
+    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool, review_help: bool = False, cache: dict[str, Any] | None = None) -> dict[str, Any]:
         """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document.
 
         ``title``: the title of the document of the contribution. When the copy is gone (a rejected, removed, or withdrawn contribution), a full view gets the title of the source document; each other view gets null.
+        ``cache``: one dict for all rows of one response. It keeps the reputation of each contributor, the signatures, and the document matcher, so that a list does not compute them again for each row.
         """
+        cache = {} if cache is None else cache
         title = _document_title(conn, row["document_id"])
         if title is None and full:
             title = _document_title(conn, row["source_document_id"])
@@ -1556,10 +1656,14 @@ def create_app(
             view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
         if review_help and row["contributor_account_id"] is not None:
             # Reviewers see the level and the approval rate of the contributor (design Section 8.6).
-            contributor_reputation = reputation.compute(conn, int(row["contributor_account_id"]))
+            reputations = cache.setdefault("reputations", {})
+            contributor_id = int(row["contributor_account_id"])
+            if contributor_id not in reputations:
+                reputations[contributor_id] = reputation.compute(conn, contributor_id)
+            contributor_reputation = reputations[contributor_id]
             view["contributor_reputation"] = {"level": contributor_reputation.level, "approval_rate": contributor_reputation.approval_rate}
-        if review_help and row["submission_item_id"] is not None:
-            # Help for the decision of a reviewer (design Section 9.3 rule 2). The server never decides for a reviewer.
+        if review_help and row["submission_item_id"] is not None and row["state"] == "pending":
+            # Help for the decision of a reviewer (design Section 9.3 rule 2), for a contribution that waits for the decision. The server never decides for a reviewer.
             item = conn.execute("SELECT theme_id, match_score, routed_by FROM kb_submission_items WHERE id=?", (int(row["submission_item_id"]),)).fetchone()
             others = [
                 {**_kb_ref(int(other["kb_id"])), "decision": contributions.decision_of(other), "reason": other["decision_reason"]}
@@ -1567,9 +1671,13 @@ def create_app(
                 if int(other["kb_id"]) != int(row["kb_id"])
             ]
             kb_score = None
-            signature = next((sig for sig in themes_store.load_signatures(conn) if int(sig["kb_id"]) == int(row["kb_id"])), None)
+            if "signatures" not in cache:
+                cache["signatures"] = {int(sig["kb_id"]): sig for sig in themes_store.load_signatures(conn)}
+            signature = cache["signatures"].get(int(row["kb_id"]))
             if signature is not None and row["document_id"]:
-                matcher = theme_judgement.DocumentMatcher.load(conn)
+                if "matcher" not in cache:
+                    cache["matcher"] = theme_judgement.DocumentMatcher.load(conn)
+                matcher = cache["matcher"]
                 keys = theme_judgement.document_keys(conn, int(row["source_kb_id"]), str(row["source_document_id"])) if row["source_kb_id"] is not None else set()
                 kb_keys = {(str(e[0]), str(e[1])) for e in json.loads(signature["entities"] or "[]")}
                 kb_score = matcher.score(keys, kb_keys) if keys else None
@@ -1724,10 +1832,11 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 items = []
+                view_cache: dict[str, Any] = {}
                 for row in reversed(kb_collab.list_contributions(conn, kb.id, state=state)):
                     own = principal.account_id is not None and row["contributor_account_id"] == principal.account_id
                     if row["state"] == "visible" or is_reviewer or own:
-                        items.append(_contribution_view(conn, row, full=is_reviewer or own, review_help=is_reviewer))
+                        items.append(_contribution_view(conn, row, full=is_reviewer or own, review_help=is_reviewer, cache=view_cache))
                 if is_reviewer and state == "pending":
                     # The review queue (design Section 8.6): the level ``good`` first, ``low`` last; in one level the oldest first.
                     items.sort(key=lambda item: (reputation.queue_rank((item.get("contributor_reputation") or {}).get("level")), item["contributed_at"]))
@@ -1749,12 +1858,13 @@ def create_app(
         def _withdraw() -> JSONResponse:
             conn = dbm.connect_existing(s.db_file)
             try:
-                contributions.withdraw(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id))
+                result = contributions.withdraw(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=int(principal.account_id))
             except contributions.ContributionError as exc:
                 return JSONResponse({"error": exc.code}, status_code=exc.status)
             finally:
                 conn.close()
-            return JSONResponse({"ok": True})
+            # ``contribution_blocked``: the withdrawal of an automatic contribution sets the flag "never contribute" of the source document, so that the rule does not send it again (design Section 9.9 rules 2 and 6).
+            return JSONResponse({"ok": True, "contribution_blocked": bool(result["contribution_blocked"])})
 
         return await asyncio.to_thread(_withdraw)
 
@@ -1775,7 +1885,7 @@ def create_app(
             try:
                 try:
                     if action == "approve":
-                        contributions.approve(conn, kb_id=kb.id, contribution=number, account_id=actor)
+                        contributions.approve(conn, kb_id=kb.id, contribution=number, account_id=actor, is_admin=principal.server_role == "admin")
                     elif action == "reject":
                         contributions.reject(conn, Path(s.data_dir), kb_id=kb.id, contribution=number, account_id=actor, reason=reason)
                     elif action in ("hide", "unhide"):
@@ -1824,6 +1934,10 @@ def create_app(
         principal = request_principal(request)
         number = _contribution_number(request)
         is_reviewer = _kb_decide(request, kb, "review") == "allow"
+        if kb.state == "archived":
+            # An archived knowledge base is read-only: no merge job (design Section 10.1).
+            raise HTTPException(status_code=403, detail="kb_archived")
+        can_contribute = _kb_decide(request, kb, "contribute_direct") == "allow"
 
         def _retry() -> JSONResponse:
             conn = dbm.connect_existing(s.db_file)
@@ -1831,6 +1945,9 @@ def create_app(
                 row = kb_collab.get_contribution(conn, number)
                 if row is None or int(row["kb_id"]) != kb.id or not (is_reviewer or (principal.account_id is not None and row["contributor_account_id"] == principal.account_id)):
                     return JSONResponse({"error": "contribution_not_found"}, status_code=404)
+                if not is_reviewer and not can_contribute:
+                    # A contributor that is banned, or that is no member now, does not start a merge job (design Section 6.2 rule 1).
+                    return JSONResponse({"error": "kb_capability_required"}, status_code=403)
                 try:
                     contributions.retry_merge(conn, contribution=number)
                 except contributions.ContributionError as exc:
@@ -1967,7 +2084,10 @@ def create_app(
     # --- Themes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2 to 8.4) ---
 
     def _theme_view(conn: sqlite3.Connection, theme: dict[str, Any], *, origin: str, admin: bool = False) -> dict[str, Any]:
-        """One theme with its knowledge bases: the shared ones first, then the attached personal ones (design Section 8.4). ``admin``: also the excluded rows and the flags of the adjustments."""
+        """One theme with its knowledge bases: the shared ones of this server first, then the shared ones of other servers, then the attached personal ones (design Section 8.4; KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2 rule 3). ``admin``: also the excluded rows and the flags of the adjustments.
+
+        An entry of a remote knowledge base has ``remote`` true, ``server`` (the domain of its server), ``url`` (its page on that server, the origin link), and ``remote_id`` (the number of the record on this server, for the admin routes). It has no ``number``: a number is an identifier of this server.
+        """
         number = ids.format_public_id(int(theme["number"]))
         rows = themes_store.all_members(conn)
         knowledge_bases = []
@@ -1984,7 +2104,7 @@ def create_app(
             owner_level = reputation.level(conn, int(kb.account_id)) if kb.is_personal and kb.account_id is not None else None
             if owner_level is not None and not reputation.attaches_to_themes(owner_level) and not admin:
                 continue  # Section 8.6: the level ``low`` has no theme attachment
-            entry: dict[str, Any] = {"number": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label, "is_personal": kb.is_personal, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None}
+            entry: dict[str, Any] = {"number": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label, "is_personal": kb.is_personal, "knowledge_type": kb.knowledge_type, "url": f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None, "remote": False, "server": None}
             if kb.is_shared and not member["excluded"]:
                 contributions_visible += len(kb_collab.list_contributions(conn, kb.id, state="visible"))
             if owner_level is not None:
@@ -1993,7 +2113,15 @@ def create_app(
             if admin:
                 entry.update({"pinned": bool(member["pinned"]), "excluded": bool(member["excluded"]), "source": member["source"], "score": member["score"]})
             knowledge_bases.append(entry)
-        knowledge_bases.sort(key=lambda e: (e["is_personal"], bool(e.get("limited")), e["label"]))
+        for member in themes_store.remote_members(conn, theme_id=int(theme["id"]), include_excluded=admin):
+            remote = remote_kbs.get(conn, int(member["remote_kb_id"]))
+            if remote is None or federation_store.blocking_domain(conn, remote.domain) is not None:
+                continue  # the record went, or a domain block applies to its server
+            entry = {"number": None, "label": remote.label, "is_personal": False, "knowledge_type": remote.knowledge_type, "url": remote.url, "remote": True, "server": remote.domain, "remote_id": remote.id}
+            if admin:
+                entry.update({"pinned": bool(member["pinned"]), "excluded": bool(member["excluded"]), "source": member["source"], "score": member["score"]})
+            knowledge_bases.append(entry)
+        knowledge_bases.sort(key=lambda e: (e["is_personal"], e["remote"], bool(e.get("limited")), e["label"]))
         try:
             top_entities = json.loads(theme["top_entities"] or "[]")
         except ValueError:
@@ -2006,7 +2134,8 @@ def create_app(
             "knowledge_type": theme["knowledge_type"],
             "state": theme["state"],
             "top_entities": top_entities,
-            "shared_knowledge_bases": sum(1 for e in knowledge_bases if not e["is_personal"] and not e.get("excluded")),
+            "shared_knowledge_bases": sum(1 for e in knowledge_bases if not e["is_personal"] and not e["remote"] and not e.get("excluded")),
+            "remote_knowledge_bases": sum(1 for e in knowledge_bases if e["remote"] and not e.get("excluded")),
             "visible_contributions": contributions_visible,
             "last_activity_at": theme["last_activity_at"],
             "knowledge_bases": knowledge_bases,
@@ -2023,14 +2152,14 @@ def create_app(
             entities = ", ".join(html.escape(str(name)) for name in view["top_entities"][:5])
             items = "".join(
                 f'<li>{f"""<a href="{html.escape(kb["url"])}">{html.escape(kb["label"])}</a>""" if kb["url"] else html.escape(kb["label"])}'
-                f'<span class="themes-count">({html.escape(_t("themes.kb_personal") if kb["is_personal"] else _t("themes.kb_shared"))})</span></li>'
+                f'<span class="themes-count">({html.escape(kb["server"] if kb["remote"] else _t("themes.kb_personal") if kb["is_personal"] else _t("themes.kb_shared"))})</span></li>'
                 for kb in view["knowledge_bases"]
             )
             cards.append(
                 '<article class="account-card">'
                 '<div class="account-header">'
                 f'<a class="account-name" href="/themes/{html.escape(view["number"])}/">{html.escape(view["label"])}</a>'
-                f'<span class="badge">{html.escape(_t("themes.type_" + view["knowledge_type"]))} · {html.escape(_t("themes.counts", knowledge_bases=view["shared_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
+                f'<span class="badge">{html.escape(_t("themes.type_" + view["knowledge_type"]))} · {html.escape(_t("themes.counts_federated", knowledge_bases=view["shared_knowledge_bases"], remote=view["remote_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
                 "</div>"
                 + (f'<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">{entities}</p>' if entities else "")
                 + (f'<ul class="themes-list">{items}</ul>' if items else "")
@@ -2561,6 +2690,39 @@ def create_app(
                     # A theme has one knowledge type (CT18).
                     return JSONResponse({"error": "knowledge_type_mismatch"}, status_code=409)
                 themes_store.set_admin_member(conn, theme_id=int(theme["id"]), kb_id=kb.id, pinned=membership == "pinned", excluded=membership == "excluded")
+                if membership == "pinned":
+                    themes_store.update_theme(conn, int(theme["id"]), state="active")
+                conn.commit()
+                return JSONResponse({"ok": True, "theme": _theme_view(conn, themes_store.get_theme(conn, int(theme["id"])) or theme, origin=origin, admin=True)})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_work)
+
+    async def admin_theme_remote_member_route(request: Request) -> JSONResponse:
+        """``PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}`` with ``{"membership": "pinned" | "excluded" | "computed"}``: the adjustments of ``admin_theme_member_route`` for a shared knowledge base of another server (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2). ``remote_id`` is the number of the record in the store of remote knowledge bases (``remote_id`` of the theme view). The adjustment changes only this server (Section 6.4 rule 3)."""
+        body = await _json_object(request)
+        membership = body.get("membership")
+        if membership not in ("pinned", "excluded", "computed"):
+            raise HTTPException(status_code=400, detail="membership_invalid")
+        origin = _public_origin(request)
+        raw_id = str(request.path_params.get("remote_id") or "")
+        if not (raw_id.isascii() and raw_id.isdigit() and raw_id[0] != "0" and len(raw_id) <= 18):
+            raise HTTPException(status_code=404, detail="theme not found")
+
+        def _work() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme = _admin_theme_of_path(conn, request)
+                remote = remote_kbs.get(conn, int(raw_id))
+                if remote is None or federation_store.blocking_domain(conn, remote.domain) is not None:
+                    raise HTTPException(status_code=404, detail="theme not found")
+                if theme["state"] == "merged":
+                    return JSONResponse({"error": "theme_merged"}, status_code=409)
+                if membership == "pinned" and remote.knowledge_type != theme["knowledge_type"]:
+                    # A theme has one knowledge type (CT18).
+                    return JSONResponse({"error": "knowledge_type_mismatch"}, status_code=409)
+                themes_store.set_admin_remote_member(conn, theme_id=int(theme["id"]), remote_kb_id=remote.id, pinned=membership == "pinned", excluded=membership == "excluded")
                 if membership == "pinned":
                     themes_store.update_theme(conn, int(theme["id"]), state="active")
                 conn.commit()
@@ -4249,9 +4411,10 @@ def create_app(
         if not document_id:
             raise HTTPException(status_code=400, detail="id required")
 
-        include_hidden = request_auth_scope(request) != "anonymous"
         language_kwargs = _entity_language_kwargs(request)
         theme, theme_settings, _ = _get_theme_ctx(request)
+        # A hidden document (also the copy of a pending or hidden contribution) is for the account of a personal knowledge base and for the reviewers of a shared one (design Sections 6.2, 9.4, 9.6).
+        include_hidden = _sees_hidden(request, theme)
 
         def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file, readonly=True)
@@ -4282,10 +4445,16 @@ def create_app(
             return PlainTextResponse("Missing document id", status_code=400, headers=raw_security_headers)
 
         theme, theme_settings, _ = _get_theme_ctx(request)
+        raw_sees_hidden = _sees_hidden(request, theme)
 
         def _find_raw(t_settings: Settings, t_kb_id: int) -> tuple[str, str] | None:
             conn = dbm.connect_existing(t_settings.db_file, readonly=True)
             try:
+                if not raw_sees_hidden:
+                    # The source file of a hidden document is not for a requester who does not see hidden documents: the answer is the one of a document that is not there.
+                    hidden_row = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (doc_id, t_kb_id)).fetchone()
+                    if hidden_row is not None and hidden_row[0]:
+                        return None
                 try:
                     row = conn.execute(
                         "SELECT file_ref, file_name FROM raw_inbox WHERE document_id = ? AND kb_id = ? AND file_ref IS NOT NULL AND trim(file_ref) != '' ORDER BY id DESC LIMIT 1",
@@ -4535,6 +4704,9 @@ def create_app(
     async def document_purge_route(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, theme_settings, _ = _get_theme_ctx(request, body)
+        if theme.is_shared:
+            # A document of a shared knowledge base goes only by the removal of its contribution: a reason code, a tombstone, and a row in the moderation log (design Section 9.6). Use ``POST /kb/{number}/contributions/{contribution}/remove``.
+            raise HTTPException(status_code=403, detail="kb_remove_by_contribution")
         scope = request_auth_scope(request)
         if scope != "owner":
             raise HTTPException(status_code=403, detail="소각(Purge) 권한은 소유자(owner) 전용입니다.")
@@ -4595,11 +4767,12 @@ def create_app(
         if not isinstance(entity_ids, list) or not entity_ids:
             raise HTTPException(status_code=400, detail="node_ids required")
         query = body.get("query")
+        synthesis_sees_hidden = _sees_hidden(request, theme)
 
         def _synthesize_job() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
             try:
-                res = _synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id)
+                res = _synthesize(conn, theme_svc.provider, entity_ids, query, kb_id=theme.id, include_hidden=synthesis_sees_hidden)
                 res["kb_id"] = theme.id
                 res["theme_label"] = theme.label
                 return res
@@ -4623,6 +4796,18 @@ def create_app(
             raise HTTPException(status_code=400, detail="query is too long")
         node_id = body.get("node_id") or None
         document_id = body.get("doc_id") or None
+        if document_id is not None and not _sees_hidden(request, research_theme):
+            # The context of the research reads the document: a hidden document is not there for a requester who does not see hidden documents.
+            def _doc_hidden() -> bool:
+                conn = dbm.connect_existing(research_settings.db_file, readonly=True)
+                try:
+                    row = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (str(document_id), research_theme.id)).fetchone()
+                    return row is not None and bool(row[0])
+                finally:
+                    conn.close()
+
+            if await asyncio.to_thread(_doc_hidden):
+                raise HTTPException(status_code=404, detail="document not found")
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -6121,7 +6306,10 @@ def create_app(
         Route("/api/admin/themes/judge", admin_themes_judge_route, methods=["POST"]),
         Route("/api/admin/themes/{number}", admin_theme_route, methods=["PATCH"]),
         Route("/api/admin/themes/{number}/knowledge-bases/{kb}", admin_theme_member_route, methods=["PUT"]),
+        Route("/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}", admin_theme_remote_member_route, methods=["PUT"]),
         Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
+        Route("/api/kb/similar", kb_similar_route, methods=["GET", "HEAD"]),
+        Route("/explore/federation", explore_federation_route, methods=["GET", "HEAD"]),
         Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
         Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
         Route("/curations", kb_curations_route, methods=["POST"]),

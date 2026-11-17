@@ -99,6 +99,8 @@ All paths return 404 when `federation` is `off` or the mode is `single`.
 | `GET` | `/ap/actors/{public_id}/outbox` | `OrderedCollection` of the public objects, in pages (Section 4.4) |
 | `GET` | `/ap/objects/{object_public_id}` | Published object of type `Article`, or 410 with a `Tombstone` (Section 4.4) |
 | `GET` | `/ap/quote-authorizations/{id}` | Quote authorization, or 410 after a revoke (Section 26) |
+| `GET` | `/ap/kb`, `/ap/themes` | Collections of shared knowledge for a request that a server actor signed; 404 for each other request ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.6 and 11.2) |
+| `POST` | `/ap/kb/{number}/inbox` | Inbox of a knowledge base actor: only an activity of the knowledge federation ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Section 10.6) |
 
 Rules of the sidecar (`sidecar/fedify/src/sidecar.ts`):
 
@@ -278,7 +280,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
-- `CONTRACT_VERSION` is `"1.8"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.9"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- Version 1.9 (unit KF2 of the knowledge federation) added `GET` and `POST /knowledge-kb-reads` and changed the answer of `GET /knowledge-collections/{name}` (`document` in place of `items`). The sidecar calls the routes of the knowledge federation from this version ([`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.4, 10.6, and 11.4).
 - Claire refuses a heartbeat with a different major version (409). The sidecar refuses a `config` answer with a different major version (`ContractError`).
 - The sidecar checks each response against a sealed shape. An absent field, an extra field, or a wrong type is an error.
 - Unit FP3-2 added four endpoints and changed no shape that existed. The version stayed 1.1.

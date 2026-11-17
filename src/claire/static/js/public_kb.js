@@ -59,7 +59,34 @@
     host.innerHTML = publicNavHtml("home");
   }
 
-  // GET /themes: the root of the collection has each theme in "themes" (number, url, label, description, knowledge_type, state, knowledge_bases = the count).
+  // A link to a page of another server: a new tab, and no data of this page goes to that server.
+  function remoteLink(url, label) {
+    return '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(label) + "</a>";
+  }
+
+  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rules 2 and 3). GET /explore/federation gives "servers" (domain, software_name, software_version, knowledge_bases = the count) and "recent" (kind, at, server, label, url, knowledge_type). The page has the styles of explore_accounts.html. With no known server that has shared knowledge bases, the part shows nothing.
+  function renderHomeFederation(host) {
+    ui().request("/explore/federation").then(function (r) {
+      var servers = (r.ok && r.data && r.data.servers) || [];
+      var recent = (r.ok && r.data && r.data.recent) || [];
+      if (!servers.length && !recent.length) { host.innerHTML = ""; return; }
+      var h = "<h2>" + esc(t("kb.pub.servers_title")) + "</h2>";
+      h += servers.map(function (sv) {
+        var software = sv.software_name ? sv.software_name + (sv.software_version ? " " + sv.software_version : "") : "";
+        return '<article class="account-card" data-federated-server="' + esc(sv.domain) + '"><div class="account-header"><span class="account-name">' + remoteLink("https://" + sv.domain + "/", sv.domain) + "</span>" +
+          '<span class="badge">' + esc(t("kb.pub.kb_count", { count: sv.knowledge_bases || 0 })) + "</span></div>" +
+          (software ? '<p class="subtitle" style="margin:.5rem 0 0;font-size:.88rem;">' + esc(software) + "</p>" : "") + "</article>";
+      }).join("");
+      if (recent.length) {
+        h += "<h2>" + esc(t("kb.pub.recent_title")) + "</h2>" + '<article class="account-card"><ul class="themes-list">' + recent.map(function (it) {
+          return '<li data-federation-recent="' + esc(it.kind) + '">' + esc(t("kb.pub.recent_remote_kb")) + " " + remoteLink(it.url, it.label) + '<span class="themes-count">(' + esc(it.server) + " · " + esc(typeLabel(it.knowledge_type)) + ")</span></li>";
+        }).join("") + "</ul></article>";
+      }
+      host.innerHTML = h;
+    });
+  }
+
+  // GET /themes: the root of the collection has each theme in "themes" (number, url, label, description, knowledge_type, state, knowledge_bases = the count of knowledge bases of this server, remote_knowledge_bases = the count of shared knowledge bases of other servers).
   function renderThemesList(host, bs) {
     var typeFilter = typeFromQuery();
     var themes = [];
@@ -85,7 +112,8 @@
         list.forEach(function (th) {
           h += '<article class="claire-card"><div class="claire-card-head"><h2><a href="' + esc(themeHref(th.number)) + '">' + esc(th.label) + "</a></h2>" + typeTag(th.knowledge_type) + "</div>";
           if (th.description) h += '<p class="claire-hint">' + esc(th.description) + "</p>";
-          h += '<div class="claire-tags"><span class="claire-tag">' + esc(t("kb.pub.kb_count", { count: th.knowledge_bases || 0 })) + "</span></div></article>";
+          h += '<div class="claire-tags"><span class="claire-tag">' + esc(t("kb.pub.kb_count", { count: th.knowledge_bases || 0 })) + "</span>" +
+            (th.remote_knowledge_bases ? '<span class="claire-tag">' + esc(t("kb.pub.remote_kb_count", { count: th.remote_knowledge_bases })) + "</span>" : "") + "</div></article>";
         });
       }
       h += "</div>";
@@ -101,7 +129,7 @@
     }
   }
 
-  // GET /themes/{number}/: the theme with its knowledge bases, the shared ones first, then the attached public personal ones.
+  // GET /themes/{number}/: the theme with its knowledge bases: the shared ones of this server, the shared ones of other servers ("remote" true, with "server" and the origin link "url"; KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2 rule 3), then the attached public personal ones.
   function renderThemeDetail(host, bs, ref) {
     ui().request(themeHref(ref)).then(function (r) {
       var h = publicNavHtml("themes");
@@ -112,12 +140,13 @@
       }
       var th = r.data;
       var kbs = th.knowledge_bases || [];
-      var sharedKbs = kbs.filter(function (k) { return !k.is_personal; });
+      var sharedKbs = kbs.filter(function (k) { return !k.is_personal && !k.remote; });
+      var remoteKbs = kbs.filter(function (k) { return !!k.remote; });
       var personalKbs = kbs.filter(function (k) { return !!k.is_personal; });
 
       h += '<div class="claire-page-head"><div><h1>' + esc(th.label) + " " + typeTag(th.knowledge_type) + "</h1>" +
         (th.description ? '<p class="claire-page-sub">' + esc(th.description) + "</p>" : "") +
-        '<p class="claire-page-sub">' + esc(t("themes.counts", { knowledge_bases: th.shared_knowledge_bases || 0, contributions: th.visible_contributions || 0 })) + "</p></div>";
+        '<p class="claire-page-sub">' + esc(t("themes.counts_federated", { knowledge_bases: th.shared_knowledge_bases || 0, remote: th.remote_knowledge_bases || 0, contributions: th.visible_contributions || 0 })) + "</p></div>";
       h += '<div class="claire-actions">';
       if (bs.is_authenticated) {
         h += '<button type="button" class="claire-btn pri" id="th-contrib-btn">' + ui().icon("merge") + " " + esc(t("campaign.contribute_action")) + "</button>";
@@ -144,6 +173,20 @@
         rows: sharedKbs
       });
       h += "</section>";
+
+      // A knowledge base of another server has no page and no action on this server: the name is the link to its origin.
+      if (remoteKbs.length) {
+        h += '<section class="claire-card" id="th-remote-kbs"><div class="claire-card-head"><h2>' + esc(t("kb.pub.theme_remote_kbs")) + "</h2></div>";
+        h += ui().renderTable({
+          caption: t("kb.pub.theme_remote_kbs"),
+          columns: [
+            { label: t("kb.pub.col_name"), render: function (k) { return "<strong>" + remoteLink(k.url, k.label) + "</strong>"; } },
+            { label: t("kb.pub.col_server"), render: function (k) { return esc(k.server); } }
+          ],
+          rows: remoteKbs
+        });
+        h += "</section>";
+      }
 
       h += '<section class="claire-card"><div class="claire-card-head"><h2>' + esc(t("kb.pub.theme_personal_kbs")) + "</h2></div>";
       if (!personalKbs.length) {
@@ -316,6 +359,8 @@
   function boot() {
     var homeShowcase = document.getElementById("public-home-showcase");
     if (homeShowcase) renderHomeShowcase(homeShowcase);
+    var homeFederation = document.getElementById("public-home-federation");
+    if (homeFederation) renderHomeFederation(homeFederation);
     var rootEl = document.getElementById("public-kb-root");
     if (!rootEl) return;
     var bs = parseBootstrap() || {};

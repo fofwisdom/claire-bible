@@ -1,0 +1,68 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-activities",
+    "body": {
+      "activity": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://w3id.org/claire-bible/ns/v1"
+        ],
+        "id": "https://b.example/ap/kb/1846000000000000100#updates/1794830400000",
+        "type": "Update",
+        "actor": "https://b.example/ap/kb/1846000000000000100",
+        "object": {
+          "id": "https://b.example/ap/kb/1846000000000000100",
+          "type": [
+            "Group",
+            "claire:KnowledgeBase"
+          ],
+          "name": "Ada Lovelace and the Analytical Engine",
+          "summary": "Documents about the first programs for a mechanical computer.",
+          "url": "https://b.example/kb/1846000000000000100/",
+          "inbox": "https://b.example/ap/kb/1846000000000000100/inbox",
+          "outbox": "https://b.example/ap/kb/1846000000000000100/outbox",
+          "followers": "https://b.example/ap/kb/1846000000000000100/followers",
+          "claire:documents": "https://b.example/ap/kb/1846000000000000100/documents",
+          "claire:knowledgeType": "real",
+          "claire:documentCount": 12,
+          "claire:entityCount": 87,
+          "claire:relationCount": 140,
+          "claire:signature": {
+            "entities": [
+              [
+                "person",
+                "ada lovelace",
+                9
+              ],
+              [
+                "artifact",
+                "analytical engine",
+                7
+              ],
+              [
+                "person",
+                "charles babbage",
+                6
+              ]
+            ],
+            "visible_documents": 12,
+            "computed_at": "2026-11-16T11:00:00Z"
+          }
+        },
+        "to": [
+          "https://b.example/ap/kb/1846000000000000100/followers"
+        ]
+      },
+      "signer": "https://b.example/ap/kb/1846000000000000100",
+      "verified_by": "http-signature",
+      "recipient": null
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "failed",
+    "reason": "no_handler",
+    "journal_id": 1
+  }
+}

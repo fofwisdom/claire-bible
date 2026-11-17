@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .extract.provider import ExtractionResult
 from .extract.resolver import resolve_or_create
@@ -108,9 +109,11 @@ def copy_document_files(conn: sqlite3.Connection, data_dir: Path, *, source_docu
     """Give the copy its own files: local images, the text artifact, and the attachments. Return the count of copied files. The caller commits.
 
     A file that is not there is skipped: the document then shows the remote image URL, as after a failed download.
+    The body of the copy (``detail``, ``detail_html``) has the image paths of the source (``images/<source ID>_<n>``, also in the form ``/image?p=images/...``). For each image file that is copied, these paths change to the path of the copy; a path of a file that is not copied stays.
     """
     data_dir = Path(data_dir)
     copied = 0
+    renamed: dict[str, str] = {}
     row = conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (target_document_id, int(kb_id))).fetchone()
     try:
         meta = json.loads(row["meta"] or "{}") if row is not None else {}
@@ -129,10 +132,13 @@ def copy_document_files(conn: sqlite3.Connection, data_dir: Path, *, source_docu
                 (data_dir / "images").mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source_path, data_dir / target_local)
                 image["local"] = target_local
+                renamed[local] = target_local
                 copied += 1
             else:
                 image.pop("local", None)
         conn.execute("UPDATE documents SET meta=? WHERE id=? AND kb_id=?", (json.dumps(meta, ensure_ascii=False), target_document_id, int(kb_id)))
+    if renamed:
+        _rewrite_image_paths(conn, document_id=target_document_id, kb_id=int(kb_id), renamed=renamed)
     artifacts = data_dir / "raw" / "artifacts"
     for suffix in (".txt.zst", ".txt.gz"):
         source_path = artifacts / f"{source_document_id}{suffix}"
@@ -144,6 +150,21 @@ def copy_document_files(conn: sqlite3.Connection, data_dir: Path, *, source_docu
         shutil.copytree(attachments, data_dir / "raw" / "attachments" / target_document_id, dirs_exist_ok=True)
         copied += sum(1 for p in attachments.rglob("*") if p.is_file())
     return copied
+
+
+def _rewrite_image_paths(conn: sqlite3.Connection, *, document_id: str, kb_id: int, renamed: dict[str, str]) -> None:
+    """Replace each image path of ``renamed`` (old path → new path) in the body columns of one document. A longer file name that starts with an old path is not changed."""
+    body = conn.execute("SELECT detail, detail_html FROM documents WHERE id=? AND kb_id=?", (document_id, kb_id)).fetchone()
+    if body is None:
+        return
+    pattern = re.compile("(?:" + "|".join(re.escape(old) for old in sorted(renamed, key=len, reverse=True)) + r")(?![\w-]|\.\w)")
+    for column in ("detail", "detail_html"):
+        text = body[column]
+        if not isinstance(text, str) or not text:
+            continue
+        changed = pattern.sub(lambda m: renamed[m.group(0)], text)
+        if changed != text:
+            conn.execute(f"UPDATE documents SET {column}=? WHERE id=? AND kb_id=?", (changed, document_id, kb_id))
 
 
 # --- direct contribution (Section 9.1) -------------------------------------------------------------------------------
@@ -214,7 +235,8 @@ def _add_copy(
         raise ContributionError(404, "document_not_found")
     duplicate = find_duplicate(conn, kb_id, canonical_url=source["canonical_url"], content_hash=source["content_hash"])
     if duplicate is not None:
-        raise ContributionError(409, "contribution_duplicate", document=duplicate)
+        hidden = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (duplicate, int(kb_id))).fetchone()
+        raise ContributionError(409, "contribution_duplicate", document=duplicate, visible=hidden is not None and not hidden[0])
     # A removed contribution leaves a tombstone: the same source does not come back (Section 9.6).
     by_url = bool(source["canonical_url"])
     if dbm.is_tombstoned(conn, canonical_url=source["canonical_url"] if by_url else None, content_hash=None if by_url else source["content_hash"], kb_id=int(kb_id)):
@@ -305,11 +327,12 @@ def _parse_extraction(raw_response: str) -> ExtractionResult:
         raise ContributionError(409, "extraction_unreadable") from exc
 
 
-def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, settings: Any, *, kb_id: int, document_id: str) -> tuple[int, int]:
+def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, settings: Any, *, kb_id: int, document_id: str, heartbeat: Callable[[], None] | None = None, decisions: list[Any] | None = None) -> tuple[int, int]:
     """Build the graph of ``kb_id`` for one copied document from its stored extraction. No LLM call (CT24).
 
     ``provider`` is the provider of the server: only its embedding function is used, and only when its embedding model is the fixed model of the knowledge base (else ``ContributionError(409, "embedding_model_unavailable")``). Entities merge by the rules that need no judge (name, alias, and the automatic threshold); relations come from the extraction only.
-    Return the counts of touched entities and added relations. The caller commits.
+    Return the counts of touched entities and of new relations. Each entity and each relation is its own commit (``upsert_entity``, ``upsert_relation``), so the function is not one transaction.
+    The log of the entity decisions goes into ``documents.meta`` also when the function fails part-way, so that the rollback of the copy can undo the merges that were made. ``decisions``: the caller gets each decision in this list (also on a failure). ``heartbeat`` is called after each entity and each relation.
     """
     extraction = conn.execute("SELECT raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1", (document_id, int(kb_id))).fetchone()
     if extraction is None:
@@ -331,35 +354,40 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     vstore = make_vector_store(conn, getattr(settings, "vector_backend", "brute"), kb_id=kb_id)
 
     name_to_id: dict[str, str] = {}
-    decisions = []
-    for extracted in result.entities:
-        etype, provisional = classify_entity_type(extracted.type)
-        embed_fn = None
-        if has_embed:
-            def _embed(extracted=extracted):
-                from .extract.frame import format_entity_frame
+    decisions = [] if decisions is None else decisions
+    try:
+        for extracted in result.entities:
+            etype, provisional = classify_entity_type(extracted.type)
+            embed_fn = None
+            if has_embed:
+                def _embed(extracted=extracted):
+                    from .extract.frame import format_entity_frame
 
-                return provider.embed(format_entity_frame(extracted), task_type="RETRIEVAL_DOCUMENT", title=extracted.name)
+                    return provider.embed(format_entity_frame(extracted), task_type="RETRIEVAL_DOCUMENT", title=extracted.name)
 
-            embed_fn = _embed
-        try:
-            resolved = resolve_or_create(
-                conn, vstore,
-                name=extracted.name, etype=etype, aliases=extracted.aliases, observations=extracted.observations,
-                document_id=document_id, embed_fn=embed_fn, judge_fn=None, provisional=provisional, shadow=None,
-                kb_id=kb_id, embed_model=pin.model, embed_provider=pin.provider,
-            )
-        except EmbeddingModelMismatch as exc:
-            raise ContributionError(409, "embedding_model_unavailable") from exc
-        name_to_id[extracted.name] = resolved.entity.id
-        if getattr(resolved, "decision", None) is not None:
-            decisions.append(resolved.decision)
-    if decisions:
-        # The log lets a later purge of this copy undo its merges (``rollback_document_graph_contributions``).
-        from .extract.decision import attach_resolution_meta
+                embed_fn = _embed
+            try:
+                resolved = resolve_or_create(
+                    conn, vstore,
+                    name=extracted.name, etype=etype, aliases=extracted.aliases, observations=extracted.observations,
+                    document_id=document_id, embed_fn=embed_fn, judge_fn=None, provisional=provisional, shadow=None,
+                    kb_id=kb_id, embed_model=pin.model, embed_provider=pin.provider,
+                )
+            except EmbeddingModelMismatch as exc:
+                raise ContributionError(409, "embedding_model_unavailable") from exc
+            name_to_id[extracted.name] = resolved.entity.id
+            if getattr(resolved, "decision", None) is not None:
+                decisions.append(resolved.decision)
+            if heartbeat is not None:
+                heartbeat()
+    finally:
+        # The log lets a later purge of this copy undo its merges (``rollback_document_graph_contributions``). It is written also on a failure: the merges that were made are committed. An old log (of a try before) is replaced, also by an empty one.
+        if decisions or (doc.meta or {}).get("resolution_log"):
+            from .extract.decision import attach_resolution_meta
 
-        attach_resolution_meta(doc, decisions)
-        dbm.update_document_meta(conn, document_id, doc.meta, kb_id=kb_id)
+            attach_resolution_meta(doc, decisions)
+            dbm.update_document_meta(conn, document_id, doc.meta, kb_id=kb_id)
+            conn.commit()
 
     relations = 0
     for extracted in result.relations:
@@ -371,8 +399,11 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
         verdict = validate_relation(rtype, source.type if source else "", target.type if target else "")
         if not verdict.ok:
             continue
-        dbm.upsert_relation(conn, Relation(type=rtype, source_id=source_id, target_id=target_id, sources=[document_id], provisional=verdict.provisional), kb_id=kb_id)
-        relations += 1
+        # A relation that is there gets this document as one more source and does not count.
+        if dbm.upsert_relation(conn, Relation(type=rtype, source_id=source_id, target_id=target_id, sources=[document_id], provisional=verdict.provisional), kb_id=kb_id):
+            relations += 1
+        if heartbeat is not None:
+            heartbeat()
     return len(name_to_id), relations
 
 
@@ -392,13 +423,19 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
     if job_id is not None and not claim_job(conn, job_id):
         current = kb_collab.get_contribution(conn, contribution)
         return MergeResult(str(current["state"]) if current is not None else "removed", "job_taken")
+    data_dir = Path(settings.data_dir)
     row = kb_collab.get_contribution(conn, contribution)
     if row is None:
+        # The contribution was withdrawn. The withdrawal purges the copies; a revision copy that is still there (its row did not go with the contribution) is purged here.
+        waiting = kb_collab.get_revision(conn, int(revision)) if revision is not None else None
+        if waiting is not None and waiting["state"] == "merging":
+            kb_collab.complete_revision(conn, int(revision), state="failed")
         _finish_job(conn, job_id, error="contribution_not_found")
         conn.commit()
+        if waiting is not None and waiting["state"] == "merging":
+            _drop_copy(conn, data_dir, document_id=str(waiting["document_id"]), decisions=[], reason="contribution_revision_dropped")
         return MergeResult("removed", "contribution_not_found")
     kb_id = int(row["kb_id"])
-    data_dir = Path(settings.data_dir)
     if revision is not None:
         return _run_revision(conn, provider, settings, row=row, revision_id=int(revision), job_id=job_id, data_dir=data_dir)
     if row["state"] not in ("merging", "failed"):
@@ -406,31 +443,67 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
         _finish_job(conn, job_id)
         conn.commit()
         return MergeResult(str(row["state"]))
-    document_id = str(row["document_id"])
+    document_id, from_state = str(row["document_id"]), str(row["state"])
+    decisions: list[Any] = []
+    code = ""
+    entities = relations = 0
     try:
         # A retry starts from a clean graph: the first try can have left some entities of this copy.
         dbm.rollback_document_graph_contributions(conn, [document_id], prune_orphans=True, kb_id=kb_id)
         copy_document_files(conn, data_dir, source_document_id=str(row["source_document_id"]), target_document_id=document_id, kb_id=kb_id)
-        entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=document_id)
+        entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=document_id, heartbeat=_heartbeat(conn, job_id), decisions=decisions)
     except ContributionError as exc:
         conn.rollback()
-        return _fail(conn, row, job_id, exc.code)
+        code = exc.code
     except Exception as exc:  # noqa: BLE001 - the job records each failure; the server continues
         conn.rollback()
         log.warning("merge job of contribution %s failed: %s", contribution, type(exc).__name__)
-        return _fail(conn, row, job_id, "merge_failed")
+        code = "merge_failed"
+    # The graph steps commit for each row, so the contribution can change while the job runs (a withdrawal, a removal). The state changes only when the contribution is still the one that the job started with.
+    if not kb_collab.finish_merge(conn, contribution, from_state=from_state, document_id=document_id, state="failed" if code else "visible", decision_reason=code or None):
+        _finish_job(conn, job_id, error="contribution_changed")
+        conn.commit()
+        _drop_copy(conn, data_dir, document_id=document_id, decisions=decisions, reason="contribution_merge_dropped")
+        current = kb_collab.get_contribution(conn, contribution)
+        return MergeResult(str(current["state"]) if current is not None else "removed", "contribution_changed")
+    if code:
+        _finish_job(conn, job_id, error=code)
+        conn.commit()
+        return MergeResult("failed", code)
     conn.execute("UPDATE documents SET hidden=0 WHERE id=? AND kb_id=?", (document_id, kb_id))
-    kb_collab.update_contribution(conn, contribution, state="visible")
     _finish_job(conn, job_id)
     conn.commit()
     return MergeResult("visible", entities=entities, relations=relations)
 
 
-def _fail(conn: sqlite3.Connection, row: dict[str, Any], job_id: int | None, code: str) -> MergeResult:
-    kb_collab.update_contribution(conn, int(row["public_id"]), state="failed", decision_reason=code)
-    _finish_job(conn, job_id, error=code)
-    conn.commit()
-    return MergeResult("failed", code)
+def _heartbeat(conn: sqlite3.Connection, job_id: int | None) -> Callable[[], None] | None:
+    """The progress signal of a running job: each call sets ``jobs.updated_at`` and commits. Thus only a job with no progress for ``STALE_JOB_SECONDS`` is taken again."""
+    if job_id is None:
+        return None
+
+    def _beat() -> None:
+        conn.execute("UPDATE jobs SET updated_at=? WHERE id=? AND status='running'", (time.time(), int(job_id)))
+        conn.commit()
+
+    return _beat
+
+
+def _drop_copy(conn: sqlite3.Connection, data_dir: Path, *, document_id: str, decisions: list[Any], reason: str) -> None:
+    """Remove a copy that a job made or built while its contribution went away: undo the merges of ``decisions`` (the document row and its log can be gone), then delete the graph sources, the rows, and the files of the copy. Commits.
+
+    The copy is in the knowledge base of its document row; when the row is gone, the entities that have the document as a source tell the knowledge base. A copy that a contribution points to is not touched.
+    """
+    from .extract.decision import rollback_resolution
+
+    for decision in reversed(decisions):
+        rollback_resolution(conn, decision)
+    owners = {int(r[0]) for r in conn.execute("SELECT kb_id FROM documents WHERE id=?", (document_id,))}
+    owners.update(int(r[0]) for r in conn.execute("SELECT DISTINCT kb_id FROM entities WHERE sources LIKE ?", (f'%"{document_id}"%',)))
+    for kb_id in sorted(owners):
+        if kb_collab.get_contribution_for_document(conn, kb_id, document_id) is not None:
+            log.warning("copy %s is not dropped: a contribution has it", document_id)
+            continue
+        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=document_id, tombstone=False, reason=reason)
 
 
 def retry_merge(conn: sqlite3.Connection, *, contribution: int) -> int:
@@ -462,7 +535,8 @@ def run_pending_merge_jobs(conn: sqlite3.Connection, provider_for_kb: Any, setti
 def _purge_copy(conn: sqlite3.Connection, data_dir: Path, *, kb_id: int, document_id: str, tombstone: bool, reason: str) -> None:
     """Delete one copy from K: its graph sources, its embeddings, its rows, and its files. Commits."""
     dbm.rollback_document_graph_contributions(conn, [document_id], prune_orphans=True, kb_id=kb_id)
-    dbm.purge_document_cascade(conn, data_dir=Path(data_dir), target_ids=[document_id], reason=reason, tombstone=tombstone, kb_id=kb_id)
+    # The step before cleaned the graph of this copy, so the purge runs no graph heal; and a review action runs no ``VACUUM`` of the database.
+    dbm.purge_document_cascade(conn, data_dir=Path(data_dir), target_ids=[document_id], reason=reason, tombstone=tombstone, kb_id=kb_id, heal=False, vacuum=False)
 
 
 def _contribution_in(conn: sqlite3.Connection, kb_id: int, contribution: int) -> dict[str, Any]:
@@ -472,10 +546,22 @@ def _contribution_in(conn: sqlite3.Connection, kb_id: int, contribution: int) ->
     return row
 
 
-def withdraw(conn: sqlite3.Connection, data_dir: Path, *, kb_id: int, contribution: int, account_id: int) -> None:
-    """The contributor withdraws its contribution while it is not approved (CT7). The copy and the row are deleted. Commits.
+def _waiting_revision_copies(conn: sqlite3.Connection, contribution: int, *, keep: int | None = None) -> list[str]:
+    """Close each revision of the contribution that still waits for its merge job (state ``merging``), but not the revision ``keep``, and return the copies of the closed revisions. The caller commits and then purges the copies. The job of a closed revision does nothing."""
+    copies = []
+    for revision in kb_collab.list_revisions(conn, contribution):
+        if revision["state"] != "merging" or (keep is not None and int(revision["id"]) == int(keep)):
+            continue
+        kb_collab.complete_revision(conn, int(revision["id"]), state="failed")
+        copies.append(str(revision["document_id"]))
+    return copies
+
+
+def withdraw(conn: sqlite3.Connection, data_dir: Path, *, kb_id: int, contribution: int, account_id: int) -> dict[str, Any]:
+    """The contributor withdraws its contribution while it is not approved (CT7). The copy, the copies of its revisions that wait, and the row are deleted. Commits.
 
     After the approval: ``ContributionError(409, "contribution_approved")``. A contribution of another account: 404.
+    An automatic contribution (origin ``auto``): the source document gets the flag "never contribute", because the row that keeps the document out of the next run of the rule is deleted (design Section 9.9 rules 2 and 6). The account can clear the flag. The result tells it: ``{"contribution_blocked": bool}``.
     """
     row = _contribution_in(conn, kb_id, contribution)
     if row["contributor_account_id"] != account_id:
@@ -484,20 +570,30 @@ def withdraw(conn: sqlite3.Connection, data_dir: Path, *, kb_id: int, contributi
         raise ContributionError(409, "contribution_approved")
     if row["state"] in ("removed", "rejected"):
         raise ContributionError(409, "contribution_closed")
+    copies = _waiting_revision_copies(conn, contribution)
     # The row goes first: the purge then finds no contribution of this document and leaves no state behind.
     kb_collab.delete_contribution(conn, contribution)
+    blocked = row["origin"] == "auto" and bool(row["source_document_id"])
+    if blocked:
+        kb_collab.set_contribution_block(conn, account_id=account_id, document_id=str(row["source_document_id"]), blocked=True)
     conn.commit()
     if row["document_id"]:
-        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=str(row["document_id"]), tombstone=False, reason="contribution_withdrawn")
+        copies.append(str(row["document_id"]))
+    for copy_id in copies:
+        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=copy_id, tombstone=False, reason="contribution_withdrawn")
+    return {"contribution_blocked": blocked}
 
 
-def approve(conn: sqlite3.Connection, *, kb_id: int, contribution: int, account_id: int, now: float | None = None) -> dict[str, Any]:
+def approve(conn: sqlite3.Connection, *, kb_id: int, contribution: int, account_id: int, is_admin: bool, now: float | None = None) -> dict[str, Any]:
     """Accept the donation (Section 9.6). An approval is final. A pending contribution gets its merge job. The caller commits."""
     row = _contribution_in(conn, kb_id, contribution)
     if row["state"] in ("removed", "rejected"):
         raise ContributionError(409, "contribution_closed")
     if row["approved_at"] is not None:
         raise ContributionError(409, "contribution_approved")
+    if row["contributor_account_id"] is not None and int(row["contributor_account_id"]) == int(account_id) and not is_admin:
+        # A reviewer does not approve its own contribution: with the reputation ``low`` the contribution of a collaborator or a moderator waits for the approval of another reviewer (design Section 8.6).
+        raise ContributionError(403, "own_contribution")
     ts = time.time() if now is None else now
     changes: dict[str, Any] = {"approved_at": ts, "approved_by_account_id": account_id, "decided_at": ts}
     if row["state"] == "pending":
@@ -555,11 +651,14 @@ def remove(conn: sqlite3.Connection, data_dir: Path, *, kb_id: int, contribution
         raise ContributionError(409, "contribution_closed")
     ts = time.time()
     document_id = row["document_id"]
+    copies = _waiting_revision_copies(conn, contribution)
     kb_collab.update_contribution(conn, contribution, now=ts, state="removed", decision_reason=reason, decided_at=ts, document_id=None)
     kb_collab.log_moderation(conn, kb_id=kb_id, actor_account_id=account_id, action="contribution_remove", target=str(contribution), reason=reason, now=ts)
     conn.commit()
     if document_id:
         _purge_copy(conn, data_dir, kb_id=kb_id, document_id=str(document_id), tombstone=True, reason=f"contribution_removed:{reason}")
+    for copy_id in copies:
+        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=copy_id, tombstone=False, reason="contribution_revision_dropped")
 
 
 # --- revisions (Section 9.5) -----------------------------------------------------------------------------------------
@@ -570,8 +669,10 @@ def start_revisions(conn: sqlite3.Connection, data_dir: Path, *, root_kb_id: int
 
     - A contribution with stopped updates, and a closed one (``removed``, ``rejected``), keeps its version.
     - A visible or hidden contribution: the new version and its extraction are copied into K without graph; the merge job applies it. No approval; the state stays.
+    - A contribution in ``merging``: its merge job can run now, so its copy is not replaced. The new version waits as a revision; its job runs after the merge (``_run_revision`` puts the job back while the state is ``merging``).
     - A pending contribution: the new version replaces the pending copy.
-    - A contribution in ``merging`` or ``failed``: its copy has no complete graph yet, so the new version replaces the copy and a new merge job starts.
+    - A contribution in ``failed``: its copy has no complete graph and no job, so the new version replaces the copy and a new merge job starts.
+    - The newest version wins: a revision of the contribution that still waits is closed and its copy is purged, but a revision that waits with this same version stays and no second one starts.
     """
     root = conn.execute("SELECT content_hash FROM documents WHERE id=? AND kb_id=?", (root_document_id, int(root_kb_id))).fetchone()
     if root is None:
@@ -582,28 +683,38 @@ def start_revisions(conn: sqlite3.Connection, data_dir: Path, *, root_kb_id: int
         if row["updates_frozen"] or row["state"] in ("removed", "rejected") or not row["document_id"]:
             continue
         kb_id = int(row["kb_id"])
-        current = conn.execute("SELECT content_hash FROM documents WHERE id=? AND kb_id=?", (row["document_id"], kb_id)).fetchone()
-        if current is not None and str(current["content_hash"] or "") == content_hash:
-            continue  # the copy has this version (Section 9.5 rule 1: the same content makes no revision)
         old_copy = str(row["document_id"])
         public_id = int(row["public_id"])
+        current = conn.execute("SELECT content_hash FROM documents WHERE id=? AND kb_id=?", (row["document_id"], kb_id)).fetchone()
+        same_as_copy = current is not None and str(current["content_hash"] or "") == content_hash
+        # The revision that waits with this version, when the copy does not have it: it stays.
+        queued = None if same_as_copy else next((int(r["id"]) for r in kb_collab.list_revisions(conn, public_id) if r["state"] == "merging" and str(r["content_hash"] or "") == content_hash), None)
+        stale = _waiting_revision_copies(conn, public_id, keep=queued)
+        if same_as_copy or queued is not None:
+            # The copy has this version (Section 9.5 rule 1: the same content makes no revision), or its revision waits.
+            conn.commit()
+            for copy_id in stale:
+                _purge_copy(conn, data_dir, kb_id=kb_id, document_id=copy_id, tombstone=False, reason="contribution_revision_dropped")
+            continue
         try:
             new_copy = copy_document(conn, source_document_id=root_document_id, source_kb_id=root_kb_id, target_kb_id=kb_id, hidden=True)
         except ContributionError as exc:
             conn.rollback()
             log.warning("revision of contribution %s did not start: %s", public_id, exc.code)
             continue
-        if row["state"] in ("visible", "hidden"):
+        if row["state"] in ("visible", "hidden", "merging"):
             revision = kb_collab.add_revision(conn, contribution_public_id=public_id, previous_document_id=old_copy, document_id=new_copy, content_hash=content_hash)
             jobs.append(add_merge_job(conn, kb_id=kb_id, contribution=public_id, revision=revision))
             conn.commit()
-            continue
-        # pending, merging, failed: the copy has no complete graph. The new version replaces it.
-        kb_collab.update_contribution(conn, public_id, document_id=new_copy, revised_at=time.time(), **({"state": "merging", "decision_reason": ""} if row["state"] == "failed" else {}))
-        if row["state"] in ("merging", "failed"):
-            jobs.append(add_merge_job(conn, kb_id=kb_id, contribution=public_id))
-        conn.commit()
-        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=old_copy, tombstone=False, reason="contribution_revised")
+        else:
+            # pending, failed: the copy has no complete graph and no job runs for it. The new version replaces it.
+            kb_collab.update_contribution(conn, public_id, document_id=new_copy, revised_at=time.time(), **({"state": "merging", "decision_reason": ""} if row["state"] == "failed" else {}))
+            if row["state"] == "failed":
+                jobs.append(add_merge_job(conn, kb_id=kb_id, contribution=public_id))
+            conn.commit()
+            stale.append(old_copy)
+        for copy_id in stale:
+            _purge_copy(conn, data_dir, kb_id=kb_id, document_id=copy_id, tombstone=False, reason="contribution_revised")
     return jobs
 
 
@@ -616,34 +727,46 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
         conn.commit()
         return MergeResult(str(row["state"]))
     new_copy, old_copy = str(revision["document_id"]), revision["previous_document_id"]
+    if row["state"] == "merging" and not row["updates_frozen"] and row["document_id"] == old_copy:
+        # The first merge of the contribution is not complete: the revision waits. The job goes back and the next sweep takes it.
+        if job_id is not None:
+            conn.execute("UPDATE jobs SET status='pending', updated_at=? WHERE id=?", (time.time(), int(job_id)))
+        conn.commit()
+        return MergeResult("merging", "revision_waits")
     if row["state"] not in ("visible", "hidden") or row["updates_frozen"] or row["document_id"] != old_copy:
-        # The contribution changed after the revision started (removed, updates stopped, or a newer revision): this new copy is not used.
+        # The contribution changed after the revision started (removed, updates stopped, a failed merge, or a newer revision): this new copy is not used.
         kb_collab.complete_revision(conn, revision_id, state="failed")
         _finish_job(conn, job_id, error="revision_superseded")
         conn.commit()
         _purge_copy(conn, data_dir, kb_id=kb_id, document_id=new_copy, tombstone=False, reason="contribution_revision_dropped")
         return MergeResult(str(row["state"]), "revision_superseded")
+    decisions: list[Any] = []
     try:
         copy_document_files(conn, data_dir, source_document_id=str(row["root_document_id"]), target_document_id=new_copy, kb_id=kb_id)
-        entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=new_copy)
+        entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=new_copy, heartbeat=_heartbeat(conn, job_id), decisions=decisions)
     except Exception as exc:  # noqa: BLE001 - the old copy stays; the job records the failure
         conn.rollback()
         code = exc.code if isinstance(exc, ContributionError) else "merge_failed"
         kb_collab.complete_revision(conn, revision_id, state="failed")
         _finish_job(conn, job_id, error=code)
         conn.commit()
-        _purge_copy(conn, data_dir, kb_id=kb_id, document_id=new_copy, tombstone=False, reason="contribution_revision_failed")
+        _drop_copy(conn, data_dir, document_id=new_copy, decisions=decisions, reason="contribution_revision_failed")
         return MergeResult(str(row["state"]), code)
     ts = time.time()
-    # The contribution points to the new copy before the old one is purged, so the purge finds no contribution of the old document.
-    conn.execute("UPDATE documents SET hidden=? WHERE id=? AND kb_id=?", (1 if row["state"] == "hidden" else 0, new_copy, kb_id))
-    kb_collab.update_contribution(conn, public_id, now=ts, document_id=new_copy, revised_at=ts)
-    kb_collab.complete_revision(conn, revision_id, state="done", now=ts)
+    # The graph steps commit for each row, so the contribution and the revision can change while the job runs. The contribution points to the new copy only when both are still as the job found them; this is before the purge of the old copy, so the purge finds no contribution of the old document.
+    if not kb_collab.apply_revision(conn, revision_id, now=ts):
+        _finish_job(conn, job_id, error="revision_superseded")
+        conn.commit()
+        _drop_copy(conn, data_dir, document_id=new_copy, decisions=decisions, reason="contribution_revision_dropped")
+        current = kb_collab.get_contribution(conn, public_id)
+        return MergeResult(str(current["state"]) if current is not None else "removed", "revision_superseded")
+    state = str((kb_collab.get_contribution(conn, public_id) or row)["state"])
+    conn.execute("UPDATE documents SET hidden=? WHERE id=? AND kb_id=?", (1 if state == "hidden" else 0, new_copy, kb_id))
     _finish_job(conn, job_id)
     conn.commit()
     if old_copy:
         _purge_copy(conn, data_dir, kb_id=kb_id, document_id=str(old_copy), tombstone=False, reason="contribution_revised")
-    return MergeResult(str(row["state"]), entities=entities, relations=relations)
+    return MergeResult(state, entities=entities, relations=relations)
 
 
 # --- contribution to a theme (Section 9.2) ---------------------------------------------------------------------------
@@ -758,12 +881,15 @@ def decision_of(row: dict[str, Any]) -> str:
 
 
 def decision_agreement(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """For each shared knowledge base: the agreement of its decisions with the majority decision of the other knowledge bases on the same submission items, for items with 3 or more decisions (Section 9.3 rule 5)."""
-    rows = conn.execute("SELECT submission_item_id, kb_id, state, approved_at FROM kb_contributions WHERE submission_item_id IS NOT NULL").fetchall()
+    """For each shared knowledge base: the agreement of its decisions with the majority decision of the other knowledge bases on the same submission items, for items with 3 or more decisions (Section 9.3 rule 5).
+
+    Only a decision of another account counts (``kb_collab.approved_by_another``): the approval that the contribution of a reviewer gets when it is made is no decision of that knowledge base.
+    """
+    rows = conn.execute("SELECT submission_item_id, kb_id, state, approved_at, decided_at, approved_by_account_id, contributor_account_id FROM kb_contributions WHERE submission_item_id IS NOT NULL").fetchall()
     by_item: dict[int, dict[int, str]] = {}
     for row in rows:
         decision = decision_of({"state": row["state"], "approved_at": row["approved_at"]})
-        if decision in ("approved", "rejected"):
+        if decision == "rejected" or (decision == "approved" and kb_collab.approved_by_another(row)):
             by_item.setdefault(int(row["submission_item_id"]), {})[int(row["kb_id"])] = decision
     totals: dict[int, list[int]] = {}
     for decisions in by_item.values():
@@ -848,9 +974,11 @@ def _mapped_sources(raw: Any, doc_map: dict[str, str]) -> list[str]:
 
 
 def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, target_kb_id: int, account_id: int, now: float | None = None) -> dict[str, int]:
-    """Copy the visible documents of the shared knowledge base ``source_kb_id`` into the new shared knowledge base ``target_kb_id`` with their extractions, entities, relations, embeddings, and FTS rows (design Section 9.8 rules 3 to 6). No LLM call and no new embedding. One transaction; the caller commits.
+    """Copy the visible documents of the shared knowledge base ``source_kb_id`` into the new shared knowledge base ``target_kb_id`` with their extractions, entities, relations, embeddings, and FTS rows (design Section 9.8 rules 3 to 6). No LLM call and no new embedding. Commits.
 
     A document is copied when it is not hidden and its contribution is ``visible``. An entity or a relation is copied when one of its source documents is copied; its sources become the copies. Each copied document gets a contribution with the origin ``fork``, the credit and the root of the source contribution, and the approval at the fork time. The fork gets the embedding model and the themes of its source.
+
+    The order: (1) all rows, in one transaction, then the commit; (2) the files of each copy, with one short transaction for each document (the image paths in its ``meta`` and its body). The write lock of the database is thus not held while files are copied. A failure in step 1 rolls back and leaves nothing. A failure in step 2 deletes the files that this call copied and raises: the rows of the fork are committed then, and the caller deletes the new knowledge base with its rows (a fork that did not complete does not stay). When the process stops in step 2, the documents without their own files still show the image files of their source documents.
     """
     from .store import themes as themes_store
 
@@ -867,7 +995,6 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
         except ContributionError:
             continue  # a document with no extraction has no graph to copy
         doc_map[str(document_id)] = copy_id
-        copy_document_files(conn, data_dir, source_document_id=str(document_id), target_document_id=copy_id, kb_id=target_kb_id)
         kb_collab.add_contribution(
             conn, kb_id=target_kb_id, document_id=copy_id, origin="fork", state="visible", contributor_account_id=origin["contributor_account_id"], curator_account_id=account_id,
             source_kb_id=source_kb_id, source_document_id=str(document_id), root_kb_id=origin["root_kb_id"], root_document_id=origin["root_document_id"],
@@ -903,7 +1030,7 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
         conn.execute(f"INSERT INTO relations ({', '.join(relation_columns)}) VALUES ({', '.join('?' for _ in relation_columns)})", tuple(values[c] for c in relation_columns))
         relations += 1
 
-    # The log of the entity decisions of each copy points to the entities of the fork, so that a later purge of the copy can undo them.
+    # The log of the entity decisions of each copy points to the entities of the fork, so that a later purge of the copy can undo them. One walk of each log with the ID map: each string that is the ID of a copied entity (a value or a key, in each field of ``ResolutionDecision``) becomes the ID of its copy.
     for document_id, copy_id in doc_map.items():
         row = conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (document_id, source_kb_id)).fetchone()
         try:
@@ -913,12 +1040,9 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
         log_rows = source_meta.get("resolution_log") if isinstance(source_meta, dict) else None
         if not isinstance(log_rows, list) or not log_rows:
             continue
-        text = json.dumps(log_rows, ensure_ascii=False)
-        for old, new in entity_map.items():
-            text = text.replace(f'"{old}"', f'"{new}"')
         copy = conn.execute("SELECT meta FROM documents WHERE id=? AND kb_id=?", (copy_id, target_kb_id)).fetchone()
         meta = json.loads(copy["meta"] or "{}")
-        meta["resolution_log"] = json.loads(text)
+        meta["resolution_log"] = _remap_ids(log_rows, entity_map)
         conn.execute("UPDATE documents SET meta=? WHERE id=? AND kb_id=?", (json.dumps(meta, ensure_ascii=False), copy_id, target_kb_id))
 
     conn.execute(
@@ -927,7 +1051,44 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
     )
     for theme_id in themes_store.themes_of_kb(conn, source_kb_id):
         themes_store.add_theme_member(conn, theme_id=theme_id, kb_id=target_kb_id, source="fork", now=ts)
+    conn.commit()
+
+    # Step 2: the files, after the commit of the rows.
+    try:
+        for document_id, copy_id in doc_map.items():
+            copy_document_files(conn, data_dir, source_document_id=document_id, target_document_id=copy_id, kb_id=target_kb_id)
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        for copy_id in doc_map.values():
+            _delete_copy_files(data_dir, copy_id)
+        raise
     return {"documents": len(doc_map), "entities": len(entity_map), "relations": relations}
+
+
+def _remap_ids(value: Any, id_map: dict[str, str]) -> Any:
+    """A copy of a JSON value where each string that is a key of ``id_map`` (as a value or as a key of an object) is replaced."""
+    if isinstance(value, str):
+        return id_map.get(value, value)
+    if isinstance(value, list):
+        return [_remap_ids(item, id_map) for item in value]
+    if isinstance(value, dict):
+        return {id_map.get(key, key): _remap_ids(item, id_map) for key, item in value.items()}
+    return value
+
+
+def _delete_copy_files(data_dir: Path, document_id: str) -> None:
+    """Delete the files of one copy (the names that ``copy_document_files`` writes). A file that is not there is no error."""
+    data_dir = Path(data_dir)
+    images = data_dir / "images"
+    paths = list(images.glob(f"{document_id}_*")) if images.is_dir() else []
+    paths += [data_dir / "raw" / "artifacts" / f"{document_id}{suffix}" for suffix in (".txt.zst", ".txt.gz")]
+    for path in paths:
+        if path.is_file():
+            path.unlink()
+    attachments = data_dir / "raw" / "attachments" / document_id
+    if attachments.is_dir():
+        shutil.rmtree(attachments)
 
 
 def direct_mode(conn: sqlite3.Connection, *, kb_id: int, account_id: int, is_reviewer: bool, is_admin: bool, now: float | None = None) -> tuple[bool, bool]:

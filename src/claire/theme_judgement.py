@@ -7,6 +7,7 @@ A theme is a collection of knowledge bases with the same subject and the same kn
 3. The similarity of two knowledge bases: the weighted Jaccard of their tf-idf vectors, with the cosine of their entity embedding centroids as a second signal when the two use the same embedding model.
 4. Average-linkage clustering of the shared knowledge bases of one type. Public personal knowledge bases attach to ``real`` themes; they never make a theme.
 5. The document match: the theme whose signature has the largest idf-weighted part of the keys of a document.
+6. Remote shared knowledge bases (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2): the signatures of the store ``knowledge_federation.remote_kbs`` take part. A remote knowledge base attaches to the local theme of its knowledge type with the highest average score with the local shared members, when that score is at least the threshold. It never makes a theme, and it does not change the clusters of the local knowledge bases: the idf of the clustering comes from the local signatures only, so that the data of another server cannot move a local knowledge base to another theme. The idf of the attachment comes from the local and the remote signatures of the type. A remote signature has no embedding centroid, so its similarity is the entity similarity.
 
 Changes of the method of the design, from the checks of this unit (CT25). Each one is a proposal for the owner, because the development data has only one knowledge base with documents and cannot calibrate the numbers:
 - The design gives ``idf = ln(N / df)``. A key that each signature has then gets 0; with two knowledge bases of one type, their common keys count for nothing and the similarity is always 0. This module uses ``idf = ln(1 + N / df)``, which is never 0 and keeps the order.
@@ -151,6 +152,55 @@ def _signature_from_row(row: dict[str, Any], *, is_shared: bool) -> Signature:
     return Signature(kb_id=int(row["kb_id"]), knowledge_type=str(row["knowledge_type"]), is_shared=is_shared, weights=weights, names=names, embed_model=str(row["embed_model"] or ""), centroid=centroid, visible_documents=int(row["visible_documents"]))
 
 
+def signature_keys(row: dict[str, Any]) -> set[Key]:
+    """The keys of a row of ``kb_signatures``."""
+    return set(_signature_from_row(row, is_shared=True).weights)
+
+
+def remote_signature(kb: Any) -> Signature | None:
+    """The signature of a remote knowledge base (a record of ``knowledge_federation.remote_kbs``), or None when its server gave no signature. ``kb_id`` is the number of the record, which is not a number of ``knowledge_bases``: the caller keeps the two kinds apart."""
+    from .knowledge_federation import remote_kbs
+
+    rows = remote_kbs.signature_rows(kb)
+    if not rows:
+        return None
+    return Signature(kb_id=int(kb.id), knowledge_type=str(kb.knowledge_type), is_shared=True, weights={(etype, norm): weight for etype, norm, weight in rows}, visible_documents=int(kb.document_count))
+
+
+def wire_signature(row: dict[str, Any]) -> dict[str, Any] | None:
+    """The signature of a local knowledge base for another server (the input of ``vocabulary.build_knowledge_base``), from a row of ``kb_signatures``: the ``vocabulary.MAX_SIGNATURE_ENTITIES`` keys with the highest weight, as rows ``[type, norm_name, weight]``. None when the row has no key. The names and the centroid do not go to other servers."""
+    from .knowledge_federation import vocabulary
+
+    signature = _signature_from_row(row, is_shared=True)
+    keys = sorted(signature.weights, key=lambda k: (-signature.weights[k], k))[: vocabulary.MAX_SIGNATURE_ENTITIES]
+    entities = [[k[0], k[1], signature.weights[k]] for k in keys if k[0] and k[1] and signature.weights[k] > 0]
+    if not entities:
+        return None
+    return {"entities": entities, "visible_documents": signature.visible_documents, "computed_at": float(row["computed_at"])}
+
+
+def subject_terms(*, label: str, seed_names: list[str]) -> set[str]:
+    """The terms of ``subject_score``: the normal forms of the label and of each seed entity. Empty: the account typed no text."""
+    return {term for term in (normalize_name(name) for name in [label, *seed_names]) if term}
+
+
+def subject_score(*, label: str, seed_names: list[str], candidate_label: str, candidate_keys: set[Key]) -> float | None:
+    """How near a shared knowledge base is to the subject of a knowledge base that an account wants to make (federation design Section 8.3 rule 4). The design gives no method; this one uses only the text that the account typed.
+
+    The terms are the normal forms of the label and of each seed entity. The first value is the part of the terms that are a name in the signature of the candidate or the label of the candidate. The second value is the Jaccard of the words of the two labels. The score is the larger value, from 0 to 1. None: the account typed no term.
+    """
+    own_label = normalize_name(label)
+    terms = subject_terms(label=label, seed_names=seed_names)
+    if not terms:
+        return None
+    other_label = normalize_name(candidate_label)
+    names = {key[1] for key in candidate_keys} | {other_label}
+    found = sum(1 for term in terms if term in names) / len(terms)
+    own_words, other_words = set(own_label.split()), set(other_label.split())
+    words = len(own_words & other_words) / len(own_words | other_words) if own_words and other_words else 0.0
+    return max(found, words)
+
+
 # --- similarity ------------------------------------------------------------------------------------------------------
 
 
@@ -227,6 +277,7 @@ class RunReport:
     themes_new: int = 0
     themes_empty: int = 0
     memberships: int = 0
+    remote_memberships: int = 0
     document_matches: int = 0
 
 
@@ -355,14 +406,38 @@ def run_judgement(conn: sqlite3.Connection, *, now: float | None = None) -> RunR
             if average >= settings["theme_match_threshold"] and themes_store.set_computed_member(conn, theme_id=theme_id, kb_id=signature.kb_id, score=average):
                 report.memberships += 1
 
+    # 4b. Remote shared knowledge bases (federation design Section 8.2 rule 1): each one attaches to the theme of its type with the highest average score with the local shared members, when the score is at least the threshold. A row that the admin pinned or excluded stays; each other row is computed again.
+    from .knowledge_federation import remote_kbs
+
+    remote_kbs.purge_blocked(conn)
+    themes_store.delete_free_remote_members(conn)
+    remote_excluded = {(int(m["theme_id"]), int(m["remote_kb_id"])) for m in themes_store.remote_members(conn, include_excluded=True) if m["excluded"]}
+    remote_signatures = [signature for signature in (remote_signature(kb) for kb in remote_kbs.list_all(conn)) if signature is not None]
+    for knowledge_type in themes_store.KNOWLEDGE_TYPES:
+        remote_of_type = [signature for signature in remote_signatures if signature.knowledge_type == knowledge_type]
+        if not remote_of_type:
+            continue
+        idf_all = idf_table([s for s in signatures.values() if s.knowledge_type == knowledge_type] + remote_of_type)
+        for signature in remote_of_type:
+            best: tuple[float, int] | None = None
+            for theme_id, kb_ids in sorted(members_of.items()):
+                if themes[theme_id]["knowledge_type"] != knowledge_type or (theme_id, signature.kb_id) in remote_excluded:
+                    continue
+                average = sum(similarity(signature, signatures[k], idf_all) for k in kb_ids) / len(kb_ids)
+                if average >= settings["theme_match_threshold"] and (best is None or average > best[0]):
+                    best = (average, theme_id)
+            if best is not None and themes_store.set_computed_remote_member(conn, theme_id=best[1], remote_kb_id=signature.kb_id, score=best[0]):
+                report.remote_memberships += 1
+
     # 5. State, label, top entities, signature, and last activity of each theme.
     members = themes_store.all_members(conn)
+    themes_with_remote = {int(m["theme_id"]) for m in themes_store.remote_members(conn)}
     for theme_id, theme in themes.items():
         if theme["state"] == "merged":
             continue
         rows = [m for m in members if int(m["theme_id"]) == theme_id and not m["excluded"]]
         shared_members = [int(m["kb_id"]) for m in rows if by_id.get(int(m["kb_id"]), {}).get("is_shared")]
-        if not rows:
+        if not rows and theme_id not in themes_with_remote:
             themes_store.update_theme(conn, theme_id, now=ts, state="empty", computed_at=ts)
             report.themes_empty += 1
             continue
@@ -419,7 +494,9 @@ def run_is_due(conn: sqlite3.Connection, *, now: float | None = None) -> bool:
         visible = conn.execute("SELECT COUNT(*) FROM documents WHERE kb_id=? AND COALESCE(hidden, 0)=0", (kb["id"],)).fetchone()[0]
         if visible - counted.get(kb["id"], 0) >= RUN_NEW_DOCUMENTS:
             return True
-    return False
+    # A record of a remote knowledge base that is new or that changed after the last run (federation design Section 8.2 rule 1).
+    newest = conn.execute("SELECT MAX(changed_at) FROM kf_remote_knowledge_bases").fetchone()[0]
+    return newest is not None and float(newest) > last
 
 
 # --- document match (Section 8.5) ------------------------------------------------------------------------------------

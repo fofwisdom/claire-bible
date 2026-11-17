@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-kb-reads",
+    "body": {
+      "domain": "b.example",
+      "items": [],
+      "complete": false,
+      "error": "collection_unavailable"
+    }
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

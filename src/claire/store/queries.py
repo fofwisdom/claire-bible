@@ -579,12 +579,13 @@ def synthesize(
     entity_ids: list[str],
     query: str | None = None,
     kb_id: int | None = None,
+    include_hidden: bool = True,
 ) -> dict:
     """선택 노드들을 아우르는 종합 지식 문서(인용 포함, 한국어)를 생성.
 
     summarize_search 재사용(검색 정리와 동일 경로) — 컨텍스트는 그래프(관찰·연결·출처요약). 비용(LLM 호출)이 있으므로 호출측(API)에서 토큰 인증 + 명시적 액션으로만 부른다.
     """
-    context, names = synthesis_context(conn, entity_ids, kb_id=kb_id)
+    context, names = synthesis_context(conn, entity_ids, include_hidden=include_hidden, kb_id=kb_id)
     if not context:
         return {"error": "유효한 노드가 없습니다"}
     if not hasattr(provider, "summarize_search"):

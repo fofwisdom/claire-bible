@@ -47,6 +47,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ... import ids
+from ...knowledge_federation import remote_kbs
 from ...accounts import federation_readiness
 from ...store import accounts as accounts_store
 from ...store import auth_db
@@ -344,6 +345,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 block, made = federation_store.add_domain_block(conn, domain, created_by=admin_id, note=note, now=time.time())
+                # KNOWLEDGE_FEDERATION_DESIGN.md Section 6.3: no exchange of shared knowledge with a blocked domain. Its records in the store of remote knowledge bases go in the same transaction.
+                remote_kbs.purge_blocked(conn)
                 conn.commit()
             finally:
                 conn.close()

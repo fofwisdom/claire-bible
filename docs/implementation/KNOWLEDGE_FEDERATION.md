@@ -1,12 +1,12 @@
 # Knowledge Federation Implementation Reference
 
-Basis: units KF0 and KF1 (2026-11-17). Readers: agents who do the units KF2 to KF5.
+Basis: units KF0, KF1, and KF2 (2026-11-17). Readers: agents who do the units KF3 to KF5.
 
 Design: [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md). This document tells what the code has now. The general federation (actors of accounts, publishing, remote reading) is in [`FEDERATION.md`](FEDERATION.md). The local shared knowledge bases are in [`THEMES.md`](THEMES.md) Sections 4.7 to 4.12.
 
 ## 1. Scope and State
 
-Units KF0 and KF1 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). No server sends shared knowledge yet: no activity kind has a handler, and the sidecar does not call the internal routes of KF1 yet (Section 10.6).
+Units KF0, KF1, and KF2 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). The sidecar does its part of KF1 and KF2 (Section 10.6). No server sends an activity of the knowledge federation yet, and no activity kind has a handler.
 
 | Function | State |
 | :--- | :--- |
@@ -14,9 +14,9 @@ Units KF0 and KF1 are implemented. KF0: the vocabulary, the JSON-LD context, the
 | Builders and validators of each object and activity | Implemented |
 | Contract fixtures | Implemented |
 | Routes `/ns/v1` and `/ns` | Implemented (`server.py`: `ns_context_route`, `ns_vocabulary_route`) |
-| Vocabulary in the sidecar | Not implemented (Section 7.2) |
-| Known servers, admin controls, inbox journal, single mode root (KF1) | Implemented in Claire (Section 10); the sidecar part is not implemented (Section 10.6) |
-| `/kb` collections of other servers, themes across servers (KF2) | Not implemented |
+| Vocabulary in the sidecar | The context document and the handoff of inbound activities are implemented (Section 10.6); the rest of Section 7.2 is not |
+| Known servers, admin controls, inbox journal, single mode root (KF1) | Implemented (Section 10; the sidecar part in Section 10.6) |
+| `/kb` collections of other servers, store of remote knowledge bases, themes across servers, root page (KF2) | Implemented (Section 11) |
 | Knowledge base actors, curation, revisions, removal at the origin (KF3) | Not implemented |
 | Contributions and grants across servers (KF4) | Not implemented |
 | Automatic contribution across servers (KF5) | Not implemented |
@@ -187,12 +187,10 @@ The routes `/ns/v1` and `/ns` are implemented (design Section 9.1 rule 3): `GET 
 
 ### 7.2 Sidecar
 
-The sidecar (`sidecar/fedify/`) does not know the vocabulary. The units KF1 to KF4 must add this (Section 10.6 has the part of KF1):
+The sidecar (`sidecar/fedify/`) has the context document as a local copy and gives each inbound activity of the wire contract to Claire without a change (Section 10.6). The units KF3 and KF4 must add this:
 
-- The context document as a local copy for the document loader of Fedify, so that Fedify does not get `https://w3id.org/claire-bible/ns/v1` from the network.
-- The wire JSON of Claire without a change in the two directions. Claire reads the compact names, so a document that Fedify compacts again with other contexts is not valid for the validators.
-- Handling of the types `Grant` and `Revoke`, and of the `Offer` to a knowledge base actor. It is not known if the vocabulary of Fedify 2.4.5 has classes for `Grant` and `Revoke`.
-- The `Group` actor of each shared knowledge base with its keys, inbox, outbox, and followers (design Section 9.2).
+- The wire JSON of Claire without a change in the outbound direction. Claire reads the compact names, so a document that Fedify compacts again with other contexts is not valid for the validators. Fedify 2.4.5 does not keep the JSON of each type as it came (a `Delete` comes back with other contexts), and its vocabulary has no class for `Grant` and `Revoke` (`Invalid type`). Thus an outbound activity must go out as the JSON of the builders, signed with the key of its actor, and not as an object of the Fedify vocabulary.
+- The `Group` actor of each shared knowledge base with its keys, inbox, outbox, and followers (design Section 9.2). The inbox path `/ap/kb/{number}/inbox` takes knowledge activities now (Section 10.6); the actor document and the keys are not there.
 
 ## 8. Choices Made in the Code
 
@@ -298,11 +296,11 @@ Under `/internal/federation/v1`, with the signature of the service key (`FEDERAT
 | Method and path | Request | Response |
 | :--- | :--- | :--- |
 | `POST /knowledge-activities` | `{"activity": {...}, "signer": "<IRI>", "verified_by": "http-signature" \| "ld-signature" \| "object-integrity-proof", "recipient": "<IRI>" \| null}`; each key is necessary | 200 `{"decision": "processed" \| "failed" \| "refused" \| "duplicate" \| "rejected", "reason": <code or state> \| null, "journal_id": <int> \| null}` |
-| `GET /knowledge-collections/{name}?signer=<IRI>` | `name` is `kb` or `themes`. No `signer`: the request had no valid signature | 200 `{"collection", "server": "<domain of the signer>", "items": [{"number", "label", "description", "knowledge_type", "state", "url"}]}`, newest first; 404 `not_found` for each refusal and each other name; 400 for another query key |
+| `GET /knowledge-collections/{name}?signer=<IRI>` | `name` is `kb` or `themes`. No `signer`: the request had no valid signature. `kb` only: `&page=true` for a page, and `&max_id=<number>` for the page after the knowledge base with that number | 200 `{"collection", "server": "<domain of the signer>", "document": {...}}`: `document` is the ActivityStreams document of Section 11.2, which the sidecar gives without a change; 404 `not_found` for each refusal and each other name; 400 for another query key or a wrong value |
 | `GET /knowledge-server-reads?limit=<1..20>` | Default 5 | 200 `{"servers": [{"domain"}]}`: the known servers due for a read; each one gets a lease. Empty while the switch is off |
 | `POST /knowledge-server-reads` | `{"domain", "ok", "server_actor", "software_name", "software_version", "shared_kb_count", "error"}`; `ok` true: the server actor is on the domain and `error` is null; `ok` false: `error` is a code `[a-z0-9_]{1,64}` and the other fields are null | 200 `{"domain", "recorded": true}`; 400 for a body against these rules; 404 for a domain that is not known |
 
-The `kb` collection has the shared knowledge bases only (no owner, public, with a knowledge type). A personal knowledge base is never in it (KD3).
+The `kb` collection has the shared knowledge bases only (no owner, public, with a knowledge type). A personal knowledge base is never in it (KD3). Unit KF2 added `GET` and `POST /knowledge-kb-reads` (Section 11.4) and changed the answer of `knowledge-collections` (`document` in place of `items`); the contract version of the internal API is 1.9. The contract fixtures of these routes are in `tests/fixtures/knowledge_federation/internal/`.
 
 ### 10.5 Admin Routes
 
@@ -316,16 +314,18 @@ The `kb` collection has the shared knowledge bases only (no owner, public, with 
 | `GET /api/admin/federation/journal/{id}` | `{"entry": {..., "payload"}}`; 404 `journal_entry_not_found` |
 | `POST /api/admin/federation/journal/{id}/replay` | Body `{}`. 200 `{"entry"}` (audit `federation.journal_replay`); 404 `journal_entry_not_found`; 409 `journal_entry_not_replayable` (with `states`), 409 `federation_off` |
 
-The switches have their own routes: `POST /api/admin/federation` (`federation`), `PUT /api/admin/auto-contribution` (`kb_auto_contribution`), and `/api/admin/federation/domain-blocks`. The console section `/admin/federation` does not show the known servers and the journal yet.
+The switches have their own routes: `POST /api/admin/federation` (`federation`), `PUT /api/admin/auto-contribution` (`kb_auto_contribution`), and `/api/admin/federation/domain-blocks`. The console section `/admin/federation` (`console_admin.js`) shows the known servers, with the records and the read state of Section 11, and the journal.
 
-### 10.6 Sidecar Work That Is Not Implemented
+### 10.6 Sidecar (units KF1 and KF2)
 
-The sidecar does not call the routes of Section 10.4. It must do this:
+Code: `sidecar/fedify/src/knowledge.ts`, `sidecar.ts`, `internal_api.ts`, `main.ts`. The sidecar does this work only while the switch `federation` is on and the mode is `network`, as for its other paths (the single mode part of design Section 15 rule 5 is not implemented in the sidecar).
 
-1. For each activity of the knowledge federation that it receives (in the shared inbox, the inbox of the server actor, or the inbox of a knowledge base actor): verify the signature, then call `POST /knowledge-activities` with the activity JSON exactly as it came (no new compaction, no change of a key), `signer` = the actor whose key is valid, `verified_by` = the mechanism, and `recipient` = the inbox owner or `null`. It keeps the activity in its queue until it gets a 200: Claire gives the same answer for a second delivery. An activity without a valid signature does not go to Claire.
-2. For each signed `GET` of another server to `/kb` or `/themes` with `Accept: application/activity+json`: verify the signature, then call `GET /knowledge-collections/{kb|themes}?signer=<IRI>` (no `signer` when the signature is not valid), and give the 404 of Claire unchanged. The ActivityStreams form of the collection is unit KF2.
-3. A job: `GET /knowledge-server-reads`, then for each domain a read of NodeInfo and of `https://<domain>/ap/actors/server`, then `POST /knowledge-server-reads` with the result or an error code.
-4. Load the context document `https://w3id.org/claire-bible/ns/v1` from a local copy of `src/claire/static/ns/v1.jsonld` in its document loader. It must never get it from the network.
+1. **Inbound activities.** A `POST` to an inbox (`/ap/inbox`, `/ap/actors/{id}/inbox`, `/ap/kb/{number}/inbox`) whose JSON body has the Claire context IRI in its `@context` array is an activity of the knowledge federation. It does not go to the inbox listener of Fedify. The sidecar verifies the HTTP signature of the request (`verifyRequest` of Fedify, with the digest of the body in the signature) and calls `POST /knowledge-activities` with the parsed body (no key changes), `signer` = the owner of the key, `verified_by` = `http-signature`, and `recipient` = the actor of the inbox path, or `null` for the shared inbox. The key document must be on the server of its owner. Answers: 401 without a valid signature; 413 for a body within 8192 bytes of the inbox body limit (the request to Claire has the same limit); 403 for a blocked domain; 503 with `Retry-After` when Claire gave no answer, so that the sender tries again (Claire gives `duplicate` for a second delivery); else 202, for each decision of Claire. An activity with a Linked Data signature or an integrity proof but no valid HTTP signature is not accepted on this path.
+2. **Collections.** `GET /ap/kb` and `GET /ap/themes` (with `?page=true` and `&max_id=` for `kb`): the sidecar verifies the HTTP signature and calls `GET /knowledge-collections/{kb|themes}` with the owner of the key as `signer` (no `signer` without a valid signature). It gives the `document` of Claire with `Content-Type: application/activity+json`, and the same `404 Not Found` for each refusal. The paths are below `/ap/`, so the reverse proxy rules of [`FEDERATION.md`](FEDERATION.md) Section 10 send them to the sidecar without a change.
+3. **Reads.** One loop of `main.ts` (each 60 seconds) calls `Sidecar.processKnowledgeReads`: `GET /knowledge-server-reads`, then for each domain NodeInfo (`/.well-known/nodeinfo`, then the document of the link) and the server actor (`/ap/actors/server`), then `POST /knowledge-server-reads`; then `GET /knowledge-kb-reads` and the read of each `/kb` collection (Section 11.4). Each request is a GET that the server actor of this server signs (the document loader of Fedify, which refuses a private network address). The server actor and each page must be on the server that was asked. `shared_kb_count` is `null`: NodeInfo of a Claire server does not give the number. Error codes of a server read: `blocked_domain`, `nodeinfo_unavailable`, `nodeinfo_invalid`, `server_actor_unavailable`, `server_actor_invalid`.
+4. **Context document.** `sidecar/fedify/src/claire_context_v1.json` is a copy of `src/claire/static/ns/v1.jsonld` (a Python test fails when the two are different). `knowledge.ts` puts it in the table of preloaded contexts of `@fedify/vocab-runtime` (the import `jsr:@fedify/vocab-runtime@^2.4.5`, which is in `deno.lock` as a dependency of Fedify), so that the context loader and the document loaders of Fedify give it without a request.
+
+Not implemented in the sidecar: the knowledge base actors (documents, keys, followers, outbox), each outbound activity of the knowledge federation, and the read of documents for a curation (units KF3 and KF4).
 
 ### 10.7 Tests
 
@@ -334,6 +334,8 @@ The sidecar does not call the routes of Section 10.4. It must do this:
 | `tests/test_knowledge_federation_stores.py` | The migration step (a table of another form is kept), the known servers (sources, admin entry, block state, leases, reads), the access rule, the journal (receive, duplicate, contract error with its code, no handler, handler error and refusal, replay, switch off, block, retention). |
 | `tests/test_knowledge_federation_routes.py` | The internal routes through the signed internal app; the admin routes (404 for others, origin, recent sign-in, audit, pages, replay). |
 | `tests/test_knowledge_federation_e2e.py` | The completion criteria with two app objects and two databases (A and B). The sidecars and the network are simulated: the test calls the internal routes of B with the values that a sidecar gives after it verified a signature. |
+| `tests/test_knowledge_federation_internal_contract.py` | Each internal route of the knowledge federation against the fixtures of `tests/fixtures/knowledge_federation/internal/`, and the copy of the context document in the sidecar. |
+| `sidecar/fedify/tests/knowledge_test.ts` | The sidecar part (Section 10.6) with the same fixtures: the client calls, each activity kind through an inbox with its JSON unchanged, the signature rules, the collections, and the reads with signed requests. All servers are in the test process. |
 | `tests/test_single_mode_redirects.py` | The single mode root (Section 10.8). It replaces the old test of rule S9, which is withdrawn. |
 
 ### 10.8 Single Mode Root (design Section 15)
@@ -344,3 +346,96 @@ The sidecar does not call the routes of Section 10.4. It must do this:
 - Rule S9 of the namespace design is withdrawn. The server setting `admin_username_published` (O15) has no effect; a stored row stays. `POST /api/admin/server/mode` to `single` does not write it and its answer is `{"mode": "single", "changed": true}`.
 - Not implemented: the setup confirmation text still says that the USERNAME is public in network mode (design Section 15 rule 4 asks for "both modes"; the text is in the locale catalogs); design Section 15 rules 5 and 6 (the account actor of the admin in single mode, GF1, and the mode change while `federation` is on).
 
+## 11. Unit KF2: `/kb` Collections, Remote Knowledge Bases, Themes Across Servers, Root Page
+
+Design: Sections 8.1, 8.2, 8.3, 9.1, 9.2, and 14.
+
+### 11.1 Files
+
+| File | Content |
+| :--- | :--- |
+| `src/claire/knowledge_federation/collections.py` | The ActivityStreams form of the `/kb` collection and of the themes collection of this server, and the IRIs of a knowledge base actor (`knowledge_base_iris`). No function changes data. |
+| `src/claire/knowledge_federation/remote_kbs.py` | The store of remote knowledge bases: the tables `kf_remote_knowledge_bases` and `kf_remote_kb_reads`, the leases, the batches, the end and the error of a read, `purge_blocked`. No function commits. |
+| `src/claire/store/themes.py` | The table `theme_remote_knowledge_bases` and the functions of the remote members. |
+| `src/claire/theme_judgement.py` | Step 4b of `run_judgement`, `remote_signature`, `wire_signature`, `subject_score`. |
+| `src/claire/api/knowledge_federation_internal.py` | The internal routes (Section 11.4). |
+| `src/claire/api/server.py` | The theme view, `GET /explore/federation`, `GET /api/kb/similar`, `PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}`, the root page. |
+| `src/claire/store/db.py` | `_migrate_v30_remote_knowledge_bases`, schema version 30. |
+
+### 11.2 The `/kb` Collection for Another Server
+
+- Address: `{origin}/ap/kb`. The root is an `OrderedCollection` with `id`, `totalItems`, and `first` (`{origin}/ap/kb?page=true`). A page is an `OrderedCollectionPage` with `id`, `partOf`, `orderedItems` (at most 20, the highest number first), and `next` (`…&max_id=<number of the last item>`) when the page is full. Each document has the two context IRIs.
+- An item is the `claire:KnowledgeBase` of Section 4.1 without `@context`. The actor IRIs are `{origin}/ap/kb/{number}` with `/inbox`, `/outbox`, `/followers`, and `/documents`; `url` is `{origin}/kb/{number}/`. The counts are those of the public page (a hidden document does not count). `claire:signature` comes from `kb_signatures` (the last judgement run): the 256 keys with the highest weight as rows `[type, norm_name, weight]`; a knowledge base without a signature has no `claire:signature`. No document is in the collection.
+- The collection has each shared knowledge base, also an archived one. It has no personal knowledge base (KD3).
+- The themes collection (`{origin}/ap/themes`) is one `OrderedCollection` of the active themes; an item is `{"type": "Collection", "name", "summary", "url", "claire:knowledgeType"}` without an `id` (design Section 8.1 rule 5 and Section 8.2 rule 2). No server reads it.
+
+### 11.3 Store of Remote Knowledge Bases (schema version 30)
+
+The migration step v30 follows the rule of v29: it makes a table that is not there, and a table of another form becomes `<name>_retired_v30`.
+
+`kf_remote_knowledge_bases` (one row for each shared knowledge base of another server; the key is the IRI of its actor):
+
+| Column | Meaning |
+| :--- | :--- |
+| `id` | The number of the record on this server. It never leaves the server. |
+| `iri`, `domain`, `url` | The actor IRI, its server, and the page on that server (the origin link). |
+| `label`, `description`, `knowledge_type`, `document_count`, `entity_count`, `relation_count` | The values of the object. |
+| `signature` | The JSON of `claire:signature` as it came, or `NULL`. |
+| `payload` | The JSON of the object as it came (it has the inbox and the other IRIs for unit KF3). |
+| `first_seen_at`, `seen_at`, `changed_at` | The first read with the record, the last read with it, and the last change of its content. |
+
+`kf_remote_kb_reads` (one row for each server that was leased for a read): `read_started_at` and `lease_until` (a read that did not end; a lease is 600 seconds), `last_read_at` (the last complete read), `stored_count`, `refused_count`, `refused_code` (the last read), `error_count`, `last_error`, `last_error_at`.
+
+`theme_remote_knowledge_bases` (`theme_id`, `remote_kb_id`, `source` `computed` or `admin`, `score`, `pinned`, `excluded`): the membership of a remote knowledge base in a local theme.
+
+Rules:
+
+- A server is due for a read when it is a known server with a good read of its server actor (Section 10.3), no domain block applies, no lease is in effect, and it has no read (the first contact) or its last read or error is one day old.
+- Each item of a batch is checked: `vocabulary.validate_object` gives `knowledge_base`; `id` and `url` are on the server that was read and follow the scheme rule; the label has at most 200 characters and the description at most 2000; a read stores at most 1000 knowledge bases of one server. An item outside these rules is refused and counted, with the first code in `refused_code` (the code of `ContractError`, or `not_a_knowledge_base`, `other_server`, `label_too_long`, `description_too_long`, `too_many_knowledge_bases`); the other items are stored.
+- The end of a complete read deletes each record of the server that the read did not contain. A failed read deletes nothing.
+- When a domain block starts (`POST /api/admin/federation/domain-blocks`), the records and the read state of that domain are deleted in the same transaction (`purge_blocked`); each lease and each judgement run do it again. A record has no document, so no copy goes (design Section 6.3). The lists do not give a record of a blocked domain.
+- A record that goes loses its theme memberships, the admin adjustments included. A record whose knowledge type changes leaves its themes.
+- No handler of `update_knowledge_base` and `delete_knowledge_base` is installed: a change comes with the read of the next day (unit KF3 adds the handlers with the knowledge base actors).
+
+### 11.4 Internal Routes (the sidecar is the caller)
+
+| Method and path | Request | Response |
+| :--- | :--- | :--- |
+| `GET /knowledge-kb-reads?limit=<1..20>` | Default 5 | 200 `{"reads": [{"domain", "url"}]}`: the reads that are due; each one gets a lease. `url` is `https://<domain>/ap/kb` (`http` only when the origin of this server is `http`). Empty while the switch is off |
+| `POST /knowledge-kb-reads` | `{"domain", "items": [...], "complete", "error"}`; each key is necessary. `error` null: `items` are the objects as they came (at most 100), and `complete` true ends the read. `error` a code `[a-z0-9_]{1,64}`: `items` is empty and `complete` is false | 200 `{"domain", "stored", "refused", "refused_code", "removed"}` (`removed` is null when the read does not end); 400 for a body against these rules; 404 when the domain has no read that a lease started, when a block applies, or when the switch is off |
+
+The sidecar reads the root, then each page (`first`, then `next`): at most 60 pages and 240 seconds for one read, batches of at most 20 items and 512 KiB. Error codes: `blocked_domain`, `collection_unavailable`, `collection_invalid`, `page_on_other_server`, `too_many_pages`, `read_timeout`, `item_too_large`.
+
+### 11.5 Themes Across Servers
+
+- `run_judgement` step 4b: each remote knowledge base with a signature attaches to one local theme of its knowledge type, the one with the highest average similarity with the local shared members that have a signature, when that value is at least `theme_match_threshold`. The row has the source `computed` and the score. Each row that is not pinned and not excluded is computed again in each run.
+- A remote knowledge base never makes a theme and does not change the clusters of the local knowledge bases: the idf of the clustering comes from the local signatures; the idf of the attachment comes from the local and the remote signatures of the type. A remote signature has no names and no centroid, so the similarity is the entity similarity, and a remote member does not change the label, the top entities, or the signature of a theme.
+- `run_is_due` is also true when a record is new or changed after the last run. The read route does not start a run.
+- Admin adjustments for a remote member: `PUT /api/admin/themes/{number}/remote-knowledge-bases/{remote_id}` with `pinned`, `excluded`, or `computed`, with the rules of a local member (a pinned or excluded row stays after a run; one knowledge type for a theme). A merge moves the remote members to the other theme as pinned members. An adjustment changes only this server. A theme with only pinned remote members is `active`.
+- The theme view (`GET /themes/{number}/`, `GET /api/admin/themes`): a remote member has `remote` true, `server`, `url` (the origin link), `remote_id`, and `number` null; the view has `shared_knowledge_bases` (this server) and `remote_knowledge_bases`. `GET /themes` has `remote_knowledge_bases` for each theme. A theme number is in no document for another server.
+
+### 11.6 Root Page and the Dialog for a New Shared Knowledge Base
+
+- `GET /explore/federation` (public, network mode only) gives the data of the root page about other servers: `themes` (with the two counts), `servers` (the known servers that have records, with the domain, the software, and the count), and `recent` (the 20 newest records, `kind` `remote_knowledge_base`). A Claire server has no name setting; the domain is its name.
+- The root page (`explore_accounts_route`) has the themes first, each with the two counts and with the remote members (the origin link and the domain), then the element `#public-home-federation` that `public_kb.js` fills with the sections "Federated servers" and "Recent activity across servers".
+- `GET /api/kb/similar` gives the shared knowledge bases of this server and of other servers near the label and the seed entities that the account typed (`theme_judgement.subject_score`: the part of the terms that are a name in the signature or the label of the candidate, or the Jaccard of the words of the two labels). The dialog of `kb_dialogs.js` shows them before the account makes a new one.
+- Not implemented: the other kinds of recent activity of design Section 8.3 rule 3 (contributions that other servers approved, curations), because they come with the units KF3 and KF4.
+
+### 11.7 Choices Made in the Code
+
+1. The collection is at `/ap/kb`, not at `/kb` with content negotiation: the reverse proxy sends `/ap/` to the sidecar, which must verify the signature; `/kb` stays a path of Claire.
+2. The collection has pages, so that a server with many knowledge bases stays below the body limit of the internal API (1 MiB).
+3. A remote knowledge base attaches to a local theme and never makes one (the design says "a member of a local theme"). Thus a server with no shared knowledge base of a subject shows no theme for it; its known servers are on the root page.
+4. A remote knowledge base attaches to one theme (the best one), as a local shared knowledge base is in one computed theme.
+5. A domain block deletes the records of the domain (design Section 6.3: no exchange). After the block ends, the next read stores them again.
+6. A knowledge activity does not go through the inbox listener of Fedify (Section 10.6 item 1). Thus only an HTTP signature is accepted for it.
+7. The similar knowledge bases of the dialog use only the text of the form; the design gives no method.
+
+### 11.8 Tests
+
+| File | What it examines |
+| :--- | :--- |
+| `tests/test_knowledge_federation_remote.py` | The migration step v30, the leases and the day interval, a batch with refused items, a failed read, the end of a read, a domain block, the admin adjustments for a remote member, and the rule that a remote knowledge base makes no theme. |
+| `tests/test_knowledge_federation_kf2_e2e.py` | The completion criterion with two app objects and two databases: a shared knowledge base of B is read by A, is in a theme of A after a judgement run, and is in the data and the HTML of the root page of A; B has no entry for A. The sidecars and the network are simulated by direct calls to the internal routes. |
+
+Not verified: an exchange between two real sidecars over a network (signatures in the two directions, the reverse proxy, NodeInfo of a real server).

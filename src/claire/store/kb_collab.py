@@ -280,6 +280,29 @@ def update_contribution(conn: sqlite3.Connection, public_id: int, *, now: float 
         raise KeyError(f"no contribution {public_id}")
 
 
+def finish_merge(conn: sqlite3.Connection, public_id: int, *, from_state: str, document_id: str, state: str, decision_reason: str | None = None, now: float | None = None) -> bool:
+    """Set the state of a contribution at the end of its merge job, only when the contribution is still in ``from_state`` with the same copy (one statement). False when no row matches: the contribution changed while the job ran (withdrawn, removed, or a new copy)."""
+    if state not in ("visible", "failed"):
+        raise ValueError(f"invalid state after a merge: {state!r}")
+    ts = time.time() if now is None else now
+    if decision_reason is None:
+        cur = conn.execute("UPDATE kb_contributions SET state=?, updated_at=? WHERE public_id=? AND state=? AND document_id=?", (state, ts, int(public_id), from_state, document_id))
+    else:
+        cur = conn.execute("UPDATE kb_contributions SET state=?, decision_reason=?, updated_at=? WHERE public_id=? AND state=? AND document_id=?", (state, decision_reason, ts, int(public_id), from_state, document_id))
+    return cur.rowcount == 1
+
+
+def approved_by_another(row: Any) -> bool:
+    """True when another account approved the contribution (``contributions.approve``): that action sets ``decided_at`` with ``approved_at``. The approval that a contribution gets when it is made (a reviewer contributes, a curation, a fork) sets no ``decided_at``.
+
+    The rule does not use ``approved_by_account_id`` alone, because an account purge sets that column to NULL. The admin can approve its own contribution with ``approve``: that is no decision of another account.
+    """
+    if row["approved_at"] is None or row["decided_at"] is None:
+        return False
+    approver, contributor = row["approved_by_account_id"], row["contributor_account_id"]
+    return approver is None or contributor is None or int(approver) != int(contributor)
+
+
 def delete_contribution(conn: sqlite3.Connection, public_id: int) -> bool:
     """Delete one contribution row (a withdrawal, design Section 9.4). Its revisions go with it."""
     return conn.execute("DELETE FROM kb_contributions WHERE public_id=?", (int(public_id),)).rowcount > 0
@@ -308,6 +331,25 @@ def complete_revision(conn: sqlite3.Connection, revision_id: int, *, state: str,
     if state not in ("done", "failed"):
         raise ValueError(f"invalid revision state: {state!r}")
     conn.execute("UPDATE kb_contribution_revisions SET state=?, completed_at=? WHERE id=?", (state, time.time() if now is None else now, int(revision_id)))
+
+
+def apply_revision(conn: sqlite3.Connection, revision_id: int, *, now: float | None = None) -> bool:
+    """Point the contribution of a revision to the new copy and complete the revision, only when the revision is still ``merging``, the contribution is ``visible`` or ``hidden`` with updates on, and its copy is still the previous copy of the revision (one statement for the condition). False when no row matches."""
+    ts = time.time() if now is None else now
+    cur = conn.execute(
+        "UPDATE kb_contributions SET document_id=(SELECT document_id FROM kb_contribution_revisions WHERE id=?), revised_at=?, updated_at=? "
+        "WHERE state IN ('visible', 'hidden') AND updates_frozen=0 AND EXISTS (SELECT 1 FROM kb_contribution_revisions r WHERE r.id=? AND r.state='merging' AND r.contribution_public_id=kb_contributions.public_id AND r.previous_document_id=kb_contributions.document_id)",
+        (int(revision_id), ts, ts, int(revision_id)),
+    )
+    if cur.rowcount != 1:
+        return False
+    conn.execute("UPDATE kb_contribution_revisions SET state='done', completed_at=? WHERE id=?", (ts, int(revision_id)))
+    return True
+
+
+def get_revision(conn: sqlite3.Connection, revision_id: int) -> dict[str, Any] | None:
+    row = conn.execute(f"SELECT {', '.join(_REVISION_KEYS)} FROM kb_contribution_revisions WHERE id=?", (int(revision_id),)).fetchone()
+    return None if row is None else dict(zip(_REVISION_KEYS, tuple(row)))
 
 
 def list_revisions(conn: sqlite3.Connection, contribution_public_id: int) -> list[dict[str, Any]]:
@@ -533,6 +575,9 @@ def purge_account(conn: sqlite3.Connection, account_id: int, *, delete_activity_
             conn.execute("DELETE FROM kb_submission_items WHERE submission_public_id=?", (number,))
         conn.execute("DELETE FROM kb_submissions WHERE account_id=?", (account_id,))
         submissions = len(numbers)
+    else:
+        # Without the option the submissions stay as records without an account (design Section 11.2: ``kb_submissions.account_id`` is NULL after an account purge).
+        conn.execute("UPDATE kb_submissions SET account_id=NULL WHERE account_id=?", (account_id,))
     conn.execute("UPDATE kb_moderation_log SET actor_account_id=NULL WHERE actor_account_id=?", (account_id,))
     return {"pending_copies": copies, "credit_removed": int(credited), "submissions_deleted": submissions}
 
@@ -577,7 +622,7 @@ def decisions_of_account(conn: sqlite3.Connection, account_id: int, *, since: fl
     """The decisions of other accounts on the contributions of the account since ``since``: ``{"kb_id", "approved"}``. A rejection or a removal counts only with one of ``reasons``; an approval that a later removal replaced is not an approval."""
     marks = ", ".join("?" for _ in origins)
     rows = conn.execute(
-        f"SELECT kb_id, state, decision_reason, approved_at, approved_by_account_id, decided_at FROM kb_contributions WHERE contributor_account_id=? AND origin IN ({marks})",
+        f"SELECT kb_id, state, decision_reason, approved_at, approved_by_account_id, contributor_account_id, decided_at FROM kb_contributions WHERE contributor_account_id=? AND origin IN ({marks})",
         (int(account_id), *origins),
     ).fetchall()
     out: list[dict[str, Any]] = []
@@ -585,7 +630,8 @@ def decisions_of_account(conn: sqlite3.Connection, account_id: int, *, since: fl
         if row["state"] in ("rejected", "removed"):
             if row["decided_at"] is not None and row["decided_at"] >= since and row["decision_reason"] in reasons:
                 out.append({"kb_id": int(row["kb_id"]), "approved": False})
-        elif row["approved_at"] is not None and row["approved_at"] >= since and row["approved_by_account_id"] is not None and int(row["approved_by_account_id"]) != int(account_id):
+        elif row["approved_at"] is not None and row["approved_at"] >= since and approved_by_another(row):
+            # The approver can be a purged account (``approved_by_account_id`` NULL): the approval still counts.
             out.append({"kb_id": int(row["kb_id"]), "approved": True})
     return out
 

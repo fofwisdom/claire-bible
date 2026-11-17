@@ -30,7 +30,7 @@ def _make_v26_database(path: Path) -> None:
     )
     conn.commit()
     # Back to version 26: without the tables of version 28, with the names of version 26.
-    for table in ("theme_knowledge_bases", "kb_document_matches", "kb_signatures", "themes", "kb_auto_rule_themes", "kb_auto_rules", "kb_contribution_revisions",
+    for table in ("theme_knowledge_bases", "theme_remote_knowledge_bases", "kb_document_matches", "kb_signatures", "themes", "kb_auto_rule_themes", "kb_auto_rules", "kb_contribution_revisions",
                   "kb_contributions", "kb_submission_items", "kb_submissions", "kb_memberships", "kb_contribution_blocks", "kb_mutual_collaborations",
                   "kb_moderation_log", "account_reputation"):
         conn.execute(f'DROP TABLE IF EXISTS "{table}"')
@@ -81,13 +81,13 @@ def test_v26_database_starts_as_v27_with_the_same_rows(tmp_path: Path) -> None:
         assert sorted(tuple(r) for r in conn.execute("SELECT id, kb_id FROM documents")) == [("doc-0", 0), ("doc-1", 1), ("doc-2", 1), ("doc-3", 2), ("doc-4", 3)]
         assert tuple(conn.execute("SELECT kb_id, target_kb_id FROM syndication_dispatches").fetchone()) == (1, 2)
         # The tables of version 28 have ``theme_id`` as a reference to a theme collection; the tables of version 26 have no such column now.
-        v28_tables = {"kb_submission_items", "kb_auto_rule_themes", "kb_document_matches", "theme_knowledge_bases"}
+        v28_tables = {"kb_submission_items", "kb_auto_rule_themes", "kb_document_matches", "theme_knowledge_bases", "theme_remote_knowledge_bases"}  # the last one is from version 30
         for table in [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]:
             if table in v28_tables:
                 continue
             assert not {"theme_id", "target_theme_id"} & dbm._column_names(conn, table), table
         index_names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-        assert not [n for n in index_names if "theme" in n and not n.startswith("sqlite_") and n != "idx_theme_knowledge_bases_kb"]
+        assert not [n for n in index_names if "theme" in n and not n.startswith("sqlite_") and n not in ("idx_theme_knowledge_bases_kb", "idx_theme_remote_knowledge_bases_kb")]
         assert {"idx_knowledge_bases_number", "idx_knowledge_bases_account_personal", "idx_documents_kb_hash"} <= index_names
         first = _snapshot(conn)
     finally:

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-collections/kb?signer=https%3A%2F%2Fb.example%2Fap%2Factors%2Fserver"
+  },
+  "status": 200,
+  "response": {
+    "collection": "kb",
+    "server": "b.example",
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v1"
+      ],
+      "id": "https://a.example/ap/kb",
+      "type": "OrderedCollection",
+      "totalItems": 1,
+      "first": "https://a.example/ap/kb?page=true"
+    }
+  }
+}

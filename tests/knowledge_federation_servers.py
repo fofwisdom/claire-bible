@@ -14,8 +14,10 @@ from typing import Any
 
 from starlette.testclient import TestClient
 
+from claire import theme_judgement
 from claire.api import federation_routes, server
 from claire.api.federation_internal import INTERNAL_PREFIX, SIGNATURE_HEADER, TIMESTAMP_HEADER, create_internal_federation_app, ensure_service_key, load_service_key, service_key_path, sign_request
+from claire.ontology.base import normalize_name
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 
@@ -53,7 +55,7 @@ class _Settings:
 class KfServer:
     """One test server. ``now`` is the clock of the internal app; the store functions get the time of the request."""
 
-    def __init__(self, tmp_path: Path, origin: str, *, username: str, federation: str = "on") -> None:
+    def __init__(self, tmp_path: Path, origin: str, *, username: str, federation: str = "on", mode: str = "single") -> None:
         directory = tmp_path / origin.split("//", 1)[1]
         directory.mkdir(parents=True)
         self.origin = origin
@@ -66,6 +68,9 @@ class KfServer:
             # Single mode (the default): the federation of shared knowledge works in single mode (design Section 15 rule 5).
             store.complete_setup(1, username=username, display_name=username)
             store.set_federation_state(federation, updated_by=1)
+            if mode != "single":
+                # Network mode has the root page (design Section 8.3).
+                store.set_setting("mode", mode, updated_by=1)
             conn.commit()
         finally:
             conn.close()
@@ -97,6 +102,26 @@ class KfServer:
             "INSERT INTO knowledge_bases (seq, label, description, is_personal, is_public, created_at, updated_at, account_id, number, created_by_account_id, knowledge_type) VALUES (?, ?, ?, 0, 1, ?, ?, NULL, ?, 1, ?)",
             (number % 1_000_000, label, f"About {label}.", now, now, number, knowledge_type),
         ))
+
+    def fill_kb(self, number: int, names: list[str], *, documents: int = 6) -> None:
+        """Give the knowledge base ``documents`` visible documents and one entity for each name. Each entity has the documents as sources, the first names more of them, so that the knowledge base gets a signature (``theme_judgement.compute_signature``)."""
+
+        def _fill(conn: Any) -> None:
+            kb_id = int(conn.execute("SELECT id FROM knowledge_bases WHERE number=?", (number,)).fetchone()[0])
+            doc_ids = [f"doc_{kb_id}_{i}" for i in range(documents)]
+            for doc_id in doc_ids:
+                conn.execute("INSERT INTO documents (id, kb_id, title, raw_text, hidden) VALUES (?, ?, ?, 'text', 0)", (doc_id, kb_id, doc_id))
+            for rank, name in enumerate(names):
+                conn.execute(
+                    "INSERT INTO entities (id, kb_id, type, name, norm_name, aliases, sources, created_at, updated_at) VALUES (?, ?, 'Concept', ?, ?, '[]', ?, 1, 1)",
+                    (f"ent_{kb_id}_{rank}", kb_id, name, normalize_name(name), json.dumps(doc_ids[: max(1, documents - rank)])),
+                )
+
+        self.db(_fill)
+
+    def judge(self) -> Any:
+        """One run of the subject judgement (``theme_judgement.run_judgement``)."""
+        return self.db(lambda conn: theme_judgement.run_judgement(conn))
 
     # --- Public app ---
 

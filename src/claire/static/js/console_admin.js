@@ -1025,15 +1025,21 @@
             var left = '<div class="claire-list-col">' + (servers.length ? servers.map(function (s) {
               return '<button type="button" class="claire-list-item' + (cur && cur.domain === s.domain ? " active" : "") + '" data-pick-known="' + ui.esc(s.domain) + '">' +
                 '<div class="claire-list-item-row"><strong>' + ui.esc(s.domain) + '</strong><span class="claire-tag ' + (s.status === "blocked" ? "danger" : "ok") + '">' + ui.esc(s.status || "active") + "</span></div>" +
-                '<div class="claire-list-item-sub"><span>KBs: ' + ui.esc(s.kb_count || (s.kbs && s.kbs.length) || 0) + "</span></div></button>";
+                '<div class="claire-list-item-sub"><span>' + ui.esc(ui.t("kb.pub.kb_count", { count: s.kb_count || 0 })) + "</span></div></button>";
             }).join("") : '<div class="claire-card"><p class="claire-hint">' + ui.esc(ui.t("kb.pub.servers_empty")) + "</p></div>") + "</div>";
             var right = '<div class="claire-detail-col"><div class="claire-card">' + (cur ? (
               '<div class="claire-card-head"><h3>' + ui.esc(cur.domain) + '</h3><button type="button" class="claire-btn danger claire-btn-sm" data-block-known="' + ui.esc(cur.domain) + '">' + ui.esc(tr("console.admin.federation.known_block", "Block")) + "</button></div>" +
+              // The state of the reads: the server actor and NodeInfo (last_read_at, last_error), and the /kb collection (kb_read).
+              '<p class="claire-hint" data-known-read>' + ui.esc(tr("console.admin.federation.known_software")) + ": " + ui.esc(cur.software_name ? cur.software_name + " " + (cur.software_version || "") : "—") +
+              " · " + ui.esc(tr("console.admin.federation.known_last_read")) + ": " + ui.esc(cur.last_read_at ? new Date(cur.last_read_at * 1000).toLocaleString() : "—") +
+              " · " + ui.esc(tr("console.admin.federation.known_kb_read")) + ": " + ui.esc(cur.kb_read && cur.kb_read.last_read_at ? new Date(cur.kb_read.last_read_at * 1000).toLocaleString() : "—") + "</p>" +
+              ((cur.last_error || (cur.kb_read && (cur.kb_read.last_error || cur.kb_read.refused_code))) ? '<div class="claire-note warn"><span>' + ui.esc(tr("console.admin.federation.known_error")) + ": " + ui.esc(cur.last_error || cur.kb_read.last_error || cur.kb_read.refused_code) + "</span></div>" : "") +
+              // The shared knowledge bases of the server from the store of remote knowledge bases. The name is the link to the page on that server.
               ui.renderTable({
                 caption: cur.domain,
                 columns: [
-                  { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number || "") + '/">' + ui.esc(k.label || k.iri) + "</a>"; } },
-                  { label: ui.t("kb.pub.col_type"), render: function (k) { return ui.esc(k.knowledge_type || "real"); } },
+                  { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="' + ui.esc(k.url) + '" target="_blank" rel="noopener noreferrer">' + ui.esc(k.label) + "</a>"; } },
+                  { label: ui.t("kb.pub.col_type"), render: function (k) { return ui.esc(ui.t(k.knowledge_type === "fictional" ? "kb.dlg.type_fictional" : "kb.dlg.type_real")); } },
                   { label: ui.t("kb.dlg.col_docs"), render: function (k) { return ui.esc(k.documents || 0); } }
                 ],
                 rows: cur.kbs || []
@@ -1347,13 +1353,18 @@
           ui.renderTable({
             caption: curTh.label,
             columns: [
-              { label: ui.t("kb.dlg.col_kb"), render: function (k) { return '<a href="/kb/' + ui.esc(k.number) + '/">' + ui.esc(k.label) + '</a> <span class="claire-hint">' + ui.esc(ui.t(k.is_personal ? "themes.kb_personal" : "themes.kb_shared")) + "</span>"; } },
+              // A shared knowledge base of another server ("remote" true) has the link to its origin and the domain of its server; its adjustments use "remote_id".
+              { label: ui.t("kb.dlg.col_kb"), render: function (k) {
+                if (k.remote) return '<a href="' + ui.esc(k.url) + '" target="_blank" rel="noopener noreferrer">' + ui.esc(k.label) + '</a> <span class="claire-hint">' + ui.esc(k.server) + "</span>";
+                return '<a href="/kb/' + ui.esc(k.number) + '/">' + ui.esc(k.label) + '</a> <span class="claire-hint">' + ui.esc(ui.t(k.is_personal ? "themes.kb_personal" : "themes.kb_shared")) + "</span>";
+              } },
               { label: tr("console.js.admin.themes.col_membership"), render: function (k) { return '<span class="claire-tag' + (k.excluded ? " danger" : (k.pinned ? " ok" : "")) + '">' + ui.esc(tr(k.excluded ? "console.js.admin.themes.member_excluded" : (k.pinned ? "console.js.admin.themes.member_pinned" : "console.js.admin.themes.member_computed"))) + "</span>" + (k.score != null ? ' <span class="claire-hint">' + ui.esc(Number(k.score).toFixed(2)) + "</span>" : ""); } },
               { label: ui.t("kb.pub.col_actions"), actions: true, render: function (k) {
                 var menu = [];
-                if (!k.pinned) menu.push({ action: "th_pin", value: k.number, label: tr("console.js.admin.themes.pin_kb"), icon: "plus" });
-                if (!k.excluded) menu.push({ action: "th_exclude", value: k.number, label: tr("console.js.admin.themes.exclude_kb"), icon: "block", danger: true });
-                if (k.pinned || k.excluded) menu.push({ action: "th_computed", value: k.number, label: tr("console.js.admin.themes.reset_kb"), icon: "restore" });
+                var ref = k.remote ? "remote:" + k.remote_id : k.number;
+                if (!k.pinned) menu.push({ action: "th_pin", value: ref, label: tr("console.js.admin.themes.pin_kb"), icon: "plus" });
+                if (!k.excluded) menu.push({ action: "th_exclude", value: ref, label: tr("console.js.admin.themes.exclude_kb"), icon: "block", danger: true });
+                if (k.pinned || k.excluded) menu.push({ action: "th_computed", value: ref, label: tr("console.js.admin.themes.reset_kb"), icon: "restore" });
                 return ui.renderRowMenu(menu, k.label);
               } }
             ],
@@ -1480,7 +1491,9 @@
           });
         }
         function setMembership(kb, membership) {
-          ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number) + "/knowledge-bases/" + encodeURIComponent(kb), { method: "PUT", body: { membership: membership } }).then(function (rr) {
+          // "remote:<id>" is a shared knowledge base of another server (the row menu makes this value).
+          var member = String(kb).indexOf("remote:") === 0 ? "/remote-knowledge-bases/" + encodeURIComponent(String(kb).slice(7)) : "/knowledge-bases/" + encodeURIComponent(kb);
+          ui.request("/api/admin/themes/" + encodeURIComponent(curTh.number) + member, { method: "PUT", body: { membership: membership } }).then(function (rr) {
             if (!rr.ok) { fail(rr); return; }
             load();
           });

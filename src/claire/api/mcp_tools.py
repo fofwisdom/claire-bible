@@ -224,10 +224,12 @@ def context_impl(
     entity_ids: list[str],
     compact: bool = True,
     kb_id: int | None = None,
+    *,
+    include_hidden: bool,
 ) -> dict:
     truncated = len(entity_ids) > MAX_CONTEXT_ENTITIES
     capped = entity_ids[:MAX_CONTEXT_ENTITIES]
-    text, names = synthesis_context(conn, capped, compact=compact, kb_id=kb_id)
+    text, names = synthesis_context(conn, capped, compact=compact, include_hidden=include_hidden, kb_id=kb_id)
     return {
         "context": text,
         "entities": names,
@@ -255,9 +257,9 @@ def overview_impl(conn: sqlite3.Connection, kb_id: int | None = None) -> dict:
     }
 
 
-def document_impl(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None) -> dict:
+def document_impl(conn: sqlite3.Connection, document_id: str, kb_id: int | None = None, *, include_hidden: bool) -> dict:
     # document_detail 자체는 부작용이 없다(안읽음 마커는 웹 핸들러에서만 변경)
-    rep = document_detail(conn, document_id, kb_id=kb_id)
+    rep = document_detail(conn, document_id, include_hidden=include_hidden, kb_id=kb_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -265,8 +267,8 @@ def document_impl(conn: sqlite3.Connection, document_id: str, kb_id: int | None 
     return rep
 
 
-def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False, kb_id: int | None = None) -> dict:
-    rep = node_detail(conn, entity_id, kb_id=kb_id)
+def node_impl(conn: sqlite3.Connection, entity_id: str, full: bool = False, kb_id: int | None = None, *, include_hidden: bool) -> dict:
+    rep = node_detail(conn, entity_id, include_hidden=include_hidden, kb_id=kb_id)
     if rep is None:
         return {"error": "not found"}
     rep = dict(rep)
@@ -299,7 +301,8 @@ def documents_impl(
     except ValueError:
         return {"error": "since must be YYYY-MM-DD or ISO8601", "got": since}
     items = documents_list(conn, limit=limit, since=since_ts, query=query, kb_id=kb_id)
-    total = dbm.documents_count(conn, since=since_ts, query=query, kb_id=kb_id)
+    # The list has only visible documents, so the count has only visible documents too: the numbers must not show how many documents are hidden.
+    total = dbm.documents_count(conn, since=since_ts, query=query, include_hidden=False, kb_id=kb_id)
     for d in items:
         d["fetched_at"] = _iso_utc(d.get("fetched_at"))
     return {
@@ -434,6 +437,30 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
 
         return t_info.id
 
+    def _sees_hidden(kb_id: int) -> bool:
+        """Hidden documents (a pending or hidden contribution has a hidden copy): in a personal knowledge base only for its account; in a shared knowledge base only for a reviewer (shared knowledge base design Section 6.2 ``review``)."""
+        from .. import kb_access
+        from ..store import kb_collab
+
+        principal = current_principal.get()
+        if principal is None or principal.account_id is None or principal.scope not in ("owner", "write", "readonly"):
+            return False
+        if theme_mgr is None:
+            return int(principal.account_id) == dbm.ADMIN_ACCOUNT_ID
+        try:
+            info = theme_mgr.get_kb(kb_id)
+        except KnowledgeBaseNotFound:
+            return False
+        if not getattr(info, "is_shared", False):
+            return info.account_id == principal.account_id
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = kb_collab.get_membership(conn, info.id, int(principal.account_id))
+        finally:
+            conn.close()
+        actor = kb_access.Actor(account_id=int(principal.account_id), scope=principal.scope, is_admin=principal.server_role == "admin", membership=None if row is None else (str(row["role"]), str(row["state"])))
+        return kb_access.decide(is_personal=False, owner_account_id=None, is_public=True, capability="review", actor=actor, single_mode=False, archived=getattr(info, "state", "active") == "archived") == "allow"
+
     def _conn(kb_id: int = 0) -> sqlite3.Connection:
         """_kb_id로 확인한 테마의 DB를 읽기 전용으로 연다. 매 도구 호출마다 불필요한 DDL(init_db)을 실행하지 않는다."""
         if theme_mgr is not None and kb_id != 0:
@@ -556,7 +583,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             return {"error": "theme not found"}
         conn = _conn(tid)
         try:
-            return _timed_call("context", context_impl, conn, entity_ids, compact, kb_id=tid)
+            return _timed_call("context", context_impl, conn, entity_ids, compact, kb_id=tid, include_hidden=_sees_hidden(tid))
         finally:
             conn.close()
 
@@ -589,7 +616,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
             return {"error": "theme not found"}
         conn = _conn(tid)
         try:
-            return _timed_call("node", node_impl, conn, entity_id, full=full, kb_id=tid)
+            return _timed_call("node", node_impl, conn, entity_id, full=full, kb_id=tid, include_hidden=_sees_hidden(tid))
         finally:
             conn.close()
 
@@ -623,7 +650,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         conn = _conn(resolved_tid)
         try:
             def _fetch_doc():
-                return document_impl(conn, document_id, kb_id=resolved_tid)
+                return document_impl(conn, document_id, kb_id=resolved_tid, include_hidden=_sees_hidden(resolved_tid))
 
             return _timed_call("document", _fetch_doc)
         finally:
@@ -672,6 +699,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                         return {"error": "theme_not_found"}
                     kb_ids = [int(m["kb_id"]) for m in themes_store.theme_members(conn, int(row["id"]))]
                 targets = []
+                document_keys = auto_contribution.personal_document_keys(conn, personal_id)  # one read of the personal knowledge base for all targets
                 for kb_id in kb_ids:
                     try:
                         info = theme_mgr.get_kb(kb_id)
@@ -679,7 +707,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
                         continue
                     if not info.is_shared or info.state != "active":
                         continue
-                    found = auto_contribution.candidates(conn, account_id=account_id, personal_kb_id=personal_id, kb_id=kb_id, include_uploads=bool(include_uploads))
+                    found = auto_contribution.candidates(conn, account_id=account_id, personal_kb_id=personal_id, kb_id=kb_id, include_uploads=bool(include_uploads), document_keys=document_keys)
                     targets.append({"kb": ids.format_public_id(info.number), "label": info.label, "documents": found})
                 return {"targets": targets}
             finally:

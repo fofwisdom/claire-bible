@@ -15,12 +15,15 @@ import { DatabaseSync } from "node:sqlite";
 import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
+import { KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
 import { OUTBOX_TASK_BATCH, publicSelfCheck, Sidecar } from "./sidecar.ts";
 
 export const SIDECAR_VERSION = "0.1.0";
 const HEARTBEAT_SECONDS = 30;
 // The interval between two reads of the outbox tasks of Claire (design Section 9.3).
 const OUTBOX_POLL_SECONDS = 5;
+// The interval between two reads of the knowledge federation reads that are due.
+const KNOWLEDGE_POLL_SECONDS = 60;
 
 function env(name: string, fallback: string): string {
   return Deno.env.get(name) || fallback;
@@ -105,6 +108,22 @@ if (import.meta.main) {
   };
   pollContext();
   setInterval(pollContext, OUTBOX_POLL_SECONDS * 1000);
+
+  // The reads of the knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 8.1) have their own loop: Claire gives a server one time each day, and one read can make many requests.
+  let reading = false;
+  const pollKnowledge = async () => {
+    if (reading) return;
+    reading = true;
+    try {
+      while ((await sidecar.processKnowledgeReads()) >= KNOWLEDGE_READ_BATCH);
+    } catch (error) {
+      console.error(`knowledge read poll failed: ${(error as Error).name}: ${(error as Error).message}`);
+    } finally {
+      reading = false;
+    }
+  };
+  pollKnowledge();
+  setInterval(pollKnowledge, KNOWLEDGE_POLL_SECONDS * 1000);
 
   Deno.serve({ hostname: env("CLAIRE_FEDIFY_HOST", "0.0.0.0"), port: Number(env("CLAIRE_FEDIFY_PORT", "8790")) }, (request) => sidecar.handle(request));
 }

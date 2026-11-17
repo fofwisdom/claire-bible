@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -756,6 +756,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v28_credential_scopes(conn)
     _migrate_v28_convert_knowledge_bases(conn)
     _migrate_v29_knowledge_federation(conn)
+    _migrate_v30_remote_knowledge_bases(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1450,20 +1451,38 @@ def _migrate_v29_knowledge_federation(conn: sqlite3.Connection) -> None:
     from ..knowledge_federation import journal, known_servers
 
     for module in (known_servers, journal):
-        table = module.TABLE
-        if not _table_exists(conn, table) or set(module.COLUMNS) <= _column_names(conn, table):
-            continue
-        retired = f"{table}_retired_v29"
-        suffix = 2
-        while _table_exists(conn, retired):
-            retired = f"{table}_retired_v29_{suffix}"
-            suffix += 1
-        for (index,) in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (table,)).fetchall():
-            conn.execute(f'DROP INDEX "{index}"')
-        conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
-        logger.warning("schema v29: table %s did not have the expected columns; it is kept as %s", table, retired)
+        _retire_table_of_other_form(conn, module.TABLE, module.COLUMNS, version=29)
     known_servers.ensure_schema(conn)
     journal.ensure_schema(conn)
+
+
+def _retire_table_of_other_form(conn: sqlite3.Connection, table: str, columns: tuple[str, ...], *, version: int) -> None:
+    """Give a table that does not have each column of ``columns`` the name ``<table>_retired_v<version>`` (or ``_retired_v<version>_<n>`` when that name is used). Its rows stay, its indexes are dropped so that the new table can have them, and the log gets a warning. A table that is not there, or that has the columns, does not change."""
+    if not _table_exists(conn, table) or set(columns) <= _column_names(conn, table):
+        return
+    retired = f"{table}_retired_v{version}"
+    suffix = 2
+    while _table_exists(conn, retired):
+        retired = f"{table}_retired_v{version}_{suffix}"
+        suffix += 1
+    for (index,) in conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (table,)).fetchall():
+        conn.execute(f'DROP INDEX "{index}"')
+    conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
+    logger.warning("schema v%d: table %s did not have the expected columns; it is kept as %s", version, table, retired)
+
+
+def _migrate_v30_remote_knowledge_bases(conn: sqlite3.Connection) -> None:
+    """v30 schema (KNOWLEDGE_FEDERATION_DESIGN.md Sections 8.1 and 8.2, unit KF2): the store of remote knowledge bases, the state of the reads of the ``/kb`` collections, and the memberships of remote knowledge bases in local themes. Idempotent (A3); it runs at each start.
+
+    The store modules own their tables: ``knowledge_federation.remote_kbs`` (``kf_remote_knowledge_bases``, ``kf_remote_kb_reads``) and ``store.themes`` (``theme_remote_knowledge_bases``). The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
+    """
+    from ..knowledge_federation import remote_kbs
+    from . import themes as themes_store
+
+    for table, columns in {**remote_kbs.TABLES, themes_store.REMOTE_MEMBER_TABLE: themes_store.REMOTE_MEMBER_COLUMNS}.items():
+        _retire_table_of_other_form(conn, table, columns, version=30)
+    remote_kbs.ensure_schema(conn)
+    themes_store.ensure_remote_member_schema(conn)
 
 
 def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:
@@ -2905,8 +2924,12 @@ def batch_select_primary_labels(
 
 # --- relations ---
 
-def upsert_relation(conn: sqlite3.Connection, rel: Relation, kb_id: int = 0) -> None:
-    conn.execute(
+def upsert_relation(conn: sqlite3.Connection, rel: Relation, kb_id: int = 0) -> bool:
+    """Add one relation. Return True when the row is new. Commits.
+
+    A relation with the same ``(kb_id, type, source_id, target_id)`` stays as it is, but the source documents of ``rel`` go into its ``sources``: a relation that two documents state stays when one of them is purged.
+    """
+    added = conn.execute(
         """INSERT OR IGNORE INTO relations
         (id,kb_id,type,source_id,target_id,props,sources,confidence,provisional,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?)""",
@@ -2915,8 +2938,21 @@ def upsert_relation(conn: sqlite3.Connection, rel: Relation, kb_id: int = 0) -> 
             json.dumps(rel.props, ensure_ascii=False), json.dumps(rel.sources, ensure_ascii=False),
             rel.confidence, int(rel.provisional), rel.created_at,
         ),
-    )
+    ).rowcount == 1
+    if not added and rel.sources:
+        row = conn.execute("SELECT id, sources FROM relations WHERE kb_id=? AND type=? AND source_id=? AND target_id=?", (kb_id, rel.type, rel.source_id, rel.target_id)).fetchone()
+        if row is not None:
+            try:
+                current = json.loads(row[1] or "[]")
+            except ValueError:
+                current = []
+            if not isinstance(current, list):
+                current = []
+            missing = [s for s in rel.sources if s not in current]
+            if missing:
+                conn.execute("UPDATE relations SET sources=? WHERE id=? AND kb_id=?", (json.dumps([*current, *missing], ensure_ascii=False), row[0], kb_id))
     conn.commit()
+    return added
 
 
 def _row_to_relation(r: sqlite3.Row) -> Relation:
@@ -5900,9 +5936,11 @@ def rollback_document_graph_contributions(
     rolled_back_merges = 0
     pruned_entities = 0
     pruned_relations = 0
+    # The entities that a rollback changed: the rollback removes the document from ``sources``, so the prune step below finds such an entity by this set.
+    rolled_back_entities: set[str] = set()
 
     for did in target_ids:
-        doc_q = "SELECT meta FROM documents WHERE id=?"
+        doc_q = "SELECT meta, kb_id FROM documents WHERE id=?"
         doc_p: list[Any] = [did]
         if kb_id is not None:
             doc_q += " AND kb_id=?"
@@ -5917,8 +5955,10 @@ def rollback_document_graph_contributions(
         decisions = get_resolution_log_from_meta(meta)
         for decision in reversed(decisions):
             if decision.decision == "MERGE" and not getattr(decision, "rolled_back", False):
-                if rollback_resolution(conn, decision):
+                # The merges of a document are in the knowledge base of the document: an entity of another knowledge base is not changed, and no entity changes its knowledge base.
+                if rollback_resolution(conn, decision, kb_id=int(row["kb_id"])):
                     rolled_back_merges += 1
+                    rolled_back_entities.add(str(decision.target_entity_id))
 
     if prune_orphans:
         target_set = set(target_ids)
@@ -5933,7 +5973,7 @@ def rollback_document_graph_contributions(
             except Exception:
                 srcs = []
             remaining = [s for s in srcs if s not in target_set]
-            if len(remaining) != len(srcs):
+            if len(remaining) != len(srcs) or (not remaining and r["id"] in rolled_back_entities):
                 if not remaining:
                     del_ent = "DELETE FROM entities WHERE id=?"
                     del_ent_p: list[Any] = [r["id"]]
@@ -6014,8 +6054,13 @@ def purge_document_cascade(
     tombstone: bool = True,
     progress_callback: Callable[[str], None] | None = None,
     kb_id: int | None = None,
+    heal: bool = True,
+    vacuum: bool = True,
 ) -> dict[str, Any]:
-    """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각."""
+    """오염 문서를 L1/L2/DB/그래프/디스크에서 원자적으로 연쇄 소각.
+
+    ``heal``: run ``heal_graph`` after the deletion. ``vacuum``: run the WAL checkpoint and ``VACUUM`` after it. A caller that already cleaned the graph of the documents (``rollback_document_graph_contributions`` with ``prune_orphans``) and that purges often (the copy of a contribution) sets both to False; then ``graph_healed`` is None and ``vacuum_executed`` is False.
+    """
     import time
     from .raw import _artifacts_dir, _images_dir, artifact_paths
 
@@ -6175,22 +6220,22 @@ def purge_document_cascade(
         pass
 
     # 5. 지식그래프 참조 무결성 수복
-    if progress_callback:
+    if heal and progress_callback:
         progress_callback("지식그래프 참조 무결성 수복 및 FTS 재구축 중...")
 
-    heal_stats = heal_graph(conn, progress_callback=progress_callback, kb_id=kb_id)
-    stats["graph_healed"] = heal_stats
+    stats["graph_healed"] = heal_graph(conn, progress_callback=progress_callback, kb_id=kb_id) if heal else None
 
     # 6. DB 공간 회수 (VACUUM)
-    if progress_callback:
-        progress_callback("데이터베이스 물리 압축(VACUUM) 및 용량 회수 중...")
-
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        conn.execute("VACUUM")
-        stats["vacuum_executed"] = True
-    except Exception:
-        stats["vacuum_executed"] = False
+    stats["vacuum_executed"] = False
+    if vacuum:
+        if progress_callback:
+            progress_callback("데이터베이스 물리 압축(VACUUM) 및 용량 회수 중...")
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("VACUUM")
+            stats["vacuum_executed"] = True
+        except Exception:
+            stats["vacuum_executed"] = False
 
     return stats
 

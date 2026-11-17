@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-collections/kb?signer=https%3A%2F%2Fb.example%2Fap%2Factors%2Fserver&page=true"
+  },
+  "status": 200,
+  "response": {
+    "collection": "kb",
+    "server": "b.example",
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v1"
+      ],
+      "id": "https://a.example/ap/kb?page=true",
+      "type": "OrderedCollectionPage",
+      "partOf": "https://a.example/ap/kb",
+      "orderedItems": [
+        {
+          "id": "https://a.example/ap/kb/1846000000000000200",
+          "type": [
+            "Group",
+            "claire:KnowledgeBase"
+          ],
+          "name": "Early computing",
+          "summary": "About Early computing.",
+          "url": "https://a.example/kb/1846000000000000200/",
+          "inbox": "https://a.example/ap/kb/1846000000000000200/inbox",
+          "outbox": "https://a.example/ap/kb/1846000000000000200/outbox",
+          "followers": "https://a.example/ap/kb/1846000000000000200/followers",
+          "claire:documents": "https://a.example/ap/kb/1846000000000000200/documents",
+          "claire:knowledgeType": "real",
+          "claire:documentCount": 0,
+          "claire:entityCount": 0,
+          "claire:relationCount": 0
+        }
+      ]
+    }
+  }
+}

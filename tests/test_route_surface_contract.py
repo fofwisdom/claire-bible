@@ -63,6 +63,8 @@ SYSTEM = {
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
     "/explore/accounts",
+    # Root page data about other servers (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3, unit KF2)
+    "/explore/federation",
     "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
@@ -82,11 +84,11 @@ SYSTEM = {
     # Reputation of the account of the credential (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6)
     "/api/reputation",
     # Automatic contribution and mutual collaboration (Sections 9.9, 9.10)
-    "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
+    "/api/kb/similar", "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
     "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
 }
 # The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2).
-SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge")}
+SYSTEM_KEYS = {*((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"), ("PUT", "/api/admin/kb/{number}/moderators/{account}"), ("DELETE", "/api/admin/kb/{number}/moderators/{account}"), *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge")}
 ADMIN_KEYS = {
     *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
     *((m, p) for p in ("/providers", "/limits", "/ingest-limits") for m in ("GET", "HEAD", "POST", "PATCH")),
@@ -126,6 +128,7 @@ ADMIN_KEYS = {
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {
     *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
     *((m, "/explore/accounts") for m in ("GET", "HEAD")),
+    *((m, "/explore/federation") for m in ("GET", "HEAD")),
     *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
     *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
     ("POST", "/api/me/keys/verify"),

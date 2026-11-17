@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-kb-reads?limit=5"
+  },
+  "status": 200,
+  "response": {
+    "reads": [
+      {
+        "domain": "b.example",
+        "url": "https://b.example/ap/kb"
+      }
+    ]
+  }
+}

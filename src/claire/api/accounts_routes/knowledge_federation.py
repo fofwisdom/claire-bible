@@ -22,7 +22,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ... import auto_contribution
-from ...knowledge_federation import journal, known_servers
+from ...knowledge_federation import journal, known_servers, remote_kbs
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import federation as federation_store
@@ -48,6 +48,23 @@ def _positive_int(raw: str | None) -> int | None:
     return int(raw)
 
 
+def known_server_view(conn: Any, server: known_servers.KnownServer) -> dict[str, Any]:
+    """One known server for the admin: ``known_servers.server_view`` and the data of the store of remote knowledge bases (unit KF2).
+
+    - ``kbs``: the records of the shared knowledge bases of the server, in the order of the label.
+    - ``kb_count``: the number of these records after a complete read of the ``/kb`` collection; before that read, the number that the read of the server gave (it can be ``None``).
+    - ``kb_read``: the state of the reads of the ``/kb`` collection, or ``None`` when no read started.
+    """
+    view = known_servers.server_view(conn, server)
+    records = remote_kbs.list_of_domain(conn, server.domain)
+    state = remote_kbs.read_state(conn, server.domain)
+    view["kbs"] = [remote_kbs.view(kb) for kb in records]
+    if state is not None and state.last_read_at is not None:
+        view["kb_count"] = len(records)
+    view["kb_read"] = None if state is None else {"last_read_at": state.last_read_at, "stored": state.stored_count, "refused": state.refused_count, "refused_code": state.refused_code, "error_count": state.error_count, "last_error": state.last_error, "last_error_at": state.last_error_at}
+    return view
+
+
 def routes(ctx: AccountsContext) -> list[Route]:
     def _admin_change_denied(request: Request, principal: Principal) -> Response | None:
         """Guards of an admin change: admin, same origin, recent authentication. The sequence is that of ``POST /api/admin/federation``."""
@@ -67,7 +84,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             conn = open_db(ctx)
             try:
                 return {
-                    "servers": [known_servers.server_view(conn, server) for server in known_servers.list_servers(conn)],
+                    "servers": [known_server_view(conn, server) for server in known_servers.list_servers(conn)],
                     "switches": {
                         "federation": accounts_store.AccountStore(conn).federation_state(),
                         "kb_auto_contribution": "on" if auto_contribution.switch_on(conn) else "off",
@@ -105,7 +122,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 server, made = known_servers.note_server(conn, domain, source="admin", added_by=admin_id, now=time.time())
                 conn.commit()
-                view = known_servers.server_view(conn, server)
+                view = known_server_view(conn, server)
             finally:
                 conn.close()
             if made:

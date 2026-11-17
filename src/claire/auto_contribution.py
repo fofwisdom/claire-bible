@@ -96,12 +96,26 @@ def targets(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any]) -> 
     if rule["to_mutual"]:
         for other in kb_collab.mutual_collaborators(conn, account_id):
             found.update(int(r[0]) for r in conn.execute("SELECT id FROM knowledge_bases WHERE created_by_account_id=? AND COALESCE(is_personal, 0)=0 AND account_id IS NULL", (other,)))
-    for theme_id in rule["theme_ids"]:
-        theme = themes_store.get_theme(conn, int(theme_id))
-        if theme is not None and theme["state"] == "active":
-            found.update(int(m["kb_id"]) for m in themes_store.theme_members(conn, int(theme_id)))
+    for theme_id in {_live_theme(conn, int(t)) for t in rule["theme_ids"]} - {None}:
+        found.update(int(m["kb_id"]) for m in themes_store.theme_members(conn, theme_id))
     banned = set(kb_collab.account_memberships(conn, account_id, state="banned"))
     return sorted(kb_id for kb_id in found if kb_id not in banned and _shared_kb(conn, kb_id) is not None)
+
+
+def _live_theme(conn: sqlite3.Connection, theme_id: int) -> int | None:
+    """The active theme that a theme of a rule means now: the theme itself, or the target of its merges (design Section 11.2: "a merged theme is replaced by its target at each run"). None when there is no active theme at the end, or when the merges make a loop."""
+    seen: set[int] = set()
+    while theme_id not in seen:
+        seen.add(theme_id)
+        theme = themes_store.get_theme(conn, theme_id)
+        if theme is None:
+            return None
+        if theme["state"] == "active":
+            return theme_id
+        if theme["state"] != "merged" or theme["merged_into_theme_id"] is None:
+            return None
+        theme_id = int(theme["merged_into_theme_id"])
+    return None
 
 
 def _signature_keys(raw: Any) -> set[tuple[str, str]]:
@@ -140,17 +154,25 @@ def _seed_names(raw: Any) -> list[str]:
     return [str(n) for n in names if isinstance(n, str) and n.strip()] if isinstance(names, list) else []
 
 
-def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, kb_id: int, include_uploads: bool, documents: list[str] | None = None, matcher: theme_judgement.DocumentMatcher | None = None, settings: dict[str, float] | None = None) -> list[dict[str, Any]]:
+def personal_document_keys(conn: sqlite3.Connection, personal_kb_id: int) -> dict[str, set[tuple[str, str]]]:
+    """The keys of each visible document of the personal knowledge base, from one read of its entities. A run computes this one time and uses it for each target."""
+    return theme_judgement._document_keys(conn, int(personal_kb_id))
+
+
+def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int, kb_id: int, include_uploads: bool, documents: list[str] | None = None, matcher: theme_judgement.DocumentMatcher | None = None, settings: dict[str, float] | None = None, document_keys: dict[str, set[tuple[str, str]]] | None = None) -> list[dict[str, Any]]:
     """The documents of the personal knowledge base that fit K, with the highest score first (Section 9.9 rule 2): ``{"document", "title", "score"}``.
 
     Not candidates: a hidden document; a document with the flag "never contribute"; a pasted text; an uploaded file unless ``include_uploads``; a document with a contribution in K in any state; a document with a duplicate or a tombstone in K.
     ``documents``: only these documents are checked (after the extraction of a new document).
+    ``document_keys``: the result of ``personal_document_keys`` for this personal knowledge base, when the caller has it (a run with more than one target); else this call reads it. The score comes first; the checks that read the database for each document (extraction, duplicate, tombstone) run only for a document at or over the threshold.
     """
     matcher = matcher or theme_judgement.DocumentMatcher.load(conn)
     settings = settings or read_settings(conn)
     score = _scorer(conn, matcher, kb_id)
     if score is None:
         return []
+    if document_keys is None:
+        document_keys = personal_document_keys(conn, personal_kb_id)
     blocked = kb_collab.contribution_blocks(conn, account_id)
     done = kb_collab.documents_contributed_to(conn, kb_id, account_id)
     sql = "SELECT id, title, url, canonical_url, content_hash, source_type FROM documents WHERE kb_id=? AND hidden=0"
@@ -167,6 +189,9 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
             continue
         if not str(row["url"] or "").strip() and not include_uploads:
             continue  # a document with no URL comes from an uploaded file
+        value = score(document_keys.get(document_id, set()))
+        if value < settings["auto_match_threshold"]:
+            continue
         if not conn.execute("SELECT 1 FROM extractions WHERE document_id=? AND kb_id=? LIMIT 1", (document_id, int(personal_kb_id))).fetchone():
             continue
         if contributions.find_duplicate(conn, kb_id, canonical_url=row["canonical_url"], content_hash=row["content_hash"]) is not None:
@@ -174,9 +199,7 @@ def candidates(conn: sqlite3.Connection, *, account_id: int, personal_kb_id: int
         by_url = bool(row["canonical_url"])
         if dbm.is_tombstoned(conn, canonical_url=row["canonical_url"] if by_url else None, content_hash=None if by_url else row["content_hash"], kb_id=int(kb_id)):
             continue
-        value = score(theme_judgement.document_keys(conn, int(personal_kb_id), document_id))
-        if value >= settings["auto_match_threshold"]:
-            out.append({"document": document_id, "title": row["title"], "score": value})
+        out.append({"document": document_id, "title": row["title"], "score": value})
     out.sort(key=lambda c: (-c["score"], c["document"]))
     return out
 
@@ -200,12 +223,15 @@ def plan(conn: sqlite3.Connection, account_id: int, rule: dict[str, Any], *, doc
     if run_limit <= 0:
         return []
     matcher = theme_judgement.DocumentMatcher.load(conn)
+    document_keys: dict[str, set[tuple[str, str]]] | None = None
     out = []
     for kb_id in targets(conn, account_id, rule):
+        if document_keys is None:
+            document_keys = personal_document_keys(conn, int(personal[0]))  # one read for all targets of the run
         membership = kb_collab.get_membership(conn, kb_id, account_id)
         active = membership is not None and membership["state"] == "active"
         mode = "approved" if active and membership["role"] in ("collaborator", "moderator") else ("direct" if active else "pending")
-        found = candidates(conn, account_id=account_id, personal_kb_id=int(personal[0]), kb_id=kb_id, include_uploads=bool(rule["include_uploads"]), documents=documents, matcher=matcher, settings=settings)[:run_limit]
+        found = candidates(conn, account_id=account_id, personal_kb_id=int(personal[0]), kb_id=kb_id, include_uploads=bool(rule["include_uploads"]), documents=documents, matcher=matcher, settings=settings, document_keys=document_keys)[:run_limit]
         if mode == "pending":
             room = reputation.pending_limit(reputation_settings, level) - kb_collab.pending_count(conn, kb_id=kb_id, account_id=account_id)
             found = found[: max(room, 0)]

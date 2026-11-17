@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-server-reads",
+    "body": {
+      "domain": "c.example",
+      "ok": false,
+      "server_actor": null,
+      "software_name": null,
+      "software_version": null,
+      "shared_kb_count": null,
+      "error": "nodeinfo_unavailable"
+    }
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

@@ -131,7 +131,10 @@ def rollback_resolution(
     decision: ResolutionDecision,
     kb_id: int | None = None,
 ) -> bool:
-    """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복."""
+    """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복.
+
+    The entity stays in its knowledge base: the write uses the ``kb_id`` of the entity row, never a guessed one. With ``kb_id`` the entity must be in that knowledge base; else nothing changes and the result is False.
+    """
     if decision.decision != "MERGE" or not decision.target_entity_id:
         return False
     payload = decision.rollback_payload
@@ -141,7 +144,11 @@ def rollback_resolution(
     from ..store import db as dbm
 
     target_id = decision.target_entity_id
-    cand = dbm.get_entity(conn, target_id, kb_id=kb_id)
+    owner = conn.execute("SELECT kb_id FROM entities WHERE id=?", (target_id,)).fetchone()
+    if owner is None or (kb_id is not None and int(owner[0]) != int(kb_id)):
+        return False
+    entity_kb_id = int(owner[0])
+    cand = dbm.get_entity(conn, target_id, kb_id=entity_kb_id)
     if not cand:
         return False
 
@@ -172,7 +179,7 @@ def rollback_resolution(
         changed = True
 
     if changed:
-        dbm.upsert_entity(conn, cand, kb_id=0 if kb_id is None else kb_id)
+        dbm.upsert_entity(conn, cand, kb_id=entity_kb_id)
         return True
     return False
 

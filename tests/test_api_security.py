@@ -289,6 +289,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/login",
         "/invite/{code}",
         "/explore/accounts",
+        "/explore/federation",
         "/auth/oidc/{id}/start",
         "/auth/oidc/{id}/callback",
         "/invite/complete",
@@ -323,6 +324,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/submissions",
         "/api/reputation",
         "/api/auto-rule",
+        "/api/kb/similar",
         "/api/contributions",
         "/api/contribution-blocks",
         "/api/mutual-collaborations",
@@ -507,7 +509,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((method, "/api/admin/kb/{number}/moderators/{account}") for method in ("PUT", "DELETE")),
         *((m, "/api/admin/reputations") for m in ("GET", "HEAD")), ("PUT", "/api/admin/reputations/settings"),
         *((m, "/api/admin/auto-contribution") for m in ("GET", "HEAD", "PUT")),
-        *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("POST", "/api/admin/themes/{number}/merge"),
+        *((m, "/api/admin/themes") for m in ("GET", "HEAD", "POST")), ("PUT", "/api/admin/themes/settings"), ("POST", "/api/admin/themes/judge"), ("PATCH", "/api/admin/themes/{number}"), ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"), ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"), ("POST", "/api/admin/themes/{number}/merge"),
         *(
             (method, path)
             for path in (
@@ -596,6 +598,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         *((m, "/invite/{code}") for m in ("GET", "HEAD", "POST")),
         *((m, "/invite/complete") for m in ("GET", "HEAD", "POST")),
         *((m, "/explore/accounts") for m in ("GET", "HEAD")),
+        *((m, "/explore/federation") for m in ("GET", "HEAD")),
         *((m, "/api/invites") for m in ("GET", "HEAD", "POST", "PATCH")),
         *((m, "/api/me/keys") for m in ("GET", "HEAD", "PUT", "DELETE")),
         ("POST", "/api/me/keys/verify"),

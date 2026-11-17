@@ -26,7 +26,7 @@ async function installApi(page) {
   ];
   let rule = null;
 
-  await page.route((u) => ['/kb', '/themes', '/submissions', '/documents'].includes(u.pathname) || /^\/kb\/\d+\//.test(u.pathname) || u.pathname.startsWith('/api/auto-') || ['/api/reputation', '/api/contributions', '/api/mutual-collaborations', '/api/contribution-blocks', '/api/admin/themes', '/api/admin/reputations', '/api/admin/auto-contribution'].includes(u.pathname), async (route) => {
+  await page.route((u) => ['/kb', '/themes', '/submissions', '/documents'].includes(u.pathname) || /^\/kb\/\d+\//.test(u.pathname) || u.pathname.startsWith('/api/auto-') || ['/api/reputation', '/api/contributions', '/api/mutual-collaborations', '/api/contribution-blocks', '/api/admin/themes', '/api/admin/reputations', '/api/admin/auto-contribution', '/api/kb/similar'].includes(u.pathname), async (route) => {
     const req = route.request();
     if (req.resourceType() === 'document') return route.fallback();
     // The workspace reads its own document list from the server; only the console pages get the fixed list.
@@ -40,6 +40,14 @@ async function installApi(page) {
       const type = url.searchParams.get('type');
       const items = shared.filter((k) => (!joined || k.role) && (!type || k.knowledge_type === type));
       return json(route, { type: 'OrderedCollection', totalItems: items.length, knowledge_bases: items, personal_kb: personal, multi_theme: true });
+    }
+    // GET /api/kb/similar: the shared knowledge bases of this server and of other servers near the subject (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4). The fixed answer has the ones of the type and one of the server b.example.
+    if (path === '/api/kb/similar') {
+      const type = url.searchParams.get('type');
+      const matched = !!url.searchParams.get('label') || url.searchParams.getAll('seed').length > 0;
+      const items = shared.filter((k) => k.knowledge_type === type).map((k) => ({ remote: false, server: null, number: k.number, label: k.label, description: k.description, knowledge_type: k.knowledge_type, url: k.url, score: matched ? 0.5 : null }));
+      items.push({ remote: true, server: 'b.example', number: null, label: 'Dragon Archive', description: '', knowledge_type: type, url: 'https://b.example/kb/900/', score: matched ? 0.4 : null });
+      return json(route, { matched, knowledge_bases: items });
     }
     if (path === '/kb' && method === 'POST') return json(route, { ok: true, knowledge_base: { number: '103', label: 'New' } }, 201);
     if (/^\/kb\/\d+\/$/.test(path) && method === 'DELETE') {
@@ -71,7 +79,7 @@ async function installApi(page) {
     if (path === '/api/admin/themes') return json(route, {
       settings: { theme_match_threshold: 0.25, document_match_threshold: 0.5, seed_match_threshold: 0.5, submission_max_documents: 20 },
       last_run_at: 1700000000,
-      themes: themes.concat([{ number: '203', label: 'Canals', knowledge_type: 'real', state: 'active' }]).map((t) => ({ ...t, label_locked: false, knowledge_bases: t.number === '201' ? [{ number: '101', label: 'Modern History', is_personal: false, knowledge_type: 'real', pinned: false, excluded: false, source: 'computed', score: 0.6 }] : [] })),
+      themes: themes.concat([{ number: '203', label: 'Canals', knowledge_type: 'real', state: 'active' }]).map((t) => ({ ...t, label_locked: false, knowledge_bases: t.number === '201' ? [{ number: '101', label: 'Modern History', is_personal: false, knowledge_type: 'real', remote: false, server: null, pinned: false, excluded: false, source: 'computed', score: 0.6 }, { number: null, label: 'Railway Archive', is_personal: false, knowledge_type: 'real', url: 'https://b.example/kb/901/', remote: true, server: 'b.example', remote_id: 5, pinned: false, excluded: false, source: 'computed', score: 0.4 }] : [] })),
       decision_agreement: [{ knowledge_base: '101', label: 'Modern History', decisions: 12, agreement: 0.75 }]
     });
     if (path === '/api/admin/reputations') return json(route, { settings: { reputation_window_days: 180 }, accounts: [{ account: '5550001', display_name: 'Bob', level: 'good', fiction_share: 0, fiction_like_documents: 0, visible_documents: 3, approval_rate: null, decisions: 0 }] });
@@ -83,7 +91,7 @@ async function installApi(page) {
 
 test('ingest dialog: no focus input, no knowledge base selector, the standing fiction message, and the dialog to make a shared knowledge base', async ({ page }) => {
   await authenticateOwner(page, 1);
-  await installApi(page);
+  const calls = await installApi(page);
 
   await page.locator('#addbtn').click();
   await page.locator('#pop-ingest-menu [data-ingest-cmd="ingest"]').click();
@@ -101,10 +109,16 @@ test('ingest dialog: no focus input, no knowledge base selector, the standing fi
   // The dialog opens for the type "fictional" and shows the shared knowledge bases of that type.
   await expect(dlg.locator('input[name="knowledge_type"][value="fictional"]')).toBeChecked();
   await expect(dlg.locator('#claire-similar-kbs')).toContainText('Fantasy Lore');
+  // A shared knowledge base of another server has the domain of its server and the link to its origin.
+  const remoteKb = dlg.locator('#claire-similar-kbs a[data-similar-remote="b.example"]');
+  await expect(remoteKb).toContainText('Dragon Archive');
+  await expect(remoteKb).toHaveAttribute('href', 'https://b.example/kb/900/');
   await expect(dlg.locator('#newkb-model')).toHaveCount(0);
 
   // More than 20 seed entities: the field is not valid and no request goes out.
   await dlg.locator('#newkb-label').fill('Validation Test');
+  // The text of the form goes to the server, which gives the knowledge bases near the subject.
+  await expect.poll(() => calls.some((c) => c.path.startsWith('/api/kb/similar?type=fictional&label=Validation%20Test'))).toBe(true);
   await dlg.locator('#newkb-seeds').fill(Array.from({ length: 21 }, (_, i) => 'seed' + i).join(', '));
   await dlg.locator('.claire-dlg-foot .claire-btn.pri').click();
   await expect(dlg.locator('#newkb-seeds')).toHaveAttribute('aria-invalid', 'true');
@@ -181,6 +195,10 @@ test('/settings/kb: five tabs, the dry run before the rule turns on, reputation,
   await expect(page.locator('#th-ar')).toHaveValue('50');
   await expect(page.locator('#th-sx')).toHaveValue('20');
   await adminTabs.nth(1).click();
+  // A member of another server (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2): the link to its origin and the domain of its server.
+  const remoteMember = page.locator('#admin-themes-host a[href="https://b.example/kb/901/"]');
+  await expect(remoteMember).toHaveText('Railway Archive');
+  await expect(page.locator('#admin-themes-host')).toContainText('b.example');
   await page.locator('#adm-th-merge').click();
   // A theme merges only into a theme of the same knowledge type.
   await expect(page.locator('dialog.claire-dlg[open] #merge-into option')).toHaveCount(1);

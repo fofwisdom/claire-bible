@@ -1,6 +1,8 @@
 """Store of the themes: collections of knowledge bases with the same subject and the same knowledge type (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8 and 11.2, unit CT-1).
 
-Only this module reads and writes the tables ``themes``, ``theme_knowledge_bases``, ``kb_signatures``, and ``kb_document_matches`` (store boundary RD27 R2).
+Only this module reads and writes the tables ``themes``, ``theme_knowledge_bases``, ``theme_remote_knowledge_bases``, ``kb_signatures``, and ``kb_document_matches`` (store boundary RD27 R2).
+
+A remote knowledge base (a record of ``knowledge_federation.remote_kbs``) can be a member of a local theme (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2). Its memberships are in ``theme_remote_knowledge_bases``, with the same columns and the same admin adjustments as a local membership. A theme number never leaves the server.
 
 A theme number is never the number of a knowledge base, and a knowledge base number is never a theme number (Section 5.4): the generator refuses a number that the other table has and tries the next ``seq``.
 
@@ -303,5 +305,92 @@ def merge_themes(conn: sqlite3.Connection, *, source_id: int, target_id: int, no
     for member in theme_members(conn, source_id):
         set_admin_member(conn, theme_id=target_id, kb_id=int(member["kb_id"]), pinned=True, excluded=False)
     conn.execute("DELETE FROM theme_knowledge_bases WHERE theme_id=?", (int(source_id),))
+    # The remote members go with the local ones (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2).
+    for member in remote_members(conn, theme_id=source_id):
+        set_admin_remote_member(conn, theme_id=target_id, remote_kb_id=int(member["remote_kb_id"]), pinned=True, excluded=False)
+    conn.execute("DELETE FROM theme_remote_knowledge_bases WHERE theme_id=?", (int(source_id),))
     update_theme(conn, source_id, now=now, state="merged", merged_into_theme_id=int(target_id))
     update_theme(conn, target_id, now=now, state="active")
+
+
+# --- remote knowledge bases in local themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2, unit KF2) -----------------
+
+REMOTE_MEMBER_TABLE = "theme_remote_knowledge_bases"
+REMOTE_MEMBER_COLUMNS = ("theme_id", "remote_kb_id", "source", "score", "pinned", "excluded")
+REMOTE_MEMBER_SOURCES = ("computed", "admin")
+
+# ``remote_kb_id`` is ``kf_remote_knowledge_bases.id``. It has no REFERENCES clause: the store of remote knowledge bases deletes the rows of a record that goes (``delete_remote_kb_rows``).
+_REMOTE_MEMBER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS theme_remote_knowledge_bases (
+    theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    remote_kb_id INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('computed', 'admin')),
+    score REAL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    excluded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (theme_id, remote_kb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_theme_remote_knowledge_bases_kb ON theme_remote_knowledge_bases(remote_kb_id)
+"""
+
+
+def ensure_remote_member_schema(conn: sqlite3.Connection) -> None:
+    """Make the table of the remote members when it is not there. Idempotent; the migration of ``store.db`` calls it at each start."""
+    for statement in _REMOTE_MEMBER_SCHEMA.split(";"):
+        if statement.strip():
+            conn.execute(statement)
+
+
+def remote_members(conn: sqlite3.Connection, *, theme_id: int | None = None, include_excluded: bool = False) -> list[dict[str, Any]]:
+    """The memberships of remote knowledge bases, of one theme or of each theme. An excluded row is in the result only with ``include_excluded``."""
+    sql = f"SELECT {', '.join(REMOTE_MEMBER_COLUMNS)} FROM theme_remote_knowledge_bases WHERE 1=1"
+    args: list[Any] = []
+    if theme_id is not None:
+        sql += " AND theme_id=?"
+        args.append(int(theme_id))
+    if not include_excluded:
+        sql += " AND excluded=0"
+    return [dict(zip(REMOTE_MEMBER_COLUMNS, tuple(r))) for r in conn.execute(sql + " ORDER BY theme_id, remote_kb_id", args).fetchall()]
+
+
+def get_remote_member(conn: sqlite3.Connection, theme_id: int, remote_kb_id: int) -> dict[str, Any] | None:
+    row = conn.execute(f"SELECT {', '.join(REMOTE_MEMBER_COLUMNS)} FROM theme_remote_knowledge_bases WHERE theme_id=? AND remote_kb_id=?", (int(theme_id), int(remote_kb_id))).fetchone()
+    return None if row is None else dict(zip(REMOTE_MEMBER_COLUMNS, tuple(row)))
+
+
+def set_computed_remote_member(conn: sqlite3.Connection, *, theme_id: int, remote_kb_id: int, score: float | None) -> bool:
+    """Put a remote knowledge base in a theme as a result of the judgement. A row that the admin made (pinned or excluded) stays as it is; then the result is False."""
+    current = get_remote_member(conn, theme_id, remote_kb_id)
+    if current is not None and (current["pinned"] or current["excluded"]):
+        return False
+    conn.execute(
+        "INSERT INTO theme_remote_knowledge_bases (theme_id, remote_kb_id, source, score, pinned, excluded) VALUES (?, ?, 'computed', ?, 0, 0) "
+        "ON CONFLICT(theme_id, remote_kb_id) DO UPDATE SET source='computed', score=excluded.score",
+        (int(theme_id), int(remote_kb_id), score),
+    )
+    return True
+
+
+def delete_free_remote_members(conn: sqlite3.Connection) -> int:
+    """Delete each membership of a remote knowledge base that the judgement can change: not pinned and not excluded. The judgement computes these rows again in each run."""
+    return conn.execute("DELETE FROM theme_remote_knowledge_bases WHERE pinned=0 AND excluded=0").rowcount
+
+
+def set_admin_remote_member(conn: sqlite3.Connection, *, theme_id: int, remote_kb_id: int, pinned: bool, excluded: bool) -> None:
+    """An adjustment of the admin for a remote knowledge base: the same rule as ``set_admin_member``. The two flags off deletes the row; the next run decides again."""
+    if pinned and excluded:
+        raise ValueError("a membership is pinned or excluded, not the two")
+    if not pinned and not excluded:
+        conn.execute("DELETE FROM theme_remote_knowledge_bases WHERE theme_id=? AND remote_kb_id=?", (int(theme_id), int(remote_kb_id)))
+        return
+    conn.execute(
+        "INSERT INTO theme_remote_knowledge_bases (theme_id, remote_kb_id, source, score, pinned, excluded) VALUES (?, ?, 'admin', NULL, ?, ?) "
+        "ON CONFLICT(theme_id, remote_kb_id) DO UPDATE SET source='admin', pinned=excluded.pinned, excluded=excluded.excluded",
+        (int(theme_id), int(remote_kb_id), 1 if pinned else 0, 1 if excluded else 0),
+    )
+
+
+def delete_remote_kb_rows(conn: sqlite3.Connection, remote_kb_ids: list[int]) -> None:
+    """Delete the memberships of remote knowledge bases that go, the admin adjustments included."""
+    for remote_kb_id in remote_kb_ids:
+        conn.execute("DELETE FROM theme_remote_knowledge_bases WHERE remote_kb_id=?", (int(remote_kb_id),))

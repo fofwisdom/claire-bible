@@ -455,6 +455,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/moderation-log"): _namespaced("owner", "people"),
     # Themes (design Sections 8.2 and 8.3): the admin sees each theme, sets the thresholds, starts a run, and makes the adjustments.
     # Automatic contribution and mutual collaboration (design Sections 9.9, 9.10): the decisions of the person, so the scope is ``owner``. The handlers ask for a recent sign-in to turn the rule on, to make it wider, and to request or accept a mutual collaboration.
+    # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 4: the shared knowledge bases of this server and of other servers near a subject, before an account makes a new one.
+    ("GET", "/api/kb/similar"): _system("read", "none"),
+    ("HEAD", "/api/kb/similar"): _system("read", "none"),
     ("GET", "/api/auto-rule"): _system("read", "none"),
     ("HEAD", "/api/auto-rule"): _system("read", "none"),
     ("PUT", "/api/auto-rule"): _system("owner", "none"),
@@ -487,6 +490,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/admin/themes/judge"): _system("admin", "none"),
     ("PATCH", "/api/admin/themes/{number}"): _system("admin", "none"),
     ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"): _system("admin", "none"),
+    # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2: the admin adjustments for a shared knowledge base of another server in a local theme.
+    ("PUT", "/api/admin/themes/{number}/remote-knowledge-bases/{remote_id}"): _system("admin", "none"),
     ("POST", "/api/admin/themes/{number}/merge"): _system("admin", "none"),
     # Contribution to a theme (design Section 9.2): a submission belongs to the account of the credential, so the prefix is ignored. The targets are checked one by one in the handler.
     ("POST", "/submissions"): _any("write", "none"),
@@ -687,6 +692,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
     ("GET", "/explore/accounts"): _system("public", "none", modes=NETWORK_ONLY),
     ("HEAD", "/explore/accounts"): _system("public", "none", modes=NETWORK_ONLY),
+    # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3: the data of the root page of network mode about other servers (themes across servers, federated servers, recent activity). Single mode has no root page.
+    ("GET", "/explore/federation"): _system("public", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/explore/federation"): _system("public", "none", modes=NETWORK_ONLY),
     ("GET", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
     ("HEAD", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
     ("POST", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),

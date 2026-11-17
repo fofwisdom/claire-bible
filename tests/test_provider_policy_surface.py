@@ -227,7 +227,7 @@ def research_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 def synth_calls(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     calls: list[Any] = []
 
-    def _fake(conn: Any, provider: Any, entity_ids: list, query: Any, kb_id: int = 0) -> dict:
+    def _fake(conn: Any, provider: Any, entity_ids: list, query: Any, kb_id: int = 0, include_hidden: bool = True) -> dict:
         calls.append((provider, entity_ids, kb_id))
         return {"answer": "synthesized"}
 

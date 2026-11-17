@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-server-reads?limit=5"
+  },
+  "status": 200,
+  "response": {
+    "servers": [
+      {
+        "domain": "b.example"
+      }
+    ]
+  }
+}
