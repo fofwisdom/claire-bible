@@ -455,6 +455,12 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("PATCH", "/api/admin/themes/{number}"): _system("admin", "none"),
     ("PUT", "/api/admin/themes/{number}/knowledge-bases/{kb}"): _system("admin", "none"),
     ("POST", "/api/admin/themes/{number}/merge"): _system("admin", "none"),
+    # Contribution to a theme (design Section 9.2): a submission belongs to the account of the credential, so the prefix is ignored. The targets are checked one by one in the handler.
+    ("POST", "/submissions"): _any("write", "none"),
+    ("GET", "/submissions"): _any("read", "none"),
+    ("HEAD", "/submissions"): _any("read", "none"),
+    ("GET", "/submissions/{number}"): _any("read", "none"),
+    ("HEAD", "/submissions/{number}"): _any("read", "none"),
     # Contributions (design Sections 9.1, 9.4 to 9.6). The withdrawal and the retry are for the contributor (the handler checks the credit); the scope ``write`` has them (Section 6.6).
     ("POST", "/contributions"): _namespaced("write", "contribute_direct"),
     ("GET", "/contributions"): _namespaced("read", "read"),

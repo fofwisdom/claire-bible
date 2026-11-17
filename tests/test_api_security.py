@@ -318,6 +318,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/mcp",
         "/kb",
         "/members",
+        "/submissions",
+        "/submissions/{number}",
         "/contributions",
         "/themes",
         "/api/syndication/dispatches",
@@ -328,6 +330,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
     write_post = {
         "/ingest",
+        "/submissions",
         "/contributions",
         "/contributions/{number}/retry",
         "/ingest-stream",

@@ -1427,7 +1427,7 @@ def create_app(
         except ValueError:
             raise HTTPException(status_code=404, detail="contribution_not_found") from None
 
-    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool) -> dict[str, Any]:
+    def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool, review_help: bool = False) -> dict[str, Any]:
         """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document."""
         contributor = None
         if row["contributor_account_id"] is not None:
@@ -1451,6 +1451,22 @@ def create_app(
         if full:
             view["reason"] = row["decision_reason"]
             view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
+        if review_help and row["submission_item_id"] is not None:
+            # Help for the decision of a reviewer (design Section 9.3 rule 2). The server never decides for a reviewer.
+            item = conn.execute("SELECT theme_id, match_score, routed_by FROM kb_submission_items WHERE id=?", (int(row["submission_item_id"]),)).fetchone()
+            others = [
+                {**_kb_ref(int(other["kb_id"])), "decision": contributions.decision_of(other), "reason": other["decision_reason"]}
+                for other in kb_collab.contributions_of_item(conn, int(row["submission_item_id"]))
+                if int(other["kb_id"]) != int(row["kb_id"])
+            ]
+            kb_score = None
+            signature = next((sig for sig in themes_store.load_signatures(conn) if int(sig["kb_id"]) == int(row["kb_id"])), None)
+            if signature is not None and row["document_id"]:
+                matcher = theme_judgement.DocumentMatcher.load(conn)
+                keys = theme_judgement.document_keys(conn, int(row["source_kb_id"]), str(row["source_document_id"])) if row["source_kb_id"] is not None else set()
+                kb_keys = {(str(e[0]), str(e[1])) for e in json.loads(signature["entities"] or "[]")}
+                kb_score = matcher.score(keys, kb_keys) if keys else None
+            view["review_help"] = {"other_decisions": others, "theme_score": None if item is None else item["match_score"], "routed_by": None if item is None else item["routed_by"], "kb_score": kb_score}
         return view
 
     def _run_merge_jobs_of(kb: KnowledgeBaseInfo) -> None:
@@ -1511,7 +1527,7 @@ def create_app(
                 for row in reversed(kb_collab.list_contributions(conn, kb.id, state=state)):
                     own = principal.account_id is not None and row["contributor_account_id"] == principal.account_id
                     if row["state"] == "visible" or is_reviewer or own:
-                        items.append(_contribution_view(conn, row, full=is_reviewer or own))
+                        items.append(_contribution_view(conn, row, full=is_reviewer or own, review_help=is_reviewer))
                 return items
             finally:
                 conn.close()
@@ -1630,6 +1646,120 @@ def create_app(
 
         return await asyncio.to_thread(_retry)
 
+    # --- Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 9.2 and 9.3) ---
+
+    def _kb_ref(kb_id: int) -> dict[str, Any]:
+        try:
+            kb = theme_mgr.get_kb(int(kb_id))
+        except KnowledgeBaseNotFound:
+            return {"knowledge_base": None, "label": None}
+        return {"knowledge_base": ids.format_public_id(kb.number) if kb.number is not None else None, "label": kb.label}
+
+    def _submission_view(conn: sqlite3.Connection, submission: dict[str, Any]) -> dict[str, Any]:
+        """One submission for its account: the theme, the score, and the state of each target of each item (design Section 9.2 rule 8)."""
+        items = []
+        for item in kb_collab.submission_items(conn, int(submission["public_id"])):
+            theme = themes_store.get_theme(conn, int(item["theme_id"])) if item["theme_id"] is not None else None
+            made = {int(c["kb_id"]): c for c in kb_collab.contributions_of_item(conn, int(item["id"]))}
+            reasons = {int(entry["kb_id"]): entry["reason"] for entry in item["skipped"]}
+            targets = []
+            for kb_id in item["target_kb_ids"]:
+                target = _kb_ref(kb_id)
+                if kb_id in made:
+                    target.update({"state": made[kb_id]["state"], "contribution": ids.format_public_id(int(made[kb_id]["public_id"])), "approved": made[kb_id]["approved_at"] is not None})
+                elif kb_id in reasons:
+                    target.update({"state": "skipped", "reason": reasons[kb_id]})
+                else:
+                    target.update({"state": "withdrawn"})  # the contributor deleted the pending contribution
+                targets.append(target)
+            view: dict[str, Any] = {
+                "document": item["source_document_id"],
+                "theme": None if theme is None else ids.format_public_id(int(theme["number"])),
+                "theme_label": None if theme is None else theme["label"],
+                "routed_by": item["routed_by"],
+                "score": item["match_score"],
+                "targets": targets,
+            }
+            if theme is None:
+                # No theme: the account selects a theme, contributes directly to a shared knowledge base where it is a member, or makes a shared knowledge base (Section 9.2 rule 3).
+                view["code"] = "no_theme"
+            items.append(view)
+        return {"number": ids.format_public_id(int(submission["public_id"])), "created_at": submission["created_at"], "items": items}
+
+    async def submissions_route(request: Request) -> Response:
+        """``POST /submissions`` with ``{"documents": [...], "theme"?: "<number>"}``: contribute documents of the personal knowledge base of the requester to themes. ``GET /submissions``: the submissions of the requester."""
+        principal = request_principal(request)
+        if principal.account_id is None:
+            raise HTTPException(status_code=404, detail="not found")
+        account_id = int(principal.account_id)
+        if request.method != "POST":
+            def _list() -> list[dict[str, Any]]:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    return [_submission_view(conn, sub) for sub in kb_collab.list_submissions(conn, account_id)]
+                finally:
+                    conn.close()
+
+            items = await asyncio.to_thread(_list)
+            return _collection_response(request, collection_url=f"{_public_origin(request)}/submissions", items=items, extra={"submissions": items})
+        body = await _json_object(request)
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not all(isinstance(d, str) and d.strip() for d in documents):
+            raise HTTPException(status_code=400, detail="documents_invalid")
+
+        def _submit() -> JSONResponse:
+            try:
+                personal = theme_mgr.personal_kb_for(account_id)
+            except KnowledgeBaseNotFound:
+                return JSONResponse({"error": "document_not_found"}, status_code=404)
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                theme_id = None
+                if "theme" in body:
+                    try:
+                        theme = themes_store.get_theme_by_number(conn, ids.parse_public_id(str(body["theme"])))
+                    except ValueError:
+                        theme = None
+                    if theme is None or theme["state"] != "active":
+                        return JSONResponse({"error": "theme_not_found"}, status_code=404)
+                    theme_id = int(theme["id"])
+                try:
+                    number = contributions.submit_to_themes(conn, account_id=account_id, is_admin=principal.server_role == "admin", personal_kb_id=personal.id, documents=[d.strip() for d in documents], theme_id=theme_id)
+                except contributions.ContributionError as exc:
+                    conn.rollback()
+                    return JSONResponse({"error": exc.code, **exc.extra}, status_code=exc.status)
+                conn.commit()
+                # A contribution of a reviewer needs no approval: its merge job runs now, with the provider of the server.
+                contributions.run_pending_merge_jobs(conn, lambda kb_id: service_pool.get_service(kb_id).provider, lambda kb_id: theme_mgr.get_settings_for_kb(kb_id, s))
+                return JSONResponse({"ok": True, "submission": _submission_view(conn, kb_collab.get_submission(conn, number) or {"public_id": number, "created_at": None})}, status_code=201)
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_submit)
+
+    async def submission_route(request: Request) -> JSONResponse:
+        """``GET /submissions/{number}``: one submission of the requester. A submission of another account gets 404."""
+        principal = request_principal(request)
+        try:
+            number = ids.parse_public_id(str(request.path_params.get("number") or ""))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="not found") from None
+
+        def _load() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                submission = kb_collab.get_submission(conn, number)
+                if submission is None or principal.account_id is None or submission["account_id"] != principal.account_id:
+                    return None
+                return _submission_view(conn, submission)
+            finally:
+                conn.close()
+
+        view = await asyncio.to_thread(_load)
+        if view is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return JSONResponse(view)
+
     # --- Themes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 8.2 to 8.4) ---
 
     def _theme_view(conn: sqlite3.Connection, theme: dict[str, Any], *, origin: str, admin: bool = False) -> dict[str, Any]:
@@ -1743,6 +1873,8 @@ def create_app(
             "settings": theme_judgement.read_settings(conn),
             "last_run_at": float(last[0]) if last is not None else None,
             "themes": [_theme_view(conn, t, origin=origin, admin=True) for t in themes_store.list_themes(conn, include_merged=True)],
+            # Design Section 9.3 rule 5: the agreement of the decisions of each shared knowledge base with the majority of the others.
+            "decision_agreement": [{**_kb_ref(entry["kb_id"]), "decisions": entry["decisions"], "agreement": entry["agreement"]} for entry in contributions.decision_agreement(conn)],
         }
 
     def _admin_theme_of_path(conn: sqlite3.Connection, request: Request, name: str = "number") -> dict[str, Any]:
@@ -5336,6 +5468,8 @@ def create_app(
         Route("/api/admin/themes/{number}", admin_theme_route, methods=["PATCH"]),
         Route("/api/admin/themes/{number}/knowledge-bases/{kb}", admin_theme_member_route, methods=["PUT"]),
         Route("/api/admin/themes/{number}/merge", admin_theme_merge_route, methods=["POST"]),
+        Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
+        Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
         Route("/contributions", kb_contribute_route, methods=["POST"]),
         Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),
         Route("/contributions/{number}", kb_contribution_withdraw_route, methods=["DELETE"]),

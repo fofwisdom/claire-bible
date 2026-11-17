@@ -757,6 +757,81 @@ paths:
         '409':
           description: '`contribution_not_failed`.'
 
+  /submissions:
+    post:
+      summary: Contribute documents to themes
+      description: >-
+        Contributes documents of the personal knowledge base of the requester to the shared knowledge
+        bases of a theme. With `theme`, the requester selects the theme. Without it, the server uses
+        the theme match of each document; a document with no match gets the code `no_theme` and no
+        target. A contribution of a reviewer of a target is visible at once. Each other contribution
+        is `pending` until a reviewer of that knowledge base decides.
+      operationId: submitToThemes
+      x-claire-access: write
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documents]
+              properties:
+                documents:
+                  type: array
+                  items:
+                    type: string
+                  description: Document IDs of the personal knowledge base of the requester, each one time.
+                theme:
+                  type: string
+                  description: The number of an active theme.
+      responses:
+        '201':
+          description: '`{"ok": true, "submission": {"number", "created_at", "items": [...]}}`'
+        '400':
+          description: '`documents_invalid` (with `limit`).'
+        '404':
+          description: '`document_not_found` or `theme_not_found`.'
+    get:
+      summary: Submissions of the requester
+      operationId: listSubmissions
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: OrderedCollection or OrderedCollectionPage of submissions.
+
+  /submissions/{number}:
+    get:
+      summary: One submission of the requester
+      description: >-
+        Each item has the document, the theme, `routed_by` (`account` or `server`), the match score,
+        and the state of each target knowledge base (`pending`, `visible`, `rejected`, `removed`,
+        `failed`, `skipped` with a reason, or `withdrawn`).
+      operationId: getSubmission
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The submission.
+        '404':
+          description: No submission with this number for the requester.
+
   /api/admin/kb/{number}/moderators/{account}:
     parameters:
       - name: number

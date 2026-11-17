@@ -7,6 +7,7 @@ The functions do not commit: the caller sets the transaction boundary.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -307,6 +308,68 @@ def complete_revision(conn: sqlite3.Connection, revision_id: int, *, state: str,
 def list_revisions(conn: sqlite3.Connection, contribution_public_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(f"SELECT {', '.join(_REVISION_KEYS)} FROM kb_contribution_revisions WHERE contribution_public_id=? ORDER BY id", (int(contribution_public_id),)).fetchall()
     return [dict(zip(_REVISION_KEYS, tuple(r))) for r in rows]
+
+
+# --- submissions (design Section 9.2) --------------------------------------------------------------
+
+_ITEM_KEYS = ("id", "submission_public_id", "source_document_id", "theme_id", "routed_by", "match_score", "target_kb_ids", "skipped")
+
+
+def add_submission(conn: sqlite3.Connection, *, account_id: int, now: float | None = None, now_ms: int | None = None) -> int:
+    """Insert one submission (a request to contribute documents to themes) and return its public ID."""
+    ts = time.time() if now is None else now
+
+    def _insert(number: int) -> None:
+        conn.execute("INSERT INTO kb_submissions (public_id, account_id, created_at) VALUES (?, ?, ?)", (number, int(account_id), ts))
+
+    return _new_public_id(conn, "kb_submissions", "public_id", _insert, now_ms=now_ms)
+
+
+def add_submission_item(conn: sqlite3.Connection, *, submission_public_id: int, source_document_id: str, theme_id: int | None, routed_by: str, match_score: float | None) -> int:
+    if routed_by not in ("server", "account"):
+        raise ValueError(f"invalid routed_by: {routed_by!r}")
+    cur = conn.execute(
+        "INSERT INTO kb_submission_items (submission_public_id, source_document_id, theme_id, routed_by, match_score) VALUES (?, ?, ?, ?, ?)",
+        (int(submission_public_id), source_document_id, theme_id, routed_by, match_score),
+    )
+    return int(cur.lastrowid)
+
+
+def set_submission_item_targets(conn: sqlite3.Connection, item_id: int, *, target_kb_ids: list[int], skipped: list[dict[str, Any]]) -> None:
+    """Store the target list of an item and the targets that were skipped with their reasons (Section 9.2 rules 4 and 5)."""
+    conn.execute("UPDATE kb_submission_items SET target_kb_ids=?, skipped=? WHERE id=?", (json.dumps(target_kb_ids), json.dumps(skipped), int(item_id)))
+
+
+def get_submission(conn: sqlite3.Connection, public_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT public_id, account_id, created_at FROM kb_submissions WHERE public_id=?", (int(public_id),)).fetchone()
+    return None if row is None else dict(zip(("public_id", "account_id", "created_at"), tuple(row)))
+
+
+def list_submissions(conn: sqlite3.Connection, account_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT public_id, account_id, created_at FROM kb_submissions WHERE account_id=? ORDER BY public_id DESC", (int(account_id),)).fetchall()
+    return [dict(zip(("public_id", "account_id", "created_at"), tuple(r))) for r in rows]
+
+
+def submission_items(conn: sqlite3.Connection, submission_public_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(f"SELECT {', '.join(_ITEM_KEYS)} FROM kb_submission_items WHERE submission_public_id=? ORDER BY id", (int(submission_public_id),)).fetchall()
+    items = []
+    for row in rows:
+        item = dict(zip(_ITEM_KEYS, tuple(row)))
+        item["target_kb_ids"] = json.loads(item["target_kb_ids"] or "[]")
+        item["skipped"] = json.loads(item["skipped"] or "[]")
+        items.append(item)
+    return items
+
+
+def contributions_of_item(conn: sqlite3.Connection, submission_item_id: int) -> list[dict[str, Any]]:
+    """The contributions that one submission item made, one for each target knowledge base (the decisions of each reviewer, Section 9.3 rule 2)."""
+    rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE submission_item_id=? ORDER BY kb_id", (int(submission_item_id),)).fetchall()
+    return [dict(zip(_CONTRIBUTION_KEYS, tuple(r))) for r in rows]
+
+
+def pending_count(conn: sqlite3.Connection, *, kb_id: int, account_id: int) -> int:
+    """The pending contributions of one account in one knowledge base (the pending limit, Section 9.2 rule 5)."""
+    return int(conn.execute("SELECT COUNT(*) FROM kb_contributions WHERE kb_id=? AND contributor_account_id=? AND state='pending'", (int(kb_id), int(account_id))).fetchone()[0])
 
 
 # --- moderation log ------------------------------------------------------------------------------

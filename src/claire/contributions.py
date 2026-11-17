@@ -173,12 +173,18 @@ def contribute_direct(
     contributor_account_id: int,
     approved: bool,
     now: float | None = None,
+    origin: str = "direct",
+    pending: bool = False,
+    submission_item_id: int | None = None,
 ) -> dict[str, Any]:
     """Copy a document of the personal knowledge base ``source_kb_id`` into the shared knowledge base ``kb_id`` as a direct contribution, with its merge job (design Section 9.1 steps 1 and 2). One transaction; the caller commits.
 
     ``approved``: the contributor is a reviewer of K, so the contribution needs no approval (Section 6.2 rule 2). Else ``approved_at`` stays NULL and the contributor can withdraw (CT7).
     The checks of the capability, the scope, and the state of K are of the caller (``kb_access.decide``).
+    ``pending`` (a contribution to a theme by an account that is not a reviewer of K, Section 9.2 rule 5): the copy stays hidden, the state is ``pending``, and no merge job starts until a reviewer approves.
     """
+    if pending and approved:
+        raise ValueError("a pending contribution is not approved")
     ts = time.time() if now is None else now
     source = conn.execute("SELECT canonical_url, content_hash FROM documents WHERE id=? AND kb_id=?", (source_document_id, int(source_kb_id))).fetchone()
     if source is None:
@@ -196,8 +202,8 @@ def contribute_direct(
         conn,
         kb_id=kb_id,
         document_id=target_id,
-        origin="direct",
-        state="merging",
+        origin=origin,
+        state="pending" if pending else "merging",
         contributor_account_id=contributor_account_id,
         source_kb_id=source_kb_id,
         source_document_id=source_document_id,
@@ -205,9 +211,11 @@ def contribute_direct(
         root_document_id=source_document_id,
         approved_at=ts if approved else None,
         approved_by_account_id=contributor_account_id if approved else None,
+        submission_item_id=submission_item_id,
         now=ts,
     )
-    add_merge_job(conn, kb_id=kb_id, contribution=public_id, now=ts)
+    if not pending:
+        add_merge_job(conn, kb_id=kb_id, contribution=public_id, now=ts)
     contribution = kb_collab.get_contribution(conn, public_id)
     assert contribution is not None
     return contribution
@@ -612,3 +620,123 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
     if old_copy:
         _purge_copy(conn, data_dir, kb_id=kb_id, document_id=str(old_copy), tombstone=False, reason="contribution_revised")
     return MergeResult(str(row["state"]), entities=entities, relations=relations)
+
+
+# --- contribution to a theme (Section 9.2) ---------------------------------------------------------------------------
+
+# Admin settings in ``server_settings``: the documents of one submission, and the pending contributions of one account in one knowledge base. The reputation of unit CT-11 makes the second limit depend on the level of the account.
+LIMITS = {"submission_max_documents": 20, "contribution_pending_limit": 20}
+
+
+def read_limits(conn: sqlite3.Connection) -> dict[str, int]:
+    """The limits of contributions. A stored value that is not a positive integer is a defect of the data: ``RuntimeError``."""
+    values = dict(LIMITS)
+    for key in LIMITS:
+        row = conn.execute("SELECT value FROM server_settings WHERE key=?", (key,)).fetchone()
+        if row is None:
+            continue
+        try:
+            value = int(row[0])
+        except (TypeError, ValueError):
+            raise RuntimeError(f"server_settings.{key} is not an integer: {row[0]!r}") from None
+        if value < 1:
+            raise RuntimeError(f"server_settings.{key} is out of range: {value!r}")
+        values[key] = value
+    return values
+
+
+def submit_to_themes(
+    conn: sqlite3.Connection,
+    *,
+    account_id: int,
+    is_admin: bool,
+    personal_kb_id: int,
+    documents: list[str],
+    theme_id: int | None,
+    now: float | None = None,
+) -> int:
+    """Contribute documents of the personal knowledge base of the account to themes (design Section 9.2). Return the public ID of the submission. One transaction; the caller commits and then runs the merge jobs.
+
+    For each document: the theme is ``theme_id`` (the account selected it) or the theme match of the document (the server routes it). Without a theme the item has no target (the response gives ``no_theme``). The targets are the active shared knowledge bases of the theme where the account is not banned. In each target: a duplicate, a tombstone, and the pending limit skip the target with the reason; a reviewer of the target contributes without approval; each other account makes a pending contribution with a hidden copy and no graph.
+    """
+    from . import theme_judgement
+    from .store import themes as themes_store
+
+    ts = time.time() if now is None else now
+    limits = read_limits(conn)
+    if not documents or len(documents) > limits["submission_max_documents"]:
+        raise ContributionError(400, "documents_invalid", limit=limits["submission_max_documents"])
+    if len(set(documents)) != len(documents):
+        raise ContributionError(400, "documents_invalid", limit=limits["submission_max_documents"])
+    for document_id in documents:
+        if conn.execute("SELECT 1 FROM documents WHERE id=? AND kb_id=?", (document_id, int(personal_kb_id))).fetchone() is None:
+            raise ContributionError(404, "document_not_found", document=document_id)
+    submission = kb_collab.add_submission(conn, account_id=account_id, now=ts)
+    for document_id in documents:
+        if theme_id is not None:
+            item_theme, routed_by, score = theme_id, "account", None
+        else:
+            match = theme_judgement.match_document(conn, kb_id=personal_kb_id, document_id=document_id, now=ts)
+            item_theme, routed_by, score = match.theme_id, "server", match.score
+        item_id = kb_collab.add_submission_item(conn, submission_public_id=submission, source_document_id=document_id, theme_id=item_theme, routed_by=routed_by, match_score=score)
+        if item_theme is None:
+            continue
+        targets: list[int] = []
+        skipped: list[dict[str, Any]] = []
+        for member in themes_store.theme_members(conn, item_theme):
+            kb = conn.execute("SELECT id, is_personal, account_id, state FROM knowledge_bases WHERE id=?", (int(member["kb_id"]),)).fetchone()
+            if kb is None or kb["is_personal"] or kb["account_id"] is not None or kb["state"] != "active":
+                continue  # only an active shared knowledge base is a target
+            kb_id = int(kb["id"])
+            membership = kb_collab.get_membership(conn, kb_id, account_id)
+            if membership is not None and membership["state"] == "banned":
+                continue
+            targets.append(kb_id)
+            reviewer = is_admin or (membership is not None and membership["state"] == "active" and membership["role"] in ("collaborator", "moderator"))
+            if not reviewer and kb_collab.pending_count(conn, kb_id=kb_id, account_id=account_id) >= limits["contribution_pending_limit"]:
+                skipped.append({"kb_id": kb_id, "reason": "pending_limit"})
+                continue
+            try:
+                contribute_direct(
+                    conn, kb_id=kb_id, source_kb_id=personal_kb_id, source_document_id=document_id, contributor_account_id=account_id,
+                    approved=reviewer, pending=not reviewer, origin="bulk", submission_item_id=item_id, now=ts,
+                )
+            except ContributionError as exc:
+                if exc.code not in ("contribution_duplicate", "contribution_tombstoned", "document_not_extracted"):
+                    raise
+                skipped.append({"kb_id": kb_id, "reason": exc.code})
+        kb_collab.set_submission_item_targets(conn, item_id, target_kb_ids=targets, skipped=skipped)
+    return submission
+
+
+def decision_of(row: dict[str, Any]) -> str:
+    """The decision of the reviewers of one knowledge base on a contribution, for the review help (Section 9.3 rule 2)."""
+    if row["state"] == "rejected":
+        return "rejected"
+    if row["state"] == "removed":
+        return "removed"
+    return "approved" if row["approved_at"] is not None else "pending"
+
+
+def decision_agreement(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """For each shared knowledge base: the agreement of its decisions with the majority decision of the other knowledge bases on the same submission items, for items with 3 or more decisions (Section 9.3 rule 5)."""
+    rows = conn.execute("SELECT submission_item_id, kb_id, state, approved_at FROM kb_contributions WHERE submission_item_id IS NOT NULL").fetchall()
+    by_item: dict[int, dict[int, str]] = {}
+    for row in rows:
+        decision = decision_of({"state": row["state"], "approved_at": row["approved_at"]})
+        if decision in ("approved", "rejected"):
+            by_item.setdefault(int(row["submission_item_id"]), {})[int(row["kb_id"])] = decision
+    totals: dict[int, list[int]] = {}
+    for decisions in by_item.values():
+        if len(decisions) < 3:
+            continue
+        for kb_id, decision in decisions.items():
+            others = [d for k, d in decisions.items() if k != kb_id]
+            approved = others.count("approved")
+            if approved * 2 == len(others):
+                continue  # the other knowledge bases have no majority
+            majority = "approved" if approved * 2 > len(others) else "rejected"
+            entry = totals.setdefault(kb_id, [0, 0])
+            entry[0] += 1
+            entry[1] += 1 if decision == majority else 0
+    return [{"kb_id": kb_id, "decisions": count, "agreement": agreed / count} for kb_id, (count, agreed) in sorted(totals.items())]

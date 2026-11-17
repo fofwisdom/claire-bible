@@ -45,7 +45,9 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items",
        # Feed view (FP4-F3)
-       "/api/feeds/items/{item_id}", "/api/feeds/items/{item_id}/ingest", "/api/feeds/discover", "/render/feed/{item_id}"}
+       "/api/feeds/items/{item_id}", "/api/feeds/items/{item_id}/ingest", "/api/feeds/discover", "/render/feed/{item_id}",
+       # Contribution to a theme (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 9.2)
+       "/submissions", "/submissions/{number}"}
 SYSTEM = {
     "/health", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
