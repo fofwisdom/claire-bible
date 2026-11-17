@@ -60,6 +60,8 @@ __all__ = [
     "build_update_knowledge_base",
     "context_document",
     "context_json",
+    "is_iri",
+    "iso_time",
     "term_iri",
     "validate_activity",
     "validate_object",
@@ -355,6 +357,16 @@ def _iso(seconds: Any, path: str) -> str:
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
         raise ContractError("invalid_time", path)
     return datetime.fromtimestamp(int(seconds), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def is_iri(value: Any) -> bool:
+    """True when the value is an absolute ``http`` or ``https`` IRI of the wire form."""
+    return _is_iri(value)
+
+
+def iso_time(seconds: float) -> str:
+    """The wire text of a time from the seconds of a table row."""
+    return _iso(seconds, "time")
 
 
 # ── Validators: objects ──────────────────────────────────────────────────────

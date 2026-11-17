@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-kb-actors/1846000000000000200/documents?signer=https%3A%2F%2Fb.example%2Fap%2Factors%2Fserver"
+  },
+  "status": 200,
+  "response": {
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v1"
+      ],
+      "id": "https://a.example/ap/kb/1846000000000000200/documents",
+      "type": "OrderedCollection",
+      "totalItems": 0,
+      "first": "https://a.example/ap/kb/1846000000000000200/documents?page=true"
+    }
+  }
+}

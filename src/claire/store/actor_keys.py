@@ -2,6 +2,7 @@
 
 - Each actor has two key pairs: RSA 2048 for HTTP Signatures and Ed25519 for Object Integrity Proofs.
 - The server actor uses ``account_id`` 0. An account ID is 1 or more.
+- The actor of a shared knowledge base (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.2, unit KF3) uses a negative ``account_id``: minus the number of the knowledge base (``ensure_kb_actor_keys``, ``load_kb_actor_keys``). A number is never used again, so a new knowledge base never gets the keys of one that was deleted.
 - The public key is stored as a JWK in plaintext. The private key is stored as a JWK that ``SecretService`` encrypts with the additional authenticated data ``actor_key|{account_id}|{alg}``. A ciphertext that is moved to a different account or algorithm does not decrypt.
 - This module does not write a private key to a log. ``ActorKeyPair`` hides the private JWK in its ``repr``.
 """
@@ -27,9 +28,12 @@ __all__ = [
     "ActorKeyPair",
     "delete_actor_keys",
     "ensure_actor_keys",
+    "ensure_kb_actor_keys",
     "generate_key_pair",
+    "load_kb_actor_keys",
     "load_actor_keys",
     "load_public_jwks",
+    "public_key_pem",
 ]
 
 SERVER_ACTOR_ACCOUNT_ID: Final[int] = 0
@@ -78,12 +82,44 @@ def _check_account_id(account_id: int) -> int:
     return account_id
 
 
+def _kb_owner(kb_number: int) -> int:
+    """The value of ``account_id`` for the keys of the actor of the shared knowledge base with that number."""
+    if isinstance(kb_number, bool) or not isinstance(kb_number, int) or kb_number < 1:
+        raise ValueError("the number of a knowledge base is 1 or more")
+    return -kb_number
+
+
+def ensure_kb_actor_keys(conn: sqlite3.Connection, kb_number: int, secret_service: SecretService, *, now: float | None = None) -> bool:
+    """``ensure_actor_keys`` for the actor of a shared knowledge base."""
+    return _ensure(conn, _kb_owner(kb_number), secret_service, now=now)
+
+
+def load_kb_actor_keys(conn: sqlite3.Connection, kb_number: int, secret_service: SecretService) -> list[ActorKeyPair]:
+    """``load_actor_keys`` for the actor of a shared knowledge base."""
+    return _load(conn, _kb_owner(kb_number), secret_service)
+
+
+def public_key_pem(public_jwk: dict[str, str]) -> str:
+    """The PEM text (SubjectPublicKeyInfo) of an RSA public JWK: the form of ``publicKeyPem`` in an actor document."""
+    if public_jwk.get("kty") != "RSA":
+        raise ValueError("only an RSA key has this form")
+
+    def _int(value: str) -> int:
+        return int.from_bytes(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)), "big")
+
+    key = rsa.RSAPublicNumbers(_int(public_jwk["e"]), _int(public_jwk["n"])).public_key()
+    return key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii")
+
+
 def ensure_actor_keys(conn: sqlite3.Connection, account_id: int, secret_service: SecretService, *, now: float | None = None) -> bool:
     """Generate and store the key pairs that the actor does not have. Return ``True`` when this call stored a key.
 
     An existing key is not replaced.
     """
-    _check_account_id(account_id)
+    return _ensure(conn, _check_account_id(account_id), secret_service, now=now)
+
+
+def _ensure(conn: sqlite3.Connection, account_id: int, secret_service: SecretService, *, now: float | None) -> bool:
     existing = {str(r[0]) for r in conn.execute("SELECT alg FROM actor_keys WHERE account_id=?", (account_id,))}
     missing = [alg for alg in ACTOR_KEY_ALGS if alg not in existing]
     if not missing:
@@ -116,9 +152,13 @@ def load_actor_keys(conn: sqlite3.Connection, account_id: int, secret_service: S
 
     Raises ``SecretDecryptionError`` when a ciphertext does not belong to its row.
     """
+    return _load(conn, _check_account_id(account_id), secret_service)
+
+
+def _load(conn: sqlite3.Connection, account_id: int, secret_service: SecretService) -> list[ActorKeyPair]:
     rows = conn.execute(
         "SELECT alg, public_jwk, private_ciphertext, private_nonce, key_version, created_at FROM actor_keys WHERE account_id=?",
-        (_check_account_id(account_id),),
+        (account_id,),
     ).fetchall()
     pairs: list[ActorKeyPair] = []
     for alg, public_jwk, ciphertext, nonce, key_version, created_at in sorted(rows, key=lambda r: ACTOR_KEY_ALGS.index(str(r[0]))):

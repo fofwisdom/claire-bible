@@ -1,4 +1,4 @@
-"""Contract fixtures of the internal routes of the knowledge federation (the interface between Claire and the sidecar; units KF1 and KF2).
+"""Contract fixtures of the internal routes of the knowledge federation (the interface between Claire and the sidecar; units KF1 to KF3).
 
 The directory ``tests/fixtures/knowledge_federation/internal/`` has one JSON file for each call, with the keys ``request`` (``method``, ``path``, and ``body`` for a POST), ``status``, and ``response``, as the files of ``tests/fixtures/federation_contract/``. This test makes the calls on a real internal app and fails when an answer is different from its file. The Deno tests of the sidecar (``sidecar/fedify/tests/knowledge_test.ts``) read the same files: the client of the sidecar must accept each answer and must send each request body.
 
@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 import pytest
 
 from claire.api.federation_internal import INTERNAL_PREFIX
-from claire.knowledge_federation import journal, known_servers, vocabulary
+from claire.knowledge_federation import handlers, journal, known_servers, remote_documents, remote_kbs, vocabulary
 from claire.store.secrets import reset_secret_service
 from tests.knowledge_federation_servers import FIXTURES, KfServer, fixture, server_actor
 
@@ -58,12 +58,45 @@ def calls(tmp_path: Path) -> dict[str, dict[str, Any]]:
         ("knowledge_activity_duplicate", "POST", "/knowledge-activities", {"activity": update, "signer": update["actor"], "verified_by": "http-signature", "recipient": None}),
     ]
     out: dict[str, dict[str, Any]] = {}
-    for name, method, path, body in steps:
-        response = a.internal(method, path, body)
-        request: dict[str, Any] = {"method": method, "path": f"{INTERNAL_PREFIX}{path}"}
-        if body is not None:
-            request["body"] = body
-        out[name] = {"request": request, "status": response.status_code, "response": response.json()}
+
+    def _run(run_steps: list[tuple[str, str, str, Any]]) -> None:
+        for name, method, path, body in run_steps:
+            response = a.internal(method, path, body)
+            request: dict[str, Any] = {"method": method, "path": f"{INTERNAL_PREFIX}{path}"}
+            if body is not None:
+                request["body"] = body
+            out[name] = {"request": request, "status": response.status_code, "response": response.json()}
+
+    _run(steps)
+    # Unit KF3. Its handlers are installed only now: the activity of the steps before stays without a handler. The actor document and the keys of a knowledge base actor have no fixture, because each server makes its own keys; the end-to-end test of the unit examines them.
+    handlers.install()
+    kb_actor = f"https://a.example/ap/kb/{A_KB_NUMBER}"
+    follow = vocabulary.build_follow(activity_id=f"{B_SERVER}#follows/1", server_actor=B_SERVER, knowledge_base=kb_actor)
+    # A read of the documents collection of the knowledge base of B waits (a reviewer of this server opened it).
+    a.db(lambda conn: remote_documents.request_listing(conn, remote_kbs.get_by_iri(conn, kb["id"]), now=a.now))
+    documents = kb[vocabulary.DOCUMENTS]
+    page = {
+        "@context": list(vocabulary.WIRE_CONTEXT),
+        "id": f"{documents}?page=true",
+        "type": "OrderedCollectionPage",
+        "partOf": documents,
+        "orderedItems": [{"id": f"{documents}/1846000000000000300", "type": "Article", "name": "Seoul", "url": "https://example.org/seoul", vocabulary.CONTENT_HASH: "ab" * 32, "published": "2026-11-16T00:00:00Z"}],
+    }
+    _run([
+        # The server actor of B follows the knowledge base actor of this server; the ``Accept`` is a task of the outbox.
+        ("knowledge_activity_follow", "POST", "/knowledge-activities", {"activity": follow, "signer": B_SERVER, "verified_by": "http-signature", "recipient": kb_actor}),
+        ("knowledge_kb_actor_followers", "GET", f"/knowledge-kb-actors/{A_KB_NUMBER}/followers?{signed}", None),
+        ("knowledge_kb_actor_documents", "GET", f"/knowledge-kb-actors/{A_KB_NUMBER}/documents?{signed}", None),
+        ("knowledge_kb_actor_documents_page", "GET", f"/knowledge-kb-actors/{A_KB_NUMBER}/documents?{signed}&page=true", None),
+        ("knowledge_kb_actor_unsigned", "GET", f"/knowledge-kb-actors/{A_KB_NUMBER}/documents", None),
+        ("knowledge_outbox_tasks", "GET", "/knowledge-outbox-tasks?limit=10", None),
+        ("knowledge_outbox_ack", "POST", "/knowledge-outbox-tasks/1/ack", {"result": "delivered", "error_code": None}),
+        ("knowledge_outbox_ack_unknown", "POST", "/knowledge-outbox-tasks/99/ack", {"result": "retry", "error_code": "inbox_unreachable"}),
+        # The read of the documents collection of the knowledge base of B, and its answer with one page.
+        ("knowledge_remote_reads", "GET", "/knowledge-remote-reads?limit=5", None),
+        ("knowledge_remote_read", "POST", "/knowledge-remote-reads", {"id": 1, "document": page, "error": None}),
+        ("knowledge_remote_read_unknown", "POST", "/knowledge-remote-reads", {"id": 2, "document": None, "error": "document_unavailable"}),
+    ])
     return out
 
 
@@ -102,6 +135,15 @@ def test_each_answer_of_the_internal_app_is_its_fixture(tmp_path: Path) -> None:
     assert [vocabulary.validate_object(item, top_level=False) for item in page["orderedItems"]] == ["knowledge_base"]
     assert stored["knowledge_activity"]["response"] == {"decision": "failed", "reason": "no_handler", "journal_id": 1}
     assert stored["knowledge_activity_duplicate"]["response"] == {"decision": "duplicate", "reason": "failed", "journal_id": 1}
+    # Unit KF3.
+    assert stored["knowledge_activity_follow"]["response"] == {"decision": "processed", "reason": None, "journal_id": 2}
+    assert stored["knowledge_kb_actor_followers"]["response"]["document"]["totalItems"] == 1
+    assert (stored["knowledge_kb_actor_unsigned"]["status"], stored["knowledge_outbox_ack_unknown"]["status"], stored["knowledge_remote_read_unknown"]["status"]) == (404, 404, 404)
+    (task,) = stored["knowledge_outbox_tasks"]["response"]["tasks"]
+    assert (task["kind"], task["signer"], task["recipient"], vocabulary.validate_activity(task["activity"])) == ("accept_follow", str(A_KB_NUMBER), B_SERVER, "accept_follow")
+    assert stored["knowledge_outbox_ack"]["response"] == {"id": 1, "status": "delivered"}
+    assert stored["knowledge_remote_reads"]["response"] == {"reads": [{"id": 1, "url": "https://b.example/ap/kb/1846000000000000100/documents"}]}
+    assert stored["knowledge_remote_read"]["response"] == {"id": 1, "status": "done", "error_code": None}
 
 
 def test_the_sidecar_has_a_copy_of_the_context_document() -> None:

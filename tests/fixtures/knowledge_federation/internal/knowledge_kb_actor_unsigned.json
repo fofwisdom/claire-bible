@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-kb-actors/1846000000000000200/documents"
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

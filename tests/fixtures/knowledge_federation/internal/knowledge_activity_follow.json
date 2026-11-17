@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-activities",
+    "body": {
+      "activity": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://w3id.org/claire-bible/ns/v1"
+        ],
+        "id": "https://b.example/ap/actors/server#follows/1",
+        "type": "Follow",
+        "actor": "https://b.example/ap/actors/server",
+        "object": "https://a.example/ap/kb/1846000000000000200",
+        "to": [
+          "https://a.example/ap/kb/1846000000000000200"
+        ]
+      },
+      "signer": "https://b.example/ap/actors/server",
+      "verified_by": "http-signature",
+      "recipient": "https://a.example/ap/kb/1846000000000000200"
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "processed",
+    "reason": null,
+    "journal_id": 2
+  }
+}

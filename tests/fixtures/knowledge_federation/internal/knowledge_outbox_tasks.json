@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/knowledge-outbox-tasks?limit=10"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 1,
+        "kind": "accept_follow",
+        "signer": "1846000000000000200",
+        "recipient": "https://b.example/ap/actors/server",
+        "activity": {
+          "@context": [
+            "https://www.w3.org/ns/activitystreams",
+            "https://w3id.org/claire-bible/ns/v1"
+          ],
+          "id": "https://a.example/ap/kb/1846000000000000200#accepts/123539450ad041a62e9ead72309aadf1",
+          "type": "Accept",
+          "actor": "https://a.example/ap/kb/1846000000000000200",
+          "object": {
+            "id": "https://b.example/ap/actors/server#follows/1",
+            "type": "Follow",
+            "actor": "https://b.example/ap/actors/server",
+            "object": "https://a.example/ap/kb/1846000000000000200"
+          },
+          "to": [
+            "https://b.example/ap/actors/server"
+          ]
+        }
+      }
+    ]
+  }
+}

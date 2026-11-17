@@ -67,6 +67,8 @@ export interface FakeClaire {
   quoteDecision: Record<string, unknown> | null;
   // The bodies of the requests of the knowledge federation (units KF1 and KF2), in sequence, with the path below the prefix of the internal API.
   knowledgePosts: { path: string; body: Record<string, unknown> }[];
+  // The results of outbound activities of the knowledge federation (unit KF3), in sequence: the body of each request with its task ID.
+  knowledgeAcks: { id: number; result: string; error_code: string | null }[];
   // The remote actors that an account follows, in addition to the actor of the timeline_interest fixture. Other actors are not followed.
   followed: Set<string>;
   // The limits of the parent chain in the answer for an actor of `followed`.
@@ -92,6 +94,7 @@ export function fakeClaire(): FakeClaire {
     quoteEvents: [],
     quoteDecision: null,
     knowledgePosts: [],
+    knowledgeAcks: [],
     followed: new Set(),
     context: { context_fetch: "on", context_depth: 5 },
     transport: async (request) => {
@@ -118,6 +121,8 @@ export function fakeClaire(): FakeClaire {
       }
       const knowledge = /\/(knowledge-[a-z-]+)$/.exec(url.pathname);
       if (request.method === "POST" && knowledge !== null) fake.knowledgePosts.push({ path: `/${knowledge[1]}`, body: JSON.parse(text) });
+      const knowledgeAck = /\/knowledge-outbox-tasks\/([0-9]+)\/ack$/.exec(target);
+      if (request.method === "POST" && knowledgeAck !== null) fake.knowledgeAcks.push({ id: Number(knowledgeAck[1]), ...JSON.parse(text) });
       const ack = /\/outbox-tasks\/([0-9]+)\/ack$/.exec(target);
       if (request.method === "POST" && ack !== null) {
         const sent = JSON.parse(text) as { result: string; error_code: string | null };

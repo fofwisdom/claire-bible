@@ -505,6 +505,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/contributions"): _namespaced("read", "read"),
     # Curation and fork (design Sections 9.7, 9.8): decisions of the person, so the scope is ``owner``. The fork handler decides the capability ``fork``: a personal knowledge base that the requester reads gets 403 ``kb_fork_shared_only``.
     ("POST", "/curations"): _namespaced("owner", "curate"),
+    # The sources of a curation on other servers (federation design Section 11): the tool of a reviewer, and the request can start a read of another server.
+    ("GET", "/remote-sources"): _namespaced("owner", "curate"),
+    ("HEAD", "/remote-sources"): _namespaced("owner", "curate"),
     ("POST", "/forks"): _namespaced("owner", "read"),
     ("DELETE", "/contributions/{number}"): _namespaced("write", "read"),
     ("PATCH", "/contributions/{number}"): _namespaced("owner", "review"),

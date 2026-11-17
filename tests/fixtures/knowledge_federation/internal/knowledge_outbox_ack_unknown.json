@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-outbox-tasks/99/ack",
+    "body": {
+      "result": "retry",
+      "error_code": "inbox_unreachable"
+    }
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

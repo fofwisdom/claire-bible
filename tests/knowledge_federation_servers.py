@@ -152,3 +152,84 @@ class KfServer:
     def deliver(self, activity: dict[str, Any], *, signer: str, recipient: str | None, verified_by: str = "http-signature"):
         """Simulate the sidecar: it verified the signature of ``signer`` and hands the activity JSON unchanged to Claire."""
         return self.internal("POST", "/knowledge-activities", {"activity": activity, "signer": signer, "verified_by": verified_by, "recipient": recipient})
+
+
+class KfWorld:
+    """One Claire server with real settings and the mock provider (unit KF3): the public app, the internal app of the sidecar with a signed client, and accounts with personal knowledge bases.
+
+    Network mode, the switch ``federation`` on. Accounts: ``admin`` (1), ``ann`` (2), ``ben`` (3); each one has a public profile and, but for the admin, a personal knowledge base. ``headers(name)`` gives the bearer token of an account. The merge jobs of this server use the mock provider: it makes embeddings and no LLM call is necessary for a merge.
+    """
+
+    ACCOUNTS = {"admin": 1, "ann": 2, "ben": 3}
+
+    def __init__(self, tmp_path: Path, origin: str) -> None:
+        from claire.config import Settings
+        from claire.store.knowledge_base import KnowledgeBaseManager
+        from claire.store.token_store import get_token_store
+
+        directory = tmp_path / origin.split("//", 1)[1]
+        (directory / "data").mkdir(parents=True)
+        self.origin = origin
+        self.settings = Settings(
+            CLAIRE_DB_PATH=str(directory / "data" / "claire.db"),
+            CLAIRE_VAULT_PATH=str(directory / "vault"),
+            CLAIRE_PROVIDER="mock",
+            CLAIRE_ENVIRONMENT="production",
+            CLAIRE_PUBLIC_URL=origin,
+            CLAIRE_INJECT_TOKEN="owner-" + ("s" * 32),
+            CLAIRE_ANONYMOUS_READONLY=True,
+            CLAIRE_MULTI_THEME=True,
+        )
+        conn = dbm.connect(self.settings.db_file)
+        try:
+            dbm.init_db(conn)
+            now = time.time()
+            for username, account_id in self.ACCOUNTS.items():
+                conn.execute(
+                    "INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET username=excluded.username, role=excluded.role, status=excluded.status, display_name=excluded.display_name, profile_public=excluded.profile_public",
+                    (account_id, (1 << 57) + account_id, username, "admin" if account_id == 1 else "member", username.capitalize(), now, now),
+                )
+            store = accounts_store.AccountStore(conn)
+            store.set_setting("mode", "network", updated_by=1)
+            store.set_federation_state("on", updated_by=1)
+            conn.commit()
+        finally:
+            conn.close()
+        self.manager = KnowledgeBaseManager(self.settings)
+        for username, account_id in self.ACCOUNTS.items():
+            if account_id != 1:
+                self.manager.define_kb(f"{username} home", account_id=account_id, is_personal=True, is_public=True)
+        self._tokens = get_token_store(data_dir=self.settings.data_dir)
+        self._bearers: dict[str, dict[str, str]] = {}
+        self.client = TestClient(server.create_app(settings=self.settings), base_url=origin, follow_redirects=False)
+        self.client.__enter__()
+        ensure_service_key(service_key_path(self.settings.data_dir))
+        self._key = load_service_key(service_key_path(self.settings.data_dir))
+        self.internal_client = TestClient(create_internal_federation_app(self.settings, routes=federation_routes.federation_internal_routes(self.settings, now=lambda: self.now), now=lambda: self.now))
+
+    @property
+    def now(self) -> float:
+        """The clock of the internal app is the clock of the public app: the two write times that the code compares."""
+        return time.time()
+
+    def close(self) -> None:
+        self.client.__exit__(None, None, None)
+
+    def headers(self, name: str) -> dict[str, str]:
+        if name not in self._bearers:
+            token = self._tokens.create_api_token(name=f"{name}-owner", scope="owner", account_id=self.ACCOUNTS[name])["token"]
+            self._bearers[name] = {"Authorization": f"Bearer {token}", "Origin": self.origin}
+        return self._bearers[name]
+
+    def db(self, fn: Any) -> Any:
+        conn = dbm.connect_existing(self.settings.db_file)
+        try:
+            result = fn(conn)
+            conn.commit()
+            return result
+        finally:
+            conn.close()
+
+    internal = KfServer.internal
+    deliver = KfServer.deliver

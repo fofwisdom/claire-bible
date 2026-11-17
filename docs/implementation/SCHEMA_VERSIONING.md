@@ -289,3 +289,9 @@ The retired v12 recovery is described above. Other stores have their own version
 - **[코드] Contribution merge jobs (CT-4)**: no new table. A merge job is a row of `jobs` with `source_type = 'contribution_merge'`, the payload `{"contribution": <public ID>, "revision": <id of kb_contribution_revisions>?}`, and the states `pending`, `running`, `done`, `error`. `purge_document_cascade` sets the contribution of a purged copy to `removed`. Details: [`THEMES.md`](THEMES.md) §4.8.
 - **[미구현]** `/admin/kb` 화면의 경고 표시는 CT-9에서 한다.
 - **[테스트]** `tests/test_schema_v28.py`, `tests/test_shared_kb.py`.
+
+## v29 to v31 (federation of shared knowledge, units KF1 to KF3)
+
+- **[코드] 버전 상수**: `SCHEMA_VERSION = 31`.
+- **[코드]** The steps `_migrate_v29_knowledge_federation`, `_migrate_v30_remote_knowledge_bases`, `_migrate_v31_contribution_remote_columns`, and `_migrate_v31_knowledge_base_actors` run at each start and are idempotent. They make the tables `kf_*` and `theme_remote_knowledge_bases` when they are not there, and v31 adds the columns of a remote source to `kb_contributions`. They change no row. A table with one of these names and another form becomes `<name>_retired_v<version>`; the start continues. The tables and columns are in [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) Sections 10.2, 11.3, and 12.3.
+- **[테스트]** `tests/test_knowledge_federation_stores.py`, `tests/test_knowledge_federation_remote.py`, `tests/test_knowledge_federation_kf3.py`.

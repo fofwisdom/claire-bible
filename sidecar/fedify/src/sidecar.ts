@@ -24,12 +24,12 @@
 // - Federation of shared knowledge (KNOWLEDGE_FEDERATION_DESIGN.md, units KF1 and KF2, knowledge.ts): an inbound activity whose @context has the Claire context goes to Claire as a knowledge activity, with its JSON as it came; it is not an inbox event and not a timeline event. Such an activity does not go through the inbox listener of Fedify: Fedify reads an activity into its own vocabulary, which has no Grant and no Revoke, and it does not keep the JSON of each type as it came. The sidecar verifies the HTTP signature of the request and gives Claire the body and the actor of the key; Claire keeps the activity in its inbox journal and makes each other check. The collections /ap/kb and /ap/themes answer a signed GET: the sidecar verifies the signature, and Claire decides and gives the document. A job reads the known servers and their /kb collections with the key of the server actor.
 // - A client task (contract 1.3, unit FP4-3) becomes Follow, Undo(Follow), or Reject(Follow). A Follow has the ID {actor}#follows/{following_id}; an Accept or a Reject of it is matched by that ID, and its object is never fetched (RT1). A follow of an actor on a blocked domain is not sent.
 
-import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue, verifyRequest } from "@fedify/fedify";
+import { type Context, createFederation, type Federation, importJwk, type InboxContext, type KvStore, type MessageQueue, signRequest, verifyRequest } from "@fedify/fedify";
 import { Accept, Activity, type Actor, Announce, Application, Article, Create, Delete, Endpoints, Follow, getTypeId, isActor, LanguageString, Mention, Note, Person, PUBLIC_COLLECTION, type Recipient, Reject, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
 import { type ActorRecord, type ClientTask, type InboxDecision, type InboxEvent, InternalApiError, type KnowledgeActivityResult, SERVER_ACTOR_ID, type ServerConfig, type InternalApi, type ObjectRecord, type OutboxTask, type ResolvedActor, type TimelineEvent, type TimelineNotice, type TimelineObject } from "./internal_api.ts";
 import { CONTEXT_TASK_BATCH, processContextTasks } from "./context.ts";
-// Federation of shared knowledge (units KF1 and KF2).
-import { KNOWLEDGE_COLLECTION_PATHS, knowledgeDocumentOf, KNOWLEDGE_READ_BATCH, type KnowledgeReadCounters, processKnowledgeReads } from "./knowledge.ts";
+// Federation of shared knowledge (units KF1 to KF3).
+import { KB_ACTOR_PATH, KNOWLEDGE_COLLECTION_PATHS, type KnowledgeDeliveryCounters, type KnowledgeDeliveryDeps, knowledgeDocumentOf, KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH, type KnowledgeReadCounters, processKnowledgeOutbox, processKnowledgeReads, processRemoteReads, SERVER_SIGNER } from "./knowledge.ts";
 import { actorProfile, actorType, isPost, isPublic, type LoadOptions, localMentions, noFetch, normalObject, type Post } from "./timeline.ts";
 // Outbound interactions (contract 1.6, unit FP4-9).
 import { Object as ASObject } from "@fedify/fedify/vocab";
@@ -45,7 +45,7 @@ export const CONFIG_CACHE_SECONDS = 5;
 export const SIDECAR_HEADER = "x-claire-fedify-server";
 
 const FEDERATION_PATHS = /^\/(?:\.well-known\/(?:webfinger|nodeinfo)|nodeinfo\/2\.1|ap\/.+)$/;
-// The inbox of a knowledge base actor (/ap/kb/{number}/inbox) gets only activities of the knowledge federation; the actor document itself is unit KF3.
+// The inbox of a knowledge base actor (/ap/kb/{number}/inbox) gets only activities of the knowledge federation. The actor document, its collections, and its documents are the paths of KB_ACTOR_PATH (unit KF3).
 const INBOX_PATHS = /^\/ap\/(?:inbox|actors\/[^/]+\/inbox|kb\/[1-9][0-9]{0,18}\/inbox)$/;
 // The paths that can give 410 with a Tombstone: a deleted object, a purged actor, and a revoked quote authorization.
 const TOMBSTONE_PATH = /^\/ap\/(objects|actors|quote-authorizations)\/([1-9][0-9]{0,18})$/;
@@ -147,6 +147,8 @@ export class Sidecar {
   // Numbers of inbound activities of the knowledge federation since the start of this process, by the decision of Claire.
   readonly knowledgeCounters: Record<KnowledgeActivityResult["decision"], number> = { processed: 0, failed: 0, refused: 0, duplicate: 0, rejected: 0 };
   readonly knowledgeReadCounters: KnowledgeReadCounters = { servers_ok: 0, servers_failed: 0, collections_ok: 0, collections_failed: 0 };
+  // Numbers of outbound activities of the knowledge federation and of reads for a curation (unit KF3).
+  readonly knowledgeDeliveryCounters: KnowledgeDeliveryCounters = { delivered: 0, retry: 0, rejected: 0, reads_ok: 0, reads_failed: 0 };
   // Deleted objects and purged actors that a dispatcher found, with the time of removal. The key is the path. The answer code reads the entry and removes it.
   readonly #gone = new Map<string, number>();
   // The paths in #gone that are deleted notes (unit FP4-9): the Tombstone has the former type Note.
@@ -216,6 +218,8 @@ export class Sidecar {
     const clean = new Request(request.url, { method: request.method, headers, body: inbox ? body : request.body, redirect: "manual" });
     const collection = KNOWLEDGE_COLLECTION_PATHS.get(path);
     if (collection !== undefined) return await this.#knowledgeCollection(clean, config, collection);
+    const kbActor = inbox ? null : KB_ACTOR_PATH.exec(path);
+    if (kbActor !== null) return await this.#knowledgeBaseActor(clean, config, kbActor);
     if (inbox && body !== null) {
       const activity = knowledgeDocumentOf(body);
       if (activity !== null) return await this.#knowledgeInbox(clean, config, path, activity, blocked, body.byteLength);
@@ -307,6 +311,68 @@ export class Sidecar {
       console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
       return text(503, "Service Unavailable", { "retry-after": "5" });
     }
+  }
+
+  // A knowledge base actor of this server (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.2, unit KF3): the actor document, a collection (followers, outbox, documents), or one document. Claire gives each document, and the sidecar gives it without a change.
+  // The actor document needs no signature: another server reads it to verify the signature of an activity. Each other path answers only a request with a valid HTTP signature that Claire accepts (KS1); each refusal is the same 404.
+  async #knowledgeBaseActor(request: Request, config: ServerConfig, match: RegExpExecArray): Promise<Response> {
+    const [, number, plain, documents, documentId] = match;
+    const params = new URL(request.url).searchParams;
+    const answer = (document: Record<string, unknown> | null, cache: string): Response => document === null ? notFound() : new Response(request.method === "HEAD" ? null : JSON.stringify(document), { status: 200, headers: { "content-type": "application/activity+json", "cache-control": cache, vary: "Accept, Signature" } });
+    try {
+      if (plain === undefined && documents === undefined) {
+        if (params.size > 0) return notFound();
+        return answer(await this.#api.kbActor(number), "public, max-age=180");
+      }
+      // The query of a page of the documents collection: `page=true` and `max_id`. A request with another key has no answer.
+      for (const key of params.keys()) if (documents === undefined || documentId !== undefined || (key !== "page" && key !== "max_id")) return notFound();
+      const signer = await this.#requestSigner(request, config);
+      const part = { collection: (plain ?? documents) as "followers" | "outbox" | "documents", document: documentId };
+      return answer(await this.#api.kbActorPart(number, part, { signer, page: params.get("page") ?? undefined, maxId: params.get("max_id") ?? undefined }), "private, no-store");
+    } catch (error) {
+      // A query that Claire does not accept is a request that has no answer.
+      if (error instanceof InternalApiError && error.status === 400) return notFound();
+      console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return text(503, "Service Unavailable", { "retry-after": "5" });
+    }
+  }
+
+  // The dependencies of the outbound work of the knowledge federation: the loader that the server actor signs with, and the key of the signer of a task.
+  #knowledgeDeps(config: ServerConfig, ctx: Context<void>, documentLoader: KnowledgeDeliveryDeps["documentLoader"]): KnowledgeDeliveryDeps {
+    return {
+      api: this.#api,
+      documentLoader,
+      origin: config.canonical_origin,
+      isBlocked: (host: string) => this.isBlocked(host),
+      now: () => this.#now() * 1000,
+      signingKey: async (signer: string) => {
+        // The first key pair is the RSA pair, for HTTP Signatures. The key ID is the ID of the key in the actor document.
+        if (signer === SERVER_SIGNER) {
+          const pairs = await this.#keyPairs(SERVER_ACTOR_ID);
+          return pairs.length === 0 ? null : { privateKey: pairs[0].privateKey, keyId: new URL("#main-key", ctx.getActorUri(SERVER_ACTOR_ID)) };
+        }
+        if (!PUBLIC_ID.test(signer)) return null;
+        const pairs = await this.#kbKeyPairs(signer);
+        return pairs.length === 0 ? null : { privateKey: pairs[0].privateKey, keyId: new URL(`${config.canonical_origin}/ap/kb/${signer}#main-key`) };
+      },
+      sign: (request: Request, privateKey: CryptoKey, keyId: URL) => signRequest(request, privateKey, keyId, { currentTime: instant(this.#now()) }),
+    };
+  }
+
+  // Takes the outbound activities of the knowledge federation that are ready from Claire and delivers each one (unit KF3, knowledge.ts). Returns the number of tasks that Claire gave.
+  async processKnowledgeOutbox(limit = KNOWLEDGE_OUTBOX_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    return await processKnowledgeOutbox(this.#knowledgeDeps(config, ctx, await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID })), this.knowledgeDeliveryCounters, limit);
+  }
+
+  // Takes the reads of documents of other servers for curations from Claire and does them with requests that the server actor signs (unit KF3). Returns the number of reads that Claire gave.
+  async processKnowledgeRemoteReads(limit = KNOWLEDGE_READ_BATCH): Promise<number> {
+    const config = await this.config();
+    if (config.federation !== "on" || config.mode !== "network") return 0;
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    return await processRemoteReads(this.#knowledgeDeps(config, ctx, await ctx.getDocumentLoader({ identifier: SERVER_ACTOR_ID })), this.knowledgeDeliveryCounters, limit);
   }
 
   // Takes the reads of known servers and of their /kb collections that are due from Claire, and does them with requests that the server actor signs (knowledge.ts). Returns the number of reads that Claire gave.
@@ -757,6 +823,25 @@ export class Sidecar {
       pairs.push({ privateKey: await importJwk(key.private_jwk as JsonWebKey, "private"), publicKey: await importJwk(key.public_jwk as JsonWebKey, "public") });
     }
     this.#keys.set(identifier, { pairs, expires: now + KEY_CACHE_SECONDS });
+    return pairs;
+  }
+
+  // The key pairs of a knowledge base actor of this server (unit KF3), the RSA pair first. The cache is the cache of the account keys; the entry has the prefix `kb/`, which no actor identifier has.
+  async #kbKeyPairs(number: string): Promise<CryptoKeyPair[]> {
+    const now = this.#now();
+    const entry = `kb/${number}`;
+    const cached = this.#keys.get(entry);
+    if (cached !== undefined && cached.expires > now) return cached.pairs;
+    this.#keys.delete(entry);
+    const keys = await this.#api.kbActorKeys(number);
+    if (keys === null) return [];
+    const pairs: CryptoKeyPair[] = [];
+    for (const alg of ["rsa2048", "ed25519"]) {
+      const key = keys.keys.find((k) => k.alg === alg);
+      if (key === undefined) continue;
+      pairs.push({ privateKey: await importJwk(key.private_jwk as JsonWebKey, "private"), publicKey: await importJwk(key.public_jwk as JsonWebKey, "public") });
+    }
+    this.#keys.set(entry, { pairs, expires: now + KEY_CACHE_SECONDS });
     return pairs;
   }
 

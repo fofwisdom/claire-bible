@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.9";
+export const CONTRACT_VERSION = "1.10";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -380,6 +380,34 @@ export interface KbReadBatch {
   error: string | null;
 }
 
+// One outbound activity of the knowledge federation (unit KF3). activity is the JSON that must go out without a change. signer is "server" (the server actor) or the number of a knowledge base actor of this server. recipient is the actor that gets the activity.
+export interface KnowledgeOutboxTask {
+  id: number;
+  kind: string;
+  signer: string;
+  recipient: string;
+  activity: Record<string, unknown>;
+}
+
+// One read of a document of another server for a curation (unit KF3): a GET of url that the server actor signs.
+export interface RemoteRead {
+  id: number;
+  url: string;
+}
+
+// The answer of one read: the JSON as it came and no error, or no document and an error code.
+export interface RemoteReadResult {
+  id: number;
+  document: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface RemoteReadRecorded {
+  id: number;
+  status: "pending" | "done" | "failed";
+  error_code: string | null;
+}
+
 export interface KbReadBatchResult {
   domain: string;
   stored: number;
@@ -553,6 +581,11 @@ const serverReadsShape = sealed({ servers: list(sealed({ domain: str })) });
 const serverReadRecordedShape = sealed({ domain: str, recorded: bool });
 const kbReadsShape = sealed({ reads: list(sealed({ domain: str, url: str })) });
 const kbReadBatchShape = sealed({ domain: str, stored: int, refused: int, refused_code: nullable(str), removed: nullable(int) });
+const kbActorDocumentShape = sealed({ document: jsonObject });
+const knowledgeOutboxTasksShape = sealed({ tasks: list(sealed({ id: int, kind: str, signer: str, recipient: str, activity: jsonObject })) });
+const knowledgeOutboxAckShape = sealed({ id: int, status: oneOf("pending", "delivered", "failed", "refused") });
+const remoteReadsShape = sealed({ reads: list(sealed({ id: int, url: str })) });
+const remoteReadRecordedShape = sealed({ id: int, status: oneOf("pending", "done", "failed"), error_code: nullable(str) });
 const heartbeatReplyShape = sealed({ contract_version: str, federation: oneOf("off", "on") });
 
 function sameMajor(version: string): boolean {
@@ -865,6 +898,63 @@ export class InternalApi {
     const value = await this.#call("POST", "/knowledge-kb-reads", batch);
     if (value !== null) kbReadBatchShape(value, "knowledge_kb_read");
     return value as KbReadBatchResult | null;
+  }
+
+  // The actor document of a shared knowledge base of this server (unit KF3), with its public key, or null when the number is not a knowledge base actor. The sidecar gives the document without a change.
+  async kbActor(number: string): Promise<Record<string, unknown> | null> {
+    const value = await this.#call("GET", `/knowledge-kb-actors/${encodeURIComponent(number)}`);
+    if (value !== null) kbActorDocumentShape(value, "knowledge_kb_actor");
+    return value === null ? null : (value as { document: Record<string, unknown> }).document;
+  }
+
+  // The key pairs of a knowledge base actor of this server, or null.
+  async kbActorKeys(number: string): Promise<ActorKeys | null> {
+    const value = await this.#call("GET", `/knowledge-kb-actors/${encodeURIComponent(number)}/keys`);
+    if (value !== null) keysShape(value, "knowledge_kb_actor_keys");
+    return value as ActorKeys | null;
+  }
+
+  // A collection of a knowledge base actor (followers, outbox, documents), or one document (`document` is its ID), for another server. signer is the actor whose signature is valid, or null. null: Claire refused the read, and the caller answers 404.
+  async kbActorPart(number: string, part: { collection: "followers" | "outbox" | "documents"; document?: string }, query: { signer: string | null; page?: string; maxId?: string }): Promise<Record<string, unknown> | null> {
+    const params = new URLSearchParams();
+    if (query.signer !== null) params.set("signer", query.signer);
+    if (query.page !== undefined) params.set("page", query.page);
+    if (query.maxId !== undefined) params.set("max_id", query.maxId);
+    const path = part.document === undefined ? part.collection : `${part.collection}/${encodeURIComponent(part.document)}`;
+    const value = await this.#call("GET", `/knowledge-kb-actors/${encodeURIComponent(number)}/${path}${params.size > 0 ? `?${params}` : ""}`);
+    if (value !== null) kbActorDocumentShape(value, "knowledge_kb_actor_part");
+    return value === null ? null : (value as { document: Record<string, unknown> }).document;
+  }
+
+  // Takes the outbound activities of the knowledge federation that are ready. Each one has a lease.
+  async knowledgeOutboxTasks(limit?: number): Promise<KnowledgeOutboxTask[]> {
+    const value = await this.#call("GET", `/knowledge-outbox-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    knowledgeOutboxTasksShape(value, "knowledge_outbox_tasks");
+    return (value as { tasks: KnowledgeOutboxTask[] }).tasks;
+  }
+
+  // Gives the result of one delivery: "delivered", "retry" (Claire gives the task again later), or "rejected" (the delivery is not possible). Returns the state of the task, or null when there is no such task.
+  async ackKnowledgeOutboxTask(id: number, result: "delivered" | "retry" | "rejected", errorCode: string | null): Promise<string | null> {
+    const value = await this.#call("POST", `/knowledge-outbox-tasks/${id}/ack`, { result, error_code: errorCode });
+    if (value === null) return null;
+    knowledgeOutboxAckShape(value, "knowledge_outbox_ack");
+    return (value as { status: string }).status;
+  }
+
+  // Takes the reads of documents of other servers that wait. Each one has a lease.
+  async knowledgeRemoteReads(limit?: number): Promise<RemoteRead[]> {
+    const value = await this.#call("GET", `/knowledge-remote-reads${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    remoteReadsShape(value, "knowledge_remote_reads");
+    return (value as { reads: RemoteRead[] }).reads;
+  }
+
+  // Gives the answer of one read. null: Claire has no read that waits with that ID.
+  async recordRemoteRead(result: RemoteReadResult): Promise<RemoteReadRecorded | null> {
+    const value = await this.#call("POST", "/knowledge-remote-reads", result);
+    if (value !== null) remoteReadRecordedShape(value, "knowledge_remote_read");
+    return value as RemoteReadRecorded | null;
   }
 
   // One cursor page of the published objects of an actor, or null when the account is not an actor.

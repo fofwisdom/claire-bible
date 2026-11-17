@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-remote-reads",
+    "body": {
+      "id": 2,
+      "document": null,
+      "error": "document_unavailable"
+    }
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

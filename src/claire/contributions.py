@@ -185,6 +185,18 @@ def find_duplicate(conn: sqlite3.Connection, kb_id: int, *, canonical_url: str |
     return None if row is None else str(row[0])
 
 
+def check_new_source(conn: sqlite3.Connection, kb_id: int, *, canonical_url: str | None, content_hash: str | None) -> None:
+    """The duplicate and tombstone checks of a new copy in K (Sections 9.1 and 9.6): ``ContributionError(409, "contribution_duplicate")`` with the document, or ``ContributionError(409, "contribution_tombstoned")``."""
+    duplicate = find_duplicate(conn, kb_id, canonical_url=canonical_url, content_hash=content_hash)
+    if duplicate is not None:
+        hidden = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (duplicate, int(kb_id))).fetchone()
+        raise ContributionError(409, "contribution_duplicate", document=duplicate, visible=hidden is not None and not hidden[0])
+    # A removed contribution leaves a tombstone: the same source does not come back (Section 9.6).
+    by_url = bool(canonical_url)
+    if dbm.is_tombstoned(conn, canonical_url=canonical_url if by_url else None, content_hash=None if by_url else content_hash, kb_id=int(kb_id)):
+        raise ContributionError(409, "contribution_tombstoned")
+
+
 def contribute_direct(
     conn: sqlite3.Connection,
     *,
@@ -233,14 +245,7 @@ def _add_copy(
     source = conn.execute("SELECT canonical_url, content_hash FROM documents WHERE id=? AND kb_id=?", (source_document_id, int(source_kb_id))).fetchone()
     if source is None:
         raise ContributionError(404, "document_not_found")
-    duplicate = find_duplicate(conn, kb_id, canonical_url=source["canonical_url"], content_hash=source["content_hash"])
-    if duplicate is not None:
-        hidden = conn.execute("SELECT hidden FROM documents WHERE id=? AND kb_id=?", (duplicate, int(kb_id))).fetchone()
-        raise ContributionError(409, "contribution_duplicate", document=duplicate, visible=hidden is not None and not hidden[0])
-    # A removed contribution leaves a tombstone: the same source does not come back (Section 9.6).
-    by_url = bool(source["canonical_url"])
-    if dbm.is_tombstoned(conn, canonical_url=source["canonical_url"] if by_url else None, content_hash=None if by_url else source["content_hash"], kb_id=int(kb_id)):
-        raise ContributionError(409, "contribution_tombstoned")
+    check_new_source(conn, kb_id, canonical_url=source["canonical_url"], content_hash=source["content_hash"])
     # The copy is hidden until the merge job completes: a document without a graph is not a visible contribution.
     target_id = copy_document(conn, source_document_id=source_document_id, source_kb_id=source_kb_id, target_kb_id=kb_id, hidden=True)
     public_id = kb_collab.add_contribution(
@@ -355,9 +360,14 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
 
     name_to_id: dict[str, str] = {}
     decisions = [] if decisions is None else decisions
+    # Authority identifiers of the entities of a copy from another server (federation design Section 10.4 rule 2, KD7). An extraction of this server has none.
+    same_as = _stored_authority_ids(str(extraction["raw_response"] or ""))
     try:
         for extracted in result.entities:
             etype, provisional = classify_entity_type(extracted.type)
+            authority = same_as.get(extracted.name, [])
+            # An entity of K with the same authority identifier is matched first: its name goes to the resolver, which then merges by the name; the name of the extraction becomes an alias. Without such an entity the keys decide, as for each other entity.
+            matched_name = _entity_with_authority_id(conn, kb_id, authority) if authority else None
             embed_fn = None
             if has_embed:
                 def _embed(extracted=extracted):
@@ -369,13 +379,15 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
             try:
                 resolved = resolve_or_create(
                     conn, vstore,
-                    name=extracted.name, etype=etype, aliases=extracted.aliases, observations=extracted.observations,
+                    name=matched_name or extracted.name, etype=etype, aliases=extracted.aliases if matched_name is None else [*extracted.aliases, extracted.name], observations=extracted.observations,
                     document_id=document_id, embed_fn=embed_fn, judge_fn=None, provisional=provisional, shadow=None,
                     kb_id=kb_id, embed_model=pin.model, embed_provider=pin.provider,
                 )
             except EmbeddingModelMismatch as exc:
                 raise ContributionError(409, "embedding_model_unavailable") from exc
             name_to_id[extracted.name] = resolved.entity.id
+            if authority:
+                _add_authority_ids(conn, kb_id, resolved.entity.id, authority)
             if getattr(resolved, "decision", None) is not None:
                 decisions.append(resolved.decision)
             if heartbeat is not None:
@@ -450,7 +462,9 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
     try:
         # A retry starts from a clean graph: the first try can have left some entities of this copy.
         dbm.rollback_document_graph_contributions(conn, [document_id], prune_orphans=True, kb_id=kb_id)
-        copy_document_files(conn, data_dir, source_document_id=str(row["source_document_id"]), target_document_id=document_id, kb_id=kb_id)
+        if row["source_document_id"]:
+            # A copy of a document of another server has no source files on this server.
+            copy_document_files(conn, data_dir, source_document_id=str(row["source_document_id"]), target_document_id=document_id, kb_id=kb_id)
         entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=document_id, heartbeat=_heartbeat(conn, job_id), decisions=decisions)
     except ContributionError as exc:
         conn.rollback()
@@ -470,6 +484,13 @@ def run_merge_job(conn: sqlite3.Connection, provider: Any, settings: Any, *, con
         _finish_job(conn, job_id, error=code)
         conn.commit()
         return MergeResult("failed", code)
+    current = kb_collab.get_contribution(conn, contribution)
+    if current is not None and current["origin_removed_at"] is not None and current["origin_decided_at"] is None:
+        # The origin removed the document while the job ran (federation design Section 10.3): the copy stays hidden and waits in the review queue.
+        kb_collab.update_contribution(conn, contribution, state="hidden")
+        _finish_job(conn, job_id)
+        conn.commit()
+        return MergeResult("hidden", entities=entities, relations=relations)
     conn.execute("UPDATE documents SET hidden=0 WHERE id=? AND kb_id=?", (document_id, kb_id))
     _finish_job(conn, job_id)
     conn.commit()
@@ -627,7 +648,11 @@ def set_hidden(conn: sqlite3.Connection, *, kb_id: int, contribution: int, accou
     if row["state"] != expected:
         raise ContributionError(409, "contribution_not_visible" if hidden else "contribution_not_hidden")
     conn.execute("UPDATE documents SET hidden=? WHERE id=? AND kb_id=?", (1 if hidden else 0, row["document_id"], int(kb_id)))
-    kb_collab.update_contribution(conn, contribution, state="hidden" if hidden else "visible")
+    changes: dict[str, Any] = {"state": "hidden" if hidden else "visible"}
+    if not hidden and row["origin_removed_at"] is not None and row["origin_decided_at"] is None:
+        # The decision "show again" for a copy whose origin removed the document (federation design Section 10.3): the copy leaves the review queue.
+        changes["origin_decided_at"] = time.time()
+    kb_collab.update_contribution(conn, contribution, **changes)
     kb_collab.log_moderation(conn, kb_id=kb_id, actor_account_id=account_id, action="contribution_hide" if hidden else "contribution_unhide", target=str(contribution))
     return kb_collab.get_contribution(conn, contribution) or row
 
@@ -725,6 +750,9 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
     if revision is None or revision["state"] != "merging":
         _finish_job(conn, job_id)
         conn.commit()
+        if revision is not None and revision["state"] == "failed":
+            # A revision that was closed before its job ran. The code that closes a revision in a request purges its copy; a handler of the inbox journal cannot (it must not commit), so the copy is removed here. A copy that is gone, or that a contribution has, does not change.
+            _drop_copy(conn, data_dir, document_id=str(revision["document_id"]), decisions=[], reason="contribution_revision_dropped")
         return MergeResult(str(row["state"]))
     new_copy, old_copy = str(revision["document_id"]), revision["previous_document_id"]
     if row["state"] == "merging" and not row["updates_frozen"] and row["document_id"] == old_copy:
@@ -742,7 +770,9 @@ def _run_revision(conn: sqlite3.Connection, provider: Any, settings: Any, *, row
         return MergeResult(str(row["state"]), "revision_superseded")
     decisions: list[Any] = []
     try:
-        copy_document_files(conn, data_dir, source_document_id=str(row["root_document_id"]), target_document_id=new_copy, kb_id=kb_id)
+        if row["root_document_id"]:
+            # A copy of a document of another server has no root files on this server.
+            copy_document_files(conn, data_dir, source_document_id=str(row["root_document_id"]), target_document_id=new_copy, kb_id=kb_id)
         entities, relations = build_graph_from_extraction(conn, provider, settings, kb_id=kb_id, document_id=new_copy, heartbeat=_heartbeat(conn, job_id), decisions=decisions)
     except Exception as exc:  # noqa: BLE001 - the old copy stays; the job records the failure
         conn.rollback()
@@ -958,6 +988,214 @@ def curate(conn: sqlite3.Connection, *, kb_id: int, source: dict[str, Any], docu
     return row
 
 
+# --- copies of documents of another server (KNOWLEDGE_FEDERATION_DESIGN.md Sections 10 and 11, unit KF3) -------------------
+
+# ``documents.source_type`` of a copy of a document of another server.
+REMOTE_SOURCE_TYPE = "federation"
+# Limits for one document of another server (federation design KS2).
+REMOTE_CONTENT_MAX_BYTES = 512 * 1024
+REMOTE_TITLE_MAX = 500
+REMOTE_ENTITIES_MAX = 500
+REMOTE_RELATIONS_MAX = 2000
+# The key of the stored extraction of a copy that keeps the authority identifiers of its entities: ``{entity name: [identifier, ...]}``. ``_parse_extraction`` does not read it.
+_SAME_AS_KEY = "same_as"
+# The key of ``entities.props`` with the authority identifiers of an entity.
+_ENTITY_SAME_AS = "same_as"
+
+
+def _stored_authority_ids(raw_response: str) -> dict[str, list[str]]:
+    try:
+        data = json.loads(raw_response)
+    except ValueError:
+        return {}
+    value = data.get(_SAME_AS_KEY) if isinstance(data, dict) else None
+    if not isinstance(value, dict):
+        return {}
+    return {str(name): [str(v) for v in found] for name, found in value.items() if isinstance(found, list) and found}
+
+
+def _entities_with_authority_ids(conn: sqlite3.Connection, kb_id: int) -> list[tuple[str, str, str, list[str], list[str]]]:
+    """The entities of K that have authority identifiers: ``(id, name, norm_name, aliases, identifiers)``."""
+    out = []
+    for row in conn.execute("SELECT id, name, norm_name, aliases, props FROM entities WHERE kb_id=? AND props LIKE ?", (int(kb_id), f'%"{_ENTITY_SAME_AS}"%')).fetchall():
+        try:
+            props = json.loads(row["props"] or "{}")
+            aliases = json.loads(row["aliases"] or "[]")
+        except ValueError:
+            continue
+        found = props.get(_ENTITY_SAME_AS) if isinstance(props, dict) else None
+        if isinstance(found, list) and found:
+            out.append((str(row["id"]), str(row["name"]), str(row["norm_name"]), [str(a) for a in aliases] if isinstance(aliases, list) else [], [str(v) for v in found]))
+    return out
+
+
+def _entity_with_authority_id(conn: sqlite3.Connection, kb_id: int, identifiers: list[str]) -> str | None:
+    """The name of an entity of K that has one of the authority identifiers, or None (the entity with the lowest ID when there is more than one)."""
+    wanted = set(identifiers)
+    for _id, name, _norm, _aliases, found in sorted(_entities_with_authority_ids(conn, kb_id)):
+        if wanted & set(found):
+            return name
+    return None
+
+
+def _add_authority_ids(conn: sqlite3.Connection, kb_id: int, entity_id: str, identifiers: list[str]) -> None:
+    """Add authority identifiers to an entity of K. Commits, as each other step of the graph build."""
+    row = conn.execute("SELECT props FROM entities WHERE id=? AND kb_id=?", (entity_id, int(kb_id))).fetchone()
+    if row is None:
+        return
+    try:
+        props = json.loads(row["props"] or "{}")
+    except ValueError:
+        props = {}
+    if not isinstance(props, dict):
+        props = {}
+    current = props.get(_ENTITY_SAME_AS) if isinstance(props.get(_ENTITY_SAME_AS), list) else []
+    merged = sorted({str(v) for v in current} | set(identifiers))
+    if merged != current:
+        props[_ENTITY_SAME_AS] = merged
+        conn.execute("UPDATE entities SET props=? WHERE id=? AND kb_id=?", (json.dumps(props, ensure_ascii=False), entity_id, int(kb_id)))
+        conn.commit()
+
+
+def authority_ids_of(conn: sqlite3.Connection, kb_id: int, names: list[str]) -> dict[str, list[str]]:
+    """For the entity names of an extraction of K: the authority identifiers of the entity of K with that name or alias (``vocabulary.build_extraction``). v1 sends an identifier only when the entity has one (federation design Section 10.4 rule 2)."""
+    from .ontology.base import normalize_name
+
+    by_key: dict[str, list[str]] = {}
+    for _id, _name, norm, aliases, found in _entities_with_authority_ids(conn, kb_id):
+        for key in {norm, *(normalize_name(a) for a in aliases)}:
+            by_key.setdefault(key, found)
+    return {name: by_key[normalize_name(name)] for name in names if normalize_name(name) in by_key}
+
+
+def remote_article_refusal(article: dict[str, Any]) -> str | None:
+    """The limit that a document of another server is over (KS2), or None. The caller validated the ``Article`` with ``vocabulary.validate_object``."""
+    from .knowledge_federation import vocabulary
+
+    if len(str(article["content"]).encode("utf-8")) > REMOTE_CONTENT_MAX_BYTES:
+        return "document_too_large"
+    if len(str(article["name"])) > REMOTE_TITLE_MAX:
+        return "title_too_long"
+    extraction = article[vocabulary.EXTRACTION_OF]
+    if len(extraction[vocabulary.ENTITIES]) > REMOTE_ENTITIES_MAX or len(extraction[vocabulary.RELATIONS]) > REMOTE_RELATIONS_MAX:
+        return "extraction_too_large"
+    return None
+
+
+def copy_remote_document(conn: sqlite3.Connection, *, article: dict[str, Any], target_kb_id: int, hidden: bool, now: float | None = None) -> str:
+    """Make one ``documents`` row and its ``extractions`` row in ``target_kb_id`` from the ``Article`` of another server with its ``claire:Extraction``. No graph, no files, no commit.
+
+    The caller validated the ``Article`` (``vocabulary.validate_object`` gives ``document``, with the extraction) and its limits (``remote_article_refusal``). The HTML goes through the ``nh3`` allowlist sanitizer here (KS2). The stored extraction has the form of ``ExtractionResult``, so the merge job builds the graph without an LLM call; the authority identifiers of the entities are in the key ``same_as``.
+    """
+    import nh3
+
+    from .knowledge_federation import vocabulary
+
+    ts = time.time() if now is None else now
+    extraction = article[vocabulary.EXTRACTION_OF]
+    html = nh3.clean(str(article["content"]))
+    result = {
+        "summary": extraction["summary"],
+        "key_claims": list(extraction[vocabulary.KEY_CLAIMS]),
+        "entities": [{"name": e["name"], "type": e["type"], "aliases": list(e["aliases"]), "observations": list(e["observations"]), "proposed_type": e.get("proposed_type")} for e in extraction[vocabulary.ENTITIES]],
+        "relations": [{"source": r["source"], "target": r["target"], "type": r["type"], "proposed_type": r.get("proposed_type")} for r in extraction[vocabulary.RELATIONS]],
+        _SAME_AS_KEY: {e["name"]: list(e["sameAs"]) for e in extraction[vocabulary.ENTITIES] if e.get("sameAs")},
+    }
+    target_id = new_id("doc")
+    meta = {"federation": {"origin": article["id"], "root": article[vocabulary.ROOT], "attributed_to": article.get("attributedTo")}}
+    url = article.get("url")
+    conn.execute(
+        "INSERT INTO documents (id, kb_id, url, canonical_url, title, published_at, fetched_at, raw_text, source_type, content_hash, partial, meta, detail_format, detail_html, seen, watch_enabled, pinned, hidden) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'adoc', ?, 1, 0, 0, ?)",
+        (target_id, int(target_kb_id), url, url, article["name"], article["published"], ts, re.sub(r"\s+", " ", re.sub(r"<[^>]*>", " ", html)).strip(), REMOTE_SOURCE_TYPE, article[vocabulary.CONTENT_HASH], json.dumps(meta, ensure_ascii=False), html, 1 if hidden else 0),
+    )
+    conn.execute(
+        "INSERT INTO extractions (kb_id, document_id, provider, model, prompt_version, raw_response, created_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)",
+        (int(target_kb_id), target_id, REMOTE_SOURCE_TYPE, json.dumps(result, ensure_ascii=False), ts),
+    )
+    return target_id
+
+
+def curate_remote(conn: sqlite3.Connection, *, kb_id: int, source_kb_iri: str, article: dict[str, Any], curator_account_id: int | None, now: float | None = None) -> dict[str, Any]:
+    """Copy one document of a shared knowledge base of another server into K as a contribution with the origin ``curation`` (federation design Section 11 rule 2). The curator approves it; its merge job waits. The caller commits.
+
+    ``article`` is the ``Article`` with its extraction that the sidecar read with a signed GET; the caller validated it. The credit is the actor of ``attributedTo`` (it can be absent); the root is ``claire:root``; ``origin`` of the copy is the ``id`` of the article. The duplicate and tombstone checks are those of a local curation; a document that K has a contribution of gives ``contribution_duplicate``, and one that K removed gives ``contribution_tombstoned``.
+    """
+    from .knowledge_federation import vocabulary
+
+    ts = time.time() if now is None else now
+    known = kb_collab.remote_sources_in_kb(conn, kb_id).get(str(article["id"]))
+    if known is not None:
+        if known["state"] == "removed":
+            raise ContributionError(409, "contribution_tombstoned")
+        raise ContributionError(409, "contribution_duplicate", document=known["document_id"], visible=known["state"] == "visible")
+    check_new_source(conn, kb_id, canonical_url=article.get("url"), content_hash=article[vocabulary.CONTENT_HASH])
+    target_id = copy_remote_document(conn, article=article, target_kb_id=kb_id, hidden=True, now=ts)
+    public_id = kb_collab.add_contribution(
+        conn, kb_id=kb_id, document_id=target_id, origin="curation", state="merging", contributor_account_id=None, curator_account_id=curator_account_id,
+        approved_at=ts, approved_by_account_id=curator_account_id,
+        remote={"source_kb_iri": source_kb_iri, "source_iri": str(article["id"]), "root_iri": str(article[vocabulary.ROOT]), "credit_iri": article.get("attributedTo")}, now=ts,
+    )
+    add_merge_job(conn, kb_id=kb_id, contribution=public_id, now=ts)
+    kb_collab.log_moderation(conn, kb_id=kb_id, actor_account_id=curator_account_id, action="curate", target=str(public_id), now=ts)
+    row = kb_collab.get_contribution(conn, public_id)
+    assert row is not None
+    return row
+
+
+def start_remote_revisions(conn: sqlite3.Connection, *, source_kb_iri: str, article: dict[str, Any], now: float | None = None) -> list[int]:
+    """The origin sent a revision of a document (``Update``, federation design Section 10.2): start the revision of each copy of that document on this server. No approval. No commit: a handler of the inbox journal calls this function. Return the IDs of the new merge jobs.
+
+    The rules are those of ``start_revisions``: a contribution with stopped updates and a closed one keep their version; the state stays (a hidden copy stays hidden); the same content makes no revision; the newest version wins. Differences: only a copy from the knowledge base actor ``source_kb_iri`` changes; a revision that is closed here keeps its copy until its merge job removes it (``_run_revision``); a contribution in ``failed`` keeps its version until a retry completes its merge.
+    """
+    from .knowledge_federation import vocabulary
+
+    ts = time.time() if now is None else now
+    content_hash = str(article[vocabulary.CONTENT_HASH])
+    jobs: list[int] = []
+    for row in kb_collab.contributions_of_remote_source(conn, str(article["id"])):
+        if row["remote_source_kb_iri"] != source_kb_iri or row["updates_frozen"] or row["state"] not in ("visible", "hidden", "merging") or not row["document_id"]:
+            continue
+        kb_id, public_id = int(row["kb_id"]), int(row["public_id"])
+        current = conn.execute("SELECT content_hash FROM documents WHERE id=? AND kb_id=?", (row["document_id"], kb_id)).fetchone()
+        same_as_copy = current is not None and str(current["content_hash"] or "") == content_hash
+        queued = None if same_as_copy else next((int(r["id"]) for r in kb_collab.list_revisions(conn, public_id) if r["state"] == "merging" and str(r["content_hash"] or "") == content_hash), None)
+        _waiting_revision_copies(conn, public_id, keep=queued)
+        if same_as_copy or queued is not None:
+            continue
+        new_copy = copy_remote_document(conn, article=article, target_kb_id=kb_id, hidden=True, now=ts)
+        revision = kb_collab.add_revision(conn, contribution_public_id=public_id, previous_document_id=str(row["document_id"]), document_id=new_copy, content_hash=content_hash, now=ts)
+        jobs.append(add_merge_job(conn, kb_id=kb_id, contribution=public_id, revision=revision, now=ts))
+    return jobs
+
+
+def origin_removed(conn: sqlite3.Connection, *, source_kb_iri: str, source_iri: str, reason: str, now: float | None = None) -> int:
+    """The origin removed a document (``Delete``, federation design Section 10.3, KD1): hide each copy of it on this server at once and put it in the review queue of its knowledge base, with the reason code of the origin. No copy is removed. No commit. Return the number of copies.
+
+    The review queue has a contribution with ``origin_removed_at`` and no ``origin_decided_at``. The reviewers decide: ``set_hidden(hidden=False)`` shows the copy again, ``remove`` removes it. A contribution in ``merging`` gets the mark; its merge job then leaves it hidden.
+    """
+    if reason not in REASON_CODES:
+        raise ContributionError(400, "reason_invalid")
+    ts = time.time() if now is None else now
+    count = 0
+    for row in kb_collab.contributions_of_remote_source(conn, source_iri):
+        if row["remote_source_kb_iri"] != source_kb_iri or row["state"] in ("removed", "rejected") or row["origin_removed_at"] is not None:
+            continue
+        changes: dict[str, Any] = {"origin_removed_at": ts, "origin_removed_reason": reason, "origin_decided_at": None}
+        if row["state"] == "visible":
+            conn.execute("UPDATE documents SET hidden=1 WHERE id=? AND kb_id=?", (row["document_id"], int(row["kb_id"])))
+            changes["state"] = "hidden"
+        kb_collab.update_contribution(conn, int(row["public_id"]), now=ts, **changes)
+        kb_collab.log_moderation(conn, kb_id=int(row["kb_id"]), actor_account_id=None, action="origin_removed", target=str(row["public_id"]), reason=reason, now=ts)
+        count += 1
+    return count
+
+
+def in_origin_review(row: dict[str, Any]) -> bool:
+    """True when the contribution waits in the review queue because its origin removed the document (federation design Section 10.3)."""
+    return row["origin_removed_at"] is not None and row["origin_decided_at"] is None and row["state"] not in ("removed", "rejected")
+
+
 # --- fork (Section 9.8) ----------------------------------------------------------------------------------------------
 
 
@@ -999,6 +1237,8 @@ def fork_copy(conn: sqlite3.Connection, data_dir: Path, *, source_kb_id: int, ta
             conn, kb_id=target_kb_id, document_id=copy_id, origin="fork", state="visible", contributor_account_id=origin["contributor_account_id"], curator_account_id=account_id,
             source_kb_id=source_kb_id, source_document_id=str(document_id), root_kb_id=origin["root_kb_id"], root_document_id=origin["root_document_id"],
             approved_at=ts, approved_by_account_id=account_id, now=ts,
+            # A copy of a document of another server keeps its origin, its root, and its credit in the fork, so that it gets the revisions and the removal of the origin (federation design Section 10.1).
+            remote=None if not origin["remote_source_iri"] else {"source_kb_iri": origin["remote_source_kb_iri"], "source_iri": origin["remote_source_iri"], "root_iri": origin["remote_root_iri"], "credit_iri": origin["remote_credit_iri"]},
         )
 
     entity_columns = _columns(conn, "entities")

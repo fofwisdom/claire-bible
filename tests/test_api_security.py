@@ -402,6 +402,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("PATCH", "/members/{account}"),
         ("GET", "/moderation-log"),
         ("HEAD", "/moderation-log"),
+        ("GET", "/remote-sources"),
+        ("HEAD", "/remote-sources"),
         ("PATCH", "/contributions/{number}"),
         ("GET", "/tokens"),
         ("HEAD", "/tokens"),

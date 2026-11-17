@@ -9,11 +9,21 @@
 - ``GET /knowledge-kb-reads``: the known servers whose ``/kb`` collection is due for a read (unit KF2, design Section 8.1 rule 2). The request gives a lease on each one.
 - ``POST /knowledge-kb-reads``: one batch of the items of a read, the end of a read, or its error (``knowledge_federation.remote_kbs``).
 
-The models are sealed, as in ``federation_routes``. No shape that existed changed, so the contract version did not change.
+Unit KF3 (design Sections 9.2, 9.3, 10, and 11):
+
+- ``GET /knowledge-kb-actors/{number}``: the actor document of a shared knowledge base of this server, with its public key. It needs no signer: another server reads it to verify a signature.
+- ``GET /knowledge-kb-actors/{number}/keys``: the key pairs of that actor, for the signature of its activities. The first request makes them.
+- ``GET /knowledge-kb-actors/{number}/{collection}``: the collection ``followers``, ``outbox``, or ``documents`` of that actor for another server (``signer`` as for ``knowledge-collections``; ``documents`` has pages).
+- ``GET /knowledge-kb-actors/{number}/documents/{document}``: one visible document with its extraction, for a curation on another server.
+- ``GET /knowledge-outbox-tasks`` and ``POST /knowledge-outbox-tasks/{id}/ack``: the outbound activities (``knowledge_federation.outbox``). Each task has the activity JSON as it must go out, the actor whose key signs it, and the actor that gets it.
+- ``GET /knowledge-remote-reads`` and ``POST /knowledge-remote-reads``: the reads of documents of another server for a curation (``knowledge_federation.remote_documents``).
+
+The models are sealed, as in ``federation_routes``. The contract version is 1.10: no shape that existed changed.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any, Literal
@@ -24,14 +34,20 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from pathlib import Path
+
 from .. import ids
-from ..knowledge_federation import access, journal, known_servers, remote_kbs
+from ..knowledge_federation import access, actors, journal, known_servers, outbox, remote_documents, remote_kbs, vocabulary
 from ..knowledge_federation import collections as kf_collections
+from ..knowledge_federation import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
+from ..store import actor_keys, auth_db, kb_collab
 from ..store import db as dbm
-from .federation_routes import _MAX_IRI_LENGTH, _error, _json, _not_found, _Sealed
+from ..store.secrets import get_secret_service
+from .federation_routes import _MAX_IRI_LENGTH, ActorKey, ActorKeysResponse, _error, _json, _not_found, _Sealed
 
 __all__ = [
     "COLLECTIONS",
+    "KbActorDocument",
     "KnowledgeActivityRequest",
     "KnowledgeActivityResponse",
     "KbReadBatch",
@@ -136,6 +152,80 @@ class ServerReadRecorded(_Sealed):
     recorded: bool
 
 
+class KbActorDocument(_Sealed):
+    """``document`` is an ActivityStreams document of a knowledge base actor of this server: the actor document, one of its collections, a page, or one of its documents. The sidecar gives it to the other server without a change."""
+
+    document: dict[str, Any]
+
+
+class KnowledgeOutboxTaskItem(_Sealed):
+    """One outbound activity. ``activity`` is the JSON that must go out without a change. ``signer`` is ``server`` (the server actor) or the number of a knowledge base actor of this server: the key of that actor signs the request. ``recipient`` is the actor that gets the activity; the sidecar reads its inbox from its actor document."""
+
+    id: int
+    kind: str
+    signer: str
+    recipient: str
+    activity: dict[str, Any]
+
+
+class KnowledgeOutboxTasks(_Sealed):
+    tasks: list[KnowledgeOutboxTaskItem]
+
+
+class KnowledgeOutboxAck(_Sealed):
+    """``delivered``: the inbox answered with success. ``retry``: the delivery failed and can succeed later. ``rejected``: the delivery is not possible. ``error_code`` is ``None`` only for ``delivered``."""
+
+    result: Literal["delivered", "retry", "rejected"]
+    error_code: str | None = Field(pattern=r"^[a-z0-9_]{1,64}$")
+
+
+class KnowledgeOutboxAckResponse(_Sealed):
+    id: int
+    status: Literal["pending", "delivered", "failed", "refused"]
+
+
+class RemoteReadItem(_Sealed):
+    """One read of a document of another server. The sidecar reads ``url`` with a GET that the server actor of this server signs."""
+
+    id: int
+    url: str
+
+
+class RemoteReads(_Sealed):
+    reads: list[RemoteReadItem]
+
+
+class RemoteReadResult(_Sealed):
+    """The answer of one read: ``document`` is the JSON as it came and ``error`` is ``None``, or ``document`` is ``None`` and ``error`` is a code."""
+
+    id: int
+    document: dict[str, Any] | None
+    error: str | None = Field(pattern=r"^[a-z0-9_]{1,64}$")
+
+
+class RemoteReadRecorded(_Sealed):
+    """``status``: ``pending`` (a next page of the collection follows), ``done``, or ``failed`` with ``error_code``."""
+
+    id: int
+    status: Literal["pending", "done", "failed"]
+    error_code: str | None
+
+
+KB_ACTOR_COLLECTIONS: tuple[str, ...] = ("followers", "outbox", "documents")
+OUTBOX_TASKS_DEFAULT = 10
+OUTBOX_TASKS_MAX = 50
+
+
+def _limit(request: Request, *, default: int, maximum: int) -> int | None:
+    """The query ``limit`` of a lease request, or None for a query that is not valid."""
+    raw = request.query_params.get("limit")
+    if set(request.query_params) - {"limit"}:
+        return None
+    if raw is None:
+        return default
+    return int(raw) if raw.isascii() and raw.isdigit() and 1 <= int(raw) <= maximum else None
+
+
 def _valid_read_result(result: ServerReadResult, origin: str) -> bool:
     if result.ok:
         if result.server_actor is None or result.software_name is None or result.software_version is None or result.error is not None:
@@ -147,6 +237,212 @@ def _valid_read_result(result: ServerReadResult, origin: str) -> bool:
 
 def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin: Callable[[], str]) -> list[BaseRoute]:
     """The routes of this module. ``origin`` gives the canonical origin of this server."""
+
+    def _run_merge_jobs() -> None:
+        from ..ingest.service import run_waiting_merge_jobs
+
+        run_waiting_merge_jobs(settings)
+
+    def _kb_number(request: Request) -> int | None:
+        try:
+            return ids.parse_public_id(request.path_params["number"])
+        except ValueError:
+            return None
+
+    def _kb_public_key(number: int) -> str:
+        """The PEM text of the RSA public key of a knowledge base actor. The first call makes the keys of the actor."""
+        data_dir = Path(settings.data_dir)
+        secret_service = get_secret_service(data_dir / "auth" / "master.key")
+        auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+        try:
+            actor_keys.ensure_kb_actor_keys(auth, number, secret_service, now=now())
+            pairs = actor_keys.load_kb_actor_keys(auth, number, secret_service)
+        finally:
+            auth.close()
+        return actor_keys.public_key_pem(next(pair.public_jwk for pair in pairs if pair.alg == "rsa2048"))
+
+    def kb_actor(request: Request) -> Response:
+        number = _kb_number(request)
+        if number is None or request.query_params:
+            return _not_found()
+        canonical = origin()
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            exists = access.federation_on(conn) and actors.shared_kb(conn, number) is not None
+        finally:
+            conn.close()
+        if not exists:
+            return _not_found()
+        pem = _kb_public_key(number)
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            document = actors.actor_document(conn, number, origin=canonical, public_key_pem=pem)
+        finally:
+            conn.close()
+        return _not_found() if document is None else _json(KbActorDocument(document=document))
+
+    def kb_actor_keys(request: Request) -> Response:
+        number = _kb_number(request)
+        if number is None:
+            return _not_found()
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            # The keys of an actor whose knowledge base is gone are given while its last activity (the ``Delete`` of its record) waits, as for a purged account actor (FEDERATION.md Section 8.5).
+            allowed = access.federation_on(conn) and (actors.shared_kb(conn, number) is not None or outbox.has_open_task(conn, str(number)))
+        finally:
+            conn.close()
+        if not allowed:
+            return _not_found()
+        data_dir = Path(settings.data_dir)
+        secret_service = get_secret_service(data_dir / "auth" / "master.key")
+        auth = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
+        try:
+            actor_keys.ensure_kb_actor_keys(auth, number, secret_service, now=now())
+            pairs = actor_keys.load_kb_actor_keys(auth, number, secret_service)
+        finally:
+            auth.close()
+        return _json(ActorKeysResponse(public_id=ids.format_public_id(number), keys=[ActorKey(alg=p.alg, public_jwk=p.public_jwk, private_jwk=p.private_jwk) for p in pairs]))
+
+    def _signed_read(request: Request, extra: set[str]) -> tuple[Response | None, str | None]:
+        """The signer of a read of another server, after the check of the query keys. The first value is the answer for a query that is not valid."""
+        params = request.query_params
+        signer = params.get("signer")
+        if set(params) - {"signer", *extra} or (signer is not None and not 0 < len(signer) <= _MAX_IRI_LENGTH):
+            return _error(400, "invalid_request"), None
+        return None, signer
+
+    def kb_actor_collection(request: Request) -> Response:
+        number, name = _kb_number(request), request.path_params["name"]
+        if number is None or name not in KB_ACTOR_COLLECTIONS:
+            return _not_found()
+        bad, signer = _signed_read(request, {"page", "max_id"})
+        if bad is not None:
+            return bad
+        params = request.query_params
+        page = params.get("page")
+        max_id: int | None = None
+        if (page is not None and (page != "true" or name != "documents")) or ("max_id" in params and page is None):
+            return _error(400, "invalid_request")
+        if "max_id" in params:
+            try:
+                max_id = ids.parse_public_id(params["max_id"])
+            except ValueError:
+                return _error(400, "invalid_request")
+        canonical = origin()
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            decision = access.collection_access(conn, signer=signer, origin=canonical)
+            kb = actors.shared_kb(conn, number) if decision.allowed else None
+            if kb is None:
+                # Each refusal is the same 404 (KS1).
+                return _not_found()
+            if name == "followers":
+                document = actors.followers_collection(conn, number, origin=canonical)
+            elif name == "outbox":
+                document = actors.outbox_collection(conn, number, origin=canonical, total=outbox.count_activities(conn, str(number)))
+            elif page is None:
+                document = actors.documents_root(conn, kb, origin=canonical)
+            else:
+                document = actors.documents_page(conn, kb, origin=canonical, max_id=max_id)
+        finally:
+            conn.close()
+        return _json(KbActorDocument(document=document))
+
+    def kb_actor_document(request: Request) -> Response:
+        number = _kb_number(request)
+        try:
+            public_id = ids.parse_public_id(request.path_params["document"])
+        except ValueError:
+            return _not_found()
+        if number is None:
+            return _not_found()
+        bad, signer = _signed_read(request, set())
+        if bad is not None:
+            return bad
+        canonical = origin()
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            decision = access.collection_access(conn, signer=signer, origin=canonical)
+            kb = actors.shared_kb(conn, number) if decision.allowed else None
+            contribution = kb_collab.get_contribution(conn, public_id) if kb is not None else None
+            if kb is None or contribution is None or int(contribution["kb_id"]) != int(kb["id"]):
+                return _not_found()
+            document = actors.document_object(conn, kb, contribution, origin=canonical)
+        finally:
+            conn.close()
+        if document is None:
+            return _not_found()
+        return _json(KbActorDocument(document={"@context": list(vocabulary.WIRE_CONTEXT), **document}))
+
+    def outbox_tasks(request: Request) -> Response:
+        limit = _limit(request, default=OUTBOX_TASKS_DEFAULT, maximum=OUTBOX_TASKS_MAX)
+        if limit is None:
+            return _error(400, "invalid_request")
+        canonical = origin()
+        conn = dbm.connect_existing(settings.db_file)
+        try:
+            # No activity goes out while the switch is off. The request changes data (the tasks that the state needs, and the leases), although the method is GET, as ``outbox-tasks`` does.
+            tasks = outbox.lease(conn, origin=canonical, now=now(), limit=limit) if access.federation_on(conn) else []
+            conn.commit()
+        finally:
+            conn.close()
+        return _json(KnowledgeOutboxTasks(tasks=[KnowledgeOutboxTaskItem(id=t.id, kind=t.kind, signer=t.signer, recipient=t.recipient, activity=json.loads(t.payload)) for t in tasks]))
+
+    async def outbox_task_ack(request: Request) -> Response:
+        try:
+            task_id = int(request.path_params["task_id"])
+            body = KnowledgeOutboxAck.model_validate_json(await request.body())
+        except (ValueError, ValidationError):
+            return _error(400, "invalid_request")
+        if (body.result == "delivered") != (body.error_code is None):
+            return _error(400, "invalid_request")
+        conn = dbm.connect_existing(settings.db_file)
+        try:
+            task = outbox.ack(conn, task_id, result=body.result, error_code=body.error_code, now=now())
+            conn.commit()
+        finally:
+            conn.close()
+        return _not_found() if task is None else _json(KnowledgeOutboxAckResponse(id=task.id, status=task.status))
+
+    def remote_reads(request: Request) -> Response:
+        limit = _limit(request, default=SERVER_READS_DEFAULT, maximum=SERVER_READS_MAX)
+        if limit is None:
+            return _error(400, "invalid_request")
+        conn = dbm.connect_existing(settings.db_file)
+        try:
+            reads = remote_documents.lease(conn, now=now(), limit=limit) if access.federation_on(conn) else []
+            conn.commit()
+        finally:
+            conn.close()
+        return _json(RemoteReads(reads=[RemoteReadItem(id=int(read["id"]), url=str(read["url"])) for read in reads]))
+
+    async def remote_read_result(request: Request) -> Response:
+        try:
+            result = RemoteReadResult.model_validate_json(await request.body())
+        except ValidationError:
+            return _error(400, "invalid_request")
+        if (result.document is None) == (result.error is None):
+            return _error(400, "invalid_request")
+        canonical = origin()
+
+        def _apply() -> dict[str, Any] | None:
+            conn = dbm.connect_existing(settings.db_file)
+            try:
+                # While the switch is off there is no exchange: the answer is not stored, and the read comes again after its lease.
+                read = remote_documents.record_result(conn, result.id, document=result.document, error=result.error, origin=canonical, now=now()) if access.federation_on(conn) else None
+                conn.commit()
+                return read
+            finally:
+                conn.close()
+
+        read = await run_in_threadpool(_apply)
+        if read is None:
+            return _not_found()
+        if read["kind"] == "document" and read["status"] == "done":
+            # The copy of a curation is a contribution in ``merging``: its merge job builds the graph from the extraction that came, without an LLM call.
+            await run_in_threadpool(_run_merge_jobs)
+        _log.info("knowledge remote read: %s%s", read["status"], "" if read["error_code"] is None else f" ({read['error_code']})")
+        return _json(RemoteReadRecorded(id=int(read["id"]), status=read["status"], error_code=read["error_code"]))
 
     async def knowledge_activity(request: Request) -> Response:
         try:
@@ -163,6 +459,9 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
                 conn.close()
 
         receipt = await run_in_threadpool(_apply)
+        if receipt.decision == "processed":
+            # A revision of a copy (unit KF3) is a merge job: it builds the graph after the journal committed. A failure of a job is in its row and in the log.
+            await run_in_threadpool(_run_merge_jobs)
         # The line has no address.
         _log.info("knowledge activity: %s%s", receipt.decision, "" if receipt.reason is None else f" ({receipt.reason})")
         return _json(KnowledgeActivityResponse(decision=receipt.decision, reason=receipt.reason, journal_id=None if receipt.entry is None else receipt.entry.id))
@@ -305,6 +604,14 @@ def knowledge_internal_routes(settings: Any, *, now: Callable[[], float], origin
         return _json(answer)
 
     return [
+        Route("/knowledge-kb-actors/{number}", kb_actor, methods=["GET"]),
+        Route("/knowledge-kb-actors/{number}/keys", kb_actor_keys, methods=["GET"]),
+        Route("/knowledge-kb-actors/{number}/documents/{document}", kb_actor_document, methods=["GET"]),
+        Route("/knowledge-kb-actors/{number}/{name}", kb_actor_collection, methods=["GET"]),
+        Route("/knowledge-outbox-tasks", outbox_tasks, methods=["GET"]),
+        Route("/knowledge-outbox-tasks/{task_id}/ack", outbox_task_ack, methods=["POST"]),
+        Route("/knowledge-remote-reads", remote_reads, methods=["GET"]),
+        Route("/knowledge-remote-reads", remote_read_result, methods=["POST"]),
         Route("/knowledge-kb-reads", kb_reads, methods=["GET"]),
         Route("/knowledge-kb-reads", kb_read_batch, methods=["POST"]),
         Route("/knowledge-activities", knowledge_activity, methods=["POST"]),

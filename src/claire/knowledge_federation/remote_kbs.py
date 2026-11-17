@@ -34,7 +34,10 @@ __all__ = [
     "TABLES",
     "BatchResult",
     "RemoteKnowledgeBase",
+    "apply_update",
     "collection_url",
+    "delete_record",
+    "documents_url",
     "count_by_domain",
     "ensure_schema",
     "finish_read",
@@ -287,6 +290,51 @@ def _check_item(item: Any, domain: str, origin: str) -> dict[str, Any]:
     return item
 
 
+def _store(conn: sqlite3.Connection, obj: dict[str, Any], domain: str, current: RemoteKnowledgeBase | None, *, now: float) -> None:
+    """Insert or change the record of one checked ``claire:KnowledgeBase``. ``changed_at`` changes only when the content changes."""
+    obj = {key: value for key, value in obj.items() if key != "@context"}
+    payload = json.dumps(obj, ensure_ascii=False, sort_keys=True)
+    signature = json.dumps(obj[vocabulary.SIGNATURE], ensure_ascii=False, sort_keys=True) if vocabulary.SIGNATURE in obj else None
+    values = (domain, obj["url"], obj["name"], obj["summary"], obj[vocabulary.KNOWLEDGE_TYPE], int(obj[vocabulary.DOCUMENT_COUNT]), int(obj[vocabulary.ENTITY_COUNT]), int(obj[vocabulary.RELATION_COUNT]), signature, payload)
+    if current is None:
+        conn.execute(
+            "INSERT INTO kf_remote_knowledge_bases (iri, domain, url, label, description, knowledge_type, document_count, entity_count, relation_count, signature, payload, first_seen_at, seen_at, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (obj["id"], *values, now, now, now),
+        )
+        return
+    changed = now if current.payload != payload else current.changed_at
+    conn.execute(
+        "UPDATE kf_remote_knowledge_bases SET domain=?, url=?, label=?, description=?, knowledge_type=?, document_count=?, entity_count=?, relation_count=?, signature=?, payload=?, seen_at=?, changed_at=? WHERE id=?",
+        (*values, now, changed, current.id),
+    )
+    if current.knowledge_type != obj[vocabulary.KNOWLEDGE_TYPE]:
+        # A theme has one knowledge type: a record with a new type leaves its themes, as a local knowledge base does.
+        themes_store.delete_remote_kb_rows(conn, [current.id])
+
+
+def apply_update(conn: sqlite3.Connection, obj: Any, *, domain: str, origin: str, now: float) -> str | None:
+    """Store the record of an ``Update`` that the knowledge base actor sent (design Section 9.3, unit KF3). Return ``None``, or the code of the refusal: the codes of an item of a read (``_check_item``), or ``too_many_knowledge_bases`` for a new record of a server that has ``PER_SERVER_MAX`` records."""
+    try:
+        checked = _check_item({key: value for key, value in obj.items() if key != "@context"} if isinstance(obj, dict) else obj, domain, origin)
+    except _Refusal as exc:
+        return exc.code
+    current = get_by_iri(conn, checked["id"])
+    if current is None and count_by_domain(conn).get(domain, 0) >= PER_SERVER_MAX:
+        return "too_many_knowledge_bases"
+    _store(conn, checked, domain, current, now=now)
+    return None
+
+
+def delete_record(conn: sqlite3.Connection, iri: str) -> bool:
+    """Delete the record of one remote knowledge base and its memberships in local themes (a ``Delete`` of its actor, design Section 9.3). Copies of its documents stay (design Section 10.1 rule 3). Return False when there was no record."""
+    return _delete(conn, "iri=?", (iri,)) > 0
+
+
+def documents_url(kb: RemoteKnowledgeBase) -> str:
+    """The address of the documents collection of a remote knowledge base (``claire:documents``), from the object as it came."""
+    return str(json.loads(kb.payload)[vocabulary.DOCUMENTS])
+
+
 def record_batch(conn: sqlite3.Connection, domain: str, *, items: list[Any], origin: str, now: float) -> BatchResult | None:
     """Store the items of one batch of the read of ``domain``. Return ``None`` when the domain has no read that a lease started.
 
@@ -309,26 +357,9 @@ def record_batch(conn: sqlite3.Connection, domain: str, *, items: list[Any], ori
             refused += 1
             refused_code = refused_code or exc.code
             continue
-        payload = json.dumps(obj, ensure_ascii=False, sort_keys=True)
-        signature = json.dumps(obj[vocabulary.SIGNATURE], ensure_ascii=False, sort_keys=True) if vocabulary.SIGNATURE in obj else None
-        values = (domain, obj["url"], obj["name"], obj["summary"], obj[vocabulary.KNOWLEDGE_TYPE], int(obj[vocabulary.DOCUMENT_COUNT]), int(obj[vocabulary.ENTITY_COUNT]), int(obj[vocabulary.RELATION_COUNT]), signature, payload)
-        if current is None:
-            conn.execute(
-                "INSERT INTO kf_remote_knowledge_bases (iri, domain, url, label, description, knowledge_type, document_count, entity_count, relation_count, signature, payload, first_seen_at, seen_at, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (obj["id"], *values, now, now, now),
-            )
+        if current is None or current.seen_at < started:
             seen += 1
-        else:
-            if current.seen_at < started:
-                seen += 1
-            changed = now if current.payload != payload else current.changed_at
-            conn.execute(
-                "UPDATE kf_remote_knowledge_bases SET domain=?, url=?, label=?, description=?, knowledge_type=?, document_count=?, entity_count=?, relation_count=?, signature=?, payload=?, seen_at=?, changed_at=? WHERE id=?",
-                (*values, now, changed, current.id),
-            )
-            if current.knowledge_type != obj[vocabulary.KNOWLEDGE_TYPE]:
-                # A theme has one knowledge type: a record with a new type leaves its themes, as a local knowledge base does.
-                themes_store.delete_remote_kb_rows(conn, [current.id])
+        _store(conn, obj, domain, current, now=now)
         stored += 1
     conn.execute(
         "UPDATE kf_remote_kb_reads SET stored_count=stored_count+?, refused_count=refused_count+?, refused_code=COALESCE(refused_code, ?) WHERE domain=?",

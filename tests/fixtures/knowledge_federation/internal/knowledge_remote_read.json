@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/knowledge-remote-reads",
+    "body": {
+      "id": 1,
+      "document": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://w3id.org/claire-bible/ns/v1"
+        ],
+        "id": "https://b.example/ap/kb/1846000000000000100/documents?page=true",
+        "type": "OrderedCollectionPage",
+        "partOf": "https://b.example/ap/kb/1846000000000000100/documents",
+        "orderedItems": [
+          {
+            "id": "https://b.example/ap/kb/1846000000000000100/documents/1846000000000000300",
+            "type": "Article",
+            "name": "Seoul",
+            "url": "https://example.org/seoul",
+            "claire:contentHash": "abababababababababababababababababababababababababababababababab",
+            "published": "2026-11-16T00:00:00Z"
+          }
+        ]
+      },
+      "error": null
+    }
+  },
+  "status": 200,
+  "response": {
+    "id": 1,
+    "status": "done",
+    "error_code": null
+  }
+}

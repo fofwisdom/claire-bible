@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -753,10 +753,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
     _migrate_v28_shared_kb_schema(conn)
+    _migrate_v31_contribution_remote_columns(conn)
     _migrate_v28_credential_scopes(conn)
     _migrate_v28_convert_knowledge_bases(conn)
     _migrate_v29_knowledge_federation(conn)
     _migrate_v30_remote_knowledge_bases(conn)
+    _migrate_v31_knowledge_base_actors(conn)
+    _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1483,6 +1486,33 @@ def _migrate_v30_remote_knowledge_bases(conn: sqlite3.Connection) -> None:
         _retire_table_of_other_form(conn, table, columns, version=30)
     remote_kbs.ensure_schema(conn)
     themes_store.ensure_remote_member_schema(conn)
+
+
+def _migrate_judged_counts(conn: sqlite3.Connection) -> None:
+    """The table ``kb_judged_counts`` of ``store.themes``: the count of visible documents of each knowledge base at the last judgement run (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.2 rule 10). Idempotent; it runs at each start. The step makes the table when it is not there and changes no row; the next judgement run fills it. It needs no new schema version."""
+    from . import themes as themes_store
+
+    themes_store.ensure_judged_count_schema(conn)
+
+
+def _migrate_v31_contribution_remote_columns(conn: sqlite3.Connection) -> None:
+    """v31 schema, part 1 (KNOWLEDGE_FEDERATION_DESIGN.md Sections 10.1 and 10.3, unit KF3): the columns of ``kb_contributions`` for a copy of a document of another server (the remote source, root, and credit; the removal at the origin). Idempotent (A3); it runs at each start, after the step that makes the table and before each step that reads a contribution. It adds columns that are not there and changes no row (``store.kb_collab`` owns the table)."""
+    from . import kb_collab
+
+    kb_collab.ensure_remote_columns(conn)
+
+
+def _migrate_v31_knowledge_base_actors(conn: sqlite3.Connection) -> None:
+    """v31 schema, part 2 (KNOWLEDGE_FEDERATION_DESIGN.md Sections 9.2, 9.3, and 11, unit KF3): the followers and the state of the knowledge base actors, the outbox of the knowledge federation with the follows of this server, and the reads of documents of another server. Idempotent (A3); it runs at each start.
+
+    The store modules own their tables: ``knowledge_federation.actors``, ``knowledge_federation.outbox``, and ``knowledge_federation.remote_documents``. The step makes tables that are not there; it changes no row. A table of another form is kept with a new name, as in the step v29, and the start continues (operator rule).
+    """
+    from ..knowledge_federation import actors, outbox, remote_documents
+
+    for module in (actors, outbox, remote_documents):
+        for table, columns in module.TABLES.items():
+            _retire_table_of_other_form(conn, table, columns, version=31)
+        module.ensure_schema(conn)
 
 
 def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:

@@ -1650,8 +1650,12 @@ def create_app(
             "updates_stopped": bool(row["updates_frozen"]),
             "contributed_at": row["contributed_at"],
             "revised_at": row["revised_at"],
+            # A copy of a document of another server (federation design Section 10.1): the document that was copied, its knowledge base actor, and the actor with the credit. None for each other contribution.
+            "remote": None if not row["remote_source_iri"] else {"document": row["remote_source_iri"], "knowledge_base": row["remote_source_kb_iri"], "credit": row["remote_credit_iri"]},
         }
         if full:
+            # The origin removed the document (federation design Section 10.3): the copy is hidden and waits in the review queue until a reviewer shows it again (``unhide``) or removes it. ``waiting`` is false after the decision.
+            view["origin_removed"] = None if row["origin_removed_at"] is None else {"at": row["origin_removed_at"], "reason": row["origin_removed_reason"], "waiting": contributions.in_origin_review(row)}
             view["reason"] = row["decision_reason"]
             view["revisions"] = [{"document": r["document_id"], "state": r["state"], "created_at": r["created_at"]} for r in kb_collab.list_revisions(conn, int(row["public_id"]))]
         if review_help and row["contributor_account_id"] is not None:
@@ -1730,8 +1734,98 @@ def create_app(
 
         return await asyncio.to_thread(_contribute)
 
+    def _remote_read_view(read: dict[str, Any]) -> dict[str, Any]:
+        """One read of a document of another server for a curation: ``state`` is ``queued`` (the sidecar did not read it), ``done`` (the copy is a contribution), or ``failed`` with ``error``."""
+        return {
+            "read": int(read["id"]),
+            "document": read["target_iri"],
+            "title": read.get("title"),
+            "state": {"pending": "queued", "done": "done", "failed": "failed"}[read["status"]],
+            "error": read["error_code"],
+            "contribution": None if read["contribution_public_id"] is None else ids.format_public_id(int(read["contribution_public_id"])),
+            "requested_at": read["started_at"],
+        }
+
+    def _curate_remote(kb: KnowledgeBaseInfo, account_id: int, body: dict[str, Any], documents: list[str]) -> JSONResponse:
+        """The curation from a shared knowledge base of another server (federation design Section 11): ``{"remote_source": <id of the record>, "documents": ["<document IRI>", ...]}``. The sidecar reads each document with a signed GET; then the copy is made. Thus the answer is 202 with one read for each document."""
+        from ..knowledge_federation import remote_documents
+
+        remote_id = body.get("remote_source")
+        if isinstance(remote_id, bool) or not isinstance(remote_id, int) or "source" in body:
+            return JSONResponse({"error": "source_invalid"}, status_code=400)
+        results: list[dict[str, Any]] = []
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            try:
+                source = remote_documents.source_of(conn, kb_id=kb.id, remote_kb_id=remote_id)
+            except remote_documents.SourceError as exc:
+                return JSONResponse({"error": exc.code}, status_code=exc.status)
+            limit = contributions.read_limits(conn)["submission_max_documents"]
+            if len(documents) > limit:
+                return JSONResponse({"error": "documents_invalid", "limit": limit}, status_code=400)
+            held = kb_collab.remote_sources_in_kb(conn, kb.id)
+            now = time.time()
+            for document_iri in (d.strip() for d in documents):
+                known = held.get(document_iri)
+                if known is not None:
+                    # The checks that need no read: K has a contribution of this document, or K removed it (a tombstone).
+                    results.append({"document": document_iri, "error": "contribution_tombstoned" if known["state"] == "removed" else "contribution_duplicate"})
+                    continue
+                try:
+                    read = remote_documents.request_document(conn, source, document_iri=document_iri, kb_id=kb.id, account_id=account_id, now=now)
+                except remote_documents.SourceError as exc:
+                    results.append({"document": document_iri, "error": exc.code})
+                    continue
+                results.append({"document": document_iri, "read": int(read["id"]), "state": "queued"})
+            conn.commit()
+        finally:
+            conn.close()
+        return JSONResponse({"ok": True, "curations": results}, status_code=202 if any("read" in result for result in results) else 200)
+
+    async def kb_remote_sources_route(request: Request) -> JSONResponse:
+        """``GET /kb/{number}/remote-sources`` (capability ``curate``): the shared knowledge bases of other servers that a reviewer of K can curate from (the remote members of the themes of K, federation design Section 11 rule 1), and the newest reads for curations into K. With ``?source=<id>``: also the documents of that knowledge base. The list of documents comes from the sidecar; the request starts a read when the list is older than 10 minutes."""
+        from ..knowledge_federation import outbox as kf_outbox
+        from ..knowledge_federation import remote_documents, remote_kbs
+
+        kb = _shared_kb_of_path(request)
+        selected_raw = request.query_params.get("source")
+        if set(request.query_params) - {"source"} or (selected_raw is not None and not (selected_raw.isascii() and selected_raw.isdigit())):
+            raise HTTPException(status_code=400, detail="source_invalid")
+        head = request.method == "HEAD"
+
+        def _view() -> JSONResponse:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                follows = kf_outbox.follow_states(conn)
+                body: dict[str, Any] = {
+                    "sources": [{**remote_kbs.view(source), "follow": follows.get(source.iri)} for source in remote_documents.sources_of(conn, kb.id)],
+                    "curations": [_remote_read_view(read) for read in remote_documents.curation_reads(conn, kb.id)],
+                }
+                if selected_raw is not None:
+                    try:
+                        source = remote_documents.source_of(conn, kb_id=kb.id, remote_kb_id=int(selected_raw))
+                    except remote_documents.SourceError as exc:
+                        return JSONResponse({"error": exc.code}, status_code=exc.status)
+                    if not head:
+                        remote_documents.request_listing(conn, source, now=time.time())
+                        conn.commit()
+                    held = kb_collab.remote_sources_in_kb(conn, kb.id)
+                    body["selected"] = {
+                        "id": source.id,
+                        **remote_documents.listing_state(conn, source),
+                        "documents": [
+                            {"iri": doc["iri"], "title": doc["title"], "url": doc["url"], "published": doc["published"], "updated": doc["updated"], "curated": None if doc["iri"] not in held else held[doc["iri"]]["state"]}
+                            for doc in remote_documents.listing(conn, source.iri)
+                        ],
+                    }
+                return JSONResponse(body, headers={"Cache-Control": "no-store"})
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_view)
+
     async def kb_curations_route(request: Request) -> JSONResponse:
-        """``POST /kb/{number}/curations`` with ``{"source": "<number of S>", "documents": [...]}``: a reviewer of K copies visible documents of another knowledge base S of a theme of K (design Section 9.7). Each document has its own result; the merge jobs run in this request."""
+        """``POST /kb/{number}/curations`` with ``{"source": "<number of S>", "documents": [...]}``: a reviewer of K copies visible documents of another knowledge base S of a theme of K (design Section 9.7). Each document has its own result; the merge jobs run in this request. With ``{"remote_source": <id>, "documents": ["<document IRI>", ...]}`` S is a shared knowledge base of another server (``_curate_remote``)."""
         kb = _shared_kb_of_path(request)
         principal = request_principal(request)
         body = await _json_object(request)
@@ -1739,6 +1833,8 @@ def create_app(
         if not isinstance(documents, list) or not documents or not all(isinstance(d, str) and d.strip() for d in documents) or len(set(documents)) != len(documents):
             raise HTTPException(status_code=400, detail="documents_invalid")
         origin = _public_origin(request)
+        if "remote_source" in body:
+            return await asyncio.to_thread(_curate_remote, kb, int(principal.account_id), body, documents)
 
         def _curate() -> JSONResponse:
             try:
@@ -6313,6 +6409,7 @@ def create_app(
         Route("/submissions", submissions_route, methods=["GET", "HEAD", "POST"]),
         Route("/submissions/{number}", submission_route, methods=["GET", "HEAD"]),
         Route("/curations", kb_curations_route, methods=["POST"]),
+        Route("/remote-sources", kb_remote_sources_route, methods=["GET", "HEAD"]),
         Route("/forks", kb_forks_route, methods=["POST"]),
         Route("/contributions", kb_contribute_route, methods=["POST"]),
         Route("/contributions", kb_contributions_route, methods=["GET", "HEAD"]),

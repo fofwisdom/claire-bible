@@ -1,12 +1,12 @@
 # Knowledge Federation Implementation Reference
 
-Basis: units KF0, KF1, and KF2 (2026-11-17). Readers: agents who do the units KF3 to KF5.
+Basis: units KF0 to KF3 (2026-11-18). Readers: agents who do the units KF4 and KF5.
 
 Design: [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md). This document tells what the code has now. The general federation (actors of accounts, publishing, remote reading) is in [`FEDERATION.md`](FEDERATION.md). The local shared knowledge bases are in [`THEMES.md`](THEMES.md) Sections 4.7 to 4.12.
 
 ## 1. Scope and State
 
-Units KF0, KF1, and KF2 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). The sidecar does its part of KF1 and KF2 (Section 10.6). No server sends an activity of the knowledge federation yet, and no activity kind has a handler.
+Units KF0 to KF3 are implemented. KF0: the vocabulary, the JSON-LD context, the builders, the validators, the contract fixtures, and the routes `/ns/v1` and `/ns`. KF1: the known servers, the admin controls, the inbox journal, and the single mode root (Section 10). KF2: the `/kb` collection for other servers, the store of remote knowledge bases, the themes across servers, and the root page (Section 11). KF3: the knowledge base actors, the curation across servers, the revisions, and the removal at the origin (Section 12). The sidecar does its part of KF1 to KF3 (Sections 10.6 and 12.7). The activity kinds of unit KF4 (`offer_contribution`, `accept_offer`, `reject_offer`, `grant`, `revoke`) have no handler, and no server sends them.
 
 | Function | State |
 | :--- | :--- |
@@ -14,10 +14,10 @@ Units KF0, KF1, and KF2 are implemented. KF0: the vocabulary, the JSON-LD contex
 | Builders and validators of each object and activity | Implemented |
 | Contract fixtures | Implemented |
 | Routes `/ns/v1` and `/ns` | Implemented (`server.py`: `ns_context_route`, `ns_vocabulary_route`) |
-| Vocabulary in the sidecar | The context document and the handoff of inbound activities are implemented (Section 10.6); the rest of Section 7.2 is not |
+| Vocabulary in the sidecar | The context document, the handoff of inbound activities (Section 10.6), and the outbound activities as the JSON of the builders (Section 12.7) are implemented |
 | Known servers, admin controls, inbox journal, single mode root (KF1) | Implemented (Section 10; the sidecar part in Section 10.6) |
 | `/kb` collections of other servers, store of remote knowledge bases, themes across servers, root page (KF2) | Implemented (Section 11) |
-| Knowledge base actors, curation, revisions, removal at the origin (KF3) | Not implemented |
+| Knowledge base actors, curation, revisions, removal at the origin (KF3) | Implemented (Section 12) |
 | Contributions and grants across servers (KF4) | Not implemented |
 | Automatic contribution across servers (KF5) | Not implemented |
 | Registration on `w3id.org` | Owner task, after `claire.bible` serves the two paths |
@@ -187,10 +187,10 @@ The routes `/ns/v1` and `/ns` are implemented (design Section 9.1 rule 3): `GET 
 
 ### 7.2 Sidecar
 
-The sidecar (`sidecar/fedify/`) has the context document as a local copy and gives each inbound activity of the wire contract to Claire without a change (Section 10.6). The units KF3 and KF4 must add this:
+The sidecar (`sidecar/fedify/`) has the context document as a local copy and gives each inbound activity of the wire contract to Claire without a change (Section 10.6). Unit KF3 implemented the two items below (Section 12.7). The first item is a rule for each outbound activity:
 
 - The wire JSON of Claire without a change in the outbound direction. Claire reads the compact names, so a document that Fedify compacts again with other contexts is not valid for the validators. Fedify 2.4.5 does not keep the JSON of each type as it came (a `Delete` comes back with other contexts), and its vocabulary has no class for `Grant` and `Revoke` (`Invalid type`). Thus an outbound activity must go out as the JSON of the builders, signed with the key of its actor, and not as an object of the Fedify vocabulary.
-- The `Group` actor of each shared knowledge base with its keys, inbox, outbox, and followers (design Section 9.2). The inbox path `/ap/kb/{number}/inbox` takes knowledge activities now (Section 10.6); the actor document and the keys are not there.
+- The `Group` actor of each shared knowledge base with its keys, inbox, outbox, and followers (design Section 9.2). The inbox path `/ap/kb/{number}/inbox` takes knowledge activities (Section 10.6); the actor document and the keys are in Section 12.2.
 
 ## 8. Choices Made in the Code
 
@@ -300,7 +300,7 @@ Under `/internal/federation/v1`, with the signature of the service key (`FEDERAT
 | `GET /knowledge-server-reads?limit=<1..20>` | Default 5 | 200 `{"servers": [{"domain"}]}`: the known servers due for a read; each one gets a lease. Empty while the switch is off |
 | `POST /knowledge-server-reads` | `{"domain", "ok", "server_actor", "software_name", "software_version", "shared_kb_count", "error"}`; `ok` true: the server actor is on the domain and `error` is null; `ok` false: `error` is a code `[a-z0-9_]{1,64}` and the other fields are null | 200 `{"domain", "recorded": true}`; 400 for a body against these rules; 404 for a domain that is not known |
 
-The `kb` collection has the shared knowledge bases only (no owner, public, with a knowledge type). A personal knowledge base is never in it (KD3). Unit KF2 added `GET` and `POST /knowledge-kb-reads` (Section 11.4) and changed the answer of `knowledge-collections` (`document` in place of `items`); the contract version of the internal API is 1.9. The contract fixtures of these routes are in `tests/fixtures/knowledge_federation/internal/`.
+The `kb` collection has the shared knowledge bases only (no owner, public, with a knowledge type). A personal knowledge base is never in it (KD3). Unit KF2 added `GET` and `POST /knowledge-kb-reads` (Section 11.4) and changed the answer of `knowledge-collections` (`document` in place of `items`); the contract version of the internal API was 1.9. Unit KF3 added the routes of Section 12.5; the version is 1.10. The contract fixtures of these routes are in `tests/fixtures/knowledge_federation/internal/`.
 
 ### 10.5 Admin Routes
 
@@ -325,7 +325,7 @@ Code: `sidecar/fedify/src/knowledge.ts`, `sidecar.ts`, `internal_api.ts`, `main.
 3. **Reads.** One loop of `main.ts` (each 60 seconds) calls `Sidecar.processKnowledgeReads`: `GET /knowledge-server-reads`, then for each domain NodeInfo (`/.well-known/nodeinfo`, then the document of the link) and the server actor (`/ap/actors/server`), then `POST /knowledge-server-reads`; then `GET /knowledge-kb-reads` and the read of each `/kb` collection (Section 11.4). Each request is a GET that the server actor of this server signs (the document loader of Fedify, which refuses a private network address). The server actor and each page must be on the server that was asked. `shared_kb_count` is `null`: NodeInfo of a Claire server does not give the number. Error codes of a server read: `blocked_domain`, `nodeinfo_unavailable`, `nodeinfo_invalid`, `server_actor_unavailable`, `server_actor_invalid`.
 4. **Context document.** `sidecar/fedify/src/claire_context_v1.json` is a copy of `src/claire/static/ns/v1.jsonld` (a Python test fails when the two are different). `knowledge.ts` puts it in the table of preloaded contexts of `@fedify/vocab-runtime` (the import `jsr:@fedify/vocab-runtime@^2.4.5`, which is in `deno.lock` as a dependency of Fedify), so that the context loader and the document loaders of Fedify give it without a request.
 
-Not implemented in the sidecar: the knowledge base actors (documents, keys, followers, outbox), each outbound activity of the knowledge federation, and the read of documents for a curation (units KF3 and KF4).
+Unit KF3 added the knowledge base actors, the outbound activities, and the read of documents for a curation (Section 12.7). Not implemented in the sidecar: the work in single mode (item above), and the activities of unit KF4, which need no new code path in the sidecar (Section 12.9).
 
 ### 10.7 Tests
 
@@ -395,7 +395,7 @@ Rules:
 - The end of a complete read deletes each record of the server that the read did not contain. A failed read deletes nothing.
 - When a domain block starts (`POST /api/admin/federation/domain-blocks`), the records and the read state of that domain are deleted in the same transaction (`purge_blocked`); each lease and each judgement run do it again. A record has no document, so no copy goes (design Section 6.3). The lists do not give a record of a blocked domain.
 - A record that goes loses its theme memberships, the admin adjustments included. A record whose knowledge type changes leaves its themes.
-- No handler of `update_knowledge_base` and `delete_knowledge_base` is installed: a change comes with the read of the next day (unit KF3 adds the handlers with the knowledge base actors).
+- Unit KF3 installed the handlers of `update_knowledge_base` and `delete_knowledge_base` (Section 12.4): a change of the label, the description, or the knowledge type comes with an `Update` of the actor that this server follows. The counts and the signature come with the read of the next day.
 
 ### 11.4 Internal Routes (the sidecar is the caller)
 
@@ -439,3 +439,170 @@ The sidecar reads the root, then each page (`first`, then `next`): at most 60 pa
 | `tests/test_knowledge_federation_kf2_e2e.py` | The completion criterion with two app objects and two databases: a shared knowledge base of B is read by A, is in a theme of A after a judgement run, and is in the data and the HTML of the root page of A; B has no entry for A. The sidecars and the network are simulated by direct calls to the internal routes. |
 
 Not verified: an exchange between two real sidecars over a network (signatures in the two directions, the reverse proxy, NodeInfo of a real server).
+
+## 12. Unit KF3: Knowledge Base Actors, Curation Across Servers, Revisions, Removal at the Origin
+
+Design: Sections 9.2, 9.3, 10, and 11, with Sections 6, 13, and 14 for the controls.
+
+### 12.1 Files
+
+| File | Content |
+| :--- | :--- |
+| `src/claire/knowledge_federation/actors.py` | The knowledge base actors of this server: the followers, the actor document, the collections, the `Article` of a document with its extraction. Tables `kf_kb_followers`, `kf_kb_actor_state`, `kf_document_announcements`. |
+| `src/claire/knowledge_federation/outbox.py` | The outbound activities (`kf_outbox`), the follows of this server (`kf_follows`), and `sync`, which adds the tasks that the state of `claire.db` needs. |
+| `src/claire/knowledge_federation/remote_documents.py` | The reads of documents of another server for a curation (`kf_remote_reads`) and the list of the documents of a remote knowledge base (`kf_remote_documents`). |
+| `src/claire/knowledge_federation/handlers.py` | The handlers of the inbox journal for the activity kinds of this unit. The import installs them. |
+| `src/claire/contributions.py` | `copy_remote_document`, `curate_remote`, `start_remote_revisions`, `origin_removed`, `in_origin_review`, and the authority identifiers in the merge job. |
+| `src/claire/store/kb_collab.py` | The columns of a remote source in `kb_contributions` (`ensure_remote_columns`) and their reads. |
+| `src/claire/store/actor_keys.py` | `ensure_kb_actor_keys`, `load_kb_actor_keys`, `public_key_pem`. |
+| `src/claire/api/knowledge_federation_internal.py` | The internal routes (Section 12.5). |
+| `src/claire/api/server.py` | `GET /kb/{number}/remote-sources`, the remote source of `POST /kb/{number}/curations`, and `remote` and `origin_removed` in the view of a contribution. |
+| `src/claire/store/db.py` | `_migrate_v31_contribution_remote_columns`, `_migrate_v31_knowledge_base_actors`, schema version 31. |
+| `sidecar/fedify/src/knowledge.ts`, `sidecar.ts`, `internal_api.ts`, `main.ts` | The sidecar part (Section 12.7). |
+
+### 12.2 Knowledge Base Actors (design Section 9.2, KD5)
+
+- Each shared knowledge base of this server is an actor. A personal knowledge base is never one (KD3). The IRIs (`collections.knowledge_base_iris`): `{origin}/ap/kb/{number}` with `/inbox`, `/outbox`, `/followers`, and `/documents`. A document: `{origin}/ap/kb/{number}/documents/{contribution}`; `{contribution}` is the public ID of the contribution, which stays when a revision replaces the copy. The public key: `{actor}#main-key`.
+- The actor document is the `claire:KnowledgeBase` of Section 4.1 (type `["Group", "claire:KnowledgeBase"]`) with `@context` (ActivityStreams, the Claire context, `https://w3id.org/security/v1`), `manuallyApprovesFollowers` false, and `publicKey` (`id`, `owner`, `publicKeyPem`). It is public while the switch `federation` is on: another server reads it to verify a signature.
+- Keys: the table `actor_keys` of `auth.db` ([`FEDERATION.md`](FEDERATION.md) Section 6), with `account_id` = minus the number of the knowledge base. Claire makes the two key pairs at the first request for the actor document or the keys. A number is never used again, so a new knowledge base never gets the keys of a deleted one. The keys of a deleted knowledge base stay in the table.
+- The collections answer only a signed request of a server actor (`access.collection_access`, KS1; each refusal is the same 404). `followers` and `outbox` give `totalItems` only. `documents` is an `OrderedCollection` with `first`; a page (`?page=true`, `&max_id=<contribution>`) has at most 20 items, the newest contribution first. An item has `id`, `type` `Article`, `name`, `url` (optional), `claire:contentHash`, `published`, and `updated` (optional), and no content (P3). The document path gives the `Article` of Section 4.2 with its `claire:extraction`.
+- A document leaves the server only when its contribution is `visible`, its document row is not hidden, and it has a stored extraction (KS5). `content` is the compiled HTML (or the render of the source text) after the `nh3` sanitizer; a reference that starts at the root of this server gets the origin. A relation whose source or target is not an entity of the extraction is not sent.
+- `attributedTo`: for a copy of a remote document, the credit that came; for a local document, the actor of the contributor only when that account is a federation actor ([`FEDERATION.md`](FEDERATION.md) Section 3); else absent. `origin`: only for a copy of a remote document (the document that was copied). `claire:root`: the root that came for such a copy; for each other document its own `id`.
+- `sameAs` of an entity: the authority identifiers of the entity of the knowledge base with that name or alias (`entities.props.same_as`). Only a merge of a received extraction sets them (Section 12.4).
+
+### 12.3 Tables (schema version 31)
+
+The step `_migrate_v31_contribution_remote_columns` adds columns to `kb_contributions` that are not there (no row changes). The step `_migrate_v31_knowledge_base_actors` follows the rule of v29: it makes a table that is not there, and a table of another form becomes `<name>_retired_v31`.
+
+`kb_contributions`, new columns (all NULL for a contribution that is not a copy of a remote document):
+
+| Column | Meaning |
+| :--- | :--- |
+| `remote_source_kb_iri`, `remote_source_iri`, `remote_root_iri`, `remote_credit_iri` | The knowledge base actor of the source, the document that was copied (`origin`), its `claire:root`, and its `attributedTo` (can be NULL). Such a row has no `contributor_account_id`, `source_kb_id`, `source_document_id`, `root_kb_id`, and `root_document_id`. |
+| `origin_removed_at`, `origin_removed_reason` | The origin removed the document, with its reason code. |
+| `origin_decided_at` | A reviewer decided to show the copy again. |
+
+| Table | Rows |
+| :--- | :--- |
+| `kf_kb_followers` | `kb_number`, `actor_iri` (the server actor that follows), `domain`, `follow_iri`, `created_at`; one row for each pair of actor and follower. |
+| `kf_kb_actor_state` | `kb_number`, `record_digest` (the label, the description, and the knowledge type that the followers have), `updated_at`. |
+| `kf_document_announcements` | `contribution_public_id`, `revised_at` (the revision that the followers have), `removed` (the `Delete` is in the outbox). |
+| `kf_outbox` | One row for each activity and recipient: `activity_iri`, `kind`, `signer` (`server`, or the number of a knowledge base actor), `recipient` (an actor IRI), `recipient_domain`, `payload` (the activity JSON), `status` (`pending`, `delivered`, `failed`, `refused`), `attempts`, `error_code`, `lease_until`, `next_attempt_at`, `created_at`, `finished_at`. |
+| `kf_follows` | The knowledge base actors that the server actor of this server follows: `kb_iri`, `domain`, `follow_iri`, `state` (`pending`, `accepted`), `created_at`, `accepted_at`. |
+| `kf_remote_reads` | One read for the sidecar: `kind` (`documents` or `document`), `kb_iri`, `domain`, `url`, `target_iri`, `kb_id` and `account_id` (the knowledge base K and the curator of a `document` read), `status` (`pending`, `done`, `failed`), `attempts`, `pages`, `items`, `error_code`, `contribution_public_id`, `lease_until`, `started_at`, `finished_at`. |
+| `kf_remote_documents` | The list of the documents of a remote knowledge base: `kb_iri`, `iri`, `title`, `url`, `content_hash`, `published`, `updated`, `seen_at`. |
+
+### 12.4 Rules
+
+Follows (design Section 9.2 rule 2):
+
+- `outbox.sync` runs when the sidecar takes outbound tasks. The server actor of this server follows a knowledge base actor when the remote knowledge base is a member (not excluded) of an active local theme, or when a contribution that is not closed is a copy from it (and its origin did not remove the document). A new follow is a row of `kf_follows` (`pending`), a `Follow` in the outbox, and a known server (`local_follow` or `local_curation`). When neither condition is true, an `Undo` goes out and the row is deleted. A follow of a blocked domain is deleted without an `Undo`.
+- The handler of `follow` accepts each server actor (path `/ap/actors/server`) that follows a shared knowledge base of this server, stores it, and puts the `Accept` in the outbox. Refusals: `not_a_server_actor`, `knowledge_base_not_found`. `undo_follow` deletes the follower. `accept_follow` sets the follow of this server to `accepted` (refusal `follow_not_found`).
+- The handlers of `update_knowledge_base`, `delete_knowledge_base`, `update_document`, and `delete_document` refuse an actor that this server does not follow (`not_following`). `delete_knowledge_base` deletes the record and its theme memberships and the follow; the copies stay.
+
+Outbound activities (design Section 9.2 rule 3; the builders of Section 5):
+
+| Activity | Activity IRI | When `sync` adds it |
+| :--- | :--- | :--- |
+| `Follow` | `{server actor}#follows/{random}` | Above |
+| `Undo` | `{Follow IRI}/undo` | Above |
+| `Accept` | `{actor}#accepts/{digest of the Follow IRI}` | The handler of `follow` |
+| `Update` of the record | `{actor}#updates/{milliseconds}` | The digest of label, description, and knowledge type is different from `kf_kb_actor_state` |
+| `Delete` of the record | `{actor}#delete` | The shared knowledge base is gone; then the followers and the state of the actor are deleted |
+| `Update` of a document | `{document}#updates/{revised_at in milliseconds}` | A `visible` contribution has a `revised_at` after the one in `kf_document_announcements` and not before the first follower |
+| `Delete` of a document | `{document}#delete` | A contribution is `removed` (`contributions.remove`, or a purge of its document) with `decided_at` not before the first follower; `claire:reasonCode` is `decision_reason`, or `other` |
+
+- A task goes to each follower that is not on a blocked domain. The pair of activity IRI and recipient is unique. A task for a blocked domain ends as `refused` (`blocked_domain`).
+- Results of the sidecar: `delivered`; `retry` (the task comes again after 60 seconds times 2 for each attempt, at most 6 hours; after 8 attempts `failed`); `rejected` (`failed`). A task without a result comes again after its lease (300 seconds). A task that ended stays 30 days.
+- A hide at the origin sends nothing: only a removal does (design Section 10.3).
+
+Curation across servers (design Section 11):
+
+- The sources of K are the remote knowledge bases that are members of an active theme that K is a member of (`remote_documents.sources_of`). A reviewer (capability `curate`) reads the list of documents of a source (`kind` `documents`: the root of `claire:documents`, then each page, at most 50 pages and 1000 documents; an item of another server is not stored; a complete read deletes the rows that it did not contain). The list is read again when it is older than 600 seconds (60 seconds after a failed read).
+- A curation request makes one read (`kind` `document`) for each selected document that is in the list. Checks before the read: K has a contribution of that document (`contribution_duplicate`) or removed it (`contribution_tombstoned`).
+- When the document comes: `vocabulary.validate_object` gives `document` with an extraction; its `id` is the one that was asked; limits (KS2): content 512 KiB, title 500 characters, 500 entities, 2000 relations. Then `contributions.curate_remote`: the duplicate and tombstone checks of a local curation (`canonical_url`, `content_hash`), a hidden document row from the `Article` (`source_type` `federation`, the HTML after `nh3`, no source text and no files), an extraction row in the form of `ExtractionResult` (the authority identifiers in the key `same_as`), and a contribution with the origin `curation`, the state `merging`, `curator_account_id` and `approved_by_account_id` = the reviewer, and the remote columns. The moderation log gets `curate`. The merge job of Section 4.8 of [`THEMES.md`](THEMES.md) builds the graph without an LLM call.
+- The route that takes the answer of the sidecar runs the merge jobs that wait.
+
+Revisions (design Section 10.2):
+
+- The handler of `update_document` calls `contributions.start_remote_revisions` for each copy whose `remote_source_iri` is the `id` of the object and whose `remote_source_kb_iri` is the actor. The rules are those of local revisions: no approval; a contribution with stopped updates and a closed one keep their version; the state stays (a hidden copy stays hidden); the same `claire:contentHash` makes no revision; the newest version wins.
+- The handler makes rows only (a new hidden copy, a row of `kb_contribution_revisions`, a merge job). The route `POST /knowledge-activities` and the replay route run the merge jobs after the journal committed. A revision that a newer one closed keeps its copy until its job runs; the job then removes the copy (`_run_revision`).
+- Differences from local revisions: a contribution in `failed` or `pending` keeps its version (a remote copy is never `pending`).
+- A domain block stops the revisions (the journal refuses the actor); the copies stay (design Section 10.1 rule 3).
+
+Removal at the origin (design Section 10.3, KD1):
+
+- The handler of `delete_document` calls `contributions.origin_removed`: each copy that is not closed gets `origin_removed_at` and the reason code; a `visible` copy becomes `hidden` at once (`documents.hidden = 1`). A copy in `merging` gets the mark, and its merge job leaves it `hidden`. No copy is removed. The moderation log gets `origin_removed` (no actor account).
+- The review queue has a contribution with `origin_removed_at`, without `origin_decided_at`, that is not closed (`contributions.in_origin_review`; `origin_removed.waiting` in the view). Decisions: `PATCH` with `unhide` shows it again and sets `origin_decided_at`; `POST .../remove` removes it with a tombstone. A removal here sends a `Delete` only to the followers of the knowledge base of this server; it never changes the origin.
+
+Entities across servers (design Section 10.4):
+
+- Each server resolves entities in its own merge job; no merge decision is received.
+- KD7: the merge job reads the authority identifiers of the received extraction. An entity of K with one of the identifiers (`entities.props.same_as`) is matched first: its name goes to the resolver, and the name of the extraction becomes an alias; else the keys decide. After the resolution the entity gets the identifiers. An entity gets identifiers only in this way: no function links an entity to an authority (later work).
+
+### 12.5 Internal Routes (the sidecar is the caller)
+
+Under `/internal/federation/v1`. Contract version 1.10.
+
+| Method and path | Request | Response |
+| :--- | :--- | :--- |
+| `GET /knowledge-kb-actors/{number}` | No query | 200 `{"document": {...}}`: the actor document; 404 while the switch is off and for each number that is not a shared knowledge base |
+| `GET /knowledge-kb-actors/{number}/keys` | — | 200 `{"public_id", "keys": [{"alg", "public_jwk", "private_jwk"}]}` (the form of `/actors/{public_id}/keys`); 404 as above, but the keys of a deleted knowledge base are given while a task of that actor waits |
+| `GET /knowledge-kb-actors/{number}/{followers\|outbox\|documents}?signer=<IRI>` | `documents` only: `&page=true`, `&max_id=<contribution>` | 200 `{"document": {...}}`; 404 for each refusal; 400 for another query key or a wrong value |
+| `GET /knowledge-kb-actors/{number}/documents/{contribution}?signer=<IRI>` | — | 200 `{"document": {...}}`: the `Article` with `@context` and its extraction; 404 for each refusal and for a document that does not leave the server |
+| `GET /knowledge-outbox-tasks?limit=<1..50>` | Default 10 | 200 `{"tasks": [{"id", "kind", "signer", "recipient", "activity"}]}`; `sync` runs first; each task gets a lease. Empty while the switch is off |
+| `POST /knowledge-outbox-tasks/{id}/ack` | `{"result": "delivered" \| "retry" \| "rejected", "error_code"}`; `error_code` is null only for `delivered` | 200 `{"id", "status"}`; 404 for no task; 400 for a body against these rules |
+| `GET /knowledge-remote-reads?limit=<1..20>` | Default 5 | 200 `{"reads": [{"id", "url"}]}`; each read gets a lease (120 seconds; after 5 leases without an answer the read ends as `read_timeout`). Empty while the switch is off |
+| `POST /knowledge-remote-reads` | `{"id", "document", "error"}`: the JSON as it came and null, or null and a code | 200 `{"id", "status": "pending" \| "done" \| "failed", "error_code"}` (`pending`: the next page of a collection follows); 404 for no read that waits, and while the switch is off |
+
+`POST /knowledge-activities` did not change its form; after a `processed` decision it runs the merge jobs that wait. The contract fixtures of the routes with a fixed answer are in `tests/fixtures/knowledge_federation/internal/`; the actor document and the keys have no fixture, because each server makes its own keys.
+
+### 12.6 Public Routes and WebUI
+
+- `GET /kb/{number}/remote-sources` and the remote source of `POST /kb/{number}/curations`: [`API_HTTP_CONTRACT.md`](API_HTTP_CONTRACT.md) and the OpenAPI document. `ROUTE_POLICY`: `_namespaced("owner", "curate")`.
+- A contribution has `remote` and (full view) `origin_removed` in each route that gives a contribution.
+- `console_kb.js`, tab "Curation": the list of sources has the remote knowledge bases with their server and the follow state; the documents of a remote source come from `?source=`; the requests to copy are in a table. Tab "Review queue": a copy whose origin removed the document is in the list with the tag "Removed at the origin" and the decisions "Show again" and "Remove…" (a moderator or the admin).
+- Not implemented: the follow state on the public theme page (`public_kb.js`); the kinds "curation" of the recent activity on the root page (design Section 8.3 rule 3).
+
+### 12.7 Sidecar
+
+Code: `knowledge.ts` (`deliverKnowledgeTask`, `processKnowledgeOutbox`, `readRemoteDocument`, `processRemoteReads`, `KB_ACTOR_PATH`), `sidecar.ts`, `internal_api.ts`, `main.ts`. The work runs only while the switch `federation` is on and the mode is `network`, as in Section 10.6.
+
+1. **Actor paths.** `GET /ap/kb/{number}` gives the actor document of Claire without a change (`application/activity+json`), without a signature check. `GET /ap/kb/{number}/followers`, `/outbox`, `/documents` (with `?page=true` and `&max_id=`), and `/documents/{contribution}`: the sidecar verifies the HTTP signature and gives Claire the owner of the key as `signer` (none without a valid signature); each refusal is the same 404. Fedify does not serve these paths: its actor dispatcher has the accounts and the server actor only.
+2. **Outbound activities.** One loop of `main.ts` (each 5 seconds) calls `processKnowledgeRemoteReads` and `processKnowledgeOutbox`. For a task the sidecar reads the actor document of the recipient with a GET that the server actor signs, takes its `inbox` (it must be on the server of the recipient), and sends one POST with the activity JSON of Claire as the body (`JSON.stringify`, no object of the Fedify vocabulary) and an HTTP Signature (`signRequest` of Fedify) of the key `{actor}#main-key` of the signer: the server actor, or the knowledge base actor (`#kbKeyPairs`, the 60 second key cache). Results: 2xx `delivered`; 400, 401, 403, 404, 405, 410, 413, 422 `rejected`; each other answer, no answer, and an actor document that is not available `retry`; `blocked_domain`, `recipient_invalid`, `no_actor_key` `rejected`. A redirect is not followed. The Fedify message queue is not used: Claire gives a task again.
+3. **Reads for a curation.** For a read the sidecar gets the address with the document loader that the server actor signs with (it refuses a private address), checks that the answer is on the server that was asked and is a JSON object of at most 900 KiB, and gives it to Claire. Error codes: `document_invalid`, `blocked_domain`, `document_on_other_server`, `document_unavailable`, `document_too_large`.
+4. **Inbound activities.** No change: Section 10.6 item 1. An activity that a knowledge base actor signed is verified with the `publicKey` of its actor document.
+
+`deno.json` and `deno.lock` did not change.
+
+### 12.8 Choices Made in the Code
+
+1. The IRI of a document has the public ID of its contribution, so that it stays the same over revisions. The design gives no form.
+2. The root on the wire of a document whose root is on this server is the document itself, and `origin` is absent: the root is in a personal knowledge base, which has no address for other servers (KD3, KS5). A curation from another shared knowledge base of the same server also has no `origin` on the wire.
+3. `attributedTo` is absent for a contributor that is not a federation actor: an account without a public profile gets no address for other servers. The design says "the actor with the credit".
+4. The actor document is public (no signed GET): a server needs it to verify a signature before it can know the signer. The collections and the documents need the signed GET.
+5. The curation is asynchronous (202): Claire does not call the sidecar ([`FEDERATION.md`](FEDERATION.md) Section 2), so a read is a row that the sidecar takes.
+6. The followers get an `Update` of the record only for the label, the description, and the knowledge type. The counts and the signature change with each document.
+7. `Follow` is accepted for each server actor of a server that is not blocked (design Section 6.1: no agreement).
+8. A copy whose origin removed the document is no reason to follow the actor. When the remote knowledge base is also in no theme, the follow ends.
+9. The keys of the knowledge base actors are in the table `actor_keys` with a negative `account_id`, without a change of the schema of `auth.db`.
+10. The `Delete` of a knowledge base does not hide its copies: the design (Section 9.3) gives "change of the record" as its effect, and Section 10.3 is about a document.
+11. A request to curate a document that the sidecar cannot read ends as `failed`; the reviewer asks again. The account of the curator is stored in the read (`kf_remote_reads.account_id`) until the read is deleted (30 days).
+
+### 12.9 Interfaces for the Activities of Units KF4 and KF5
+
+- Outbound: `outbox.enqueue(conn, activity, signer=, recipients=, origin=, now=)` takes each activity of `vocabulary`. `Accept` with `result`, `Reject`, `Grant`, and `Revoke` have a knowledge base actor as the signer and need no change in the sidecar. An `Offer` has an account actor as the signer: `signingKey` of the sidecar knows only `server` and the number of a knowledge base, and `signer` has no value for an account actor (the sidecar has the keys of an account actor in `#keyPairs`).
+- Inbound: `journal.register_handler` for `offer_contribution`, `accept_offer`, `reject_offer`, `grant`, `revoke`. `contributions.copy_remote_document` makes the document and extraction rows of a received `claire:Contribution`; `kb_collab.add_contribution(remote=...)` keeps the remote credit.
+- The read of one remote object: a row of `kf_remote_reads` (a new `kind`).
+- Not implemented: a store of grants, the pending limits for each remote account and each domain (KS3), the credit "deleted account" after `Delete(Person)` (design Section 12.1 rule 4), and the submission page for a remote target.
+
+### 12.10 Tests
+
+| File | What it examines |
+| :--- | :--- |
+| `tests/test_knowledge_federation_kf3_e2e.py` | The completion criteria with two app objects and two databases (the mock provider): A curates a document of a knowledge base of B; `Follow` and `Accept`; a revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue. The sidecars and the network are simulated by direct calls to the internal routes. |
+| `tests/test_knowledge_federation_kf3.py` | The migration step v31; the handlers with the outbox (follow, undo, accept, the changes of a record, the retry rule, a blocked domain, a deleted knowledge base); the follows of this server; the read of a documents collection; the rules of revisions for a remote copy, the authority identifiers, and the removal at the origin. |
+| `tests/test_knowledge_federation_internal_contract.py` | The internal routes of Section 12.5 against their fixtures. |
+| `sidecar/fedify/tests/knowledge_test.ts` | The client calls against the fixtures; the actor paths; a delivery with the body unchanged and a signature that verifies with the actor document of the sidecar; the results of a delivery; a read for a curation. |
+
+Not verified: an exchange between two real sidecars over a network; the WebUI in a browser (no Playwright spec uses the new parts); a delivery to software that is not Claire.

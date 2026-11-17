@@ -122,6 +122,7 @@ KB_ROUTES = [
     ("POST", "/contributions/{number}/remove", "owner", "remove"),
     ("POST", "/contributions/{number}/retry", "write", "read"),
     ("POST", "/curations", "owner", "curate"),
+    ("GET|HEAD", "/remote-sources", "owner", "curate"),
     ("POST", "/forks", "owner", "read"),
     ("GET|HEAD", "/members", "readonly", "read"),
     ("PATCH", "/members/{account}", "owner", "people"),

@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ... import auto_contribution
+from ...knowledge_federation import handlers as kf_handlers  # noqa: F401 - the import installs the handlers of unit KF3 in the journal
 from ...knowledge_federation import journal, known_servers, remote_kbs
 from ...store import accounts as accounts_store
 from ...store import auth_db
@@ -220,6 +221,11 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return 409, {"error": "journal_entry_not_replayable", "states": list(journal.REPLAY_STATES)}
             finally:
                 conn.close()
+            if entry.status == "processed":
+                # A revision of a copy (unit KF3) is a merge job that waits after the journal committed, as after a delivery of the sidecar.
+                from ...ingest.service import run_waiting_merge_jobs
+
+                run_waiting_merge_jobs(ctx.settings)
             auth_conn = open_auth_db(ctx)
             try:
                 auth_db.record_admin_audit(auth_conn, actor_account_id=admin_id, action=AUDIT_JOURNAL_REPLAY, detail={"id": entry.id, "status": entry.status, "error_code": entry.error_code})

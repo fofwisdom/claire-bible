@@ -18,7 +18,11 @@
     if (!code) return "";
     var key = "kb.reason." + code;
     var text = t(key);
-    return text === key ? code : text;
+    if (text !== key) return text;
+    // A log entry of a member who left has the role name as its reason.
+    var roleKey = "kb.role." + code;
+    var roleText = t(roleKey);
+    return roleText === roleKey ? code : roleText;
   }
   function dateText(seconds) { return seconds ? new Date(Number(seconds) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—"; }
   // The contributor withdraws a contribution while it is not approved and not closed (design Section 9.4; DELETE /kb/{number}/contributions/{contribution}).
@@ -520,6 +524,70 @@
         if (!selectedSource && view.sources.length) selectedSource = String(view.sources[0].number);
         drawCuration();
       });
+      loadRemoteSources();
+    }
+
+    // Curation across servers (federation design Section 11). GET /kb/{number}/remote-sources gives the shared knowledge bases of other servers in the themes of K ("sources", each with the follow state of this server) and the newest requests to copy ("curations").
+    function loadRemoteSources() {
+      var current = view;
+      ui().request(kbUrl(currentNum, "remote-sources")).then(function (res) {
+        if (view !== current) return;
+        view.remoteSources = (res.ok && res.data && res.data.sources) || [];
+        view.remoteCurations = (res.ok && res.data && res.data.curations) || [];
+        if (view.sources) drawCuration();
+      });
+    }
+
+    // The key of a source in the list: the number of a knowledge base of this server, or "remote:<id>" for the record of a knowledge base of another server.
+    function remoteSourceId(key) { return key && key.indexOf("remote:") === 0 ? Number(key.slice(7)) : null; }
+
+    function drawRemoteDocuments(docsBox, key) {
+      var remoteId = remoteSourceId(key);
+      var requests = (view.remoteCurations || []);
+      var requestsHtml = requests.length ? '<div style="margin-top:14px"><strong style="font-size:12.5px">' + esc(t("console.js.kb.curate_remote_requests")) + "</strong>" + ui().renderTable({
+        caption: t("console.js.kb.curate_remote_requests"),
+        columns: [
+          { label: t("kb.dlg.col_document"), render: function (c) { return esc(c.title || c.document); } },
+          { label: t("kb.dlg.col_state"), render: function (c) { return '<span class="claire-tag ' + (c.state === "done" ? "ok" : c.state === "failed" ? "warn" : "") + '">' + esc(t("console.js.kb.curate_remote_state." + c.state)) + "</span>" + (c.error ? " " + esc(ui().errorText({ error: c.error })) : ""); } }
+        ],
+        rows: requests
+      }) + "</div>" : "";
+      ui().request(kbUrl(currentNum, "remote-sources") + "?source=" + encodeURIComponent(remoteId)).then(function (r) {
+        if (key !== selectedSource || !docsBox.isConnected) return;
+        if (!r.ok) { docsBox.innerHTML = '<div class="claire-note warn">' + esc(ui().errorText(r)) + "</div>"; return; }
+        var sel = (r.data && r.data.selected) || { state: "none", documents: [] };
+        var docs = sel.documents || [];
+        var reload = '<div class="claire-actions"><button type="button" class="claire-btn claire-btn-sm" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div>";
+        var note = sel.state === "failed" ? '<div class="claire-note warn"><span>' + esc(t("console.js.kb.curate_remote_failed", { code: sel.error || "" })) + "</span></div>" :
+          sel.state !== "ready" ? '<p class="claire-hint">' + esc(t("console.js.kb.curate_remote_reading")) + "</p>" : "";
+        if (!docs.length) {
+          docsBox.innerHTML = note + (sel.state === "ready" ? '<p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p>" : "") + reload + requestsHtml;
+        } else {
+          docsBox.innerHTML = note + '<form id="kb-curate-form" class="claire-panel-inner">' + docs.map(function (d) {
+            // A document that this knowledge base has (or removed) is not selected again.
+            return '<label class="claire-srow"><input type="checkbox" name="doc" value="' + esc(d.iri) + '"' + (d.curated ? " disabled" : "") + '/><span class="claire-srow-info"><strong>' + esc(d.title || d.iri) + "</strong>" +
+              (d.curated ? ' <span class="claire-tag">' + esc(t("console.js.kb.curate_remote_held")) + "</span>" : "") + "</span></label>";
+          }).join("") + '<div id="kb-curate-result"></div><div class="claire-actions"><button type="submit" class="claire-btn pri">' + esc(t("console.js.kb.curate_submit")) + "</button>" +
+            '<button type="button" class="claire-btn" id="kb-curate-reload">' + esc(t("console.js.kb.curate_remote_reload")) + "</button></div></form>" + requestsHtml;
+          docsBox.querySelector("#kb-curate-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            var checked = Array.prototype.slice.call(docsBox.querySelectorAll('input[name="doc"]:checked')).map(function (x) { return x.value; });
+            if (!checked.length) return;
+            ui().request(kbUrl(currentNum, "curations"), { method: "POST", body: { remote_source: remoteId, documents: checked } }).then(function (cr) {
+              if (!cr.ok) { ui().toast(ui().errorText(cr) + (cr.data && cr.data.limit ? " (" + cr.data.limit + ")" : ""), "danger"); return; }
+              // Each document has its own result: a request that the server sends to the other server, or an error code.
+              var results = (cr.data && cr.data.curations) || [];
+              var errors = results.filter(function (x) { return x.error; });
+              ui().toast(t("console.js.kb.curate_remote_queued", { count: results.length - errors.length }) + (errors.length ? " " + errors.map(function (x) { return ui().errorText({ error: x.error }); }).join(", ") : ""), errors.length ? "warn" : "ok");
+              loadRemoteSources();
+            });
+          });
+        }
+        ui().enhance(docsBox);
+        var reloadBtn = docsBox.querySelector("#kb-curate-reload");
+        // The server reads the list from the other server; a new request shows the result, and the contributions that the requests made.
+        if (reloadBtn) reloadBtn.addEventListener("click", function () { load(); });
+      });
     }
 
     function docTitle(c) { return c.title || String(c.document || "—"); }
@@ -536,6 +604,10 @@
         ra = ra == null ? 1 : ra; rb = rb == null ? 1 : rb;
         return ra !== rb ? ra - rb : Number(a.contributed_at || 0) - Number(b.contributed_at || 0);
       });
+      // A copy whose origin removed the document (federation design Section 10.3): it is hidden and waits here for the decision of a reviewer.
+      function originWaits(c) { return !!(c.origin_removed && c.origin_removed.waiting); }
+      var originQueue = view.contributions.filter(originWaits);
+      pending = pending.concat(originQueue);
       var others = view.contributions.filter(function (c) { return c.state !== "pending"; });
       var sel = pending.find(function (c) { return String(c.number) === String(selectedPending); }) || pending[0] || null;
       selectedPending = sel ? String(sel.number) : null;
@@ -553,17 +625,29 @@
         (pending.length ? pending.map(function (c) {
           var level = (c.contributor_reputation || {}).level;
           return '<button type="button" class="claire-list-item' + (sel && String(c.number) === String(sel.number) ? " active" : "") + '" data-pick-pending="' + esc(c.number) + '">' +
-            '<div class="claire-list-item-row"><strong>' + esc(docTitle(c)) + "</strong>" + (level ? levelTag(level) : "") + "</div>" +
+            '<div class="claire-list-item-row"><strong>' + esc(docTitle(c)) + "</strong>" + (level ? levelTag(level) : "") + (originWaits(c) ? '<span class="claire-tag warn">' + esc(t("console.js.kb.queue_origin_removed")) + "</span>" : "") + "</div>" +
             '<div class="claire-list-item-sub"><span>' + esc(contributorName(c)) + "</span><span>" + esc(t("kb.origin." + c.origin)) + "</span></div></button>";
         }).join("") : '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>") +
         '</div><div class="claire-detail-col">';
-      if (sel) {
+      if (sel && originWaits(sel)) {
+        // The two decisions: show the copy again, or remove it (a moderator or the admin). A removal here never changes the origin.
+        queue += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
+          '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
+          '<button type="button" class="claire-btn pri claire-btn-sm" data-q-origin-keep="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_origin_keep")) + "</button>" +
+          (isMod ? '<button type="button" class="claire-btn danger claire-btn-sm" data-q-origin-remove="' + esc(sel.number) + '">' + esc(t("console.js.kb.content_remove")) + "</button>" : "") + "</div></div>" +
+          '<div class="claire-note warn"><span>' + esc(t("console.js.kb.queue_origin_hint")) + "</span></div>" +
+          '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
+          "<dt>" + esc(t("console.js.kb.queue_origin_reason")) + "</dt><dd>" + esc(reasonText(sel.origin_removed.reason)) + "</dd>" +
+          (sel.remote ? "<dt>" + esc(t("console.js.kb.queue_origin_source")) + '</dt><dd><code class="pref-mono">' + esc(sel.remote.document) + "</code></dd>" : "") +
+          "</dl></div>";
+      } else if (sel) {
         var help = sel.review_help || null;
         var rep = sel.contributor_reputation || null;
         queue += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(docTitle(sel)) + "</h3>" +
           '<div class="claire-actions"><a class="claire-btn claire-btn-sm" href="' + esc(kbUrl(currentNum) + "?doc=" + encodeURIComponent(sel.document)) + '">' + esc(t("console.js.kb.queue_open_doc")) + "</a>" +
-          '<button type="button" class="claire-btn pri claire-btn-sm" data-q-approve="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_approve")) + "</button>" +
-          '<button type="button" class="claire-btn danger claire-btn-sm" data-q-reject="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_reject")) + "</button></div></div>";
+          // An archived knowledge base is read-only (design Section 10.1): the server refuses review, curation, and removal with 403 kb_archived, so the page does not show their controls.
+          (archived ? "" : '<button type="button" class="claire-btn pri claire-btn-sm" data-q-approve="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_approve")) + "</button>" +
+          '<button type="button" class="claire-btn danger claire-btn-sm" data-q-reject="' + esc(sel.number) + '">' + esc(t("console.js.kb.queue_reject")) + "</button>") + "</div></div>";
         queue += '<dl class="claire-kv" style="display:grid;grid-template-columns:200px 1fr;gap:6px 12px;font-size:13px;margin:0">' +
           "<dt>" + esc(t("kb.dlg.col_contributor")) + "</dt><dd>" + esc(contributorName(sel)) + "</dd>" +
           (rep ? "<dt>" + esc(t("console.js.kb.queue_reputation")) + "</dt><dd>" + levelTag(rep.level) + " " + esc(t("console.js.kb.queue_approval_rate", { rate: percent(rep.approval_rate) })) + "</dd>" : "") +
@@ -597,6 +681,7 @@
           { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state) + (c.reason ? " " + esc(ui().errorText({ error: c.reason })) : "") + (c.updates_stopped ? ' <span class="claire-tag warn">' + esc(t("console.js.kb.content_frozen")) + "</span>" : ""); } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (c) {
             var items = [];
+            if (archived) return "—";
             if (c.state === "visible") items.push({ action: "hide", value: c.number, label: t("console.js.kb.content_hide"), icon: "eye" });
             if (c.state === "hidden") items.push({ action: "unhide", value: c.number, label: t("console.js.kb.content_unhide"), icon: "eye" });
             if (c.state === "visible" || c.state === "hidden") items.push({ action: c.updates_stopped ? "restart_updates" : "stop_updates", value: c.number, label: t(c.updates_stopped ? "console.js.kb.content_unfreeze" : "console.js.kb.content_freeze"), icon: "lock" });
@@ -614,9 +699,9 @@
 
       var tabs = [
         { id: "queue", label: t("console.js.kb.tab_queue"), badge: pending.length, icon: "inbox", html: queue },
-        { id: "content", label: t("console.js.kb.tab_content"), icon: "doc", html: content },
-        { id: "curate", label: t("console.js.kb.tab_curate"), icon: "puzzle", html: '<div id="kb-curate-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" }
+        { id: "content", label: t("console.js.kb.tab_content"), icon: "doc", html: content }
       ];
+      if (!archived) tabs.push({ id: "curate", label: t("console.js.kb.tab_curate"), icon: "puzzle", html: '<div id="kb-curate-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
 
       if (isMod) {
         var people = '<div class="claire-card">' + ui().renderTable({
@@ -677,20 +762,30 @@
       var box = host.querySelector("#kb-curate-host");
       if (!box) return;
       var sources = view.sources || [];
-      if (!sources.length) {
+      var remoteSources = view.remoteSources || [];
+      if (!sources.length && !remoteSources.length) {
         box.innerHTML = '<div class="claire-card"><p class="claire-hint">' + esc(t("console.js.kb.curate_no_source")) + "</p></div>";
         return;
       }
+      if (!selectedSource) selectedSource = sources.length ? String(sources[0].number) : "remote:" + remoteSources[0].id;
       box.innerHTML = '<div class="claire-split"><div class="claire-list-col"><div class="claire-card"><strong style="font-size:13px">' + esc(t("console.js.kb.curate_source")) + "</strong>" +
         sources.map(function (source) {
           return '<button type="button" class="claire-list-item' + (String(source.number) === selectedSource ? " active" : "") + '" data-curate-src="' + esc(source.number) + '">' +
             "<strong>" + esc(source.label) + '</strong><span class="claire-list-item-sub">' + esc(t(source.is_personal ? "themes.kb_personal" : "themes.kb_shared")) + "</span></button>";
+        }).join("") +
+        // The shared knowledge bases of other servers in the themes of K, with the follow state of this server for each one.
+        remoteSources.map(function (source) {
+          var key = "remote:" + source.id;
+          return '<button type="button" class="claire-list-item' + (key === selectedSource ? " active" : "") + '" data-curate-src="' + esc(key) + '">' +
+            "<strong>" + esc(source.label) + '</strong><span class="claire-list-item-sub"><span>' + esc(t("console.js.kb.curate_remote_tag", { server: source.server })) + "</span>" +
+            (source.follow ? "<span>" + esc(t("console.js.kb.curate_follow." + source.follow)) + "</span>" : "") + "</span></button>";
         }).join("") + '</div></div><div class="claire-detail-col"><div class="claire-card" id="kb-curate-docs"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div></div></div>";
       box.querySelectorAll("[data-curate-src]").forEach(function (btn) {
         btn.addEventListener("click", function () { selectedSource = btn.getAttribute("data-curate-src"); drawCuration(); });
       });
       var docsBox = box.querySelector("#kb-curate-docs");
       var source = selectedSource;
+      if (remoteSourceId(source) !== null) { drawRemoteDocuments(docsBox, source); return; }
       // The visible documents of the source. For a personal knowledge base the server sends 308 from "/kb/<number>/documents" to the path of its account.
       ui().request(kbUrl(source, "documents")).then(function (r) {
         if (source !== selectedSource || !docsBox.isConnected) return;
@@ -749,6 +844,12 @@
       });
       host.querySelectorAll("[data-q-approve]").forEach(function (btn) {
         btn.addEventListener("click", function () { btn.disabled = true; review(btn.getAttribute("data-q-approve"), { action: "approve" }); });
+      });
+      host.querySelectorAll("[data-q-origin-keep]").forEach(function (btn) {
+        btn.addEventListener("click", function () { btn.disabled = true; review(btn.getAttribute("data-q-origin-keep"), { action: "unhide" }); });
+      });
+      host.querySelectorAll("[data-q-origin-remove]").forEach(function (btn) {
+        btn.addEventListener("click", function () { dlgs().openRemoveContributionDialog({ kbNumber: currentNum, contribNumber: btn.getAttribute("data-q-origin-remove"), onRemoved: function () { load(); } }); });
       });
       host.querySelectorAll("[data-q-reject]").forEach(function (btn) {
         btn.addEventListener("click", function () { dlgs().openRejectContributionDialog({ kbNumber: currentNum, contribNumber: btn.getAttribute("data-q-reject"), onRejected: function () { load(); } }); });

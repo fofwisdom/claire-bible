@@ -5,12 +5,13 @@
 // - An activity of the knowledge federation is an activity whose @context has the Claire context IRI. Claire reads the compact names of the wire contract, so such an activity goes to Claire as the JSON that came, without a new compaction: the sidecar parses the body and does not give it to the vocabulary of Fedify.
 // - A collection of shared knowledge (/ap/kb, /ap/themes) answers only a request with a valid HTTP signature. The sidecar verifies the signature and gives Claire the actor of the key; Claire decides (the switch, the server actor rule, the domain blocks). Each refusal of Claire is the same 404.
 // - The reads of other servers (NodeInfo, the server actor, the /kb collection) use the document loader of Fedify with the key of the server actor of this server: each request is signed, and the loader refuses a private network address. Claire says which servers are due; the sidecar keeps no list.
+// - Unit KF3 (design Sections 9.2, 9.3, 10, and 11). Each shared knowledge base of this server is an actor at /ap/kb/{number}: Claire gives the actor document with the public key, the collections, and each document, and the sidecar gives them without a change. An outbound activity is the JSON of Claire: the sidecar does not make an object of the Fedify vocabulary from it (that vocabulary has no Grant and no Revoke, and it does not keep the wire form). The sidecar signs the POST with the key of the actor of the task (the server actor, or a knowledge base actor) and reads the inbox of the recipient from its actor document. A document for a curation is a GET that the server actor signs.
 // - A document of another server is not trusted: the server actor and each page of a collection must come from the server that was asked. Claire checks each knowledge base again (vocabulary.validate_object).
 
 import type { DocumentLoader } from "@fedify/fedify";
 import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.5";
 import claireContext from "./claire_context_v1.json" with { type: "json" };
-import type { InternalApi, KbRead, ServerReadResult } from "./internal_api.ts";
+import type { InternalApi, KbRead, KnowledgeOutboxTask, RemoteRead, ServerReadResult } from "./internal_api.ts";
 
 export const CLAIRE_CONTEXT_IRI = "https://w3id.org/claire-bible/ns/v1";
 export const CLAIRE_CONTEXT_DOCUMENT: unknown = claireContext;
@@ -209,4 +210,134 @@ export async function processKnowledgeReads(deps: KnowledgeReadDeps, counters: K
     if (result !== "complete") console.warn(`knowledge kb read failed: ${result}`);
   }
   return servers.length + reads.length;
+}
+
+// --- Unit KF3: knowledge base actors, outbound activities, and reads for a curation ---
+
+// The paths of a knowledge base actor: the actor document, its collections, and one document.
+export const KB_ACTOR_PATH = /^\/ap\/kb\/([1-9][0-9]{0,18})(?:\/(?:(followers|outbox)|(documents)(?:\/([1-9][0-9]{0,18}))?))?$/;
+export const KNOWLEDGE_OUTBOX_BATCH = 10;
+export const SERVER_SIGNER = "server";
+// The largest document of a read that goes to Claire. The body limit of the internal API is 1 MiB.
+export const REMOTE_READ_BYTES = 900 * 1024;
+// Answers of an inbox after which a new delivery of the same activity cannot succeed.
+const FINAL_STATUSES = new Set([400, 401, 403, 404, 405, 410, 413, 422]);
+
+export interface KnowledgeDeliveryDeps extends KnowledgeReadDeps {
+  // The private key and the key ID of the signer of a task: "server", or the number of a knowledge base actor. null: the actor has no key.
+  signingKey: (signer: string) => Promise<{ privateKey: CryptoKey; keyId: URL } | null>;
+  // Signs a request with an HTTP Signature (signRequest of Fedify).
+  sign: (request: Request, privateKey: CryptoKey, keyId: URL) => Promise<Request>;
+  // The request function of the delivery. The default is the global fetch.
+  fetch?: typeof fetch;
+}
+
+export interface DeliveryOutcome {
+  result: "delivered" | "retry" | "rejected";
+  error: string | null;
+}
+
+// Numbers of outbound activities and of reads for a curation since the start of this process, by result.
+export interface KnowledgeDeliveryCounters {
+  delivered: number;
+  retry: number;
+  rejected: number;
+  reads_ok: number;
+  reads_failed: number;
+}
+
+// Delivers one outbound activity: the inbox of the recipient comes from its actor document (a GET that the server actor signs), and the POST has the JSON of Claire as its body and the HTTP Signature of the actor of the task. Never throws.
+export async function deliverKnowledgeTask(deps: KnowledgeDeliveryDeps, task: KnowledgeOutboxTask): Promise<DeliveryOutcome> {
+  let recipient: URL;
+  try {
+    recipient = new URL(task.recipient);
+  } catch {
+    return { result: "rejected", error: "recipient_invalid" };
+  }
+  try {
+    if (await deps.isBlocked(recipient.hostname)) return { result: "rejected", error: "blocked_domain" };
+  } catch {
+    return { result: "retry", error: "claire_unavailable" };
+  }
+  let key: { privateKey: CryptoKey; keyId: URL } | null;
+  try {
+    key = await deps.signingKey(task.signer);
+  } catch {
+    return { result: "retry", error: "claire_unavailable" };
+  }
+  if (key === null) return { result: "rejected", error: "no_actor_key" };
+  let inbox: URL;
+  try {
+    const remote = await deps.documentLoader(recipient.href);
+    const actor = record(remote.document);
+    if (new URL(remote.documentUrl).origin !== recipient.origin || actor === null || actor.id !== recipient.href || typeof actor.inbox !== "string") return { result: "rejected", error: "recipient_invalid" };
+    inbox = new URL(actor.inbox);
+  } catch {
+    return { result: "retry", error: "recipient_unavailable" };
+  }
+  // The inbox is on the server of the recipient: an actor document cannot send the activity to another server.
+  if (inbox.origin !== recipient.origin) return { result: "rejected", error: "recipient_invalid" };
+  let response: Response;
+  try {
+    const request = new Request(inbox, { method: "POST", headers: { "content-type": "application/activity+json" }, body: JSON.stringify(task.activity), redirect: "manual" });
+    response = await (deps.fetch ?? fetch)(await deps.sign(request, key.privateKey, key.keyId));
+    await response.body?.cancel();
+  } catch {
+    return { result: "retry", error: "inbox_unreachable" };
+  }
+  if (response.status >= 200 && response.status < 300) return { result: "delivered", error: null };
+  return { result: FINAL_STATUSES.has(response.status) ? "rejected" : "retry", error: `inbox_status_${response.status}` };
+}
+
+// Takes the outbound activities that are ready from Claire, delivers each one, and gives Claire the result. Returns the number of tasks that Claire gave. An error of the internal API stops the call; a task without a result comes again after its lease.
+export async function processKnowledgeOutbox(deps: KnowledgeDeliveryDeps, counters: KnowledgeDeliveryCounters, limit = KNOWLEDGE_OUTBOX_BATCH): Promise<number> {
+  const tasks = await deps.api.knowledgeOutboxTasks(limit);
+  for (const task of tasks) {
+    const outcome = await deliverKnowledgeTask(deps, task);
+    counters[outcome.result] += 1;
+    if (outcome.result !== "delivered") console.warn(`knowledge outbox task ${task.id} (${task.kind}) ${outcome.result}: ${outcome.error}`);
+    await deps.api.ackKnowledgeOutboxTask(task.id, outcome.result, outcome.error);
+  }
+  return tasks.length;
+}
+
+// Reads one document of another server for a curation with a GET that the server actor signs. Returns the JSON as it came, or an error code. Never throws.
+export async function readRemoteDocument(deps: KnowledgeReadDeps, read: RemoteRead): Promise<{ document: Record<string, unknown> | null; error: string | null }> {
+  const fail = (error: string) => ({ document: null, error });
+  let url: URL;
+  try {
+    url = new URL(read.url);
+  } catch {
+    return fail("document_invalid");
+  }
+  // The scheme of a read is the scheme of this server: https, and http only for a development server.
+  if (url.protocol !== new URL(deps.origin).protocol) return fail("document_invalid");
+  try {
+    if (await deps.isBlocked(url.hostname)) return fail("blocked_domain");
+  } catch {
+    return fail("claire_unavailable");
+  }
+  let document: Record<string, unknown> | null;
+  try {
+    const remote = await deps.documentLoader(url.href);
+    if (new URL(remote.documentUrl).origin !== url.origin) return fail("document_on_other_server");
+    document = record(remote.document);
+  } catch {
+    return fail("document_unavailable");
+  }
+  if (document === null) return fail("document_invalid");
+  if (new TextEncoder().encode(JSON.stringify(document)).byteLength > REMOTE_READ_BYTES) return fail("document_too_large");
+  return { document, error: null };
+}
+
+// Takes the reads for curations that wait from Claire and does them. Returns the number of reads that Claire gave.
+export async function processRemoteReads(deps: KnowledgeReadDeps, counters: KnowledgeDeliveryCounters, limit = KNOWLEDGE_READ_BATCH): Promise<number> {
+  const reads = await deps.api.knowledgeRemoteReads(limit);
+  for (const read of reads) {
+    const result = await readRemoteDocument(deps, read);
+    counters[result.error === null ? "reads_ok" : "reads_failed"] += 1;
+    if (result.error !== null) console.warn(`knowledge remote read ${read.id} failed: ${result.error}`);
+    await deps.api.recordRemoteRead({ id: read.id, ...result });
+  }
+  return reads.length;
 }

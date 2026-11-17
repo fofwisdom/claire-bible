@@ -5,7 +5,7 @@
   },
   "status": 200,
   "response": {
-    "contract_version": "1.9",
+    "contract_version": "1.10",
     "canonical_origin": "https://claire.example.com",
     "handle_host": "claire.example.com",
     "mode": "network",

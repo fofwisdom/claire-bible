@@ -15,7 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
-import { KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
+import { KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
 import { OUTBOX_TASK_BATCH, publicSelfCheck, Sidecar } from "./sidecar.ts";
 
 export const SIDECAR_VERSION = "0.1.0";
@@ -124,6 +124,23 @@ if (import.meta.main) {
   };
   pollKnowledge();
   setInterval(pollKnowledge, KNOWLEDGE_POLL_SECONDS * 1000);
+
+  // The outbound activities of the knowledge federation and the reads for curations (unit KF3) have their own loop: a reviewer waits for a read, and one delivery can wait for another server.
+  let exchanging = false;
+  const pollKnowledgeExchange = async () => {
+    if (exchanging) return;
+    exchanging = true;
+    try {
+      while ((await sidecar.processKnowledgeRemoteReads()) >= KNOWLEDGE_READ_BATCH);
+      while ((await sidecar.processKnowledgeOutbox()) >= KNOWLEDGE_OUTBOX_BATCH);
+    } catch (error) {
+      console.error(`knowledge exchange poll failed: ${(error as Error).name}: ${(error as Error).message}`);
+    } finally {
+      exchanging = false;
+    }
+  };
+  pollKnowledgeExchange();
+  setInterval(pollKnowledgeExchange, OUTBOX_POLL_SECONDS * 1000);
 
   Deno.serve({ hostname: env("CLAIRE_FEDIFY_HOST", "0.0.0.0"), port: Number(env("CLAIRE_FEDIFY_PORT", "8790")) }, (request) => sidecar.handle(request));
 }

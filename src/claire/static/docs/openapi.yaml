@@ -1389,7 +1389,9 @@ paths:
         A reviewer of the shared knowledge base copies visible documents of another knowledge base
         of one of its themes (a shared one, or a public personal one). Each copy is a contribution
         with the origin `curation`, approved by the curator. The merge jobs run in the request,
-        without an LLM call. Each document has its own result.
+        without an LLM call. Each document has its own result. With `remote_source` in place of
+        `source`, the source is a shared knowledge base of another server
+        (see `GET /kb/{number}/remote-sources`); the answer is then 202.
       operationId: curateDocuments
       x-claire-access: owner
       security:
@@ -1408,11 +1410,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [source, documents]
+              required: [documents]
               properties:
                 source:
                   type: string
-                  description: The number of the source knowledge base.
+                  description: The number of the source knowledge base of this server. One of `source` and `remote_source` is necessary.
+                remote_source:
+                  type: integer
+                  description: The `id` of a source of `GET /kb/{number}/remote-sources`. The documents are then document IRIs.
                 documents:
                   type: array
                   items:
@@ -1422,6 +1427,8 @@ paths:
           description: '`{"ok": true, "curations": [...]}` when no document was copied (each result has `error`).'
         '201':
           description: '`{"ok": true, "curations": [{"document", "contribution"?, "error"?, "url"?}]}`'
+        '202':
+          description: 'A remote source: `{"ok": true, "curations": [{"document", "read"?, "state"?, "error"?}]}`. The server reads each document from the other server.'
         '400':
           description: '`documents_invalid` or `source_invalid`.'
         '403':
@@ -1429,7 +1436,62 @@ paths:
         '404':
           description: '`source_not_found` (also for a private personal knowledge base).'
         '409':
-          description: '`source_not_in_theme`.'
+          description: '`source_not_in_theme`, or `federation_off` for a source on another server.'
+
+  /kb/{number}/remote-sources:
+    get:
+      summary: List the curation sources on other servers
+      description: >-
+        Curation across servers (unit KF3 of the knowledge federation). The answer has the shared
+        knowledge bases of other servers that are members of the active themes of this shared
+        knowledge base (`sources`, each with `follow`: the state of the follow of this server,
+        `pending`, `accepted`, or null) and the newest requests to copy documents from them
+        (`curations`). With `source` the answer also has `selected`: the documents of that knowledge
+        base. The sidecar reads that list from the other server with a signed request; a GET starts a
+        read when the list is older than 10 minutes, so `selected.state` is `reading` first and
+        `ready` after the read.
+
+        To copy documents, send `POST /kb/{number}/curations` with `{"remote_source": <id>,
+        "documents": ["<document IRI>", ...]}`. That request answers 202 with one result for each
+        document: `{"document", "read", "state": "queued"}` or `{"document", "error"}`
+        (`contribution_duplicate`, `contribution_tombstoned`, `document_not_found`). The copy is made
+        after the sidecar read the document with its extraction; it is a contribution with the origin
+        `curation` and with `remote` (`document`, `knowledge_base`, `credit`).
+      operationId: listRemoteCurationSources
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          description: The `id` of one item of `sources`.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: >-
+            `{"sources": [{"id", "iri", "server", "url", "label", "description", "knowledge_type",
+            "documents", "entities", "relations", "first_seen_at", "follow"}], "curations": [{"read",
+            "document", "title", "state": "queued" | "done" | "failed", "error", "contribution",
+            "requested_at"}], "selected"?: {"id", "state": "none" | "reading" | "ready" | "failed",
+            "error", "read_at", "documents": [{"iri", "title", "url", "published", "updated",
+            "curated"}]}}`
+        '400':
+          description: '`source_invalid`.'
+        '403':
+          description: '`kb_capability_required`, `kb_archived`, or `scope_insufficient`.'
+        '404':
+          description: '`source_not_found` (no record, or a record of a blocked domain).'
+        '409':
+          description: '`source_not_in_theme` or `federation_off`.'
 
   /kb/{number}/forks:
     post:
