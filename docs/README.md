@@ -75,6 +75,7 @@ docs/
 │   ├── I18N.md                 # 인터페이스 언어: 카탈로그, 언어 결정 순서, 번역 범위, 검색 토크나이저
 │   ├── IMPLEMENTATION_STATUS.md # 치명적이지 않은 구현 상태(알려진 제약, 보류 결정, 테스트 기준선)
 │   ├── INGESTION.md            # 적재: 라우터·fetcher·사설망 가드·PDF 파서·예산·표·영상 CC/STT·VMware 발표자료·복합 적재
+│   ├── KNOWLEDGE_FEDERATION.md # 공유 지식 연합(KF0): 어휘, JSON-LD 컨텍스트, 와이어 계약 빌더·검증기, 계약 픽스처
 │   ├── ONEHOP_MERGE.md         # 1홉 확장과 동일 주제 병합
 │   ├── OPERATIONS.md           # cb-manuscript 호스트 운영 명령, 서비스 수명주기 가이드
 │   ├── PLAN.md                 # 공개 아키텍처와 파이프라인 처리 흐름

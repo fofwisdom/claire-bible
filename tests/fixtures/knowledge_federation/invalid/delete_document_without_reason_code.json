@@ -1,0 +1,22 @@
+{
+  "validator": "activity",
+  "error": "missing_field",
+  "path": "claire:reasonCode",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://b.example/ap/documents/1846000000000000400#delete",
+    "type": "Delete",
+    "actor": "https://b.example/ap/kb/1846000000000000100",
+    "object": {
+      "id": "https://b.example/ap/documents/1846000000000000400",
+      "type": "Tombstone",
+      "formerType": "Article"
+    },
+    "to": [
+      "https://b.example/ap/kb/1846000000000000100/followers"
+    ]
+  }
+}

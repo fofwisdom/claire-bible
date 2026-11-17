@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claire Bible vocabulary</title>
+<style>body{font-family:system-ui,sans-serif;line-height:1.5;max-width:60rem;margin:2rem auto;padding:0 1rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #8884;padding:.4rem .6rem;text-align:left;vertical-align:top}code{font-family:ui-monospace,monospace}</style>
+</head>
+<body>
+<h1>Claire Bible vocabulary</h1>
+<p>Claire Bible servers use these terms when they exchange shared knowledge with ActivityPub. The terms are for Claire Bible only.</p>
+<p>Namespace: <code>https://w3id.org/claire-bible/ns#</code> (prefix <code>claire</code>). JSON-LD context: <a href="https://w3id.org/claire-bible/ns/v1"><code>https://w3id.org/claire-bible/ns/v1</code></a>. The context of version 1 does not change. A new term goes to a new version.</p>
+<p>A document uses this context together with the ActivityStreams context <code>https://www.w3.org/ns/activitystreams</code>. The terms <code>Grant</code>, <code>Revoke</code>, and <code>capability</code> have the identifiers of the ForgeFed vocabulary (<code>https://forgefed.org/ns#</code>). Claire Bible claims no conformance to ForgeFed.</p>
+<h2>Types</h2>
+<table>
+<tr><th>Term</th><th>Identifier</th><th>Base type</th><th>Definition</th></tr>
+<tr id="KnowledgeBase"><td><code>claire:KnowledgeBase</code></td><td><code>https://w3id.org/claire-bible/ns#KnowledgeBase</code></td><td><code>Group</code></td><td>A shared knowledge base: a knowledge base that has no owner, that is always public, and that accounts build together. It is an actor. Servers that hold copies of its documents follow it.</td></tr>
+<tr id="Extraction"><td><code>claire:Extraction</code></td><td><code>https://w3id.org/claire-bible/ns#Extraction</code></td><td><code>Object</code></td><td>The entities and the relations that a server found in one document. A receiver builds its graph from them and does not send the document to a language model.</td></tr>
+<tr id="Contribution"><td><code>claire:Contribution</code></td><td><code>https://w3id.org/claire-bible/ns#Contribution</code></td><td><code>Object</code></td><td>One document with its extraction that an account offers to one shared knowledge base.</td></tr>
+<tr id="Grant"><td><code>Grant</code></td><td><code>https://forgefed.org/ns#Grant</code></td><td><code>Activity</code></td><td>An activity that gives a role in a resource to an actor until an end time. The term is the one of the ForgeFed vocabulary. In Claire, a shared knowledge base gives the role claire:collaborator to an account of another server.</td></tr>
+<tr id="Revoke"><td><code>Revoke</code></td><td><code>https://forgefed.org/ns#Revoke</code></td><td><code>Activity</code></td><td>An activity that ends a grant immediately. The term is the one of the ForgeFed vocabulary.</td></tr>
+</table>
+<h2>Properties</h2>
+<table>
+<tr><th>Term</th><th>Identifier</th><th>Definition</th></tr>
+<tr id="knowledgeType"><td><code>claire:knowledgeType</code></td><td><code>https://w3id.org/claire-bible/ns#knowledgeType</code></td><td>The knowledge type of a shared knowledge base: &quot;real&quot; for knowledge about the real world, or &quot;fictional&quot; for knowledge about an invented world.</td></tr>
+<tr id="documentCount"><td><code>claire:documentCount</code></td><td><code>https://w3id.org/claire-bible/ns#documentCount</code></td><td>The number of visible documents in a shared knowledge base.</td></tr>
+<tr id="entityCount"><td><code>claire:entityCount</code></td><td><code>https://w3id.org/claire-bible/ns#entityCount</code></td><td>The number of entities in a shared knowledge base.</td></tr>
+<tr id="relationCount"><td><code>claire:relationCount</code></td><td><code>https://w3id.org/claire-bible/ns#relationCount</code></td><td>The number of relations in a shared knowledge base.</td></tr>
+<tr id="signature"><td><code>claire:signature</code></td><td><code>https://w3id.org/claire-bible/ns#signature</code></td><td>The subject signature of a shared knowledge base, as one JSON value. The key &quot;entities&quot; has at most 256 rows [type, norm_name, weight]: the entities that the most documents have. The key &quot;visible_documents&quot; is the number of documents that were counted. The key &quot;computed_at&quot; is the time of the calculation. A server compares signatures to put knowledge bases with the same subject in one theme.</td></tr>
+<tr id="documents"><td><code>claire:documents</code></td><td><code>https://w3id.org/claire-bible/ns#documents</code></td><td>The collection of the documents of a shared knowledge base.</td></tr>
+<tr id="contentHash"><td><code>claire:contentHash</code></td><td><code>https://w3id.org/claire-bible/ns#contentHash</code></td><td>The SHA-256 of the source text of a document, as 64 lowercase hexadecimal characters. A different value for the same document is a revision.</td></tr>
+<tr id="root"><td><code>claire:root</code></td><td><code>https://w3id.org/claire-bible/ns#root</code></td><td>The root document: the document from which a chain of copies started. Revisions come from it. A root document refers to itself.</td></tr>
+<tr id="extraction"><td><code>claire:extraction</code></td><td><code>https://w3id.org/claire-bible/ns#extraction</code></td><td>The extraction of a document.</td></tr>
+<tr id="keyClaims"><td><code>claire:keyClaims</code></td><td><code>https://w3id.org/claire-bible/ns#keyClaims</code></td><td>The main statements of a document, as plain text, in sequence.</td></tr>
+<tr id="entities"><td><code>claire:entities</code></td><td><code>https://w3id.org/claire-bible/ns#entities</code></td><td>The entities of an extraction, as one JSON array. Each entity has the keys &quot;name&quot;, &quot;type&quot;, &quot;norm_name&quot; (the name in its normal form; &quot;type&quot; and &quot;norm_name&quot; together are the key of the entity), &quot;aliases&quot;, and &quot;observations&quot;. The key &quot;sameAs&quot; is optional: identifiers of the same thing at an authority, for example &quot;wd:Q42&quot; (Wikidata), an ISBN, or an ORCID. The key &quot;proposed_type&quot; is optional.</td></tr>
+<tr id="relations"><td><code>claire:relations</code></td><td><code>https://w3id.org/claire-bible/ns#relations</code></td><td>The relations of an extraction, as one JSON array. Each relation has the keys &quot;source&quot; and &quot;target&quot; (each one the &quot;name&quot; of an entity of the same extraction) and &quot;type&quot;. The key &quot;proposed_type&quot; is optional.</td></tr>
+<tr id="document"><td><code>claire:document</code></td><td><code>https://w3id.org/claire-bible/ns#document</code></td><td>The document of a contribution.</td></tr>
+<tr id="reasonCode"><td><code>claire:reasonCode</code></td><td><code>https://w3id.org/claire-bible/ns#reasonCode</code></td><td>The reason of the reviewers for a rejection or a removal: &quot;off_subject&quot;, &quot;wrong_knowledge_type&quot;, &quot;duplicate&quot;, &quot;low_quality&quot;, &quot;spam&quot;, or &quot;other&quot;.</td></tr>
+<tr id="capability"><td><code>capability</code></td><td><code>https://forgefed.org/ns#capability</code></td><td>The grant that permits an activity. The term is the one of the ForgeFed vocabulary. In Claire, an offer of a remote collaborator refers to its grant.</td></tr>
+</table>
+<h2>Values</h2>
+<table>
+<tr><th>Term</th><th>Identifier</th><th>Definition</th></tr>
+<tr id="collaborator"><td><code>claire:collaborator</code></td><td><code>https://w3id.org/claire-bible/ns#collaborator</code></td><td>The role of an account whose contributions to a shared knowledge base need no approval.</td></tr>
+</table>
+</body>
+</html>

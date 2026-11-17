@@ -1,0 +1,13 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/claire-bible/ns/v1"
+  ],
+  "id": "https://b.example/ap/kb/1846000000000000100#grants/1/revoke",
+  "type": "Revoke",
+  "actor": "https://b.example/ap/kb/1846000000000000100",
+  "object": "https://b.example/ap/kb/1846000000000000100#grants/1",
+  "to": [
+    "https://a.example/ap/actors/1846000000000000001"
+  ]
+}

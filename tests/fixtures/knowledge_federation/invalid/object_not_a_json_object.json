@@ -1,0 +1,8 @@
+{
+  "validator": "object",
+  "error": "not_an_object",
+  "path": "",
+  "value": [
+    "Article"
+  ]
+}

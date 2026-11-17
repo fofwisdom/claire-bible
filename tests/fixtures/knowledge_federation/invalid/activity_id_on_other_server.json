@@ -1,0 +1,18 @@
+{
+  "validator": "activity",
+  "error": "origin_mismatch",
+  "path": "id",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://c.example/follows/1",
+    "type": "Follow",
+    "actor": "https://a.example/ap/actors/server",
+    "object": "https://b.example/ap/kb/1846000000000000100",
+    "to": [
+      "https://b.example/ap/kb/1846000000000000100"
+    ]
+  }
+}

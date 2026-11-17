@@ -1,0 +1,17 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/claire-bible/ns/v1"
+  ],
+  "id": "https://b.example/ap/kb/1846000000000000100#delete",
+  "type": "Delete",
+  "actor": "https://b.example/ap/kb/1846000000000000100",
+  "object": {
+    "id": "https://b.example/ap/kb/1846000000000000100",
+    "type": "Tombstone",
+    "formerType": "claire:KnowledgeBase"
+  },
+  "to": [
+    "https://b.example/ap/kb/1846000000000000100/followers"
+  ]
+}

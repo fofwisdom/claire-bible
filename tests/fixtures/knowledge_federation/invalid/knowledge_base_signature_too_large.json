@@ -1,0 +1,1318 @@
+{
+  "validator": "object",
+  "error": "signature_too_large",
+  "path": "claire:signature.entities",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://b.example/ap/kb/1846000000000000100",
+    "type": [
+      "Group",
+      "claire:KnowledgeBase"
+    ],
+    "name": "Ada Lovelace and the Analytical Engine",
+    "summary": "Documents about the first programs for a mechanical computer.",
+    "url": "https://b.example/kb/1846000000000000100/",
+    "inbox": "https://b.example/ap/kb/1846000000000000100/inbox",
+    "outbox": "https://b.example/ap/kb/1846000000000000100/outbox",
+    "followers": "https://b.example/ap/kb/1846000000000000100/followers",
+    "claire:documents": "https://b.example/ap/kb/1846000000000000100/documents",
+    "claire:knowledgeType": "real",
+    "claire:documentCount": 12,
+    "claire:entityCount": 87,
+    "claire:relationCount": 140,
+    "claire:signature": {
+      "entities": [
+        [
+          "person",
+          "name 0",
+          1
+        ],
+        [
+          "person",
+          "name 1",
+          1
+        ],
+        [
+          "person",
+          "name 2",
+          1
+        ],
+        [
+          "person",
+          "name 3",
+          1
+        ],
+        [
+          "person",
+          "name 4",
+          1
+        ],
+        [
+          "person",
+          "name 5",
+          1
+        ],
+        [
+          "person",
+          "name 6",
+          1
+        ],
+        [
+          "person",
+          "name 7",
+          1
+        ],
+        [
+          "person",
+          "name 8",
+          1
+        ],
+        [
+          "person",
+          "name 9",
+          1
+        ],
+        [
+          "person",
+          "name 10",
+          1
+        ],
+        [
+          "person",
+          "name 11",
+          1
+        ],
+        [
+          "person",
+          "name 12",
+          1
+        ],
+        [
+          "person",
+          "name 13",
+          1
+        ],
+        [
+          "person",
+          "name 14",
+          1
+        ],
+        [
+          "person",
+          "name 15",
+          1
+        ],
+        [
+          "person",
+          "name 16",
+          1
+        ],
+        [
+          "person",
+          "name 17",
+          1
+        ],
+        [
+          "person",
+          "name 18",
+          1
+        ],
+        [
+          "person",
+          "name 19",
+          1
+        ],
+        [
+          "person",
+          "name 20",
+          1
+        ],
+        [
+          "person",
+          "name 21",
+          1
+        ],
+        [
+          "person",
+          "name 22",
+          1
+        ],
+        [
+          "person",
+          "name 23",
+          1
+        ],
+        [
+          "person",
+          "name 24",
+          1
+        ],
+        [
+          "person",
+          "name 25",
+          1
+        ],
+        [
+          "person",
+          "name 26",
+          1
+        ],
+        [
+          "person",
+          "name 27",
+          1
+        ],
+        [
+          "person",
+          "name 28",
+          1
+        ],
+        [
+          "person",
+          "name 29",
+          1
+        ],
+        [
+          "person",
+          "name 30",
+          1
+        ],
+        [
+          "person",
+          "name 31",
+          1
+        ],
+        [
+          "person",
+          "name 32",
+          1
+        ],
+        [
+          "person",
+          "name 33",
+          1
+        ],
+        [
+          "person",
+          "name 34",
+          1
+        ],
+        [
+          "person",
+          "name 35",
+          1
+        ],
+        [
+          "person",
+          "name 36",
+          1
+        ],
+        [
+          "person",
+          "name 37",
+          1
+        ],
+        [
+          "person",
+          "name 38",
+          1
+        ],
+        [
+          "person",
+          "name 39",
+          1
+        ],
+        [
+          "person",
+          "name 40",
+          1
+        ],
+        [
+          "person",
+          "name 41",
+          1
+        ],
+        [
+          "person",
+          "name 42",
+          1
+        ],
+        [
+          "person",
+          "name 43",
+          1
+        ],
+        [
+          "person",
+          "name 44",
+          1
+        ],
+        [
+          "person",
+          "name 45",
+          1
+        ],
+        [
+          "person",
+          "name 46",
+          1
+        ],
+        [
+          "person",
+          "name 47",
+          1
+        ],
+        [
+          "person",
+          "name 48",
+          1
+        ],
+        [
+          "person",
+          "name 49",
+          1
+        ],
+        [
+          "person",
+          "name 50",
+          1
+        ],
+        [
+          "person",
+          "name 51",
+          1
+        ],
+        [
+          "person",
+          "name 52",
+          1
+        ],
+        [
+          "person",
+          "name 53",
+          1
+        ],
+        [
+          "person",
+          "name 54",
+          1
+        ],
+        [
+          "person",
+          "name 55",
+          1
+        ],
+        [
+          "person",
+          "name 56",
+          1
+        ],
+        [
+          "person",
+          "name 57",
+          1
+        ],
+        [
+          "person",
+          "name 58",
+          1
+        ],
+        [
+          "person",
+          "name 59",
+          1
+        ],
+        [
+          "person",
+          "name 60",
+          1
+        ],
+        [
+          "person",
+          "name 61",
+          1
+        ],
+        [
+          "person",
+          "name 62",
+          1
+        ],
+        [
+          "person",
+          "name 63",
+          1
+        ],
+        [
+          "person",
+          "name 64",
+          1
+        ],
+        [
+          "person",
+          "name 65",
+          1
+        ],
+        [
+          "person",
+          "name 66",
+          1
+        ],
+        [
+          "person",
+          "name 67",
+          1
+        ],
+        [
+          "person",
+          "name 68",
+          1
+        ],
+        [
+          "person",
+          "name 69",
+          1
+        ],
+        [
+          "person",
+          "name 70",
+          1
+        ],
+        [
+          "person",
+          "name 71",
+          1
+        ],
+        [
+          "person",
+          "name 72",
+          1
+        ],
+        [
+          "person",
+          "name 73",
+          1
+        ],
+        [
+          "person",
+          "name 74",
+          1
+        ],
+        [
+          "person",
+          "name 75",
+          1
+        ],
+        [
+          "person",
+          "name 76",
+          1
+        ],
+        [
+          "person",
+          "name 77",
+          1
+        ],
+        [
+          "person",
+          "name 78",
+          1
+        ],
+        [
+          "person",
+          "name 79",
+          1
+        ],
+        [
+          "person",
+          "name 80",
+          1
+        ],
+        [
+          "person",
+          "name 81",
+          1
+        ],
+        [
+          "person",
+          "name 82",
+          1
+        ],
+        [
+          "person",
+          "name 83",
+          1
+        ],
+        [
+          "person",
+          "name 84",
+          1
+        ],
+        [
+          "person",
+          "name 85",
+          1
+        ],
+        [
+          "person",
+          "name 86",
+          1
+        ],
+        [
+          "person",
+          "name 87",
+          1
+        ],
+        [
+          "person",
+          "name 88",
+          1
+        ],
+        [
+          "person",
+          "name 89",
+          1
+        ],
+        [
+          "person",
+          "name 90",
+          1
+        ],
+        [
+          "person",
+          "name 91",
+          1
+        ],
+        [
+          "person",
+          "name 92",
+          1
+        ],
+        [
+          "person",
+          "name 93",
+          1
+        ],
+        [
+          "person",
+          "name 94",
+          1
+        ],
+        [
+          "person",
+          "name 95",
+          1
+        ],
+        [
+          "person",
+          "name 96",
+          1
+        ],
+        [
+          "person",
+          "name 97",
+          1
+        ],
+        [
+          "person",
+          "name 98",
+          1
+        ],
+        [
+          "person",
+          "name 99",
+          1
+        ],
+        [
+          "person",
+          "name 100",
+          1
+        ],
+        [
+          "person",
+          "name 101",
+          1
+        ],
+        [
+          "person",
+          "name 102",
+          1
+        ],
+        [
+          "person",
+          "name 103",
+          1
+        ],
+        [
+          "person",
+          "name 104",
+          1
+        ],
+        [
+          "person",
+          "name 105",
+          1
+        ],
+        [
+          "person",
+          "name 106",
+          1
+        ],
+        [
+          "person",
+          "name 107",
+          1
+        ],
+        [
+          "person",
+          "name 108",
+          1
+        ],
+        [
+          "person",
+          "name 109",
+          1
+        ],
+        [
+          "person",
+          "name 110",
+          1
+        ],
+        [
+          "person",
+          "name 111",
+          1
+        ],
+        [
+          "person",
+          "name 112",
+          1
+        ],
+        [
+          "person",
+          "name 113",
+          1
+        ],
+        [
+          "person",
+          "name 114",
+          1
+        ],
+        [
+          "person",
+          "name 115",
+          1
+        ],
+        [
+          "person",
+          "name 116",
+          1
+        ],
+        [
+          "person",
+          "name 117",
+          1
+        ],
+        [
+          "person",
+          "name 118",
+          1
+        ],
+        [
+          "person",
+          "name 119",
+          1
+        ],
+        [
+          "person",
+          "name 120",
+          1
+        ],
+        [
+          "person",
+          "name 121",
+          1
+        ],
+        [
+          "person",
+          "name 122",
+          1
+        ],
+        [
+          "person",
+          "name 123",
+          1
+        ],
+        [
+          "person",
+          "name 124",
+          1
+        ],
+        [
+          "person",
+          "name 125",
+          1
+        ],
+        [
+          "person",
+          "name 126",
+          1
+        ],
+        [
+          "person",
+          "name 127",
+          1
+        ],
+        [
+          "person",
+          "name 128",
+          1
+        ],
+        [
+          "person",
+          "name 129",
+          1
+        ],
+        [
+          "person",
+          "name 130",
+          1
+        ],
+        [
+          "person",
+          "name 131",
+          1
+        ],
+        [
+          "person",
+          "name 132",
+          1
+        ],
+        [
+          "person",
+          "name 133",
+          1
+        ],
+        [
+          "person",
+          "name 134",
+          1
+        ],
+        [
+          "person",
+          "name 135",
+          1
+        ],
+        [
+          "person",
+          "name 136",
+          1
+        ],
+        [
+          "person",
+          "name 137",
+          1
+        ],
+        [
+          "person",
+          "name 138",
+          1
+        ],
+        [
+          "person",
+          "name 139",
+          1
+        ],
+        [
+          "person",
+          "name 140",
+          1
+        ],
+        [
+          "person",
+          "name 141",
+          1
+        ],
+        [
+          "person",
+          "name 142",
+          1
+        ],
+        [
+          "person",
+          "name 143",
+          1
+        ],
+        [
+          "person",
+          "name 144",
+          1
+        ],
+        [
+          "person",
+          "name 145",
+          1
+        ],
+        [
+          "person",
+          "name 146",
+          1
+        ],
+        [
+          "person",
+          "name 147",
+          1
+        ],
+        [
+          "person",
+          "name 148",
+          1
+        ],
+        [
+          "person",
+          "name 149",
+          1
+        ],
+        [
+          "person",
+          "name 150",
+          1
+        ],
+        [
+          "person",
+          "name 151",
+          1
+        ],
+        [
+          "person",
+          "name 152",
+          1
+        ],
+        [
+          "person",
+          "name 153",
+          1
+        ],
+        [
+          "person",
+          "name 154",
+          1
+        ],
+        [
+          "person",
+          "name 155",
+          1
+        ],
+        [
+          "person",
+          "name 156",
+          1
+        ],
+        [
+          "person",
+          "name 157",
+          1
+        ],
+        [
+          "person",
+          "name 158",
+          1
+        ],
+        [
+          "person",
+          "name 159",
+          1
+        ],
+        [
+          "person",
+          "name 160",
+          1
+        ],
+        [
+          "person",
+          "name 161",
+          1
+        ],
+        [
+          "person",
+          "name 162",
+          1
+        ],
+        [
+          "person",
+          "name 163",
+          1
+        ],
+        [
+          "person",
+          "name 164",
+          1
+        ],
+        [
+          "person",
+          "name 165",
+          1
+        ],
+        [
+          "person",
+          "name 166",
+          1
+        ],
+        [
+          "person",
+          "name 167",
+          1
+        ],
+        [
+          "person",
+          "name 168",
+          1
+        ],
+        [
+          "person",
+          "name 169",
+          1
+        ],
+        [
+          "person",
+          "name 170",
+          1
+        ],
+        [
+          "person",
+          "name 171",
+          1
+        ],
+        [
+          "person",
+          "name 172",
+          1
+        ],
+        [
+          "person",
+          "name 173",
+          1
+        ],
+        [
+          "person",
+          "name 174",
+          1
+        ],
+        [
+          "person",
+          "name 175",
+          1
+        ],
+        [
+          "person",
+          "name 176",
+          1
+        ],
+        [
+          "person",
+          "name 177",
+          1
+        ],
+        [
+          "person",
+          "name 178",
+          1
+        ],
+        [
+          "person",
+          "name 179",
+          1
+        ],
+        [
+          "person",
+          "name 180",
+          1
+        ],
+        [
+          "person",
+          "name 181",
+          1
+        ],
+        [
+          "person",
+          "name 182",
+          1
+        ],
+        [
+          "person",
+          "name 183",
+          1
+        ],
+        [
+          "person",
+          "name 184",
+          1
+        ],
+        [
+          "person",
+          "name 185",
+          1
+        ],
+        [
+          "person",
+          "name 186",
+          1
+        ],
+        [
+          "person",
+          "name 187",
+          1
+        ],
+        [
+          "person",
+          "name 188",
+          1
+        ],
+        [
+          "person",
+          "name 189",
+          1
+        ],
+        [
+          "person",
+          "name 190",
+          1
+        ],
+        [
+          "person",
+          "name 191",
+          1
+        ],
+        [
+          "person",
+          "name 192",
+          1
+        ],
+        [
+          "person",
+          "name 193",
+          1
+        ],
+        [
+          "person",
+          "name 194",
+          1
+        ],
+        [
+          "person",
+          "name 195",
+          1
+        ],
+        [
+          "person",
+          "name 196",
+          1
+        ],
+        [
+          "person",
+          "name 197",
+          1
+        ],
+        [
+          "person",
+          "name 198",
+          1
+        ],
+        [
+          "person",
+          "name 199",
+          1
+        ],
+        [
+          "person",
+          "name 200",
+          1
+        ],
+        [
+          "person",
+          "name 201",
+          1
+        ],
+        [
+          "person",
+          "name 202",
+          1
+        ],
+        [
+          "person",
+          "name 203",
+          1
+        ],
+        [
+          "person",
+          "name 204",
+          1
+        ],
+        [
+          "person",
+          "name 205",
+          1
+        ],
+        [
+          "person",
+          "name 206",
+          1
+        ],
+        [
+          "person",
+          "name 207",
+          1
+        ],
+        [
+          "person",
+          "name 208",
+          1
+        ],
+        [
+          "person",
+          "name 209",
+          1
+        ],
+        [
+          "person",
+          "name 210",
+          1
+        ],
+        [
+          "person",
+          "name 211",
+          1
+        ],
+        [
+          "person",
+          "name 212",
+          1
+        ],
+        [
+          "person",
+          "name 213",
+          1
+        ],
+        [
+          "person",
+          "name 214",
+          1
+        ],
+        [
+          "person",
+          "name 215",
+          1
+        ],
+        [
+          "person",
+          "name 216",
+          1
+        ],
+        [
+          "person",
+          "name 217",
+          1
+        ],
+        [
+          "person",
+          "name 218",
+          1
+        ],
+        [
+          "person",
+          "name 219",
+          1
+        ],
+        [
+          "person",
+          "name 220",
+          1
+        ],
+        [
+          "person",
+          "name 221",
+          1
+        ],
+        [
+          "person",
+          "name 222",
+          1
+        ],
+        [
+          "person",
+          "name 223",
+          1
+        ],
+        [
+          "person",
+          "name 224",
+          1
+        ],
+        [
+          "person",
+          "name 225",
+          1
+        ],
+        [
+          "person",
+          "name 226",
+          1
+        ],
+        [
+          "person",
+          "name 227",
+          1
+        ],
+        [
+          "person",
+          "name 228",
+          1
+        ],
+        [
+          "person",
+          "name 229",
+          1
+        ],
+        [
+          "person",
+          "name 230",
+          1
+        ],
+        [
+          "person",
+          "name 231",
+          1
+        ],
+        [
+          "person",
+          "name 232",
+          1
+        ],
+        [
+          "person",
+          "name 233",
+          1
+        ],
+        [
+          "person",
+          "name 234",
+          1
+        ],
+        [
+          "person",
+          "name 235",
+          1
+        ],
+        [
+          "person",
+          "name 236",
+          1
+        ],
+        [
+          "person",
+          "name 237",
+          1
+        ],
+        [
+          "person",
+          "name 238",
+          1
+        ],
+        [
+          "person",
+          "name 239",
+          1
+        ],
+        [
+          "person",
+          "name 240",
+          1
+        ],
+        [
+          "person",
+          "name 241",
+          1
+        ],
+        [
+          "person",
+          "name 242",
+          1
+        ],
+        [
+          "person",
+          "name 243",
+          1
+        ],
+        [
+          "person",
+          "name 244",
+          1
+        ],
+        [
+          "person",
+          "name 245",
+          1
+        ],
+        [
+          "person",
+          "name 246",
+          1
+        ],
+        [
+          "person",
+          "name 247",
+          1
+        ],
+        [
+          "person",
+          "name 248",
+          1
+        ],
+        [
+          "person",
+          "name 249",
+          1
+        ],
+        [
+          "person",
+          "name 250",
+          1
+        ],
+        [
+          "person",
+          "name 251",
+          1
+        ],
+        [
+          "person",
+          "name 252",
+          1
+        ],
+        [
+          "person",
+          "name 253",
+          1
+        ],
+        [
+          "person",
+          "name 254",
+          1
+        ],
+        [
+          "person",
+          "name 255",
+          1
+        ],
+        [
+          "person",
+          "name 256",
+          1
+        ]
+      ],
+      "visible_documents": 12,
+      "computed_at": "2026-11-16T11:00:00Z"
+    }
+  }
+}

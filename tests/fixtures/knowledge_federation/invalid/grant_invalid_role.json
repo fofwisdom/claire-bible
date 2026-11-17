@@ -1,0 +1,22 @@
+{
+  "validator": "activity",
+  "error": "invalid_role",
+  "path": "object",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://b.example/ap/kb/1846000000000000100#grants/1",
+    "type": "Grant",
+    "actor": "https://b.example/ap/kb/1846000000000000100",
+    "context": "https://b.example/ap/kb/1846000000000000100",
+    "target": "https://a.example/ap/actors/1846000000000000001",
+    "object": "claire:moderator",
+    "published": "2026-11-16T12:00:00Z",
+    "endTime": "2027-05-17T12:00:00Z",
+    "to": [
+      "https://a.example/ap/actors/1846000000000000001"
+    ]
+  }
+}

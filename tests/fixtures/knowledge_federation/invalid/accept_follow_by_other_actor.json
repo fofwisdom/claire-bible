@@ -1,0 +1,23 @@
+{
+  "validator": "activity",
+  "error": "actor_mismatch",
+  "path": "object.object",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://b.example/ap/kb/1846000000000000100#accepts/follows/1",
+    "type": "Accept",
+    "actor": "https://b.example/ap/kb/1846000000000000100",
+    "object": {
+      "id": "https://a.example/ap/actors/server#follows/1",
+      "type": "Follow",
+      "actor": "https://a.example/ap/actors/server",
+      "object": "https://b.example/ap/kb/1846000000000000101"
+    },
+    "to": [
+      "https://a.example/ap/actors/server"
+    ]
+  }
+}

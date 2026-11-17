@@ -1,0 +1,63 @@
+{
+  "validator": "object",
+  "error": "missing_field",
+  "path": "claire:root",
+  "value": {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/claire-bible/ns/v1"
+    ],
+    "id": "https://b.example/ap/documents/1846000000000000400",
+    "type": "Article",
+    "name": "Notes on the Analytical Engine",
+    "content": "<p>Ada Lovelace wrote notes about the Analytical Engine.</p>",
+    "url": "https://source.example/notes",
+    "attributedTo": "https://a.example/ap/actors/1846000000000000001",
+    "origin": "https://a.example/ap/documents/1846000000000000300",
+    "claire:contentHash": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+    "published": "2026-11-16T12:00:00Z",
+    "updated": "2026-11-17T12:00:00Z",
+    "claire:extraction": {
+      "type": [
+        "Object",
+        "claire:Extraction"
+      ],
+      "summary": "Ada Lovelace wrote notes about the Analytical Engine of Charles Babbage.",
+      "claire:keyClaims": [
+        "Note G has an algorithm for Bernoulli numbers."
+      ],
+      "claire:entities": [
+        {
+          "name": "Ada Lovelace",
+          "type": "person",
+          "norm_name": "ada lovelace",
+          "aliases": [
+            "Augusta Ada King"
+          ],
+          "observations": [
+            "Wrote Note G."
+          ],
+          "sameAs": [
+            "wd:Q7259"
+          ]
+        },
+        {
+          "name": "Analytical Engine",
+          "type": "artifact",
+          "norm_name": "analytical engine",
+          "aliases": [],
+          "observations": [
+            "A design for a mechanical computer."
+          ]
+        }
+      ],
+      "claire:relations": [
+        {
+          "source": "Ada Lovelace",
+          "target": "Analytical Engine",
+          "type": "wrote_about"
+        }
+      ]
+    }
+  }
+}

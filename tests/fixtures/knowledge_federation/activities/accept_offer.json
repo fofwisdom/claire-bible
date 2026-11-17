@@ -1,0 +1,14 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/claire-bible/ns/v1"
+  ],
+  "id": "https://b.example/ap/kb/1846000000000000100#accepts/offers/1",
+  "type": "Accept",
+  "actor": "https://b.example/ap/kb/1846000000000000100",
+  "object": "https://a.example/ap/actors/1846000000000000001#offers/1",
+  "result": "https://b.example/ap/contributions/1846000000000000500",
+  "to": [
+    "https://a.example/ap/actors/1846000000000000001"
+  ]
+}
