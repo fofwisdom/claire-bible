@@ -6,7 +6,6 @@
   function dlgs() { return root.ClaireKbDialogs; }
   function t(key, params) { return ui().t(key, params); }
   function esc(v) { return ui().esc(v); }
-  function fail(res) { ui().toast(ui().errorText(res), "danger"); }
 
   function parseBootstrap() {
     var el = document.getElementById("claire-public-bootstrap");
@@ -217,7 +216,10 @@
               (k.description ? '<br><span class="claire-hint">' + esc(k.description) + "</span>" : "");
           } },
           { label: t("kb.pub.col_policy"), render: function (k) { return esc(t("kb.join_policy." + k.join_policy)); } },
-          { label: t("kb.pub.col_role"), render: function (k) { return k.role ? '<span class="claire-tag ok">' + esc(t("kb.role." + k.role)) + "</span>" : "—"; } },
+          { label: t("kb.pub.col_role"), render: function (k) {
+            if (k.membership_state === "pending" || k.membership_state === "banned") return '<span class="claire-tag ' + (k.membership_state === "banned" ? "danger" : "warn") + '">' + esc(t("kb.member_state." + k.membership_state)) + "</span>";
+            return k.role ? '<span class="claire-tag ok">' + esc(t("kb.role." + k.role)) + "</span>" : "—";
+          } },
           { label: t("kb.pub.col_stats"), render: function (k) { return esc((k.stats && k.stats.documents) || 0) + " / " + esc((k.stats && k.stats.entities) || 0); } }
         ],
         rows: visible
@@ -240,18 +242,15 @@
     load();
   }
 
-  // The page of one shared knowledge base. The data: its item of GET /kb, GET /kb/{number}/members, GET /kb/{number}/contributions, and GET /kb/{number}/documents for the titles.
+  // The page of one shared knowledge base. The data: GET /kb/{number}/ as JSON ({"knowledge_base": {...}} with "role" and "membership_state" of the requester), GET /kb/{number}/members, and GET /kb/{number}/contributions (each contribution has its "title").
   function renderKbDetail(host, bs, kbNum) {
-    var pendingJoin = false;
-
     function load() {
       Promise.all([
-        ui().request("/kb"),
+        ui().request(kbHref(kbNum)),
         ui().request(kbHref(kbNum) + "contributions"),
-        ui().request(kbHref(kbNum) + "members"),
-        ui().request(kbHref(kbNum) + "documents")
+        ui().request(kbHref(kbNum) + "members")
       ]).then(function (all) {
-        var kb = ((all[0].ok && all[0].data && all[0].data.knowledge_bases) || []).find(function (k) { return String(k.number) === String(kbNum); });
+        var kb = (all[0].ok && all[0].data && all[0].data.knowledge_base) || null;
         var h = publicNavHtml("kb");
         h += '<div class="claire-crumb"><a href="/kb">' + esc(t("kb.pub.nav_kbs")) + "</a><span>/</span><span>" + esc(kbNum) + "</span></div>";
         if (!kb) {
@@ -260,11 +259,9 @@
         }
         var contributions = (all[1].ok && all[1].data && all[1].data.contributions) || [];
         var members = (all[2].ok && all[2].data && all[2].data.members) || [];
-        var titles = {};
-        ((all[3].ok && all[3].data && all[3].data.documents) || []).forEach(function (d) { titles[String(d.id)] = d.title || ""; });
-        var role = kb.role || "";
+        // "membership_state" keeps a join request and a ban after a reload; "role" is the role of an active membership.
+        var role = dlgs().membershipOf(kb).role;
         var archived = kb.state === "archived";
-        var canReview = bs.is_admin || role === "moderator" || role === "collaborator";
 
         h += '<section class="claire-card"><div class="claire-page-head"><div><h1>' + esc(kb.label) + " " + typeTag(kb.knowledge_type) +
           ' <span class="claire-tag">' + esc(t("kb.join_policy." + kb.join_policy)) + "</span>" +
@@ -273,22 +270,10 @@
           "</h1>" + (kb.description ? '<p class="claire-page-sub">' + esc(kb.description) + "</p>" : "") +
           '<p class="claire-page-sub">' + esc(t("kb.dlg.col_docs")) + ": " + esc((kb.stats && kb.stats.documents) || 0) + " · " + esc(t("kb.dlg.col_entities")) + ": " + esc((kb.stats && kb.stats.entities) || 0) + "</p></div>";
         h += '<div class="claire-actions">';
-        if (bs.is_authenticated) {
-          if (role) {
-            if (!archived) h += '<button type="button" class="claire-btn pri" id="kb-direct-contrib-btn">' + ui().icon("merge") + " " + esc(t("kb.pub.kb_direct_contribute")) + "</button>";
-            h += '<button type="button" class="claire-btn sec" id="kb-leave-btn">' + esc(t("kb.pub.kb_leave")) + "</button>";
-          } else if (pendingJoin) {
-            h += '<button type="button" class="claire-btn sec" id="kb-leave-btn">' + esc(t("kb.pub.kb_withdraw_join")) + "</button>";
-          } else if (!archived) {
-            h += '<button type="button" class="claire-btn pri" id="kb-join-btn">' + esc(t(kb.join_policy === "open" ? "kb.pub.kb_join" : "kb.pub.kb_join_request")) + "</button>";
-          }
-          h += '<button type="button" class="claire-btn" id="kb-fork-btn">' + ui().icon("fork") + " " + esc(t("kb.dlg.fork_confirm")) + "</button>";
-          if (canReview) h += '<a class="claire-btn sec" href="/settings/kb/' + esc(kbNum) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>";
-        } else {
-          h += '<a class="claire-btn pri" href="' + esc(loginHref()) + '">' + esc(t("kb.pub.login_to_act")) + "</a>";
-        }
+        if (bs.is_authenticated) h += dlgs().kbActionsHtml(kb, { isAdmin: !!bs.is_admin });
+        else h += '<a class="claire-btn pri" href="' + esc(loginHref()) + '">' + esc(t("kb.pub.login_to_act")) + "</a>";
         h += "</div></div>";
-        if (pendingJoin) h += '<div class="claire-note ok"><span>' + esc(t("kb.pub.kb_join_pending")) + "</span></div>";
+        if (bs.is_authenticated) h += dlgs().kbMembershipNoteHtml(kb);
         h += '<div class="claire-note"><span>' + esc(t("kb.pub.kb_ingest_blocked_desc")) + "</span></div></section>";
 
         h += '<div class="claire-split"><div class="claire-list-col">';
@@ -303,7 +288,7 @@
           caption: t("kb.pub.kb_docs"),
           columns: [
             { label: t("kb.dlg.col_document"), render: function (c) {
-              var title = esc(titles[String(c.document)] || c.document);
+              var title = esc(c.title || c.document || "—");
               return (c.state === "visible" ? '<a href="' + esc(kbHref(kbNum) + "?doc=" + encodeURIComponent(c.document)) + '"><strong>' + title + "</strong></a>" : "<strong>" + title + "</strong>") +
                 (c.state !== "visible" ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel(c.state)) + "</span>" : "");
             } },
@@ -317,30 +302,10 @@
         host.innerHTML = h;
         ui().enhance(host);
 
-        var joinBtn = host.querySelector("#kb-join-btn");
-        if (joinBtn) joinBtn.addEventListener("click", function () {
-          // POST /kb/{number}/membership: the join policy "open" gives an active membership, "approval" a pending one.
-          ui().request(kbHref(kbNum) + "membership", { method: "POST", body: {} }).then(function (r) {
-            if (!r.ok) { fail(r); return; }
-            pendingJoin = !!(r.data && r.data.membership && r.data.membership.state === "pending");
-            load();
-          });
-        });
-        var leaveBtn = host.querySelector("#kb-leave-btn");
-        if (leaveBtn) leaveBtn.addEventListener("click", function () {
-          ui().request(kbHref(kbNum) + "membership", { method: "DELETE" }).then(function (r) {
-            if (!r.ok) { fail(r); return; }
-            pendingJoin = false;
-            load();
-          });
-        });
-        var forkBtn = host.querySelector("#kb-fork-btn");
-        if (forkBtn) forkBtn.addEventListener("click", function () {
-          dlgs().openForkKbDialog({ kb: kb, onForked: function (fork) { if (fork && fork.number) window.location.assign(kbHref(fork.number)); } });
-        });
-        var directBtn = host.querySelector("#kb-direct-contrib-btn");
-        if (directBtn) directBtn.addEventListener("click", function () {
-          dlgs().openNoThemePicker({ kbNumber: kbNum, homeHref: bs.home_href, onSubmitted: function () { load(); } });
+        dlgs().bindKbActions(host, kb, {
+          homeHref: bs.home_href,
+          onChanged: function () { load(); },
+          onForked: function (fork) { if (fork && fork.number) window.location.assign(kbHref(fork.number)); }
         });
       });
     }

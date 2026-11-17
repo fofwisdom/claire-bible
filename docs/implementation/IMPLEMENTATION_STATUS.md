@@ -110,7 +110,7 @@ Limits:
 - 모바일 테스트 5개(`mobile primary view …` 등)는 하단 바(`#botnav`) 기준으로 고쳤고 통과한다. 좁은 화면으로 시작하면 첫 화면이 본문 뷰다(`initialCenterView()`).
 - 2026-11-16: `e2e/provider_routing_lineage.spec.js`, `node aliases render …`, and `admin providers checks capabilities …` use the same owner token (`e2e-owner-token-…`). In a full run only the first of them gets the owner session; the other two fail. Each of them passes when it runs first.
 - 시드 DB의 로그인 토큰은 한 번만 쓸 수 있다. owner 세션이 필요한 테스트는 `e2e/seed_db.py`에 자기 토큰을 둔다.
-- 실행: `cd e2e && npx playwright test`. Playwright가 `e2e/seed_db.py`로 시드 DB를 만들고 포트 8766에 서버를 띄운다(시작 제한 30초).
+- 실행: `bash scripts/e2e.sh [<spec>.spec.js]`(권장: 격리된 systemd 사용자 scope와 메모리 상한 아래에서 스펙 파일별 순차 실행하며 git worktree에서도 메인 저장소의 `.venv`·`e2e/node_modules`를 재사용한다) 또는 `cd e2e && npx playwright test`. Playwright가 `e2e/seed_db.py`로 시드 DB를 만들고 포트 8766에 서버를 띄운다(시작 제한 30초). `CLAIRE_E2E_BASE_URL`을 지정하면 외부 서버를 사용하고 자체 `webServer`는 띄우지 않는다.
 - 전체 `pytest`는 모두 통과한다. 시간이 약 9분 걸리고, 임시 파일이 `/tmp/pytest-of-<user>`에 실행마다 1GB 가까이 쌓인다. `/tmp`가 작은 환경에서는 `TMPDIR`과 `--basetemp`를 다른 볼륨으로 준다(`--basetemp`는 `TMPDIR` 안에 두어야 asciidoctor 테스트가 통과한다).
 
 ---

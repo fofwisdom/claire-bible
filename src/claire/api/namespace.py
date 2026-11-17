@@ -100,11 +100,11 @@ class ResolvedNamespace:
     mode: ServerMode
     # 네임스페이스 계정. ``system`` 표면과 네트워크 모드 루트 ``GET /``(디렉터리)에서만 None이다.
     account_id: int | None
-    # 링크에 쓸 USERNAME. 싱글 모드에서는 항상 None이다(USERNAME 비노출, S9).
+    # 링크에 쓸 USERNAME. In single mode it is the USERNAME of the admin under ``/@{username}/`` and None at a root path (KNOWLEDGE_FEDERATION_DESIGN.md Section 15; rule S9 is withdrawn).
     username: str | None
     # 경로가 고정한 테마의 내부 ID. 고정하지 않았으면 None
     pinned_kb_id: int | None
-    # 링크 접두(§6.6). 싱글 모드 무고정은 "", 테마 고정은 "/themes/{번호}", 네트워크 모드는 "/@{u}"[+ "/themes/{번호}"]
+    # 링크 접두(§6.6). 싱글 모드 루트 경로는 "", 그 밖에는 두 모드 모두 "/@{u}"
     prefix: str
     # 요청 경로에 접두가 실제로 있었는가(N4·N5 판정과 canonical 링크용)
     via_prefix: bool
@@ -387,6 +387,16 @@ class NamespaceResolverMiddleware:
         except accounts_store.AccountNotFound:
             return None
 
+    def _single_mode_username(self) -> str | None:
+        """The USERNAME of the admin when single mode has the namespace ``/@{username}/`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): the admin account is ``active`` and has a USERNAME. ``None`` before the first setup is complete."""
+        try:
+            admin = self.directory.admin()
+        except accounts_store.AccountNotFound:
+            return None
+        if admin.status != "active" or not admin.username:
+            return None
+        return admin.username
+
     def _any_outcome(self, mode: ServerMode, principal: Principal, *, has_prefix: bool) -> _Outcome:
         """``any``: 접두를 무시하고 자격증명 계정을 쓴다(§9.1)."""
         username: str | None = None
@@ -407,6 +417,11 @@ class NamespaceResolverMiddleware:
     def _root(self, mode: ServerMode, scope: Scope) -> _Outcome | Response:
         """접두 없는 ``GET /``(§9.1 ``root``)."""
         if mode == "single":
+            # KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2: single mode has no root page. ``/`` gives a temporary redirect (302) to ``/@{username}/`` of the admin; it is temporary because the meaning of ``/`` depends on the server mode.
+            username = self._single_mode_username()
+            if username is not None:
+                return Response(status_code=302, headers={"Location": _location(f"/@{username}/", scope.get("query_string", b"") or b""), "Cache-Control": "no-store"})
+            # The admin has no USERNAME (the first setup is not complete, Section 15 rule 3): the route gives ``/setup`` to the admin credential and the page "setup not complete" to each other request.
             return _Outcome(
                 ResolvedNamespace(mode, accounts_store.ADMIN_ACCOUNT_ID, None, None, "", False),
                 public_id=self._admin_public_id(),
@@ -439,14 +454,16 @@ class NamespaceResolverMiddleware:
             return self._kb_path(mode, parsed, principal, query_string, any_surface=any_surface)
         if parsed.username is not None:
             if mode == "single":
-                return self._single_mode_account_prefix(parsed, query_string)
+                # KNOWLEDGE_FEDERATION_DESIGN.md Section 15: in single mode ``/@{username}/…`` is the namespace of the admin. Each other name gets 404. Rule S9 (no USERNAME in single mode) is withdrawn.
+                if self._single_mode_username() != parsed.username:
+                    return _not_found()
             owner = directory.account_by_username(parsed.username)
             if owner is None or owner.status != "active":
                 if directory.tombstone_was_public(parsed.username) is True:
                     return PlainTextResponse("Gone", status_code=410)
                 return _not_found()
-            # N1: 본인이 아니면(관리자 포함) 공개 프로필만 보인다.
-            if principal.account_id != owner.id and not owner.profile_public:
+            # N1: 본인이 아니면(관리자 포함) 공개 프로필만 보인다. Single mode has no profile rule: the knowledge base of the admin was at the root for each reader, and it is at ``/@{username}/`` now.
+            if mode == "network" and principal.account_id != owner.id and not owner.profile_public:
                 return _not_found()
         elif parsed.theme_number is not None:
             # Old link ``/themes/{number}/…`` with the number of a knowledge base (design Section 7): 308 only.
@@ -469,8 +486,12 @@ class NamespaceResolverMiddleware:
             # 접두를 검증한 뒤 무시한다(존재를 숨기는 404는 위에서 같다).
             return self._any_outcome(mode, principal, has_prefix=bool(parsed.prefix))
 
-        if mode == "single":
-            # 접두 없는 싱글 모드 namespaced: 관리자 네임스페이스(N3). USERNAME은 싣지 않는다(S9).
+        if mode == "single" and owner is None:
+            # KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2: a root path of the personal knowledge base gets 308 to ``/@{username}/…``. Only a read (GET, HEAD) gets the redirect: a client that sends a write to a root path does not always follow a redirect, and the write keeps the admin namespace as before. Before the first setup is complete there is no USERNAME and no redirect.
+            username = self._single_mode_username()
+            if username is not None and str(scope.get("method", "")).upper() in ("GET", "HEAD"):
+                return _redirect(_location(f"/@{username}{scope.get('path') or '/'}", query_string))
+            # 접두 없는 싱글 모드 namespaced: 관리자 네임스페이스(N3).
             return _Outcome(
                 ResolvedNamespace(mode, accounts_store.ADMIN_ACCOUNT_ID, None, None, "", False),
                 public_id=self._admin_public_id(),
@@ -489,7 +510,8 @@ class NamespaceResolverMiddleware:
         if mode == "single":
             if kb.account_id != accounts_store.ADMIN_ACCOUNT_ID:
                 return _not_found()
-            return _redirect(_location(inner_path, query_string))
+            username = self._single_mode_username()
+            return _redirect(_location(inner_path if username is None else f"/@{username}{inner_path}", query_string))
         try:
             owner = self.directory.account(int(kb.account_id))
         except accounts_store.AccountNotFound:
@@ -545,19 +567,6 @@ class NamespaceResolverMiddleware:
         if state != "active":
             return _not_found()
         return _Outcome(ResolvedNamespace(mode, None, None, None, parsed.prefix, True))
-
-    def _single_mode_account_prefix(self, parsed: ParsedPrefix, query_string: bytes) -> Response:
-        """싱글 모드의 ``/@…``은 404(N1). 네트워크에서 돌아온 뒤 관리자 이름만 ``/…``로 308(O15)."""
-        if not self.directory.admin_username_published():
-            return _not_found()
-        try:
-            admin = self.directory.admin()
-        except accounts_store.AccountNotFound:
-            return _not_found()
-        if admin.username is None or admin.username != parsed.username:
-            return _not_found()
-        pin = "" if parsed.theme_number is None else f"{_THEMES_SEGMENT}{parsed.theme_number}"
-        return _redirect(_location(pin + parsed.inner_path, query_string))
 
 
 def _redirect(location: str) -> Response:

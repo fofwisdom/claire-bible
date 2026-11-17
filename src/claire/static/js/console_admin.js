@@ -139,12 +139,13 @@
         var publicId = btn.getAttribute("data-public-id") || "";
         var action = btn.getAttribute("data-account-action") || "";
         if (!publicId || !action) return;
+        var payload = { public_id: publicId, action: action };
         var performPatch = function () {
           fetch("/api/admin/accounts", {
             method: "PATCH",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ public_id: publicId, action: action })
+            body: JSON.stringify(payload)
           }).then(function (resp) {
             return resp.json().catch(function () { return {}; }).then(function (body) {
               return { status: resp.status, body: body };
@@ -164,6 +165,26 @@
             showStatusBanner(statusEl, tr("console.js.admin.accounts.network_error"), true);
           });
         };
+        // The purge confirmation has the option "Delete the activity records" (shared knowledge base design Section 13.2): the contributions of the account stay in the shared knowledge bases without the credit in each case; with the option, the submissions and the reason texts that the account wrote also go.
+        if (action === "purge" && window.ClaireUi) {
+          var ui = window.ClaireUi;
+          ui.openDialog({
+            title: tr("console.js.admin.accounts.purge_title"),
+            icon: "trash",
+            danger: true,
+            bodyHtml: '<div class="claire-note danger"><span>' + ui.esc(tr("console.js.admin.accounts.purge_warn", { account: publicId })) + "</span></div>" +
+              "<p>" + ui.esc(tr("console.js.admin.accounts.purge_contributions_stay")) + "</p>" +
+              '<div class="claire-srow"><div class="claire-srow-info"><label for="admin-purge-activity">' + ui.esc(tr("console.js.admin.accounts.purge_activity_label")) + "</label><span>" + ui.esc(tr("console.js.admin.accounts.purge_activity_hint")) + '</span></div><input id="admin-purge-activity" type="checkbox" class="claire-switch"/></div>',
+            submitLabel: tr("console.js.admin.accounts.purge_submit"),
+            onSubmit: function (_dlg, body) {
+              var box = body.querySelector("#admin-purge-activity");
+              if (box && box.checked) payload.delete_activity_records = true;
+              performPatch();
+              return true;
+            }
+          });
+          return;
+        }
         performPatch();
       });
     }
@@ -1305,6 +1326,8 @@
           numberField("th-dm", tr("console.js.admin.themes.th_doc_match"), cfg.document_match_threshold, "0.01") +
           numberField("th-sm", tr("console.js.admin.themes.th_seed_match"), cfg.seed_match_threshold, "0.01") +
           numberField("th-am", tr("console.js.admin.themes.th_auto_min"), autoSettings.auto_match_threshold, "0.01") +
+          numberField("th-ar", tr("console.js.admin.themes.th_auto_run_documents"), autoSettings.auto_run_documents, "1") +
+          numberField("th-sx", tr("console.js.admin.themes.th_submission_max_documents"), cfg.submission_max_documents, "1") +
           '<div class="claire-actions"><button type="submit" class="claire-btn pri">' + ui.esc(tr("console.js.admin.themes.save_thresholds")) + "</button></div></form></div>";
 
         var adjLeft = '<div class="claire-list-col">' +
@@ -1390,10 +1413,21 @@
         var tForm = host.querySelector("#adm-th-thresh-form");
         if (tForm) tForm.addEventListener("submit", function (ev) {
           ev.preventDefault();
-          // The three thresholds of the judgement are keys of PUT /api/admin/themes/settings; "auto_match_threshold" is a key of PUT /api/admin/auto-contribution.
+          // The three thresholds of the judgement and "submission_max_documents" are keys of PUT /api/admin/themes/settings; "auto_match_threshold" and "auto_run_documents" are keys of PUT /api/admin/auto-contribution. An empty field is not sent: the server keeps its value.
+          var put = function (body, id, key) {
+            var raw = host.querySelector(id).value;
+            if (raw !== "") body[key] = Number(raw);
+          };
+          var themeBody = {}, autoBody = {};
+          put(themeBody, "#th-tm", "theme_match_threshold");
+          put(themeBody, "#th-dm", "document_match_threshold");
+          put(themeBody, "#th-sm", "seed_match_threshold");
+          put(themeBody, "#th-sx", "submission_max_documents");
+          put(autoBody, "#th-am", "auto_match_threshold");
+          put(autoBody, "#th-ar", "auto_run_documents");
           Promise.all([
-            ui.request("/api/admin/themes/settings", { method: "PUT", body: { theme_match_threshold: Number(host.querySelector("#th-tm").value), document_match_threshold: Number(host.querySelector("#th-dm").value), seed_match_threshold: Number(host.querySelector("#th-sm").value) } }),
-            ui.request("/api/admin/auto-contribution", { method: "PUT", body: { auto_match_threshold: Number(host.querySelector("#th-am").value) } })
+            Object.keys(themeBody).length ? ui.request("/api/admin/themes/settings", { method: "PUT", body: themeBody }) : Promise.resolve({ ok: true }),
+            Object.keys(autoBody).length ? ui.request("/api/admin/auto-contribution", { method: "PUT", body: autoBody }) : Promise.resolve({ ok: true })
           ]).then(function (results) {
             var bad = results.find(function (rr) { return !rr.ok; });
             if (bad) { fail(bad); return; }

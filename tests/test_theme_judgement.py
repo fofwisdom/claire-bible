@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from claire import contributions
 from claire import theme_judgement as tj
 from claire.config import Settings
 from claire.ontology.base import normalize_name
@@ -300,7 +301,7 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
             report = client.post("/api/admin/themes/judge", headers=admin).json()["report"]
             assert (report["signatures"], report["themes_active"]) == (4, 3)
             overview = client.get("/api/admin/themes", headers=admin).json()
-            assert overview["settings"] == tj.SETTINGS and overview["last_run_at"] is not None
+            assert overview["settings"] == {**tj.SETTINGS, **contributions.LIMITS} and overview["last_run_at"] is not None
             by_label = {t["label"]: t for t in overview["themes"]}
             korea, cosmos, legends = by_label["Seoul · Busan"], by_label["Mars · Jupiter"], by_label["Zeus · Hera"]
 

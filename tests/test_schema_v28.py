@@ -33,7 +33,7 @@ def _tables(conn: sqlite3.Connection) -> set[str]:
 
 def test_fresh_database_has_the_v28_schema() -> None:
     conn = _db()
-    assert dbm.stored_schema_version(conn) == 28 == dbm.SCHEMA_VERSION
+    assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION >= 28  # version 29 adds the tables of the knowledge federation (tests/test_knowledge_federation_store.py)
     assert V28_TABLES <= _tables(conn)
     assert not {"users", "theme_members"} & _tables(conn)
     cols = dbm._column_names(conn, "knowledge_bases")

@@ -180,6 +180,11 @@ def account_memberships(conn: sqlite3.Connection, account_id: int, *, state: str
     return {int(r[0]): str(r[1]) for r in rows}
 
 
+def account_membership_states(conn: sqlite3.Connection, account_id: int) -> dict[int, str]:
+    """The state of each membership of one account: ``{kb_id: state}`` (``pending``, ``active``, or ``banned``)."""
+    return {int(r[0]): str(r[1]) for r in conn.execute("SELECT kb_id, state FROM kb_memberships WHERE account_id=?", (int(account_id),))}
+
+
 # --- contributions -------------------------------------------------------------------------------
 
 
@@ -426,9 +431,13 @@ def documents_contributed_to(conn: sqlite3.Connection, kb_id: int, account_id: i
     return out
 
 
-def contributions_of_account(conn: sqlite3.Connection, account_id: int, *, origin: str) -> list[dict[str, Any]]:
-    """The contributions of one account with one origin, the newest first (the list of automatic contributions, Section 9.9 rule 6)."""
-    rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE contributor_account_id=? AND origin=? ORDER BY contributed_at DESC, public_id DESC", (int(account_id), origin)).fetchall()
+def contributions_of_account(conn: sqlite3.Connection, account_id: int, *, origin: str | None = None) -> list[dict[str, Any]]:
+    """The contributions with the credit of one account, the newest first. ``origin`` selects one origin (the list of automatic contributions, Section 9.9 rule 6); None gives each origin."""
+    where, params = "contributor_account_id=?", [int(account_id)]
+    if origin is not None:
+        where += " AND origin=?"
+        params.append(origin)
+    rows = conn.execute(f"SELECT {', '.join(_CONTRIBUTION_KEYS)} FROM kb_contributions WHERE {where} ORDER BY contributed_at DESC, public_id DESC", params).fetchall()
     return [dict(zip(_CONTRIBUTION_KEYS, tuple(r))) for r in rows]
 
 

@@ -223,10 +223,10 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert r_from_synd.status_code == 302
     assert r_from_synd.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
 
-    # D3: Admin accessing /settings/themes or /settings/tokens redirects 302 to /admin/themes or /admin/tokens
-    for slug in ("themes", "tokens"):
+    # D3: Admin accessing /settings/tokens redirects 302 to /admin/tokens. The retired page /settings/themes gives 308 to /admin/themes (web links keep 308).
+    for slug, status in (("themes", 308), ("tokens", 302)):
         adm_redirect = client.get(f"/settings/{slug}", headers=console_env.admin_owner, follow_redirects=False)
-        assert adm_redirect.status_code == 302
+        assert adm_redirect.status_code == status
         assert adm_redirect.headers["location"] == f"/admin/{slug}"
 
         adm_page = client.get(f"/admin/{slug}", headers=console_env.admin_owner, follow_redirects=False)
@@ -235,7 +235,7 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
 
     # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb and /settings/tokens return 200.
     mem_themes_redirect = client.get("/settings/themes", headers=console_env.alice_owner, follow_redirects=False)
-    assert mem_themes_redirect.status_code == 302
+    assert mem_themes_redirect.status_code == 308
     assert mem_themes_redirect.headers["location"] == "/settings/kb"
     for path in ("/settings/kb", "/settings/tokens"):
         mem_page = client.get(path, headers=console_env.alice_owner, follow_redirects=False)
@@ -379,7 +379,7 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
         "idp": ('/admin/idp', 'id="pref-idp-tbody"', 'id="pref-idp-add-form"'),
         "providers": ('/admin/providers', 'id="admin-providers-host"', 'data-admin-panel-host="providers"'),
         "limits": ('/admin/limits', 'id="admin-limits-host"', 'data-admin-panel-host="limits"'),
-        "themes": ('/admin/themes', 'id="admin-themes-host"', 'id="admin-themes-summary"'),
+        "themes": ('/admin/themes', 'id="admin-themes-host"', 'data-admin-panel-host="themes"'),
         "tokens": ('/admin/tokens', 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
         "mcp": ('/admin/mcp', 'id="pref-mcp-audit-tbody"', 'id="pref-mcp-rbac-tbody"'),
     }

@@ -299,7 +299,7 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
     """``/settings/kb`` has the function of the old ``/settings/themes`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3)."""
     _set_mode(env.db_file, "network")
     old = env.client.get("/settings/themes", headers=env.alice, follow_redirects=False)
-    assert (old.status_code, old.headers["location"]) == (302, "/settings/kb")
+    assert (old.status_code, old.headers["location"]) == (308, "/settings/kb")
     html = _get(env, "/settings/kb", env.alice).text
     assert 'id="settings-kb-host"' in html
     # No slot count: an account has one personal knowledge base and makes shared ones without a limit (design Section 10.1).
@@ -313,7 +313,8 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
 
 def test_admin_theme_and_token_settings_still_redirect(env):
     _set_mode(env.db_file, "network")
-    for slug in ("themes", "tokens"):
+    # The retired page ``/settings/themes`` is an old web link: 308. ``/settings/tokens`` is a section that the admin has in ``/admin``: 302.
+    for slug, status in (("themes", 308), ("tokens", 302)):
         resp = env.client.get(f"/settings/{slug}", headers=env.admin, follow_redirects=False)
-        assert resp.status_code == 302
+        assert resp.status_code == status
         assert resp.headers["location"] == f"/admin/{slug}"

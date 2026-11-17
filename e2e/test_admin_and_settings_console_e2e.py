@@ -254,10 +254,10 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
         _assert_admin_sidebar(body, path)
         assert f'data-active-section="{expected_sec}"' in body, path
 
-    # D3: 관리자의 /settings/themes·/settings/tokens는 /admin/*로 302.
-    for slug in ("themes", "tokens"):
+    # D3: the admin gets 302 from /settings/tokens to /admin/tokens. The retired /settings/themes answers 308 to /admin/themes.
+    for slug, status in (("themes", 308), ("tokens", 302)):
         resp = _get(env, f"/settings/{slug}", env.admin)
-        assert resp.status_code == 302, slug
+        assert resp.status_code == status, slug
         assert resp.headers["location"] == f"/admin/{slug}"
         _assert_console_page(_get(env, resp.headers["location"], env.admin), f"/admin/{slug}")
 
@@ -376,9 +376,9 @@ def test_single_mode_never_emits_username_on_console_or_whoami(console_e2e):
     assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
 
-    for path in ("/admin", "/settings", "/settings/themes", "/settings/tokens"):
+    for path, status in (("/admin", 302), ("/settings", 302), ("/settings/themes", 308), ("/settings/tokens", 302)):
         resp = _get(env, path, env.admin)
-        assert resp.status_code == 302, path
+        assert resp.status_code == status, path
         _assert_no_username_leak(resp, path)
 
     for slug in ADMIN_SECTIONS:

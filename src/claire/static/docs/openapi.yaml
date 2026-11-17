@@ -145,7 +145,10 @@ paths:
         the root, of the account under `/@{username}/`, or null), and `multi_theme`. With `page=true`
         the response is an OrderedCollectionPage. An item has `role` when the account is an active
         member, and `legacy_hosts` and `reembed_required` only for a requester with the capability
-        `settings`.
+        `settings`. Each item has `membership_state`: the state of the membership of the requester in
+        that knowledge base (`active`, `pending`, or `banned`), or null (no membership, or an anonymous
+        requester). At the root path `/kb`, a browser navigation gets the HTML page of the list; an API
+        client gets the JSON.
       operationId: listKnowledgeBases
       x-claire-access: read
       security:
@@ -281,6 +284,9 @@ paths:
         `knowledge_type`, `state`, `knowledge_bases`), or an OrderedCollectionPage with `page=true`.
         The parameter `type` (`real` or `fictional`) selects one knowledge type. The old link
         `/@{username}/themes` gets 308 to `/@{username}/kb`. The collection of knowledge bases is `/kb`.
+        A browser navigation to `/themes` gets the HTML page of the list; an API client gets the JSON.
+        `/themes/{number}/` has the same rule for the page of one theme. The old pages `/explore/themes`
+        and `/explore/themes/{number}` are removed (404).
       operationId: listThemes
       x-claire-access: public
       security:
@@ -370,6 +376,26 @@ paths:
         schema:
           type: string
         description: The number of the shared knowledge base. The same operations at `/@{username}/` act on the personal knowledge base of that account.
+    get:
+      summary: One shared knowledge base
+      description: >-
+        A request with `Accept: application/json` that is not a browser navigation gets
+        `{"knowledge_base": {...}}`: the same item as in the collection `GET /kb` (with `role` and
+        `membership_state` of the requester). A browser navigation gets the HTML page of the knowledge
+        base (members, contributions, actions). A browser navigation with the query parameter `doc` or
+        `node` gets the workspace page, which shows that document or node.
+      operationId: getKnowledgeBase
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      responses:
+        '200':
+          description: '`{"knowledge_base": {...}}` for an API client; an HTML page for a browser.'
+        '404':
+          description: No shared knowledge base with this number that the requester can read.
     patch:
       summary: Change the settings of a knowledge base
       description: >-
@@ -512,6 +538,33 @@ paths:
       responses:
         '200':
           description: OrderedCollection or OrderedCollectionPage of members.
+
+  /kb/{number}/moderation-log:
+    get:
+      summary: Moderation log of a shared knowledge base
+      description: >-
+        A collection with `log`, the newest entry first, for an account with the capability `people`
+        (a moderator or the admin). An entry is `{"number", "action", "actor", "target", "reason",
+        "created_at"}`. `actor` is `{"account": "<public number>", "display_name"}`, or null for an
+        action of the server or of an account that is gone. `number` is the sequence number of the
+        entry (the cursor of the collection pages).
+      operationId: listKnowledgeBaseModerationLog
+      x-claire-access: owner
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OrderedCollection or OrderedCollectionPage of log entries.
+        '403':
+          description: '`kb_capability_required`: the requester does not have the capability `people`.'
 
   /kb/{number}/members/{account}:
     patch:
@@ -810,18 +863,35 @@ paths:
         '200':
           description: The result.
 
-  /api/auto-contributions:
+  /api/contributions:
     get:
-      summary: Automatic contributions of the account
-      operationId: listAutoContributions
+      summary: Contributions of the account
+      description: >-
+        Each contribution with the credit of the account of the credential, the newest first. An item
+        has `knowledge_base` (the number of the shared knowledge base), `label`, and the fields of a
+        contribution for its contributor (`number`, `document`, `title`, `origin`, `state`,
+        `contributor`, `approved`, `approved_at`, `updates_stopped`, `contributed_at`, `revised_at`,
+        `reason`, `revisions`). `title` is the title of the document of the contribution; when the
+        copy is gone, it is the title of the source document, or null.
+      operationId: listAccountContributions
       x-claire-access: read
       security:
         - BearerAuth: []
         - SessionHeader: []
         - SessionCookie: []
+      parameters:
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [direct, bulk, auto, curation, fork, migration]
+          description: Selects the contributions of one origin.
       responses:
         '200':
           description: OrderedCollection or OrderedCollectionPage of contributions.
+        '400':
+          description: '`origin_invalid`.'
 
   /api/contribution-blocks:
     get:
@@ -966,8 +1036,11 @@ paths:
     get:
       summary: Reputation of the account of the credential
       description: >-
-        The level (`good`, `limited`, `low`), the fiction share, the approval rate, and each
-        fiction-like document that counts, with its matched theme. No other account sees it.
+        The level (`good`, `limited`, `low`), the fiction share, the approval rate, the limits of the
+        level, and each fiction-like document that counts, with its matched theme. No other account
+        sees it. `limits.pending` is the number of pending contributions of the account in one shared
+        knowledge base. `limits.auto_documents` is the number of documents of one run and target of the
+        automatic contribution: null is no limit, 0 is paused.
       operationId: getReputation
       x-claire-access: read
       security:
@@ -976,7 +1049,7 @@ paths:
         - SessionCookie: []
       responses:
         '200':
-          description: '`{"level", "fiction_share", "fiction_like_documents", "visible_documents", "approval_rate", "decisions", "documents": [...]}`'
+          description: '`{"level", "fiction_share", "fiction_like_documents", "visible_documents", "approval_rate", "decisions", "limits": {"pending", "auto_documents"}, "documents": [...]}`'
 
   /api/admin/reputations:
     get:
@@ -1012,6 +1085,44 @@ paths:
           description: '`{"ok": true, "settings": {...}}`'
         '400':
           description: '`settings_invalid`.'
+
+  /api/admin/themes/settings:
+    put:
+      summary: Set the thresholds of the theme judgement and the limit of one submission
+      operationId: setThemeSettings
+      x-claire-access: admin
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                theme_match_threshold:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                document_match_threshold:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                seed_match_threshold:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                submission_max_documents:
+                  type: integer
+                  minimum: 1
+                  description: The documents of one submission (`POST /submissions`).
+      responses:
+        '200':
+          description: '`{"ok": true, "settings": {...}}` with the four keys. `GET /api/admin/themes` gives the same `settings`.'
+        '400':
+          description: '`settings_invalid`: an unknown key, an empty body, or a value out of range.'
 
   /kb/{number}/curations:
     post:
@@ -1464,6 +1575,11 @@ paths:
   /documents:
     get:
       summary: List archived documents
+      description: >-
+        In the personal knowledge base, for its account, each document also has `theme_match`
+        (`{"theme": "<number>", "theme_label", "knowledge_type", "score"}`, or null when the document
+        has no matched theme) and `never_contribute` (the flag "never contribute" of the document). For
+        each other requester and for a shared knowledge base, the two keys are absent.
       operationId: listDocuments
       x-claire-access: read
       security:
@@ -2222,9 +2338,9 @@ paths:
       description: >-
         Root-only admin console pages rendered in console_shell.html. Prefixed
         paths (/@{username}/admin/...) return 404. Non-admin callers always get 404,
-        never 403. /admin/themes shows the admin account's own themes plus
-        server-wide aggregate counts only; member theme labels and content are
-        never read.
+        never 403. /admin/themes is the console of the theme judgement: the themes,
+        the last run, the thresholds, the reputation numbers, and the admin
+        adjustments (data from /api/admin/themes and /api/admin/reputations).
       operationId: getAdminConsoleSection
       x-claire-access: admin
       security:
@@ -2391,8 +2507,9 @@ paths:
       description: >-
         Root-only owner pages rendered in console_shell.html in both server modes.
         Prefixed paths (/@{username}/settings/..., /themes/{n}/settings/...) return
-        404. For the server admin, /settings/themes and /settings/tokens redirect
-        (302) to /admin/themes and /admin/tokens. Responses to non-admin callers
+        404. For the server admin, /settings/tokens redirects (302) to /admin/tokens.
+        /settings/themes is a retired page: it redirects (308) to /admin/themes for
+        the server admin and to /settings/kb for each other account. Responses to non-admin callers
         contain no /admin links or admin markup. Sections reader through webmcp are
         theme-scoped; the others are account-wide.
       operationId: getSettingsConsoleSection
@@ -2424,7 +2541,9 @@ paths:
               schema:
                 type: string
         '302':
-          description: Admin caller on /settings/themes or /settings/tokens; Location is /admin/themes or /admin/tokens with the validated theme query.
+          description: Admin caller on /settings/tokens; Location is /admin/tokens.
+        '308':
+          description: The retired page /settings/themes; Location is /admin/themes (admin caller, with the validated theme query) or /settings/kb.
         '404':
           description: Not an owner-scope account credential, or invalid theme reference.
 

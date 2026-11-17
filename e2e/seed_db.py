@@ -1,6 +1,7 @@
 """Seed test database for Playwright E2E tests."""
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -237,6 +238,6 @@ def seed(db_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    target = Path("data/e2e.db")
+    target = Path(os.environ.get("CLAIRE_DB_PATH") or "data/e2e.db")
     seed(target)
     print(f"E2E test database seeded at {target}")

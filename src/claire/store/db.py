@@ -20,7 +20,7 @@ from typing import Any
 from ..ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 SCHEMA_LINEAGE = "claire-bible/common"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
 _RETIRED_SUPPORT_SCHEMA_VERSION = 12
@@ -755,6 +755,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v28_shared_kb_schema(conn)
     _migrate_v28_credential_scopes(conn)
     _migrate_v28_convert_knowledge_bases(conn)
+    _migrate_v29_knowledge_federation(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
 
@@ -1437,6 +1438,17 @@ def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
             continue
         conn.execute(f'ALTER TABLE "{table}" RENAME TO "{retired}"')
         logger.warning("schema v28: table %s had %d row(s); it is kept as %s", table, rows, retired)
+
+
+def _migrate_v29_knowledge_federation(conn: sqlite3.Connection) -> None:
+    """v29 schema (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1): the known servers and the inbox journal of the federation of shared knowledge. Idempotent (A3); it runs at each start.
+
+    The store modules own their tables: ``knowledge_federation.known_servers`` (``kf_known_servers``) and ``knowledge_federation.journal`` (``kf_inbox_journal``). The step only makes tables that are not there; it changes no row.
+    """
+    from ..knowledge_federation import journal, known_servers
+
+    known_servers.ensure_schema(conn)
+    journal.ensure_schema(conn)
 
 
 def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:

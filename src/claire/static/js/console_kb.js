@@ -12,48 +12,58 @@
   function levelTag(level) { return '<span class="claire-tag ' + (level === "good" ? "ok" : (level === "limited" ? "warn" : "danger")) + '">' + esc(t("kb.level." + level)) + "</span>"; }
   function percent(value) { return value == null ? "—" : Math.round(Number(value) * 100) + "%"; }
   function stateTag(state) { return '<span class="claire-tag ' + (state === "visible" ? "ok" : (state === "rejected" || state === "removed" || state === "failed" ? "danger" : "warn")) + '">' + esc(dlgs().stateLabel(state)) + "</span>"; }
-  function titlesOf(res) {
-    var map = {};
-    ((res && res.ok && res.data && res.data.documents) || []).forEach(function (d) { map[String(d.id)] = d.title || ""; });
-    return map;
+  // The reason of a decision or of a log entry: the catalog text of a reason code, else the text as it is.
+  function reasonText(reason) {
+    var code = String(reason || "");
+    if (!code) return "";
+    var key = "kb.reason." + code;
+    var text = t(key);
+    return text === key ? code : text;
   }
+  function dateText(seconds) { return seconds ? new Date(Number(seconds) * 1000).toLocaleString(document.documentElement.lang || undefined) : "—"; }
+  // The contributor withdraws a contribution while it is not approved and not closed (design Section 9.4; DELETE /kb/{number}/contributions/{contribution}).
+  function canWithdraw(c) { return !!c && !c.approved && c.state !== "rejected" && c.state !== "removed"; }
 
   function renderSettingsKb(host, bs) {
     var activeTab = "personal";
     var account = (bs && bs.account) || {};
     // The path of the personal knowledge base of the account: "/@user/" in network mode, "/" in single mode (design Section 7).
     var homeHref = account.username ? "/@" + encodeURIComponent(account.username) + "/" : "/";
-    var state = { personal: null, joined: [], subs: [], rule: null, serverSwitch: false, rep: null, mutual: [], autos: [], blocks: [], themes: [], titles: {} };
+    var state = { personal: null, joined: [], memberships: [], subs: [], rule: null, serverSwitch: false, rep: null, mutual: [], autos: [], mine: [], blocks: [], themes: [] };
 
     function loadAll() {
       return Promise.all([
-        ui().request("/kb?joined=true"),
+        // GET /kb: each shared knowledge base has "role" and "membership_state" of the requester. A join request ("pending") and a ban ("banned") have no role, thus the list is not "?joined=true".
+        ui().request("/kb"),
         ui().request("/submissions"),
         ui().request("/api/auto-rule"),
         ui().request("/api/reputation"),
         ui().request("/api/mutual-collaborations"),
-        ui().request("/api/auto-contributions"),
-        ui().request("/api/contribution-blocks"),
+        ui().request("/api/contributions?origin=auto"),
+        ui().request("/api/contributions"),
         ui().request("/themes"),
-        ui().request(homeHref + "documents")
+        // GET /api/contribution-blocks: the identifiers of the documents with the flag "never contribute". The list of GET /documents has pages, thus it is not the source of this list.
+        ui().request("/api/contribution-blocks")
       ]).then(function (all) {
         var data = function (i) { return (all[i].ok && all[i].data) || {}; };
         state.personal = data(0).personal_kb || null;
-        state.joined = data(0).knowledge_bases || [];
+        state.memberships = (data(0).knowledge_bases || []).filter(function (k) { return !!k.membership_state; });
+        state.joined = state.memberships.filter(function (k) { return k.membership_state === "active"; });
         state.subs = data(1).submissions || [];
         state.rule = data(2).rule || null;
         state.serverSwitch = !!data(2).server_switch;
         state.rep = all[3].ok ? all[3].data : null;
         state.mutual = data(4).mutual_collaborations || [];
         state.autos = data(5).contributions || [];
-        state.blocks = data(6).documents || [];
+        state.mine = data(6).contributions || [];
         state.themes = (data(7).themes || []).filter(function (th) { return th.state === "active"; });
-        state.titles = titlesOf(all[8]);
+        state.blocks = data(8).documents || [];
         draw(all[0].ok ? null : all[0]);
       });
     }
 
-    function docTitle(id) { return state.titles[String(id)] || String(id || ""); }
+    function kbLink(c) { return c.knowledge_base ? '<a href="' + esc(kbUrl(c.knowledge_base)) + '">' + esc(c.label || c.knowledge_base) + "</a>" : "—"; }
+    function withdrawBtn(kb, contribution) { return '<button type="button" class="claire-btn claire-btn-sm" data-withdraw-kb="' + esc(kb) + '" data-withdraw-c="' + esc(contribution) + '">' + esc(t("console.js.kb.withdraw_btn")) + "</button>"; }
 
     function buildPersonalTab(loadError) {
       var pkb = state.personal;
@@ -94,9 +104,9 @@
       state.subs.forEach(function (sub) {
         (sub.items || []).forEach(function (item) {
           var theme = item.code === "no_theme" ? t("kb.dlg.result_no_theme") : (item.theme_label || item.theme || "—");
-          if (!(item.targets || []).length) rows.push({ doc: item.document, theme: theme, routed: item.routed_by, score: item.score });
+          if (!(item.targets || []).length) rows.push({ doc: item.title || item.document, theme: theme, routed: item.routed_by, score: item.score });
           (item.targets || []).forEach(function (target) {
-            rows.push({ doc: item.document, theme: theme, routed: item.routed_by, score: item.score, kb: target.knowledge_base, kbLabel: target.label || target.knowledge_base, state: target.state, reason: target.reason, approved: !!target.approved, contribution: target.contribution });
+            rows.push({ doc: item.title || item.document, theme: theme, routed: item.routed_by, score: item.score, kb: target.knowledge_base, kbLabel: target.label || target.knowledge_base, state: target.state, reason: target.reason, approved: !!target.approved, contribution: target.contribution });
           });
         });
       });
@@ -105,17 +115,29 @@
       h += ui().renderTable({
         caption: t("console.js.kb.subs_card"),
         columns: [
-          { label: t("kb.dlg.col_document"), render: function (r) { return "<strong>" + esc(docTitle(r.doc)) + "</strong>"; } },
+          { label: t("kb.dlg.col_document"), render: function (r) { return "<strong>" + esc(r.doc) + "</strong>"; } },
           { label: t("kb.dlg.col_theme"), render: function (r) { return esc(r.theme) + (r.routed ? ' <span class="claire-hint">' + esc(t("kb.routed." + r.routed)) + (r.score != null ? " " + esc(Number(r.score).toFixed(2)) : "") + "</span>" : ""); } },
           { label: t("kb.dlg.col_kb"), render: function (r) { return r.kb ? '<a href="' + esc(kbUrl(r.kb)) + '">' + esc(r.kbLabel) + "</a>" : "—"; } },
           { label: t("kb.dlg.col_state"), render: function (r) { return r.state ? stateTag(r.state) + (r.reason ? " " + esc(ui().errorText({ error: r.reason })) : "") : "—"; } },
-          { label: t("kb.pub.col_actions"), actions: true, render: function (r) {
-            // The contributor withdraws while the contribution is not approved (design Section 9.4).
-            if (!r.contribution || r.approved || r.state !== "pending") return "—";
-            return '<button type="button" class="claire-btn claire-btn-sm" data-withdraw-kb="' + esc(r.kb) + '" data-withdraw-c="' + esc(r.contribution) + '">' + esc(t("console.js.kb.withdraw_btn")) + "</button>";
-          } }
+          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return r.contribution && canWithdraw(r) ? withdrawBtn(r.kb, r.contribution) : "—"; } }
         ],
         rows: rows
+      });
+      h += "</div>";
+
+      // GET /api/contributions: each contribution with the credit of the account, in all shared knowledge bases, the newest first (design Section 10.3).
+      h += '<div class="claire-card"><div class="claire-card-head"><h3>' + ui().icon("doc") + " " + esc(t("console.js.kb.mine_card")) + "</h3></div>";
+      h += '<p class="claire-hint">' + esc(t("console.js.kb.mine_hint")) + "</p>";
+      h += ui().renderTable({
+        caption: t("console.js.kb.mine_card"),
+        columns: [
+          { label: t("kb.dlg.col_document"), render: function (c) { return "<strong>" + esc(c.title || c.document || "—") + '</strong> <span class="claire-hint">' + esc(t("kb.origin." + c.origin)) + "</span>"; } },
+          { label: t("kb.dlg.col_kb"), render: kbLink },
+          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state) + (c.approved ? ' <span class="claire-tag ok">' + esc(t("console.js.kb.mine_approved")) + "</span>" : "") + (c.reason ? " " + esc(reasonText(c.reason)) : ""); } },
+          { label: t("console.js.kb.mine_col_date"), render: function (c) { return esc(dateText(c.contributed_at)); } },
+          { label: t("kb.pub.col_actions"), actions: true, render: function (c) { return c.knowledge_base && canWithdraw(c) ? withdrawBtn(c.knowledge_base, c.number) : "—"; } }
+        ],
+        rows: state.mine
       });
       h += "</div>";
       return h;
@@ -150,9 +172,10 @@
       h += ui().renderTable({
         caption: t("console.js.kb.auto_card"),
         columns: [
-          { label: t("kb.dlg.col_document"), render: function (c) { return esc(docTitle(c.document)); } },
-          { label: t("kb.dlg.col_kb"), render: function (c) { return c.knowledge_base ? '<a href="' + esc(kbUrl(c.knowledge_base)) + '">' + esc(c.label || c.knowledge_base) + "</a>" : "—"; } },
-          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state); } }
+          { label: t("kb.dlg.col_document"), render: function (c) { return esc(c.title || c.document || "—"); } },
+          { label: t("kb.dlg.col_kb"), render: kbLink },
+          { label: t("kb.dlg.col_state"), render: function (c) { return stateTag(c.state); } },
+          { label: t("kb.pub.col_actions"), actions: true, render: function (c) { return c.knowledge_base && canWithdraw(c) ? withdrawBtn(c.knowledge_base, c.number) : "—"; } }
         ],
         rows: state.autos
       });
@@ -163,7 +186,7 @@
       h += ui().renderTable({
         caption: t("console.js.kb.blocks_card"),
         columns: [
-          { label: t("kb.dlg.col_document"), render: function (id) { return esc(docTitle(id)); } },
+          { label: t("kb.dlg.col_document"), render: function (id) { return '<a href="' + esc(homeHref + "?doc=" + encodeURIComponent(id)) + '"><code class="pref-mono">' + esc(id) + "</code></a>"; } },
           { label: t("kb.pub.col_actions"), actions: true, render: function (id) { return '<button type="button" class="claire-btn claire-btn-sm" data-unblock-doc="' + esc(id) + '">' + esc(t("ws.kb.allow_contribute")) + "</button>"; } }
         ],
         rows: state.blocks
@@ -182,7 +205,15 @@
         '<div class="claire-kpi"><strong>' + esc(rep.fiction_like_documents || 0) + " / " + esc(rep.visible_documents || 0) + "</strong><span>" + esc(t("console.js.kb.rep_fiction_count")) + "</span></div>" +
         '<div class="claire-kpi"><strong>' + esc(percent(rep.approval_rate)) + "</strong><span>" + esc(t("console.js.kb.rep_approval_180")) + "</span></div>" +
         '<div class="claire-kpi"><strong>' + esc(rep.decisions || 0) + "</strong><span>" + esc(t("console.js.kb.rep_decisions")) + "</span></div>" +
-        "</div></div>";
+        "</div>";
+      // "limits" of GET /api/reputation: "pending" is the number of pending contributions in one shared knowledge base; "auto_documents" is the number of documents of one run of the automatic contribution (null: no limit; 0: paused).
+      var limits = rep.limits || null;
+      if (limits) {
+        var autoLimit = limits.auto_documents;
+        h += '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(t("console.js.kb.rep_limit_pending")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_pending_hint")) + '</span></div><span class="claire-tag">' + esc(limits.pending == null ? t("console.js.kb.rep_limit_none") : limits.pending) + "</span></div>";
+        h += '<div class="claire-srow"><div class="claire-srow-info"><strong>' + esc(t("console.js.kb.rep_limit_auto")) + "</strong><span>" + esc(t("console.js.kb.rep_limit_auto_hint")) + '</span></div><span class="claire-tag' + (Number(autoLimit) === 0 && autoLimit != null ? " danger" : "") + '">' + esc(autoLimit == null ? t("console.js.kb.rep_limit_none") : (Number(autoLimit) === 0 ? t("console.js.kb.rep_limit_auto_paused") : autoLimit)) + "</span></div>";
+      }
+      h += "</div>";
       h += '<div class="claire-card"><div class="claire-card-head"><h3>' + esc(t("console.js.kb.rep_fiction_docs")) + "</h3></div>";
       h += '<p class="claire-hint">' + esc(t("campaign.standing")) + ' <a href="/themes?type=fictional">' + esc(t("campaign.fictional_themes_link")) + "</a></p>";
       h += ui().renderTable({
@@ -206,10 +237,17 @@
         caption: t("console.js.kb.mem_card"),
         columns: [
           { label: t("kb.dlg.col_kb"), render: function (r) { return '<a href="' + esc(kbUrl(r.number)) + '">' + esc(r.label) + "</a> " + dlgs().typeTag(r.knowledge_type); } },
-          { label: t("kb.pub.col_role"), render: function (r) { return esc(roleLabel(r.role)); } },
-          { label: t("kb.pub.col_actions"), actions: true, render: function (r) { return '<button type="button" class="claire-btn claire-btn-sm" data-leave-kb="' + esc(r.number) + '">' + esc(t("kb.pub.kb_leave")) + "</button>"; } }
+          { label: t("kb.pub.col_role"), render: function (r) {
+            if (r.membership_state === "active") return esc(roleLabel(r.role));
+            return '<span class="claire-tag ' + (r.membership_state === "banned" ? "danger" : "warn") + '">' + esc(t("kb.member_state." + r.membership_state)) + "</span>";
+          } },
+          { label: t("kb.pub.col_actions"), actions: true, render: function (r) {
+            // A banned account cannot leave and cannot join again (design Section 10.2).
+            if (r.membership_state === "banned") return "—";
+            return '<button type="button" class="claire-btn claire-btn-sm" data-leave-kb="' + esc(r.number) + '">' + esc(t(r.membership_state === "pending" ? "kb.pub.kb_withdraw_join" : "kb.pub.kb_leave")) + "</button>";
+          } }
         ],
-        rows: state.joined
+        rows: state.memberships
       });
       h += "</div>";
 
@@ -378,38 +416,93 @@
     var selectedSource = "";
     var bound = false;
     var view = null;
+    var managedList = null;
+
+    function canReview(k) { return isAdmin || k.role === "moderator" || k.role === "collaborator"; }
+
+    function showNone(res) {
+      host.innerHTML = '<div class="claire-card"><p class="claire-hint">' + esc(!res || res.ok ? t("console.js.kb.no_managed_kbs") : ui().errorText(res)) + "</p>" +
+        '<div class="claire-actions"><a class="claire-btn" href="/kb">' + esc(t("kb.pub.nav_kbs")) + '</a><a class="claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></div>";
+    }
+
+    // The list of the selector, read one time: the admin is a reviewer of each shared knowledge base; each other account reviews where it is a collaborator or a moderator.
+    function loadManaged() {
+      if (managedList) return Promise.resolve({ ok: true });
+      return ui().request(isAdmin ? "/kb" : "/kb?joined=true").then(function (res) {
+        if (res.ok) managedList = ((res.data && res.data.knowledge_bases) || []).filter(canReview);
+        return res;
+      });
+    }
 
     function load() {
-      // The admin is a reviewer of each shared knowledge base; each other account reviews where it is a collaborator or a moderator.
-      ui().request(isAdmin ? "/kb" : "/kb?joined=true").then(function (res) {
-        var all = (res.ok && res.data && res.data.knowledge_bases) || [];
-        var managed = all.filter(function (k) { return isAdmin || k.role === "moderator" || k.role === "collaborator"; });
+      loadManaged().then(function (listRes) {
+        var managed = managedList || [];
         if (!currentNum && managed.length) currentNum = String(managed[0].number);
-        var kb = managed.find(function (k) { return String(k.number) === currentNum; });
-        if (!kb) {
-          host.innerHTML = '<div class="claire-card"><p class="claire-hint">' + esc(res.ok ? t("console.js.kb.no_managed_kbs") : ui().errorText(res)) + "</p>" +
-            '<div class="claire-actions"><a class="claire-btn" href="/kb">' + esc(t("kb.pub.nav_kbs")) + '</a><a class="claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></div>";
-          return;
-        }
+        if (!currentNum) { showNone(listRes); return; }
+        // GET /kb/{number}/ with "Accept: application/json" gives {"knowledge_base": {...}}: the item of this knowledge base with "role" and "membership_state" of the requester.
         Promise.all([
+          ui().request(kbUrl(currentNum)),
           ui().request(kbUrl(currentNum, "contributions")),
           ui().request(kbUrl(currentNum, "members")),
-          ui().request(kbUrl(currentNum, "documents")),
           ui().request("/themes")
         ]).then(function (sub) {
+          var kb = sub[0].ok && sub[0].data ? sub[0].data.knowledge_base : null;
+          if (!kb || kb.is_personal || !canReview(kb)) { showNone(sub[0]); return; }
+          // The selector shows the current data of the knowledge base of the page, also when the list does not have it.
+          if (managed.some(function (k) { return String(k.number) === String(kb.number); })) managed = managed.map(function (k) { return String(k.number) === String(kb.number) ? kb : k; });
+          else managed = managed.concat([kb]);
+          managedList = managed;
           view = {
             managed: managed,
             kb: kb,
-            contributions: (sub[0].ok && sub[0].data && sub[0].data.contributions) || [],
-            members: (sub[1].ok && sub[1].data && sub[1].data.members) || [],
-            titles: titlesOf(sub[2]),
+            contributions: (sub[1].ok && sub[1].data && sub[1].data.contributions) || [],
+            members: (sub[2].ok && sub[2].data && sub[2].data.members) || [],
             themes: ((sub[3].ok && sub[3].data && sub[3].data.themes) || []).filter(function (th) { return th.state === "active"; }),
-            sources: null
+            sources: null,
+            log: null
           };
           draw();
           loadSources();
+          if (isAdmin || kb.role === "moderator") loadLog();
         });
       });
+    }
+
+    // GET /kb/{number}/moderation-log (a moderator or the admin): the entries are in "log", the newest first.
+    function loadLog() {
+      var current = view;
+      ui().request(kbUrl(currentNum, "moderation-log")).then(function (res) {
+        if (view !== current) return;
+        view.log = res.ok ? ((res.data && res.data.log) || []) : res;
+        drawLog();
+      });
+    }
+
+    function logActionLabel(action) {
+      var key = "console.js.kb.log_action." + action;
+      var text = t(key);
+      return text === key ? String(action || "") : text;
+    }
+
+    function drawLog() {
+      var box = host.querySelector("#kb-log-host");
+      if (!box || view.log == null) return;
+      if (!Array.isArray(view.log)) {
+        box.innerHTML = '<div class="claire-note warn"><span>' + esc(ui().errorText(view.log)) + "</span></div>";
+        return;
+      }
+      box.innerHTML = '<p class="claire-hint">' + esc(t("console.js.kb.log_hint")) + "</p>" + ui().renderTable({
+        caption: t("console.js.kb.tab_log"),
+        columns: [
+          { label: t("console.js.kb.log_col_time"), render: function (e) { return esc(dateText(e.created_at)); } },
+          { label: t("console.js.kb.log_col_actor"), render: function (e) { return e.actor ? esc(e.actor.display_name || e.actor.account) + ' <span class="claire-hint">' + esc(e.actor.account) + "</span>" : esc(t("console.js.kb.log_actor_none")); } },
+          { label: t("console.js.kb.log_col_action"), render: function (e) { return '<span class="claire-tag">' + esc(logActionLabel(e.action)) + "</span>"; } },
+          { label: t("console.js.kb.log_col_target"), render: function (e) { return e.target ? '<code class="pref-mono">' + esc(e.target) + "</code>" : "—"; } },
+          { label: t("kb.dlg.remove_reason"), render: function (e) { return e.reason ? esc(reasonText(e.reason)) : "—"; } }
+        ],
+        rows: view.log
+      });
+      ui().enhance(box);
     }
 
     // Curation takes documents of another knowledge base of one theme of K (design Section 9.7). GET /themes/{number}/ gives the knowledge bases of each theme.
@@ -429,7 +522,7 @@
       });
     }
 
-    function docTitle(c) { return view.titles[String(c.document)] || String(c.document || ""); }
+    function docTitle(c) { return c.title || String(c.document || "—"); }
     function contributorName(c) { return (c.contributor && (c.contributor.display_name || c.contributor.account)) || t("kb.pub.contributor_gone"); }
 
     function draw() {
@@ -570,11 +663,13 @@
 
         tabs.push({ id: "people", label: t("console.js.kb.tab_people"), icon: "users", html: people });
         tabs.push({ id: "settings", label: t("console.js.kb.tab_settings"), icon: "settings", html: settings });
+        tabs.push({ id: "log", label: t("console.js.kb.tab_log"), icon: "doc", html: '<div class="claire-card" id="kb-log-host"><p class="claire-hint">' + esc(t("kb.ui.loading")) + "</p></div>" });
       }
 
       host.innerHTML = head + ui().renderTabs({ id: "kb-manage-tabs", ariaLabel: kb.label || currentNum, active: activeTab, tabs: tabs });
       ui().enhance(host);
       if (view.sources) drawCuration();
+      drawLog();
       bind();
     }
 

@@ -69,7 +69,7 @@ def test_v27_database_with_four_knowledge_bases_starts_as_v28(tmp_path: Path) ->
     conn = dbm.connect(path)
     try:
         dbm.init_db(conn)
-        assert dbm.stored_schema_version(conn) == 28
+        assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION  # 28 (this conversion) and then 29 (knowledge federation tables) in the same start
         rows = {r["id"]: r for r in conn.execute("SELECT id, is_personal, account_id, created_by_account_id, is_public, knowledge_type, join_policy, state FROM knowledge_bases")}
         # One personal knowledge base without a knowledge type.
         assert tuple(rows[0])[1:6] == (1, 1, None, 1, None)

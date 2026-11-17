@@ -7,6 +7,7 @@
 - `keys`: ``/api/me/keys``, ``/api/me/keys/verify`` (네트워크 모드 멤버, §11)
 - `features`: 유저 단위 기능 ``/api/me/telegram``, ``/api/me/support-bundles*``, ``/api/me/data-bundles*``, ``/api/me/backups*``, ``/api/admin/account-backups*``
 - `federation`: ``/api/admin/federation``, ``/api/admin/federation/domain-blocks``, ``/admin/federation``, ``/api/federation/status``, ``/api/federation/followers`` (Fedify sidecar design Sections 9.2, 11, and 12)
+- `knowledge_federation`: ``/api/admin/federation/known-servers``, ``/api/admin/federation/journal`` (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13)
 - `feeds`: account feeds ``/api/feeds``, ``/api/feeds/poll``, ``/api/feeds/opml``, ``/api/feeds/items`` (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7)
 - `storage`: object storage settings ``/api/admin/storage``, ``/api/admin/storage/test`` (FEDERATION_REMOTE_READING_DESIGN.md Section 9.2)
 - `common`: DB·쿠키·origin·단계 인증·템플릿 공용 헬퍼
@@ -27,6 +28,7 @@ from .. import security
 from . import admin, console, features, federation, feeds, idp, server, invites, keys, login, me, setup, storage
 from . import federation_notes
 from . import federation_quotes
+from . import knowledge_federation
 from .common import AccountsContext, build_context, prepare_auth_db, prepare_client_db, require_recent_auth
 
 __all__ = [
@@ -60,6 +62,7 @@ def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> Ac
         *federation.routes(ctx),
         *federation_notes.routes(ctx),
         *federation_quotes.routes(ctx),
+        *knowledge_federation.routes(ctx),
         *idp.routes(ctx),
         *invites.routes(ctx),
         *keys.routes(ctx),

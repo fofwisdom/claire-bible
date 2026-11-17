@@ -727,7 +727,7 @@
       });
     });
 
-    // The option "Delete my activity records" (shared knowledge base design Section 13.2) is a field of the purge action of the admin (POST /api/admin/accounts/{id}, "delete_activity_records"). The account API has no route for it, thus this page sends no request for it.
+    // The option "Delete my activity records" (shared knowledge base design Section 13.2) is a field of the purge action of the admin (PATCH /api/admin/accounts, "delete_activity_records"; console_admin.js). An account has no request that deletes itself, thus this page has no control for the option.
   }
 
   // I18N design Section 6.2: the interface language selector. The server renders the page text, thus a successful change loads the page again.

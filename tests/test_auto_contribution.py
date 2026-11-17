@@ -115,7 +115,7 @@ def test_e2e_mutual_collaboration_and_automatic_contribution(world) -> None:  # 
     assert set(_graph(world, korea["id"])[0]) == set(KOREA)
     # Each reader sees it. The list of ben has it.
     assert [c["origin"] for c in client.get(f"{base}/contributions").json()["contributions"]] == ["auto"]
-    mine = client.get("/api/auto-contributions", headers=world.ben).json()["contributions"]
+    mine = client.get("/api/contributions?origin=auto", headers=world.ben).json()["contributions"]
     assert [(c["label"], c["state"], c["approved"]) for c in mine] == [("Korea", "visible", True)]
     conn = dbm.connect_existing(s.db_file, readonly=True)
     try:

@@ -572,6 +572,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     """Make the route table for ``create_internal_federation_app``."""
     from .federation_note_routes import note_internal_routes
     from .federation_quote_routes import quote_internal_routes
+    from .knowledge_federation_internal import knowledge_internal_routes
     from .security import WebRuntimeConfig
 
     data_dir = Path(settings.data_dir)
@@ -1433,4 +1434,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
         *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, federation_active=_federation_active),
+        # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.
+        *knowledge_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin),
     ]

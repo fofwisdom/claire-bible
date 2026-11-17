@@ -2,7 +2,7 @@
 
 - ``/admin`` 및 ``/admin/*``는 관리자(``server_role == "admin"``, ``scope == "owner"``) 전용이며 비관리자 요청에는 404를 돌려준다(B1, N5).
 - ``/settings`` 및 ``/settings/*``는 계정 소유자(``scope == "owner"``) 전용 ``_system("owner")`` 표면이다(D1).
-- 관리자가 ``/settings/themes`` 또는 ``/settings/tokens``에 접근하면 ``/admin/themes`` 또는 ``/admin/tokens``로 302 리다이렉트하고, 통합 사이드바에서도 중복 노출하지 않는다(D3).
+- 관리자가 ``/settings/tokens``에 접근하면 ``/admin/tokens``로 302 리다이렉트하고, 통합 사이드바에서도 중복 노출하지 않는다(D3). 폐지된 ``/settings/themes``는 308로 응답한다(관리자는 ``/admin/themes``, 그 외 계정은 ``/settings/kb``).
 - 비관리자 응답 HTML에는 ``/admin/*`` 네비게이션 링크나 관리자 전용 마크업을 절대 포함하지 않는다.
 """
 
@@ -359,9 +359,9 @@ def _is_owner(principal: Principal) -> bool:
     return principal.scope == "owner" and principal.account_id is not None
 
 
-def _redirect(location: str) -> Response:
+def _redirect(location: str, *, status_code: int = 302) -> Response:
     return Response(
-        status_code=302,
+        status_code=status_code,
         headers={
             "Location": location,
             "Cache-Control": "no-store",
@@ -542,36 +542,15 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         return body, {}
 
     if slug == "themes":
-        conn = open_db(ctx)
-        try:
-            total_accounts = int(conn.execute("SELECT COUNT(*) FROM accounts WHERE status != 'purged'").fetchone()[0])
-            total_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases").fetchone()[0])
-            admin_themes = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE account_id = 1 OR account_id IS NULL").fetchone()[0])
-        finally:
-            conn.close()
+        # The console of the theme judgement (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 10.3 rule 4). console_admin.js fills the host from GET /api/admin/themes and GET /api/admin/reputations.
         body = (
-            f'<section class="card" id="admin-themes-summary" aria-label="{escape(t("console.admin.themes.summary_label"))}">'
-            f'<h2><span data-icon="chart"></span> {escape(t("console.admin.themes.summary_title"))} <span class="badge">{escape(t("console.admin.themes.summary_badge"))}</span></h2>'
-            f'<p class="hint">{escape(t("console.admin.themes.summary_hint"))}</p>'
-            '<div class="pref-stat-row" id="admin-themes-stats">'
-            f'<div class="pref-stat"><b data-stat="total_accounts">{total_accounts}</b><span>{escape(t("console.admin.themes.total_accounts"))}</span></div>'
-            f'<div class="pref-stat"><b data-stat="total_themes">{total_themes}</b><span>{escape(t("console.admin.themes.total_themes"))}</span></div>'
-            f'<div class="pref-stat"><b data-stat="admin_themes">{admin_themes}</b><span>{escape(t("console.admin.themes.admin_themes"))}</span></div>'
-            "</div>"
-            "</section>"
-            f'<section class="card" id="admin-themes-manager-card" aria-label="{escape(t("console.admin.themes.manager_label"))}">'
+            f'<section class="card" id="admin-themes-card" aria-label="{escape(t("console.section.admin.themes.title"))}">'
             '<div id="admin-themes-host" data-admin-panel-host="themes">'
-            f'<p class="hint">{escape(t("console.admin.themes.loading"))}</p>'
+            f'<p class="hint">{escape(t("console.common.loading"))}</p>'
             "</div>"
             "</section>"
         )
-        return body, {
-            "theme_summary": {
-                "total_accounts": total_accounts,
-                "total_themes": total_themes,
-                "admin_themes": admin_themes,
-            }
-        }
+        return body, {}
 
     if slug == "tokens":
         conn = open_db(ctx)
@@ -1000,17 +979,6 @@ def _settings_account_body(
         lifecycle_html = (
             f'<p class="hint" data-lifecycle="member">{escape(t("console.settings.account.lifecycle_member"))}</p>'
             f'<p class="hint">{escape(t("console.settings.account.lifecycle_member_hint"))}</p>'
-            '<div class="claire-srow" id="settings-delete-activity-row">'
-            '<div class="claire-srow-info">'
-            f'<label for="pref-delete-activity">{escape(t("console.settings.account.delete_activity_title"))}</label>'
-            f'<span>{escape(t("console.settings.account.delete_activity_desc"))}</span>'
-            "</div>"
-            '<input id="pref-delete-activity" type="checkbox" class="claire-switch" data-delete-activity-toggle/>'
-            "</div>"
-            '<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-            f'<button type="button" class="pref-btn" id="pref-delete-preview-btn">{escape(t("console.js.account.delete_preview_btn"))}</button>'
-            '<span class="result" id="pref-delete-activity-result" role="status" aria-live="polite"></span>'
-            "</div>"
         )
 
     quota_hint = (
@@ -1439,7 +1407,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
         )
 
     async def settings_old_themes_page(request: Request) -> Response:
-        """``/settings/themes`` (old web link): ``/settings/kb`` has its function (design Section 10.3). The admin goes to ``/admin/themes``."""
+        """``/settings/themes`` (old web link of a retired page): 308 to ``/settings/kb``, which has its function (design Section 10.3). The admin gets 308 to ``/admin/themes``."""
         principal = request_principal(request)
         if not _is_owner(principal):
             return not_found()
@@ -1452,8 +1420,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 return not_found()
             validated_theme = resolved[2]
         if is_admin(principal):
-            return _redirect(_append_theme_query("/admin/themes", validated_theme))
-        return _redirect("/settings/kb")
+            return _redirect(_append_theme_query("/admin/themes", validated_theme), status_code=308)
+        return _redirect("/settings/kb", status_code=308)
 
     async def settings_kb_manage_page(request: Request) -> Response:
         """``/settings/kb/{number}``: the page of a reviewer for one shared knowledge base (design Section 10.3). The number of a personal knowledge base, or an unknown number, gets 404."""

@@ -717,8 +717,11 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"invalid_{name}")
         return raw
 
-    def _kb_collection_item(request: Request, kb: KnowledgeBaseInfo, *, role: str | None, origin: str) -> dict[str, Any]:
-        """One knowledge base of a collection. The settings view (legacy hosts, re-embed state) only goes to a requester with the capability ``settings``."""
+    def _kb_collection_item(request: Request, kb: KnowledgeBaseInfo, *, role: str | None, origin: str, membership_state: str | None) -> dict[str, Any]:
+        """One knowledge base of a collection. The settings view (legacy hosts, re-embed state) only goes to a requester with the capability ``settings``.
+
+        ``membership_state``: the state of the membership of the requester in the knowledge base (``active``, ``pending``, ``banned``), or None (no membership, an anonymous requester, a personal knowledge base).
+        """
         is_settings_view = _kb_decide(request, kb, "settings") == "allow"
         include_hidden = (request_principal(request).account_id == kb.account_id) if kb.is_personal else _kb_decide(request, kb, "review") == "allow"
         t_stats = {"documents": 0, "entities": 0, "relations": 0}
@@ -738,6 +741,7 @@ def create_app(
         item["url"] = f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None
         if role is not None:
             item["role"] = role
+        item["membership_state"] = membership_state
         if is_settings_view:
             item["legacy_hosts"] = [
                 {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
@@ -752,6 +756,16 @@ def create_app(
                 finally:
                     conn.close()
         return item
+
+    def _membership_states(account_id: int | None) -> dict[int, str]:
+        """The state of each membership of the requester: ``{kb_id: state}``. An anonymous requester has none."""
+        if account_id is None:
+            return {}
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            return kb_collab.account_membership_states(conn, int(account_id))
+        finally:
+            conn.close()
 
     def _collection_response(request: Request, *, collection_url: str, items: list[dict[str, Any]], extra: dict[str, Any]) -> Response:
         """A collection with pages (namespace design Section 6.5). ``items`` are newest first and each has the string ``number``."""
@@ -830,7 +844,9 @@ def create_app(
                     conn.close()
             if ns.account_id is not None or joined:
                 shared = [t for t in shared if t.id in roles]
-            items = [_kb_collection_item(request, t, role=roles.get(t.id), origin=origin) for t in shared]
+            # ``membership_state`` is always that of the requester, also under ``/@{u}/kb`` where ``role`` is that of ``u``.
+            states = _membership_states(principal.account_id)
+            items = [_kb_collection_item(request, t, role=roles.get(t.id), origin=origin, membership_state=states.get(t.id)) for t in shared]
             personal: dict[str, Any] | None = None
             if personal_account is not None:
                 try:
@@ -838,7 +854,7 @@ def create_app(
                 except KnowledgeBaseNotFound:
                     kb = None
                 if kb is not None and _kb_decide(request, kb, "read") == "allow":
-                    personal = _kb_collection_item(request, kb, role=None, origin=origin)
+                    personal = _kb_collection_item(request, kb, role=None, origin=origin, membership_state=None)
             return items, personal
 
         items, personal = await asyncio.to_thread(_build)
@@ -1348,6 +1364,33 @@ def create_app(
         collection_url = f"{_public_origin(request)}{kb_base_path(kb.number)}members"
         return _collection_response(request, collection_url=collection_url, items=items, extra={"members": items})
 
+    async def kb_moderation_log_route(request: Request) -> Response:
+        """``GET /kb/{number}/moderation-log`` (capability ``people``): the moderation log of the shared knowledge base, the newest first. ``actor`` null is the server, or an account that is gone."""
+        kb = _shared_kb_of_path(request)
+
+        def _log() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                store = accounts_store.AccountStore(conn)
+                actors: dict[int, dict[str, Any] | None] = {}
+                items = []
+                for row in reversed(kb_collab.list_moderation_log(conn, kb.id)):
+                    actor_id = row["actor_account_id"]
+                    if actor_id is not None and int(actor_id) not in actors:
+                        try:
+                            account = store.get(int(actor_id))
+                            actors[int(actor_id)] = {"account": ids.format_public_id(account.public_id), "display_name": account.display_name}
+                        except accounts_store.AccountNotFound:
+                            actors[int(actor_id)] = None
+                    # ``number`` is the cursor of the collection pages: the sequence number of the entry in the log.
+                    items.append({"number": str(int(row["id"])), "action": row["action"], "actor": None if actor_id is None else actors[int(actor_id)], "target": row["target"], "reason": row["reason"], "created_at": row["created_at"]})
+                return items
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_log)
+        return _collection_response(request, collection_url=f"{_public_origin(request)}{kb_base_path(kb.number)}moderation-log", items=items, extra={"log": items})
+
     async def kb_member_change_route(request: Request) -> Response:
         """``PATCH /kb/{number}/members/{account}`` (capability ``people``): ``{"action": "approve" | "ban" | "remove"}``, or ``{"role": "collaborator" | "member"}``. A role change needs a recent sign-in in a session (design Section 6.8). A moderator cannot change another moderator."""
         kb = _shared_kb_of_path(request)
@@ -1472,8 +1515,21 @@ def create_app(
         except ValueError:
             raise HTTPException(status_code=404, detail="contribution_not_found") from None
 
+    def _document_title(conn: sqlite3.Connection, document_id: Any) -> str | None:
+        """The title of one document. None: no document id, or the document is gone."""
+        if not document_id:
+            return None
+        found = conn.execute("SELECT title FROM documents WHERE id=?", (str(document_id),)).fetchone()
+        return None if found is None else found[0]
+
     def _contribution_view(conn: sqlite3.Connection, row: dict[str, Any], *, full: bool, review_help: bool = False) -> dict[str, Any]:
-        """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document."""
+        """One contribution for a response. ``full`` (a reviewer, or the contributor): also the reason of a decision and the source document.
+
+        ``title``: the title of the document of the contribution. When the copy is gone (a rejected, removed, or withdrawn contribution), a full view gets the title of the source document; each other view gets null.
+        """
+        title = _document_title(conn, row["document_id"])
+        if title is None and full:
+            title = _document_title(conn, row["source_document_id"])
         contributor = None
         if row["contributor_account_id"] is not None:
             try:
@@ -1484,6 +1540,7 @@ def create_app(
         view: dict[str, Any] = {
             "number": ids.format_public_id(int(row["public_id"])),
             "document": row["document_id"],
+            "title": title,
             "origin": row["origin"],
             "state": row["state"],
             "contributor": contributor,
@@ -1819,6 +1876,7 @@ def create_app(
                 targets.append(target)
             view: dict[str, Any] = {
                 "document": item["source_document_id"],
+                "title": _document_title(conn, item["source_document_id"]),
                 "theme": None if theme is None else ids.format_public_id(int(theme["number"])),
                 "theme_label": None if theme is None else theme["label"],
                 "routed_by": item["routed_by"],
@@ -2011,7 +2069,7 @@ def create_app(
     def _admin_themes_payload(conn: sqlite3.Connection, *, origin: str) -> dict[str, Any]:
         last = conn.execute("SELECT value FROM server_settings WHERE key=?", (theme_judgement.LAST_RUN_KEY,)).fetchone()
         return {
-            "settings": theme_judgement.read_settings(conn),
+            "settings": {**theme_judgement.read_settings(conn), **contributions.read_limits(conn)},
             "last_run_at": float(last[0]) if last is not None else None,
             "themes": [_theme_view(conn, t, origin=origin, admin=True) for t in themes_store.list_themes(conn, include_merged=True)],
             # Design Section 9.3 rule 5: the agreement of the decisions of each shared knowledge base with the majority of the others.
@@ -2052,10 +2110,10 @@ def create_app(
         return await asyncio.to_thread(_work)
 
     async def admin_themes_settings_route(request: Request) -> JSONResponse:
-        """``PUT /api/admin/themes/settings``: the thresholds of the judgement (CT25): ``theme_match_threshold``, ``document_match_threshold``, ``seed_match_threshold``, each from 0 to 1."""
+        """``PUT /api/admin/themes/settings``: the thresholds of the judgement (CT25): ``theme_match_threshold``, ``document_match_threshold``, ``seed_match_threshold``, each from 0 to 1; and the limit ``submission_max_documents``, an integer of 1 or more."""
         body = await _json_object(request)
         principal = request_principal(request)
-        unknown = set(body) - set(theme_judgement.SETTINGS)
+        unknown = set(body) - set(theme_judgement.SETTINGS) - set(contributions.LIMITS)
         if unknown or not body:
             raise HTTPException(status_code=400, detail="settings_invalid")
 
@@ -2064,12 +2122,15 @@ def create_app(
             try:
                 try:
                     for key, value in body.items():
-                        theme_judgement.write_setting(conn, key, value, updated_by=principal.account_id)
+                        if key in contributions.LIMITS:
+                            contributions.write_limit(conn, key, value, updated_by=principal.account_id)
+                        else:
+                            theme_judgement.write_setting(conn, key, value, updated_by=principal.account_id)
                 except ValueError:
                     conn.rollback()
                     return JSONResponse({"error": "settings_invalid"}, status_code=400)
                 conn.commit()
-                return JSONResponse({"ok": True, "settings": theme_judgement.read_settings(conn)})
+                return JSONResponse({"ok": True, "settings": {**theme_judgement.read_settings(conn), **contributions.read_limits(conn)}})
             finally:
                 conn.close()
 
@@ -2191,19 +2252,22 @@ def create_app(
 
         return JSONResponse(await asyncio.to_thread(_plan))
 
-    async def auto_contributions_route(request: Request) -> Response:
-        """``GET /api/auto-contributions``: each automatic contribution of the requester, the newest first."""
+    async def account_contributions_route(request: Request) -> Response:
+        """``GET /api/contributions``: each contribution with the credit of the requester, the newest first. ``?origin=`` selects one origin (one of ``kb_collab.CONTRIBUTION_ORIGINS``); another value gets 400 ``origin_invalid``."""
         account_id = _account_id_of(request)
+        origin = request.query_params.get("origin")
+        if origin is not None and origin not in kb_collab.CONTRIBUTION_ORIGINS:
+            return JSONResponse({"error": "origin_invalid"}, status_code=400)
 
         def _list() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                return [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin="auto")]
+                return [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin=origin)]
             finally:
                 conn.close()
 
         items = await asyncio.to_thread(_list)
-        return _collection_response(request, collection_url=f"{_public_origin(request)}/api/auto-contributions", items=items, extra={"contributions": items})
+        return _collection_response(request, collection_url=f"{_public_origin(request)}/api/contributions", items=items, extra={"contributions": items})
 
     async def contribution_blocks_route(request: Request) -> JSONResponse:
         """``GET /api/contribution-blocks``: the documents of the requester with the flag "never contribute"."""
@@ -2363,7 +2427,10 @@ def create_app(
     # --- Reputation (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6) ---
 
     async def reputation_route(request: Request) -> JSONResponse:
-        """``GET /api/reputation``: the account sees its level, its signals, and each fiction-like document that counts, with its matched theme. No other account sees it."""
+        """``GET /api/reputation``: the account sees its level, its signals, its limits, and each fiction-like document that counts, with its matched theme. No other account sees it.
+
+        ``limits``: ``pending`` is the number of pending contributions in one shared knowledge base; ``auto_documents`` is the number of documents of one run and target of the automatic contribution (null: no limit; 0: paused).
+        """
         principal = request_principal(request)
         if principal.account_id is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -2380,7 +2447,9 @@ def create_app(
                     theme = themes_store.get_theme(conn, int(match["theme_id"])) if match is not None and match["theme_id"] is not None else None
                     title = conn.execute("SELECT title FROM documents WHERE id=?", (document_id,)).fetchone()
                     documents.append({"document": document_id, "title": None if title is None else title[0], "theme": None if theme is None else ids.format_public_id(int(theme["number"])), "theme_label": None if theme is None else theme["label"]})
-                return {**current.to_dict(), "documents": documents}
+                settings = reputation.read_settings(conn)
+                limits = {"pending": reputation.pending_limit(settings, current.level), "auto_documents": reputation.auto_contribution_limit(settings, current.level)}
+                return {**current.to_dict(), "limits": limits, "documents": documents}
             finally:
                 conn.close()
 
@@ -3231,7 +3300,7 @@ def create_app(
                         role = kb_collab.account_memberships(conn, principal.account_id, state="active").get(kb.id)
                     finally:
                         conn.close()
-                return _kb_collection_item(request, kb, role=role, origin=_public_origin(request))
+                return _kb_collection_item(request, kb, role=role, origin=_public_origin(request), membership_state=_membership_states(principal.account_id).get(kb.id))
 
             return JSONResponse({"knowledge_base": await asyncio.to_thread(_item)}, headers={"Vary": "Cookie, Authorization, Sec-Fetch-Dest, Accept"})
         if any(name in request.query_params for name in _WORKSPACE_LINK_PARAMS):
@@ -3248,6 +3317,12 @@ def create_app(
             ns = request_namespace(request)
         except Exception:
             ns = None
+
+        if ns is not None and ns.mode == "single" and not ns.prefix:
+            # KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 2 and 3: single mode has no root page. The namespace middleware sends ``/`` to ``/@{username}/``; a request comes here only while the admin has no USERNAME (the first setup is not complete). The admin credential got ``/setup`` above; each other request gets this page. There is no other target.
+            title = html.escape(_t("console.account_status.setup_required"))
+            page = f'<!doctype html><html lang="{html.escape(get_locale())}"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>{title}</title></head><body data-setup-state="setup_required"><main><h1>{title}</h1><p><a href="/login">{html.escape(_t("auth.login.title"))}</a></p></main></body></html>'
+            return HTMLResponse(page, status_code=503, headers={"Cache-Control": "no-store", "Retry-After": "3600"})
 
         if ns is not None and ns.account_id is None and ns.pinned_kb_id is None and ns.prefix.startswith("/themes/"):
             # ``/themes/{number}/``: the page of a theme. The namespace middleware checked that the number is an active theme.
@@ -4007,12 +4082,15 @@ def create_app(
         return FileResponse(path)
 
     async def documents_list_route(request: Request) -> JSONResponse:
+        from .. import ids as ids_mod  # the name ``ids`` is the list of the ``id`` filter in this function
         from ..store.queries import DOCUMENTS_DEFAULT_LIMIT, DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, documents_list, documents_page
 
         _documents_list = _resolve_query_func("documents_list", documents_list)
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
         render_format = getattr(theme_settings, "render_format", "adoc")
+        requester = request_principal(request)
+        own_personal = theme.is_personal and requester.account_id is not None and requester.account_id == theme.account_id and request_auth_scope(request) != "anonymous"
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
         params = request.query_params
@@ -4064,6 +4142,14 @@ def create_app(
             try:
                 format_status = dbm.check_format_mismatch(conn, render_format, kb_id=theme.id)
                 page = documents_page(conn, limit, before=before, include_hidden=include_hidden, kb_id=theme.id, list_func=_documents_list, **filters)
+                if own_personal:
+                    # The account sees, in its personal knowledge base, the theme match of each document and the flag "never contribute" (design Section 10.3). One query for the page for each of the two.
+                    matches = themes_store.document_matches_with_themes(conn, [str(d["id"]) for d in page["documents"]])
+                    blocked = kb_collab.contribution_blocks(conn, int(theme.account_id))
+                    for doc in page["documents"]:
+                        match = matches.get(str(doc["id"]))
+                        doc["theme_match"] = None if match is None else {"theme": ids_mod.format_public_id(match["theme_number"]), "theme_label": match["theme_label"], "knowledge_type": match["knowledge_type"], "score": match["score"]}
+                        doc["never_contribute"] = str(doc["id"]) in blocked
                 return {
                     "documents": page["documents"],
                     "format_status": format_status,
@@ -6009,9 +6095,10 @@ def create_app(
         Route("/membership", kb_leave_route, methods=["DELETE"]),
         Route("/members", kb_members_route, methods=["GET", "HEAD"]),
         Route("/members/{account}", kb_member_change_route, methods=["PATCH"]),
+        Route("/moderation-log", kb_moderation_log_route, methods=["GET", "HEAD"]),
         Route("/api/auto-rule", auto_rule_route, methods=["GET", "HEAD", "PUT"]),
         Route("/api/auto-rule/dry-run", auto_rule_dry_run_route, methods=["POST"]),
-        Route("/api/auto-contributions", auto_contributions_route, methods=["GET", "HEAD"]),
+        Route("/api/contributions", account_contributions_route, methods=["GET", "HEAD"]),
         Route("/api/contribution-blocks", contribution_blocks_route, methods=["GET", "HEAD"]),
         Route("/api/contribution-blocks/{document}", contribution_block_route, methods=["PUT", "DELETE"]),
         Route("/api/mutual-collaborations", mutual_collaborations_route, methods=["GET", "HEAD", "POST"]),

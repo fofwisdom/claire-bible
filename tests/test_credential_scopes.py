@@ -125,6 +125,7 @@ KB_ROUTES = [
     ("POST", "/forks", "owner", "read"),
     ("GET|HEAD", "/members", "readonly", "read"),
     ("PATCH", "/members/{account}", "owner", "people"),
+    ("GET|HEAD", "/moderation-log", "owner", "people"),
     ("DELETE|PUT", "/api/admin/kb/{number}/moderators/{account}", "owner", "moderators"),
     ("POST", "/share", "readonly", "share"),
     ("POST", "/api/federation/timeline/{item_id}/ingest", "owner", "write"),

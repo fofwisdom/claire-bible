@@ -164,10 +164,10 @@ def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_cl
     assert themes_html.status_code == 200
     assert 'data-public-view="themes_list"' in themes_html.text
 
-    # /settings/account delete activity toggle & /settings/mcp kb notice
+    # /settings/account has no control for the deletion of the account: an account cannot ask for its own deletion, thus the option "Delete my activity records" is only a field of the purge action of the admin. /settings/mcp has the kb notice.
     acc_html = client.get("/settings/account", headers=alice_hdr).text
-    assert 'id="pref-delete-activity"' in acc_html
-    assert 'id="pref-delete-preview-btn"' in acc_html
+    assert 'id="pref-delete-activity"' not in acc_html
+    assert 'id="pref-delete-preview-btn"' not in acc_html
 
     mcp_html = client.get("/settings/mcp", headers=alice_hdr).text
     assert "400 kb_required" in mcp_html

@@ -2489,7 +2489,6 @@ function renderIngestResult(d){
   // Design Section 8.7: a document that looks like fiction shows with the action "Contribute to this theme".
   if(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.ingestNoticesHtml === 'function') h+=window.ClaireIngestDialogs.ingestNoticesHtml(d);
   panel.innerHTML=h;
-  if(Array.isArray(d.notices) && d.notices.length) loadKbDocFlags(true);
 }
 
 // --- 자료 재적재 (Reingest) 및 소각 (Purge) ---
@@ -3691,19 +3690,19 @@ function docItemHtml(dc){
       '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
       '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
-  // Design Sections 8.6 and 9.9: the account sees its fiction-like documents and the flag "never contribute" on the documents of its personal knowledge base.
+  // Design Sections 8.6 and 9.9: the account sees its fiction-like documents and the flag "never contribute" on the documents of its personal knowledge base. GET /documents gives the two fields to the account of the knowledge base: ``theme_match`` ({theme, theme_label, knowledge_type, score} or null) and ``never_contribute``.
   const tags = [];
-  const fictionMatch = kbDocFlags.fiction.get(String(dc.id));
-  const neverContribute = kbDocFlags.blocks.has(String(dc.id));
-  if(kbDocFlagsActive() && fictionMatch){
-    tags.push('<span class="claire-tag fic" title="' + esc(fictionMatch.theme_label || '') + '">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
+  const themeMatch = dc.theme_match || null;
+  const neverContribute = dc.never_contribute === true;
+  if(kbDocFlagsActive() && themeMatch && themeMatch.knowledge_type === 'fictional'){
+    tags.push('<span class="claire-tag fic" title="' + esc(themeMatch.theme_label || '') + '">' + esc(tr('ws.kb.fiction_badge')) + '</span>');
   }
   if(kbDocFlagsActive() && neverContribute){
     tags.push('<span class="claire-tag warn">' + esc(tr('ws.kb.never_badge')) + '</span>');
   }
   const menuHtml = (kbDocFlagsActive() && window.ClaireUi && typeof window.ClaireUi.renderRowMenu === 'function')
     ? '<span class="docitem-actions" onclick="event.stopPropagation()">' + window.ClaireUi.renderRowMenu([
-        { action: 'doc_kb_contrib', value: dc.id, label: (fictionMatch && fictionMatch.theme) ? tr('campaign.contribute_action') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
+        { action: 'doc_kb_contrib', value: dc.id, label: (themeMatch && themeMatch.theme) ? tr('campaign.contribute_action') : tr('ws.kb.contribute_this_doc'), icon: 'merge' },
         { action: neverContribute ? 'doc_kb_allow' : 'doc_kb_never', value: dc.id, label: tr(neverContribute ? 'ws.kb.allow_contribute' : 'ws.kb.never_contribute'), icon: 'block' }
       ], dc.title || dc.id) + '</span>'
     : '';
@@ -3727,51 +3726,62 @@ if(typeof document !== 'undefined' && !window.__claireDocKbBound){
     const act = mi.getAttribute('data-menu-action');
     const docId = mi.getAttribute('data-menu-value');
     const dc = (allDocs || []).find(d => String(d.id) === String(docId)) || { id: docId };
-    const fictionMatch = kbDocFlags.fiction.get(String(docId));
+    const themeMatch = dc.theme_match || null;
     if(act === 'doc_kb_contrib' && window.ClaireKbDialogs){
       window.ClaireKbDialogs.openContribPreview({
         documentId: docId,
         documentTitle: dc.title || docId,
-        theme: fictionMatch ? fictionMatch.theme : '',
-        themeLabel: fictionMatch ? fictionMatch.theme_label : '',
-        onSubmitted: function(){ loadKbDocFlags(true); }
+        theme: (themeMatch && themeMatch.theme) || '',
+        themeLabel: (themeMatch && themeMatch.theme_label) || '',
+        homeHref: API_BASE
       });
     } else if((act === 'doc_kb_never' || act === 'doc_kb_allow') && window.ClaireUi){
       const nextBlock = act === 'doc_kb_never';
       window.ClaireUi.request('/api/contribution-blocks/' + encodeURIComponent(docId), { method: nextBlock ? 'PUT' : 'DELETE' }).then(res => {
         if(!res.ok){ window.ClaireUi.toast(tr('kb.err.failed', { error: res.error || '' }), 'danger'); return; }
-        if(nextBlock) kbDocFlags.blocks.add(String(docId)); else kbDocFlags.blocks.delete(String(docId));
+        dc.never_contribute = nextBlock;
         renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
       });
     }
   });
 }
-// The flags of the documents of the personal knowledge base of the requester: GET /api/contribution-blocks gives the documents with the flag "never contribute"; GET /api/reputation gives the fiction-like documents with their matched theme. The two routes answer only for the account itself.
-const kbDocFlags = { loaded: false, loading: false, blocks: new Set(), fiction: new Map() };
 function kbDocFlagsActive(){
   // Only the owner in its own personal knowledge base contributes documents: a page that pins a shared knowledge base shows copies.
   return canWrite() && !KB_PIN_RE.test(API_BASE) && isMultiThemeEnabled();
 }
-async function loadKbDocFlags(force){
-  if(!kbDocFlagsActive() || kbDocFlags.loading || (kbDocFlags.loaded && !force)) return;
-  kbDocFlags.loading = true;
-  try{
-    const opts = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
-    const [blocksRes, repRes] = await Promise.all([fetch('/api/contribution-blocks', opts), fetch('/api/reputation', opts)]);
-    if(blocksRes.ok){
-      const data = await blocksRes.json();
-      kbDocFlags.blocks = new Set((data.documents || []).map(String));
-    }
-    if(repRes.ok){
-      const data = await repRes.json();
-      kbDocFlags.fiction = new Map((data.documents || []).map(d => [String(d.document), d]));
-    }
-    kbDocFlags.loaded = true;
-    if(typeof renderDocs === 'function' && Array.isArray(allDocs)) renderDocs(document.getElementById('docq') ? document.getElementById('docq').value : '');
-  }catch(_){
-  }finally{
-    kbDocFlags.loading = false;
-  }
+
+// --- Shared knowledge base bar (shared knowledge base design Section 10.3) ---
+// The workspace of a shared knowledge base ("/kb/<number>/") shows the actions of the account on it: join or leave, direct contribution of a document of the personal knowledge base, fork, and the link to the review page. The buttons and the dialogs are those of kb_dialogs.js.
+let sharedKbBarRequest = 0;
+function sharedKbBarActive(){
+  return KB_PIN_RE.test(API_BASE) && (AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'write' || AUTH_SCOPE === 'readonly');
+}
+function loadSharedKbBar(){
+  const bar = document.getElementById('shared-kb-bar');
+  if(!bar) return;
+  const request = ++sharedKbBarRequest;
+  const dlgs = window.ClaireKbDialogs, ui = window.ClaireUi;
+  if(!sharedKbBarActive() || !dlgs || !ui){ bar.hidden = true; bar.innerHTML = ''; return; }
+  const number = API_BASE.match(KB_PIN_RE)[1];
+  // GET /kb/{number}/ with "Accept: application/json": {"knowledge_base": {...}} with ``role`` and ``membership_state`` of the requester.
+  ui.request(ROOT_BASE + 'kb/' + encodeURIComponent(number) + '/').then(res => {
+    if(request !== sharedKbBarRequest) return;
+    const kb = res.ok && res.data ? res.data.knowledge_base : null;
+    if(!kb || kb.is_personal || !sharedKbBarActive()){ bar.hidden = true; bar.innerHTML = ''; return; }
+    const membership = dlgs.membershipOf(kb);
+    const stateTag = membership.role
+      ? '<span class="claire-tag ok">' + esc(tr('kb.role.' + membership.role)) + '</span>'
+      : (membership.state ? '<span class="claire-tag ' + (membership.state === 'banned' ? 'danger' : 'warn') + '">' + esc(tr('kb.member_state.' + membership.state)) + '</span>' : '');
+    bar.innerHTML = '<div class="shared-kb-bar-head"><span class="claire-tag ' + (kb.knowledge_type === 'fictional' ? 'fic' : 'acc') + '">' + esc(tr('ws.kb.shared_kb_badge')) + '</span>' + stateTag + '</div>' +
+      '<div class="claire-actions">' + dlgs.kbActionsHtml(kb, { isAdmin: IS_ADMIN, small: true }) + '</div>' + dlgs.kbMembershipNoteHtml(kb);
+    bar.hidden = false;
+    if(typeof ui.enhance === 'function') ui.enhance(bar);
+    dlgs.bindKbActions(bar, kb, {
+      homeHref: kbHomePath('0'),
+      onChanged: function(){ loadSharedKbBar(); },
+      onForked: function(fork){ if(fork && fork.number) window.location.assign(kbHomePath(String(fork.number))); }
+    });
+  });
 }
 let showHidden = false;
 function toggleShowHidden(){ if(!canWrite()) return; showHidden=!showHidden; renderDocs(); }
@@ -5656,7 +5666,7 @@ function setAccessScope(scope, reason){
     window.ClaireAppBar.setLogoutVisible(AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'write' || AUTH_SCOPE === 'readonly');
     window.ClaireAppBar.setSyndicationVisible(canWrite());
   }
-  loadKbDocFlags(false);
+  loadSharedKbBar();
   ['synthbtn', 'dedupbtn', 'purgebtn'].forEach(function(id){
     const el = document.getElementById(id);
     if(el) el.hidden = !canWrite();

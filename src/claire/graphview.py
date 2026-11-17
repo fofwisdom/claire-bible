@@ -255,7 +255,11 @@ def _build_standalone_syndication_html() -> str:
         .replace("<!-- __COMMON_INGEST_MODALS__ -->", ui_chrome.render_ingest_modals_html())
     )
     appbar_css = (_STATIC_DIR / "css" / "appbar.css").read_text(encoding="utf-8")
-    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{synd_css}\n</style>"
+    # The shared components and the knowledge base dialogs (static/css/shared_ui.css, static/js/shared_ui.js, static/js/kb_dialogs.js) are in the bundle, as on the workspace page: "Make a shared knowledge base" of the application bar opens the same dialog here.
+    shared_ui_css = (_STATIC_DIR / "css" / "shared_ui.css").read_text(encoding="utf-8")
+    shared_ui_js = (_STATIC_DIR / "js" / "shared_ui.js").read_text(encoding="utf-8")
+    kb_dialogs_js = (_STATIC_DIR / "js" / "kb_dialogs.js").read_text(encoding="utf-8")
+    css_bundle = f"<style>\n{theme_css}\n{appbar_css}\n{shared_ui_css}\n{synd_css}\n</style>"
     html = re.sub(r'<link rel="stylesheet" href="/static/css/[^>]+>\s*', "", syndication_tmpl)
     html = html.replace("</head>", f"{css_bundle}\n</head>", 1)
     # The i18n runtime, the shared command palette (HW-7), and the federation client view (FP4-5) are in the same bundle. The inline catalog element of the template comes before the bundle.
@@ -271,7 +275,7 @@ def _build_standalone_syndication_html() -> str:
     # Line icons for all pages (static/js/icons.js, HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     html = re.sub(r'<script src="/static/js/[^"]+"></script>\s*', "", html)
-    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{appbar_js}\n{ingest_dialogs_js}\n{command_palette_js}\n{synd_live_js}\n{synd_compose_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
+    js_bundle = f"<script>\n{i18n_js}\n{icons_js}\n{appbar_js}\n{shared_ui_js}\n{kb_dialogs_js}\n{ingest_dialogs_js}\n{command_palette_js}\n{synd_live_js}\n{synd_compose_js}\n{synd_feeds_js}\n{synd_client_js}\n</script>"
     html = html.replace("</body>", f"{js_bundle}\n</body>", 1)
     return html
 

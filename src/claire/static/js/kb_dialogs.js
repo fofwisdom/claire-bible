@@ -561,11 +561,73 @@
     });
   }
 
+  // The membership of the requester in a shared knowledge base. ``kb`` is the item of GET /kb or of GET /kb/{number}/ (JSON): "membership_state" is "active", "pending", "banned", or null; "role" is the role of an active membership.
+  function membershipOf(kb) {
+    var state = (kb && kb.membership_state) || (kb && kb.role ? "active" : "");
+    return { state: state, role: state === "active" ? ((kb && kb.role) || "member") : "" };
+  }
+
+  // The actions of a signed-in account on one shared knowledge base: join and leave (design Section 10.2), direct contribution (Section 9.1), fork (Section 9.8), and the link to the review page. The public page of the knowledge base and the workspace use the same buttons. ``opts.isAdmin``: the requester is the admin.
+  function kbActionsHtml(kb, opts) {
+    var membership = membershipOf(kb);
+    var archived = kb.state === "archived";
+    var small = opts && opts.small ? " claire-btn-sm" : "";
+    var h = "";
+    if (membership.role) {
+      if (!archived) h += '<button type="button" class="claire-btn pri' + small + '" data-kb-act="direct">' + ui().icon("merge") + " " + esc(t("kb.pub.kb_direct_contribute")) + "</button>";
+      h += '<button type="button" class="claire-btn sec' + small + '" data-kb-act="leave">' + esc(t("kb.pub.kb_leave")) + "</button>";
+    } else if (membership.state === "pending") {
+      h += '<button type="button" class="claire-btn sec' + small + '" data-kb-act="leave">' + esc(t("kb.pub.kb_withdraw_join")) + "</button>";
+    } else if (!archived && membership.state !== "banned") {
+      h += '<button type="button" class="claire-btn pri' + small + '" data-kb-act="join">' + esc(t(kb.join_policy === "open" ? "kb.pub.kb_join" : "kb.pub.kb_join_request")) + "</button>";
+    }
+    h += '<button type="button" class="claire-btn' + small + '" data-kb-act="fork">' + ui().icon("fork") + " " + esc(t("kb.dlg.fork_confirm")) + "</button>";
+    if ((opts && opts.isAdmin) || membership.role === "moderator" || membership.role === "collaborator") h += '<a class="claire-btn sec' + small + '" href="/settings/kb/' + esc(encodeURIComponent(kb.number)) + '">' + esc(t("kb.pub.kb_review_manage")) + "</a>";
+    return h;
+  }
+
+  // The notice of a join request that waits, or of a ban. Without one of them: no text.
+  function kbMembershipNoteHtml(kb) {
+    var state = membershipOf(kb).state;
+    if (state === "pending") return '<div class="claire-note ok"><span>' + esc(t("kb.pub.kb_join_pending")) + "</span></div>";
+    if (state === "banned") return '<div class="claire-note danger"><span>' + esc(t("kb.pub.kb_banned")) + "</span></div>";
+    return "";
+  }
+
+  // The handlers of the buttons of ``kbActionsHtml`` in ``host``. ``opts.homeHref`` is the path of the personal knowledge base of the requester; ``opts.onChanged`` runs after a membership change or a contribution; ``opts.onForked`` gets the new knowledge base.
+  function bindKbActions(host, kb, opts) {
+    opts = opts || {};
+    var membershipUrl = "/kb/" + encodeURIComponent(kb.number) + "/membership";
+    function changed() { if (opts.onChanged) opts.onChanged(); }
+    host.querySelectorAll("[data-kb-act]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var act = btn.getAttribute("data-kb-act");
+        if (act === "join" || act === "leave") {
+          btn.disabled = true;
+          // POST /kb/{number}/membership: the join policy "open" gives an active membership, "approval" a pending one. DELETE: leave, or withdraw the join request.
+          ui().request(membershipUrl, act === "join" ? { method: "POST", body: {} } : { method: "DELETE" }).then(function (res) {
+            btn.disabled = false;
+            if (!res.ok) { ui().toast(errText(res), "danger"); return; }
+            changed();
+          });
+        } else if (act === "direct") {
+          openNoThemePicker({ kbNumber: kb.number, homeHref: opts.homeHref, onSubmitted: changed });
+        } else if (act === "fork") {
+          openForkKbDialog({ kb: kb, onForked: function (fork) { if (opts.onForked) opts.onForked(fork); } });
+        }
+      });
+    });
+  }
+
   root.ClaireKbDialogs = {
     REASON_CODES: REASON_CODES,
     typeTag: typeTag,
     stateLabel: stateLabel,
     seedList: seedList,
+    membershipOf: membershipOf,
+    kbActionsHtml: kbActionsHtml,
+    kbMembershipNoteHtml: kbMembershipNoteHtml,
+    bindKbActions: bindKbActions,
     openAutoRuleDryRunDialog: openAutoRuleDryRunDialog,
     openNoThemePicker: openNoThemePicker,
     openContribPreview: openContribPreview,

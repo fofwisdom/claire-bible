@@ -65,6 +65,8 @@ SYSTEM = {
     "/explore/accounts",
     "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
+    # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
+    "/api/admin/federation/known-servers", "/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}", "/api/admin/federation/journal/{entry_id}/replay",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
     "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/mcp",
     "/api/admin/mcp/telemetry",
@@ -80,7 +82,7 @@ SYSTEM = {
     # Reputation of the account of the credential (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.6)
     "/api/reputation",
     # Automatic contribution and mutual collaboration (Sections 9.9, 9.10)
-    "/api/auto-rule", "/api/auto-rule/dry-run", "/api/auto-contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
+    "/api/auto-rule", "/api/auto-rule/dry-run", "/api/contributions", "/api/contribution-blocks", "/api/contribution-blocks/{document}",
     "/api/mutual-collaborations", "/api/mutual-collaborations/{account}", "/api/admin/auto-contribution",
 }
 # The admin gives and removes the role ``moderator`` of a shared knowledge base (design Section 10.2).
@@ -106,6 +108,9 @@ ADMIN_KEYS = {
     *((m, "/api/admin/federation") for m in ("GET", "HEAD", "POST")),
     *((m, "/api/admin/federation/domain-blocks") for m in ("GET", "HEAD", "POST", "DELETE")),
     *((m, "/api/admin/federation/reading") for m in ("GET", "HEAD", "PUT")),
+    *((m, "/api/admin/federation/known-servers") for m in ("GET", "HEAD", "POST")),
+    *((m, p) for p in ("/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}") for m in ("GET", "HEAD")),
+    ("POST", "/api/admin/federation/journal/{entry_id}/replay"),
     *((m, "/admin/federation") for m in ("GET", "HEAD")),
     *((m, "/admin/kb") for m in ("GET", "HEAD")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),

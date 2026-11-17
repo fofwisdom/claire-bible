@@ -669,6 +669,18 @@ def read_limits(conn: sqlite3.Connection) -> dict[str, int]:
     return values
 
 
+def write_limit(conn: sqlite3.Connection, key: str, value: Any, *, updated_by: int | None) -> None:
+    """Set one limit of contributions. ``ValueError`` for an unknown key or a value that is not an integer of 1 or more. No commit."""
+    if key not in LIMITS:
+        raise ValueError(f"unknown contribution limit: {key!r}")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{key} must be an integer of 1 or more")
+    conn.execute(
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+        (key, str(value), time.time(), updated_by),
+    )
+
+
 def submit_to_themes(
     conn: sqlite3.Connection,
     *,
