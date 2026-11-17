@@ -131,11 +131,12 @@ def test_graph_html_self_contained_markers():
     assert "ClaireAppBar.setConsoleLink" in GRAPH_HTML and "ws.bar.my_settings" in GRAPH_HTML
     assert "let READONLY=false" not in GRAPH_HTML
     assert "setAuth('authed')" not in GRAPH_HTML
-    # 적재 폼은 CLI의 분량/사고 수준 옵션을 원클릭 선택으로 제공하고 초점을 별도 입력한다.
+    # 적재 폼은 CLI의 분량 옵션을 원클릭 선택으로 제공하고, 사고 수준은 프로바이더 지원 옵션에 따라 동적 렌더링한다.
     assert 'id="ingamount-standard" type="radio" name="ingest-amount" value="standard" checked' in GRAPH_HTML
     assert 'id="ingamount-full" type="radio" name="ingest-amount" value="full"' in GRAPH_HTML
-    for effort in ("none", "minimal", "low", "medium", "high", "max"):
-        assert f'name="ingest-effort" value="{effort}"' in GRAPH_HTML
+    assert 'id="ingest-effort-grid" class="ingest-choice-grid effort"' in GRAPH_HTML
+    assert 'id="reingest-effort-grid" class="ingest-choice-grid effort"' in GRAPH_HTML
+    assert 'id="regen-effort-grid" class="ingest-choice-grid effort"' in GRAPH_HTML
     assert 'id="ingeffort-default" type="radio" name="ingest-effort" value="" checked' in GRAPH_HTML
     assert 'id="ingfocus"' in GRAPH_HTML
     assert "const bodyObj = {payload:payload, full_content:fullContent};" in GRAPH_HTML

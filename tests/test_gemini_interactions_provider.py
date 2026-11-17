@@ -196,3 +196,21 @@ def test_build_generation_config_thinking_levels():
     cfg = p._build_generation_config()
     assert cfg["thinking_config"] == {"thinking_budget": 0}
 
+
+def test_build_generation_config_rejects_unsupported_effort_without_fallback():
+    p = _make_provider()
+
+    p.model = "gemini-4-argon"
+    p.effort = "max"
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        p._build_generation_config()
+
+    p.effort = "none"
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        p._build_generation_config()
+
+    p.model = "gemini-3-pro-preview"
+    p.effort = "medium"
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        p._build_generation_config()
+

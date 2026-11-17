@@ -5330,8 +5330,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("payload", help="URL, plain text, or local file path to ingest")
     pi.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
                     help="ingest full content without character limit (lossless ingestion)")
-    pi.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
-                    help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
+    pi.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"], default=None,
+                    help="LLM reasoning effort level (validated against active provider capabilities)")
     pi.add_argument("--expand", action="store_true",
                     help="fetch and queue 1-hop related links found in content")
     pi.add_argument("--no-expand", action="store_true",
@@ -5354,8 +5354,8 @@ def build_parser() -> argparse.ArgumentParser:
     pri.add_argument("--url", default=None, help="specific URL to re-ingest")
     pri.add_argument("--full", "--full-content", "--no-truncate", action="store_true", dest="full_content",
                      help="re-ingest full content without character limit (lossless ingestion)")
-    pri.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "max"], default=None,
-                     help="LLM reasoning effort level (none, minimal, low, medium, high, max)")
+    pri.add_argument("--effort", "-e", choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"], default=None,
+                     help="LLM reasoning effort level (validated against active provider capabilities)")
     pri.add_argument("-f", "--focus", dest="focus", default=None,
                      help="content focus guidance for detail rendering (e.g. 'architecture and internals')")
     pri.add_argument("--format", choices=["adoc"], default=None,

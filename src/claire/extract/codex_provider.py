@@ -271,8 +271,13 @@ class CodexProvider:
                 cmd.extend(["--config", config])
             if self.requested_model:
                 cmd.extend(["--model", self.requested_model])
-            effective_effort = str(effort or self.effort).strip()
+            effective_effort = str(effort or self.effort).strip().lower()
             if effective_effort:
+                from ..accounts.provider_policy import supported_efforts_for
+
+                allowed = supported_efforts_for("codex", self.requested_model)
+                if effective_effort not in allowed:
+                    raise ValueError(f"Unsupported effort '{effective_effort}' for Codex model '{self.model}'. Supported options: {', '.join(allowed)}")
                 cmd.extend(
                     [
                         "--config",

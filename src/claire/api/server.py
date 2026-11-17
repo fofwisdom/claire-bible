@@ -419,6 +419,22 @@ def create_app(
                 continue
         return None
 
+    def _validate_request_effort(
+        theme_svc: IngestService, theme_settings: Settings, effort: str | None
+    ) -> str | None:
+        """Validate explicit ingest/reingest/regenerate effort without fallback."""
+        if not effort:
+            return None
+        try:
+            return policy.validate_ingest_effort(
+                getattr(theme_svc, "s", theme_settings),
+                effort,
+                ctx=getattr(theme_svc, "provider_context", None),
+                allow_mock_standard=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # --- 프로바이더 정책 (설계 §10.1–§10.4) ---------------------------------------------
 
     def _account_limits_context(account_id: int | None) -> policy.ProviderContext | None:
@@ -596,7 +612,7 @@ def create_app(
 
     async def stats(request: Request) -> JSONResponse:
         include_hidden = request_auth_scope(request) != "anonymous"
-        theme, theme_settings, _ = _get_theme_ctx(request)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request)
 
         def _counts() -> dict[str, Any]:
             conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
@@ -609,6 +625,12 @@ def create_app(
                 conn.close()
 
         res = await asyncio.to_thread(_counts)
+        if request_auth_scope(request) in ("owner", "collaborator"):
+            res["ingest_effort"] = policy.describe_ingest_effort_options(
+                getattr(theme_svc, "s", theme_settings),
+                ctx=getattr(theme_svc, "provider_context", None),
+                provider_error=getattr(theme_svc, "provider_error", None),
+            )
         from ..ingest.active import get_primary_active_job
 
         jobs = _visible_active_jobs(request, theme_settings.data_dir)
@@ -1470,7 +1492,7 @@ def create_app(
 
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
             if theme.is_default or theme.id == 0:
@@ -1499,7 +1521,7 @@ def create_app(
                 focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
         ingest_kwargs: dict[str, Any] = {
             "source": "api",
@@ -1703,7 +1725,7 @@ def create_app(
             focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         untombstone = bool(body.get("untombstone", False))
 
         if untombstone:
@@ -1851,7 +1873,7 @@ def create_app(
         force = not dry_run
         refetch = bool(body.get("refetch", False))
         refetch_full = bool(body.get("refetch_full", False))
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         format_arg = str(body.get("format") or "").strip() or None
         focus = str(body.get("focus") or "").strip() or None
         if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):
@@ -3413,7 +3435,7 @@ def create_app(
         from ..extract.provider import set_progress_callback
 
         body = await _json_object(request)
-        theme, _, theme_svc = _get_theme_ctx(request, body)
+        theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
         if scope == "collaborator":
             if theme.is_default or theme.id == 0:
@@ -3442,7 +3464,7 @@ def create_app(
                 focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
         _reserve_expensive_job()
         loop = asyncio.get_running_loop()
@@ -3558,7 +3580,7 @@ def create_app(
             focus = theme.default_focus.strip() or None
 
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         untombstone = bool(body.get("untombstone", False))
 
         if untombstone:
@@ -3769,7 +3791,7 @@ def create_app(
         force = not dry_run
         refetch = bool(body.get("refetch", False))
         refetch_full = bool(body.get("refetch_full", False))
-        effort = str(body.get("effort") or "").strip() or None
+        effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
         format_arg = str(body.get("format") or "").strip() or None
         focus = str(body.get("focus") or "").strip() or None
         if not focus and not theme.is_default and theme.id > 0 and getattr(theme, "default_focus", None):

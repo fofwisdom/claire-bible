@@ -172,6 +172,7 @@ def seed(db_path: Path) -> None:
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar1-nonce", "e2e-appbar1-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar2-nonce", "e2e-appbar2-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar3-nonce", "e2e-appbar3-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
+        conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-appbar4-nonce", "e2e-appbar4-token-0123456789abcde", 1700000000, 2500000000.0, "owner"))
         # Text of the knowledge base view of /syndication in English (e2e/syndication_i18n.spec.js).
         conn.execute("INSERT OR REPLACE INTO auth_sessions(nonce, session_token, approved, created_at, expires_at, scope) VALUES (?,?,1,?,?,?)", ("e2e-syndi18n-nonce", "e2e-syndi18n-token-0123456789abcd", 1700000000, 2500000000.0, "owner"))
         # Text of the console in English (e2e/console_i18n.spec.js).

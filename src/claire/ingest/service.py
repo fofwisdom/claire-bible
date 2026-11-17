@@ -21,6 +21,7 @@ from ..accounts.provider_policy import (
     require_feature,
     resolve_provider_context,
     settings_for_context,
+    validate_ingest_effort,
 )
 from ..config import Settings
 from ..extract.provider import UnavailableProvider, get_provider
@@ -345,7 +346,7 @@ class IngestService:
         # 삭제된 테마면 DB를 열기 전에 ThemeNotFound로 멈춘다.
         tlabel = self.get_theme_label()
         if effort:
-            effort = clamp_effort(getattr(self, "provider_context", None), effort)
+            effort = validate_ingest_effort(self.s, effort, ctx=getattr(self, "provider_context", None), allow_mock_standard=True)
         with ExitStack() as stack:
             try:
                 stack.enter_context(self.job_scope())
@@ -1314,7 +1315,8 @@ class IngestService:
                     targets_info = []
                     old_effort = getattr(self.provider, "effort", None)
                     if effort:
-                        self.provider.effort = clamp_effort(getattr(self, "provider_context", None), effort)
+                        validated_effort = validate_ingest_effort(self.s, effort, ctx=getattr(self, "provider_context", None), allow_mock_standard=True)
+                        self.provider.effort = validated_effort
 
                     try:
                         for idx, did in enumerate(target_ids, 1):

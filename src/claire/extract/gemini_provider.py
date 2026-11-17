@@ -304,13 +304,22 @@ class GeminiProvider:
             from ..accounts.provider_policy import clamp_effort
 
             eff = str(clamp_effort(ctx, eff) or "").strip().lower()
-        if eff in ("low", "medium", "high", "minimal"):
-            cfg["thinking_config"] = {"thinking_level": eff.upper()}
-        elif eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
+        if not eff:
+            return cfg
+        if eff.isdigit() or (eff.startswith("-") and eff[1:].isdigit()):
             cfg["thinking_config"] = {"thinking_budget": int(eff)}
-        elif eff in ("none", "off", "0"):
+            return cfg
+        from ..accounts.provider_policy import supported_efforts_for
+
+        supported = supported_efforts_for("gemini", self.model)
+        allow_budget_zero = str(self.model or "").strip().lower() in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite")
+        if eff in ("none", "off", "0") and (allow_budget_zero or "none" in supported):
             cfg["thinking_config"] = {"thinking_budget": 0}
-        return cfg
+            return cfg
+        if eff in supported and eff in ("minimal", "low", "medium", "high"):
+            cfg["thinking_config"] = {"thinking_level": eff.upper()}
+            return cfg
+        raise ValueError(f"Unsupported effort '{eff}' for Gemini model '{self.model}'. Supported options: {', '.join(supported)}")
 
     def _throttle(self) -> None:
         """호출 간 최소 간격 보장(RPM 보호). 자격(credential_key)별 락으로 같은 키의 호출만 직렬화한다."""

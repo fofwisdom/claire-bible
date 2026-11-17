@@ -43,7 +43,26 @@ TIER_FEATURES: Final[tuple[Feature, ...]] = ("expand", "stt", "vlm", "presentati
 # research(allow_tools=True), Jev 평가, 텔레그램 봇은 관리자 전용이다(§10.1).
 ADMIN_ONLY_FEATURES: Final[tuple[str, ...]] = ("research", "jev", "telegram")
 EFFORT_ORDER: Final[tuple[str, ...]] = ("none", "minimal", "low", "medium", "high")
-EFFORT_RANKS: Final[dict[str, int]] = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5}
+ALL_EFFORT_LEVELS: Final[tuple[str, ...]] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+EFFORT_RANKS: Final[dict[str, int]] = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5, "max": 6}
+_AGY_SUFFIX_ORDER: Final[tuple[str, ...]] = ("xhigh", "high", "medium", "low")
+_AGY_FIXED_PREFIXES: Final[tuple[str, ...]] = ("gemini-4-", "claude-", "gpt-oss-", "gemini-pro-orchestrator")
+_GEMINI_MODEL_EFFORTS: Final[dict[str, tuple[str, ...]]] = {
+    "gemini-3-pro-preview": ("low", "high"),
+    "gemini-3.6-flash": ("minimal", "low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("minimal", "low", "medium", "high"),
+    "gemini-3.1-flash-lite": ("minimal", "low", "medium", "high"),
+    "gemini-3-flash-preview": ("minimal", "low", "medium", "high"),
+    "gemini-robotics-er-2-preview": ("minimal", "low", "medium", "high"),
+    "gemini-2.5-flash": ("none", "low", "medium", "high"),
+    "gemini-2.5-flash-lite": ("none", "low", "medium", "high"),
+    "gemini-4-argon": ("low", "medium", "high"),
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.1-pro-preview": ("low", "medium", "high"),
+    "gemini-3.1-pro": ("low", "medium", "high"),
+    "gemini-2.5-pro": ("low", "medium", "high"),
+}
+_CODEX_XHIGH_MODELS: Final[frozenset[str]] = frozenset({"gpt-5.1-codex", "gpt-5.2-codex", "gpt-5.3-codex", "gpt-5.4"})
 FEATURE_SLOTS: Final[tuple[str, ...]] = ("extract_graph", "summarize", "entity_judge", "relation_judge", "classify", "research", "embed", "stt", "vlm")
 MODEL_CAPABILITY_RANKS: Final[dict[str, int]] = {
     "mock": 0,
@@ -618,3 +637,100 @@ def clamp_effort(ctx: ProviderContext | None, effort: str) -> str:
     if raw not in EFFORT_ORDER:
         return ceiling
     return raw if EFFORT_ORDER.index(raw) <= EFFORT_ORDER.index(ceiling) else ceiling
+
+
+def infer_model_effort_suffix(model: str | None) -> str | None:
+    """Return embedded effort suffix (-xhigh/-high/-medium/-low) from a model identifier if present."""
+    clean = str(model or "").strip().lower()
+    for suf in _AGY_SUFFIX_ORDER:
+        if clean.endswith(f"-{suf}"):
+            return suf
+    return None
+
+
+def is_agy_fixed_effort_model(model: str | None) -> bool:
+    """Return True when an Antigravity CLI model embeds or fixes effort without accepting --effort."""
+    clean = str(model or "").strip().lower()
+    return infer_model_effort_suffix(clean) is not None or clean.startswith(_AGY_FIXED_PREFIXES)
+
+
+def supported_efforts_for(provider: str | None, model: str | None = None, *, tier_max_effort: str | None = None) -> tuple[str, ...]:
+    """Return selectable reasoning effort levels supported by the given provider and model."""
+    prov = str(provider or "").strip().lower()
+    mod = str(model or "").strip().lower()
+    if prov in ("", "none", "unavailable", "mock"):
+        return ()
+    if prov == "gemini":
+        base = _GEMINI_MODEL_EFFORTS.get(mod, ("low", "medium", "high"))
+    elif prov in ("antigravity", "agy"):
+        base = () if is_agy_fixed_effort_model(mod) else ("low", "medium", "high", "xhigh", "max")
+    elif prov == "codex":
+        if mod in _CODEX_XHIGH_MODELS or "-codex" in mod or mod.startswith("gpt-5.4"):
+            base = ("low", "medium", "high", "xhigh")
+        elif mod == "gpt-5":
+            base = ("minimal", "low", "medium", "high")
+        else:
+            base = ("low", "medium", "high")
+    else:
+        return ()
+    if tier_max_effort is None:
+        return base
+    cap_key = str(tier_max_effort or "none").strip().lower()
+    cap_rank = EFFORT_RANKS.get(cap_key, -1)
+    return tuple(item for item in base if EFFORT_RANKS.get(item, 99) <= cap_rank)
+
+
+def describe_ingest_effort_options(settings: Any, *, ctx: ProviderContext | None = None, provider_error: Exception | None = None) -> dict[str, Any]:
+    """Describe selectable ingest reasoning effort options for the caller's active extract provider."""
+    eff_ctx = ctx if ctx is not None else context_of(settings)
+    if provider_error is not None:
+        return {"provider": "unavailable", "model": "", "options": [], "default_effort": "", "fixed": True, "fixed_effort": "", "tier_max_effort": ""}
+
+    from ..extract.provider import _resolve_slot_spec
+
+    prov, model, default_effort = _resolve_slot_spec(settings, "extract_graph")
+    if eff_ctx is not None and not eff_ctx.is_admin and getattr(eff_ctx, "provider", "") in ("none", ""):
+        prov = "none"
+    tier_cap = str(eff_ctx.tier.max_effort or "").strip().lower() if (eff_ctx is not None and not eff_ctx.is_admin and eff_ctx.source == "tier") else None
+
+    if prov in ("", "none", "unavailable", "mock"):
+        return {"provider": prov or "none", "model": model, "options": [], "default_effort": "", "fixed": True, "fixed_effort": "", "tier_max_effort": tier_cap or ""}
+
+    options = list(supported_efforts_for(prov, model, tier_max_effort=tier_cap))
+    if prov in ("antigravity", "agy") and is_agy_fixed_effort_model(model):
+        fixed_eff = infer_model_effort_suffix(model) or ""
+        return {"provider": "antigravity", "model": model, "options": [], "default_effort": fixed_eff, "fixed": True, "fixed_effort": fixed_eff, "tier_max_effort": tier_cap or ""}
+
+    clean_def = str(default_effort or "").strip().lower()
+    if clean_def not in options:
+        if tier_cap and clean_def:
+            clamped = clamp_effort(eff_ctx, clean_def)
+            clean_def = clamped if clamped in options else ""
+        else:
+            clean_def = ""
+    return {"provider": "antigravity" if prov == "agy" else prov, "model": model, "options": options, "default_effort": clean_def, "fixed": len(options) == 0, "fixed_effort": "", "tier_max_effort": tier_cap or ""}
+
+
+def validate_ingest_effort(settings: Any, effort: str | None, *, ctx: ProviderContext | None = None, allow_mock_standard: bool = False) -> str | None:
+    """Validate an explicit ingest/reingest/regenerate effort without silent fallback on unsupported choices."""
+    if effort is None or not str(effort).strip():
+        return None
+    raw = str(effort).strip().lower()
+    info = describe_ingest_effort_options(settings, ctx=ctx)
+    prov = info["provider"]
+    if prov == "mock" and allow_mock_standard:
+        allowed_mock = EFFORT_ORDER
+        if info["tier_max_effort"]:
+            cap_rank = EFFORT_RANKS.get(info["tier_max_effort"], -1)
+            allowed_mock = tuple(item for item in EFFORT_ORDER if EFFORT_RANKS.get(item, 99) <= cap_rank)
+        if raw not in allowed_mock:
+            raise ValueError(f"Unsupported effort '{effort}' for provider 'mock'. Allowed: {', '.join(allowed_mock) or 'none'}")
+        return raw
+    if info["fixed"]:
+        if info["fixed_effort"] and raw == info["fixed_effort"]:
+            return raw
+        raise ValueError(f"Provider '{prov}' (model '{info['model']}') uses a fixed reasoning level and does not accept effort override '{effort}'.")
+    if raw not in info["options"]:
+        supported_label = ", ".join(info["options"]) or "default only"
+        raise ValueError(f"Unsupported effort '{effort}' for provider '{prov}' (model '{info['model']}'). Selectable options: {supported_label}.")
+    return raw

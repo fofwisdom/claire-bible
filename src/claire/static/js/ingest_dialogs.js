@@ -2,8 +2,90 @@
   "use strict";
 
   var handlers = null;
+  var currentEffortSpec = null;
+  var EFFORT_LABELS = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Very high", max: "Maximum" };
 
   function byId(id) { return document.getElementById(id); }
+
+  function translate(key, vars, fallback) {
+    if (handlers && typeof handlers.tr === "function") {
+      return handlers.tr(key, vars);
+    }
+    if (window.ClaireI18n && typeof window.ClaireI18n.t === "function") {
+      return window.ClaireI18n.t(key, vars);
+    }
+    return fallback || key;
+  }
+
+  function formatEffortLabel(val) {
+    var key = "ws.ingest.effort_" + val;
+    var out = translate(key, null, EFFORT_LABELS[val] || val);
+    return out === key ? (EFFORT_LABELS[val] || val) : out;
+  }
+
+  function renderEffortGrid(grid, spec) {
+    if (!grid) return;
+    var prefix = grid.getAttribute("data-effort-prefix") || "ingeffort";
+    var name = grid.getAttribute("data-effort-name") || "ingest-effort";
+    var hintId = grid.getAttribute("data-effort-hint-id") || "";
+    var checkedEl = grid.querySelector('input[type="radio"]:checked');
+    var prevVal = checkedEl ? checkedEl.value : "";
+
+    var options = (spec && Array.isArray(spec.options)) ? spec.options : [];
+    var fixed = !!(spec && spec.fixed);
+    var prov = (spec && spec.provider) ? String(spec.provider) : "";
+    var model = (spec && spec.model) ? String(spec.model) : "";
+    var tierMax = (spec && spec.tier_max_effort) ? String(spec.tier_max_effort) : "";
+    var fixedEffort = (spec && spec.fixed_effort) ? String(spec.fixed_effort) : "";
+
+    var choices = ['<div class="ingest-choice"><input id="' + prefix + '-default" type="radio" name="' + name + '" value=""/><label for="' + prefix + '-default" data-i18n="ws.ingest.effort_default">' + String(translate("ws.ingest.effort_default", null, "Default")).replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</label></div>"];
+    if (!fixed) {
+      for (var i = 0; i < options.length; i++) {
+        var opt = String(options[i] || "").trim().toLowerCase();
+        if (!opt) continue;
+        var safeOpt = opt.replace(/[^a-z0-9_-]/g, "");
+        var lbl = formatEffortLabel(safeOpt);
+        choices.push('<div class="ingest-choice"><input id="' + prefix + "-" + safeOpt + '" type="radio" name="' + name + '" value="' + safeOpt + '"/><label for="' + prefix + "-" + safeOpt + '" data-i18n="ws.ingest.effort_' + safeOpt + '">' + String(lbl).replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</label></div>");
+      }
+    }
+    grid.innerHTML = choices.join("");
+
+    var targetVal = (!fixed && prevVal && options.indexOf(prevVal) >= 0) ? prevVal : "";
+    var radioToSelect = byId(prefix + "-" + (targetVal || "default"));
+    if (radioToSelect) radioToSelect.checked = true;
+
+    var hintEl = hintId ? byId(hintId) : null;
+    if (hintEl) {
+      if (!spec) {
+        hintEl.setAttribute("data-i18n", "ws.ingest.effort_hint");
+        hintEl.textContent = translate("ws.ingest.effort_hint", null, "");
+      } else if (prov === "mock") {
+        hintEl.removeAttribute("data-i18n");
+        hintEl.textContent = translate("ws.ingest.effort_mock_hint", null, "Mock provider ignores reasoning options");
+      } else if (fixed) {
+        hintEl.removeAttribute("data-i18n");
+        if (fixedEffort) {
+          hintEl.textContent = translate("ws.ingest.effort_fixed_hint_val", { effort: formatEffortLabel(fixedEffort), provider: prov, model: model || "-" }, "Fixed at " + fixedEffort);
+        } else {
+          hintEl.textContent = translate("ws.ingest.effort_fixed_hint", { provider: prov || "unavailable", model: model || "-" }, "Fixed by model");
+        }
+      } else if (tierMax) {
+        hintEl.removeAttribute("data-i18n");
+        hintEl.textContent = translate("ws.ingest.effort_tier_hint", { provider: prov, model: model || "-", tier: formatEffortLabel(tierMax) }, prov + " (" + (model || "-") + ", max " + tierMax + ")");
+      } else if (prov) {
+        hintEl.removeAttribute("data-i18n");
+        hintEl.textContent = translate("ws.ingest.effort_provider_hint", { provider: prov, model: model || "-" }, prov + " (" + (model || "-") + ")");
+      }
+    }
+  }
+
+  function renderEffortGrids(spec) {
+    if (spec !== undefined) currentEffortSpec = spec || null;
+    var grids = document.querySelectorAll(".ingest-choice-grid.effort");
+    for (var i = 0; i < grids.length; i++) {
+      renderEffortGrid(grids[i], currentEffortSpec);
+    }
+  }
 
   function closeDialog(id) {
     var dlg = typeof id === "string" ? byId(id) : id;
@@ -52,8 +134,14 @@
       if (!focusEl || typeof opts.getFocusPlaceholder !== "function") return;
       focusEl.placeholder = opts.getFocusPlaceholder(themeEl ? themeEl.value : "");
     }
-    if (themeEl) themeEl.onchange = syncFocusPlaceholder;
+    if (themeEl) {
+      themeEl.onchange = function () {
+        syncFocusPlaceholder();
+        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
+      };
+    }
     syncFocusPlaceholder();
+    renderEffortGrid(byId("ingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     if (!dlg.open) dlg.showModal();
     var ta = byId("ingin");
     if (ta) ta.focus();
@@ -67,6 +155,13 @@
     if (opts.themeConfig) {
       configureThemeSelect("reingest-theme-wrap", "reingtheme", "reingtheme-help", opts.themeConfig);
     }
+    var themeEl = byId("reingtheme");
+    if (themeEl) {
+      themeEl.onchange = function () {
+        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
+      };
+    }
+    renderEffortGrid(byId("reingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     var targetEl = byId("reingtarget");
     if (targetEl && typeof opts.target === "string") targetEl.value = opts.target;
     var subEl = byId("reingest-selected-doc");
@@ -93,6 +188,13 @@
     if (opts.themeConfig) {
       configureThemeSelect("regen-theme-wrap", "regentheme", "regentheme-help", opts.themeConfig);
     }
+    var themeEl = byId("regentheme");
+    if (themeEl) {
+      themeEl.onchange = function () {
+        if (typeof opts.onThemeChange === "function") opts.onThemeChange(themeEl.value);
+      };
+    }
+    renderEffortGrid(byId("regen-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
     var targetEl = byId("regentarget");
     if (targetEl && typeof opts.target === "string") targetEl.value = opts.target;
     var subEl = byId("regen-selected-doc");
@@ -175,6 +277,15 @@
         bound = true;
         bindEvents();
       }
+      if (handlers.effortSpec !== undefined) {
+        renderEffortGrids(handlers.effortSpec);
+      }
+    },
+    setEffortSpec: function (spec) {
+      renderEffortGrids(spec);
+    },
+    getEffortSpec: function () {
+      return currentEffortSpec;
     },
     openIngestDialog: openIngestDialog,
     openReingestDialog: openReingestDialog,

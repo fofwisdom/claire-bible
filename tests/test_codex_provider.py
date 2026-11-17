@@ -578,3 +578,15 @@ def test_ingest_skips_vector_storage_when_codex_embedding_is_unavailable(tmp_pat
     assert report.entities_created == 1
     assert dbm.counts(conn)["embeddings"] == 0
     conn.close()
+
+
+def test_codex_run_cli_rejects_unsupported_effort_without_fallback():
+    p = _make_provider(codex_model="gpt-5.4")
+    with patch("claire.extract.codex_provider.subprocess.run") as run_mock:
+        with pytest.raises(ValueError, match="Unsupported effort"):
+            p._run_cli("hello", effort="max")
+        run_mock.assert_not_called()
+
+        with pytest.raises(ValueError, match="Unsupported effort"):
+            p._run_cli("hello", effort="none")
+        run_mock.assert_not_called()

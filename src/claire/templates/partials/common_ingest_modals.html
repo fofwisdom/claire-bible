@@ -20,16 +20,10 @@
         <div class="ingest-choice"><input id="ingamount-full" type="radio" name="ingest-amount" value="full"/><label for="ingamount-full" data-i18n-title="ws.ingest.amount_full_title" title="${t:ws.ingest.amount_full_title}" data-i18n="ws.ingest.amount_full">${t:ws.ingest.amount_full}</label></div>
       </div>
     </fieldset>
-    <fieldset class="ingest-options">
-      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
-      <div class="ingest-choice-grid effort">
+    <fieldset class="ingest-options" aria-describedby="ingest-effort-hint">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span id="ingest-effort-hint" class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div id="ingest-effort-grid" class="ingest-choice-grid effort" data-effort-prefix="ingeffort" data-effort-name="ingest-effort" data-effort-hint-id="ingest-effort-hint">
         <div class="ingest-choice"><input id="ingeffort-default" type="radio" name="ingest-effort" value="" checked/><label for="ingeffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-none" type="radio" name="ingest-effort" value="none"/><label for="ingeffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-minimal" type="radio" name="ingest-effort" value="minimal"/><label for="ingeffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-low" type="radio" name="ingest-effort" value="low"/><label for="ingeffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-medium" type="radio" name="ingest-effort" value="medium"/><label for="ingeffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-high" type="radio" name="ingest-effort" value="high"/><label for="ingeffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
-        <div class="ingest-choice"><input id="ingeffort-max" type="radio" name="ingest-effort" value="max"/><label for="ingeffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
       </div>
     </fieldset>
     <div class="ingest-field">
@@ -67,16 +61,10 @@
         <div class="ingest-choice"><input id="reingamount-full" type="radio" name="reingest-amount" value="full"/><label for="reingamount-full" data-i18n-title="ws.ingest.amount_full_title" title="${t:ws.ingest.amount_full_title}" data-i18n="ws.ingest.amount_full">${t:ws.ingest.amount_full}</label></div>
       </div>
     </fieldset>
-    <fieldset class="ingest-options">
-      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
-      <div class="ingest-choice-grid effort">
+    <fieldset class="ingest-options" aria-describedby="reingest-effort-hint">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span id="reingest-effort-hint" class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div id="reingest-effort-grid" class="ingest-choice-grid effort" data-effort-prefix="reingeffort" data-effort-name="reingest-effort" data-effort-hint-id="reingest-effort-hint">
         <div class="ingest-choice"><input id="reingeffort-default" type="radio" name="reingest-effort" value="" checked/><label for="reingeffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-none" type="radio" name="reingest-effort" value="none"/><label for="reingeffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-minimal" type="radio" name="reingest-effort" value="minimal"/><label for="reingeffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-low" type="radio" name="reingest-effort" value="low"/><label for="reingeffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-medium" type="radio" name="reingest-effort" value="medium"/><label for="reingeffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-high" type="radio" name="reingest-effort" value="high"/><label for="reingeffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
-        <div class="ingest-choice"><input id="reingeffort-max" type="radio" name="reingest-effort" value="max"/><label for="reingeffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
       </div>
     </fieldset>
     <div class="ingest-field">
@@ -119,16 +107,10 @@
         <div class="ingest-choice"><input id="regencomp-graph" type="radio" name="regen-comp" value="graph"/><label for="regencomp-graph" data-i18n-title="ws.regen.comp_graph_title" title="${t:ws.regen.comp_graph_title}" data-i18n="ws.regen.comp_graph">${t:ws.regen.comp_graph}</label></div>
       </div>
     </fieldset>
-    <fieldset class="ingest-options">
-      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
-      <div class="ingest-choice-grid effort">
+    <fieldset class="ingest-options" aria-describedby="regen-effort-hint">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.effort">${t:ws.ingest.effort}</span> <span id="regen-effort-hint" class="ingest-help" data-i18n="ws.ingest.effort_hint">${t:ws.ingest.effort_hint}</span></legend>
+      <div id="regen-effort-grid" class="ingest-choice-grid effort" data-effort-prefix="regeneffort" data-effort-name="regen-effort" data-effort-hint-id="regen-effort-hint">
         <div class="ingest-choice"><input id="regeneffort-default" type="radio" name="regen-effort" value="" checked/><label for="regeneffort-default" data-i18n="ws.ingest.effort_default">${t:ws.ingest.effort_default}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-none" type="radio" name="regen-effort" value="none"/><label for="regeneffort-none" data-i18n="ws.ingest.effort_none">${t:ws.ingest.effort_none}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-minimal" type="radio" name="regen-effort" value="minimal"/><label for="regeneffort-minimal" data-i18n="ws.ingest.effort_minimal">${t:ws.ingest.effort_minimal}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-low" type="radio" name="regen-effort" value="low"/><label for="regeneffort-low" data-i18n="ws.ingest.effort_low">${t:ws.ingest.effort_low}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-medium" type="radio" name="regen-effort" value="medium"/><label for="regeneffort-medium" data-i18n="ws.ingest.effort_medium">${t:ws.ingest.effort_medium}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-high" type="radio" name="regen-effort" value="high"/><label for="regeneffort-high" data-i18n="ws.ingest.effort_high">${t:ws.ingest.effort_high}</label></div>
-        <div class="ingest-choice"><input id="regeneffort-max" type="radio" name="regen-effort" value="max"/><label for="regeneffort-max" data-i18n="ws.ingest.effort_max">${t:ws.ingest.effort_max}</label></div>
       </div>
     </fieldset>
     <div class="ingest-field">

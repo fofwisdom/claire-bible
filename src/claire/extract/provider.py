@@ -659,7 +659,7 @@ def _provider_default_model(settings: Any, provider_name: str, slot: str) -> str
             return str(getattr(settings, "gemini_embed_model", "gemini-embedding-001") or "gemini-embedding-001")
         return str(getattr(settings, "gemini_model", "") or "")
     if provider_name == "antigravity":
-        return str(getattr(settings, "antigravity_model", "") or "")
+        return str(getattr(settings, "agy_model", "") or getattr(settings, "antigravity_model", "") or "")
     if provider_name == "codex":
         return str(getattr(settings, "codex_model", "") or "")
     if provider_name == "mock":
@@ -671,7 +671,7 @@ def _provider_default_effort(settings: Any, provider_name: str) -> str:
     if provider_name == "gemini":
         return str(getattr(settings, "gemini_effort", "") or "")
     if provider_name == "antigravity":
-        return str(getattr(settings, "antigravity_effort", "") or "")
+        return str(getattr(settings, "agy_effort", "") or getattr(settings, "antigravity_effort", "") or "")
     if provider_name == "codex":
         return str(getattr(settings, "codex_effort", "") or "")
     return ""
@@ -762,6 +762,7 @@ def _clone_settings_for_slot(settings: Any, *, slot: str, target_provider: str, 
             else:
                 updates["gemini_model"] = target_model
         elif target_provider == "antigravity":
+            updates["agy_model"] = target_model
             updates["antigravity_model"] = target_model
         elif target_provider == "codex":
             updates["codex_model"] = target_model
@@ -769,6 +770,7 @@ def _clone_settings_for_slot(settings: Any, *, slot: str, target_provider: str, 
         if target_provider == "gemini":
             updates["gemini_effort"] = target_effort
         elif target_provider == "antigravity":
+            updates["agy_effort"] = target_effort
             updates["antigravity_effort"] = target_effort
         elif target_provider == "codex":
             updates["codex_effort"] = target_effort

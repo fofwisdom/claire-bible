@@ -184,12 +184,14 @@ class AntigravityProvider:
             if self.model:
                 cmd.extend(["--model", self.model])
             # 모델명에 이미 -xhigh, -high, -medium, -low 접미사가 있거나 별도 --effort를 받지 않는 모델이면 생략
-            model_str = str(self.model or "").strip().lower()
-            model_has_effort = any(
-                model_str.endswith(f"-{suf}") for suf in ("xhigh", "high", "medium", "low")
-            ) or model_str.startswith(("gemini-4-", "claude-", "gpt-oss-", "gemini-pro-orchestrator"))
-            eff = effort or self.effort
+            from ..accounts.provider_policy import is_agy_fixed_effort_model, supported_efforts_for
+
+            model_has_effort = is_agy_fixed_effort_model(self.model)
+            eff = str(effort or self.effort or "").strip().lower()
             if eff and not model_has_effort:
+                allowed = supported_efforts_for("antigravity", self.model)
+                if eff not in allowed:
+                    raise ValueError(f"Unsupported effort '{eff}' for Antigravity model '{self.model}'. Supported options: {', '.join(allowed)}")
                 cmd.extend(["--effort", eff])
             if dangerously_skip_permissions:
                 cmd.append("--dangerously-skip-permissions")

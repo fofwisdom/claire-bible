@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, get_model_rank, is_model_equal_or_higher
+from .accounts.provider_policy import FEATURE_SLOTS, MODEL_CAPABILITY_RANKS, get_model_rank, infer_model_effort_suffix, is_model_equal_or_higher
 from .config import (
     ROOT,
     diagnose_agy_environment,
@@ -92,11 +92,7 @@ def is_running_in_container() -> bool:
 
 def infer_agy_effort_from_model(model_name: str) -> str | None:
     """모델명 접미사(-xhigh, -high, -medium, -low)에서 추론 수준을 추출한다."""
-    m = str(model_name or "").strip().lower()
-    for suf in ("xhigh", "high", "medium", "low"):
-        if m.endswith(f"-{suf}"):
-            return suf
-    return None
+    return infer_model_effort_suffix(model_name)
 
 
 def _agy_cli_env() -> dict[str, str]:

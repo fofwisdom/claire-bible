@@ -893,3 +893,78 @@ def test_stealth_mode_rejects_unauthenticated_share(
     response = client.post("/share", json={"doc_id": "doc-1"})
     assert response.status_code == 404
 
+
+def test_stats_ingest_effort_visibility_and_http_400_no_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GET /stats exposes ingest_effort only to owner/collaborator, and invalid effort fails with HTTP 400 without fallback."""
+    from dataclasses import dataclass as _dc
+
+    @_dc
+    class EffortStubSettings(StubSettings):
+        provider: str = "gemini"
+        gemini_model: str = "gemini-3-pro-preview"
+        gemini_effort: str = "low"
+        feature_routing: dict = None  # type: ignore[assignment]
+
+        def __post_init__(self) -> None:
+            if self.feature_routing is None:
+                self.feature_routing = {}
+
+    class EffortStubService(StubService):
+        def ingest(self, payload: str, **kwargs: Any) -> Any:
+            from claire.ingest.pipeline import IngestReport
+
+            self.last_effort = kwargs.get("effort")
+            return IngestReport(document_id="doc-1", summary=payload)
+
+        def reingest(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"ok": True}
+
+        def regenerate_components(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"ok": True}
+
+    settings = EffortStubSettings(
+        db_file=tmp_path / "claire.db",
+        data_dir=tmp_path,
+        anonymous_readonly=True,
+    )
+    service = EffortStubService()
+    app = server.create_app(settings, service)
+
+    with TestClient(app, base_url=settings.public_url) as c:
+        anon_stats = c.get("/stats")
+        assert anon_stats.status_code == 200
+        assert "ingest_effort" not in anon_stats.json()
+
+        ro_stats = c.get("/stats", headers=READONLY_HEADERS)
+        assert ro_stats.status_code == 200
+        assert "ingest_effort" not in ro_stats.json()
+
+        owner_stats = c.get("/stats", headers=OWNER_HEADERS)
+        assert owner_stats.status_code == 200
+        effort_info = owner_stats.json()["ingest_effort"]
+        assert effort_info["provider"] == "gemini"
+        assert effort_info["model"] == "gemini-3-pro-preview"
+        assert effort_info["options"] == ["low", "high"]
+        assert effort_info["fixed"] is False
+
+        for route, body in (
+            ("/ingest", {"payload": "test", "effort": "medium"}),
+            ("/ingest-stream", {"payload": "test", "effort": "max"}),
+            ("/reingest", {"target": "doc-1", "effort": "none"}),
+            ("/reingest-stream", {"target": "doc-1", "effort": "medium"}),
+            ("/regenerate", {"target": "doc-1", "component": "summary", "effort": "xhigh"}),
+            ("/regenerate-stream", {"target": "doc-1", "component": "summary", "effort": "max"}),
+        ):
+            bad_resp = c.post(route, json=body, headers=OWNER_HEADERS)
+            assert bad_resp.status_code == 400, f"{route} did not reject {body}"
+            err_payload = bad_resp.json()
+            assert "Unsupported effort" in (err_payload.get("error") or err_payload.get("detail") or "")
+
+        ok_resp = c.post("/ingest", json={"payload": "test", "effort": "high"}, headers=OWNER_HEADERS)
+        assert ok_resp.status_code == 200
+        assert ok_resp.json()["document_id"] == "doc-1"
+        assert service.last_effort == "high"
+

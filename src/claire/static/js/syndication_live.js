@@ -1011,16 +1011,37 @@
       };
     }
 
+    let latestSyndEffortSpec = null;
+
+    async function refreshSyndEffortSpec(themeKey) {
+      try {
+        const ref = themeRefOf(themeKey || state.themeId);
+        const q = ref ? `?theme=${encodeURIComponent(ref)}` : "";
+        const r = await fetch(`/stats${q}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d && d.ingest_effort) {
+          latestSyndEffortSpec = d.ingest_effort;
+          if (window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setEffortSpec === "function") {
+            window.ClaireIngestDialogs.setEffortSpec(d.ingest_effort);
+          }
+        }
+      } catch (_) {}
+    }
+
     function openIngestModal() {
       closeOpenPopovers();
       if (!window.ClaireIngestDialogs) return;
       window.ClaireIngestDialogs.openIngestDialog({
         themeConfig: getSyndDialogThemeConfig(),
+        effortSpec: latestSyndEffortSpec,
+        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
         getFocusPlaceholder: (tid) => {
           const th = THEMES[String(tid || state.themeId)];
           return (th && th.defaultFocus) ? th.defaultFocus : tr("synd.kb.ingest.focus_placeholder");
         }
       });
+      refreshSyndEffortSpec(state.themeId);
     }
 
     async function submitIngestModal() {
@@ -1073,9 +1094,12 @@
       const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
       window.ClaireIngestDialogs.openReingestDialog({
         themeConfig: getSyndDialogThemeConfig(),
+        effortSpec: latestSyndEffortSpec,
+        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
         target: curDoc ? (curDoc.url || curDoc.id || "") : "",
         selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
       });
+      refreshSyndEffortSpec(state.themeId);
     }
 
     async function submitReingestModal() {
@@ -1127,9 +1151,12 @@
       const curDoc = (curTheme().documents || []).find((x) => x.id === state.selectedDocId);
       window.ClaireIngestDialogs.openRegenDialog({
         themeConfig: getSyndDialogThemeConfig(),
+        effortSpec: latestSyndEffortSpec,
+        onThemeChange: (tid) => refreshSyndEffortSpec(tid),
         target: curDoc ? (curDoc.id || curDoc.url || "") : "",
         selectedDocLabel: curDoc ? `${esc(tr("ws.common.selected_doc"))} <b>${esc(curDoc.title || curDoc.id)}</b>` : ""
       });
+      refreshSyndEffortSpec(state.themeId);
     }
 
     async function submitRegenModal(isDryRun) {
@@ -1196,6 +1223,7 @@
         openRegen: openRegenModal,
         submitRegen: submitRegenModal
       });
+      refreshSyndEffortSpec(state.themeId);
     }
     bridge.openIngestModal = openIngestModal;
 

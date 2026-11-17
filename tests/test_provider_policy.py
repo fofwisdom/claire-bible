@@ -704,3 +704,39 @@ def test_antigravity_subprocess_env_has_no_secrets(tmp_path, host_cli_present, m
     assert "GEMINI_API_KEY" not in env and "CLAIRE_INJECT_TOKEN" not in env and "TELEGRAM_BOT_TOKEN" not in env
     assert ADMIN_KEY not in " ".join(env.values())
     assert env.get("HOME") == str(tmp_path) and "PATH" in env
+
+
+def test_supported_efforts_and_strict_ingest_validation(tmp_path, account_db, keys):
+    assert pp.supported_efforts_for("gemini", "gemini-4-argon") == ("low", "medium", "high")
+    assert pp.supported_efforts_for("gemini", "gemini-3-pro-preview") == ("low", "high")
+    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash") == ("none", "low", "medium", "high")
+    assert pp.supported_efforts_for("gemini", "gemini-3.6-flash") == ("minimal", "low", "medium", "high")
+    assert pp.supported_efforts_for("antigravity", "gemini-3-flash") == ("low", "medium", "high", "xhigh", "max")
+    assert pp.supported_efforts_for("antigravity", "claude-opus-5-5-medium") == ()
+    assert pp.supported_efforts_for("antigravity", "gemini-4-hydrogen") == ()
+    assert pp.supported_efforts_for("codex", "gpt-5.4") == ("low", "medium", "high", "xhigh")
+    assert pp.supported_efforts_for("codex", "gpt-5") == ("minimal", "low", "medium", "high")
+    assert pp.supported_efforts_for("gemini", "gemini-2.5-flash", tier_max_effort="medium") == ("none", "low", "medium")
+
+    s_gem = _settings(tmp_path, provider="gemini", gemini_model="gemini-4-argon", gemini_effort="medium")
+    desc = pp.describe_ingest_effort_options(s_gem)
+    assert desc["provider"] == "gemini"
+    assert desc["options"] == ["low", "medium", "high"]
+    assert not desc["fixed"]
+    assert pp.validate_ingest_effort(s_gem, "high") == "high"
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        pp.validate_ingest_effort(s_gem, "max")
+
+    s_agy_fixed = _settings(tmp_path, provider="antigravity", agy_model="claude-opus-5-5-medium")
+    desc_fixed = pp.describe_ingest_effort_options(s_agy_fixed)
+    assert desc_fixed["fixed"] is True
+    assert desc_fixed["fixed_effort"] == "medium"
+    assert desc_fixed["options"] == []
+    with pytest.raises(ValueError, match="fixed reasoning level"):
+        pp.validate_ingest_effort(s_agy_fixed, "high")
+
+    s_tier = pp.settings_for_context(_settings(tmp_path), _ctx("tier", max_effort="low"))
+    desc_tier = pp.describe_ingest_effort_options(s_tier)
+    assert "high" not in desc_tier["options"]
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        pp.validate_ingest_effort(s_tier, "high")

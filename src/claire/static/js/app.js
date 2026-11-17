@@ -1837,6 +1837,7 @@ function resumeGraphAfterIngest(){
 
 // 초기 구동 검사: 적재 진행 중이면 그래프를 표시하거나 계산하지 않고 즉시 대조 매트릭스로 진입
 fetch(apiUrl('stats')).then(r => r.ok ? r.json() : null).then(d => {
+  applyEffortSpecFromStats(d);
   if(d && d.active_ingest && d.active_ingest.heatmap_matrix){
     const docId = (d.active_ingest.result && d.active_ingest.result.document_id) || d.active_ingest.heatmap_matrix.document_id || null;
     if(docId){
@@ -2397,6 +2398,33 @@ function buildDialogThemeConfig(selectedThemeId, helpOwnerKey, collabDeniedKey){
   };
 }
 
+let latestIngestEffortSpec = null;
+
+function applyEffortSpecFromStats(stats){
+  if(!stats || !stats.ingest_effort) return;
+  latestIngestEffortSpec = stats.ingest_effort;
+  if(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.setEffortSpec === 'function'){
+    window.ClaireIngestDialogs.setEffortSpec(stats.ingest_effort);
+  }
+}
+
+async function refreshIngestEffortSpec(themeOverride){
+  if(!canIngest()) return;
+  try{
+    const base = apiUrl('stats');
+    let url = base;
+    if(themeOverride !== undefined && themeOverride !== null && String(themeOverride) !== ''){
+      const u = new URL(base, window.location.href);
+      u.searchParams.set('theme', String(themeOverride));
+      url = u.pathname + u.search;
+    }
+    const r = await fetch(url, { cache: 'no-store' });
+    if(!r.ok) return;
+    const d = await r.json();
+    applyEffortSpecFromStats(d);
+  }catch(_){}
+}
+
 function openIngest(){
   if(!canIngest()) return;
   if(activeIngest && activeIngest.running){
@@ -2407,6 +2435,8 @@ function openIngest(){
   if(window.ClaireIngestDialogs){
     window.ClaireIngestDialogs.openIngestDialog({
       themeConfig,
+      effortSpec: latestIngestEffortSpec,
+      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
       getFocusPlaceholder: function(tid){
         const effectiveTid = tid || (isMultiThemeEnabled() ? String(activeThemeId || '0') : '0');
         const themeObj = findTheme(effectiveTid);
@@ -2419,6 +2449,7 @@ function openIngest(){
     if(themeConfig.deniedMsg){
       window.ClaireIngestDialogs.showMsg('ingest-modal-msg', themeConfig.deniedMsg, true);
     }
+    refreshIngestEffortSpec(themeConfig.selectedValue || activeThemeId);
   }
 }
 async function runIngest(){
@@ -2521,7 +2552,7 @@ async function runIngest(){
       }
       let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>' + tr("ws.ingest.failed") + ' '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.ingest.failed") + ' '+esc(d.error||d.detail||('HTTP '+r.status))+'</p>'; return;
     }
     if(!r.body) throw new Error(tr("ws.common.no_stream"));
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
@@ -2620,12 +2651,15 @@ function openReingest(){
   if(window.ClaireIngestDialogs){
     window.ClaireIngestDialogs.openReingestDialog({
       themeConfig,
+      effortSpec: latestIngestEffortSpec,
+      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
       target: defTarget,
       selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
     });
     if(themeConfig.deniedMsg){
       window.ClaireIngestDialogs.showMsg('reingest-modal-msg', themeConfig.deniedMsg, true);
     }
+    refreshIngestEffortSpec(themeConfig.selectedValue || curDocThemeId);
   }
 }
 
@@ -2729,7 +2763,7 @@ async function runReingest(){
       }
       let d={};
       try{ d=await r.json(); }catch(_){}
-      panel.innerHTML='<p class=hint>' + tr("ws.reingest.failed") + ' '+esc(d.error||('HTTP '+r.status))+'</p>'; return;
+      panel.innerHTML='<p class=hint>' + tr("ws.reingest.failed") + ' '+esc(d.error||d.detail||('HTTP '+r.status))+'</p>'; return;
     }
     if(!r.body) throw new Error(tr("ws.common.no_stream"));
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf='';
@@ -2801,6 +2835,8 @@ function openRegen(docIdOverride, compOverride){
   if(window.ClaireIngestDialogs){
     window.ClaireIngestDialogs.openRegenDialog({
       themeConfig,
+      effortSpec: latestIngestEffortSpec,
+      onThemeChange: function(tid){ refreshIngestEffortSpec(tid); },
       target: defTarget,
       component: compOverride || 'all',
       selectedDocLabel: defTitle ? (tr('ws.common.selected_doc') + ' <b>' + defTitle + '</b>') : ''
@@ -2808,6 +2844,7 @@ function openRegen(docIdOverride, compOverride){
     if(themeConfig.deniedMsg){
       window.ClaireIngestDialogs.showMsg('regen-modal-msg', themeConfig.deniedMsg, true);
     }
+    refreshIngestEffortSpec(themeConfig.selectedValue || curDocThemeId);
   }
 }
 
@@ -2866,7 +2903,7 @@ async function runRegen(isDryRun){
       }
       const d = await r.json();
       if(!r.ok || d.error){
-        if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.dry_run_failed") + ' ' + esc(d.error || ('HTTP ' + r.status)) + '</p>';
+        if(resDiv) resDiv.innerHTML = '<p class="hint">' + tr("ws.common.dry_run_failed") + ' ' + esc(d.error || d.detail || ('HTTP ' + r.status)) + '</p>';
         return;
       }
       let h = '<div style="padding:10px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px">';
@@ -2953,7 +2990,9 @@ async function runRegen(isDryRun){
       return;
     }
     if(!r.ok){
-      throw new Error('HTTP ' + r.status);
+      let d={};
+      try{ d = await r.json(); }catch(_){}
+      throw new Error(d.error || d.detail || ('HTTP ' + r.status));
     }
     const reader = r.body.getReader();
     const dec = new TextDecoder('utf-8');
@@ -4966,6 +5005,7 @@ async function enterHome({reason = 'brand'} = {}){
     const r = await fetch(apiUrl('stats'), { cache: 'no-store' });
     if(r.ok) stats = await r.json();
   }catch(_){}
+  applyEffortSpecFromStats(stats);
 
   const view = resolveHomeView(stats, activeThemeId);
 
@@ -5782,6 +5822,7 @@ function setAccessScope(scope, reason){
   else if(centerView === 'graph' && typeof renderGraphInsights === 'function') renderGraphInsights();
   else if(centerView === 'reader' && (activeDoc || (typeof curReaderDoc !== 'undefined' && curReaderDoc))) loadDocPanel(activeDoc || curReaderDoc);
   else if(panel) panel.innerHTML=defaultHint();
+  if(canIngest()) refreshIngestEffortSpec();
 }
 function expireWriteAccess(){
   IS_ADMIN = false;

@@ -144,3 +144,76 @@ test('a narrow screen keeps top bar controls accessible without overflow across 
     expect(overflow, target.name).toBeLessThanOrEqual(0);
   }
 });
+
+test('ingest modals expose only selectable provider effort options and fixed models hide unsupported choices', async ({ browser }) => {
+  const context = await browser.newContext({ serviceWorkers: 'block', locale: 'ko-KR' });
+  const page = await context.newPage();
+  let effortSpec = {
+    provider: 'gemini',
+    model: 'gemini-4-argon',
+    options: ['low', 'medium', 'high'],
+    default_effort: 'medium',
+    fixed: false,
+    fixed_effort: '',
+    tier_max_effort: '',
+  };
+  await page.route(/\/stats(\?|$)/, async (route) => {
+    const resp = await route.fetch();
+    const json = await resp.json();
+    if (Object.prototype.hasOwnProperty.call(json, 'ingest_effort')) {
+      json.ingest_effort = effortSpec;
+    }
+    await route.fulfill({
+      status: resp.status(),
+      contentType: 'application/json',
+      body: JSON.stringify(json),
+    });
+  });
+
+  await page.goto(login(4), { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#addbtn')).toBeVisible();
+
+  await page.locator('#addbtn').click();
+  await page.locator('#ingest-opt-new').click();
+  await expect(page.locator('dialog#modal-ingest')).toBeVisible();
+  await expect.poll(() =>
+    page.locator('#ingest-effort-grid input[name="ingest-effort"]').evaluateAll((els) => els.map((e) => e.value))
+  ).toEqual(['', 'low', 'medium', 'high']);
+  await page.keyboard.press('Escape');
+
+  await page.locator('#addbtn').click();
+  await page.locator('#ingest-opt-reingest').click();
+  await expect(page.locator('dialog#modal-reingest')).toBeVisible();
+  await expect.poll(() =>
+    page.locator('#reingest-effort-grid input[name="reingest-effort"]').evaluateAll((els) => els.map((e) => e.value))
+  ).toEqual(['', 'low', 'medium', 'high']);
+  await page.keyboard.press('Escape');
+
+  await page.locator('#addbtn').click();
+  await page.locator('#ingest-opt-regen').click();
+  await expect(page.locator('dialog#modal-regen')).toBeVisible();
+  await expect.poll(() =>
+    page.locator('#regen-effort-grid input[name="regen-effort"]').evaluateAll((els) => els.map((e) => e.value))
+  ).toEqual(['', 'low', 'medium', 'high']);
+  await page.keyboard.press('Escape');
+
+  effortSpec = {
+    provider: 'antigravity',
+    model: 'claude-opus-5-5-medium',
+    options: [],
+    default_effort: 'medium',
+    fixed: true,
+    fixed_effort: 'medium',
+    tier_max_effort: '',
+  };
+  await page.goto('/syndication', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#addbtn')).toBeVisible();
+  await page.locator('#addbtn').click();
+  await page.locator('#ingest-opt-new').click();
+  await expect(page.locator('dialog#modal-ingest')).toBeVisible();
+  await expect.poll(() =>
+    page.locator('#ingest-effort-grid input[name="ingest-effort"]').evaluateAll((els) => els.map((e) => e.value))
+  ).toEqual(['']);
+  await expect(page.locator('#ingest-effort-hint')).toContainText('claude-opus-5-5-medium');
+  await context.close();
+});
