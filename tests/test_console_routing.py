@@ -85,7 +85,7 @@ def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, s
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 1, 1, ?, ?, '', ?, ?)",
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 1, ?, ?, '', ?, ?)",
             (kb_id, seq, number, label, f"Desc {label}", 1 if is_personal else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
@@ -127,10 +127,10 @@ def console_env(tmp_path: Path):
 
     tok_store = get_token_store(data_dir=data_dir)
     admin_owner_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    admin_collab_tok = tok_store.create_token(name="admin-collab", scope="collaborator", account_id=1)["token"]
+    admin_collab_tok = tok_store.create_token(name="admin-collab", scope="write", account_id=1)["token"]
     admin_ro_tok = tok_store.create_token(name="admin-ro", scope="readonly", account_id=1)["token"]
     alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="collaborator", account_id=2)["token"]
+    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="write", account_id=2)["token"]
 
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)

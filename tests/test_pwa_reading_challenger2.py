@@ -42,7 +42,7 @@ def test_app_js_effective_scope_node_permutation_oracle():
     const testCases = [
         // [relation, scope, expectedEffectiveScope]
         ['owner', 'owner', 'owner'],
-        ['owner', 'collaborator', 'collaborator'],
+        ['owner', 'write', 'write'],
         ['owner', 'readonly', 'readonly'],
         ['owner', 'anonymous', 'anonymous'],
         ['owner', undefined, 'readonly'],
@@ -51,7 +51,7 @@ def test_app_js_effective_scope_node_permutation_oracle():
 
         // Visitor tests
         ['visitor', 'owner', 'readonly'],
-        ['visitor', 'collaborator', 'readonly'],
+        ['visitor', 'write', 'readonly'],
         ['visitor', 'readonly', 'readonly'],
         ['visitor', 'anonymous', 'anonymous'],
         ['visitor', undefined, 'readonly'],
@@ -59,7 +59,7 @@ def test_app_js_effective_scope_node_permutation_oracle():
 
         // Delegate / other relations
         ['delegate', 'owner', 'readonly'],
-        ['delegate', 'collaborator', 'readonly'],
+        ['delegate', 'write', 'readonly'],
         ['delegate', 'readonly', 'readonly'],
         ['delegate', 'anonymous', 'anonymous'],
 
@@ -115,7 +115,7 @@ def test_app_js_set_access_scope_dom_behavior_node():
     let activeDoc = null;
 
     function canWrite() { return AUTH_SCOPE === 'owner'; }
-    function canIngest() { return AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'collaborator'; }
+    function canIngest() { return AUTH_SCOPE === 'owner' || AUTH_SCOPE === 'write'; }
     function defaultHint() { return '<p>hint</p>'; }
     function renderChips() {}
     function updateSearchModeUI() {}
@@ -123,14 +123,14 @@ def test_app_js_set_access_scope_dom_behavior_node():
 
     // Exact setAccessScope function from app.js
     function setAccessScope(scope, reason){
-      AUTH_SCOPE = ['owner','collaborator','readonly','anonymous'].includes(scope) ? scope : 'unknown';
+      AUTH_SCOPE = ['owner','write','readonly','anonymous'].includes(scope) ? scope : 'unknown';
       READONLY = !canWrite();
       document.body.dataset.authScope=AUTH_SCOPE;
       document.body.classList.toggle('ro', READONLY);
       const label=document.getElementById('authstate');
       if(label) label.textContent =
         AUTH_SCOPE==='owner' ? '인증됨' :
-        AUTH_SCOPE==='collaborator' ? '협업자' :
+        AUTH_SCOPE==='write' ? '쓰기' :
         AUTH_SCOPE==='readonly' ? '읽기전용' :
         AUTH_SCOPE==='anonymous' ? '익명 읽기전용' :
         reason==='expired' ? '쓰기 세션 만료 — /web 재접속' : '권한 확인 실패';

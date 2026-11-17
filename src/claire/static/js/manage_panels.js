@@ -1379,7 +1379,6 @@
     const descEl = document.getElementById('editthemep-desc-' + themeId);
     const iconEl = document.getElementById('editthemep-icon-' + themeId);
     const pubEl = document.getElementById('editthemep-pub-' + themeId);
-    const collabEl = document.getElementById('editthemep-collab-' + themeId);
     const presEl = document.getElementById('editthemep-pres-' + themeId);
     const gaEl = document.getElementById('editthemep-ga-' + themeId);
     const sorcererEl = document.getElementById('editthemep-sorcerer-' + themeId);
@@ -1395,9 +1394,6 @@
     const payload = { id: sendId, label, description, icon, is_public };
     if (sorcererEl !== null && sorcererEl !== undefined) {
       payload.sorcerer = sorcererEl.value.trim();
-    }
-    if (collabEl) {
-      payload.is_collaborator_accessible = collabEl.checked;
     }
     if (presEl) {
       payload.presentation_enabled = presEl.checked;
@@ -1449,29 +1445,6 @@
     }
   }
 
-  async function toggleThemeCollaborator(themeId, newAccess) {
-    try {
-      const tObj = findTheme(themeId);
-      const sendId = (tObj && tObj.number != null && String(tObj.number) !== '0') ? String(tObj.number) : String(themeId);  // the server takes only the number (CT23)
-      const url = resolveApiUrl(_themeState.opts, 'themes');
-      const r = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sendId, is_collaborator_accessible: newAccess }) });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        alert(trKey("console.js.panels.themes.collab_failed") + ' ' + (err.detail || err.error || ('HTTP ' + r.status)));
-        return;
-      }
-      if (_themeState.opts && typeof _themeState.opts.onThemeChange === 'function') {
-        await _themeState.opts.onThemeChange('collaborator', sendId);
-      }
-      if (_themeState.opts && typeof _themeState.opts.onThemeChanged === 'function') {
-        await _themeState.opts.onThemeChanged('collaborator', sendId);
-      }
-      await renderThemeManager(_themeState.container, _themeState.opts);
-    } catch (e) {
-      alert(trKey("console.js.panels.error_prefix") + ' ' + e);
-    }
-  }
-
   async function toggleThemePresentation(themeId, newPres) {
     try {
       const tObj = findTheme(themeId);
@@ -1499,7 +1472,6 @@
     const labelEl = document.getElementById('newthemep-label');
     const descEl = document.getElementById('newthemep-desc');
     const iconEl = document.getElementById('newthemep-icon');
-    const collabEl = document.getElementById('newthemep-collab');
     const presEl = document.getElementById('newthemep-pres');
     const gaEl = document.getElementById('newthemep-ga');
     const sorcererEl = document.getElementById('newthemep-sorcerer');
@@ -1508,14 +1480,13 @@
     if (!label) { alert(trKey("console.js.panels.themes.name_needed")); return; }
     const description = ((descEl || {}).value || '').trim();
     const icon = ((iconEl || {}).value || '📁').trim() || '📁';
-    const is_collaborator_accessible = collabEl ? collabEl.checked : true;
     const presentation_enabled = presEl ? presEl.checked : false;
     const ga_measurement_id = ((gaEl || {}).value || '').trim() || null;
     const sorcerer = ((sorcererEl || {}).value || '').trim();
 
     // A shared knowledge base is always public and needs a knowledge type (CT5, CT12).
     const knowledge_type = ((document.getElementById('newthemep-type') || {}).value || '').trim();
-    const payload = { label, description, icon, knowledge_type, is_collaborator_accessible, presentation_enabled };
+    const payload = { label, description, icon, knowledge_type, presentation_enabled };
     if (sorcerer) payload.sorcerer = sorcerer;
     if (ga_measurement_id) payload.ga_measurement_id = ga_measurement_id;
 
@@ -1575,14 +1546,13 @@
     const themes = _themeState.themes || [];
     const optsState = _themeState.opts || {};
     const isOwner = evalBool(optsState.isOwner, evalBool(optsState.canWrite, true));
-    const isCollab = evalBool(optsState.isCollaborator, false);
     const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
 
     let h = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2>';
     if (isOwner) {
       h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_owner")) + '</p>';
     } else {
-      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_collaborator")) + '</p>';
+      h += '<p class="al">' + esc(trKey("console.js.panels.themes.desc_reader")) + '</p>';
     }
 
     h += '<div class="theme-manager-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">';
@@ -1591,13 +1561,9 @@
       const isPub = t.is_public !== false;
       const pubBadge = isPub ? '<span style="color:var(--accent,#00ffaa);font-weight:600;font-size:12px;background:rgba(0,255,170,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.public")) + '</span>' : '<span style="color:var(--warn,#f39c12);font-weight:600;font-size:12px;background:rgba(243,156,18,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.private")) + '</span>';
       const toggleBtn = isPub ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.make_private"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeVisibility(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.make_public"))}</button>`;
-      const isCollabAcc = t.is_collaborator_accessible !== false;
-      const collabBadge = isCollabAcc ? '<span style="color:#60a5fa;font-weight:600;font-size:12px;background:rgba(96,165,250,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.collab_open")) + '</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px">' + esc(trKey("console.js.panels.themes.collab_blocked")) + '</span>';
-      const toggleCollabBtn = isCollabAcc ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.collab_blocked"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemeCollaborator(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.collab_open"))}</button>`;
       const isPres = t.presentation_enabled === true;
       const presBadge = isPres ? '<span style="color:#38bdf8;font-weight:600;font-size:12px;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_on_title")) + '"><span data-icon="screen"></span> ' + esc(trKey("console.js.panels.themes.presentation_on")) + '</span>' : '<span style="color:var(--muted,#888);font-weight:600;font-size:12px;background:rgba(136,136,136,0.1);padding:2px 6px;border-radius:4px" title="' + esc(trKey("console.js.panels.themes.presentation_off_title")) + '"><span data-icon="block"></span> ' + esc(trKey("console.js.panels.themes.presentation_off")) + '</span>';
       const togglePresBtn = isPres ? `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, false)">${esc(trKey("console.js.panels.themes.presentation_turn_off"))}</button>` : `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="toggleThemePresentation(${jsArg(themeKey)}, true)">${esc(trKey("console.js.panels.themes.presentation_turn_on"))}</button>`;
-      const canIngestHere = themeKey !== '0' && isCollabAcc;
       const idLabel = themeKey === '0' ? trKey("console.js.panels.themes.id_default") : trKey("console.js.panels.themes.id_label", { id: t.number ? t.number : '#' + t.id });
       const rawMgr = (t.sorcerer || t.knowledge_manager || '').trim();
       const effMgr = rawMgr || (t.effective_sorcerer || defaultMgr);
@@ -1613,8 +1579,6 @@
       }
       h += pubBadge;
       if (isOwner) h += toggleBtn;
-      if (themeKey !== '0') h += collabBadge;
-      if (isOwner && themeKey !== '0') h += toggleCollabBtn;
       h += presBadge;
       if (isOwner) h += togglePresBtn;
       if (isOwner) h += `<button type="button" class="sec" style="font-size:11px;padding:3px 8px;" onclick="showThemeEditForm(${jsArg(themeKey)})"><span data-icon="edit"></span> ${esc(trKey("console.js.panels.themes.edit"))}</button>`;
@@ -1626,7 +1590,7 @@
       if (t.description) h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(t.description)}</p>`;
       h += `<p style="margin:4px 0 0;font-size:12px;opacity:0.8">${esc(trKey("console.js.panels.themes.manager_prefix"))} ${esc(effMgr)}</p>`;
 
-      h += `<div id="theme-options-view-${themeKey}" style="display:${isCollab ? 'flex' : 'none'};margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
+      h += `<div id="theme-options-view-${themeKey}" style="display:none;margin-top:10px;padding:8px 10px;border-top:1px dashed var(--border);background:var(--panel-bg);border-radius:4px;font-size:12px;flex-direction:column;gap:6px;">`;
       h += '<div style="font-weight:600;color:var(--accent2);margin-bottom:2px;"><span data-icon="settings"></span> ' + esc(trKey("console.js.panels.themes.options_title")) + '</div>';
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_label"))}</b>: ${esc(t.label)}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_manager"))}</b>: ${esc(effMgr)}</div>`;
@@ -1635,8 +1599,6 @@
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_legacy"))}</b>: ${(t.legacy_hosts && t.legacy_hosts.length) ? t.legacy_hosts.map(lh => esc(trKey("console.js.panels.themes.legacy_host", { host: lh.host, activated: lh.activated_at || '-', sunset: lh.sunset_at || '-' }))).join(', ') : esc(trKey("console.js.panels.themes.none"))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_ga"))}</b>: ${esc(t.ga_measurement_id || esc(trKey("console.js.panels.themes.ga_unset")))}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_visibility"))}</b>: ${isPub ? esc(trKey("console.js.panels.themes.visibility_public")) : esc(trKey("console.js.panels.themes.private"))}</div>`;
-      if (themeKey !== '0') h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab"))}</b>: ${isCollabAcc ? esc(trKey("console.js.panels.themes.collab_open_detail")) : esc(trKey("console.js.panels.themes.collab_blocked"))}</div>`;
-      h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_collab_ingest"))}</b>: ${canIngestHere ? '<span style="color:var(--accent,#00ffaa);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_allowed")) + '</span>' : (themeKey === '0' ? '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_default")) + '</span>' : '<span style="color:var(--warn);font-weight:600;">' + esc(trKey("console.js.panels.themes.ingest_limited_owner")) + '</span>')}</div>`;
       h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_presentation"))}</b>: ${isPres ? '<span style="color:#38bdf8;font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_enabled")) + '</span>' : '<span style="color:var(--muted);font-weight:600;">' + esc(trKey("console.js.panels.themes.presentation_disabled")) + '</span>'}</div>`;
       if (t.stats) h += `<div>• <b>${esc(trKey("console.js.panels.themes.opt_stats"))}</b>: ${esc(trKey("console.js.panels.themes.stats", { documents: t.stats.documents || 0, entities: t.stats.entities || 0, relations: t.stats.relations || 0 }))}</div>`;
       h += '</div>';
@@ -1653,9 +1615,6 @@
         h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
         h += `<div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">${esc(trKey("console.js.panels.themes.opt_icon"))}</label><input id="editthemep-icon-${themeKey}" style="width:100%;box-sizing:border-box" value="${esc(t.icon || '📁')}"/></div>`;
         h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pub-${themeKey}" type="checkbox" ${isPub ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.public_checkbox"))}</label></div>`;
-        if (themeKey !== '0') {
-          h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-collab-${themeKey}" type="checkbox" ${isCollabAcc ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.collab_checkbox"))}</label></div>`;
-        }
         h += `<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="editthemep-pres-${themeKey}" type="checkbox" ${isPres ? 'checked' : ''} style="width:auto;margin-right:4px;vertical-align:middle;"/>${esc(trKey("console.js.panels.themes.presentation_checkbox"))}</label></div>`;
         h += '</div>';
         h += '<div style="display:flex;gap:6px;margin-top:4px;align-items:center;">';
@@ -1679,7 +1638,6 @@
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.col_description")) + '</label><input id="newthemep-desc" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.desc_placeholder")) + '"/></div>';
       h += '<div><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.ga_label")) + '</label><input id="newthemep-ga" style="width:100%;box-sizing:border-box" placeholder="' + esc(trKey("console.js.panels.themes.ga_placeholder")) + '"/></div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div style="flex:1;min-width:80px;"><label style="font-size:11px;opacity:0.8">' + esc(trKey("console.js.panels.themes.opt_icon")) + '</label><input id="newthemep-icon" style="width:100%;box-sizing:border-box" value="📁"/></div>';
-      h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-collab" type="checkbox" checked style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.collab_checkbox")) + '</label></div>';
       h += '<div style="flex:1;display:flex;align-items:center;padding-top:14px;"><label style="font-size:12px;cursor:pointer;"><input id="newthemep-pres" type="checkbox" style="width:auto;margin-right:4px;vertical-align:middle;"/>' + esc(trKey("console.js.panels.themes.presentation_checkbox")) + '</label></div></div>';
       h += '<button type="button" style="align-self:flex-start;padding:4px 12px;margin-top:4px;" onclick="createThemeFromUI()">' + esc(trKey("console.js.panels.themes.create")) + '</button>';
       h += '</div></details>';
@@ -1706,11 +1664,13 @@
     if (!target) return;
     target.innerHTML = '<h2><span data-icon="folder"></span> ' + esc(trKey("console.js.panels.themes.title")) + '</h2><p class="hint">' + esc(trKey("console.js.panels.themes.loading")) + '</p>';
     try {
-      const url = resolveApiUrl(_themeState.opts, 'themes');
-      const r = await fetch(url);
+      // The personal knowledge base of the caller and the shared knowledge bases: all of them for the admin, else those where the caller is an active member (design Section 7).
+      const isAdmin = evalBool(_themeState.opts.isAdmin, false);
+      const url = resolveRootUrl(_themeState.opts, isAdmin ? 'kb' : 'kb?joined=true');
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
-      _themeState.themes = data.themes || [];
+      _themeState.themes = [data.personal_kb, ...(data.knowledge_bases || [])].filter(Boolean);
       renderThemeManagerDOM();
     } catch (e) {
       target.innerHTML = '<p class="hint">' + esc(trKey("console.js.panels.themes.load_failed")) + ' ' + esc(String(e)) + '</p>';
@@ -1820,6 +1780,10 @@
 
     let h = '<h2><span data-icon="key"></span> ' + esc(trKey("console.js.panels.tokens.title")) + '</h2>';
     h += '<p class="al">' + esc(trKey("console.js.panels.tokens.desc")) + '</p>';
+    const scopeNotices = _tokenState.scopeNotices || [];
+    if (scopeNotices.length) {
+      h += '<div role="status" style="padding:8px 10px;border-radius:6px;background:rgba(243,156,18,0.1);color:var(--warn,#9a6700);font-size:12px;margin-bottom:12px;border:1px solid var(--warn,#9a6700);"><span data-icon="warning"></span> ' + esc(trKey("console.js.panels.tokens.scope_notice")) + '<ul style="margin:4px 0 0;padding-left:18px;">' + scopeNotices.map(n => '<li>' + esc(n.name) + ' (#' + esc(String(n.id)) + ')</li>').join('') + '</ul></div>';
+    }
     h += alertHtml;
 
     if (activeNewToken) {
@@ -1852,7 +1816,7 @@
     h += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">' + esc(trKey("console.js.panels.tokens.scope_label")) + '</label>';
     h += '<select id="new-token-scope" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:12px;">';
     h += '<option value="readonly" selected>' + esc(trKey("console.js.panels.tokens.scope_readonly")) + '</option>';
-    h += '<option value="collaborator">' + esc(trKey("console.js.panels.tokens.scope_collaborator")) + '</option>';
+    h += '<option value="write">' + esc(trKey("console.js.panels.tokens.scope_write")) + '</option>';
     h += '<option value="owner">' + esc(trKey("console.js.panels.tokens.scope_owner")) + '</option>';
     h += '</select>';
     h += '</div>';
@@ -1900,7 +1864,7 @@
           lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         }
 
-        const scopeColors = { owner: 'var(--accent,#0969da)', collaborator: '#8250df', readonly: '#57606a' };
+        const scopeColors = { owner: 'var(--accent,#0969da)', write: '#8250df', readonly: '#57606a' };
         const scopeCol = scopeColors[tok.scope] || '#57606a';
 
         h += `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg);opacity:${isRevoked ? '0.6' : '1'};">`;
@@ -1953,6 +1917,8 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
       _tokenState.tokens = data.tokens || [];
+      // The server sends each scope notice once (design Section 6.6 rule 2). Keep it for the next renders of this page.
+      if (Array.isArray(data.scope_notices) && data.scope_notices.length) _tokenState.scopeNotices = data.scope_notices;
       const initialMsg = (_tokenState.opts && _tokenState.opts.initialMsg) || undefined;
       const initialSuccess = (_tokenState.opts && _tokenState.opts.initialSuccess) || false;
       renderTokenManagerDOM(initialMsg, initialSuccess, _tokenState.newCreatedToken);
@@ -1983,7 +1949,6 @@
     hideThemeEditForm,
     updateThemeFromUI,
     toggleThemeVisibility,
-    toggleThemeCollaborator,
     toggleThemePresentation,
     createThemeFromUI,
     deleteThemeFromUI,

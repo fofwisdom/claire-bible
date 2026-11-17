@@ -177,8 +177,8 @@ def world(tmp_path):
     for t in themes:
         conn.execute(
             "INSERT OR REPLACE INTO knowledge_bases (id, seq, label, description, icon, db_path, is_personal, is_public, "
-            "is_collaborator_accessible, created_at, updated_at, account_id, number) "
-            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?)",
+            "created_at, updated_at, account_id, number) "
+            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, ?, ?, ?, ?)",
             (t.id, t.seq, t.label, t.db_path, 1 if t.is_personal else 0, t.created_at,
              t.updated_at, t.account_id, t.number),
         )

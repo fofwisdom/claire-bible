@@ -35,7 +35,7 @@ def env(tmp_path):
     _db(settings, lambda conn: accounts_store.AccountStore(conn).set_federation_state("on", updated_by=1))
     _db(settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=1 WHERE id IN (?, ?)", (alpha, beta)))
     # Alpha has one published document in a public theme.
-    _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 0, 1, 1, ?, 516412345678901234)", (alpha,)))
+    _db(settings, lambda conn: conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha theme', 1, 1, 1, 1, ?, 516412345678901234)", (alpha,)))
     _db(settings, lambda conn: conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-published', 11, 'Published', 'body', 'md', 0, 1)"))
     _db(settings, lambda conn: conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (?, ?, 11, 'doc-published', ?, 1800000000.0, 1800000000.0)", (OBJECT_ID, alpha, alpha)))
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="stub")))

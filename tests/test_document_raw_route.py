@@ -10,14 +10,15 @@ from claire.api.server import create_app
 from claire.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from claire.store.token_store import get_token_store
 from claire.store.queries import document_detail
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
-COLLAB_TOKEN = "collab-" + ("c" * 32)
+WRITE_TOKEN = "write-" + ("w" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-COLLAB_HEADERS = {"Authorization": f"Bearer {COLLAB_TOKEN}"}
+WRITE_HEADERS = {"Authorization": f"Bearer {WRITE_TOKEN}"}
 READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
 
 
@@ -38,13 +39,14 @@ def raw_test_context(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_COLLABORATOR_TOKEN=COLLAB_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
         CLAIRE_ANONYMOUS_READONLY=True,
     )
 
     conn = dbm.connect(Path(db_path))
     dbm.init_db(conn)
+    # A token with the scope ``write`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6) reads the raw file.
+    get_token_store(data_dir=data_dir).create_api_token(name="writer", scope="write", token=WRITE_TOKEN)
 
     # 1. Document with raw_inbox file
     doc_id = "doc-raw-001"
@@ -141,9 +143,9 @@ def test_document_raw_route_owner_access(raw_test_context):
     assert "no-store" in resp.headers["cache-control"]
 
 
-def test_document_raw_route_collaborator_access(raw_test_context):
+def test_document_raw_route_write_scope_access(raw_test_context):
     client, _, doc_id, _, _, raw_pdf_content, _ = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id}", headers=COLLAB_HEADERS)
+    resp = client.get(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
     assert resp.status_code == 200
     assert resp.content == raw_pdf_content
     assert resp.headers["content-type"] == "application/pdf"
@@ -158,7 +160,8 @@ def test_document_raw_route_anonymous_blocked(raw_test_context):
 def test_document_raw_route_readonly_blocked(raw_test_context):
     client, _, doc_id, _, _, _, _ = raw_test_context
     resp = client.get(f"/document/raw?id={doc_id}", headers=READONLY_HEADERS)
-    assert resp.status_code == 404
+    # A credential of the account whose scope is too small gets 403 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
+    assert (resp.status_code, resp.json()) == (403, {"error": "scope_insufficient", "scope": "readonly", "required": "write"})
 
 
 def test_document_raw_route_path_traversal_blocked(raw_test_context):
@@ -175,7 +178,7 @@ def test_document_raw_missing_id(raw_test_context):
 
 def test_document_raw_route_head_request(raw_test_context):
     client, _, doc_id, _, _, _, _ = raw_test_context
-    resp = client.head(f"/document/raw?id={doc_id}", headers=COLLAB_HEADERS)
+    resp = client.head(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/pdf"
     assert "secret_research.pdf" in resp.headers["content-disposition"]
@@ -190,7 +193,7 @@ def test_robots_txt_contains_disallow_raw(raw_test_context):
 
 def test_document_raw_from_presentation_pdf_meta(raw_test_context):
     client, _, _, doc_id_meta, _, _, art_pdf_content = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id_meta}", headers=COLLAB_HEADERS)
+    resp = client.get(f"/document/raw?id={doc_id_meta}", headers=WRITE_HEADERS)
     assert resp.status_code == 200
     assert resp.content == art_pdf_content
 
@@ -214,7 +217,7 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     assert "file://" not in anon_page_resp.text
 
     # Step 3: Collaborator user accesses shared doc page
-    collab_page_resp = client.get(f"/p?s={share_token}", headers=COLLAB_HEADERS)
+    collab_page_resp = client.get(f"/p?s={share_token}", headers=WRITE_HEADERS)
     assert collab_page_resp.status_code == 200
     assert '"can_access_raw": true' in collab_page_resp.text or '"can_access_raw":true' in collab_page_resp.text
 
@@ -223,12 +226,12 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     anon_raw_resp = client.get(f"/document/raw?id={doc_id}")
     assert anon_raw_resp.status_code == 404
 
-    # Readonly -> 404
+    # Readonly -> 403
     readonly_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=READONLY_HEADERS)
-    assert readonly_raw_resp.status_code == 404
+    assert readonly_raw_resp.status_code == 403
 
-    # Collaborator -> 200 with raw binary content
-    collab_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=COLLAB_HEADERS)
+    # Write scope -> 200 with raw binary content
+    collab_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
     assert collab_raw_resp.status_code == 200
     assert collab_raw_resp.content == raw_pdf_content
 

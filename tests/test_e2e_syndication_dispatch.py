@@ -78,8 +78,10 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
         headers=OWNER_HEADERS,
     )
     assert res_t2.status_code == 201
-    theme2_id = res_t2.json()["theme"]["id"]
-    assert theme2_id == 2
+    shared2_id = res_t2.json()["theme"]["id"]
+    assert shared2_id == 2
+    # The copy of a dispatch is an ingest: its target is the personal knowledge base of the caller (CT4). A shared knowledge base as the target gets 403.
+    theme2_id = 0
 
     # 3. Ingest document into Theme 1
     ingest_resp = seed(settings, theme1_id, "대규모 언어 모델의 프롬프트 인젝션 취약점 분석 및 방어 기법 연구 보고서입니다.")  # HTTP ingest writes only to the personal knowledge base (CT23)
@@ -95,7 +97,9 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     docs_t2 = client.get(kb_url(settings, theme2_id, "/documents"), headers=OWNER_HEADERS).json()
     assert len(docs_t2["documents"]) == 0
 
-    # 5. Cross-theme dispatch from Theme 1 to Theme 2 via POST /api/syndication/dispatch
+    # 5. Dispatch from the shared knowledge base 1 to the personal knowledge base via POST /api/syndication/dispatch
+    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": theme1_id, "target_kb_id": shared2_id}, headers=OWNER_HEADERS)
+    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_personal_only"})
     applied_focus = "적대적 공격 탐지 관점 분석"
     dispatch_resp = client.post(
         "/api/syndication/dispatch",
@@ -146,11 +150,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
             "SELECT id, kb_id FROM documents WHERE id IN (?, ?) ORDER BY kb_id ASC",
             (doc_id, target_doc_id),
         ).fetchall()
-        assert len(rows) == 2
-        assert rows[0]["id"] == doc_id
-        assert rows[0]["kb_id"] == theme1_id
-        assert rows[1]["id"] == target_doc_id
-        assert rows[1]["kb_id"] == theme2_id
+        assert {r["id"]: r["kb_id"] for r in rows} == {doc_id: theme1_id, target_doc_id: theme2_id}
 
         # Verify syndication_dispatches row in database
         disp_row = dbm.get_syndication_dispatch(conn, dispatch_id)

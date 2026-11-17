@@ -63,7 +63,6 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     db_path TEXT DEFAULT '',
     is_personal INTEGER DEFAULT 0,
     is_public INTEGER DEFAULT 1,
-    is_collaborator_accessible INTEGER DEFAULT 1,
     default_focus TEXT DEFAULT '',
     fqdn TEXT DEFAULT '',
     ga_measurement_id TEXT DEFAULT '',
@@ -626,7 +625,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
             db_path TEXT DEFAULT '',
             is_personal INTEGER DEFAULT 0,
             is_public INTEGER DEFAULT 1,
-            is_collaborator_accessible INTEGER DEFAULT 1,
             default_focus TEXT DEFAULT '',
             fqdn TEXT DEFAULT '',
             ga_measurement_id TEXT DEFAULT '',
@@ -667,8 +665,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
     # v14: Insert default theme #0 into knowledge_bases if empty
     conn.execute(
-        "INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (0, 0, '기본 지식베이스', '일반 수집 자료 및 기본 지식', 1, 1, 0, unixepoch(), unixepoch())"
+        "INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at) "
+        "VALUES (0, 0, '기본 지식베이스', '일반 수집 자료 및 기본 지식', 1, 1, unixepoch(), unixepoch())"
     )
 
     # v14: Composite indexes with kb_id
@@ -755,6 +753,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
     _migrate_v28_shared_kb_schema(conn)
+    _migrate_v28_credential_scopes(conn)
     _migrate_v28_convert_knowledge_bases(conn)
     _purge_markdown_bodies(conn)
     backfill_embedding_models(conn)
@@ -888,7 +887,11 @@ def _migrate_v15_accounts(conn: sqlite3.Connection) -> None:
             f"(found {dict(admin) if admin is not None else 'no row'})"
         )
 
-    conn.execute("UPDATE knowledge_bases SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
+    # A row from before version 15 has no owner: the admin owns it. A shared knowledge base (version 28) has no owner by design and has a knowledge type: this step leaves it. Without this condition each start would give it to the admin, and the conversion of version 28 would then replace its founder and its knowledge type.
+    if "knowledge_type" in _table_columns(conn, "knowledge_bases"):
+        conn.execute("UPDATE knowledge_bases SET account_id=? WHERE account_id IS NULL AND knowledge_type IS NULL", (ADMIN_ACCOUNT_ID,))
+    else:
+        conn.execute("UPDATE knowledge_bases SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
     for tbl in _V15_CREDENTIAL_TABLES:
         conn.execute(f"UPDATE {tbl} SET account_id=? WHERE account_id IS NULL", (ADMIN_ACCOUNT_ID,))
 
@@ -1434,6 +1437,19 @@ def _migrate_v28_shared_kb_schema(conn: sqlite3.Connection) -> None:
         logger.warning("schema v28: table %s had %d row(s); it is kept as %s", table, rows, retired)
 
 
+def _migrate_v28_credential_scopes(conn: sqlite3.Connection) -> None:
+    """v28 credential scopes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 6.6 and 11.3). Idempotent (A3); it runs at each start.
+
+    The scope ``collaborator`` is not valid any more: its sessions (from the Telegram command ``/webco``, CT27) are deleted. The column ``is_collaborator_accessible`` has no function and is dropped. API tokens are in ``data/auth/api_tokens.json``; ``store.token_store`` converts them.
+    """
+    if _table_exists(conn, "auth_sessions") and "scope" in _table_columns(conn, "auth_sessions"):
+        deleted = conn.execute("DELETE FROM auth_sessions WHERE scope='collaborator'").rowcount
+        if deleted:
+            logger.info("schema v28: %d session(s) with the scope collaborator ended", deleted)
+    if _table_exists(conn, "knowledge_bases") and "is_collaborator_accessible" in _table_columns(conn, "knowledge_bases"):
+        conn.execute("ALTER TABLE knowledge_bases DROP COLUMN is_collaborator_accessible")
+
+
 def _migrate_v28_convert_knowledge_bases(conn: sqlite3.Connection) -> None:
     """v28 conversion (Section 12.2 step 2, CT6): each knowledge base that is not personal and has an owner becomes a shared knowledge base. Idempotent (A3); it runs at each start for the rows that still have the old shape.
 
@@ -1968,7 +1984,6 @@ def migrate_multi_db_to_single_db(
                 db_p = str(t.get("db_path", ""))
                 is_def = int(bool(t.get("is_personal", tid == 0)))
                 is_pub = int(bool(t.get("is_public", True)))
-                is_collab = int(bool(t.get("is_collaborator_accessible", True)))
                 default_focus = str(t.get("default_focus", ""))
                 fqdn = str(t.get("fqdn", ""))
                 ga_id = str(t.get("ga_measurement_id", t.get("ga_id", "")))
@@ -1983,9 +1998,9 @@ def migrate_multi_db_to_single_db(
                     """
                     INSERT INTO knowledge_bases (
                         id, seq, label, description, icon, db_path, is_personal, is_public,
-                        is_collaborator_accessible, default_focus, fqdn, ga_measurement_id,
+                        default_focus, fqdn, ga_measurement_id,
                         sorcerer, presentation_enabled, created_at, updated_at, account_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         seq = excluded.seq,
                         label = excluded.label,
@@ -1994,7 +2009,6 @@ def migrate_multi_db_to_single_db(
                         db_path = excluded.db_path,
                         is_personal = excluded.is_personal,
                         is_public = excluded.is_public,
-                        is_collaborator_accessible = excluded.is_collaborator_accessible,
                         default_focus = excluded.default_focus,
                         fqdn = excluded.fqdn,
                         ga_measurement_id = excluded.ga_measurement_id,
@@ -2002,7 +2016,7 @@ def migrate_multi_db_to_single_db(
                         presentation_enabled = excluded.presentation_enabled,
                         updated_at = excluded.updated_at
                     """,
-                    (tid, seq, label, desc, icon, db_p, is_def, is_pub, is_collab,
+                    (tid, seq, label, desc, icon, db_p, is_def, is_pub,
                      default_focus, fqdn, ga_id, sorcerer, pres_enabled, c_at, u_at, owner_id),
                 )
             conn.commit()
@@ -2067,8 +2081,8 @@ def migrate_multi_db_to_single_db(
             # Ensure theme record exists in themes table
             conn.execute(
                 """
-                INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id)
-                VALUES (?, ?, ?, '', ?, 1, 1, unixepoch(), unixepoch(), ?)
+                INSERT OR IGNORE INTO knowledge_bases (id, seq, label, description, is_personal, is_public, created_at, updated_at, account_id)
+                VALUES (?, ?, ?, '', ?, 1, unixepoch(), unixepoch(), ?)
                 """,
                 # v15 이전 물리 테마 DB는 관리자 것이다(§8.4-1).
                 (kb_id, seq, f"Theme {seq}" if seq != 0 else "기본 지식베이스", 1 if seq == 0 else 0,
@@ -3408,7 +3422,7 @@ def validate_session_scope(
     token: str,
     *,
     ttl: float = SESSION_TTL,
-    scopes: tuple[str, ...] = ("owner", "collaborator", "readonly"),
+    scopes: tuple[str, ...] = ("owner", "write", "readonly"),
 ) -> str | None:
     """유효한 전체 세션 토큰의 scope를 반환한다.
 
@@ -3759,7 +3773,6 @@ def migrate_env_tokens(
     conn: Any = None,
     env_inject_token: str = "",
     env_readonly_token: str = "",
-    env_collab_token: str = "",
 ) -> list[dict[str, Any]]:
     """Migrate environment variable tokens into the decoupled token store."""
     from .token_store import get_token_store
@@ -3768,7 +3781,6 @@ def migrate_env_tokens(
     return store.migrate_env_tokens(
         env_inject_token=env_inject_token,
         env_readonly_token=env_readonly_token,
-        env_collab_token=env_collab_token,
     )
 
 

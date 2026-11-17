@@ -807,17 +807,14 @@ def cmd_theme(args) -> int:
 
         print(f"Claire Bible themes ({len(out)} in total)")
         print("=" * 82)
-        print(f"{'ID':<4} {'Icon':<4} {'Label':<18} {'Docs/Entities/Rels':<16} {'Public':<8} {'Collab':<8} {'Slides':<6} {'Default'}")
+        print(f"{'ID':<4} {'Icon':<4} {'Label':<18} {'Docs/Entities/Rels':<16} {'Public':<8} {'Slides':<6} {'Default'}")
         print("-" * 82)
         for d in out:
             st = f"{d['stats']['documents']} / {d['stats']['entities']} / {d['stats']['relations']}"
             is_def = "★ default" if d["is_personal"] else ""
             pub_st = "public" if d.get("is_public", True) else "private 🔒"
-            collab_st = "open" if d.get("is_collaborator_accessible", True) else "blocked"
-            if d["is_personal"]:
-                collab_st = "-"
             pres_st = "ON 📊" if d.get("presentation_enabled", False) else "OFF"
-            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {collab_st:<8} {pres_st:<6} {is_def}")
+            print(f"{d['id']:<4} {d['icon']:<4} {d['label']:<18} {st:<16} {pub_st:<8} {pres_st:<6} {is_def}")
             if d.get("description"):
                 print(f"     - Description: {d['description']}")
             print(f"     ㄴ DB  : {d['db_path']}")
@@ -834,9 +831,6 @@ def cmd_theme(args) -> int:
         is_public = getattr(args, "is_public", True)
         if is_public is None:
             is_public = True
-        is_collab = getattr(args, "is_collaborator_accessible", True)
-        if is_collab is None:
-            is_collab = True
         pres_enabled = bool(getattr(args, "presentation_enabled", False))
         try:
             theme = tm.define_kb(
@@ -844,7 +838,6 @@ def cmd_theme(args) -> int:
                 description=desc,
                 icon=icon,
                 is_public=is_public,
-                is_collaborator_accessible=is_collab,
                 presentation_enabled=pres_enabled,
                 knowledge_type=getattr(args, "knowledge_type", None),
             )
@@ -855,7 +848,6 @@ def cmd_theme(args) -> int:
                 print(f"  • ID         : {theme.id}")
                 print(f"  • Label        : {theme.icon} {theme.label}")
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
-                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  • SQLite path  : {theme.db_path}")
@@ -873,7 +865,6 @@ def cmd_theme(args) -> int:
         desc = getattr(args, "desc", None) or getattr(args, "description", None)
         icon = getattr(args, "icon", None)
         is_public = getattr(args, "is_public", None)
-        is_collab = getattr(args, "is_collaborator_accessible", None)
         pres_enabled = getattr(args, "presentation_enabled", None)
         try:
             theme = tm.update_kb(
@@ -882,7 +873,6 @@ def cmd_theme(args) -> int:
                 description=desc,
                 icon=icon,
                 is_public=is_public,
-                is_collaborator_accessible=is_collab,
                 presentation_enabled=pres_enabled,
             )
             if getattr(args, "json", False):
@@ -891,7 +881,6 @@ def cmd_theme(args) -> int:
                 print(f"[done] The metadata of theme #{theme.id} is changed.")
                 print(f"  • Label        : {theme.icon} {theme.label}")
                 print(f"  • Visibility   : {'Public' if theme.is_public else 'Private 🔒'}")
-                print(f"  • Collaborators: {'Collaborator Allowed' if theme.is_collaborator_accessible else 'Collaborator Blocked'}")
                 print(f"  • Presentation : {'ON 📊' if theme.presentation_enabled else 'OFF 🚫'}")
                 print(f"  • Description  : {theme.description or '(none)'}")
                 print(f"  (The directory path does not change: {theme.db_path})")
@@ -3668,8 +3657,6 @@ def cmd_auth(args) -> int:
     import json
     s, theme = get_effective_settings(args)
     scope = getattr(args, "scope", "owner") or "owner"
-    if scope == "collab":
-        scope = "collaborator"
 
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -3754,7 +3741,7 @@ def cmd_token(args) -> int:
             masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
             print(f"{tid:<4} {name:<22} {scope:<12} {status:<8} {exp_str:<18} {masked}")
         print("=" * 88)
-        print("※ New token: claire token create <name> [--scope owner|collab|readonly] [--expires-in DAYS]")
+        print("※ New token: claire token create <name> [--scope owner|write|readonly] [--expires-in DAYS]")
         print("※ Revoke a token: claire token revoke <ID or token>")
         return 0
 
@@ -3765,10 +3752,8 @@ def cmd_token(args) -> int:
             return 1
 
         scope = str(getattr(args, "scope", "readonly") or "readonly").strip().lower()
-        if scope == "collab":
-            scope = "collaborator"
-        if scope not in ("owner", "collaborator", "readonly"):
-            print(f"Error: The scope '{scope}' is not valid. (use owner, collaborator, or readonly)")
+        if scope not in ("owner", "write", "readonly"):
+            print(f"Error: The scope '{scope}' is not valid. (use owner, write, or readonly)")
             return 1
 
         expires_in = getattr(args, "expires_in", None)
@@ -5065,9 +5050,6 @@ def build_parser() -> argparse.ArgumentParser:
     ptd_vis = ptd.add_mutually_exclusive_group()
     ptd_vis.add_argument("--public", dest="is_public", action="store_true", default=True, help="set theme as public (default)")
     ptd_vis.add_argument("--private", dest="is_public", action="store_false", help="set theme as private (blocks anonymous access)")
-    ptd_collab = ptd.add_mutually_exclusive_group()
-    ptd_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=True, help="allow collaborator access (default)")
-    ptd_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", help="block collaborator access")
     ptd_pres = ptd.add_mutually_exclusive_group()
     ptd_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=False, help="enable presentation feature for this theme")
     ptd_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", help="disable presentation feature for this theme (default)")
@@ -5077,7 +5059,7 @@ def build_parser() -> argparse.ArgumentParser:
     ptu = ptheme_sub.add_parser(
         "update",
         help="update theme label, description, icon, visibility, or presentation",
-        description="Update existing theme metadata, visibility, collaborator access, or presentation.",
+        description="Update existing theme metadata, visibility, or presentation.",
     )
     ptu.add_argument("id", help="theme ID, sequence number, or label")
     ptu.add_argument("--label", "-l", default=None, help="new theme label")
@@ -5086,9 +5068,6 @@ def build_parser() -> argparse.ArgumentParser:
     ptu_vis = ptu.add_mutually_exclusive_group()
     ptu_vis.add_argument("--public", dest="is_public", action="store_true", default=None, help="change theme visibility to public")
     ptu_vis.add_argument("--private", dest="is_public", action="store_false", default=None, help="change theme visibility to private (block anonymous access)")
-    ptu_collab = ptu.add_mutually_exclusive_group()
-    ptu_collab.add_argument("--collaborator", dest="is_collaborator_accessible", action="store_true", default=None, help="allow collaborator access")
-    ptu_collab.add_argument("--no-collaborator", dest="is_collaborator_accessible", action="store_false", default=None, help="block collaborator access")
     ptu_pres = ptu.add_mutually_exclusive_group()
     ptu_pres.add_argument("--presentation", dest="presentation_enabled", action="store_true", default=None, help="enable presentation feature for this theme")
     ptu_pres.add_argument("--no-presentation", dest="presentation_enabled", action="store_false", default=None, help="disable presentation feature for this theme")
@@ -5589,8 +5568,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="mint one-time Web UI magic login link and session token",
         description="Generate a one-time magic login link and session token for direct WebUI access from the terminal.",
     )
-    pauth.add_argument("--scope", choices=["owner", "collab", "readonly"], default="owner",
-                       help="session scope: owner (default), collab (collaborator), readonly")
+    pauth.add_argument("--scope", choices=["owner", "readonly"], default="owner",
+                       help="session scope: owner (default) or readonly")
     pauth.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     pauth.add_argument("--json", action="store_true", help="output session token and login URL in JSON format")
     pauth.set_defaults(func=cmd_auth)
@@ -5697,8 +5676,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create a persistent API and MCP access token for always-on access.",
     )
     ptok_create.add_argument("name", help="name or description of the token (e.g., 'Claude Desktop', 'Cursor')")
-    ptok_create.add_argument("--scope", choices=["owner", "collab", "readonly"], default="readonly",
-                             help="permission scope: readonly (default), collab (collaborator), owner")
+    ptok_create.add_argument("--scope", choices=["owner", "write", "readonly"], default="readonly",
+                             help="permission scope: readonly (default), write (the tools of the account: read, ingest, publish, contribute), owner")
     ptok_create.add_argument("--expires-in", type=int, default=None, dest="expires_in",
                              help="expiration in days (default: None for never expires / always-on)")
     ptok_create.add_argument("--json", action="store_true", help="output created token in JSON format")

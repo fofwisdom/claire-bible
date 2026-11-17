@@ -52,6 +52,7 @@ from ..secret_scrub import install_log_scrubber, scrub_exception, scrub_text
 from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store import kb_collab
+from ..store import themes as themes_store
 from ..store import db as dbm
 from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
@@ -261,7 +262,6 @@ def create_app(
     token_store.migrate_env_tokens(
         getattr(s, "inject_token", ""),
         getattr(s, "readonly_token", ""),
-        getattr(s, "collaborator_token", ""),
     )
     if not getattr(s, "inject_token", ""):
         owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
@@ -281,7 +281,7 @@ def create_app(
     active_anonymous_search_jobs = 0
 
     def _kb_actor(request: Request, kb: KnowledgeBaseInfo) -> kb_access.Actor:
-        """The requester for the capability matrix (design Section 6.2). A ``readonly`` credential and an anonymous request cannot write."""
+        """The requester for the capability matrix (design Sections 6.2 and 6.6)."""
         principal = request_principal(request)
         membership: tuple[str, str] | None = None
         if kb.is_shared and principal.account_id is not None:
@@ -292,21 +292,30 @@ def create_app(
                 conn.close()
             if row is not None:
                 membership = (str(row["role"]), str(row["state"]))
+        scope = principal.scope if principal.scope in ("owner", "write", "readonly") else None
         return kb_access.Actor(
-            account_id=principal.account_id,
+            account_id=principal.account_id if scope is not None else None,
+            scope=scope,
             is_admin=principal.server_role == "admin",
-            can_write=principal.scope in ("owner", "collaborator"),
             membership=membership,
         )
 
     def _kb_decide(request: Request, kb: KnowledgeBaseInfo, capability: str) -> str:
-        """One function decides each capability (design Section 6.9 rule 1)."""
+        """One function decides each capability (design Section 6.9 rule 1). ``capability`` is a route capability (Section 6.2 rule 5)."""
+        if capability == kb_access.NO_KB:
+            raise RuntimeError("the route declares no knowledge base capability")
+        if kb.is_personal:
+            capability = kb_access.personal_capability(capability)
+        elif capability == "write":
+            # A write into the content is for the personal knowledge base only (CT4). Shared knowledge bases are public; contributions come with unit CT-4.
+            return "forbidden"
         return kb_access.decide(
             is_personal=kb.is_personal,
             owner_account_id=kb.account_id,
             is_public=kb.is_public,
             capability=capability,
             actor=_kb_actor(request, kb),
+            single_mode=request_namespace(request).mode == "single",
         )
 
     def _require_kb(request: Request, kb: KnowledgeBaseInfo, capability: str) -> None:
@@ -314,46 +323,25 @@ def create_app(
         if decision == "not_found":
             raise HTTPException(status_code=404, detail="theme not found")
         if decision == "forbidden":
-            raise HTTPException(status_code=403, detail="kb_capability_required")
+            detail = "kb_ingest_personal_only" if (kb.is_shared and capability == "write") else "kb_capability_required"
+            raise HTTPException(status_code=403, detail=detail)
 
     def _request_capability(request: Request) -> str:
-        """The capability of a request on a shared knowledge base until each route declares its own (unit CT-2): a read needs ``read``, each other request needs ``maintain``."""
-        is_search = request.method == "POST" and request.url.path.rstrip("/").endswith("/search")
-        return "read" if (request.method in ("GET", "HEAD") or is_search) else "maintain"
+        """The capability that the route of ``request`` declares in ``ROUTE_POLICY`` (design Section 6.2 rule 5)."""
+        rule = lookup_route_rule(request.method, str(request.scope.get("path") or request.url.path))
+        if rule is None:
+            raise RuntimeError("request without a route rule")
+        return rule.capability
 
     def _sees_hidden(request: Request, kb: KnowledgeBaseInfo) -> bool:
-        """Hidden documents: not for an anonymous request; in a shared knowledge base only for reviewers (design Section 6.2 ``review``)."""
-        if request_auth_scope(request) == "anonymous":
-            return False
+        """Hidden documents: in a personal knowledge base only for its account; in a shared knowledge base only for reviewers (design Section 6.2 ``review``)."""
         if kb.is_shared:
             return _kb_decide(request, kb, "review") == "allow"
-        return True
+        principal = request_principal(request)
+        return principal.account_id is not None and principal.account_id == kb.account_id and request_auth_scope(request) != "anonymous"
 
     def _theme_accessible(request: Request, theme: KnowledgeBaseInfo) -> bool:
-        if theme.is_shared:
-            return _kb_decide(request, theme, _request_capability(request)) == "allow"
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
-
-        principal = request_principal(request)
-        if ns is not None and ns.mode == "network" and ns.account_id is not None:
-            if principal.account_id != ns.account_id:
-                # O20: Cross-account visitor can only read public themes
-                if not theme.is_public:
-                    return False
-                is_search = request.method == "POST" and request.url.path.rstrip("/").endswith("/search")
-                if request.method not in ("GET", "HEAD") and not is_search:
-                    return False
-
-        scope = request_auth_scope(request)
-        if scope == "anonymous":
-            if not theme.is_public:
-                return False
-        elif scope == "collaborator" and not (theme.is_public or theme.is_collaborator_accessible):
-            return False
-        return True
+        return _kb_decide(request, theme, _request_capability(request)) == "allow"
 
     def _visible_active_jobs(request: Request, data_dir: Path) -> list[dict[str, Any]]:
         """요청자가 접근할 수 있는 테마의 작업만 돌려준다 (단일 DB 이후 작업 디렉터리는 모든 테마 공용)."""
@@ -614,7 +602,7 @@ def create_app(
 
     async def whoami(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
-        if scope not in {"owner", "collaborator", "readonly", "anonymous"}:
+        if scope not in {"owner", "write", "readonly", "anonymous"}:
             raise HTTPException(status_code=401, detail="authentication required")
         # §9.1 O10: 주체 범위(호환), 서버 모드, 네임스페이스와의 관계. USERNAME은 싣지 않는다(S9).
         namespace = request_namespace(request)
@@ -673,171 +661,171 @@ def create_app(
         res["active_jobs"] = jobs
         return JSONResponse(res)
 
-    async def themes_list_route(request: Request) -> Response:
-        try:
-            ns = request_namespace(request)
-        except Exception:
-            ns = None
+    def _collection_filter(request: Request, name: str, allowed: tuple[str, ...]) -> str | None:
+        """A filter of a collection (design Section 7). An unknown value gets 400; the filter is not guessed."""
+        raw = request.query_params.get(name)
+        if raw is None:
+            return None
+        if raw not in allowed:
+            raise HTTPException(status_code=400, detail=f"invalid_{name}")
+        return raw
 
-        account_id = ns.account_id if (ns is not None and ns.account_id is not None) else 1
-        origin = _public_origin(request)
-        if ns is not None and ns.mode == "network" and ns.username:
-            collection_url = f"{origin}/@{ns.username}/themes"
-        else:
-            collection_url = f"{origin}/themes"
+    def _kb_collection_item(request: Request, kb: KnowledgeBaseInfo, *, role: str | None, origin: str) -> dict[str, Any]:
+        """One knowledge base of a collection. The settings view (legacy hosts, re-embed state) only goes to a requester with the capability ``settings``."""
+        is_settings_view = _kb_decide(request, kb, "settings") == "allow"
+        include_hidden = (request_principal(request).account_id == kb.account_id) if kb.is_personal else _kb_decide(request, kb, "review") == "allow"
+        t_stats = {"documents": 0, "entities": 0, "relations": 0}
+        abs_db = theme_mgr.get_settings_for_kb(kb.id, s).db_file
+        if abs_db.is_file():
+            conn = dbm.connect_existing(abs_db, readonly=True)
+            try:
+                t_stats = theme_summary(conn, include_hidden=include_hidden, kb_id=kb.id)
+            finally:
+                conn.close()
+        item = kb.to_dict()
+        eff_sorcerer = (kb.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
+        item["sorcerer"] = (kb.sorcerer or "").strip()
+        item["effective_sorcerer"] = eff_sorcerer
+        item["knowledge_manager"] = eff_sorcerer
+        item["stats"] = t_stats
+        item["url"] = f"{origin}{kb_base_path(kb.number)}" if (kb.is_shared and kb.number is not None) else None
+        if role is not None:
+            item["role"] = role
+        if is_settings_view:
+            item["legacy_hosts"] = [
+                {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
+                for h in SqliteLegacyHostDirectory(s.db_file).list_hosts_for_theme(kb.id)
+            ]
+            item["reembed_required"] = _reembed_required(kb)
+        return item
 
-        scope = request_auth_scope(request)
-        principal = request_principal(request)
-        if ns is not None and ns.mode == "network" and principal.account_id != account_id:
-            visible_scope = "anonymous"
-        else:
-            visible_scope = scope
-
-        if collections.wants_html(request):
-            from ..graphview import render_graph_html
-
-            return HTMLResponse(
-                render_graph_html(
-                    s,
-                    include_private=(visible_scope in {"owner", "readonly"}),
-                    collaborator=(visible_scope == "collaborator"),
-                    theme=None,
-                    host=request.headers.get("host"),
-                    request=request,
-                    account_id=account_id,
-                )
-            )
-
-        def _fetch_themes_data() -> tuple[list[KnowledgeBaseInfo], list[KnowledgeBaseInfo]]:
-            owned = theme_mgr.list_selectable_kbs(account_id)
-            if not getattr(s, "multi_theme", False):
-                owned = [t for t in owned if t.id == 0]
-            if visible_scope in {"owner", "readonly"}:
-                vis = owned
-            elif visible_scope == "collaborator":
-                vis = [t for t in owned if t.is_public or t.is_collaborator_accessible]
-            else:
-                vis = [t for t in owned if t.is_public]
-            return owned, vis
-
-        owned_themes, visible_themes = await asyncio.to_thread(_fetch_themes_data)
-        total_items = len(visible_themes)
-
+    def _collection_response(request: Request, *, collection_url: str, items: list[dict[str, Any]], extra: dict[str, Any]) -> Response:
+        """A collection with pages (namespace design Section 6.5). ``items`` are newest first and each has the string ``number``."""
         query = collections.parse_collection_query(request.query_params)
-        legacy_dir = SqliteLegacyHostDirectory(s.db_file)
-
-        def _build_theme_stats(t: KnowledgeBaseInfo) -> dict[str, int]:
-            abs_db = theme_mgr.get_settings_for_kb(t.id, s).db_file
-            t_stats = {"documents": 0, "entities": 0, "relations": 0}
-            if abs_db.is_file():
-                try:
-                    conn = dbm.connect_existing(abs_db, readonly=True)
-                    try:
-                        t_stats = theme_summary(conn, include_hidden=(visible_scope != "anonymous"), kb_id=t.id)
-                    finally:
-                        conn.close()
-                except Exception:
-                    pass
-            return t_stats
-
+        anonymous = request_auth_scope(request) == "anonymous"
         if query.page:
-            filtered = list(visible_themes)
+            filtered = list(items)
             if query.max_id is not None:
-                filtered = [t for t in filtered if t.number is not None and t.number < query.max_id]
+                filtered = [i for i in filtered if int(i["number"]) < query.max_id]
             elif query.min_id is not None:
-                candidates = [t for t in filtered if t.number is not None and t.number > query.min_id]
-                candidates.sort(key=lambda t: t.number or 0)
-                candidates = candidates[:query.limit]
-                candidates.reverse()
-                filtered = candidates
+                filtered = sorted((i for i in filtered if int(i["number"]) > query.min_id), key=lambda i: int(i["number"]))[: query.limit]
+                filtered.reverse()
             elif query.since_id is not None:
-                filtered = [t for t in filtered if t.number is not None and t.number > query.since_id]
-
-            page_slice = filtered[:query.limit] if query.min_id is None else filtered
-
-            items = []
-            etag_parts = []
-            for t in page_slice:
-                num_str = str(t.number) if t.number is not None else str(t.id)
-                t_stats = await asyncio.to_thread(_build_theme_stats, t)
-                item_dict: dict[str, Any] = {
-                    "number": num_str,
-                    "url": f"{collection_url}/{num_str}/",
-                    "label": t.label,
-                    "is_personal": t.is_personal,
-                    "is_public": t.is_public,
-                    "stats": t_stats,
-                }
-                if visible_scope in {"owner", "readonly"}:
-                    hosts = legacy_dir.list_hosts_for_theme(t.id)
-                    item_dict["legacy_hosts"] = [
-                        {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
-                        for h in hosts
-                    ]
-                etag_part = f"{num_str}:{t.updated_at}"
-                if visible_scope == "owner":
-                    # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
-                    item_dict["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
-                    etag_part += f":r{int(item_dict['reembed_required'])}"
-                items.append(item_dict)
-                etag_parts.append(etag_part)
-
-            is_first_page = (query.max_id is None and query.min_id is None and query.since_id is None)
-            page_data = collections.collection_page(
+                filtered = [i for i in filtered if int(i["number"]) > query.since_id]
+            page_items = filtered[: query.limit] if query.min_id is None else filtered
+            data = collections.collection_page(
                 collection_url=collection_url,
                 query=query,
-                items=items,
+                items=page_items,
                 item_number="number",
-                is_first_page=is_first_page,
+                is_first_page=query.max_id is None and query.min_id is None and query.since_id is None,
             )
-            etag = collections.collection_etag(etag_parts)
-            hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
-            if request.headers.get("if-none-match") == etag:
-                return Response(status_code=304, headers=hdrs)
-            return JSONResponse(page_data, headers=hdrs)
-
-        root_data = collections.collection_root(collection_url=collection_url, total_items=total_items)
-
-        legacy_theme_list = []
-        etag_parts = []
-        for t in visible_themes:
-            t_stats = await asyncio.to_thread(_build_theme_stats, t)
-            td = t.to_dict()
-            eff_sorcerer = (t.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
-            td["sorcerer"] = (t.sorcerer or "").strip()
-            td["effective_sorcerer"] = eff_sorcerer
-            td["knowledge_manager"] = eff_sorcerer
-            td["stats"] = t_stats
-            if visible_scope in {"owner", "readonly"}:
-                hosts = legacy_dir.list_hosts_for_theme(t.id)
-                td["legacy_hosts"] = [
-                    {"host": h.host, "activated_at": h.activated_at, "sunset_at": h.sunset_at}
-                    for h in hosts
-                ]
-            num_str = str(t.number) if t.number is not None else str(t.id)
-            etag_part = f"{num_str}:{t.updated_at}"
-            if visible_scope == "owner":
-                # §10.4 re-embed 필요 표시는 owner 요청에만 싣는다(공개·visitor 응답 제외).
-                td["reembed_required"] = await asyncio.to_thread(_reembed_required, t)
-                etag_part += f":r{int(td['reembed_required'])}"
-            legacy_theme_list.append(td)
-            etag_parts.append(etag_part)
-
-        root_data["themes"] = legacy_theme_list
-        try:
-            def_theme = theme_mgr.personal_kb_for(account_id)
-            root_data["default_kb_id"] = def_theme.id
-            root_data["default_theme_number"] = str(def_theme.number) if def_theme.number is not None else None
-        except KnowledgeBaseNotFound:
-            root_data["default_kb_id"] = 0
-            root_data["default_theme_number"] = None
-        root_data["multi_theme"] = bool(getattr(s, "multi_theme", False))
-
-        etag = collections.collection_etag(etag_parts)
-        hdrs = collections.collection_cache_headers(anonymous=(visible_scope == "anonymous"), etag=etag)
+        else:
+            data = collections.collection_root(collection_url=collection_url, total_items=len(items))
+            data.update(extra)
+        etag = collections.collection_etag([json.dumps(data, sort_keys=True, default=str)])
+        hdrs = collections.collection_cache_headers(anonymous=anonymous, etag=etag)
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=hdrs)
-        return JSONResponse(root_data, headers=hdrs)
+        return JSONResponse(data, headers=hdrs)
+
+    async def kb_collection_route(request: Request) -> Response:
+        """``/kb`` and ``/@{u}/kb`` (design Section 7, CT9).
+
+        - ``/kb``: the shared knowledge bases of the server. ``?joined=true``: only those where the requester is an active member. ``personal_kb``: the personal knowledge base of the requester.
+        - ``/@{u}/kb``: the shared knowledge bases where ``u`` is an active member. ``personal_kb``: the personal knowledge base of ``u`` when the requester can read it.
+        - ``?type=real`` or ``?type=fictional`` selects one knowledge type.
+        """
+        ns = request_namespace(request)
+        principal = request_principal(request)
+        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        joined = _collection_filter(request, "joined", ("true", "false")) == "true"
+        origin = _public_origin(request)
+        # The roles shown are those of the requester at the root, and those of ``u`` under ``/@{u}/``.
+        role_account = principal.account_id if ns.account_id is None else ns.account_id
+        personal_account = role_account
+        if ns.account_id is None:
+            collection_url = f"{origin}/kb"
+        else:
+            collection_url = f"{origin}{ns.prefix}/kb"
+            if collections.wants_html(request):
+                from ..graphview import render_graph_html
+
+                return HTMLResponse(
+                    render_graph_html(
+                        s,
+                        include_private=principal.account_id == ns.account_id and principal.scope in ("owner", "readonly"),
+                        theme=None,
+                        host=request.headers.get("host"),
+                        request=request,
+                        account_id=ns.account_id,
+                    )
+                )
+
+        def _build() -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+            # ``CLAIRE_MULTI_THEME=0``: only the knowledge base 0 is served, so the collection has no shared knowledge base.
+            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(s, "multi_theme", False) else []
+            roles: dict[int, str] = {}
+            if role_account is not None:
+                conn = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    roles = kb_collab.account_memberships(conn, role_account, state="active")
+                finally:
+                    conn.close()
+            if ns.account_id is not None or joined:
+                shared = [t for t in shared if t.id in roles]
+            items = [_kb_collection_item(request, t, role=roles.get(t.id), origin=origin) for t in shared]
+            personal: dict[str, Any] | None = None
+            if personal_account is not None:
+                try:
+                    kb = theme_mgr.personal_kb_for(personal_account)
+                except KnowledgeBaseNotFound:
+                    kb = None
+                if kb is not None and _kb_decide(request, kb, "read") == "allow":
+                    personal = _kb_collection_item(request, kb, role=None, origin=origin)
+            return items, personal
+
+        items, personal = await asyncio.to_thread(_build)
+        return _collection_response(
+            request,
+            collection_url=collection_url,
+            items=items,
+            extra={"knowledge_bases": items, "personal_kb": personal, "multi_theme": bool(getattr(s, "multi_theme", False))},
+        )
+
+    async def themes_collection_route(request: Request) -> Response:
+        """``/themes``: the collection of themes (design Section 7). The old ``/@{u}/themes`` gets 308 to ``/@{u}/kb``."""
+        ns = request_namespace(request)
+        if ns.account_id is not None:
+            location = f"{ns.prefix}/kb"
+            if request.url.query:
+                location += f"?{request.url.query}"
+            return Response(status_code=308, headers={"Location": location})
+        knowledge_type = _collection_filter(request, "type", ("real", "fictional"))
+        origin = _public_origin(request)
+
+        def _build() -> list[dict[str, Any]]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                rows = themes_store.list_themes(conn, knowledge_type=knowledge_type)
+                out = []
+                for row in rows:
+                    number = ids.format_public_id(int(row["number"]))
+                    out.append({
+                        "number": number,
+                        "url": f"{origin}/themes/{number}",
+                        "label": row["label"],
+                        "description": row["description"],
+                        "knowledge_type": row["knowledge_type"],
+                        "state": row["state"],
+                        "knowledge_bases": len(themes_store.theme_members(conn, int(row["id"]))),
+                    })
+                return out
+            finally:
+                conn.close()
+
+        items = await asyncio.to_thread(_build)
+        return _collection_response(request, collection_url=f"{origin}/themes", items=items, extra={"themes": items})
 
     async def explore_accounts_route(request: Request, *, force_html: bool = False) -> Response:
         query = collections.parse_collection_query(request.query_params)
@@ -1045,12 +1033,6 @@ def create_app(
         desc = str(body.get("description") or "").strip()
         icon = str(body.get("icon") or "📁").strip()
         is_pub = bool(body.get("is_public", body.get("public", True)))
-        is_collab = bool(
-            body.get(
-                "is_collaborator_accessible",
-                body.get("collaborator_accessible", body.get("collaborator", True)),
-            )
-        )
         ga_id = str(body.get("ga_measurement_id", body.get("ga_id", "")) or "").strip()
         sorcerer = str(body.get("sorcerer", body.get("knowledge_manager", "")) or "").strip()
         pres_enabled = bool(body.get("presentation_enabled", body.get("is_presentation_enabled", False)))
@@ -1067,7 +1049,6 @@ def create_app(
                 description=desc,
                 icon=icon,
                 is_public=is_pub,
-                is_collaborator_accessible=is_collab,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -1112,7 +1093,7 @@ def create_app(
         except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
         # Personal: only its owner. Shared: the capability ``settings`` (moderator or admin, design Section 6.2).
-        _require_kb(request, target_theme, "settings")
+        _require_kb(request, target_theme, _request_capability(request))
 
         label = body.get("label")
         desc = body.get("description") if "description" in body else body.get("desc")
@@ -1124,17 +1105,6 @@ def create_app(
         )
         if is_pub is not None:
             is_pub = bool(is_pub)
-        is_collab = (
-            body.get("is_collaborator_accessible")
-            if "is_collaborator_accessible" in body
-            else (
-                body.get("collaborator_accessible")
-                if "collaborator_accessible" in body
-                else (body.get("collaborator") if "collaborator" in body else None)
-            )
-        )
-        if is_collab is not None:
-            is_collab = bool(is_collab)
         ga_id = (
             body.get("ga_measurement_id")
             if "ga_measurement_id" in body
@@ -1159,7 +1129,6 @@ def create_app(
                 description=desc,
                 icon=icon,
                 is_public=is_pub,
-                is_collaborator_accessible=is_collab,
                 ga_measurement_id=ga_id,
                 sorcerer=sorcerer,
                 presentation_enabled=pres_enabled,
@@ -1213,8 +1182,8 @@ def create_app(
             target_theme = theme_mgr.get_kb_by_reference(kb_id)
         except KnowledgeBaseNotFound:
             raise HTTPException(status_code=404, detail="theme not found")
-        # Shared: the capability ``delete`` (admin only, design Section 6.2). Personal: only its owner asks; the store refuses the delete.
-        _require_kb(request, target_theme, "settings" if target_theme.is_personal else "delete")
+        # Shared: the capability ``delete`` (admin only, design Section 6.2), with step-up (Section 6.8, ``ROUTE_POLICY``). Personal: only its owner asks; the store refuses the delete.
+        _require_kb(request, target_theme, _request_capability(request))
 
         try:
             deleted = theme_mgr.delete_kb(target_theme.id, purge=purge)
@@ -1414,8 +1383,11 @@ def create_app(
             item = dict(t)
             item["token_masked"] = masked
             del item["token"]
+            item.pop("scope_notice", None)
             sanitized.append(item)
-        return JSONResponse({"tokens": sanitized})
+        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 rule 2: the tokens whose scope ``collaborator`` became ``readonly`` are listed once.
+        notices = store.take_scope_notices(target_account_id) if request.method == "GET" else []
+        return JSONResponse({"tokens": sanitized, "scope_notices": notices})
 
     async def tokens_create_route(request: Request) -> JSONResponse:
         scope = request_auth_scope(request)
@@ -1481,17 +1453,6 @@ def create_app(
         body = await _json_object(request)
         theme, _, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
@@ -1667,17 +1628,6 @@ def create_app(
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="target or payload required")
@@ -1765,18 +1715,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False
@@ -1867,7 +1805,7 @@ def create_app(
             limit = max(1, min(_MAX_ANONYMOUS_SEARCH_RESULTS, limit))
             summarize = False
             runner = _run_anonymous_search
-        elif scope in {"owner", "collaborator", "readonly"}:
+        elif scope in {"owner", "write", "readonly"}:
             if requested_mode == "fts":
                 mode = "fts"
                 limit = max(1, min(_MAX_SEARCH_RESULTS, limit))
@@ -2018,8 +1956,7 @@ def create_app(
             visible_scope = "anonymous"
         else:
             visible_scope = scope
-        include_private = visible_scope in {"owner", "readonly"}
-        is_collaborator = visible_scope == "collaborator"
+        include_private = visible_scope in {"owner", "write", "readonly"}
         theme = None
 
         if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_kb_id is not None):
@@ -2032,7 +1969,6 @@ def create_app(
         html_text = render_graph_html(
             s,
             include_private=include_private,
-            collaborator=is_collaborator,
             theme=theme,
             host=request.headers.get("host"),
             request=request,
@@ -2065,7 +2001,7 @@ def create_app(
             return None
         return f"{WebRuntimeConfig.from_settings(s).public_origin}/ap/actors/{account.public_id}"
 
-    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, bool, KnowledgeBaseInfo | None]:
+    def _resolve_syndication_ui_context(request: Request) -> tuple[str, bool, KnowledgeBaseInfo | None]:
         try:
             ns = request_namespace(request)
         except Exception:
@@ -2074,8 +2010,7 @@ def create_app(
         if ns is not None and ns.mode == "network" and principal.account_id is None:
             raise HTTPException(status_code=404, detail="not found")
         scope = request_auth_scope(request)
-        include_private = scope in {"owner", "readonly"}
-        is_collaborator = scope == "collaborator"
+        include_private = scope in {"owner", "write", "readonly"}
         theme = None
         if getattr(s, "multi_theme", False):
             try:
@@ -2089,17 +2024,16 @@ def create_app(
                 theme = None
             except Exception:
                 theme = None
-        return scope, include_private, is_collaborator, theme
+        return scope, include_private, theme
 
     async def syndication_ui_route(request: Request) -> HTMLResponse:
         from ..graphview import render_syndication_html
 
-        scope, include_private, is_collaborator, theme = _resolve_syndication_ui_context(request)
+        scope, include_private, theme = _resolve_syndication_ui_context(request)
         return HTMLResponse(
             render_syndication_html(
                 s,
                 include_private=include_private,
-                collaborator=is_collaborator,
                 theme=theme,
                 host=request.headers.get("host"),
                 auth_scope=scope,
@@ -2180,8 +2114,8 @@ def create_app(
             except Exception:
                 raise HTTPException(status_code=404, detail="target theme not found")
 
-        if not _theme_accessible(request, target_theme):
-            raise HTTPException(status_code=404, detail="target theme not found")
+        # The copy is an ingest: its target is the personal knowledge base of the caller (capability ``write`` of the route, CT4). A shared knowledge base gets 403 ``kb_ingest_personal_only``; documents go there by contribution.
+        _require_kb(request, target_theme, _request_capability(request))
 
         principal = request_principal(request)
         is_network = False
@@ -2193,29 +2127,6 @@ def create_app(
             pass
         if getattr(s, "server_mode", None) == "network":
             is_network = True
-
-        caller_account_id = principal.account_id if (principal and principal.account_id is not None) else (1 if not is_network else None)
-        target_account_id = getattr(target_theme, "account_id", None)
-
-        if is_network or target_account_id is not None:
-            if target_account_id is not None and caller_account_id != target_account_id:
-                if getattr(principal, "server_role", None) != "admin":
-                    raise HTTPException(
-                        status_code=403,
-                        detail="다른 계정의 테마에 적재할 권한이 없습니다.",
-                    )
-
-        if scope == "collaborator":
-            if target_theme.is_personal or target_theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다.",
-                )
-            if not target_theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 대상 테마입니다.",
-                )
 
         source_theme_ref = (
             body.get("source_kb_id")
@@ -2234,7 +2145,8 @@ def create_app(
             # No default: the source is required (design Section 5.2, CT23).
             raise HTTPException(status_code=400, detail="source_kb_id is required")
 
-        if not _theme_accessible(request, src_theme):
+        # The target is the personal knowledge base of the caller (capability ``write`` of the route); the source only needs ``read``.
+        if _kb_decide(request, src_theme, "read") != "allow":
             raise HTTPException(status_code=404, detail="source theme not found")
 
         conn = dbm.connect_existing(s.db_file)
@@ -2246,8 +2158,6 @@ def create_app(
         if src_doc is None:
             raise HTTPException(status_code=404, detail=f"document {document_id} not found")
 
-        if scope == "collaborator" and not (src_theme.is_public or src_theme.is_collaborator_accessible):
-            raise HTTPException(status_code=403, detail="접근 권한이 없는 소스 테마입니다.")
 
 
         from ..ontology.base import Document, new_id
@@ -3295,17 +3205,6 @@ def create_app(
         body = await _json_object(request)
         theme, _, theme_svc = _get_personal_kb_ctx(request)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         payload = str(body.get("payload") or "").strip()
         if not payload:
             raise HTTPException(status_code=400, detail="payload required")
@@ -3410,17 +3309,6 @@ def create_app(
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_theme_ctx(request, body)
         scope = request_auth_scope(request)
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스에 재적재할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
         target = str(body.get("target") or body.get("payload") or body.get("id") or body.get("doc_id") or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="target or payload required")
@@ -3571,18 +3459,6 @@ def create_app(
         token = str(body.get("token") or "").strip() or None
         if not target and not doc_id and not token:
             raise HTTPException(status_code=400, detail="target, doc_id, or token required")
-
-        if scope == "collaborator":
-            if theme.is_personal or theme.id == 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator는 기본 지식베이스를 직접 재생성할 수 없습니다. 추가 지식 테마를 선택하세요.",
-                )
-            if not theme.is_collaborator_accessible:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Collaborator에게 공개되지 않은 테마입니다.",
-                )
 
         component = str(body.get("component") or "").strip().lower()
         all_comp = False
@@ -3953,7 +3829,7 @@ def create_app(
                 base_url = str(request.base_url).rstrip("/")
 
         scope = request_auth_scope(request)
-        if scope not in ("owner", "collaborator"):
+        if scope not in ("owner", "write"):
             auth_hdr = request.headers.get("authorization", "")
             if auth_hdr.lower().startswith("bearer "):
                 bearer_tok = auth_hdr[7:].strip()
@@ -3961,14 +3837,17 @@ def create_app(
                     getattr(s, "owner_token", None) and bearer_tok == s.owner_token
                 ):
                     scope = "owner"
-                elif getattr(s, "collaborator_token", None) and bearer_tok == s.collaborator_token:
-                    scope = "collaborator"
+                else:
+                    # A stored API token (design Section 6.6): ``owner`` and ``write`` read the raw file.
+                    entry = get_token_store(data_dir=s.data_dir).validate_api_token(bearer_tok)
+                    if entry is not None:
+                        scope = str(entry.get("scope") or "")
             elif (cookie_token := read_session_cookie(request.scope)[1]) is not None:
                 try:
                     conn_sess = dbm.connect_existing(s.db_file, readonly=True)
                     try:
                         sess_scope = dbm.validate_session_scope(
-                            conn_sess, cookie_token, scopes=("owner", "collaborator")
+                            conn_sess, cookie_token, scopes=("owner", "write")
                         )
                         if sess_scope:
                             scope = sess_scope
@@ -3977,7 +3856,7 @@ def create_app(
                 except Exception:
                     pass
 
-        can_access_raw = scope in ("owner", "collaborator")
+        can_access_raw = scope in ("owner", "write")
         return HTMLResponse(
             shared_html(
                 document,
@@ -4723,7 +4602,8 @@ def create_app(
         ),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/stats", stats, methods=["GET"]),
-        Route("/themes", themes_list_route, methods=["GET", "HEAD"]),
+        Route("/kb", kb_collection_route, methods=["GET", "HEAD"]),
+        Route("/themes", themes_collection_route, methods=["GET", "HEAD"]),
         Route("/themes", theme_define_route, methods=["POST"]),
         Route("/themes", theme_update_route, methods=["PATCH"]),
         Route("/themes", theme_delete_route, methods=["DELETE"]),
@@ -4883,7 +4763,6 @@ def run_api() -> int:
         token_store.migrate_env_tokens(
             getattr(s, "inject_token", ""),
             getattr(s, "readonly_token", ""),
-            getattr(s, "collaborator_token", ""),
         )
         if not getattr(s, "inject_token", ""):
             owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))

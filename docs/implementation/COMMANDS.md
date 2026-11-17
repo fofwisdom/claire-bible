@@ -564,10 +564,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * `claire doc <target> [--pin | --unpin] [--hide | --unhide] [--seen | --unseen] [--json]`: 문서의 주요 상태 플래그(상단 고정, 공개 목록 숨김, 읽음 처리)를 수동 토글/갱신.
 * `claire doc-title <target> "<new_title>"`: 특정 문서의 제목을 수동 수정하고 MinHash 서명 재계산. `target`으로 문서 ID, 일반 URL, 공유 URL 지원.
 * `claire share <target> [--json]`: 특정 문서의 외부 공개용 익명 공유 링크(`/p?s=token`)와 토큰을 발급하여 출력.
-* `claire auth [--scope {owner,collab,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
+* `claire auth [--scope {owner,readonly}] [--json]`: Telegram 봇을 통하지 않고 CLI/터미널에서 직접 Web UI에 접근할 수 있는 1회용 매직 로그인 링크 및 세션 토큰 즉시 발급.
 * `claire token [list|create|revoke]`: 환경변수에 의존하지 않고 SQLite 데이터베이스 기반으로 API 및 MCP 상시 이용 Bearer 접근 토큰을 관리 (별칭: `api-key`, `key`).
   * `claire token list [-a/--all] [--json]`: 발급된 토큰 목록 조회 (별칭: `ls`). `-a` 지정 시 폐기 및 만료 토큰 포함.
-  * `claire token create <name> [--scope {owner,collab,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
+  * `claire token create <name> [--scope {owner,write,readonly}] [--expires-in DAYS] [--json]`: 상시 이용 토큰 발급 (별칭: `new`, `add`). 기본값 `readonly`, 무기한 발급. 발급 즉시 Claude Desktop 및 Cursor 연동 JSON 스니펫 출력.
   * `claire token revoke <target> [--json]`: 토큰 즉시 폐기 (별칭: `delete`, `rm`). `target`은 토큰 ID 또는 토큰 접두사/전체값. 폐기 즉시 모든 API/MCP 통신 차단.
 * `claire serve-api`: Starlette + Uvicorn 기반 웹 인터페이스 및 REST API 서비스 실행.
 * `claire bot`: Telegram Long-polling 봇 서비스 실행.
@@ -635,8 +635,8 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 사용법 | 설명 |
 | :--- | :--- | :--- |
 | `kb list` | `claire kb list [--json]` | 등록된 테마 목록, 활성화 상태, 공개 여부 및 통계(문서/엔티티/관계) 조회 |
-| `kb define` | `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
-| `kb update` | `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--collaborator\|--no-collaborator] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개/협력자 접근 권한 수정 |
+| `kb define` | `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public\|--private] [--json]` | 신규 테마를 등록하고 단일 DB 내 `knowledge_bases` 테이블 및 테마 파티션을 프로비저닝 |
+| `kb update` | `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public\|--private] [--json]` | 기존 테마의 레이블, 설명, 아이콘, 공개 여부 수정 |
 | `kb reset` | `claire kb reset <id> [--apply] [-y\|--yes] [--json]` | 테마 ID와 경로(`/themes/<number>/`)를 보존하고 해당 테마의 내부 데이터(문서, 지식 노드, 관계 등)만 삭제. 기본은 dry-run, `--apply`로 실행 |
 | `kb delete` | `claire kb delete <id> [--purge] [--apply] [--yes] [--json]` | 테마 레지스트리에서 삭제. `--purge` 지정 시 테마 데이터 전체(`kb_id` 기준) 영구 소각. 기본은 dry-run, `--apply`로 실행 (기본 테마 `0`은 삭제 불가) |
 
@@ -649,20 +649,19 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 * **`--json`**: 기계 가독형 JSON 배열로 출력.
 
 #### `claire kb define`
-* **사용법**: `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **사용법**: `claire kb define --label <L> --type {real|fictional} [--desc <D>] [--icon <I>] [--public|--private] [--json]`
 * **주요 옵션**:
   * `--label`, `-l` *(필수)*: 테마 명칭 (예: `기계학습`, `재정/회계`). 기존 테마 레이블과 중복 불가.
   * `--desc`, `--description`: 테마 설명 (웹 UI 테마 선택 팝오버 및 텔레그램 안내에 노출).
   * `--icon`: 테마 식별 이모지 (기본값: `📁`).
   * `--public` / `--private`: 테마 공개 여부 (기본값: `--public`). `--private` 시 비인증(Anonymous) 사용자의 웹/API 열람이 차단되며(404 Not Found), 세션 토큰 소유자만 접근 가능하다.
-  * `--collaborator` / `--no-collaborator`: 협력자 세션(`CLAIRE_COLLABORATOR_TOKEN`) 접근 허용 여부 (기본값: `--collaborator`). `--no-collaborator` 지정 시 시스템 관리자(Owner)만 열람/적재 가능하다.
 * **프로비저닝**: 단일 DB(`data/claire.db`)의 `knowledge_bases` 테이블 및 `themes.json` 레지스트리에 테마가 등록되며 `kb_id` 파티션이 준비된다.
 
 #### `claire kb update`
-* **사용법**: `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public|--private] [--collaborator|--no-collaborator] [--json]`
+* **사용법**: `claire kb update <id_or_label> [--label <L>] [--desc <D>] [--icon <I>] [--public|--private] [--json]`
 * **주요 옵션**:
   * `id`: 대상 테마의 ID, 시퀀스 번호, 또는 레이블.
-  * `--private`, `--no-collaborator`: 기존 공개/협력자 허용 테마의 접근 권한을 동적으로 즉시 회수 가능.
+  * `--private`: The option `--collaborator` is removed (unit CT-2). A shared knowledge base is always public; `--private` applies to the personal knowledge base.
   * 기본 테마 `0`(Default Theme)의 경우 레이블, 설명, 아이콘, 공개 여부는 변경 가능하다.
 
 #### `claire kb reset`
@@ -909,5 +908,5 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 [^video-caption-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/captions.py`](../../src/claire/ingest/fetchers/captions.py), [`src/claire/ingest/fetchers/video.py`](../../src/claire/ingest/fetchers/video.py), [`tests/test_video_captions.py`](../../tests/test_video_captions.py) (2026-09-04 확인).
 [^video-presentation-implementation]: Claire Bible 구현 근거: [`src/claire/ingest/fetchers/presentation_vmware_explore.py`](../../src/claire/ingest/fetchers/presentation_vmware_explore.py), [`src/claire/ingest/fetchers/pdf.py`](../../src/claire/ingest/fetchers/pdf.py), [`src/claire/ingest/pipeline.py`](../../src/claire/ingest/pipeline.py), [`src/claire/store/raw.py`](../../src/claire/store/raw.py), [`tests/test_video_presentation.py`](../../tests/test_video_presentation.py) (2026-09-04 확인). 설계 근거: [VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md](../design/VIDEO_PRESENTATION_BUNDLE_INGESTION_DESIGN.md).
 [^telemetry-implementation]: Claire Bible 구현 근거: [`src/claire/store/telemetry.py`](../../src/claire/store/telemetry.py), [`src/claire/store/db.py`](../../src/claire/store/db.py), [`src/claire/support_bundle.py`](../../src/claire/support_bundle.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`ops/cb_manuscript.py`](../../ops/cb_manuscript.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_telemetry.py`](../../tests/test_telemetry.py), [`tests/test_support_bundle.py`](../../tests/test_support_bundle.py), [`tests/test_bot.py`](../../tests/test_bot.py) (2026-09-11 확인). 설계 근거: [TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md](../design/TELEMETRY_AND_SUPPORT_BUNDLE_DESIGN.md).
-[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_collaborator.py`](../../tests/test_theme_collaborator.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
+[^theme-implementation]: Claire Bible 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`src/claire/api/server.py`](../../src/claire/api/server.py), [`src/claire/telegram_bot.py`](../../src/claire/telegram_bot.py), [`tests/test_cli_theme.py`](../../tests/test_cli_theme.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_theme_api.py`](../../tests/test_theme_api.py), [`tests/test_theme_web.py`](../../tests/test_theme_web.py) (2026-09-10 확인). 설계 근거: [MULTI_THEME_ARCHITECTURE_DESIGN.md](../design/MULTI_THEME_ARCHITECTURE_DESIGN.md).
 [^multi-theme-operations]: Claire Bible 멀티 테마 운영 data-plane 구현 근거: [`src/claire/store/knowledge_base.py`](../../src/claire/store/knowledge_base.py), [`src/claire/health.py`](../../src/claire/health.py), [`src/claire/cli.py`](../../src/claire/cli.py), [`tests/test_theme_manager.py`](../../tests/test_theme_manager.py), [`tests/test_health.py`](../../tests/test_health.py), [`tests/test_migrate.py`](../../tests/test_migrate.py), [`tests/test_multi_theme_workers.py`](../../tests/test_multi_theme_workers.py) (2026-09-11 확인).

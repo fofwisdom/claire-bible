@@ -166,7 +166,7 @@ def test_version_23_file_gets_the_quote_policy_of_published_documents(tmp_path: 
         m.setattr(dbm, "_migrate_v24_object_quote_policy", lambda conn: None)
         conn = dbm.connect(path)
         dbm.init_db(conn)
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'physics', 0, 1, 1, 1, 1, 1, 516412345678901234)")
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'physics', 0, 1, 1, 1, 1, 516412345678901234)")
         conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (801, 1, 11, 'doc-a', 1, 1, 1)")
         conn.commit()
         assert "quote_policy" not in {r[1] for r in conn.execute("PRAGMA table_info(federation_objects)")}

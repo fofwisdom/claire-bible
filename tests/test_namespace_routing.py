@@ -111,16 +111,16 @@ def _insert_theme(conn, kb_id: int, account_id: int, number: int, *, public: boo
     now = time.time()
     if default:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, "
+            "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, "
             "ga_measurement_id, created_at, updated_at, account_id, number) "
-            "VALUES (?, ?, ?, 1, ?, 0, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
             (kb_id, kb_id, f"t{kb_id}", int(public), ga, now, now, account_id, number),
         )
         return
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, "
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, "
         "ga_measurement_id, created_at, updated_at, account_id, number, created_by_account_id, knowledge_type) "
-        "VALUES (?, ?, ?, 0, 1, 0, ?, ?, ?, NULL, ?, ?, 'real')",
+        "VALUES (?, ?, ?, 0, 1, ?, ?, ?, NULL, ?, ?, 'real')",
         (kb_id, kb_id, f"t{kb_id}", ga, now, now, number, account_id),
     )
 
@@ -166,7 +166,7 @@ def _credentials(world: World) -> dict[str, security._Credential]:
         ALICE_OWNER: cred(world.alice, "owner"),
         ALICE_READONLY: cred(world.alice, "readonly"),
         CAROL_OWNER: cred(world.carol, "owner"),
-        ADMIN_COLLAB: cred(1, "collaborator", "admin"),
+        ADMIN_COLLAB: cred(1, "write", "admin"),
     }
 
 
@@ -536,7 +536,8 @@ async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_fac
     world.set_mode("network")
     app = app_factory(anonymous_readonly=True)
     assert (await _call(app, "/graph")).status == 404
-    assert (await _call(app, "/themes")).status == 404
+    # ``/themes`` at the root is the collection of themes of the server (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7), not a namespaced route.
+    assert (await _call(app, "/themes")).status == 200
     res = await _call(app, "/graph", token=ALICE_READONLY)
     body = res.json()
     assert body["ns"]["account_id"] == world.alice and body["ns"]["prefix"] == "/@alice"
@@ -566,7 +567,7 @@ async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
 
 @pytest.mark.asyncio
 async def test_modes_404_for_network_only_rule(app_factory, world, monkeypatch):
-    rule = security.RouteRule(access="public", surface="system", modes=security.NETWORK_ONLY)
+    rule = security.RouteRule(access="public", capability="none", surface="system", modes=security.NETWORK_ONLY)
     monkeypatch.setitem(security._EXACT_ROUTE_POLICY, ("GET", "/syndication"), rule)
     app = app_factory()
     assert (await _call(app, "/syndication")).status == 404

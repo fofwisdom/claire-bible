@@ -211,7 +211,7 @@ def test_e2e_network_mode_merge_by_url_and_account_isolation(tmp_path, site, mon
     alice_id = members["alice_feeds"]
     conn = dbm.connect_existing(settings.db_file)
     try:
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alice theme', 1, 1, 0, 1, 1, ?, 523456789012345)", (alice_id,))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alice theme', 1, 1, 1, 1, ?, 523456789012345)", (alice_id,))
         conn.commit()
     finally:
         conn.close()

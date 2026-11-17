@@ -22,15 +22,16 @@ from claire.config import Settings
 from claire.graphview import shared_html
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from claire.store.token_store import get_token_store
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_JS = ROOT / "src" / "claire" / "static" / "js"
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
-COLLAB_TOKEN = "collab-" + ("c" * 32)
+WRITE_TOKEN = "write-" + ("w" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-COLLAB_HEADERS = {"Authorization": f"Bearer {COLLAB_TOKEN}"}
+WRITE_HEADERS = {"Authorization": f"Bearer {WRITE_TOKEN}"}
 
 SANDBOX_CSP = "sandbox; default-src 'none'"
 XSS_NAME = "<script>alert(1)</script>"
@@ -51,13 +52,14 @@ def ctx(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_COLLABORATOR_TOKEN=COLLAB_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
         CLAIRE_ANONYMOUS_READONLY=True,
     )
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     conn.close()
+    # A token with the scope ``write`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6) reads the raw file.
+    get_token_store(data_dir=data_dir).create_api_token(name="writer", scope="write", token=WRITE_TOKEN)
     return settings, data_dir
 
 
@@ -222,7 +224,7 @@ def test_document_raw_active_types_are_downloaded(ctx, name: str, content: bytes
     settings, data_dir = ctx
     _add_raw(settings, data_dir, "doc-active", name, content)
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-active", headers=COLLAB_HEADERS)
+        resp = client.get("/document/raw?id=doc-active", headers=WRITE_HEADERS)
         assert resp.status_code == 200
         assert resp.content == content
         assert resp.headers["content-type"] == "application/octet-stream"
@@ -243,7 +245,7 @@ def test_document_raw_safe_types_stay_inline(ctx, name: str, content: bytes, cty
     settings, data_dir = ctx
     _add_raw(settings, data_dir, "doc-safe", name, content)
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-safe", headers=COLLAB_HEADERS)
+        resp = client.get("/document/raw?id=doc-safe", headers=WRITE_HEADERS)
         assert resp.status_code == 200
         assert resp.headers["content-type"] == ctype
         assert resp.headers["content-disposition"].startswith("inline;")
@@ -264,7 +266,7 @@ def test_document_raw_filename_is_rfc5987_encoded(ctx) -> None:
     conn.commit()
     conn.close()
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-name", headers=COLLAB_HEADERS)
+        resp = client.get("/document/raw?id=doc-name", headers=WRITE_HEADERS)
         disp = resp.headers["content-disposition"]
         assert disp.startswith('inline; filename="')
         ascii_part = disp.split('filename="', 1)[1].split('"', 1)[0]

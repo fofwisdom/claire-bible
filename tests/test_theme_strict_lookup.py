@@ -22,6 +22,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from starlette.testclient import TestClient
 
+from tests.kb_paths import step_up_request
+
 from claire import cli
 from claire.api.mcp_tools import build_mcp_app
 from claire.api.server import create_app
@@ -185,7 +187,7 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     doc_t2 = _seed(client, settings, tm, t2, f"{t2.label} 문서 본문")
 
     # 데이터 행은 남기고 테마만 삭제
-    assert client.delete(f"/themes?id={_num(t1)}", headers=OWNER_HEADERS).status_code == 200
+    assert step_up_request(client, settings, "DELETE", f"/themes?id={_num(t1)}").status_code == 200
 
     live = client.get(f"/kb/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
     assert live.status_code == 200

@@ -71,11 +71,11 @@
 
 **[코드]** `AuthenticationMiddleware`가 요청마다 `request.state`에 `Principal` 하나를 둔다. 새 코드는 `request_principal(request)`을 쓴다. 미들웨어를 거치지 않은 요청에서 부르면 익명으로 대체하지 않고 `PrincipalMissing`을 낸다. `request_auth_scope`는 호환용으로 남아 있다.
 
-`Principal` 필드: `account_id`(None = 익명), `server_role`, `scope`(`owner`·`collaborator`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
+`Principal` 필드: `account_id`(None = 익명), `server_role`, `scope`(`owner`·`write`·`readonly`·`anonymous`), `channel`(`cookie`·`bearer`·`x-session`·`none`), `credential_id`(감사용, 토큰 값이 아님), `authenticated_at`. 설계 §8.3과 달리 `authenticated_at`이 있다(설계 Rev. 2.2에 반영).
 
 | 자격증명 | 저장 위치 | `account_id` 결정 | `credential_id` | `authenticated_at` |
 | :--- | :--- | :--- | :--- | :--- |
-| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` | None |
+| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` | None |
 | 상시 API·MCP 토큰 | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 그 항목을 무시한다(경고 로그) | `api:<id>` | None |
 | OAuth 액세스 토큰 | `oauth_tokens.account_id` | 행 값. NULL이면 거부 | 토큰 SHA-256 hex 앞 16자 | None |
 | 세션(쿠키·`X-Session`·Bearer로 보낸 세션 토큰) | `auth_sessions.account_id`, `authenticated_at` | 행 값. NULL이면 거부 | `nonce` SHA-256 hex 앞 16자(토큰 회전에도 유지) | cookie·x-session 채널에서만 행 값. Bearer로 보낸 세션은 None |
@@ -147,7 +147,7 @@
 
 ### 5.5 `/me`, `/api/me`, `/api/me/password`
 
-- **[코드]** 모두 규칙 `_any("owner")`. collaborator·readonly 자격증명은 404다.
+- **[코드]** 모두 규칙 `_any("owner")`. `write`·`readonly` 자격증명은 404다.
 - **[코드] `GET`·`HEAD /me`**: 화면을 그리지 않는 호환용 302다(콘솔 설계 D4). `Location: /settings/account`(항상 루트 경로, USERNAME 없음, S9), `Cache-Control: no-store`, `Referrer-Policy: same-origin`. 규칙이 `_any`라 옛 `/@{username}/me` 북마크도 같은 302를 받는다. 쿼리(`?notice=` 포함)는 넘기지 않는다. 계정 화면은 `/settings/account`(§5.9)다.
 - **[코드] `GET /api/me`**: `{public_id, username, display_name, role, scope, status, has_password, profile_public, locale, effective_locale, entity_language}`. `profile_public`은 `0` 또는 `1`이다. `/settings/account`가 이 값을 화면으로 보인다. `locale`은 계정에 저장한 인터페이스 언어(`en`, `ko`, 자동이면 `null`)이고 `effective_locale`은 이 요청에 적용된 언어(`en` 또는 `ko`)다.
 - **[코드] `PATCH /api/me`**: 본문은 비어 있지 않아야 하고 키는 `display_name`, `profile_public`, `locale`, `entity_language`만 받는다(아니면 400 `invalid_request`). `display_name`이 규칙에 맞지 않으면 400 `invalid_display_name`. `profile_public`은 `0`, `1`, `true`, `false`만 받고 그 밖의 값은 400 `invalid_profile_public`이다. 성공하면 `GET /api/me`와 같은 본문. 단계 인증은 한 경우에만 요구한다: 서버 설정 `federation`이 `on`이고, 요청이 `profile_public`을 1로 바꾸며, 저장된 값이 0일 때다(FD11, `profile_public_needs_step_up`). 이때 `require_recent_auth`(§5.3)를 통과하지 못하면 세션은 401 `reauth_required`, bearer 자격증명은 403 `step_up_requires_session`을 받고, 같은 요청의 `display_name`도 저장하지 않는다(검사가 모든 쓰기보다 먼저다). 1에서 0으로 바꿀 때, 이미 1인 값을 다시 1로 보낼 때, `federation`이 `off`일 때는 단계 인증을 요구하지 않는다([FEDERATION.md](FEDERATION.md) §8.1, `tests/test_federation_step_up.py`). 핸들러는 서버 모드를 보지 않으므로 싱글 모드에서도 값을 저장하지만, `/settings/account`는 싱글 모드에서 스위치를 그리지 않는다(S9, §5.9).
@@ -237,7 +237,7 @@
 - **권한 및 주체**:
   - 규칙 `owner`. `account_id` 필수.
   - 관리자(`server_role == "admin"`)가 호출하면 403 `admin_uses_provider_settings`를 반환한다 (관리자는 `data/providers.json`을 직접 사용하므로 엔드포인트 접근이 차단된다).
-  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, collaborator, readonly 등)는 404 Not Found다.
+  - 멤버(`is_member`: `role == "member"`, `scope == "owner"`)만 사용 가능하며, 그 외(익명, `write`, `readonly` 등)는 404 Not Found다.
 - **쓰기 전용 API 키 및 키 미노출 원칙 (Write-only Secrets, §11.2, §11.3, D8)**:
   - 등록 시 전달받은 `api_key`는 요청 본문에서 읽자마자 `register_secret`으로 등록되어 메모리 내 등록 이후의 모든 로그와 예외 출력(`SecretScrubFilter`, `scrub_text`, `scrub_exception`)에서 마스킹된다.
   - 마스터 키(`CLAIRE_SECRET_KEY` 또는 `data/auth/master.key`)에서 용도별로 파생된 암호화 키를 사용해 AES-256-GCM(`provider_keys.put_key`, AAD: `account_id|provider|key_id`)으로 암호화하여 `auth.db`의 `provider_keys` 테이블에 보관한다.
@@ -298,7 +298,7 @@
   - `/admin/idp`: `admin-idp-login-policy`(prototype, 로그인 방식·가입 처리·허용 도메인·`email_verified`·Back-Channel Logout 칸은 저장 API가 없는 고정 예시), `admin-idp-login-simulator`(simulation, 실행 결과는 선택값을 문장으로 보여 줄 뿐이다. 미리보기의 공급자 버튼은 실제 `/auth/oidc/{id}/start` 링크).
   - `/admin/tokens`: `admin-token-policy-summary`(static, 코드 기본값을 옮겨 적은 안내문).
   - `/admin/mcp`: `admin-mcp-rbac-table`(static, 판정 칸까지 고정 문구), `admin-webmcp-global-switch`(client_only, `localStorage["claire_admin_webmcp_enabled"]`에만 기억하고 `Permissions-Policy` 헤더나 서버 설정을 바꾸지 않는다).
-- **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 collaborator·readonly·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
+- **`/settings`, `/settings/*`**: 규칙 `_system("owner")`(콘솔 설계 D1). owner 범위의 계정 자격증명만 통과하고 `write`·`readonly`·익명은 404다. 정본 URL은 두 모드 모두 루트 경로이고, 접두 경로(`/@{username}/settings/*`, `/themes/{n}/settings/*`)는 404(N5)다.
 
 | 경로 | 사이드바 그룹 | 동작 |
 | :--- | :--- | :--- |
@@ -470,7 +470,7 @@
 - **[코드]** `BotSupervisor` reads the wanted bots every 15 seconds (`POLL_INTERVAL_SECONDS`): the server bot when `TELEGRAM_BOT_TOKEN` is set (it runs as the administrator account), and each enabled account bot of an `active` account. It starts new bots, stops removed or disabled bots, and restarts a bot when its settings change. A bot that fails to start is not started again for 120 seconds (`RETRY_BACKOFF_SECONDS`) while its settings stay the same. It writes `running` or `error` to auth.db. Thus the console can show a state that is up to 15 seconds old.
 - **[코드]** An account bot uses only the themes of its account (`AccountThemeScope`).
 - **[코드]** The allowed user list (Telegram user IDs) of an account bot must not be empty (at most 20, `MAX_ALLOWED_USERS`). Only the server bot accepts an empty list (old behavior).
-- **[코드]** A bot whose account is not the administrator account refuses the commands in `ADMIN_ONLY_COMMANDS` (`/web`, `/webco`, `/webro`, `/token`, `/status`) and the callbacks in `ADMIN_ONLY_CALLBACK_PREFIXES` (`auth:`, `oauth_appr:`, `oauth_deny:`). Its `/support` makes an account-scope bundle (§14.4). Its command menu does not show the refused commands.
+- **[코드]** A bot whose account is not the administrator account refuses the commands in `ADMIN_ONLY_COMMANDS` (`/web`, `/webro`, `/token`, `/status`) and the callbacks in `ADMIN_ONLY_CALLBACK_PREFIXES` (`auth:`, `oauth_appr:`, `oauth_deny:`). Its `/support` makes an account-scope bundle (§14.4). Its command menu does not show the refused commands.
 - **[코드]** The token is a write-only secret. API responses contain only metadata: `bot_id`, `bot_username`, `fingerprint`, allowed users, `enabled`, `status`, `last_error`. Only the runner reads the plain token (`load_enabled_bots`). Registration is refused when the same bot is already registered for another account or as the server bot (`TelegramBotConflict`).
 - **[코드]** The Compose service `bot` always runs (`docker-compose.yml`). When no bot is configured, it waits.
 

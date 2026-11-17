@@ -71,42 +71,42 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
     conn.execute("UPDATE knowledge_bases SET label='Admin Public Base', is_public=1 WHERE id=0")
     num_admin_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 11)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (1, 1, ?, 'Admin Secret Theme', 1, 0, 0, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (1, 1, ?, 'Admin Secret Theme', 1, 0, 0, ?, ?)",
         (num_admin_priv, now, now),
     )
 
     # Alice themes (account_id=2):
     num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (10, 10, ?, 'Alice Public Work', ?, 1, 1, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (10, 10, ?, 'Alice Public Work', ?, 1, 1, ?, ?)",
         (num_alice_pub, alice_id, now, now),
     )
     num_alice_collab = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 21)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (11, 11, ?, 'Alice Collab Work', ?, 0, 0, 1, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (11, 11, ?, 'Alice Collab Work', ?, 0, 0, ?, ?)",
         (num_alice_collab, alice_id, now, now),
     )
     num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 22)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (12, 12, ?, 'Alice Secret Work', ?, 0, 0, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (12, 12, ?, 'Alice Secret Work', ?, 0, 0, ?, ?)",
         (num_alice_priv, alice_id, now, now),
     )
 
     # Bob themes (account_id=3):
     num_bob_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 30)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (20, 20, ?, 'Bob Public Work', ?, 1, 1, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (20, 20, ?, 'Bob Public Work', ?, 1, 1, ?, ?)",
         (num_bob_pub, bob_id, now, now),
     )
     num_bob_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 31)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, is_collaborator_accessible, created_at, updated_at) "
-        "VALUES (21, 21, ?, 'Bob Secret Work', ?, 0, 0, 0, ?, ?)",
+        "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
+        "VALUES (21, 21, ?, 'Bob Secret Work', ?, 0, 0, ?, ?)",
         (num_bob_priv, bob_id, now, now),
     )
 
@@ -266,7 +266,6 @@ def test_render_graph_html_account_isolation_collaborator(tmp_path: Path):
         s,
         account_id=env["alice_id"],
         include_private=False,
-        collaborator=True,
     )
     assert "Alice Public Work" in alice_collab_html
     assert "Alice Collab Work" in alice_collab_html
@@ -282,7 +281,6 @@ def test_render_graph_html_account_isolation_anonymous(tmp_path: Path):
         s,
         account_id=env["alice_id"],
         include_private=False,
-        collaborator=False,
     )
     assert "Alice Public Work" in alice_anon_html
     assert "Alice Collab Work" in alice_anon_html  # a shared knowledge base after version 28: public, in each selector (CT5, CT6)

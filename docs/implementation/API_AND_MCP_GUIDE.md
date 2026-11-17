@@ -32,17 +32,19 @@ Claire Bible은 지식 그래프 및 문서 보관소를 외부 애플리케이�
 ### 1.2 인증 스코프 (RBAC) 4계층
 Claire Bible은 4단계 역할 기반 접근 제어를 제공한다:
 
-$$\text{owner} \succ \text{collaborator} \succ \text{readonly} \succ \text{anonymous}$$
+$$\text{owner} \succ \text{write} \succ \text{readonly} \succ \text{anonymous}$$
+
+The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6). It is for the tools of an account: an AI agent, a script, a bot. The rules of each scope and of each route are in [`THEMES.md`](THEMES.md) §4.1. The Telegram command `/webco` and the variable `CLAIRE_COLLABORATOR_TOKEN` are removed; an old token with the scope `collaborator` becomes `readonly`.
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 / 진단 번들 |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **시스템 관리자 (`owner`)** | 독립 상시 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
-| **협력자 (`collaborator`)** | 독립 상시 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **Write (`write`)** | An API token (`cb_...`) with the scope `write`: `claire token create <name> --scope write` | Personal knowledge base: read, ingest, regenerate, publish | Shared knowledge base: read, contributions | — | No |
 | **읽기 전용 (`readonly`)** | 독립 상시 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
 ### 1.3 환경변수 통제 방식 폐기 및 독립 자격증명 파일 기반 상시 이용 토큰 관리 (Decoupled Token Architecture)
-- **환경변수 통제 폐기 및 하이브리드 분리 모델**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`, `CLAIRE_COLLABORATOR_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, 지식 데이터베이스(`claire.db`)와 완전히 분리된 독립 자격증명 파일(`data/auth/api_tokens.json`, `chmod 0600`) 관리 체계로 전면 전환했다. 토큰 검증은 100% 인메모리에서 수행되어 SQLite 쓰기 락 경합이 전혀 발생하지 않으며(0%), 지식베이스 손상이나 롤백 시에도 인증 체계가 안전하게 유지(장애 격리)된다.
+- **환경변수 통제 폐기 및 하이브리드 분리 모델**: 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)에 의한 API/MCP 접근 통제 방식을 폐기하고, 지식 데이터베이스(`claire.db`)와 완전히 분리된 독립 자격증명 파일(`data/auth/api_tokens.json`, `chmod 0600`) 관리 체계로 전면 전환했다. 토큰 검증은 100% 인메모리에서 수행되어 SQLite 쓰기 락 경합이 전혀 발생하지 않으며(0%), 지식베이스 손상이나 롤백 시에도 인증 체계가 안전하게 유지(장애 격리)된다.
 - **하위 호환 및 자동 이관**: 서버 기동 시 기존 환경변수에 토큰이 존재하면 `data/auth/api_tokens.json` 파일로 1회 안전하게 자동 이관되며, 환경변수가 비어있더라도 최초 기동 시 기본 `owner` 토큰(`cb_...`)이 자동 생성되어 즉시 운영 가능하다.
 - **토큰 관리 다중 인터페이스**:
   - **CLI**: `claire token [list|create|revoke]`
@@ -301,7 +303,7 @@ curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/toke
 새로운 상시 이용 API/MCP 토큰을 발급한다. 발급 시점에만 전체 원본 시크릿 토큰(`token`)이 반환된다.
 - **요청 본문 필드**:
   - `name` (str, 필수): 토큰 식별용 이름 (예: `"Claude Desktop"`, `"Cursor Agent"`)
-  - `scope` (str, 선택, 기본 `"readonly"`): `"owner"`, `"collaborator"`, `"readonly"` 중 선택
+  - `scope` (str, 선택, 기본 `"readonly"`): `"owner"`, `"write"`, `"readonly"` 중 선택
   - `expires_in_days` (int, 선택, 기본 `null`): 만료 일수 (생략 또는 `null` 지정 시 무기한 상시 이용)
 ```bash
 curl -s -X POST https://claire.example.com/tokens \
@@ -353,8 +355,8 @@ curl -s -X POST https://claire.example.com/tokens/revoke \
 | 메서드 | 경로 | 스코프 | 기능 |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/federation/status` | `owner` | 핸들, 액터 상태, 팔로워 수, 대기 중인 작업 수 |
-| `POST` | `/api/federation/publish` | `collaborator` | 본문 `{"theme": "<테마 번호>", "document_id": "<문서 ID>"}`. 공개 테마의 숨기지 않은 문서만 발행한다. 처음이면 `create`, 다시 호출하면 같은 객체의 `update` 작업을 만든다. 응답 202 |
-| `POST` | `/api/federation/retract` | `collaborator` | 본문 `{"object_id": "<객체 ID>"}`. 객체를 지우고 팔로워에게 `Delete`를 요청한다. 응답 202 |
+| `POST` | `/api/federation/publish` | `write` | 본문 `{"theme": "<테마 번호>", "document_id": "<문서 ID>"}`. 공개 테마의 숨기지 않은 문서만 발행한다. 처음이면 `create`, 다시 호출하면 같은 객체의 `update` 작업을 만든다. 응답 202 |
+| `POST` | `/api/federation/retract` | `write` | 본문 `{"object_id": "<객체 ID>"}`. 객체를 지우고 팔로워에게 `Delete`를 요청한다. 응답 202 |
 
 - 발행은 비동기다. 202는 Claire가 객체와 작업을 저장했다는 뜻이고, 사이드카가 5초 안에 작업을 가져가 팔로워의 서버로 전달한다.
 - 오류 코드: 400 `invalid_request`, 404 `theme_not_found`·`document_not_found`·`object_not_found`, 409 `not_an_actor`·`theme_not_public`·`document_not_public`·`document_has_no_body`.
@@ -374,7 +376,7 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
   - 외부 에이전트의 잦은 탐색 루프 중에도 Google Gemini API 호출이나 토큰 소진이 일절 발생하지 않는다.
 - **`ContextVar[Principal]` 기반 계정 격리**:
   - `AuthenticationMiddleware`가 인증한 주체는 `mcp_tools.current_principal` (`ContextVar[Principal | None]`)을 통해 MCP 도구 함수 실행 컨텍스트로 전달된다.
-  - 모든 MCP 도구의 `_kb_id` 해석은 `current_principal`의 `account_id` 소유 테마(또는 `collaborator` 스코프인 경우 `is_public` 또는 `is_collaborator_accessible` 테마)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
+  - 모든 MCP 도구의 `_kb_id` 해석은 `current_principal`의 `account_id`의 개인 지식 베이스와 공유 지식 베이스(공개)로만 조회 및 접근을 제한한다. 타 계정 소유 테마 지정 시 존재를 은닉하기 위해 `None`을 반환한다.
 - **읽기 전용 DB 연결 (`readonly=True`) 및 DDL 제거**:
   - MCP 도구의 `_conn`은 `dbm.connect_existing(db_file, readonly=True)`를 사용하여 읽기 전용 모드로 데이터베이스를 연다.
   - 도구 호출마다 불필요하게 실행되던 DDL(`init_db`)을 완전히 제거하여 SQLite 쓰기 락 경합을 방지하고 응답 성능을 최적화한다.
@@ -394,7 +396,7 @@ CLI(`claire token create`), WebUI(🔑 API/MCP 키 또는 `/settings/tokens`, �
 - **특징**: 환경변수 주입이나 브라우저 대화형 재인증 없이 상시 이용 가능하며, 관리 화면이나 CLI에서 언제든지 즉시 폐기(Revoke)할 수 있다.
 
 #### 방법 2: 텔레그램 발급 세션 토큰 (X-Session)
-텔레그램 봇(`/web`, `/webco`, `/webro`)에서 발급받은 임시 세션 토큰을 전달한다.
+텔레그램 봇(`/web`, `/webro`)에서 발급받은 임시 세션 토큰을 전달한다.
 - **헤더**: `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
 
 #### 방법 3: OAuth 2.1 표준 인가 서버 (Gemini Spark / 원터치 승인)
@@ -580,7 +582,7 @@ claire token revoke "cb_xX9vY..." --json
 - **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 토큰 관리 패널이 없다.
 - **콘솔 화면**: 관리 패널(`src/claire/static/js/manage_panels.js`)을 멤버는 `/settings/tokens`, 관리자는 `/admin/tokens`에서 쓴다. 관리자가 `/settings/tokens`를 열면 `/admin/tokens`로 302된다. 두 화면 모두 호출자 계정의 토큰만 다룬다(§2.6 계정 격리). `/settings/mcp`는 `/mcp` 연결 주소, `theme` 인자 예시, 클라이언트 설정 안내를 보여 준다. 루트 상단바의 **⚙️** 아이콘(관리자는 **🛠️**)이 `/settings`(관리자는 `/admin`)로 이동한다.
 - **제공 기능**:
-  - 발급된 모든 토큰의 상태(활성, 만료, 폐기), 권한 스코프(`owner` / `collaborator` / `readonly`), 만료 일시, 최근 사용 시각(Last Used) 실시간 모니터링.
+  - 발급된 모든 토큰의 상태(활성, 만료, 폐기), 권한 스코프(`owner` / `write` / `readonly`), 만료 일시, 최근 사용 시각(Last Used) 실시간 모니터링.
   - 새 토큰 발급 폼: 이름, 권한, 유효기간(무기한/30일/90일/1년) 설정 후 [✨ 토큰 발급] 1클릭 생성.
   - 발급 즉시 Claude Desktop 및 Cursor에 붙여넣을 수 있는 `mcpServers` JSON 설정 스니펫 자동 생성.
   - 특정 토큰의 즉시 폐기(Revoke) 버튼 제공.
@@ -590,7 +592,7 @@ claire token revoke "cb_xX9vY..." --json
 스마트폰이나 텔레그램 메신저에서 원격으로 토큰 상태를 조회하고 긴급 폐기 또는 새 토큰을 즉시 발급할 수 있다.
 
 - **목록 조회**: `/token` 또는 `/token list`
-- **토큰 생성**: `/token create <이름> [owner|collab|readonly]`
+- **토큰 생성**: `/token create <이름> [owner|write|readonly]`
   - 예: `/token create ClaudeDesktop readonly`
   - 발급 즉시 봇 메시지로 전체 시크릿 토큰과 MCP 연결 URL이 전송된다.
 - **토큰 폐기**: `/token revoke <ID 또는 토큰값>`

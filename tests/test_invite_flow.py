@@ -128,13 +128,13 @@ def _mount_invite_routes_for_tests(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(server, "build_account_routes", _patched_build)
 
     extra_policy = {
-        ("GET", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("HEAD", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("POST", "/invite/{code}"): security._system("public", modes=security.NETWORK_ONLY),
-        ("GET", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("HEAD", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("POST", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
-        ("PATCH", "/api/invites"): security._system("admin", modes=security.NETWORK_ONLY),
+        ("GET", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("HEAD", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("POST", "/invite/{code}"): security._system("public", "none", modes=security.NETWORK_ONLY),
+        ("GET", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("HEAD", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("POST", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
+        ("PATCH", "/api/invites"): security._system("admin", "none", modes=security.NETWORK_ONLY),
     }
     merged_policy = dict(security.ROUTE_POLICY)
     merged_policy.update(extra_policy)

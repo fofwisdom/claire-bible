@@ -594,7 +594,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<h2><span data-icon="shield"></span> {escape(t("console.admin.tokens.policy_title"))} {prototype_badge("admin-token-policy-summary", "static")}</h2>'
             f'{prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note"))}'
             '<dl>'
-            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", collaborator="collaborator", readonly="readonly", revoke="/tokens/revoke")}</dd>'
+            f'<dt>{t_code("console.admin.tokens.policy_permanent", prefix="cb_…")}</dt><dd>{t_code("console.admin.tokens.policy_permanent_desc", owner="owner", write="write", readonly="readonly", revoke="/tokens/revoke")}</dd>'
             f'<dt>{escape(t("console.admin.tokens.policy_oauth"))}</dt><dd>{t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")}</dd>'
             f'<dt>{escape(t("console.admin.tokens.policy_session"))}</dt><dd>{t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")}</dd>'
             "</dl>"
@@ -644,7 +644,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             f'<thead><tr><th>{escape(t("console.admin.mcp.rbac_col_scope"))}</th><th>{escape(t("console.admin.mcp.rbac_col_design"))}</th><th>{escape(t("console.admin.mcp.rbac_col_current"))}</th><th>{escape(t("console.admin.mcp.rbac_col_result"))}</th></tr></thead>'
             '<tbody id="pref-mcp-rbac-tbody">'
             f'<tr><td><code class="pref-mono">owner</code></td><td>{escape(t("console.admin.mcp.rbac_owner_design"))}</td><td>{escape(t("console.admin.mcp.rbac_owner_current"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
-            f'<tr><td><code class="pref-mono">collaborator</code></td><td>{escape(t("console.admin.mcp.rbac_collaborator_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
+            f'<tr><td><code class="pref-mono">write</code></td><td>{escape(t("console.admin.mcp.rbac_write_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_review"))}</span></td></tr>'
             f'<tr><td><code class="pref-mono">readonly</code></td><td>{escape(t("console.admin.mcp.rbac_readonly_design"))}</td><td>{escape(t("console.admin.mcp.rbac_readonly_tools"))}</td><td><span class="pref-pill pref-pill-mcp">{escape(t("console.admin.mcp.rbac_match"))}</span></td></tr>'
             f'<tr><td><code class="pref-mono">anonymous</code></td><td>{escape(t("console.admin.mcp.rbac_anonymous_design"))}</td><td>{escape(t("console.admin.mcp.rbac_anonymous_current"))}</td><td><span class="pref-pill">{escape(t("console.admin.mcp.rbac_stricter"))}</span></td></tr>'
             "</tbody>"

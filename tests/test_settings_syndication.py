@@ -85,7 +85,7 @@ def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, n
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, ?, 1, ?, ?, '', ?, ?)",
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, '', ?, ?)",
             (kb_id, kb_id, number, label, f"Desc {label}", 1 if is_personal else 0, 1 if is_public else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()

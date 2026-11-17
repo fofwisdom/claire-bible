@@ -4,8 +4,8 @@ Covers:
 - §9.2 Permission Matrix:
   * Anonymous: public theme read -> 200, search forced to FTS, private theme read -> 404, write -> 404
   * Owner (same-account): public/private read -> 200, write -> 200
-  * Collaborator (same-account): public/collab-accessible read -> 200, secret read -> 404,
-    write to default theme (is_personal=1) -> 403, write to collab-accessible theme -> 200, owner-action write -> 403
+  * Write (same-account, SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6): reads -> 200, ingest into the personal knowledge base passes,
+    ingest by a path that pins a shared knowledge base -> 403, owner-action write -> 403
   * Readonly (same-account): read -> 200, write -> 403 or 404
   * Cross-account (Bob accessing Alice): public read -> 200, search forced to FTS, private read -> 404, write -> 404
 - TokenStore multi-account isolation:
@@ -87,14 +87,13 @@ def _setup_theme(
     account_id: int,
     is_personal: bool = False,
     is_public: bool = True,
-    is_collaborator_accessible: bool = True,
 ) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, ?, '', ?, ?)",
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, '', ?, ?)",
             (
                 kb_id,
                 seq,
@@ -103,7 +102,6 @@ def _setup_theme(
                 f"Description for {label}",
                 1 if is_personal else 0,
                 1 if is_public else 0,
-                1 if is_collaborator_accessible else 0,
                 account_id,
                 str(settings.db_file),
                 now,
@@ -152,19 +150,19 @@ def test_environment(tmp_path: Path):
 
     # 3. Themes:
     # Alice themes (account_id = 2)
-    alice_def = _setup_theme(tm, settings, kb_id=20, seq=1, label="Alice Default", account_id=2, is_personal=True, is_public=True, is_collaborator_accessible=False)
-    alice_pub = _setup_theme(tm, settings, kb_id=21, seq=2, label="Alice Public", account_id=2, is_personal=False, is_public=True, is_collaborator_accessible=True)
-    alice_collab = _setup_theme(tm, settings, kb_id=22, seq=3, label="Alice Collab Only", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=True)
-    alice_sec = _setup_theme(tm, settings, kb_id=23, seq=4, label="Alice Secret", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=False)
+    alice_def = _setup_theme(tm, settings, kb_id=20, seq=1, label="Alice Default", account_id=2, is_personal=True, is_public=True)
+    alice_pub = _setup_theme(tm, settings, kb_id=21, seq=2, label="Alice Public", account_id=2, is_personal=False, is_public=True)
+    alice_collab = _setup_theme(tm, settings, kb_id=22, seq=3, label="Alice Collab Only", account_id=2, is_personal=False, is_public=False)
+    alice_sec = _setup_theme(tm, settings, kb_id=23, seq=4, label="Alice Secret", account_id=2, is_personal=False, is_public=False)
 
     # Bob themes (account_id = 3)
-    bob_def = _setup_theme(tm, settings, kb_id=30, seq=5, label="Bob Default", account_id=3, is_personal=True, is_public=True, is_collaborator_accessible=False)
-    bob_pub = _setup_theme(tm, settings, kb_id=31, seq=6, label="Bob Public", account_id=3, is_personal=False, is_public=True, is_collaborator_accessible=True)
+    bob_def = _setup_theme(tm, settings, kb_id=30, seq=5, label="Bob Default", account_id=3, is_personal=True, is_public=True)
+    bob_pub = _setup_theme(tm, settings, kb_id=31, seq=6, label="Bob Public", account_id=3, is_personal=False, is_public=True)
 
     # 4. TokenStore and tokens:
     tok_store = get_token_store(data_dir=data_dir)
     alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="collaborator", account_id=2)["token"]
+    alice_write_tok = tok_store.create_token(name="alice-write", scope="write", account_id=2)["token"]
     alice_ro_tok = tok_store.create_token(name="alice-ro", scope="readonly", account_id=2)["token"]
     bob_owner_tok = tok_store.create_token(name="bob-owner", scope="owner", account_id=3)["token"]
 
@@ -185,7 +183,7 @@ def test_environment(tmp_path: Path):
         bob_def=bob_def,
         bob_pub=bob_pub,
         alice_owner_tok=alice_owner_tok,
-        alice_collab_tok=alice_collab_tok,
+        alice_write_tok=alice_write_tok,
         alice_ro_tok=alice_ro_tok,
         bob_owner_tok=bob_owner_tok,
     )
@@ -246,36 +244,32 @@ def test_permission_matrix_owner(test_environment):
     assert res_sec.status_code == 403
 
 
-def test_permission_matrix_collaborator(test_environment):
-    """Alice collaborator token: read public/collab-accessible -> 200, secret read -> 404,
-    write to default theme -> 403, write to collab-accessible -> 200, owner action write -> 403.
-    """
+def test_permission_matrix_write(test_environment):
+    """Alice write token (Section 6.6): reads pass; ingest goes to the personal knowledge base; a path that pins a shared knowledge base gets 403; owner actions get 403."""
     env = test_environment
     client = env.client
-    headers = {"Authorization": f"Bearer {env.alice_collab_tok}"}
+    headers = {"Authorization": f"Bearer {env.alice_write_tok}"}
 
-    # 1. Read public theme -> 200
-    assert client.get(f"/kb/{ids.format_public_id(env.alice_pub.number)}/graph", headers=headers).status_code == 200
+    # 1. Reads -> 200 (the old themes of Alice are shared knowledge bases after version 28: public)
+    for kb in (env.alice_pub, env.alice_collab, env.alice_sec):
+        assert client.get(f"/kb/{ids.format_public_id(kb.number)}/graph", headers=headers).status_code == 200
 
-    # 2. Read collaborator-accessible private theme -> 200
-    assert client.get(f"/kb/{ids.format_public_id(env.alice_collab.number)}/graph", headers=headers).status_code == 200
+    # 2. Ingest passes the scope and selects the personal knowledge base: an empty payload is the only error.
+    res_personal = client.post("/ingest", json={"payload": ""}, headers=headers)
+    assert (res_personal.status_code, res_personal.json().get("error")) == (400, "payload required")
 
-    # 3. Read secret private theme -> 404
-    assert client.get(f"/kb/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 200  # a shared knowledge base after version 28: public (CT5, CT6)
+    # 3. A path that pins a shared knowledge base -> 403 (CT4)
+    res_shared = client.post(f"/kb/{ids.format_public_id(env.alice_collab.number)}/ingest", json={"payload": "text"}, headers=headers)
+    assert (res_shared.status_code, res_shared.json().get("error")) == (403, "kb_ingest_personal_only")
 
-    # 4. Collaborator write to default theme (is_personal=1) -> 403 Forbidden
-    res_def_write = client.post(f"/kb/{ids.format_public_id(env.alice_def.number)}/ingest", json={"payload": "Collab default ingest"}, headers=headers)
-    assert res_def_write.status_code == 403
-    err_detail = res_def_write.json().get("detail") or res_def_write.json().get("error") or ""
-    assert "기본 지식베이스" in err_detail
-
-    # 5. Ingest writes only to the personal knowledge base (CT4, CT23): no ingest into a collaborator-accessible theme -> 403
-    res_collab_write = client.post(f"/kb/{ids.format_public_id(env.alice_collab.number)}/ingest", json={"payload": "Collab accessible ingest"}, headers=headers)
-    assert res_collab_write.status_code == 403
-
-    # 6. Collaborator attempting owner-level action (create graph bundle) -> 403 or 404 Forbidden/Not Found
-    res_owner_action = client.post(f"/kb/{ids.format_public_id(env.alice_collab.number)}/graph/bundle", json={"kb_id": env.alice_collab.id}, headers=headers)
-    assert res_owner_action.status_code in (403, 404)
+    # 4. Owner actions (graph bundle, review, settings) -> 403 scope_insufficient
+    for method, path, body in (
+        ("POST", f"/kb/{ids.format_public_id(env.alice_collab.number)}/graph/bundle", {"kb_id": env.alice_collab.id}),
+        ("POST", "/document/hide", {"id": "x", "hidden": True}),
+        ("PATCH", "/themes", {"id": ids.format_public_id(env.alice_collab.number), "label": "x"}),
+    ):
+        res = client.request(method, path, json=body, headers=headers)
+        assert (res.status_code, res.json()) == (403, {"error": "scope_insufficient", "scope": "write", "required": "owner"}), path
 
 
 def test_permission_matrix_readonly(test_environment):
@@ -554,7 +548,7 @@ def test_support_bundle_redactions_and_auth_exclusion(test_environment, tmp_path
 
 
 def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: Path):
-    """E2E flow: Member theme definition, token issuance, collaborator ingestion gating,
+    """E2E flow: Member theme definition, token issuance, write-scope ingestion gating,
     visitor access and FTS enforcement, graph bundle export isolation, and support bundle boundaries.
     """
     env = test_environment
@@ -566,7 +560,7 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     # Step 1: Alice creates a new custom team theme via API
     res_def = client.post(
         "/@alice/themes",
-        json={"knowledge_type": "real", "label": "Alice Team Project", "is_public": True, "is_collaborator_accessible": True},
+        json={"knowledge_type": "real", "label": "Alice Team Project", "is_public": True},
         headers=alice_owner_hdr,
     )
     assert res_def.status_code == 201
@@ -575,10 +569,10 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     team_num = team_theme["number"]
     assert team_theme["account_id"] is None and team_theme["created_by_account_id"] == 2  # a shared knowledge base has no owner; Alice is its founder and first moderator
 
-    # Step 2: Alice issues a collaborator token via /tokens API
+    # Step 2: Alice issues a write token via /tokens API
     res_tok = client.post(
         "/tokens",
-        json={"name": "Alice Team Collab Key", "scope": "collaborator"},
+        json={"name": "Alice Team Agent Key", "scope": "write"},
         headers=alice_owner_hdr,
     )
     assert res_tok.status_code == 201
@@ -594,14 +588,9 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     assert res_ingest_team.status_code == 403
     seed(env.settings, team_kb_id, "Alice Team Project document notes")
 
-    # Step 4: Collaborator attempts to ingest into Alice's default theme -> Blocked 403
-    res_ingest_def = client.post(
-        f"/kb/{ids.format_public_id(env.alice_def.number)}/ingest",
-        json={"payload": "Collab default illegal ingest"},
-        headers=collab_hdr,
-    )
-    assert res_ingest_def.status_code == 403
-    assert "기본 지식베이스" in (res_ingest_def.json().get("error") or res_ingest_def.json().get("detail") or "")
+    # Step 4: The write token ingests into Alice's personal knowledge base: the scope passes; only the empty payload is refused
+    res_ingest_def = client.post("/ingest", json={"payload": ""}, headers=collab_hdr)
+    assert (res_ingest_def.status_code, res_ingest_def.json().get("error")) == (400, "payload required")
 
     # Step 5: Foreign account Bob attempts to ingest into Alice's team theme -> Blocked 404
     res_bob_write = client.post(

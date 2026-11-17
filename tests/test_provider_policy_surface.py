@@ -107,8 +107,8 @@ def _setup_theme(tm: KnowledgeBaseManager, db_file: Path, *, kb_id: int, seq: in
     try:
         conn.execute(
             "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, "
-            "is_collaborator_accessible, account_id, db_path, default_focus, presentation_enabled, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, '', '📁', ?, 1, 1, ?, ?, '', ?, ?, ?)",
+            "account_id, db_path, default_focus, presentation_enabled, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, '', '📁', ?, 1, ?, ?, '', ?, ?, ?)",
             (kb_id, seq, (account_id << 56) | seq, label, 1 if is_personal else 0, account_id,
              str(db_file), 1 if presentation else 0, now, now),
         )
@@ -405,26 +405,27 @@ def _pin(e: SimpleNamespace, kb_id: int, provider: str, model: str) -> None:
 
 def _themes_by_id(r) -> dict[int, dict]:
     assert r.status_code == 200, r.text
-    return {int(t["id"]): t for t in r.json()["themes"]}
+    data = r.json()
+    return {int(t["id"]): t for t in (data["personal_kb"], *data["knowledge_bases"]) if t is not None}
 
 
 def test_reembed_required_only_for_owner(env):
     _register_byok(env)
     _pin(env, env.alice_pub.id, "gemini", "old-embedding-model")
-    owner = _themes_by_id(env.client.get("/@alice/themes", headers=_h(env.alice)))
+    owner = _themes_by_id(env.client.get("/@alice/kb", headers=_h(env.alice)))
     assert owner[env.alice_pub.id]["reembed_required"] is True
     assert owner[env.alice_def.id]["reembed_required"] is False  # 아직 고정되지 않음
 
     for headers in (_h(env.bob), {}):
-        visitor = _themes_by_id(env.client.get("/@alice/themes", headers=headers))
+        visitor = _themes_by_id(env.client.get("/@alice/kb", headers=headers))
         assert all("reembed_required" not in t for t in visitor.values())
 
     # 관리자 테마: mock 임베딩으로 고정되어 있으면 불일치 없음, 다른 모델이면 표시.
     _pin(env, env.admin_theme.id, "mock", "mock-sha256")
-    admin = _themes_by_id(env.client.get("/@admin/themes", headers=_h(env.admin)))
+    admin = _themes_by_id(env.client.get("/@admin/kb", headers=_h(env.admin)))
     assert admin[env.admin_theme.id]["reembed_required"] is False
     _pin(env, env.admin_theme.id, "gemini", "gemini-embedding-001")
-    admin = _themes_by_id(env.client.get("/@admin/themes", headers=_h(env.admin)))
+    admin = _themes_by_id(env.client.get("/@admin/kb", headers=_h(env.admin)))
     assert admin[env.admin_theme.id]["reembed_required"] is True
 
 

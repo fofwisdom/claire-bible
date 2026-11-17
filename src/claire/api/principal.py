@@ -18,7 +18,7 @@ from ..i18n.locales import LocaleCode
 PRINCIPAL_STATE_KEY = "claire_principal"
 STEP_UP_WINDOW_SECONDS = 15 * 60
 
-PrincipalScope = Literal["owner", "collaborator", "readonly", "anonymous"]
+PrincipalScope = Literal["owner", "write", "readonly", "anonymous"]
 PrincipalChannel = Literal["cookie", "bearer", "x-session", "none"]
 
 

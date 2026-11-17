@@ -33,7 +33,6 @@ def syndication_env(tmp_path: Path):
         environment="development",
         public_url="http://127.0.0.1:8765/",
         inject_token=OWNER_TOKEN,
-        collaborator_token=COLLAB_TOKEN,
         readonly_token=READONLY_TOKEN,
         anonymous_readonly=False,
         cors_allowed_origins="",
@@ -163,7 +162,7 @@ def test_legacy_preferences_tab_redirects_admin(syndication_env, tab, admin_targ
 def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndication_env) -> None:
     with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
         headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-        kb0 = next(t for t in client.get("/themes", headers=headers).json()["themes"] if t["id"] == 0)["number"]
+        kb0 = client.get("/kb", headers=headers).json()["personal_kb"]["number"]
         base = client.get(f"/syndication/preferences?tab=feeds&kb={kb0}", headers=headers, follow_redirects=False)
         assert base.status_code == 302
         location = base.headers["location"]

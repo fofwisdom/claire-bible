@@ -184,18 +184,18 @@ location ^~ /ap/                  { proxy_pass http://claire_fedify; proxy_http_
 
 ## 인증 계층 및 접근 권한 제어 (Authentication & RBAC)
 
-Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전용(Readonly), 익명 사용자(Anonymous)로 구성된 4단계 역할 기반 접근 제어(RBAC)를 제공한다.
+Claire Bible은 시스템 소유자(Owner), 쓰기(Write), 읽기 전용(Readonly), 익명 사용자(Anonymous)로 구성된 4단계 역할 기반 접근 제어(RBAC)를 제공한다.
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 (생성/수정/삭제) |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **시스템 관리자 (`owner`)** | DB 영구 토큰(`cb_...`), 텔레그램 `/web` 세션, 또는 `claire auth` (레거시 `CLAIRE_INJECT_TOKEN` 자동 이관) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `tokens`) |
-| **협력자 (`collaborator`)** | DB 영구 협력자 토큰(`cb_...`) 또는 텔레그램 `/webco` 발급 세션 (레거시 `CLAIRE_COLLABORATOR_TOKEN` 자동 이관) | **쓰기 불가 (차단)**<br>(읽기만 가능) | 읽기 / 쓰기 | 허용 테마만<br>읽기 / 쓰기 | 불가 |
+| **Write (`write`)** | An API token (`cb_...`) with the scope `write`: `claire token create <name> --scope write` | Personal knowledge base: read, ingest, regenerate, publish | Shared knowledge base: read, contributions | — | No |
 | **읽기 전용 (`readonly`)** | DB 영구 읽기전용 토큰(`cb_...`) 또는 텔레그램 `/webro` 발급 세션 (레거시 `CLAIRE_READONLY_TOKEN` 자동 이관) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
 | **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
-### 협력자 세션 (`collaborator`) 및 안전 정책
-- **발급 및 진입**: 텔레그램 봇의 `/webco` 명령을 통해 24시간 유효한 일회성/재사용 가능 협력자 세션 링크(`/webco?token=...`)를 발급받거나 `claire token create --scope collab`으로 상시 토큰을 발급한다.
-- **기본 지식베이스 보호**: 협력자는 시스템의 핵심 기반인 기본 테마(`seq=0`)에 데이터를 적재하거나 수정할 수 없습니다(`403 Forbidden`). 오직 `is_collaborator_accessible=true`로 설정된 추가 테마에만 수집 및 적재가 허용된다.
+### The scope `write`
+- **Issue**: `claire token create <name> --scope write`, the console page of tokens, or the Telegram command `/token create <name> write`. The Telegram command `/webco` and collaborator sessions are removed (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
+- **Rights**: a `write` credential reads, ingests into the personal knowledge base of its account, regenerates there, and publishes. It gets 403 for review, curation, maintenance, settings, and each other decision of the person. Details: [`THEMES.md`](THEMES.md) §4.1.
 - **세션 헤더**: API 호출 시 `X-Session: <token>` 또는 `Authorization: Bearer <token>` 헤더를 전달한다.
 - **Syndication UI (`/syndication`)**: 루트 전용 `_system("read")` 규칙이다. 1단계 시각 검토용 `public` 규칙은 해제했다([`ACCOUNTS.md`](ACCOUNTS.md) §11). 옛 `/prototype/syndication` 라우트는 지웠다(RD20). 이제 404이고, 예시 데이터만 쓰는 프로토타입은 `prototype` 역할 호스트가 준다(아래 "서브도메인 역할 호스트").
 
@@ -212,7 +212,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
 
 ### 비공개(Private) 테마의 Fail-Closed 보안
 - 테마의 가시성이 `is_public: false`로 설정된 경우, 인증되지 않은 익명 사용자가 해당 테마로 접근하면 보안상 테마의 존재 자체를 은닉하기 위해 `403 Forbidden` 대신 **`404 Not Found`**를 반환한다.
-- `owner`, `collaborator`(허용된 경우), `readonly` 세션을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출된다.
+- `owner`, `write`, `readonly` 자격증명을 지닌 사용자에게만 테마 메타데이터와 지식그래프가 노출된다.
 
 ### Web UI 상태 동기화
 - 테마 선택기는 지식 베이스의 경로로 페이지를 옮긴다(`switchKnowledgeTheme` → `kbHomePath`). 선택은 `localStorage`가 아니라 경로가 기억한다.
@@ -226,7 +226,7 @@ Claire Bible은 시스템 소유자(Owner), 협력자(Collaborator), 읽기 전�
  - **엔드포인트**: `POST /mcp` (Streamable / Stateless HTTP JSON-RPC)
  - **인증**:
    - `Authorization: Bearer <PERSISTENT_TOKEN>` (CLI `claire token create`, WebUI [🔑 API/MCP 키], 텔레그램 `/token` 발급 영구 토큰)
-   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>` (텔레그램 `/web`, `/webco`, `/webro` 발급 세션)
+   - `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>` (텔레그램 `/web`, `/webro` 발급 세션)
    - 미인증 또는 무효 토큰 요청 시 표준 MCP HTTP 사양(RFC 6750)에 따라 `401 Unauthorized` (`WWW-Authenticate: Bearer` 헤더) 반환
  - **제공 툴셋 (10종 읽기 전용)**: `resolve_entity`, `search`, `neighbors`, `path`, `context`, `overview`, `node`, `documents`, `document`, `stats`
  

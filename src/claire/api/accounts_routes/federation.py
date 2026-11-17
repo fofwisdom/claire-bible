@@ -13,7 +13,7 @@ Account routes, for the owner of the account, in network mode only.
 - ``GET /api/federation/followers``: one cursor page of the followers of the account of the caller.
 - ``DELETE /api/federation/followers``: remove one follower of the account of the caller. The route deletes the row only. ``Reject(Follow)`` needs the outbox of phase FP3.
 
-Publishing routes, for the owner or a collaborator of the account, in network mode only (design Sections 8.3 item 4, 9.1 to 9.3).
+Publishing routes, for a credential of the account with the scope `owner` or `write`, in network mode only (design Sections 8.3 item 4, 9.1 to 9.3).
 
 - ``POST /api/federation/publish``: publish one document of a public theme, or publish it again. The object row and the outbox task are in one transaction.
 - ``POST /api/federation/retract``: delete one published object. The tombstone, the row removal, and the ``delete`` task are in one transaction.
@@ -649,19 +649,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
     # --- Publishing routes (design Sections 9.1 to 9.3, unit FP3-1) ---
 
     def _publisher(request: Request) -> Principal | None:
-        """Return the principal when it can cause an outbound activity: owner or collaborator access with an account. A ``readonly`` credential cannot (design Section 8.3 item 4)."""
+        """Return the principal when it can cause an outbound activity: the scope ``owner`` or ``write`` with an account. A ``readonly`` credential cannot (design Section 8.3 item 4; SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6)."""
         principal = request_principal(request)
-        return principal if principal.scope in ("owner", "collaborator") and principal.account_id is not None else None
+        return principal if principal.scope in ("owner", "write") and principal.account_id is not None else None
 
     def _own_theme(conn: Any, principal: Principal, *, kb_id: int | None = None, number: int | None = None) -> Any:
-        """Return the theme row when it is of the account of the caller and the caller can use it. All other conditions give ``None``, so that the response does not show that a theme of a different account exists."""
+        """Return the row of the personal knowledge base of the caller. A publish or a retract takes only documents of that knowledge base (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review). All other conditions give ``None``, so that the response does not show that a knowledge base of a different account exists."""
         if kb_id is not None:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
+            row = conn.execute("SELECT id, account_id, is_public, is_personal FROM knowledge_bases WHERE id=?", (kb_id,)).fetchone()
         else:
-            row = conn.execute("SELECT id, account_id, is_public, is_collaborator_accessible FROM knowledge_bases WHERE number=?", (number,)).fetchone()
-        if row is None or row["account_id"] != principal.account_id:
-            return None
-        if principal.scope == "collaborator" and not row["is_collaborator_accessible"]:
+            row = conn.execute("SELECT id, account_id, is_public, is_personal FROM knowledge_bases WHERE number=?", (number,)).fetchone()
+        if row is None or row["account_id"] != principal.account_id or not row["is_personal"]:
             return None
         return row
 

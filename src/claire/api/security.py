@@ -31,10 +31,11 @@ from starlette.responses import (
 from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .. import kb_access
 from ..store import accounts as accounts_store
 from ..store.accounts import ServerMode
 from ..store import db as dbm
-from .principal import ANONYMOUS, PRINCIPAL_STATE_KEY, Principal
+from .principal import ANONYMOUS, PRINCIPAL_STATE_KEY, Principal, has_recent_auth
 from .namespace import (
     NAMESPACE_EXTRA_STATE_KEY,
     NAMESPACE_STATE_KEY,
@@ -257,44 +258,64 @@ def client_ip(scope: Scope, trusted_proxies: tuple[_IPNetwork, ...]) -> str:
     return str(chain[0])
 
 
-AccessLevel = Literal["public", "read", "collaborator", "owner", "admin"]
-AuthScope = Literal["public", "anonymous", "readonly", "collaborator", "owner"]
+AccessLevel = Literal["public", "read", "write", "owner", "admin"]
+AuthScope = Literal["public", "anonymous", "readonly", "write", "owner"]
 RouteKey = tuple[str, str]
 # 라우트 표면(§9.1). root: 루트 GET / 전용, system: 루트에서만(접두 아래 404),
 # namespaced: 네임스페이스 필요(N1–N3), any: 접두를 무시한다.
-RouteSurface = Literal["root", "system", "namespaced", "any"]
+# collection: at the root, the collection of the server (no namespace account); under a prefix, the collection of the account of the namespace (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: ``/kb`` and ``/@{u}/kb``).
+RouteSurface = Literal["root", "system", "namespaced", "any", "collection"]
 ALL_MODES: frozenset[ServerMode] = frozenset({"single", "network"})
 NETWORK_ONLY: frozenset[ServerMode] = frozenset({"network"})
 
 
 @dataclass(frozen=True, slots=True)
 class RouteRule:
+    # The minimum scope of the credential (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6): ``read`` takes ``readonly`` and anonymous reads, ``write`` takes ``write`` and ``owner``, ``owner`` and ``admin`` take ``owner``.
     access: AccessLevel
+    # The capability in the selected knowledge base (Section 6.2 rule 5, Section 6.9 rule 3). ``none``: the route does not act on a knowledge base.
+    capability: str
     # ROUTE_POLICY의 모든 항목은 아래 표면별 생성 헬퍼(_root·_system·_namespaced·_any)로 표면을 명시한다.
     # 기본값에 기대지 않는다(tests/test_route_surface_contract.py가 AST로 확인한다).
-    surface: RouteSurface = "namespaced"
+    surface: RouteSurface
     # 현재 모드가 없으면 404(N5).
     modes: frozenset[ServerMode] = ALL_MODES
+    # Section 6.8: the route needs a cookie session with a recent sign-in. A bearer credential never passes.
+    step_up: bool = False
+
+    def __post_init__(self) -> None:
+        if self.capability not in kb_access.ROUTE_CAPABILITIES:
+            raise ValueError(f"unknown route capability: {self.capability!r}")
 
 
-def _root(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+def _root(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """루트 ``GET /`` 전용(§9.1). 접두 아래에서는 namespaced 홈으로 동작한다."""
-    return RouteRule(access=access, surface="root", modes=modes)
+    return RouteRule(access=access, capability=capability, surface="root", modes=modes)
 
 
-def _system(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+def _system(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """루트에서만 받는다. 접두 아래에서는 404(N5)."""
-    return RouteRule(access=access, surface="system", modes=modes)
+    return RouteRule(access=access, capability=capability, surface="system", modes=modes)
 
 
-def _namespaced(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+def _namespaced(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES, step_up: bool = False) -> RouteRule:
     """네임스페이스가 필요하다(N1–N3)."""
-    return RouteRule(access=access, surface="namespaced", modes=modes)
+    return RouteRule(access=access, capability=capability, surface="namespaced", modes=modes, step_up=step_up)
 
 
-def _any(access: AccessLevel, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+def _any(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
     """네임스페이스와 무관하다. 접두를 검증한 뒤 무시하고 자격증명 계정을 쓴다."""
-    return RouteRule(access=access, surface="any", modes=modes)
+    return RouteRule(access=access, capability=capability, surface="any", modes=modes)
+
+
+def _collection(access: AccessLevel, capability: str, *, modes: frozenset[ServerMode] = ALL_MODES) -> RouteRule:
+    """A collection: at the root, the collection of the server; under a prefix, the collection of the account of the namespace."""
+    return RouteRule(access=access, capability=capability, surface="collection", modes=modes)
+
+
+def minimum_scope(rule: RouteRule) -> str:
+    """The smallest credential scope that passes the access level of ``rule`` (Section 6.6)."""
+    return {"public": "none", "read": "readonly", "write": "write", "owner": "owner", "admin": "owner"}[rule.access]
 
 
 def lookup_route_rule(method: str, path: str) -> RouteRule | None:
@@ -315,400 +336,405 @@ def lookup_route_rule(method: str, path: str) -> RouteRule | None:
 # 등록되지 않은 (method, path)는 fail-closed(404)다. Starlette는 GET Route에 HEAD를
 # 자동 추가하므로 HEAD도 명시해 실제 라우터와 인증 계약을 정확히 맞춘다.
 ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
-    ("GET", "/health"): _system("public"),
-    ("HEAD", "/health"): _system("public"),
-    ("GET", "/robots.txt"): _system("public"),
-    ("HEAD", "/robots.txt"): _system("public"),
-    ("GET", "/sitemap.xml"): _system("public"),
-    ("HEAD", "/sitemap.xml"): _system("public"),
-    ("GET", "/favicon.ico"): _system("public"),
-    ("HEAD", "/favicon.ico"): _system("public"),
-    ("GET", "/favicon.svg"): _system("public"),
-    ("HEAD", "/favicon.svg"): _system("public"),
-    ("GET", "/apple-touch-icon.png"): _system("public"),
-    ("HEAD", "/apple-touch-icon.png"): _system("public"),
-    ("GET", "/apple-touch-icon-precomposed.png"): _system("public"),
-    ("HEAD", "/apple-touch-icon-precomposed.png"): _system("public"),
-    ("GET", "/manifest.json"): _system("public"),
-    ("HEAD", "/manifest.json"): _system("public"),
-    ("GET", "/site.webmanifest"): _system("public"),
-    ("HEAD", "/site.webmanifest"): _system("public"),
-    ("GET", "/browserconfig.xml"): _system("public"),
-    ("HEAD", "/browserconfig.xml"): _system("public"),
-    ("GET", "/sw.js"): _system("public"),
-    ("HEAD", "/sw.js"): _system("public"),
-    ("GET", "/icon"): _system("public"),
-    ("HEAD", "/icon"): _system("public"),
-    ("GET", "/font"): _system("public"),
-    ("HEAD", "/font"): _system("public"),
-    ("GET", "/fonts/NotoSansKR-Regular.woff2"): _system("public"),
-    ("HEAD", "/fonts/NotoSansKR-Regular.woff2"): _system("public"),
-    ("GET", "/fonts/NotoSansKR-Bold.woff2"): _system("public"),
-    ("HEAD", "/fonts/NotoSansKR-Bold.woff2"): _system("public"),
-    ("GET", "/fonts/NotoSerifKR-Regular.woff2"): _system("public"),
-    ("HEAD", "/fonts/NotoSerifKR-Regular.woff2"): _system("public"),
-    ("GET", "/fonts/NotoSerifKR-Bold.woff2"): _system("public"),
-    ("HEAD", "/fonts/NotoSerifKR-Bold.woff2"): _system("public"),
-    ("GET", "/fonts/D2Coding.woff2"): _system("public"),
-    ("HEAD", "/fonts/D2Coding.woff2"): _system("public"),
-    ("GET", "/fonts/D2CodingBold.woff2"): _system("public"),
-    ("HEAD", "/fonts/D2CodingBold.woff2"): _system("public"),
-    ("GET", "/p"): _system("public"),
-    ("HEAD", "/p"): _system("public"),
-    ("GET", "/p/presentation"): _system("public"),
-    ("HEAD", "/p/presentation"): _system("public"),
-    ("GET", "/image"): _system("public"),
-    ("HEAD", "/image"): _system("public"),
-    ("GET", "/images/{filename:path}"): _system("public"),
-    ("HEAD", "/images/{filename:path}"): _system("public"),
-    ("GET", "/p/images/{filename:path}"): _system("public"),
-    ("HEAD", "/p/images/{filename:path}"): _system("public"),
+    ("GET", "/health"): _system("public", "none"),
+    ("HEAD", "/health"): _system("public", "none"),
+    ("GET", "/robots.txt"): _system("public", "none"),
+    ("HEAD", "/robots.txt"): _system("public", "none"),
+    ("GET", "/sitemap.xml"): _system("public", "none"),
+    ("HEAD", "/sitemap.xml"): _system("public", "none"),
+    ("GET", "/favicon.ico"): _system("public", "none"),
+    ("HEAD", "/favicon.ico"): _system("public", "none"),
+    ("GET", "/favicon.svg"): _system("public", "none"),
+    ("HEAD", "/favicon.svg"): _system("public", "none"),
+    ("GET", "/apple-touch-icon.png"): _system("public", "none"),
+    ("HEAD", "/apple-touch-icon.png"): _system("public", "none"),
+    ("GET", "/apple-touch-icon-precomposed.png"): _system("public", "none"),
+    ("HEAD", "/apple-touch-icon-precomposed.png"): _system("public", "none"),
+    ("GET", "/manifest.json"): _system("public", "none"),
+    ("HEAD", "/manifest.json"): _system("public", "none"),
+    ("GET", "/site.webmanifest"): _system("public", "none"),
+    ("HEAD", "/site.webmanifest"): _system("public", "none"),
+    ("GET", "/browserconfig.xml"): _system("public", "none"),
+    ("HEAD", "/browserconfig.xml"): _system("public", "none"),
+    ("GET", "/sw.js"): _system("public", "none"),
+    ("HEAD", "/sw.js"): _system("public", "none"),
+    ("GET", "/icon"): _system("public", "none"),
+    ("HEAD", "/icon"): _system("public", "none"),
+    ("GET", "/font"): _system("public", "none"),
+    ("HEAD", "/font"): _system("public", "none"),
+    ("GET", "/fonts/NotoSansKR-Regular.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/NotoSansKR-Regular.woff2"): _system("public", "none"),
+    ("GET", "/fonts/NotoSansKR-Bold.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/NotoSansKR-Bold.woff2"): _system("public", "none"),
+    ("GET", "/fonts/NotoSerifKR-Regular.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/NotoSerifKR-Regular.woff2"): _system("public", "none"),
+    ("GET", "/fonts/NotoSerifKR-Bold.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/NotoSerifKR-Bold.woff2"): _system("public", "none"),
+    ("GET", "/fonts/D2Coding.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/D2Coding.woff2"): _system("public", "none"),
+    ("GET", "/fonts/D2CodingBold.woff2"): _system("public", "none"),
+    ("HEAD", "/fonts/D2CodingBold.woff2"): _system("public", "none"),
+    ("GET", "/p"): _system("public", "none"),
+    ("HEAD", "/p"): _system("public", "none"),
+    ("GET", "/p/presentation"): _system("public", "read"),
+    ("HEAD", "/p/presentation"): _system("public", "read"),
+    ("GET", "/image"): _system("public", "none"),
+    ("HEAD", "/image"): _system("public", "none"),
+    ("GET", "/images/{filename:path}"): _system("public", "none"),
+    ("HEAD", "/images/{filename:path}"): _system("public", "none"),
+    ("GET", "/p/images/{filename:path}"): _system("public", "none"),
+    ("HEAD", "/p/images/{filename:path}"): _system("public", "none"),
     # Mount("/static")의 정적 자산(O2). 접두 아래에서는 system이라 404다.
-    ("GET", "/static/{path:path}"): _system("public"),
-    ("HEAD", "/static/{path:path}"): _system("public"),
-    ("GET", "/"): _root("read"),
-    ("HEAD", "/"): _root("read"),
-    ("GET", "/syndication"): _system("read"),
-    ("HEAD", "/syndication"): _system("read"),
-    ("GET", "/syndication/preferences"): _system("owner"),
-    ("HEAD", "/syndication/preferences"): _system("owner"),
-    ("POST", "/api/syndication/dispatch"): _system("collaborator"),
-    ("POST", "/syndication/dispatch"): _system("collaborator"),
-    ("GET", "/api/syndication/dispatches"): _system("read"),
-    ("HEAD", "/api/syndication/dispatches"): _system("read"),
-    ("GET", "/syndication/dispatches"): _system("read"),
-    ("HEAD", "/syndication/dispatches"): _system("read"),
-    ("GET", "/whoami"): _namespaced("read"),
-    ("HEAD", "/whoami"): _namespaced("read"),
-    ("GET", "/stats"): _namespaced("read"),
-    ("HEAD", "/stats"): _namespaced("read"),
-    ("GET", "/graph"): _namespaced("read"),
-    ("HEAD", "/graph"): _namespaced("read"),
-    ("GET", "/node"): _namespaced("read"),
-    ("HEAD", "/node"): _namespaced("read"),
-    ("GET", "/documents"): _namespaced("read"),
-    ("HEAD", "/documents"): _namespaced("read"),
-    ("GET", "/document"): _namespaced("read"),
-    ("HEAD", "/document"): _namespaced("read"),
-    ("GET", "/document/export"): _namespaced("read"),
-    ("HEAD", "/document/export"): _namespaced("read"),
-    ("GET", "/document/raw"): _namespaced("collaborator"),
-    ("HEAD", "/document/raw"): _namespaced("collaborator"),
-    ("GET", "/document/presentation"): _namespaced("read"),
-    ("HEAD", "/document/presentation"): _namespaced("read"),
-    ("POST", "/document/presentation/generate"): _namespaced("collaborator"),
-    ("POST", "/document/presentation/compose"): _namespaced("collaborator"),
-    ("POST", "/document/presentation/compile"): _namespaced("collaborator"),
-    ("GET", "/document/presentation/adoc"): _namespaced("read"),
-    ("HEAD", "/document/presentation/adoc"): _namespaced("read"),
-    ("PUT", "/document/presentation/adoc"): _namespaced("collaborator"),
-    ("GET", "/resolution/decisions"): _namespaced("read"),
-    ("HEAD", "/resolution/decisions"): _namespaced("read"),
-    ("GET", "/ingest/active"): _namespaced("read"),
-    ("HEAD", "/ingest/active"): _namespaced("read"),
-    ("POST", "/search"): _namespaced("read"),
-    ("POST", "/mcp"): _system("read"),
-    ("GET", "/mcp"): _system("read"),
-    ("HEAD", "/mcp"): _system("read"),
-    ("GET", "/themes"): _namespaced("read"),
-    ("HEAD", "/themes"): _namespaced("read"),
-    ("POST", "/themes"): _namespaced("owner"),
-    ("PATCH", "/themes"): _namespaced("owner"),
-    ("DELETE", "/themes"): _namespaced("owner"),
-    ("GET", "/providers"): _any("admin"),
-    ("HEAD", "/providers"): _any("admin"),
-    ("POST", "/providers"): _any("admin"),
-    ("PATCH", "/providers"): _any("admin"),
-    ("POST", "/providers/test"): _any("admin"),
-    ("POST", "/providers/check"): _any("admin"),
-    ("GET", "/limits"): _any("admin"),
-    ("HEAD", "/limits"): _any("admin"),
-    ("POST", "/limits"): _any("admin"),
-    ("PATCH", "/limits"): _any("admin"),
-    ("GET", "/tokens"): _any("owner"),
-    ("HEAD", "/tokens"): _any("owner"),
-    ("POST", "/tokens"): _any("owner"),
-    ("POST", "/tokens/revoke"): _any("owner"),
-    ("DELETE", "/tokens"): _any("owner"),
-    ("GET", "/ingest-limits"): _any("admin"),
-    ("HEAD", "/ingest-limits"): _any("admin"),
-    ("POST", "/ingest-limits"): _any("admin"),
-    ("PATCH", "/ingest-limits"): _any("admin"),
-    ("POST", "/ingest"): _namespaced("collaborator"),
-    ("POST", "/ingest-stream"): _namespaced("collaborator"),
-    ("POST", "/reingest"): _namespaced("collaborator"),
-    ("POST", "/reingest-stream"): _namespaced("collaborator"),
-    ("POST", "/regenerate"): _namespaced("collaborator"),
-    ("POST", "/regenerate-stream"): _namespaced("collaborator"),
-    ("POST", "/document/regenerate"): _namespaced("collaborator"),
-    ("POST", "/document/seen"): _namespaced("owner"),
-    ("POST", "/document/pin"): _namespaced("owner"),
-    ("POST", "/document/hide"): _namespaced("owner"),
-    ("POST", "/document/title"): _namespaced("owner"),
-    ("POST", "/document/purge"): _namespaced("owner"),
-    ("POST", "/purge"): _namespaced("owner"),
-    ("POST", "/document/matrix/purge"): _namespaced("owner"),
-    ("POST", "/synthesize"): _namespaced("owner"),
-    ("POST", "/research"): _namespaced("owner"),
-    ("POST", "/dedup/scan"): _namespaced("owner"),
-    ("POST", "/dedup/merge"): _namespaced("owner"),
-    ("POST", "/entity/primary-label"): _namespaced("owner"),
-    ("POST", "/resolution/rollback"): _namespaced("owner"),
-    ("POST", "/share"): _namespaced("read"),
-    ("POST", "/support/bundle"): _system("admin"),
-    ("GET", "/support/bundle"): _system("public"),
-    ("HEAD", "/support/bundle"): _system("public"),
-    ("POST", "/graph/bundle"): _namespaced("owner"),
-    ("GET", "/graph/bundle"): _any("public"),
-    ("HEAD", "/graph/bundle"): _any("public"),
-    ("GET", "/reference"): _system("public"),
-    ("HEAD", "/reference"): _system("public"),
-    ("GET", "/openapi.yaml"): _system("public"),
-    ("HEAD", "/openapi.yaml"): _system("public"),
-    ("GET", "/.well-known/oauth-protected-resource"): _system("public"),
-    ("HEAD", "/.well-known/oauth-protected-resource"): _system("public"),
-    ("GET", "/.well-known/oauth-authorization-server"): _system("public"),
-    ("HEAD", "/.well-known/oauth-authorization-server"): _system("public"),
-    ("POST", "/oauth/register"): _system("public"),
-    ("GET", "/oauth/authorize"): _system("public"),
-    ("HEAD", "/oauth/authorize"): _system("public"),
-    ("POST", "/oauth/authorize"): _system("public"),
-    ("POST", "/oauth/authorize/telegram-push"): _system("public"),
-    ("GET", "/oauth/authorize/poll"): _system("public"),
-    ("HEAD", "/oauth/authorize/poll"): _system("public"),
-    ("POST", "/oauth/token"): _system("public"),
+    ("GET", "/static/{path:path}"): _system("public", "none"),
+    ("HEAD", "/static/{path:path}"): _system("public", "none"),
+    ("GET", "/"): _root("read", "read"),
+    ("HEAD", "/"): _root("read", "read"),
+    ("GET", "/syndication"): _system("read", "read"),
+    ("HEAD", "/syndication"): _system("read", "read"),
+    ("GET", "/syndication/preferences"): _system("owner", "read"),
+    ("HEAD", "/syndication/preferences"): _system("owner", "read"),
+    ("POST", "/api/syndication/dispatch"): _system("write", "write"),
+    ("POST", "/syndication/dispatch"): _system("write", "write"),
+    ("GET", "/api/syndication/dispatches"): _system("read", "none"),
+    ("HEAD", "/api/syndication/dispatches"): _system("read", "none"),
+    ("GET", "/syndication/dispatches"): _system("read", "none"),
+    ("HEAD", "/syndication/dispatches"): _system("read", "none"),
+    ("GET", "/whoami"): _namespaced("read", "read"),
+    ("HEAD", "/whoami"): _namespaced("read", "read"),
+    ("GET", "/stats"): _namespaced("read", "read"),
+    ("HEAD", "/stats"): _namespaced("read", "read"),
+    ("GET", "/graph"): _namespaced("read", "read"),
+    ("HEAD", "/graph"): _namespaced("read", "read"),
+    ("GET", "/node"): _namespaced("read", "read"),
+    ("HEAD", "/node"): _namespaced("read", "read"),
+    ("GET", "/documents"): _namespaced("read", "read"),
+    ("HEAD", "/documents"): _namespaced("read", "read"),
+    ("GET", "/document"): _namespaced("read", "read"),
+    ("HEAD", "/document"): _namespaced("read", "read"),
+    ("GET", "/document/export"): _namespaced("read", "read"),
+    ("HEAD", "/document/export"): _namespaced("read", "read"),
+    ("GET", "/document/raw"): _namespaced("write", "read"),
+    ("HEAD", "/document/raw"): _namespaced("write", "read"),
+    ("GET", "/document/presentation"): _namespaced("read", "read"),
+    ("HEAD", "/document/presentation"): _namespaced("read", "read"),
+    ("POST", "/document/presentation/generate"): _namespaced("owner", "maintain"),
+    ("POST", "/document/presentation/compose"): _namespaced("owner", "maintain"),
+    ("POST", "/document/presentation/compile"): _namespaced("owner", "maintain"),
+    ("GET", "/document/presentation/adoc"): _namespaced("read", "read"),
+    ("HEAD", "/document/presentation/adoc"): _namespaced("read", "read"),
+    ("PUT", "/document/presentation/adoc"): _namespaced("owner", "maintain"),
+    ("GET", "/resolution/decisions"): _namespaced("read", "read"),
+    ("HEAD", "/resolution/decisions"): _namespaced("read", "read"),
+    ("GET", "/ingest/active"): _namespaced("read", "read"),
+    ("HEAD", "/ingest/active"): _namespaced("read", "read"),
+    ("POST", "/search"): _namespaced("read", "read"),
+    ("POST", "/mcp"): _system("read", "read"),
+    ("GET", "/mcp"): _system("read", "read"),
+    ("HEAD", "/mcp"): _system("read", "read"),
+    # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: ``/kb`` is the collection of shared knowledge bases, ``/@{u}/kb`` the collection of the shared knowledge bases where ``u`` is an active member, ``/themes`` the collection of themes (``/@{u}/themes`` gets 308 to ``/@{u}/kb``).
+    ("GET", "/kb"): _collection("read", "none"),
+    ("HEAD", "/kb"): _collection("read", "none"),
+    ("GET", "/themes"): _collection("read", "none"),
+    ("HEAD", "/themes"): _collection("read", "none"),
+    ("POST", "/themes"): _namespaced("owner", "none"),
+    ("PATCH", "/themes"): _namespaced("owner", "settings"),
+    ("DELETE", "/themes"): _namespaced("owner", "delete", step_up=True),
+    ("GET", "/providers"): _any("admin", "none"),
+    ("HEAD", "/providers"): _any("admin", "none"),
+    ("POST", "/providers"): _any("admin", "none"),
+    ("PATCH", "/providers"): _any("admin", "none"),
+    ("POST", "/providers/test"): _any("admin", "none"),
+    ("POST", "/providers/check"): _any("admin", "none"),
+    ("GET", "/limits"): _any("admin", "none"),
+    ("HEAD", "/limits"): _any("admin", "none"),
+    ("POST", "/limits"): _any("admin", "none"),
+    ("PATCH", "/limits"): _any("admin", "none"),
+    ("GET", "/tokens"): _any("owner", "none"),
+    ("HEAD", "/tokens"): _any("owner", "none"),
+    ("POST", "/tokens"): _any("owner", "none"),
+    ("POST", "/tokens/revoke"): _any("owner", "none"),
+    ("DELETE", "/tokens"): _any("owner", "none"),
+    ("GET", "/ingest-limits"): _any("admin", "none"),
+    ("HEAD", "/ingest-limits"): _any("admin", "none"),
+    ("POST", "/ingest-limits"): _any("admin", "none"),
+    ("PATCH", "/ingest-limits"): _any("admin", "none"),
+    ("POST", "/ingest"): _namespaced("write", "write"),
+    ("POST", "/ingest-stream"): _namespaced("write", "write"),
+    ("POST", "/reingest"): _namespaced("write", "write"),
+    ("POST", "/reingest-stream"): _namespaced("write", "write"),
+    # Regeneration: in the personal knowledge base a write of its account (scope ``write``); in a shared knowledge base the capability ``maintain`` with the provider context of the requester (design Section 13.1 rule 5).
+    ("POST", "/regenerate"): _namespaced("write", "maintain"),
+    ("POST", "/regenerate-stream"): _namespaced("write", "maintain"),
+    ("POST", "/document/regenerate"): _namespaced("write", "maintain"),
+    ("POST", "/document/seen"): _namespaced("owner", "review"),
+    ("POST", "/document/pin"): _namespaced("owner", "curate"),
+    ("POST", "/document/hide"): _namespaced("owner", "review"),
+    ("POST", "/document/title"): _namespaced("owner", "curate"),
+    ("POST", "/document/purge"): _namespaced("owner", "remove"),
+    ("POST", "/purge"): _namespaced("owner", "remove"),
+    ("POST", "/document/matrix/purge"): _namespaced("owner", "remove"),
+    # The two routes read the graph and call the LLM of the requester; they write no document.
+    ("POST", "/synthesize"): _namespaced("owner", "read"),
+    ("POST", "/research"): _namespaced("owner", "read"),
+    ("POST", "/dedup/scan"): _namespaced("owner", "maintain"),
+    ("POST", "/dedup/merge"): _namespaced("owner", "maintain"),
+    ("POST", "/entity/primary-label"): _namespaced("owner", "maintain"),
+    ("POST", "/resolution/rollback"): _namespaced("owner", "maintain"),
+    ("POST", "/share"): _namespaced("read", "share"),
+    ("POST", "/support/bundle"): _system("admin", "none"),
+    ("GET", "/support/bundle"): _system("public", "none"),
+    ("HEAD", "/support/bundle"): _system("public", "none"),
+    ("POST", "/graph/bundle"): _namespaced("owner", "maintain"),
+    ("GET", "/graph/bundle"): _any("public", "none"),
+    ("HEAD", "/graph/bundle"): _any("public", "none"),
+    ("GET", "/reference"): _system("public", "none"),
+    ("HEAD", "/reference"): _system("public", "none"),
+    ("GET", "/openapi.yaml"): _system("public", "none"),
+    ("HEAD", "/openapi.yaml"): _system("public", "none"),
+    ("GET", "/.well-known/oauth-protected-resource"): _system("public", "none"),
+    ("HEAD", "/.well-known/oauth-protected-resource"): _system("public", "none"),
+    ("GET", "/.well-known/oauth-authorization-server"): _system("public", "none"),
+    ("HEAD", "/.well-known/oauth-authorization-server"): _system("public", "none"),
+    ("POST", "/oauth/register"): _system("public", "none"),
+    ("GET", "/oauth/authorize"): _system("public", "none"),
+    ("HEAD", "/oauth/authorize"): _system("public", "none"),
+    ("POST", "/oauth/authorize"): _system("public", "none"),
+    ("POST", "/oauth/authorize/telegram-push"): _system("public", "none"),
+    ("GET", "/oauth/authorize/poll"): _system("public", "none"),
+    ("HEAD", "/oauth/authorize/poll"): _system("public", "none"),
+    ("POST", "/oauth/token"): _system("public", "none"),
     # 계정 (설계 §8.4–§8.7). /admin/*·/api/admin/*는 admin 접근 수준(§9.1)이고, 설정 전용 조건은 핸들러가 404로 판정한다(api.accounts_routes).
-    ("GET", "/setup"): _system("owner"),
-    ("HEAD", "/setup"): _system("owner"),
-    ("POST", "/setup"): _system("owner"),
+    ("GET", "/setup"): _system("owner", "none"),
+    ("HEAD", "/setup"): _system("owner", "none"),
+    ("POST", "/setup"): _system("owner", "none"),
     # /login·/logout은 공개다. 로그인 CSRF·강제 로그아웃은 핸들러가 동일 origin 검사로 막는다.
-    ("GET", "/login"): _system("public"),
-    ("HEAD", "/login"): _system("public"),
-    ("POST", "/login"): _system("public"),
-    ("POST", "/logout"): _system("public"),
+    ("GET", "/login"): _system("public", "none"),
+    ("HEAD", "/login"): _system("public", "none"),
+    ("POST", "/login"): _system("public", "none"),
+    ("POST", "/logout"): _system("public", "none"),
     # I18N design Section 5.4: the locale switch of an anonymous visitor. The handler accepts the same origin only.
-    ("POST", "/api/locale"): _system("public"),
-    ("POST", "/api/auth/reauth"): _system("owner"),
-    ("GET", "/admin/accounts"): _system("admin"),
-    ("HEAD", "/admin/accounts"): _system("admin"),
-    ("GET", "/api/admin/accounts"): _system("admin"),
-    ("HEAD", "/api/admin/accounts"): _system("admin"),
-    ("PATCH", "/api/admin/accounts"): _system("admin"),
-    ("GET", "/api/admin/usernames/retired"): _system("admin"),
-    ("HEAD", "/api/admin/usernames/retired"): _system("admin"),
-    ("POST", "/api/admin/usernames/release"): _system("admin"),
-    ("GET", "/admin/server"): _system("admin"),
-    ("HEAD", "/admin/server"): _system("admin"),
-    ("GET", "/api/admin/server"): _system("admin"),
-    ("HEAD", "/api/admin/server"): _system("admin"),
-    ("POST", "/api/admin/server/mode"): _system("admin"),
-    ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin"),
-    ("GET", "/api/admin/federation"): _system("admin"),
-    ("HEAD", "/api/admin/federation"): _system("admin"),
-    ("POST", "/api/admin/federation"): _system("admin"),
+    ("POST", "/api/locale"): _system("public", "none"),
+    ("POST", "/api/auth/reauth"): _system("owner", "none"),
+    ("GET", "/admin/accounts"): _system("admin", "none"),
+    ("HEAD", "/admin/accounts"): _system("admin", "none"),
+    ("GET", "/api/admin/accounts"): _system("admin", "none"),
+    ("HEAD", "/api/admin/accounts"): _system("admin", "none"),
+    ("PATCH", "/api/admin/accounts"): _system("admin", "none"),
+    ("GET", "/api/admin/usernames/retired"): _system("admin", "none"),
+    ("HEAD", "/api/admin/usernames/retired"): _system("admin", "none"),
+    ("POST", "/api/admin/usernames/release"): _system("admin", "none"),
+    ("GET", "/admin/server"): _system("admin", "none"),
+    ("HEAD", "/admin/server"): _system("admin", "none"),
+    ("GET", "/api/admin/server"): _system("admin", "none"),
+    ("HEAD", "/api/admin/server"): _system("admin", "none"),
+    ("POST", "/api/admin/server/mode"): _system("admin", "none"),
+    ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin", "none"),
+    ("GET", "/api/admin/federation"): _system("admin", "none"),
+    ("HEAD", "/api/admin/federation"): _system("admin", "none"),
+    ("POST", "/api/admin/federation"): _system("admin", "none"),
     # Fedify sidecar design Sections 9.2 and 11 (unit FP2-4): domain blocks and the console section for the admin, the actor state and the followers for the owner of an account.
-    ("GET", "/api/admin/federation/reading"): _system("admin"),
-    ("HEAD", "/api/admin/federation/reading"): _system("admin"),
-    ("PUT", "/api/admin/federation/reading"): _system("admin"),
-    ("GET", "/api/admin/federation/domain-blocks"): _system("admin"),
-    ("HEAD", "/api/admin/federation/domain-blocks"): _system("admin"),
-    ("POST", "/api/admin/federation/domain-blocks"): _system("admin"),
-    ("DELETE", "/api/admin/federation/domain-blocks"): _system("admin"),
-    ("GET", "/admin/federation"): _system("admin"),
-    ("HEAD", "/admin/federation"): _system("admin"),
-    ("GET", "/api/federation/status"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/status"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/federation/following"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/following"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/following"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/federation/following/{following_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/federation/timeline"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/timeline"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/federation/timeline/{item_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/timeline/{item_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("PATCH", "/api/federation/timeline/{item_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/timeline/{item_id}/ingest"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/timeline/{item_id}/context"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/objects"): _any("owner", modes=NETWORK_ONLY),
+    ("GET", "/api/admin/federation/reading"): _system("admin", "none"),
+    ("HEAD", "/api/admin/federation/reading"): _system("admin", "none"),
+    ("PUT", "/api/admin/federation/reading"): _system("admin", "none"),
+    ("GET", "/api/admin/federation/domain-blocks"): _system("admin", "none"),
+    ("HEAD", "/api/admin/federation/domain-blocks"): _system("admin", "none"),
+    ("POST", "/api/admin/federation/domain-blocks"): _system("admin", "none"),
+    ("DELETE", "/api/admin/federation/domain-blocks"): _system("admin", "none"),
+    ("GET", "/admin/federation"): _system("admin", "none"),
+    ("HEAD", "/admin/federation"): _system("admin", "none"),
+    ("GET", "/api/federation/status"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/status"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/following"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/following"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/following"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/following/{following_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/timeline"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/timeline"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/timeline/{item_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/timeline/{item_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/timeline/{item_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/ingest"): _any("owner", "write", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/context"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/objects"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/objects"): _any("owner", "none", modes=NETWORK_ONLY),
     # Outbound interactions (FEDERATION_REMOTE_READING_DESIGN.md Sections 5.3 and 5.4, unit FP4-9): own notes, favourite, and boost.
-    ("POST", "/api/federation/notes"): _any("owner", modes=NETWORK_ONLY),
-    ("PATCH", "/api/federation/notes/{note_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/federation/notes/{note_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/timeline/{item_id}/favourite"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/federation/timeline/{item_id}/favourite"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/federation/timeline/{item_id}/boost"): _any("owner", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/notes"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/notes/{note_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/notes/{note_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/favourite"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/timeline/{item_id}/favourite"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/timeline/{item_id}/boost"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/timeline/{item_id}/boost"): _any("owner", "none", modes=NETWORK_ONLY),
     # Quotes (FEP-044f, FEDERATION_REMOTE_READING_DESIGN.md Sections 5.4 rule 6 and 6.6 rule 5, unit FP4-9Q): the quote requests for own objects, and the quote policy of a published document.
-    ("GET", "/api/federation/quotes"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/quotes"): _any("owner", modes=NETWORK_ONLY),
-    ("PATCH", "/api/federation/quotes/{quote_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("PATCH", "/api/federation/objects/{object_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/render/remote/{item_id}"): _any("owner", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/quotes"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/quotes"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/quotes/{quote_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PATCH", "/api/federation/objects/{object_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/render/remote/{item_id}"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/render/remote/{item_id}"): _any("owner", "none", modes=NETWORK_ONLY),
     # Both modes (unit FP4-F3): the body of a feed item has media too, and feeds work in single mode (RD15).
-    ("GET", "/media/remote/{url_hash}"): _any("owner"),
-    ("HEAD", "/media/remote/{url_hash}"): _any("owner"),
-    ("GET", "/api/federation/settings"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/settings"): _any("owner", modes=NETWORK_ONLY),
-    ("PUT", "/api/federation/settings"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/federation/followers"): _any("owner", modes=NETWORK_ONLY),
+    ("GET", "/media/remote/{url_hash}"): _any("owner", "none"),
+    ("HEAD", "/media/remote/{url_hash}"): _any("owner", "none"),
+    ("GET", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PUT", "/api/federation/settings"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/federation/followers"): _any("owner", "none", modes=NETWORK_ONLY),
     # Unit FP3-1: a publish or a retract causes an outbound activity. A ``readonly`` credential cannot call these routes (design Section 8.3 item 4).
-    ("POST", "/api/federation/publish"): _any("collaborator", modes=NETWORK_ONLY),
-    ("POST", "/api/federation/retract"): _any("collaborator", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/publish"): _any("write", "write", modes=NETWORK_ONLY),
+    ("POST", "/api/federation/retract"): _any("write", "write", modes=NETWORK_ONLY),
     # Account feeds (FEDERATION_REMOTE_READING_DESIGN.md Section 1.3 rule 7, units FP4-F1 and FP4-F2): the owner of the account, in both modes (RD15).
-    ("GET", "/api/feeds"): _any("owner"),
-    ("HEAD", "/api/feeds"): _any("owner"),
-    ("POST", "/api/feeds"): _any("owner"),
-    ("DELETE", "/api/feeds"): _any("owner"),
-    ("POST", "/api/feeds/poll"): _any("owner"),
-    ("GET", "/api/feeds/opml"): _any("owner"),
-    ("HEAD", "/api/feeds/opml"): _any("owner"),
-    ("POST", "/api/feeds/opml"): _any("owner"),
-    ("GET", "/api/feeds/items"): _any("owner"),
-    ("HEAD", "/api/feeds/items"): _any("owner"),
-    ("PATCH", "/api/feeds/items"): _any("owner"),
+    ("GET", "/api/feeds"): _any("owner", "none"),
+    ("HEAD", "/api/feeds"): _any("owner", "none"),
+    ("POST", "/api/feeds"): _any("owner", "none"),
+    ("DELETE", "/api/feeds"): _any("owner", "none"),
+    ("POST", "/api/feeds/poll"): _any("owner", "none"),
+    ("GET", "/api/feeds/opml"): _any("owner", "none"),
+    ("HEAD", "/api/feeds/opml"): _any("owner", "none"),
+    ("POST", "/api/feeds/opml"): _any("owner", "none"),
+    ("GET", "/api/feeds/items"): _any("owner", "none"),
+    ("HEAD", "/api/feeds/items"): _any("owner", "none"),
+    ("PATCH", "/api/feeds/items"): _any("owner", "none"),
     # Unit FP4-F3 (feed view): one item, feed discovery, ingest of one item, and the body of an item on the app origin (only without a ``usercontent`` host).
-    ("GET", "/api/feeds/items/{item_id}"): _any("owner"),
-    ("HEAD", "/api/feeds/items/{item_id}"): _any("owner"),
-    ("POST", "/api/feeds/items/{item_id}/ingest"): _any("owner"),
-    ("POST", "/api/feeds/discover"): _any("owner"),
-    ("GET", "/render/feed/{item_id}"): _any("owner"),
-    ("HEAD", "/render/feed/{item_id}"): _any("owner"),
-    ("GET", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
-    ("HEAD", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
-    ("POST", "/invite/{code}"): _system("public", modes=NETWORK_ONLY),
-    ("GET", "/explore/accounts"): _system("public", modes=NETWORK_ONLY),
-    ("HEAD", "/explore/accounts"): _system("public", modes=NETWORK_ONLY),
-    ("GET", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
-    ("HEAD", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
-    ("POST", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
-    ("PATCH", "/api/invites"): _any("admin", modes=NETWORK_ONLY),
-    ("GET", "/me"): _any("owner"),
-    ("HEAD", "/me"): _any("owner"),
-    ("GET", "/api/me"): _any("owner"),
-    ("HEAD", "/api/me"): _any("owner"),
-    ("PATCH", "/api/me"): _any("owner"),
-    ("POST", "/api/me/password"): _any("owner"),
+    ("GET", "/api/feeds/items/{item_id}"): _any("owner", "none"),
+    ("HEAD", "/api/feeds/items/{item_id}"): _any("owner", "none"),
+    ("POST", "/api/feeds/items/{item_id}/ingest"): _any("owner", "write"),
+    ("POST", "/api/feeds/discover"): _any("owner", "none"),
+    ("GET", "/render/feed/{item_id}"): _any("owner", "none"),
+    ("HEAD", "/render/feed/{item_id}"): _any("owner", "none"),
+    ("GET", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
+    ("POST", "/invite/{code}"): _system("public", "none", modes=NETWORK_ONLY),
+    ("GET", "/explore/accounts"): _system("public", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/explore/accounts"): _system("public", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
+    ("PATCH", "/api/invites"): _any("admin", "none", modes=NETWORK_ONLY),
+    ("GET", "/me"): _any("owner", "none"),
+    ("HEAD", "/me"): _any("owner", "none"),
+    ("GET", "/api/me"): _any("owner", "none"),
+    ("HEAD", "/api/me"): _any("owner", "none"),
+    ("PATCH", "/api/me"): _any("owner", "none"),
+    ("POST", "/api/me/password"): _any("owner", "none"),
     # P4 계정 API 키(§11.2, 쓰기 전용)와 서버 등급(§10.3)
-    ("GET", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
-    ("HEAD", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
-    ("PUT", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
-    ("DELETE", "/api/me/keys"): _any("owner", modes=NETWORK_ONLY),
-    ("POST", "/api/me/keys/verify"): _any("owner", modes=NETWORK_ONLY),
-    ("GET", "/api/me/personal-cli"): _any("admin"),
-    ("HEAD", "/api/me/personal-cli"): _any("admin"),
-    ("PATCH", "/api/me/personal-cli"): _any("admin"),
-    ("POST", "/api/me/personal-cli/test"): _any("admin"),
+    ("GET", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("PUT", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("DELETE", "/api/me/keys"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("POST", "/api/me/keys/verify"): _any("owner", "none", modes=NETWORK_ONLY),
+    ("GET", "/api/me/personal-cli"): _any("admin", "none"),
+    ("HEAD", "/api/me/personal-cli"): _any("admin", "none"),
+    ("PATCH", "/api/me/personal-cli"): _any("admin", "none"),
+    ("POST", "/api/me/personal-cli/test"): _any("admin", "none"),
     # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업). 자격증명 계정의 것만 다룬다(api.accounts_routes.features).
-    ("GET", "/api/me/telegram"): _any("owner"),
-    ("HEAD", "/api/me/telegram"): _any("owner"),
-    ("PUT", "/api/me/telegram"): _any("owner"),
-    ("PATCH", "/api/me/telegram"): _any("owner"),
-    ("DELETE", "/api/me/telegram"): _any("owner"),
-    ("GET", "/api/me/support-bundles"): _any("owner"),
-    ("HEAD", "/api/me/support-bundles"): _any("owner"),
-    ("POST", "/api/me/support-bundles"): _any("owner"),
-    ("DELETE", "/api/me/support-bundles"): _any("owner"),
-    ("GET", "/api/me/support-bundles/download"): _any("owner"),
-    ("HEAD", "/api/me/support-bundles/download"): _any("owner"),
-    ("GET", "/api/me/data-bundles"): _any("owner"),
-    ("HEAD", "/api/me/data-bundles"): _any("owner"),
-    ("POST", "/api/me/data-bundles"): _any("owner"),
-    ("DELETE", "/api/me/data-bundles"): _any("owner"),
-    ("GET", "/api/me/data-bundles/download"): _any("owner"),
-    ("HEAD", "/api/me/data-bundles/download"): _any("owner"),
-    ("GET", "/api/me/backups"): _any("owner"),
-    ("HEAD", "/api/me/backups"): _any("owner"),
-    ("POST", "/api/me/backups"): _any("owner"),
-    ("DELETE", "/api/me/backups"): _any("owner"),
-    ("GET", "/api/me/backups/download"): _any("owner"),
-    ("HEAD", "/api/me/backups/download"): _any("owner"),
-    ("PUT", "/api/me/backups/policy"): _any("owner"),
-    ("GET", "/api/admin/account-backups"): _system("admin"),
-    ("HEAD", "/api/admin/account-backups"): _system("admin"),
-    ("POST", "/api/admin/account-backups/restore"): _system("admin"),
-    ("GET", "/api/admin/server-tier"): _system("admin"),
-    ("HEAD", "/api/admin/server-tier"): _system("admin"),
-    ("PUT", "/api/admin/server-tier"): _system("admin"),
+    ("GET", "/api/me/telegram"): _any("owner", "none"),
+    ("HEAD", "/api/me/telegram"): _any("owner", "none"),
+    ("PUT", "/api/me/telegram"): _any("owner", "none"),
+    ("PATCH", "/api/me/telegram"): _any("owner", "none"),
+    ("DELETE", "/api/me/telegram"): _any("owner", "none"),
+    ("GET", "/api/me/support-bundles"): _any("owner", "none"),
+    ("HEAD", "/api/me/support-bundles"): _any("owner", "none"),
+    ("POST", "/api/me/support-bundles"): _any("owner", "none"),
+    ("DELETE", "/api/me/support-bundles"): _any("owner", "none"),
+    ("GET", "/api/me/support-bundles/download"): _any("owner", "none"),
+    ("HEAD", "/api/me/support-bundles/download"): _any("owner", "none"),
+    ("GET", "/api/me/data-bundles"): _any("owner", "none"),
+    ("HEAD", "/api/me/data-bundles"): _any("owner", "none"),
+    ("POST", "/api/me/data-bundles"): _any("owner", "none"),
+    ("DELETE", "/api/me/data-bundles"): _any("owner", "none"),
+    ("GET", "/api/me/data-bundles/download"): _any("owner", "none"),
+    ("HEAD", "/api/me/data-bundles/download"): _any("owner", "none"),
+    ("GET", "/api/me/backups"): _any("owner", "none"),
+    ("HEAD", "/api/me/backups"): _any("owner", "none"),
+    ("POST", "/api/me/backups"): _any("owner", "none"),
+    ("DELETE", "/api/me/backups"): _any("owner", "none"),
+    ("GET", "/api/me/backups/download"): _any("owner", "none"),
+    ("HEAD", "/api/me/backups/download"): _any("owner", "none"),
+    ("PUT", "/api/me/backups/policy"): _any("owner", "none"),
+    ("GET", "/api/admin/account-backups"): _system("admin", "none"),
+    ("HEAD", "/api/admin/account-backups"): _system("admin", "none"),
+    ("POST", "/api/admin/account-backups/restore"): _system("admin", "none"),
+    ("GET", "/api/admin/server-tier"): _system("admin", "none"),
+    ("HEAD", "/api/admin/server-tier"): _system("admin", "none"),
+    ("PUT", "/api/admin/server-tier"): _system("admin", "none"),
     # P5 L5-b IdP, 계정 연결, 초대 가입, 관리자 IdP (§12, §13.3)
-    ("GET", "/auth/oidc/{id}/start"): _system("public"),
-    ("HEAD", "/auth/oidc/{id}/start"): _system("public"),
-    ("GET", "/auth/oidc/{id}/callback"): _system("public"),
-    ("HEAD", "/auth/oidc/{id}/callback"): _system("public"),
-    ("POST", "/api/me/identities/oidc/{id}/start"): _any("owner"),
-    ("GET", "/api/me/identities"): _any("owner"),
-    ("HEAD", "/api/me/identities"): _any("owner"),
-    ("DELETE", "/api/me/identities/oidc/{id}"): _any("owner"),
-    ("GET", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
-    ("HEAD", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
-    ("POST", "/invite/complete"): _system("public", modes=NETWORK_ONLY),
-    ("GET", "/admin/idp"): _system("admin"),
-    ("HEAD", "/admin/idp"): _system("admin"),
-    ("GET", "/api/admin/idp"): _system("admin"),
-    ("HEAD", "/api/admin/idp"): _system("admin"),
-    ("PUT", "/api/admin/idp"): _system("admin"),
+    ("GET", "/auth/oidc/{id}/start"): _system("public", "none"),
+    ("HEAD", "/auth/oidc/{id}/start"): _system("public", "none"),
+    ("GET", "/auth/oidc/{id}/callback"): _system("public", "none"),
+    ("HEAD", "/auth/oidc/{id}/callback"): _system("public", "none"),
+    ("POST", "/api/me/identities/oidc/{id}/start"): _any("owner", "none"),
+    ("GET", "/api/me/identities"): _any("owner", "none"),
+    ("HEAD", "/api/me/identities"): _any("owner", "none"),
+    ("DELETE", "/api/me/identities/oidc/{id}"): _any("owner", "none"),
+    ("GET", "/invite/complete"): _system("public", "none", modes=NETWORK_ONLY),
+    ("HEAD", "/invite/complete"): _system("public", "none", modes=NETWORK_ONLY),
+    ("POST", "/invite/complete"): _system("public", "none", modes=NETWORK_ONLY),
+    ("GET", "/admin/idp"): _system("admin", "none"),
+    ("HEAD", "/admin/idp"): _system("admin", "none"),
+    ("GET", "/api/admin/idp"): _system("admin", "none"),
+    ("HEAD", "/api/admin/idp"): _system("admin", "none"),
+    ("PUT", "/api/admin/idp"): _system("admin", "none"),
     # 통합 콘솔 (admin/ 및 settings/ 기능 경로 분리, D1–D3)
-    ("GET", "/admin"): _system("admin"),
-    ("HEAD", "/admin"): _system("admin"),
-    ("GET", "/admin/providers"): _system("admin"),
-    ("HEAD", "/admin/providers"): _system("admin"),
-    ("GET", "/admin/limits"): _system("admin"),
-    ("HEAD", "/admin/limits"): _system("admin"),
-    ("GET", "/admin/themes"): _system("admin"),
-    ("HEAD", "/admin/themes"): _system("admin"),
-    ("GET", "/admin/tokens"): _system("admin"),
-    ("HEAD", "/admin/tokens"): _system("admin"),
-    ("GET", "/admin/backups"): _system("admin"),
-    ("HEAD", "/admin/backups"): _system("admin"),
-    ("GET", "/admin/storage"): _system("admin"),
-    ("HEAD", "/admin/storage"): _system("admin"),
-    ("GET", "/api/admin/storage"): _system("admin"),
-    ("HEAD", "/api/admin/storage"): _system("admin"),
-    ("PUT", "/api/admin/storage"): _system("admin"),
-    ("POST", "/api/admin/storage/test"): _system("admin"),
-    ("GET", "/admin/mcp"): _system("admin"),
-    ("HEAD", "/admin/mcp"): _system("admin"),
-    ("GET", "/api/admin/mcp/telemetry"): _system("admin"),
-    ("HEAD", "/api/admin/mcp/telemetry"): _system("admin"),
-    ("GET", "/settings"): _system("owner"),
-    ("HEAD", "/settings"): _system("owner"),
-    ("GET", "/settings/account"): _system("owner"),
-    ("HEAD", "/settings/account"): _system("owner"),
-    ("GET", "/settings/telegram"): _system("owner"),
-    ("HEAD", "/settings/telegram"): _system("owner"),
-    ("GET", "/settings/bundles"): _system("owner"),
-    ("HEAD", "/settings/bundles"): _system("owner"),
-    ("GET", "/settings/backups"): _system("owner"),
-    ("HEAD", "/settings/backups"): _system("owner"),
-    ("GET", "/settings/federation"): _system("owner"),
-    ("HEAD", "/settings/federation"): _system("owner"),
-    ("GET", "/settings/keys"): _system("owner"),
-    ("HEAD", "/settings/keys"): _system("owner"),
-    ("GET", "/settings/themes"): _system("owner"),
-    ("HEAD", "/settings/themes"): _system("owner"),
-    ("GET", "/settings/tokens"): _system("owner"),
-    ("HEAD", "/settings/tokens"): _system("owner"),
-    ("GET", "/settings/reader"): _system("owner"),
-    ("HEAD", "/settings/reader"): _system("owner"),
-    ("GET", "/settings/connections"): _system("owner"),
-    ("HEAD", "/settings/connections"): _system("owner"),
-    ("GET", "/settings/feeds"): _system("owner"),
-    ("HEAD", "/settings/feeds"): _system("owner"),
-    ("GET", "/settings/tags"): _system("owner"),
-    ("HEAD", "/settings/tags"): _system("owner"),
-    ("GET", "/settings/rules"): _system("owner"),
-    ("HEAD", "/settings/rules"): _system("owner"),
-    ("GET", "/settings/outbound"): _system("owner"),
-    ("HEAD", "/settings/outbound"): _system("owner"),
-    ("GET", "/settings/opml"): _system("owner"),
-    ("HEAD", "/settings/opml"): _system("owner"),
-    ("GET", "/settings/mcp"): _system("owner"),
-    ("HEAD", "/settings/mcp"): _system("owner"),
-    ("GET", "/settings/webmcp"): _system("owner"),
-    ("HEAD", "/settings/webmcp"): _system("owner"),
+    ("GET", "/admin"): _system("admin", "none"),
+    ("HEAD", "/admin"): _system("admin", "none"),
+    ("GET", "/admin/providers"): _system("admin", "none"),
+    ("HEAD", "/admin/providers"): _system("admin", "none"),
+    ("GET", "/admin/limits"): _system("admin", "none"),
+    ("HEAD", "/admin/limits"): _system("admin", "none"),
+    ("GET", "/admin/themes"): _system("admin", "none"),
+    ("HEAD", "/admin/themes"): _system("admin", "none"),
+    ("GET", "/admin/tokens"): _system("admin", "none"),
+    ("HEAD", "/admin/tokens"): _system("admin", "none"),
+    ("GET", "/admin/backups"): _system("admin", "none"),
+    ("HEAD", "/admin/backups"): _system("admin", "none"),
+    ("GET", "/admin/storage"): _system("admin", "none"),
+    ("HEAD", "/admin/storage"): _system("admin", "none"),
+    ("GET", "/api/admin/storage"): _system("admin", "none"),
+    ("HEAD", "/api/admin/storage"): _system("admin", "none"),
+    ("PUT", "/api/admin/storage"): _system("admin", "none"),
+    ("POST", "/api/admin/storage/test"): _system("admin", "none"),
+    ("GET", "/admin/mcp"): _system("admin", "none"),
+    ("HEAD", "/admin/mcp"): _system("admin", "none"),
+    ("GET", "/api/admin/mcp/telemetry"): _system("admin", "none"),
+    ("HEAD", "/api/admin/mcp/telemetry"): _system("admin", "none"),
+    ("GET", "/settings"): _system("owner", "none"),
+    ("HEAD", "/settings"): _system("owner", "none"),
+    ("GET", "/settings/account"): _system("owner", "none"),
+    ("HEAD", "/settings/account"): _system("owner", "none"),
+    ("GET", "/settings/telegram"): _system("owner", "none"),
+    ("HEAD", "/settings/telegram"): _system("owner", "none"),
+    ("GET", "/settings/bundles"): _system("owner", "none"),
+    ("HEAD", "/settings/bundles"): _system("owner", "none"),
+    ("GET", "/settings/backups"): _system("owner", "none"),
+    ("HEAD", "/settings/backups"): _system("owner", "none"),
+    ("GET", "/settings/federation"): _system("owner", "none"),
+    ("HEAD", "/settings/federation"): _system("owner", "none"),
+    ("GET", "/settings/keys"): _system("owner", "none"),
+    ("HEAD", "/settings/keys"): _system("owner", "none"),
+    ("GET", "/settings/themes"): _system("owner", "none"),
+    ("HEAD", "/settings/themes"): _system("owner", "none"),
+    ("GET", "/settings/tokens"): _system("owner", "none"),
+    ("HEAD", "/settings/tokens"): _system("owner", "none"),
+    ("GET", "/settings/reader"): _system("owner", "none"),
+    ("HEAD", "/settings/reader"): _system("owner", "none"),
+    ("GET", "/settings/connections"): _system("owner", "none"),
+    ("HEAD", "/settings/connections"): _system("owner", "none"),
+    ("GET", "/settings/feeds"): _system("owner", "none"),
+    ("HEAD", "/settings/feeds"): _system("owner", "none"),
+    ("GET", "/settings/tags"): _system("owner", "none"),
+    ("HEAD", "/settings/tags"): _system("owner", "none"),
+    ("GET", "/settings/rules"): _system("owner", "none"),
+    ("HEAD", "/settings/rules"): _system("owner", "none"),
+    ("GET", "/settings/outbound"): _system("owner", "none"),
+    ("HEAD", "/settings/outbound"): _system("owner", "none"),
+    ("GET", "/settings/opml"): _system("owner", "none"),
+    ("HEAD", "/settings/opml"): _system("owner", "none"),
+    ("GET", "/settings/mcp"): _system("owner", "none"),
+    ("HEAD", "/settings/mcp"): _system("owner", "none"),
+    ("GET", "/settings/webmcp"): _system("owner", "none"),
+    ("HEAD", "/settings/webmcp"): _system("owner", "none"),
 }
 
 
@@ -829,7 +855,6 @@ class WebRuntimeConfig:
     anonymous_readonly: bool
     owner_token: str = field(repr=False)
     readonly_token: str = field(repr=False)
-    collaborator_token: str = field(repr=False)
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
     cloudflare_ips_only: bool = False
@@ -881,22 +906,6 @@ class WebRuntimeConfig:
         if readonly_token and _constant_equal(owner_token, readonly_token):
             raise ValueError("owner and readonly tokens must be different")
 
-        collaborator_token = str(getattr(settings, "collaborator_token", "") or "")
-        if collaborator_token != collaborator_token.strip():
-            raise ValueError("CLAIRE_COLLABORATOR_TOKEN must not contain outer whitespace")
-        if collaborator_token and not dbm.plausible_session_token(collaborator_token):
-            raise ValueError(
-                "CLAIRE_COLLABORATOR_TOKEN must be a 32-128 character URL-safe token"
-            )
-        if collaborator_token and _constant_equal(owner_token, collaborator_token):
-            raise ValueError("owner and collaborator tokens must be different")
-        if (
-            collaborator_token
-            and readonly_token
-            and _constant_equal(readonly_token, collaborator_token)
-        ):
-            raise ValueError("readonly and collaborator tokens must be different")
-
         anonymous_readonly = getattr(settings, "anonymous_readonly", False)
         if not isinstance(anonymous_readonly, bool):
             raise ValueError("CLAIRE_ANONYMOUS_READONLY must be a boolean")
@@ -946,7 +955,6 @@ class WebRuntimeConfig:
             anonymous_readonly=anonymous_readonly,
             owner_token=owner_token,
             readonly_token=readonly_token,
-            collaborator_token=collaborator_token,
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
             cloudflare_ips_only=cf_ips_only,
@@ -1352,7 +1360,7 @@ async def _bootstrap_session(
             exchanged = dbm.exchange_session_token(
                 conn,
                 token,
-                scopes=("owner", "collaborator"),
+                scopes=("owner",),
             )
             if exchanged is not None:
                 return exchanged
@@ -1366,6 +1374,19 @@ async def _bootstrap_session(
             conn.close()
 
     return await asyncio.to_thread(_exchange)
+
+
+def _step_up_response(principal: Principal) -> Response | None:
+    """The answer of a step-up route (Section 6.8) when the request has no recent sign-in in a session, else None. Same answers as ``accounts_routes.common.require_recent_auth``."""
+    if principal.channel not in ("cookie", "x-session"):
+        return JSONResponse({"error": "step_up_requires_session"}, status_code=403)
+    if not has_recent_auth(principal):
+        return JSONResponse(
+            {"error": "reauth_required", "reauth": "/api/auth/reauth"},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Session realm="claire", error="reauth_required"'},
+        )
+    return None
 
 
 async def _send_response(response: Response, scope: Scope, receive: Receive, send: Send) -> None:
@@ -1831,7 +1852,7 @@ class AuthenticationMiddleware:
                     )
                     return
                 session_scope, cookie_token = exchanged
-                if session_scope not in {"owner", "collaborator", "readonly"}:
+                if session_scope not in {"owner", "write", "readonly"}:
                     if self.config.anonymous_readonly:
                         response = RedirectResponse("/", status_code=302)
                         clear_session_cookie(response, self.config)
@@ -1999,8 +2020,6 @@ class AuthenticationMiddleware:
             if credential is None:
                 if self.config.owner_token and _constant_equal(bearer, self.config.owner_token):
                     credential = _env_token_credential("owner")
-                elif self.config.collaborator_token and _constant_equal(bearer, self.config.collaborator_token):
-                    credential = _env_token_credential("collaborator")
                 elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
                     credential = _env_token_credential("readonly")
                 else:
@@ -2096,8 +2115,8 @@ class AuthenticationMiddleware:
                 )
             )
             or (
-                auth_scope == "collaborator"
-                and access in {"read", "collaborator"}
+                auth_scope == "write"
+                and access in {"read", "write"}
             )
             or (
                 auth_scope in {"anonymous", "readonly"}
@@ -2123,6 +2142,21 @@ class AuthenticationMiddleware:
                     resource_metadata=res_meta,
                 )
                 return
+            if (
+                credential is not None
+                and auth_scope in ("readonly", "write")
+                and access in ("write", "owner")
+                and rule.capability != kb_access.NO_KB
+                and not (isinstance(parsed, ParsedPrefix) and parsed.username is not None)
+            ):
+                # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 and namespace design Section 9.2: on a route that acts on a knowledge base, a credential of an account whose scope is too small gets 403. Under ``/@{u}/`` the namespace can be of another account, so the answer stays the 404 that hides it. Account and console routes keep the 404.
+                await _send_response(
+                    JSONResponse({"error": "scope_insufficient", "scope": auth_scope, "required": minimum_scope(rule)}, status_code=403),
+                    scope,
+                    receive,
+                    send,
+                )
+                return
             response = PlainTextResponse("Not Found", status_code=404)
             if cookie_present and cookie_invalid_or_expired:
                 clear_session_cookie(response, self.config)
@@ -2145,6 +2179,12 @@ class AuthenticationMiddleware:
         else:
             # 허용 판정을 통과했는데 자격증명이 없으면 배선 결함이다(C1).
             raise RuntimeError("authenticated request without a resolved credential")
+        if rule.step_up:
+            # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.8: a recent sign-in in a session. A bearer credential never passes, so it never changes a role or a standing rule.
+            step_up_response = _step_up_response(state[PRINCIPAL_STATE_KEY])
+            if step_up_response is not None:
+                await _send_response(step_up_response, scope, receive, send)
+                return
         if auth_channel == "cookie" and cookie_token:
             refreshed_cookies = [_session_cookie_header(self.config, cookie_token)]
             if session_cookie.legacy and self.config.secure_cookie:

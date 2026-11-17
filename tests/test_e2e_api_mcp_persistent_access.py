@@ -92,7 +92,7 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
     res_create_collab = cli.cmd_token(SimpleNamespace(
         token_action="create",
         name="CI Collab",
-        scope="collaborator",
+        scope="write",
         expires_in=30,
         json=True,
     ))
@@ -101,7 +101,7 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
     collab_token = collab_tok_payload["token"]
     collab_id = collab_tok_payload["id"]
     assert collab_token.startswith("cb_")
-    assert collab_tok_payload["scope"] == "collaborator"
+    assert collab_tok_payload["scope"] == "write"
 
     with TestClient(app, base_url=public_url) as client:
         # Step 4: WebUI REST API Token Management
@@ -183,7 +183,7 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
             headers={"Authorization": f"Bearer {collab_token}"},
         )
         assert whoami_collab.status_code == 200
-        assert whoami_collab.json()["scope"] == "collaborator"
+        assert whoami_collab.json()["scope"] == "write"
 
         # Step 7: Revocation enforcement across CLI and REST API
         # 7a. Revoke Cursor token via CLI

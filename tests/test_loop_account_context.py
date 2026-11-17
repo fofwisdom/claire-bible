@@ -65,8 +65,8 @@ def _save_themes_registry(data_dir: Path, db_path: Path, themes: list[KnowledgeB
     conn = dbm.connect(db_path)
     for t in themes:
         conn.execute(
-            "INSERT OR REPLACE INTO knowledge_bases (id, seq, label, description, icon, db_path, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) "
-            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, 1, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO knowledge_bases (id, seq, label, description, icon, db_path, is_personal, is_public, created_at, updated_at, account_id, number) "
+            "VALUES (?, ?, ?, '', '📁', ?, ?, 1, ?, ?, ?, ?)",
             (
                 t.id,
                 t.seq,

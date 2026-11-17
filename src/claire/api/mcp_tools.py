@@ -420,11 +420,6 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None):
         if t_info.account_id != account_id:
             return None
 
-        if scope == "collaborator":
-            accessible = t_info.is_public or t_info.is_collaborator_accessible
-            if not accessible:
-                return None
-
         return t_info.id
 
     def _conn(kb_id: int = 0) -> sqlite3.Connection:

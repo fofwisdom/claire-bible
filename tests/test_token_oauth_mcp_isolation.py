@@ -89,7 +89,6 @@ def _create_test_config(tmp_path: Path, public_origin: str = "http://127.0.0.1:8
         anonymous_readonly=False,
         owner_token="",
         readonly_token="",
-        collaborator_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),
@@ -106,12 +105,11 @@ def _create_test_theme(
     account_id: int,
     is_personal: bool = False,
     is_public: bool = True,
-    is_collaborator_accessible: bool = True,
 ) -> KnowledgeBaseInfo:
     """``is_personal=True``: the personal knowledge base of the account (public or private). Else a shared knowledge base that the account made: no owner and always public (CT5), so ``is_public`` has no effect on it."""
     if is_personal:
         return tm.define_kb(label, is_personal=True, is_public=is_public, account_id=account_id)
-    return tm.define_kb(label, account_id=account_id, is_collaborator_accessible=is_collaborator_accessible, knowledge_type="real")
+    return tm.define_kb(label, account_id=account_id, knowledge_type="real")
 
 
 def _build_oauth_test_app(config: WebRuntimeConfig, settings: Any = None) -> Starlette:
@@ -512,7 +510,7 @@ def test_oauth_telegram_push_restricted_to_admin(tmp_path: Path) -> None:
 # --- 3. MCP Tools Isolation & Readonly Tests -----------------------------------
 
 
-def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Path) -> None:
+def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> None:
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -538,7 +536,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     tm = KnowledgeBaseManager(settings)
 
     # Theme 1: Admin private theme
-    t1 = _create_test_theme(tm, settings, "Admin Private Theme", account_id=1, is_public=False, is_collaborator_accessible=False)
+    t1 = _create_test_theme(tm, settings, "Admin Private Theme", account_id=1, is_public=False)
     t1_s = tm.get_settings_for_kb(t1.id, settings)
     c1 = dbm.connect(t1_s.db_file)
     dbm.init_db(c1)
@@ -546,7 +544,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     c1.close()
 
     # Theme 2: Member default theme (account_id = 2, is_personal = True, is_public = False)
-    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_personal=True, is_public=False, is_collaborator_accessible=False)
+    t2 = _create_test_theme(tm, settings, "Bob Default Theme", account_id=2, is_personal=True, is_public=False)
     t2_s = tm.get_settings_for_kb(t2.id, settings)
     c2 = dbm.connect(t2_s.db_file)
     dbm.init_db(c2)
@@ -554,7 +552,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     c2.close()
 
     # Theme 3: Member collab-accessible theme (account_id = 2, is_collaborator_accessible = True, is_public = False)
-    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_personal=False, is_public=False, is_collaborator_accessible=True)
+    t3 = _create_test_theme(tm, settings, "Bob Collab Theme", account_id=2, is_personal=False, is_public=False)
     t3_s = tm.get_settings_for_kb(t3.id, settings)
     c3 = dbm.connect(t3_s.db_file)
     dbm.init_db(c3)
@@ -562,7 +560,7 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
     c3.close()
 
     # Theme 4: Member public theme (account_id = 2, is_public = True)
-    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_personal=False, is_public=True, is_collaborator_accessible=False)
+    t4 = _create_test_theme(tm, settings, "Bob Public Theme", account_id=2, is_personal=False, is_public=True)
     t4_s = tm.get_settings_for_kb(t4.id, settings)
     c4 = dbm.connect(t4_s.db_file)
     dbm.init_db(c4)
@@ -612,16 +610,16 @@ def test_mcp_tools_account_theme_isolation_and_collaborator_gating(tmp_path: Pat
         finally:
             current_principal.reset(tok)
 
-        # C. Collaborator Principal (Member collaborator scope)
-        p_collab = Principal(account_id=2, server_role="member", scope="collaborator", channel="bearer", credential_id="cred3")
+        # C. Write-scope Principal (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6: it reads as its account)
+        p_collab = Principal(account_id=2, server_role="member", scope="write", channel="bearer", credential_id="cred3")
         tok = current_principal.set(p_collab)
         try:
-            # Theme 2 is not public and not collaborator_accessible -> theme not found
+            # Theme 2 is the private personal knowledge base of the account -> allowed
             r_t2 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_default", "kb": kb_number(settings, t2.id)}}})
             assert r_t2.status_code == 200
-            assert json.loads(r_t2.json()["result"]["content"][0]["text"]) == {"error": "theme not found"}
+            assert json.loads(r_t2.json()["result"]["content"][0]["text"])["id"] == "doc_bob_default"
 
-            # Theme 3 is collaborator_accessible -> allowed!
+            # Theme 3 is a shared knowledge base -> allowed
             r_t3 = client.post("/mcp", json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "document", "arguments": {"document_id": "doc_bob_collab", "kb": kb_number(settings, t3.id)}}})
             assert r_t3.status_code == 200
             data_t3 = json.loads(r_t3.json()["result"]["content"][0]["text"])
@@ -735,7 +733,6 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         anonymous_readonly=False,
         owner_token="",
         readonly_token="",
-        collaborator_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),

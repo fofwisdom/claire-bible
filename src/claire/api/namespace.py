@@ -373,6 +373,12 @@ class NamespaceResolverMiddleware:
             return self._any_outcome(mode, principal, has_prefix=False)
         if rule.surface == "root" and not has_prefix:
             return self._root(mode, scope)
+        if rule.surface == "collection":
+            # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: at the root, the collection of the server has no namespace account; under ``/@{u}/`` it is the collection of ``u``. A pinned knowledge base has no collection.
+            if not has_prefix:
+                return _Outcome(ResolvedNamespace(mode, None, None, None, "", False))
+            if parsed.kb_number is not None:
+                return _not_found()
         return self._namespaced(mode, parsed, principal, scope, any_surface=rule.surface == "any")
 
     def _admin_public_id(self) -> int | None:

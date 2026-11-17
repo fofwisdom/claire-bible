@@ -182,9 +182,9 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
-    # 1. Readonly user must be rejected with 404 (non-public route hidden)
+    # 1. Readonly user must be rejected with 403 (the scope is too small)
     res_ro = client.post("/regenerate", json={"target": doc_id}, headers=READONLY_HEADERS)
-    assert res_ro.status_code == 404
+    assert res_ro.status_code == 403
 
     # 2. Owner dry-run
     res_dry = client.post(

@@ -115,6 +115,14 @@ def list_memberships(conn: sqlite3.Connection, kb_id: int, *, state: str | None 
     return [dict(zip(keys, tuple(r))) for r in conn.execute(sql, args).fetchall()]
 
 
+def account_memberships(conn: sqlite3.Connection, account_id: int, *, state: str) -> dict[int, str]:
+    """The memberships of one account in the given state: knowledge base id → role (the collections ``/kb?joined=true`` and ``/@{u}/kb``, design Section 7)."""
+    if state not in MEMBERSHIP_STATES:
+        raise ValueError(f"invalid membership state: {state!r}")
+    rows = conn.execute("SELECT kb_id, role FROM kb_memberships WHERE account_id=? AND state=?", (int(account_id), state)).fetchall()
+    return {int(r[0]): str(r[1]) for r in rows}
+
+
 # --- contributions -------------------------------------------------------------------------------
 
 

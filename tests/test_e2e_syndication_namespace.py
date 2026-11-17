@@ -50,14 +50,13 @@ def _setup_theme(
     account_id: int,
     is_personal: bool = False,
     is_public: bool = True,
-    is_collaborator_accessible: bool = True,
 ) -> KnowledgeBaseInfo:
     conn = dbm.connect(settings.db_file)
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, ?, '', ?, ?)",
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, '📁', ?, ?, ?, ?, '', ?, ?)",
             (
                 kb_id,
                 seq,
@@ -66,7 +65,6 @@ def _setup_theme(
                 f"Description for {label}",
                 1 if is_personal else 0,
                 1 if is_public else 0,
-                1 if is_collaborator_accessible else 0,
                 account_id,
                 str(settings.db_file),
                 now,
@@ -135,7 +133,7 @@ def p6_env(tmp_path: Path):
     token_store = get_token_store(data_dir=data_dir)
     token_store.ensure_default_owner_token(fallback_token=ADMIN_TOKEN)
     alice_token = token_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    bob_token = token_store.create_token(name="bob-collab", scope="collaborator", account_id=3)["token"]
+    bob_token = token_store.create_token(name="bob-collab", scope="write", account_id=3)["token"]
 
     conn.close()
     return settings, tmp_path, alice_token, bob_token
@@ -206,7 +204,6 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             account_id=2,
             is_personal=True,
             is_public=False,
-            is_collaborator_accessible=True,
         )
         bob_theme = _setup_theme(
             tm,
@@ -217,7 +214,6 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
             account_id=3,
             is_personal=True,
             is_public=False,
-            is_collaborator_accessible=True,
         )
 
         conn = dbm.connect(settings.db_file)

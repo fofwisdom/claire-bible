@@ -78,14 +78,13 @@ def _insert_theme(tm: KnowledgeBaseManager, settings: Settings, *, kb_id: int, s
     now = time.time()
     try:
         conn.execute(
-            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, is_collaborator_accessible, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, 0, ?, ?, '', ?, ?)",
+            "INSERT INTO knowledge_bases (id, seq, number, label, description, icon, is_personal, is_public, account_id, db_path, default_focus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '📁', ?, 0, ?, ?, '', ?, ?)",
             (kb_id, seq, number, label, f"Desc {label}", 1 if is_personal else 0, account_id, str(settings.db_file), now, now),
         )
         conn.commit()
     finally:
         conn.close()
     tm.reload()
-    tm._save_registry()
     return tm.get_kb(kb_id)
 
 
@@ -129,7 +128,7 @@ def console_e2e(tmp_path: Path):
     tok_store = get_token_store(data_dir=data_dir)
     admin_tok = tok_store.create_token(name="admin-owner-e2e", scope="owner", account_id=1)["token"]
     alice_tok = tok_store.create_token(name="alice-owner-e2e", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab-e2e", scope="collaborator", account_id=2)["token"]
+    alice_collab_tok = tok_store.create_token(name="alice-collab-e2e", scope="write", account_id=2)["token"]
 
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
@@ -442,13 +441,14 @@ def test_legacy_syndication_preferences_redirects_for_admin(console_e2e, mode: s
     unknown = _get(env, base + "?tab=does-not-exist", env.admin)
     assert unknown.status_code == 404
 
-    theme_num = env.admin_theme.number
-    with_theme = _get(env, f"{base}?tab=feeds&theme={theme_num}", env.admin)
+    # ``?kb=`` of the settings takes only the personal knowledge base of the caller (a shared knowledge base gets 404).
+    theme_num = KnowledgeBaseManager(env.settings).personal_kb_for(1).number
+    with_theme = _get(env, f"{base}?tab=feeds&kb={theme_num}", env.admin)
     assert with_theme.status_code == 302
-    assert with_theme.headers["location"] == f"/settings/feeds?theme={theme_num}"
+    assert with_theme.headers["location"] == f"/settings/feeds?kb={theme_num}"
 
-    # 잘못된 ?theme=는 리다이렉트 전에 404(C1).
-    assert _get(env, f"{base}?tab=feeds&theme=nonexistent", env.admin).status_code == 404
+    # 잘못된 ?kb=는 리다이렉트 전에 404(C1).
+    assert _get(env, f"{base}?tab=feeds&kb=nonexistent", env.admin).status_code == 404
 
 
 def test_legacy_syndication_preferences_redirects_for_member_in_network_mode(console_e2e):

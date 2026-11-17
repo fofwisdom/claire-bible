@@ -223,13 +223,14 @@ async function fetchThemes(){
     renderThemeSelector();
   }
   try{
-    const r = await fetch(apiUrl('themes'));
+    // The shared knowledge bases come from the collection /kb (design Section 7). The personal knowledge base of this page stays from the inline list.
+    const r = await fetch(rootUrl('kb'), {headers: {Accept: 'application/json'}});
     if(!r.ok) return;
     const data = await r.json();
-    const themes = data.themes || data.orderedItems;
-    if(themes && themes.length){
-      availableThemes = themes;
-      // Migrate stored internal ID if needed (§7.3)
+    const personal = (availableThemes || []).filter(t => t.is_personal);
+    const shared = data.knowledge_bases || [];
+    if(personal.length || shared.length){
+      availableThemes = [...personal, ...shared];
       renderThemeSelector();
     }
   }catch(e){
@@ -635,7 +636,7 @@ const paneTabs = {
 
 const panel = document.getElementById('panel');
 function canWrite(){ return AUTH_SCOPE==='owner'; }
-function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }
+function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='write'; }
 // 함수로 둔 이유: READONLY 는 /whoami 가 비동기로 확정하므로, 호출 시점 기준으로
 // 종합 안내 줄을 넣을지 뺄지 판단해야 한다(고정 문자열이면 초기 로드 시점 값에 박제됨).
 function defaultHint(){
@@ -2334,12 +2335,6 @@ async function runIngest(){
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
   const targetThemeId = '0';  // Ingest writes only to the personal knowledge base (design Section 5.2 rule 3).
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.ingest.collab_default_denied"));
-      return;
-    }
-  }
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="ingest-effort"]:checked');
   const fullContent=!!amountChoice && amountChoice.value==='full';
@@ -2556,12 +2551,6 @@ async function runReingest(){
   const target=((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.reingest.need_target")); return; }
   const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.reingest.collab_default_denied"));
-      return;
-    }
-  }
   const amountChoice=document.querySelector('input[name="reingest-amount"]:checked');
   const effortChoice=document.querySelector('input[name="reingest-effort"]:checked');
   const untombstoneChk=document.getElementById('reinguntombstone');
@@ -2764,12 +2753,6 @@ async function runRegen(isDryRun){
   const target = ((ta||{}).value||'').trim();
   if(!target){ alert(tr("ws.regen.need_target")); return; }
   const targetThemeId = String(activeThemeId || '0');  // The page path selects the knowledge base (design Section 5.2).
-  if(AUTH_SCOPE === 'collaborator'){
-    if(!targetThemeId || targetThemeId === '0'){
-      alert(tr("ws.regen.collab_default_denied"));
-      return;
-    }
-  }
   const compChoice = document.querySelector('input[name="regen-comp"]:checked');
   const component = compChoice ? compChoice.value : 'all';
   const effortChoice = document.querySelector('input[name="regen-effort"]:checked');
@@ -5646,14 +5629,14 @@ function updateSearchModeUI(){
   }
 }
 function setAccessScope(scope, reason){
-  AUTH_SCOPE = ['owner','collaborator','readonly','anonymous'].includes(scope) ? scope : 'unknown';
+  AUTH_SCOPE = ['owner','write','readonly','anonymous'].includes(scope) ? scope : 'unknown';
   READONLY = !canWrite();
   document.body.dataset.authScope=AUTH_SCOPE;
   document.body.classList.toggle('ro', READONLY);
   const label=document.getElementById('authstate');
   if(label) label.textContent =
     AUTH_SCOPE==='owner' ? tr("ws.bar.auth_owner") :
-    AUTH_SCOPE==='collaborator' ? tr("ws.bar.auth_collaborator") :
+    AUTH_SCOPE==='write' ? tr("ws.bar.auth_write") :
     AUTH_SCOPE==='readonly' ? tr("ws.bar.auth_readonly") :
     AUTH_SCOPE==='anonymous' ? tr("ws.bar.auth_anonymous") :
     reason==='expired' ? tr("ws.bar.auth_write_expired") : tr("ws.bar.auth_failed");

@@ -195,13 +195,13 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
         resp_unauth = client.post("/graph/bundle", json={"kb_id": 0})
         assert resp_unauth.status_code in (401, 404)
 
-        # 2. POST with readonly token is rejected (401 from route or 404 from gate middleware)
+        # 2. POST with readonly token is rejected (403 from the gate middleware: the scope is too small)
         resp_ro = client.post(
             "/graph/bundle",
             headers=READONLY_HEADERS,
             json={"kb_id": 0},
         )
-        assert resp_ro.status_code in (401, 404)
+        assert resp_ro.status_code == 403
 
         # 3. POST with owner token succeeds (200 OK)
         resp_owner = client.post(

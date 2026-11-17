@@ -130,7 +130,6 @@ def build_syndication_section(
         "data-theme-label": selected_theme.label,
         "data-theme-icon": selected_theme.icon,
         "data-theme-public": "true" if selected_theme.is_public else "false",
-        "data-theme-collab": "true" if selected_theme.is_collaborator_accessible else "false",
         "data-theme-seed": str(seed_index),
     }
     attrs = " ".join(f'{name}="{escape(value)}"' for name, value in root_attrs.items())

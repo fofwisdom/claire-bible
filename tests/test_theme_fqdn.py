@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
+from tests.kb_paths import kb_number, kb_url, seed, step_up_request  # noqa: F401
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -313,7 +313,7 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
         conn.close()
 
     # 테마를 지우면 legacy_hosts 행도 사라져 421이다.
-    assert client.request("DELETE", "/themes", json={"id": kb_number(settings, kb_id)}, headers=OWNER_HEADERS).status_code == 200
+    assert step_up_request(client, settings, "DELETE", "/themes", json={"id": kb_number(settings, kb_id)}).status_code == 200
     assert status() == 421
 
 

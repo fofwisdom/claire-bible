@@ -125,7 +125,7 @@ def test_graph_html_self_contained_markers():
     assert "let AUTH_SCOPE='unknown';" in GRAPH_HTML
     assert "let READONLY=true;" in GRAPH_HTML
     assert "function canWrite(){ return AUTH_SCOPE==='owner'; }" in GRAPH_HTML
-    assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='collaborator'; }" in GRAPH_HTML
+    assert "function canIngest(){ return AUTH_SCOPE==='owner' || AUTH_SCOPE==='write'; }" in GRAPH_HTML
     assert "setAccessScope(d.scope)" in GRAPH_HTML
     assert "updateCenterSearchMode" in GRAPH_HTML
     assert "ws.bar.auth_anonymous" in GRAPH_HTML

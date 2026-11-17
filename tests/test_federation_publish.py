@@ -56,11 +56,11 @@ def _isolate(monkeypatch):
     reset_secret_service()
 
 
-def _add_theme(conn, kb_id: int, number: int, account_id: int, *, is_public: int = 1, collaborator: int = 1, personal: int = 0) -> None:
+def _add_theme(conn, kb_id: int, number: int, account_id: int, *, is_public: int = 1, personal: int = 0) -> None:
     """``personal=1``: the personal knowledge base of the account (it publishes from this one). Else a row with the shape before version 28: the next start converts it to a shared knowledge base."""
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)",
-        (kb_id, kb_id, f"theme-{kb_id}", personal, is_public, 0 if personal else collaborator, account_id, number),
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)",
+        (kb_id, kb_id, f"theme-{kb_id}", personal, is_public, account_id, number),
     )
 
 
@@ -70,7 +70,7 @@ def _add_document(conn, document_id: str, kb_id: int, *, detail: str = "# Title\
 
 @pytest.fixture
 def env(tmp_path):
-    """A network-mode server with federation on. ``alpha`` is an actor with a public theme, a private theme, and a theme that a collaborator cannot use. ``beta`` is an actor with one public theme."""
+    """A network-mode server with federation on. ``alpha`` is an actor with its personal knowledge base and two old themes that the start converts to shared knowledge bases. ``beta`` is an actor with its personal knowledge base."""
     settings = _Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     conn = dbm.connect(settings.db_file)
     try:
@@ -86,7 +86,7 @@ def env(tmp_path):
         alpha, beta = members
         _add_theme(conn, 11, ALPHA_THEME, alpha, personal=1)
         _add_theme(conn, 12, ALPHA_PRIVATE_THEME, alpha, is_public=0)
-        _add_theme(conn, 13, ALPHA_OWNER_ONLY_THEME, alpha, collaborator=0)
+        _add_theme(conn, 13, ALPHA_OWNER_ONLY_THEME, alpha)
         _add_theme(conn, 21, BETA_THEME, beta, personal=1)
         _add_document(conn, "doc-a", 11)
         _add_document(conn, "doc-hidden", 11, hidden=1)
@@ -318,11 +318,11 @@ def test_each_task_has_the_account_of_the_caller_and_the_admin_cannot_publish_fo
     assert [(row[0], row[3]) for row in _objects(env.settings)] == [(env.beta, env.beta), (env.alpha, env.alpha)]
 
 
-def test_collaborator_can_publish_only_in_a_theme_that_it_can_use_and_readonly_cannot_publish(env):
-    collaborator = env.session(env.alpha, "collaborator")
-    # The collaborator scope cannot use the personal knowledge base (the scope goes away in unit CT-2).
-    assert _publish(env, session_token=collaborator).status_code == 404
-    hidden = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME, session_token=collaborator)
+def test_write_scope_publishes_only_from_the_personal_knowledge_base_and_readonly_cannot_publish(env):
+    # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6: the scope ``write`` publishes, and only documents of the personal knowledge base of its account.
+    writer = env.session(env.alpha, "write")
+    assert _publish(env, session_token=writer).status_code == 202
+    hidden = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME, session_token=writer)
     assert (hidden.status_code, hidden.json()) == (404, {"error": "theme_not_found"})
     # A shared knowledge base (version 28) is not a knowledge base of the account: also the owner session gets 404.
     shared = _publish(env, "doc-owner-only", ALPHA_OWNER_ONLY_THEME)
@@ -332,7 +332,7 @@ def test_collaborator_can_publish_only_in_a_theme_that_it_can_use_and_readonly_c
     for token in (readonly, None):
         refused = _publish(env, session_token=token)
         assert refused.status_code in (401, 403, 404), refused.status_code
-    assert len(_tasks(env.settings)) == 0
+    assert len(_tasks(env.settings)) == 1
 
 
 def test_publish_with_a_cookie_needs_the_same_origin(env):
@@ -418,8 +418,8 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         store.set_federation_state("on", updated_by=1)
         alpha = int(conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'member_alpha', 'member', 'active', 'Alpha', 1, 0, 0, 0)", (ALPHA_PUBLIC_ID,)).lastrowid)
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 0, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'alpha public', 1, 1, 1, 1, ?, ?)", (alpha, ALPHA_THEME))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (12, 12, 'alpha private', 0, 0, 1, 1, ?, ?)", (alpha, ALPHA_PRIVATE_THEME))
         _add_document(conn, "doc-a", 11)
         _add_document(conn, "doc-private", 12)
         conn.commit()

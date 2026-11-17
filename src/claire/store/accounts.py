@@ -62,7 +62,7 @@ FEDERATION_SETTING_KEY = "federation"
 ADMIN_ACCOUNT_ID = dbm.ADMIN_ACCOUNT_ID
 
 # 세션 자격증명 범위. create_account_session은 이 밖의 값을 거부한다(C1).
-SESSION_SCOPES: frozenset[str] = frozenset({"owner", "collaborator", "readonly"})
+SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
@@ -793,7 +793,7 @@ def validate_session_binding(
     conn: sqlite3.Connection,
     token: str,
     *,
-    scopes: tuple[str, ...] = ("owner", "collaborator", "readonly"),
+    scopes: tuple[str, ...] = ("owner", "write", "readonly"),
 ) -> CredentialBinding | None:
     """`store.db.validate_session_scope`와 같은 검증·슬라이딩 만료에 계정 귀속을 더한다.
 

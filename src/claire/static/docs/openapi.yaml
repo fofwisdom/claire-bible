@@ -69,7 +69,7 @@ paths:
                 properties:
                   scope:
                     type: string
-                    enum: [owner, collaborator, readonly, anonymous]
+                    enum: [owner, write, readonly, anonymous]
                     example: owner
                   server:
                     type: object
@@ -134,13 +134,103 @@ paths:
                     type: string
                     example: 기본 테마
 
+  /kb:
+    get:
+      summary: Collection of shared knowledge bases
+      description: >-
+        At the root: the shared knowledge bases of the server, newest first. Under `/@{username}/kb`:
+        the shared knowledge bases where that account is an active member (an HTML request gets the
+        workspace page of that account). The root response is a JSON OrderedCollection with
+        `knowledge_bases` (the items), `personal_kb` (the personal knowledge base of the requester at
+        the root, of the account under `/@{username}/`, or null), and `multi_theme`. With `page=true`
+        the response is an OrderedCollectionPage. An item has `role` when the account is an active
+        member, and `legacy_hosts` and `reembed_required` only for a requester with the capability
+        `settings`.
+      operationId: listKnowledgeBases
+      x-claire-access: read
+      security:
+        - BearerAuth: []
+        - SessionHeader: []
+        - SessionCookie: []
+        - {}
+      parameters:
+        - name: joined
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['true', 'false']
+          description: With `true`, only the shared knowledge bases where the requester is an active member.
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [real, fictional]
+          description: Selects one knowledge type.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, requests an OrderedCollectionPage slice instead of the root OrderedCollection.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 80
+            default: 20
+        - name: max_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: min_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: since_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Root collection, page, or (under `/@{username}/`) the HTML workspace page.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/html:
+              schema:
+                type: string
+        '304':
+          description: Not Modified when If-None-Match matches the current ETag.
+        '400':
+          description: Unknown value of `joined` or `type` (`invalid_joined`, `invalid_type`), or invalid cursor parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '404':
+          description: The namespace is not there, or the path pins a knowledge base.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+
   /themes:
     get:
-      summary: List themes or retrieve paginated theme collection
+      summary: Collection of themes
       description: >-
-        Deterministic content negotiation endpoint. Returns HTML shell for browser navigation
-        (when Accept header prefers text/html or Sec-Fetch-Dest is document); otherwise returns
-        a JSON OrderedCollection or OrderedCollectionPage conforming to the Claire collection contract.
+        At the root: the collection of themes (groups of knowledge bases on one subject), as a JSON
+        OrderedCollection with `themes` (the items: `number`, `url`, `label`, `description`,
+        `knowledge_type`, `state`, `knowledge_bases`), or an OrderedCollectionPage with `page=true`.
+        The parameter `type` (`real` or `fictional`) selects one knowledge type. The old link
+        `/@{username}/themes` gets 308 to `/@{username}/kb`. The collection of knowledge bases is `/kb`.
       operationId: listThemes
       x-claire-access: public
       security:
@@ -249,9 +339,6 @@ paths:
                 is_public:
                   type: boolean
                   default: true
-                is_collaborator_accessible:
-                  type: boolean
-                  default: true
                 ga_measurement_id:
                   type: string
                 sorcerer:
@@ -317,8 +404,6 @@ paths:
                 icon:
                   type: string
                 is_public:
-                  type: boolean
-                is_collaborator_accessible:
                   type: boolean
                 ga_measurement_id:
                   type: string
@@ -1101,7 +1186,7 @@ paths:
                   example: "Claude Desktop"
                 scope:
                   type: string
-                  enum: [owner, collaborator, readonly]
+                  enum: [owner, write, readonly]
                   default: readonly
                 expires_in_days:
                   type: integer
@@ -1851,7 +1936,7 @@ paths:
         A later call makes an `update` task for the same object. The sidecar sends
         the activity to the followers of the actor. Network mode only.
       operationId: publishFederationDocument
-      x-claire-access: collaborator
+      x-claire-access: write
       security:
         - BearerAuth: []
         - SessionHeader: []
@@ -1911,7 +1996,7 @@ paths:
         object ID returns 410 from then on. A remote server can ignore the
         `Delete` activity. Network mode only.
       operationId: retractFederationObject
-      x-claire-access: collaborator
+      x-claire-access: write
       security:
         - BearerAuth: []
         - SessionHeader: []
@@ -2212,7 +2297,7 @@ components:
           type: string
         scope:
           type: string
-          enum: [owner, collaborator, readonly]
+          enum: [owner, write, readonly]
         created_at:
           type: number
         expires_at:
@@ -2271,7 +2356,7 @@ components:
           enum: [admin, member]
         scope:
           type: string
-          enum: [owner, collaborator, readonly]
+          enum: [owner, write, readonly]
         status:
           type: string
           enum: [setup_required, active, suspended, deleting, purged]

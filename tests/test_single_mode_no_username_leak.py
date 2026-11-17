@@ -332,7 +332,7 @@ def test_readiness_g7_fails_when_no_password(app_env):
 
 def test_readiness_g8_passes_when_syndication_requires_auth(app_env, monkeypatch):
     """G8 passes when /syndication route access is not public."""
-    rule = security._namespaced("read")
+    rule = security._namespaced("read", "read")
     monkeypatch.setitem(security.ROUTE_POLICY, ("GET", "/syndication"), rule)
     conn = dbm.connect_existing(app_env.db_file)
     try:

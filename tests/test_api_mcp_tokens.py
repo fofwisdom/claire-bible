@@ -35,8 +35,8 @@ def test_api_token_db_lifecycle(tmp_path: Path):
     assert tok_ro["token"].startswith("cb_")
     assert tok_ro["expires_at"] is None
 
-    tok_collab = dbm.create_api_token(conn, name="Theme Worker", scope="collab", expires_in_days=30)
-    assert tok_collab["scope"] == "collaborator"
+    tok_collab = dbm.create_api_token(conn, name="Theme Worker", scope="write", expires_in_days=30)
+    assert tok_collab["scope"] == "write"
     assert tok_collab["expires_at"] is not None
     assert tok_collab["expires_at"] > time.time()
 
@@ -112,7 +112,6 @@ def test_migrate_env_tokens_and_ensure_default_owner(tmp_path: Path):
         conn,
         env_inject_token=legacy_inject,
         env_readonly_token=legacy_ro,
-        env_collab_token="",
     )
     assert len(migrated) == 2
     assert any(m["token"] == legacy_inject and m["scope"] == "owner" for m in migrated)
@@ -159,7 +158,6 @@ def test_api_and_mcp_authentication_with_persistent_token(tmp_path: Path):
         cors_allowed_origins="",
         inject_token=owner_token_info["token"],
         readonly_token="",
-        collaborator_token="",
         anonymous_readonly=False,
         db_file=db_file,
         data_dir=tmp_path,
@@ -224,7 +222,6 @@ def test_token_rest_endpoints(tmp_path: Path):
         cors_allowed_origins="",
         inject_token=owner["token"],
         readonly_token="",
-        collaborator_token="",
         anonymous_readonly=False,
         db_file=db_file,
         data_dir=tmp_path,

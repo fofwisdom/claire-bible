@@ -97,7 +97,6 @@ class KnowledgeBaseInfo:
     db_path: str = ""
     is_personal: bool = False
     is_public: bool = True
-    is_collaborator_accessible: bool = True
     fqdn: str = ""
     ga_measurement_id: str = ""
     sorcerer: str = ""
@@ -142,7 +141,6 @@ class KnowledgeBaseInfo:
         """An entry of the retired ``themes.json``. The file has the names before version 27 (``is_default``)."""
         is_def = bool(data.get("is_default", False))
         tid = int(data.get("id", 0))
-        default_collab = not is_def
         return cls(
             id=tid,
             seq=int(data.get("seq", data.get("id", 0))),
@@ -152,12 +150,6 @@ class KnowledgeBaseInfo:
             db_path=str(data.get("db_path", "")),
             is_personal=is_def,
             is_public=bool(data.get("is_public", data.get("public", True))),
-            is_collaborator_accessible=bool(
-                data.get(
-                    "is_collaborator_accessible",
-                    data.get("collaborator_accessible", data.get("collaborator", default_collab)),
-                )
-            ),
             fqdn=validate_fqdn(data.get("fqdn")),
             ga_measurement_id=validate_ga_measurement_id(
                 data.get("ga_measurement_id", data.get("ga_id"))
@@ -238,7 +230,6 @@ def _row_to_theme(row: Any, default_db_path: str) -> KnowledgeBaseInfo:
         db_path=db_p,
         is_personal=is_def,
         is_public=bool(d.get("is_public", 1)),
-        is_collaborator_accessible=bool(d.get("is_collaborator_accessible", not is_def)),
         fqdn=validate_fqdn(d.get("fqdn")),
         ga_measurement_id=validate_ga_measurement_id(d.get("ga_measurement_id")),
         sorcerer=str(d.get("sorcerer") or "").strip(),
@@ -477,11 +468,11 @@ class KnowledgeBaseManager:
             """
             INSERT OR IGNORE INTO knowledge_bases (
                 id, seq, label, description, icon, db_path,
-                is_personal, is_public, is_collaborator_accessible,
+                is_personal, is_public,
                 fqdn, ga_measurement_id, sorcerer,
                 presentation_enabled, created_at, updated_at, account_id,
                 number, visibility_epoch, embed_provider, embed_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 theme.id,
@@ -492,7 +483,6 @@ class KnowledgeBaseManager:
                 db_path,
                 int(theme.is_personal),
                 int(theme.is_public),
-                int(theme.is_collaborator_accessible),
                 theme.fqdn,
                 theme.ga_measurement_id,
                 theme.sorcerer,
@@ -573,7 +563,6 @@ class KnowledgeBaseManager:
             db_path=str(db_path),
             is_personal=True,
             is_public=True,
-            is_collaborator_accessible=False,
             sorcerer=str(default_sorcerer).strip() or "owner",
             presentation_enabled=bool(getattr(self.settings, "presentation_enabled", False)),
             created_at=now,
@@ -585,12 +574,11 @@ class KnowledgeBaseManager:
         self,
         *,
         include_private: bool = True,
-        collaborator: bool = False,
         host: str | None = None,
     ) -> list[KnowledgeBaseInfo]:
         """등록된 테마 목록을 일련번호 순서로 반환.
 
-        include_private=True 인 경우 모든 테마 반환. collaborator=True 인 경우 공개(is_public=True) 또는 Collaborator 공개(is_collaborator_accessible=True) 테마 반환. include_private=False 및 collaborator=False 인 경우 (익명 사용자):
+        include_private=True 인 경우 모든 테마 반환. include_private=False 인 경우 (익명 사용자):
           - host가 특정 테마의 전용 FQDN인 경우: 해당 FQDN 테마만 반환 (is_public=True).
           - host가 기본 도메인(또는 미지정)인 경우: FQDN이 설정되지 않은 공개 테마만 반환 (기본 지식베이스 및 일반 공개 테마).
         """
@@ -598,8 +586,6 @@ class KnowledgeBaseManager:
         themes = sorted(self._themes.values(), key=lambda t: t.id)
         if include_private:
             return themes
-        if collaborator:
-            return [t for t in themes if t.is_public or t.is_collaborator_accessible]
 
         cleaned_host = ""
         if host:
@@ -619,7 +605,6 @@ class KnowledgeBaseManager:
         theme_ref: int | str | None,
         *,
         include_private: bool = True,
-        collaborator: bool = False,
         label_match: Literal["exact", "partial"] = "exact",
     ) -> KnowledgeBaseInfo:
         """일련번호(int/str) 또는 레이블로 테마를 검색. 찾지 못하면 다른 테마로 대신하지 않는다(PRINCIPLES C1).
@@ -628,7 +613,7 @@ class KnowledgeBaseManager:
         - 일련번호(숫자) 일치 우선.
         - 레이블(대소문자 무시 정확 일치) 차선.
         - label_match="partial" 이면 마지막으로 레이블 부분 일치(처음 걸린 테마)를 시도한다. 사람이 직접 입력하는 CLI `--theme`과 텔레그램 `/theme`만 쓴다.
-        - 찾지 못했거나 접근할 수 없으면 KnowledgeBaseNotFound. include_private=False 이면 비공개 테마, collaborator=True 이면 협업 비허용 비공개 테마가 접근 불가다. 두 경우의 메시지는 같다.
+        - 찾지 못했거나 접근할 수 없으면 KnowledgeBaseNotFound. include_private=False 이면 비공개 테마가 접근 불가다.
         """
         if label_match not in ("exact", "partial"):
             raise ValueError(f"알 수 없는 label_match 값입니다: {label_match!r}")
@@ -666,8 +651,7 @@ class KnowledgeBaseManager:
         if found is None:
             raise KnowledgeBaseNotFound(theme_ref)
         if not include_private:
-            accessible = (found.is_public or found.is_collaborator_accessible) if collaborator else found.is_public
-            if not accessible:
+            if not found.is_public:
                 raise KnowledgeBaseNotFound(theme_ref)
         return found
 
@@ -705,6 +689,14 @@ class KnowledgeBaseManager:
             reverse=True,
         )
 
+    def list_shared_kbs(self, *, knowledge_type: str | None = None) -> list[KnowledgeBaseInfo]:
+        """The shared knowledge bases that routes serve, newest first. ``knowledge_type`` selects one type (design Section 7, ``/kb?type=``)."""
+        if knowledge_type is not None and knowledge_type not in _themes_store.KNOWLEDGE_TYPES:
+            raise ValueError(f"invalid knowledge type: {knowledge_type!r}")
+        self.reload()
+        shared = [t for t in self._themes.values() if t.is_shared and (knowledge_type is None or t.knowledge_type == knowledge_type)]
+        return sorted(shared, key=lambda t: (t.number is not None, t.number or 0, t.id), reverse=True)
+
     def list_selectable_kbs(self, account_id: int) -> list[KnowledgeBaseInfo]:
         """The knowledge bases that the selector of an account shows: its personal knowledge base, then all shared knowledge bases (they are public, CT5), newest first."""
         self.reload()
@@ -731,7 +723,6 @@ class KnowledgeBaseManager:
         icon: str = "📁",
         is_personal: bool = False,
         is_public: bool = True,
-        is_collaborator_accessible: bool = True,
         fqdn: str = "",
         ga_measurement_id: str = "",
         sorcerer: str = "",
@@ -786,7 +777,6 @@ class KnowledgeBaseManager:
             db_path=db_path,
             is_personal=bool(is_personal),
             is_public=bool(is_public),
-            is_collaborator_accessible=False if is_personal else bool(is_collaborator_accessible),
             fqdn=norm_fqdn,
             ga_measurement_id=norm_ga,
             sorcerer=mgr,
@@ -807,11 +797,11 @@ class KnowledgeBaseManager:
                     """
                     INSERT INTO knowledge_bases (
                         id, seq, label, description, icon, db_path,
-                        is_personal, is_public, is_collaborator_accessible,
+                        is_personal, is_public,
                         fqdn, ga_measurement_id, sorcerer,
                         presentation_enabled, created_at, updated_at, account_id,
                         number, visibility_epoch, created_by_account_id, knowledge_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         theme.id,
@@ -822,7 +812,6 @@ class KnowledgeBaseManager:
                         theme.db_path,
                         int(theme.is_personal),
                         int(theme.is_public),
-                        int(theme.is_collaborator_accessible),
                         theme.fqdn,
                         theme.ga_measurement_id,
                         theme.sorcerer,
@@ -863,11 +852,10 @@ class KnowledgeBaseManager:
         self._themes[seq] = theme
         self._rebuild_fqdn_index()
         log.info(
-            "새 테마 #%d [%s] (공개: %s, 협력자: %s, FQDN: %s) 정의 완료 (경로: %s)",
+            "새 테마 #%d [%s] (공개: %s, FQDN: %s) 정의 완료 (경로: %s)",
             seq,
             cleaned_label,
             theme.is_public,
-            theme.is_collaborator_accessible,
             norm_fqdn or "(없음)",
             db_path,
         )
@@ -881,7 +869,6 @@ class KnowledgeBaseManager:
         description: str | None = None,
         icon: str | None = None,
         is_public: bool | None = None,
-        is_collaborator_accessible: bool | None = None,
         fqdn: str | None = None,
         ga_measurement_id: str | None = None,
         sorcerer: str | None = None,
@@ -938,12 +925,6 @@ class KnowledgeBaseManager:
                 except Exception:
                     pass
 
-        if is_collaborator_accessible is not None:
-            if theme.is_personal:
-                theme.is_collaborator_accessible = False
-            else:
-                theme.is_collaborator_accessible = bool(is_collaborator_accessible)
-
         if ga_measurement_id is not None:
             theme.ga_measurement_id = validate_ga_measurement_id(ga_measurement_id)
 
@@ -967,7 +948,6 @@ class KnowledgeBaseManager:
                     description = ?,
                     icon = ?,
                     is_public = ?,
-                    is_collaborator_accessible = ?,
                     fqdn = ?,
                     ga_measurement_id = ?,
                     sorcerer = ?,
@@ -981,7 +961,6 @@ class KnowledgeBaseManager:
                     theme.description,
                     theme.icon,
                     int(theme.is_public),
-                    int(theme.is_collaborator_accessible),
                     theme.fqdn,
                     theme.ga_measurement_id,
                     theme.sorcerer,

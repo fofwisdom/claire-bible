@@ -535,7 +535,6 @@ def render_graph_html(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     request: Any | None = None,
@@ -617,8 +616,6 @@ def render_graph_html(
         owned = tm.list_selectable_kbs(account_id)
         if include_private:
             filtered = owned
-        elif collaborator:
-            filtered = [t for t in owned if t.is_public or t.is_collaborator_accessible]
         else:
             cleaned_host = ""
             if host:
@@ -646,7 +643,6 @@ def render_graph_html(
                 "icon": "📚",
                 "is_personal": True,
                 "is_public": True,
-                "is_collaborator_accessible": False,
                 "sorcerer": safe_sorcerer,
                 "knowledge_manager": safe_sorcerer,
                 "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
@@ -749,7 +745,6 @@ def _render_syndication_bundle(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
@@ -804,7 +799,7 @@ def _render_syndication_bundle(
         from .store.knowledge_base import get_kb_manager
 
         tm = get_kb_manager(s)
-        raw_themes = tm.list_kbs(include_private=include_private, collaborator=collaborator, host=host)
+        raw_themes = tm.list_kbs(include_private=include_private, host=host)
         if is_network_mode and caller_account_id is not None:
             raw_themes = [t for t in raw_themes if getattr(t, "account_id", 1) == caller_account_id]
         themes_list = [t.to_dict() for t in raw_themes]
@@ -818,7 +813,6 @@ def _render_syndication_bundle(
                 "icon": "📚",
                 "is_personal": True,
                 "is_public": True,
-                "is_collaborator_accessible": False,
                 "sorcerer": safe_sorcerer,
                 "knowledge_manager": safe_sorcerer,
                 "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
@@ -873,7 +867,6 @@ def render_syndication_html(
     settings: Any = None,
     *,
     include_private: bool = True,
-    collaborator: bool = False,
     theme: Any | None = None,
     host: str | None = None,
     auth_scope: str = "owner",
@@ -884,7 +877,6 @@ def render_syndication_html(
         _syndication_html_for(get_locale()),
         settings,
         include_private=include_private,
-        collaborator=collaborator,
         theme=theme,
         host=host,
         auth_scope=auth_scope,

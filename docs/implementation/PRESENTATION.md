@@ -73,11 +73,11 @@ All routes are in `src/claire/api/server.py`; the access rules are in `src/clair
 | Method and path | Access | Function |
 | :--- | :--- | :--- |
 | `GET /document/presentation?id=` | `read` | Record of the presentation, or `not_created`. |
-| `POST /document/presentation/generate` | `collaborator` | `get_or_create_presentation`. Parameters in the query or in a JSON body: `id`, `slide_theme`, `transition`, `force`, `wait`. With `wait=false`: 200 with a `ready` record, or 202 and a background task. |
-| `POST /document/presentation/compose` | `collaborator` | Composition, then compilation unless `no_compile`. Parameters: `id`, `focus`, `slide_budget`, `theme`, `transition`, `no_compile`. |
-| `POST /document/presentation/compile` | `collaborator` | Compilation only. Parameters: `id`, `theme`, `transition`, `force` (default true). |
+| `POST /document/presentation/generate` | `owner` | `get_or_create_presentation`. Parameters in the query or in a JSON body: `id`, `slide_theme`, `transition`, `force`, `wait`. With `wait=false`: 200 with a `ready` record, or 202 and a background task. |
+| `POST /document/presentation/compose` | `owner` | Composition, then compilation unless `no_compile`. Parameters: `id`, `focus`, `slide_budget`, `theme`, `transition`, `no_compile`. |
+| `POST /document/presentation/compile` | `owner` | Compilation only. Parameters: `id`, `theme`, `transition`, `force` (default true). |
 | `GET /document/presentation/adoc?id=` | `read` | The deck as JSON (`presentation_adoc`). |
-| `PUT /document/presentation/adoc` | `collaborator` | Stores an edited deck (`authoring_provider` `manual`) and compiles it unless `recompile` is false. |
+| `PUT /document/presentation/adoc` | `owner` | Stores an edited deck (`authoring_provider` `manual`) and compiles it unless `recompile` is false. |
 | `GET /p/presentation` | `public` | The viewer page (Section 6). |
 
 - **[code]** `generate`, `compose`, `compile`, and `PUT .../adoc` also check the tier feature `presentation` of the theme (`_require_theme_feature`).

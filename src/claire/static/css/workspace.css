@@ -202,9 +202,9 @@
   #hiddenlist{max-height:40%;overflow-y:auto;overscroll-behavior:contain;flex-shrink:0;border-top:1px solid var(--border);background:rgba(128,128,128,.05)}
   #hiddenlist:empty{display:none}
 
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #addbtn,
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #reingestbtn,
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #regenbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #addbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #reingestbtn,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #regenbtn,
   body:not([data-auth-scope="owner"]) #purgebtn,
   body:not([data-auth-scope="owner"]) #synthbtn,
   body:not([data-auth-scope="owner"]) #synthchips,
@@ -617,10 +617,10 @@
   #moremenu .menu-danger button[role="menuitem"]{color:#cf222e}
   [data-theme="dark"] #moremenu .menu-danger button[role="menuitem"]{color:#ff7b72}
   #moremenu .menu-section:not(:has(button)),
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #moremenu > .action-btn-row,
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #moremenu > .action-btn-row,
   body:not([data-auth-scope="owner"]):not([data-center-view="graph"]) #moremenu #graph-section,
   body:not([data-auth-scope="owner"]) #moremenu .menu-danger{display:none}
-  body:not([data-auth-scope="owner"]):not([data-auth-scope="collaborator"]) #moremenu #graph-section{border-top:0;padding-top:0}
+  body:not([data-auth-scope="owner"]):not([data-auth-scope="write"]) #moremenu #graph-section{border-top:0;padding-top:0}
   #synthchips:empty{display:none}
   #synthchips{margin-bottom:10px}
   /* List switch: documents or entities */

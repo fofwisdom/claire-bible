@@ -474,7 +474,7 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         store.set_federation_state("on", updated_by=1)
         conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, 'alice', 'member', 'active', 'Alice Kim', 1, 0, 1800000100.5, 0)", (ALICE_PUBLIC_ID,))
         alice = store.find_by_username("alice").id
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 0, 1, 1, ?, ?)", (alice, theme_number))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         for doc_id, title in (("doc-1", "First Post"), ("doc-2", "Second Post")):
             # The body has Markdown marks and a script; RD21 keeps both out of the object.
             conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', ?, 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))

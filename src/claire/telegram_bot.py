@@ -86,11 +86,11 @@ class AccountThemeScope:
 AdminThemeScope = AccountThemeScope
 
 # 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(서버 세션·토큰·전체 현황을 다루기 때문이다).
-ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webco", "webro", "token", "status"})
+ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webro", "token", "status"})
 # 운영자 봇에서만 받는 콜백(웹 로그인·OAuth 승인 푸시).
 ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("auth:", "oauth_appr:", "oauth_deny:")
 # The commands of the Telegram command menu, in menu order. The description of each command is the catalog key ``bot.command.<name>``.
-COMMAND_MENU: tuple[str, ...] = ("theme", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webco", "webro", "failed", "retry", "start")
+COMMAND_MENU: tuple[str, ...] = ("theme", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webro", "failed", "retry", "start")
 
 
 def resolve_update_locale(update: Any, *, owner_locale: str | None, settings: Any) -> str:
@@ -2080,34 +2080,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             disable_web_page_preview=True,
         )
 
-    async def on_webco(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        # 협력자(Collaborator) 웹 링크: /web 과 동일 메커니즘이지만 scope='collaborator'
-        # 공개된 추가 지식 테마에 접근하고 자료를 적재할 수 있으며, 기본 지식베이스 및 관리 기능은 제한된다.
-        if not _is_allowed(update.effective_user.id if update.effective_user else None):
-            return
-        if await _refuse_member(update):
-            return
-
-        if not s.public_url:
-            await update.message.reply_text(
-                _t("bot.web.no_fqdn"))
-            return
-
-        def _mint() -> str:
-            conn = dbm.connect(svc.s.db_file)
-            try:
-                dbm.init_db(conn)
-                return dbm.create_session(conn, scope="collaborator")
-            finally:
-                conn.close()
-
-        tok = await asyncio.to_thread(_mint)
-        url = f"{s.public_url.rstrip('/')}/?t={tok}"
-        await update.message.reply_text(
-            _t("bot.web.link_collab", url=url),
-            disable_web_page_preview=True,
-        )
-
     async def on_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """API 및 MCP 상시 이용 토큰 관리 (조회/생성/폐기)."""
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
@@ -2132,9 +2104,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     return ("error", _t("bot.token.usage_create"))
                 name = args[1].strip()
                 scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
-                if scope == "collab":
-                    scope = "collaborator"
-                if scope not in ("owner", "collaborator", "readonly"):
+                if scope not in ("owner", "write", "readonly"):
                     return ("error", _t("bot.token.invalid_scope", scope=scope))
                 created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
                 return ("created", created)
@@ -2588,7 +2558,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     app.add_handler(CommandHandler("search", _localized(on_search)))
     app.add_handler(CommandHandler("ingest", _localized(on_ingest)))
     app.add_handler(CommandHandler("web", _localized(on_web)))
-    app.add_handler(CommandHandler(["webco", "webcollab"], _localized(on_webco)))
     app.add_handler(CommandHandler("webro", _localized(on_webro)))
     app.add_handler(CommandHandler(["token", "tokens", "key"], _localized(on_token)))
     app.add_handler(CommandHandler("failed", _localized(on_failed)))

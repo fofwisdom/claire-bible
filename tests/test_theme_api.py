@@ -1,7 +1,7 @@
 import pytest
 from starlette.testclient import TestClient
 
-from tests.kb_paths import kb_number, kb_url, seed
+from tests.kb_paths import kb_list, kb_number, kb_url, seed, step_up_request
 
 from claire.api.server import create_app
 from claire.config import Settings
@@ -60,14 +60,14 @@ def test_theme_api_single_mode_behavior(tmp_path):
     )
     app = create_app(settings=s)
     with TestClient(app, base_url=s.public_url) as client:
-        # 1. GET /themes -> multi_theme: False 및 기본 지식베이스 1개만 반환
-        resp = client.get("/themes")
+        # 1. GET /kb -> multi_theme: False 및 개인 지식 베이스 1개만 반환 (design Section 7)
+        resp = client.get("/kb", headers=OWNER_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("multi_theme") is False
-        assert len(data["themes"]) == 1
-        assert data["themes"][0]["id"] == 0
-        assert data["themes"][0]["label"] == "기본 지식베이스"
+        assert data["knowledge_bases"] == []
+        assert data["personal_kb"]["id"] == 0
+        assert data["personal_kb"]["label"] == "기본 지식베이스"
 
         # 2. POST /themes -> 403 차단
         resp_post = client.post("/themes", json={"knowledge_type": "real", "label": "새 테마"}, headers=OWNER_HEADERS)
@@ -80,7 +80,7 @@ def test_theme_api_single_mode_behavior(tmp_path):
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_patch.json().get("error", "")
 
         # 4. DELETE /themes -> 403 차단
-        resp_del = client.delete("/themes?id=1", headers=OWNER_HEADERS)
+        resp_del = step_up_request(client, s, "DELETE", "/themes?id=1")
         assert resp_del.status_code == 403
         assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
 
@@ -96,11 +96,12 @@ def test_theme_api_single_mode_behavior(tmp_path):
 
 def test_get_themes_anonymous_allowed(theme_app_client):
     client, settings = theme_app_client
-    resp = client.get("/themes")
+    # The collection of shared knowledge bases is public; the personal knowledge base is of the requester (design Section 7).
+    resp = client.get("/kb")
     assert resp.status_code == 200
     data = resp.json()
-    assert "themes" in data
-    themes = data["themes"]
+    assert data["knowledge_bases"] == [] and data["personal_kb"] is None
+    themes = kb_list(client, headers=OWNER_HEADERS)
     assert len(themes) >= 1
     assert themes[0]["id"] == 0
     assert themes[0]["label"] == "기본 지식베이스"
@@ -194,8 +195,7 @@ def test_theme_update_label(theme_app_client):
     assert patch_resp.json()["theme"]["icon"] == "🚀"
 
     # 목록 조회 시 변경된 레이블 반영 확인
-    list_resp = client.get("/themes")
-    themes = list_resp.json()["themes"]
+    themes = kb_list(client)
     t1 = next(t for t in themes if t["id"] == 1)
     assert t1["label"] == "변경된 이름"
 
@@ -211,7 +211,9 @@ def test_delete_theme_api(theme_app_client):
     assert resp2.status_code == 201
 
     # 2. 기본 테마(0) 삭제 시도 -> 400 에러 차단
-    del_default = client.delete("/themes?id=" + kb_number(settings, 0), headers=OWNER_HEADERS)
+    # DELETE /themes is a step-up route (design Section 6.8): a bearer credential gets 403.
+    assert client.delete("/themes?id=" + kb_number(settings, 1), headers=OWNER_HEADERS).json() == {"error": "step_up_requires_session"}
+    del_default = step_up_request(client, settings, "DELETE", "/themes?id=" + kb_number(settings, 0))
     assert del_default.status_code == 400
     err_msg = str(del_default.json().get("error") or del_default.json().get("detail") or "")
     assert "기본 테마" in err_msg or "기본 지식베이스" in err_msg
@@ -221,17 +223,17 @@ def test_delete_theme_api(theme_app_client):
     assert client.delete("/themes?id=" + kb_number(settings, 1), headers=READONLY_HEADERS).status_code in (403, 404)
 
     # 4. owner 사용자가 쿼리 파라미터로 추가 테마 1 삭제 (purge=1)
-    del_t1 = client.delete("/themes?id=" + kb_number(settings, 1) + "&purge=1", headers=OWNER_HEADERS)
+    del_t1 = step_up_request(client, settings, "DELETE", "/themes?id=" + kb_number(settings, 1) + "&purge=1")
     assert del_t1.status_code == 200
     assert del_t1.json()["deleted"]["id"] == 1
 
     # 5. owner 사용자가 JSON body로 추가 테마 2 삭제 (purge: true)
-    del_t2 = client.request("DELETE", "/themes", json={"id": kb_number(settings, 2), "purge": True}, headers=OWNER_HEADERS)
+    del_t2 = step_up_request(client, settings, "DELETE", "/themes", json={"id": kb_number(settings, 2), "purge": True})
     assert del_t2.status_code == 200
     assert del_t2.json()["deleted"]["id"] == 2
 
     # 6. 테마 목록 조회 -> 추가 테마들이 정상 제거되었고 기본 테마 0만 남았는지 확인
-    themes_after = client.get("/themes", headers=OWNER_HEADERS).json()["themes"]
+    themes_after = kb_list(client, headers=OWNER_HEADERS)
     remaining_ids = [t["id"] for t in themes_after]
     assert remaining_ids == [0]
 
@@ -341,9 +343,7 @@ def test_theme_knowledge_manager_api(theme_app_client):
     tid = created["id"]
 
     # 2. GET /themes 조회 시 테마별 지식 관리자 및 기본 지식 관리자 반환 검증
-    list_resp = client.get("/themes")
-    assert list_resp.status_code == 200
-    themes = list_resp.json()["themes"]
+    themes = kb_list(client, headers=OWNER_HEADERS)
     theme0 = next(t for t in themes if t["id"] == 0)
     theme_sec = next(t for t in themes if t["id"] == tid)
     assert theme0["knowledge_manager"] == settings.effective_sorcerer

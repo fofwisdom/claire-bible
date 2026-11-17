@@ -142,20 +142,57 @@ def test_failed_conversion_leaves_an_unavailable_row_and_the_next_start_tries_ag
     assert manager.get_kb(5).is_shared and manager.unavailable_kbs() == []
 
 
+def test_next_start_keeps_the_founder_and_the_knowledge_type_of_a_shared_knowledge_base(tmp_path: Path) -> None:
+    """A shared knowledge base has no owner. The owner step of version 15 must not give it to the admin: the conversion would then replace its founder and its type."""
+    settings = _settings(tmp_path)
+    conn = dbm.connect(settings.db_file)
+    try:
+        dbm.init_db(conn)
+        conn.execute("INSERT INTO accounts (id, public_id, username, role, status, display_name, profile_public, created_at, updated_at) VALUES (2, 902, 'founder', 'member', 'active', 'Founder', 1, 1, 1)")
+        conn.commit()
+    finally:
+        conn.close()
+    manager = KnowledgeBaseManager(settings)
+    made = manager.define_kb("Middle-earth", account_id=2, knowledge_type="fictional")
+
+    def _state() -> list[tuple]:
+        c = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            kb = tuple(c.execute("SELECT account_id, created_by_account_id, knowledge_type FROM knowledge_bases WHERE id=?", (made.id,)).fetchone())
+            members = [tuple(r) for r in c.execute("SELECT account_id, role, state FROM kb_memberships WHERE kb_id=? ORDER BY account_id", (made.id,))]
+            return [kb, members]
+        finally:
+            c.close()
+
+    expected = [(None, 2, "fictional"), [(2, "moderator", "active")]]
+    assert _state() == expected
+    # The next starts: a new manager, a reload, and the schema step again.
+    KnowledgeBaseManager(settings).reload()
+    manager.reload()
+    conn = dbm.connect(settings.db_file)
+    try:
+        dbm.init_db(conn)
+        conn.commit()
+    finally:
+        conn.close()
+    assert _state() == expected
+    assert [(kb.label, kb.knowledge_type, kb.created_by_account_id) for kb in manager.list_shared_kbs()] == [("Middle-earth", "fictional", 2)]
+
+
 def _decide(capability: str, actor: kb_access.Actor, *, personal: bool = False, owner: int | None = None, public: bool = True) -> str:
     return kb_access.decide(is_personal=personal, owner_account_id=owner, is_public=public, capability=capability, actor=actor)
 
 
 def test_capability_matrix_of_a_shared_knowledge_base() -> None:
     """Section 6.2, each cell: allow, 403 (forbidden), or 404 (not_found)."""
-    anonymous = kb_access.Actor(account_id=None)
-    account = kb_access.Actor(account_id=5)
-    pending = kb_access.Actor(account_id=5, membership=("member", "pending"))
-    banned = kb_access.Actor(account_id=5, membership=("member", "banned"))
-    member = kb_access.Actor(account_id=5, membership=("member", "active"))
-    collaborator = kb_access.Actor(account_id=5, membership=("collaborator", "active"))
-    moderator = kb_access.Actor(account_id=5, membership=("moderator", "active"))
-    admin = kb_access.Actor(account_id=1, is_admin=True)
+    anonymous = kb_access.Actor(account_id=None, scope=None)
+    account = kb_access.Actor(account_id=5, scope="owner")
+    pending = kb_access.Actor(account_id=5, scope="owner", membership=("member", "pending"))
+    banned = kb_access.Actor(account_id=5, scope="owner", membership=("member", "banned"))
+    member = kb_access.Actor(account_id=5, scope="owner", membership=("member", "active"))
+    collaborator = kb_access.Actor(account_id=5, scope="owner", membership=("collaborator", "active"))
+    moderator = kb_access.Actor(account_id=5, scope="owner", membership=("moderator", "active"))
+    admin = kb_access.Actor(account_id=1, scope="owner", is_admin=True)
     a, f, n = "allow", "forbidden", "not_found"
     #                     anonymous account member collaborator moderator admin
     expected = {
@@ -180,17 +217,34 @@ def test_capability_matrix_of_a_shared_knowledge_base() -> None:
         # Rule 1: a pending member is as an account that is not a member; a banned account has only read and fork.
         assert _decide(capability, pending) == _decide(capability, account), capability
         assert _decide(capability, banned) == (a if capability in ("read", "fork") else f), capability
-        # A credential that only reads has only ``read``.
-        readonly = kb_access.Actor(account_id=5, can_write=False, membership=("moderator", "active"))
+        # Section 6.6: a ``readonly`` credential has only ``read``; a ``write`` credential has only ``read`` and the contributions, also for a moderator or the admin.
+        readonly = kb_access.Actor(account_id=5, scope="readonly", membership=("moderator", "active"))
         assert _decide(capability, readonly) == (a if capability == "read" else f), capability
+        for holder in (kb_access.Actor(account_id=5, scope="write", membership=("moderator", "active")), kb_access.Actor(account_id=1, scope="write", is_admin=True)):
+            assert _decide(capability, holder) == (a if capability in ("read", "contribute_direct", "contribute_theme") else f), capability
+
+
+def test_share_link_capability() -> None:
+    """``share`` (make a share link): each account that reads a shared knowledge base, with each scope, but not a banned one and not an anonymous request; in a personal knowledge base only its account."""
+    for scope in ("owner", "write", "readonly"):
+        assert _decide("share", kb_access.Actor(account_id=5, scope=scope)) == "allow"
+        assert _decide("share", kb_access.Actor(account_id=2, scope=scope), personal=True, owner=2, public=False) == "allow"
+    assert _decide("share", kb_access.Actor(account_id=5, scope="owner", membership=("member", "banned"))) == "forbidden"
+    assert _decide("share", kb_access.Actor(account_id=None, scope=None)) == "not_found"
+    assert _decide("share", kb_access.Actor(account_id=3, scope="owner"), personal=True, owner=2, public=True) == "forbidden"
+    assert _decide("share", kb_access.Actor(account_id=None, scope=None), personal=True, owner=2, public=True) == "not_found"
+    # Single mode keeps its rule: a reader of the public knowledge base of the admin makes share links.
+    anonymous = kb_access.Actor(account_id=None, scope=None)
+    assert kb_access.decide(is_personal=True, owner_account_id=1, is_public=True, capability="share", actor=anonymous, single_mode=True) == "allow"
+    assert kb_access.decide(is_personal=True, owner_account_id=1, is_public=False, capability="share", actor=anonymous, single_mode=True) == "not_found"
 
 
 def test_capability_matrix_of_a_personal_knowledge_base() -> None:
     """Section 6.5: only the owner has rights; a private one gives the same 404 as an unknown number."""
-    owner = kb_access.Actor(account_id=2)
-    other = kb_access.Actor(account_id=3)
-    admin = kb_access.Actor(account_id=1, is_admin=True)
-    anonymous = kb_access.Actor(account_id=None)
+    owner = kb_access.Actor(account_id=2, scope="owner")
+    other = kb_access.Actor(account_id=3, scope="owner")
+    admin = kb_access.Actor(account_id=1, scope="owner", is_admin=True)
+    anonymous = kb_access.Actor(account_id=None, scope=None)
     for capability in ("write", "settings"):
         assert _decide(capability, owner, personal=True, owner=2) == "allow"
         assert _decide(capability, other, personal=True, owner=2, public=True) == "forbidden"
@@ -201,6 +255,11 @@ def test_capability_matrix_of_a_personal_knowledge_base() -> None:
     assert _decide("read", other, personal=True, owner=2, public=False) == "not_found"
     assert _decide("read", anonymous, personal=True, owner=2, public=False) == "not_found"
     assert _decide("read", owner, personal=True, owner=2, public=False) == "allow"
+    # Section 6.6: ``write`` reads and writes the personal knowledge base of its account; ``readonly`` reads, private included.
+    writer = kb_access.Actor(account_id=2, scope="write")
+    reader = kb_access.Actor(account_id=2, scope="readonly")
+    assert [_decide(c, writer, personal=True, owner=2, public=False) for c in ("read", "write", "settings")] == ["allow", "allow", "forbidden"]
+    assert [_decide(c, reader, personal=True, owner=2, public=False) for c in ("read", "write", "settings")] == ["allow", "forbidden", "forbidden"]
 
 
 def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_path(tmp_path: Path) -> None:
@@ -228,12 +287,12 @@ def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_pat
         old = client.get(f"/themes/{number}/documents?x=1")
         assert old.status_code == 308 and old.headers["location"] == f"/kb/{number}/documents?x=1"
         # The number of the personal knowledge base at /kb/ gets 308 to its own path.
-        personal = next(t for t in client.get("/themes", headers=OWNER_HEADERS).json()["themes"] if t["is_personal"])
+        personal = client.get("/kb", headers=OWNER_HEADERS).json()["personal_kb"]
         home = client.get(f"/kb/{personal['number']}/documents", headers=OWNER_HEADERS)
         assert home.status_code == 308 and home.headers["location"] == "/documents"
-        # The selector list has the personal knowledge base and the shared ones.
-        labels = [t["label"] for t in client.get("/themes", headers=OWNER_HEADERS).json()["themes"]]
-        assert labels.count("Cities") == 2 and len(labels) == 3
+        # The collection /kb has the shared knowledge bases; the founder moderates both (Section 7).
+        listed = client.get("/kb", headers=OWNER_HEADERS).json()["knowledge_bases"]
+        assert [t["label"] for t in listed] == ["Cities", "Cities"] and {t["role"] for t in listed} == {"moderator"}
 
         # Section 6.2: an anonymous write is 404; ingest by a path that pins a shared knowledge base is 403 (CT4).
         assert client.post(f"/kb/{number}/document/pin", json={"id": "x", "pinned": True}).status_code in (401, 403, 404)

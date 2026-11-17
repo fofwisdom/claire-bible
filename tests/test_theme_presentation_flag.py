@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
+from tests.kb_paths import kb_list, kb_number, kb_url, seed  # noqa: F401
 from starlette.testclient import TestClient
 
 from claire.api.server import create_app
@@ -127,10 +127,8 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
 
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
-        # 1. GET /themes: default theme has presentation_enabled=False
-        res = client.get("/themes")
-        assert res.status_code == 200
-        themes = res.json()["themes"]
+        # 1. GET /kb: the personal knowledge base has presentation_enabled=False
+        themes = kb_list(client, headers=owner_headers)
         assert len(themes) == 1
         assert themes[0]["presentation_enabled"] is False
 

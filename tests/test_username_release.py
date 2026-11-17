@@ -51,10 +51,10 @@ def _isolate_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def _patch_admin_route_policies(monkeypatch):
     new_policies = dict(security.ROUTE_POLICY)
-    new_policies[("PATCH", "/api/admin/accounts")] = security._system("admin")
-    new_policies[("GET", "/api/admin/usernames/retired")] = security._system("admin")
-    new_policies[("HEAD", "/api/admin/usernames/retired")] = security._system("admin")
-    new_policies[("POST", "/api/admin/usernames/release")] = security._system("admin")
+    new_policies[("PATCH", "/api/admin/accounts")] = security._system("admin", "none")
+    new_policies[("GET", "/api/admin/usernames/retired")] = security._system("admin", "none")
+    new_policies[("HEAD", "/api/admin/usernames/retired")] = security._system("admin", "none")
+    new_policies[("POST", "/api/admin/usernames/release")] = security._system("admin", "none")
     monkeypatch.setattr(security, "ROUTE_POLICY", new_policies)
     monkeypatch.setattr(security, "_EXACT_ROUTE_POLICY", {
         k: v for k, v in new_policies.items() if "{" not in k[1]

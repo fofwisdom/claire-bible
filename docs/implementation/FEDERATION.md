@@ -501,7 +501,7 @@ uv run claire federation requeue --max-age-hours 72 --apply
 
 ### 7.6 Publishing Routes (Unit FP3-1)
 
-The routes need `collaborator` access or more, in network mode only (`ROUTE_POLICY`: `_any("collaborator", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the theme must be of that account: the admin cannot publish for a member. A collaborator can use only a theme with `is_collaborator_accessible`.
+The routes need the scope `write` or `owner`, in network mode only (`ROUTE_POLICY`: `_any("write", "write", modes=NETWORK_ONLY)`). A `readonly` credential cannot call them. The principal must have an account, and the knowledge base must be the personal knowledge base of that account (`_own_theme`): the admin cannot publish for a member, and a document of a shared knowledge base cannot be published (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
 
 `POST /api/federation/publish` with the body `{"theme": "<theme number>", "document_id": "..."}`:
 

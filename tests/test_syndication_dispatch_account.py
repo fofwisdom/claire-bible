@@ -18,7 +18,6 @@ from claire.store.token_store import get_token_store
 
 OWNER_TOKEN = "owner-" + ("o" * 32)
 READONLY_TOKEN = "readonly-" + ("r" * 32)
-COLLAB_TOKEN = "collab-" + ("c" * 32)
 OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 
 
@@ -41,7 +40,6 @@ def dispatch_account_env(tmp_path: Path):
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_COLLABORATOR_TOKEN=COLLAB_TOKEN,
         CLAIRE_ANONYMOUS_READONLY=False,
         CLAIRE_MULTI_THEME=True,
     )
@@ -61,12 +59,13 @@ def dispatch_account_env(tmp_path: Path):
     theme_mgr = get_kb_manager(settings=settings)
     t1 = theme_mgr.define_kb("AI Research", account_id=dbm.ADMIN_ACCOUNT_ID, knowledge_type="real")
     t2 = theme_mgr.define_kb("Security Analysis", account_id=dbm.ADMIN_ACCOUNT_ID, knowledge_type="real")
-    t3 = theme_mgr.define_kb("NLP Studies", account_id=member_id, is_public=True, is_collaborator_accessible=True, knowledge_type="real")
-    t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, is_collaborator_accessible=False, knowledge_type="real")
+    t3 = theme_mgr.define_kb("NLP Studies", account_id=member_id, is_public=True, knowledge_type="real")
+    t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, knowledge_type="real")
+    theme_mgr.define_kb("Researcher Two", account_id=member_id, is_personal=True)
 
     # Create API tokens for member account 2
     tok_store = get_token_store(data_dir=settings.data_dir)
-    tok_collab = tok_store.create_api_token(name="member2-collab", scope="collaborator", account_id=member_id)
+    tok_collab = tok_store.create_api_token(name="member2-collab", scope="write", account_id=member_id)
     tok_owner = tok_store.create_api_token(name="member2-owner", scope="owner", account_id=member_id)
 
     app = create_app(settings=settings)
@@ -99,10 +98,14 @@ def test_syndication_dispatch_records_principal_account_id(dispatch_account_env)
     doc_id = ingest_res.document_id
     assert doc_id
 
-    # Dispatch from Theme 1 to Theme 2 by Owner (Account ID 1 in single mode)
+    # The copy is an ingest: a shared knowledge base as the target gets 403 (CT4; SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review).
+    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id}, headers=OWNER_HEADERS)
+    assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_personal_only"})
+
+    # Dispatch from the shared knowledge base 1 to the personal knowledge base of the caller (Account ID 1)
     dispatch_res = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id, "focus": "Alignment focus"},
+        json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": 0, "focus": "Alignment focus"},
         headers=OWNER_HEADERS,
     )
     assert dispatch_res.status_code == 200
@@ -151,36 +154,33 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     finally:
         conn.close()
 
-    # 1. Member collaborator on Account 2 attempts to dispatch into Account 1's Theme 2:
-    # Target theme belongs to Account 1. Caller belongs to Account 2 with collaborator scope.
+    # 1. A write token of Account 2 attempts to dispatch into a shared knowledge base:
     # Must fail with 403 Forbidden.
     res_forbidden = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc3_id, "source_kb_id": t3_id, "target_kb_id": t2_id},
         headers=env["member_collab_headers"],
     )
-    # The target is a shared knowledge base after version 28: a caller without the capability ``maintain`` is refused.
-    assert res_forbidden.status_code in (403, 404)
+    assert (res_forbidden.status_code, res_forbidden.json()) == (403, {"error": "kb_ingest_personal_only"})
 
-    # 2. Member collaborator on Account 2 attempts to read from private Theme 4 (not collaborator accessible):
-    # Must fail with 404 or 403.
-    res_inaccessible = client.post(
+    # 2. The personal knowledge base of another account as the target: the admin is not a content superuser.
+    member_personal = get_kb_manager(settings=env["settings"]).personal_kb_for(env["member_id"])
+    res_other = client.post(
         "/api/syndication/dispatch",
-        json={"document_id": doc1_id, "source_kb_id": t4_id, "target_kb_id": t3_id},
-        headers=env["member_collab_headers"],
-    )
-    assert res_inaccessible.status_code in {403, 404}
-
-    # 3. Server Owner (admin role) can dispatch across accounts from Theme 1 to Theme 3:
-    res_owner_ok = client.post(
-        "/api/syndication/dispatch",
-        json={"document_id": doc1_id, "source_kb_id": t1_id, "target_kb_id": t3_id, "focus": "Cross-account sync"},
+        json={"document_id": doc1_id, "source_kb_id": t1_id, "target_kb_id": member_personal.id},
         headers=OWNER_HEADERS,
     )
-    # Allowed across accounts for owner (not rejected with 403 Forbidden)
-    assert res_owner_ok.status_code == 200
-    assert res_owner_ok.json()["dispatched_by_account_id"] == 1
-    assert res_owner_ok.json()["dispatch_id"]
+    assert res_other.status_code in {403, 404}
+
+    # 3. The write token of Account 2 copies a document of a shared knowledge base into its own personal knowledge base.
+    res_own = client.post(
+        "/api/syndication/dispatch",
+        json={"document_id": doc1_id, "source_kb_id": t1_id, "target_kb_id": member_personal.id, "focus": "Cross-account sync"},
+        headers=env["member_collab_headers"],
+    )
+    assert res_own.status_code == 200, res_own.text
+    assert res_own.json()["dispatched_by_account_id"] == env["member_id"]
+    assert res_own.json()["dispatch_id"]
 
 
 def test_syndication_dispatches_query_filtering_by_account_id(dispatch_account_env) -> None:

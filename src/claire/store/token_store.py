@@ -25,6 +25,10 @@ log = logging.getLogger("claire.token_store")
 
 API_TOKENS_FILENAME = "api_tokens.json"
 API_TOKENS_LOCK_FILENAME = "api_tokens.lock"
+# Credential scopes (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
+TOKEN_SCOPES = ("owner", "write", "readonly")
+# The notice of a token whose scope ``collaborator`` became ``readonly`` (Section 6.6 rule 2).
+SCOPE_NOTICE_COLLABORATOR = "collaborator_to_readonly"
 
 _token_store_instances: dict[str, TokenStore] = {}
 _instances_lock = threading.Lock()
@@ -110,6 +114,7 @@ class TokenStore:
                     data = json.loads(raw_content)
 
                 raw_tokens = data.get("tokens", []) if isinstance(data, dict) else []
+                converted = False
                 tokens_list: list[dict[str, Any]] = []
                 by_token: dict[str, dict[str, Any]] = {}
                 by_id: dict[int, dict[str, Any]] = {}
@@ -131,17 +136,26 @@ class TokenStore:
                         # 계정을 추측하지 않는다(C1). 이 항목은 통하지 않는다.
                         log.warning("Ignoring API token id=%s: invalid account_id", tok_id)
                         continue
+                    scope_value = str(item.get("scope", "readonly")).strip().lower()
+                    scope_notice = item.get("scope_notice")
+                    if scope_value == "collaborator":
+                        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 rule 2: the scope ``collaborator`` is not valid any more. The token becomes ``readonly``, and the console lists it once with a notice.
+                        scope_value = "readonly"
+                        scope_notice = SCOPE_NOTICE_COLLABORATOR
+                        converted = True
                     clean_entry = {
                         "id": tok_id,
                         "token": token_str,
                         "name": str(item.get("name", "")).strip(),
-                        "scope": str(item.get("scope", "readonly")).strip().lower(),
+                        "scope": scope_value,
                         "account_id": raw_account_id,
                         "created_at": float(item.get("created_at", 0.0)),
                         "expires_at": float(item["expires_at"]) if item.get("expires_at") is not None else None,
                         "last_used_at": float(item["last_used_at"]) if item.get("last_used_at") is not None else None,
                         "revoked_at": float(item["revoked_at"]) if item.get("revoked_at") is not None else None,
                     }
+                    if scope_notice == SCOPE_NOTICE_COLLABORATOR:
+                        clean_entry["scope_notice"] = SCOPE_NOTICE_COLLABORATOR
                     tokens_list.append(clean_entry)
                     by_token[token_str] = clean_entry
                     by_id[tok_id] = clean_entry
@@ -155,10 +169,40 @@ class TokenStore:
                 self._tokens_by_token = by_token
                 self._tokens_by_id = by_id
                 self._last_loaded_mtime = mtime
+                if converted:
+                    self._save_converted_scopes()
                 return [copy.deepcopy(t) for t in self._tokens_list]
             except Exception as exc:
                 log.warning("Failed to load token store from %s: %s", self.storage_path, exc)
                 return [copy.deepcopy(t) for t in self._tokens_list]
+
+    def _save_converted_scopes(self) -> None:
+        """Write the scope conversion of ``load`` to the file once, so that the file has no ``collaborator`` scope after the first start."""
+        p_lock = self._acquire_process_lock()
+        try:
+            self._save_unlocked()
+        except OSError as exc:
+            # The conversion is also done in memory at each load. A file that cannot be written does not stop the start.
+            log.warning("Failed to write the converted token scopes to %s: %s", self.storage_path, exc)
+        finally:
+            self._release_process_lock(p_lock)
+
+    def take_scope_notices(self, account_id: int) -> list[dict[str, Any]]:
+        """Return the tokens of ``account_id`` whose scope changed (Section 6.6 rule 2), and clear their notice. The console lists each one once."""
+        with self._lock:
+            p_lock = self._acquire_process_lock()
+            try:
+                self.load(force=True)
+                taken: list[dict[str, Any]] = []
+                for entry in self._tokens_list:
+                    if entry.get("account_id") != account_id or "scope_notice" not in entry:
+                        continue
+                    taken.append({"id": entry["id"], "name": entry["name"], "notice": entry.pop("scope_notice")})
+                if taken:
+                    self._save_unlocked()
+                return taken
+            finally:
+                self._release_process_lock(p_lock)
 
     def _save_unlocked(self) -> None:
         """Atomically persist current in-memory tokens to disk with permissions 0600."""
@@ -205,10 +249,8 @@ class TokenStore:
             raise ValueError("Token name is required.")
 
         scope_clean = str(scope or "readonly").strip().lower()
-        if scope_clean == "collab":
-            scope_clean = "collaborator"
-        if scope_clean not in ("owner", "collaborator", "readonly"):
-            raise ValueError(f"Invalid scope: {scope_clean}. Must be owner, collaborator, or readonly.")
+        if scope_clean not in TOKEN_SCOPES:
+            raise ValueError(f"Invalid scope: {scope_clean}. Must be owner, write, or readonly.")
 
         if token is None:
             token_val = f"cb_{secrets.token_urlsafe(32)}"
@@ -450,7 +492,6 @@ class TokenStore:
         self,
         env_inject_token: str = "",
         env_readonly_token: str = "",
-        env_collab_token: str = "",
     ) -> list[dict[str, Any]]:
         """Migrate legacy environment variable tokens into the file store."""
         with self._lock:
@@ -468,7 +509,6 @@ class TokenStore:
 
             _import(env_inject_token, "Legacy Owner Token (.env)", "owner")
             _import(env_readonly_token, "Legacy Readonly Token (.env)", "readonly")
-            _import(env_collab_token, "Legacy Collaborator Token (.env)", "collaborator")
             return migrated
 
 

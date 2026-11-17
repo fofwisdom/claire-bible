@@ -1777,7 +1777,7 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     await handlers["on_web"](update, ctx)
     msg.reply_text.assert_not_called()
     # 운영자 전용 명령은 거부한다(세션을 만들지 않는다).
-    for name in ("on_web", "on_webco", "on_webro", "on_token", "on_status"):
+    for name in ("on_web", "on_webro", "on_token", "on_status"):
         update, msg = _update(42)
         await handlers[name](update, ctx)
         assert msg.reply_text.call_args[0][0] == t("bot.error.member_refusal", locale="ko")

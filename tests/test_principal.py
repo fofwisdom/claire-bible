@@ -32,7 +32,6 @@ from claire.store import db as dbm
 from claire.store.token_store import TokenStore, reset_token_stores
 
 OWNER_TOKEN = "owner-" + "o" * 32
-COLLAB_TOKEN = "c" * 43
 READONLY_TOKEN = "readonly-" + "r" * 32
 DEV_ORIGIN = "http://192.0.2.10:8766"
 
@@ -75,7 +74,7 @@ SESSIONS = {
         scope="owner", account_id=1, authenticated_at=ADMIN_AUTH_AT, credential_id="session:aaaa"
     ),
     X_SESSION: accounts_store.CredentialBinding(
-        scope="collaborator", account_id=7, authenticated_at=ADMIN_AUTH_AT + 5, credential_id="session:bbbb"
+        scope="write", account_id=7, authenticated_at=ADMIN_AUTH_AT + 5, credential_id="session:bbbb"
     ),
     SUSPENDED_SESSION: accounts_store.CredentialBinding(
         scope="owner", account_id=9, authenticated_at=ADMIN_AUTH_AT, credential_id="session:cccc"
@@ -105,7 +104,7 @@ def fake_accounts(monkeypatch):
         except KeyError:
             raise accounts_store.AccountNotFound(account_id) from None
 
-    def validate_session_binding(_conn, token, *, scopes=("owner", "collaborator", "readonly")):
+    def validate_session_binding(_conn, token, *, scopes=("owner", "write", "readonly")):
         binding = SESSIONS.get(token)
         return binding if binding is not None and binding.scope in scopes else None
 
@@ -152,7 +151,6 @@ def _settings(data_dir: Path, *, anonymous_readonly: bool = False) -> SimpleName
         cors_allowed_origins="",
         inject_token=OWNER_TOKEN,
         readonly_token=READONLY_TOKEN,
-        collaborator_token=COLLAB_TOKEN,
         anonymous_readonly=anonymous_readonly,
         db_file=data_dir / "claire.db",
         data_dir=data_dir,
@@ -222,7 +220,7 @@ def test_public_route_is_anonymous_and_does_not_validate_credentials(fake_accoun
 
 @pytest.mark.parametrize(
     ("token", "scope"),
-    [(OWNER_TOKEN, "owner"), (COLLAB_TOKEN, "collaborator"), (READONLY_TOKEN, "readonly")],
+    [(OWNER_TOKEN, "owner"), (READONLY_TOKEN, "readonly")],
 )
 def test_env_tokens_map_to_admin_without_reading_accounts(data_dir, monkeypatch, token, scope):
     def forbidden(*_a, **_k):
@@ -315,7 +313,7 @@ def test_x_session_carries_authenticated_at(fake_accounts, data_dir):
     assert principal["channel"] == "x-session"
     assert principal["account_id"] == 7
     assert principal["server_role"] == "member"
-    assert principal["scope"] == "collaborator"
+    assert principal["scope"] == "write"
     assert principal["authenticated_at"] == ADMIN_AUTH_AT + 5
 
 
@@ -389,7 +387,6 @@ def test_credential_id_never_contains_token_value(fake_accounts, data_dir):
     client = _client(data_dir)
     cases = [
         (OWNER_TOKEN, {"headers": _bearer(OWNER_TOKEN)}),
-        (COLLAB_TOKEN, {"headers": _bearer(COLLAB_TOKEN)}),
         (READONLY_TOKEN, {"headers": _bearer(READONLY_TOKEN)}),
         (API_TOKEN_LEGACY, {"headers": _bearer(API_TOKEN_LEGACY)}),
         (API_TOKEN_MEMBER, {"headers": _bearer(API_TOKEN_MEMBER)}),

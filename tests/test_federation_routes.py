@@ -157,8 +157,8 @@ def internal(tmp_path):
             conn.execute("INSERT INTO federation_followers (public_id, account_id, actor_iri, inbox_iri, shared_inbox_iri, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (int(item["id"]), alice, item["actor_iri"], item["inbox_iri"], item["shared_inbox_iri"], 1800000300.0, 1800000300.0))
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=1800000300.0)
         bob = conn.execute("SELECT id FROM accounts WHERE username='private_bob'").fetchone()[0]
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (?, ?, 'alice public', 0, 1, 1, 1, 1, ?, 516412345678901234)", (ALICE_THEME_ID, ALICE_THEME_ID, alice))
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (32, 32, 'bob public', 0, 1, 1, 1, 1, ?, 516412345678901235)", (bob,))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (?, ?, 'alice public', 0, 1, 1, 1, ?, 516412345678901234)", (ALICE_THEME_ID, ALICE_THEME_ID, alice))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (32, 32, 'bob public', 0, 1, 1, 1, ?, 516412345678901235)", (bob,))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-published', ?, 'Published Title', 'Hello **world**', 'md', ?, 0, 1)", (ALICE_THEME_ID, '<p>Hello <strong>world</strong></p><script>alert(1)</script>'))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-second', ?, 'Second', 'Second *body*', 'md', 0, 1)", (ALICE_THEME_ID,))
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, hidden, fetched_at) VALUES ('doc-bob', 32, 'Of Bob', 'x', 'md', 0, 1)")
@@ -798,7 +798,7 @@ def test_e2e_publish_and_handoff_through_a_real_api_process(tmp_path):
         store.set_setting("mode", "network", updated_by=1)
         store.set_federation_state("on", updated_by=1)
         alice = _add_account(conn, ALICE_PUBLIC_ID, "alice")
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, is_collaborator_accessible, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 0, 1, 1, ?, ?)", (alice, theme_number))
+        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (31, 31, 'alice public', 1, 1, 1, 1, ?, ?)", (alice, theme_number))
         # The body has Markdown marks and a script; RD21 keeps both out of the object.
         conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES ('doc-1', 31, 'First Post', ?, 'md', ?, 0, 1)", ("Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
         conn.commit()
